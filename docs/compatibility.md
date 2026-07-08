@@ -20,7 +20,7 @@ The goal is that a user familiar with `python -m http.server` can switch to `egg
 |---------|------------------------|------------------|-----------------|
 | Bind default | varies by invocation | loopback | `--public` |
 | Directory listing | enabled | disabled | `--directory-listing` |
-| Symlinks | platform behavior | denied | `--follow-symlinks` |
+| Symlinks | platform behavior | denied (final and intermediate) | `--follow-symlinks` (final canonical target must remain inside root) |
 | Methods | basic GET/HEAD | GET/HEAD | none initially |
 | CGI | separate module | unsupported | unsupported |
 | Dotfiles | served | denied | `--allow-dotfiles` |

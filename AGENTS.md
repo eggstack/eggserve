@@ -2,12 +2,12 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-005 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-007 are complete.
 
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
-- **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. See [docs/threat-model.md](docs/threat-model.md).
+- **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. Symlink denial is **component-wise** under safe defaults — every intermediate directory component is checked with `symlink_metadata` before it is followed, not just the final candidate. See [docs/threat-model.md](docs/threat-model.md) and [plans/007-filesystem-policy-tightening.md](plans/007-filesystem-policy-tightening.md).
 - **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 

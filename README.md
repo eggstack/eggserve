@@ -61,8 +61,8 @@ Key defaults:
 
 - **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
 - **GET and HEAD only** — all other methods are rejected
-- **No request bodies** — incoming request bodies are discarded
-- **No symlink following** — denied unless `--follow-symlinks` is passed
+- **No request bodies** — `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding` on GET/HEAD are rejected (413 for body-size, 400 for malformed framing)
+- **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed; even with follow enabled, symlinks whose final canonical target escapes the root are denied
 - **No dotfiles served** — hidden files are excluded
 - **No directory listing** — unless `--directory-listing` is passed
 - **Unknown MIME as application/octet-stream** — safe fallback
@@ -72,7 +72,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 005 complete.** CLI arguments match the plan 005 spec. Python wheel packaging via maturin is functional. The `python -m eggserve` launcher works. See [plans/](plans/) for the planned milestone sequence.
+**Plan 007 complete.** Filesystem policy now rejects intermediate symlinks under safe defaults, index lookup uses the same component-wise resolver as ordinary file lookup, and `GET`/`HEAD` reject malformed `Content-Length` and any `Transfer-Encoding`. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, and the corrective hardening pass. See [plans/](plans/) for the full sequence.
 
 ### Installation
 

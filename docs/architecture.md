@@ -41,10 +41,10 @@ Modules:
 | `path/policy.rs` | `PathPolicy` — dotfile and backslash policies for path validation |
 | `path/platform.rs` | Windows-specific checks (reserved names, ADS, drive prefixes) |
 | `fs/` | Filesystem confinement: root guard, resolved resource types |
-| `fs/mod.rs` | `RootGuard` — canonical-root enforcement, symlink/dotfile checks, `ResolvedResource` classification |
+| `fs/mod.rs` | `RootGuard` — component-wise path resolution, canonical-root enforcement, per-component symlink/dotfile checks, `ResolvedResource` classification (`File`/`Directory`/`NotFound`/`Denied`). Directory results carry the original safe components so index lookup can use the same resolver without ad hoc path joins. |
 | `response.rs` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses (400, 403, 404, 405, 413, 500, 503), MIME-typed headers |
 | `mime.rs` | MIME type detection via extension lookup (`phf` map), ~60 common types, `application/octet-stream` fallback |
-| `service.rs` | HTTP request handler: GET/HEAD dispatch, path validation, request body rejection, file-stream semaphore, filesystem resolution, index file handling, ETag generation |
+| `service.rs` | HTTP request handler: GET/HEAD dispatch, path validation, body-metadata validation (`Content-Length`/`Transfer-Encoding`), file-stream semaphore, filesystem resolution, index file handling via `RootGuard::resolve_child`, ETag generation |
 | `telemetry.rs` | Startup logging: bind address, root, methods, policies, enforced limits |
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.

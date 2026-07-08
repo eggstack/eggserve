@@ -32,3 +32,4 @@ A 1.0 release requires all beta criteria plus:
 - [ ] Stable public API: `eggserve-core` public API is reviewed and frozen for the 1.x series
 - [ ] Signed releases: release artifacts are signed
 - [ ] No outstanding security issues in the issue tracker
+- [ ] Descriptor-relative traversal: filesystem traversal uses directory-fd/`openat`-style resolution on Unix (or an explicitly documented alternative approved at the 1.0 review) so that component-wise symlink checks cannot be bypassed by TOCTOU between metadata inspection and file open. The current alpha implementation is component-wise metadata + canonical-root verification only.

@@ -29,7 +29,7 @@ The path confinement layer enforces the following before any filesystem access:
 4. **Dotfile policy** — components starting with `.` are denied unless `DotfilePolicy::Serve` is explicitly configured.
 5. **Platform checks** — Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), alternate data stream syntax (`:`), and drive prefixes (`C:`) are rejected cross-platform.
 6. **Root confinement** — the resolved filesystem path is canonicalized and verified to remain within the configured root directory.
-7. **Symlink policy** — symlinks are denied by default. When denied, `symlink_metadata` is used to detect symlinks before following them.
+7. **Symlink policy** — symlinks are denied by default. When denied, every component of the request path is checked with `symlink_metadata` before it is followed, so both final symlinks and intermediate directory symlinks are rejected. The final canonical target is also verified to remain inside the configured root.
 
 Malformed syntax returns 400 Bad Request. Policy violations return 403 Forbidden. No local filesystem paths are leaked in response bodies.
 
@@ -43,7 +43,23 @@ Binds to all network interfaces (`0.0.0.0`) instead of loopback. Use only when t
 
 ### `--follow-symlinks`
 
-Enables following symbolic links. When enabled, symlinks are resolved and the resolved path is still checked against the configured root. Symlinks that resolve outside the root are denied regardless of this flag.
+Enables following symbolic links. When enabled, both final and intermediate symlinks are followed, and the resolved canonical path is still checked against the configured root. Symlinks whose final canonical target escapes the root are denied regardless of this flag.
+
+## Request body metadata handling
+
+For read-only methods (`GET`, `HEAD`), eggserve rejects any request that signals a body:
+
+- `Content-Length: 0` — allowed
+- `Content-Length: <positive integer>` — rejected with `413 Payload Too Large` under the default zero-body policy
+- `Content-Length: <non-integer, negative, or overflowing value>` — rejected with `400 Bad Request`
+- `Transfer-Encoding: <anything non-empty>` — rejected with `400 Bad Request`
+- Both `Content-Length` and `Transfer-Encoding` present — rejected with `400 Bad Request`
+
+This closes the previous behavior where malformed `Content-Length` values were silently ignored and `Transfer-Encoding` was not checked at all.
+
+## Implementation status and limitations
+
+The current alpha implementation uses component-wise metadata checks plus a final canonical-root verification. This is sufficient to deny intermediate symlink traversal under safe defaults and to deny symlink escape under follow-enabled mode, but it is not yet descriptor-relative traversal. A later hardening pass should replace or augment this with `openat`/directory-fd traversal on Unix to reduce TOCTOU exposure between the metadata check and the eventual file open. Windows reparse-point detection beyond what the parser already denies is also deferred.
 
 ### `--directory-listing`
 
