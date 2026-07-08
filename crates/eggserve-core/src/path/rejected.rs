@@ -3,11 +3,13 @@ use std::fmt;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PathRejection {
     Empty,
+    #[allow(dead_code)]
     TooLong,
     UnsupportedUriForm,
     MalformedPercentEncoding,
     InvalidUtf8,
     NulByte,
+    #[allow(dead_code)]
     AbsolutePath,
     ParentComponent,
     CurrentComponent,
@@ -16,7 +18,9 @@ pub enum PathRejection {
     WindowsPrefixDenied,
     WindowsReservedNameDenied,
     WindowsAlternateStreamDenied,
+    #[allow(dead_code)]
     SymlinkDenied,
+    #[allow(dead_code)]
     RootEscapeDenied,
 }
 

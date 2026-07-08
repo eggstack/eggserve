@@ -42,7 +42,7 @@ fn method(method: Method, path: &str) -> Request<http_body_util::Empty<Bytes>> {
         .unwrap()
 }
 
-async fn body_bytes(resp: hyper::Response<eggserve_core::response::BoxBodyInner>) -> Bytes {
+async fn body_bytes(resp: hyper::Response<eggserve_core::BoxBodyInner>) -> Bytes {
     resp.into_body().collect().await.unwrap().to_bytes()
 }
 
@@ -739,12 +739,12 @@ async fn head_does_not_consume_file_stream_permit() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let max = state.config.limits.max_file_streams;
+    let max = state.config().limits.max_file_streams;
     let mut permits = Vec::with_capacity(max);
     for _ in 0..max {
         permits.push(
             state
-                .file_stream_semaphore
+                .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
                 .unwrap(),
@@ -763,12 +763,12 @@ async fn file_stream_permit_held_until_body_drop() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let max = state.config.limits.max_file_streams;
+    let max = state.config().limits.max_file_streams;
     let mut permits = Vec::with_capacity(max);
     for _ in 0..max - 1 {
         permits.push(
             state
-                .file_stream_semaphore
+                .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
                 .unwrap(),
@@ -780,7 +780,7 @@ async fn file_stream_permit_held_until_body_drop() {
 
     assert!(
         state
-            .file_stream_semaphore
+            .file_stream_semaphore()
             .clone()
             .try_acquire_owned()
             .is_err(),
@@ -791,7 +791,7 @@ async fn file_stream_permit_held_until_body_drop() {
 
     assert!(
         state
-            .file_stream_semaphore
+            .file_stream_semaphore()
             .clone()
             .try_acquire_owned()
             .is_ok(),

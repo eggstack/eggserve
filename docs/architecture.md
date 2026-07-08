@@ -28,8 +28,8 @@ Modules:
 
 | Module | Responsibility |
 |--------|----------------|
-| `config.rs` | Configuration types (`ServeConfig` with bind address, root directory, limits, policy) and `ServeState` (runtime state with file-stream semaphore) |
-| `policy.rs` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`) |
+| `config.rs` | Configuration types (`ServeConfig` with bind address, root directory, limits, policy) and `ServeState` (runtime state with file-stream semaphore; public accessors, private fields) |
+| `policy.rs` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
 | `limits.rs` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
 | `error.rs` | Error taxonomy (`Config`, `Bind`, `Runtime`, `RequestRejected`, `PathEscape`, `Io`) |
 | `path/` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
@@ -48,6 +48,8 @@ Modules:
 | `telemetry.rs` | Startup logging: bind address, root, methods, policies, enforced limits |
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.
+
+**Note:** `eggserve-core` is published to crates.io but is considered experimental/unstable for the alpha period. The public API surface is intentionally conservative and may change without notice before 1.0.
 
 ### `eggserve-bin`
 

@@ -1,3 +1,5 @@
+//! Startup logging and telemetry.
+
 use crate::config::ServeConfig;
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy, SymlinkPolicy};
 

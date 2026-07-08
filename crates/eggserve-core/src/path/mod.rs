@@ -1,3 +1,5 @@
+//! Path confinement: request-target parsing, validation, and policy enforcement.
+
 pub mod components;
 pub mod decode;
 pub mod platform;
@@ -32,6 +34,7 @@ impl ConfinedPath {
         })
     }
 
+    #[allow(dead_code)]
     pub fn as_str(&self) -> &str {
         &self.decoded
     }

@@ -23,6 +23,10 @@ A beta release requires all alpha criteria plus:
 - [x] Multi-platform CI: Linux, macOS, and Windows builds pass in CI
 - [x] Resource-limit tests: connection limits, file-stream limits, request body rejection, and timeouts are tested
 - [x] Dependency audit: `cargo audit` passes with no advisories
+- [x] deny.toml present for automated license/advisory checking
+- [x] Release checklist documented
+- [x] Platform support matrix documented
+- [x] Security review note documented
 - [ ] No known unsound `unsafe` code
 
 ## 1.0

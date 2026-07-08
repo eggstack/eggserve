@@ -22,6 +22,7 @@ impl Default for PathPolicy {
 }
 
 impl PathPolicy {
+    #[allow(dead_code)]
     pub fn check_dotfile(&self, component: &str) -> Result<(), PathRejection> {
         if self.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
             return Err(PathRejection::DotfileDenied);
@@ -29,6 +30,7 @@ impl PathPolicy {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub fn check_backslash(&self, component: &str) -> Result<(), PathRejection> {
         if self.reject_backslash && component.contains('\\') {
             return Err(PathRejection::SeparatorAmbiguity);

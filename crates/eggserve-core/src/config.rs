@@ -1,3 +1,5 @@
+//! Configuration types for static file serving.
+
 use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -8,6 +10,7 @@ use crate::limits::Limits;
 use crate::policy::StaticPolicy;
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct ServeConfig {
     pub bind: SocketAddr,
     pub root: PathBuf,
@@ -27,8 +30,8 @@ impl Default for ServeConfig {
 }
 
 pub struct ServeState {
-    pub config: Arc<ServeConfig>,
-    pub file_stream_semaphore: Arc<Semaphore>,
+    pub(crate) config: Arc<ServeConfig>,
+    pub(crate) file_stream_semaphore: Arc<Semaphore>,
 }
 
 impl ServeState {
@@ -38,6 +41,14 @@ impl ServeState {
             config,
             file_stream_semaphore,
         }
+    }
+
+    pub fn config(&self) -> &Arc<ServeConfig> {
+        &self.config
+    }
+
+    pub fn file_stream_semaphore(&self) -> &Arc<Semaphore> {
+        &self.file_stream_semaphore
     }
 }
 

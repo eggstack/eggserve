@@ -38,3 +38,16 @@ python -m http.server [PORT] [DIRECTORY]           # Python stdlib
 eggserve [DIRECTORY] [--bind HOST:PORT]            # eggserve
 python -m eggserve [DIRECTORY] [--bind HOST:PORT]  # eggserve via Python (deferred)
 ```
+
+## Current limitations vs python -m http.server
+
+eggserve currently does not support:
+
+- **Range requests** — full-file streaming only
+- **HTTP/2** — HTTP/1.1 only
+- **CGI** — not supported (deferred as a non-goal)
+- **PUT/POST/DELETE** — read-only by design
+- **IPv6** — IPv4 only in alpha (127.0.0.1, not ::1)
+- **Multiple directory roots** — single root directory only
+
+These are documented limitations, not bugs. See [non-goals.md](non-goals.md) for the full list.

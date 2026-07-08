@@ -1,5 +1,8 @@
+//! Security policy types for filesystem access control.
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PolicyMode {
+#[allow(dead_code)]
+pub(crate) enum PolicyMode {
     Strict,
     Compat,
 }
@@ -23,6 +26,7 @@ pub enum DotfilePolicy {
 }
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct StaticPolicy {
     pub directory_listing: DirectoryListingPolicy,
     pub symlinks: SymlinkPolicy,

@@ -1,10 +1,13 @@
+//! Hardened static-serving primitives for eggserve.
+
 pub mod config;
-pub mod error;
+pub(crate) mod error;
 pub mod fs;
 pub mod limits;
-pub mod mime;
-pub mod path;
+pub(crate) mod mime;
+pub(crate) mod path;
 pub mod policy;
-pub mod response;
+pub(crate) mod response;
+pub use response::BoxBodyInner;
 pub mod service;
 pub mod telemetry;

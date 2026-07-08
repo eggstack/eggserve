@@ -1,8 +1,10 @@
+//! MIME type detection via extension lookup.
+
 use std::path::Path;
 
 /// Returns the MIME type for a file based on its extension.
 /// Falls back to `application/octet-stream` for unknown extensions.
-pub fn mime_for_path(path: &Path) -> &'static str {
+pub(crate) fn mime_for_path(path: &Path) -> &'static str {
     path.extension()
         .and_then(|ext| ext.to_str())
         .and_then(|ext| MIME_MAP.get(ext.to_ascii_lowercase().as_str()))

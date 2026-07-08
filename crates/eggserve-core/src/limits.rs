@@ -1,10 +1,13 @@
+//! Resource limits for connections, streams, and request sizes.
+
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
+#[must_use]
 pub struct Limits {
     pub max_connections: usize,
     pub max_file_streams: usize,
-    pub max_request_body_bytes: u64,
+    pub(crate) max_request_body_bytes: u64,
     pub header_read_timeout: Duration,
     pub response_write_timeout: Duration,
     pub graceful_shutdown_timeout: Duration,

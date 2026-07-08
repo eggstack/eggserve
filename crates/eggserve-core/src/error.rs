@@ -1,4 +1,7 @@
+//! Error taxonomy for eggserve operations.
+
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum Error {
     #[error("path escapes configured root")]
     PathEscape,
@@ -28,4 +31,5 @@ impl From<crate::path::PathRejection> for Error {
     }
 }
 
+#[allow(dead_code)]
 pub type Result<T> = std::result::Result<T, Error>;

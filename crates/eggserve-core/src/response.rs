@@ -1,3 +1,5 @@
+//! Response construction helpers for file streaming and error responses.
+
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
 use http_body_util::BodyExt;
@@ -17,6 +19,7 @@ pub fn text_response(status: StatusCode, body: &'static str) -> Response<BoxBody
         .unwrap()
 }
 
+#[allow(dead_code)]
 pub fn empty_response(status: StatusCode) -> Response<BoxBodyInner> {
     Response::builder()
         .status(status)

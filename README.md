@@ -76,7 +76,19 @@ Key defaults:
 
 ## Project status
 
-**Plan 009 complete.** Optional TLS support via rustls is available behind the `tls` feature flag. Deployment guidance covers local-only HTTP, reverse proxy TLS, and native TLS patterns. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, corrective hardening, filesystem-policy tightening, and polish. See [plans/](plans/) for the full sequence.
+**Plan 011 complete.** Public API has been tightened with conservative visibility, module-level documentation added, and release hardening completed. See [plans/011-library-stabilization-release-hardening.md](plans/011-library-stabilization-release-hardening.md) for details. Optional TLS support via rustls is available behind the `tls` feature flag. See [plans/](plans/) for the full sequence.
+
+## Supported platforms
+
+| Platform | Status |
+|----------|--------|
+| Linux x86_64 | Supported, tested in CI |
+| Linux aarch64 | Supported, tested in CI |
+| macOS arm64 (Apple Silicon) | Supported, tested in CI |
+| macOS x86_64 | Supported, tested in CI |
+| Windows x86_64 | Supported, tested in CI; reparse-point hardening deferred |
+
+Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not claim production-readiness on Windows until that work is done.
 
 ## Python API
 

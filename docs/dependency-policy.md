@@ -37,3 +37,20 @@ The following dependency categories are approved for initial development:
 - Plan 009 adds optional TLS dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`) behind the `tls` feature flag in `eggserve-bin`. The default build remains TLS-free.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run as part of the beta release gate (see [release-criteria.md](release-criteria.md))
+
+## Automated enforcement
+
+`cargo-deny` is configured via `deny.toml` at the workspace root. It checks:
+
+- **Advisories** — known vulnerabilities in dependencies
+- **Licenses** — only permissive licenses allowed (MIT, Apache-2.0, BSD, ISC, Unicode-DFS-2016, Zlib)
+- **Bans** — multiple versions of the same crate produce warnings
+- **Sources** — only crates.io registry allowed; no git dependencies
+
+To run locally:
+```bash
+cargo install cargo-deny
+cargo deny check
+```
+
+CI should install and run `cargo deny check` as part of the release gate.

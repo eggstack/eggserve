@@ -1,3 +1,5 @@
+//! HTTP request handler for static file serving.
+
 use std::fs;
 use std::time::SystemTime;
 
@@ -15,14 +17,14 @@ use crate::response::{
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum BodyRejection {
+pub(crate) enum BodyRejection {
     InvalidContentLength,
     BodyTooLarge,
     UnsupportedTransferEncoding,
     ConflictingBodyHeaders,
 }
 
-pub fn validate_no_request_body<B>(
+pub(crate) fn validate_no_request_body<B>(
     req: &hyper::Request<B>,
     max_body_bytes: u64,
 ) -> Result<(), BodyRejection> {
