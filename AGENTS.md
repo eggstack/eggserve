@@ -2,13 +2,13 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-008 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-009 are complete.
 
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
 - **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. Symlink denial is **component-wise** under safe defaults — every intermediate directory component is checked with `symlink_metadata` before it is followed, not just the final candidate. See [docs/threat-model.md](docs/threat-model.md) and [plans/007-filesystem-policy-tightening.md](plans/007-filesystem-policy-tightening.md).
-- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map).
+- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map). Optional: `rustls`/`tokio-rustls`/`rustls-pemfile` (TLS, behind `tls` feature flag).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 
 ## Layout
@@ -45,6 +45,7 @@ eggserve/
 │   │       ├── main.rs     # HTTP accept loop with connection semaphore, timeouts, graceful shutdown
 │   │       ├── lib.rs      # pub fn run() entrypoint
 │   │       ├── args.rs     # manual argument parsing
+│   │       ├── tls.rs      # TLS certificate loading and rustls config (behind tls feature)
 │   │       └── shutdown.rs # signal handling (Ctrl+C, SIGTERM)
 │   └── eggserve-python/    # Python wheel packaging (maturin)
 │       ├── Cargo.toml      # depends on eggserve-bin
@@ -68,6 +69,7 @@ CI runs these in order; match it locally before pushing:
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
 cargo test --workspace                                     # tests
+cargo check --workspace --features tls                     # TLS feature build check
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
@@ -116,3 +118,5 @@ Before implementing any feature, check:
 - [docs/dependency-policy.md](docs/dependency-policy.md) — dependency rules and allowed categories
 - [docs/compatibility.md](docs/compatibility.md) — compatibility with `python -m http.server`
 - [docs/release-criteria.md](docs/release-criteria.md) — alpha, beta, 1.0 gates
+- [docs/tls.md](docs/tls.md) — optional TLS feature, certificate requirements, limitations
+- [docs/deployment.md](docs/deployment.md) — deployment patterns (local, reverse proxy, native TLS)

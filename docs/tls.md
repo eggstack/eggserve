@@ -1,0 +1,76 @@
+# TLS Support
+
+eggserve supports optional native TLS termination via [rustls](https://docs.rs/rustls). TLS is behind a feature flag and is **not** included in the default build.
+
+## When to use native TLS
+
+Native TLS is suitable for:
+
+- Simple local development with HTTPS
+- Lab or testing environments
+- Controlled internal networks where a reverse proxy is not practical
+
+For public-facing production deployments, a mature TLS terminator (Caddy, nginx, Traefik, cloud load balancer) is usually preferred. See [deployment.md](deployment.md) for deployment patterns.
+
+## Building with TLS
+
+```sh
+cargo install --path crates/eggserve-bin --features tls
+```
+
+Or when building from the workspace root:
+
+```sh
+cargo build -p eggserve-bin --features tls
+```
+
+## Usage
+
+```sh
+eggserve --tls-cert cert.pem --tls-key key.pem
+eggserve --tls-cert cert.pem --tls-key key.pem --port 8443
+```
+
+Both `--tls-cert` and `--tls-key` must be provided together. If only one is provided, eggserve exits with an error.
+
+## Certificate requirements
+
+- **Format:** PEM-encoded certificate chain and PEM-encoded private key
+- **Certificates:** At least one certificate must be present in the cert file
+- **Key:** Exactly one private key must be present (PKCS#1, PKCS#8, or SEC1)
+- **Encrypted keys:** Not supported (eggserve will error with a clear message)
+- **Key file:** Must not be empty or contain non-PEM content
+
+## Startup output
+
+With TLS enabled:
+
+```
+eggserve 0.1.0
+Serving root: ./public
+Listening: https://127.0.0.1:8000
+TLS: enabled, certificate: cert.pem
+```
+
+Without TLS:
+
+```
+eggserve 0.1.0
+Serving root: ./public
+Listening: http://127.0.0.1:8000
+```
+
+## Limitations
+
+eggserve's TLS support is intentionally minimal:
+
+- No ACME / Let's Encrypt automation
+- No certificate renewal
+- No SNI virtual hosting
+- No client certificate authentication
+- No HTTP/2
+- No OCSP stapling
+- No hot certificate reload
+- No multi-cert routing
+
+If you need any of these features, use a reverse proxy or a dedicated TLS-terminating load balancer.

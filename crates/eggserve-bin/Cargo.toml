@@ -13,6 +13,10 @@ path = "src/lib.rs"
 name = "eggserve"
 path = "src/main.rs"
 
+[features]
+default = []
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
+
 [dependencies]
 eggserve-core = { path = "../eggserve-core" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
@@ -20,3 +24,9 @@ hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
 http-body-util = "0.1"
 bytes = "1"
+rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
+tokio-rustls = { version = "0.26", optional = true }
+rustls-pemfile = { version = "2", optional = true }
+
+[dev-dependencies]
+tempfile = "3"

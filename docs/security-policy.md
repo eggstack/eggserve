@@ -65,6 +65,10 @@ The current alpha implementation uses component-wise metadata checks plus a fina
 
 Enables HTML directory listing for directories without an index file. Under safe defaults, symlink entries are hidden from listings. Directory listings expose file names and directory status.
 
+### `--tls-cert` and `--tls-key` (requires `tls` feature)
+
+Enables native TLS termination using rustls. When both flags are provided, the server accepts HTTPS connections. Certificate and key must be PEM-encoded. Encrypted private keys are not supported. The TLS feature is optional and not included in the default build. For public-facing deployments, a reverse proxy (Caddy, nginx, Traefik) is usually preferred over native TLS.
+
 ## Compatibility mode
 
 eggserve may offer a compatibility mode that relaxes some defaults to match the behavior of `python -m http.server` more closely. If implemented:

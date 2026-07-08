@@ -25,6 +25,10 @@ pub struct Args {
     max_file_streams: Option<usize>,
     header_read_timeout: Option<Duration>,
     response_write_timeout: Option<Duration>,
+    #[cfg(feature = "tls")]
+    pub tls_cert: Option<PathBuf>,
+    #[cfg(feature = "tls")]
+    pub tls_key: Option<PathBuf>,
 }
 
 impl Args {
@@ -48,6 +52,10 @@ impl Args {
         let mut max_file_streams: Option<usize> = None;
         let mut header_read_timeout: Option<Duration> = None;
         let mut response_write_timeout: Option<Duration> = None;
+        #[cfg(feature = "tls")]
+        let mut tls_cert: Option<PathBuf> = None;
+        #[cfg(feature = "tls")]
+        let mut tls_key: Option<PathBuf> = None;
         let mut positional_args: Vec<String> = Vec::new();
 
         let mut i = 0;
@@ -157,6 +165,18 @@ impl Args {
                         .map_err(|e| format!("invalid write-timeout '{}': {}", val, e))?;
                     response_write_timeout = Some(Duration::from_secs(secs));
                 }
+                #[cfg(feature = "tls")]
+                "--tls-cert" => {
+                    i += 1;
+                    let path = args.get(i).ok_or("--tls-cert requires an argument")?;
+                    tls_cert = Some(PathBuf::from(path));
+                }
+                #[cfg(feature = "tls")]
+                "--tls-key" => {
+                    i += 1;
+                    let path = args.get(i).ok_or("--tls-key requires an argument")?;
+                    tls_key = Some(PathBuf::from(path));
+                }
                 "--help" | "-h" => {
                     return Err("help".to_string());
                 }
@@ -195,6 +215,20 @@ impl Args {
             );
         }
 
+        #[cfg(feature = "tls")]
+        {
+            match (&tls_cert, &tls_key) {
+                (Some(_), Some(_)) => {}
+                (None, None) => {}
+                (Some(_), None) => {
+                    return Err("--tls-cert requires --tls-key to be provided".to_string());
+                }
+                (None, Some(_)) => {
+                    return Err("--tls-key requires --tls-cert to be provided".to_string());
+                }
+            }
+        }
+
         Ok(Args {
             bind: SocketAddr::new(bind_ip, bind_port),
             root,
@@ -207,6 +241,10 @@ impl Args {
             max_file_streams,
             header_read_timeout,
             response_write_timeout,
+            #[cfg(feature = "tls")]
+            tls_cert,
+            #[cfg(feature = "tls")]
+            tls_key,
         })
     }
 
@@ -258,6 +296,11 @@ pub fn print_usage() {
     eprintln!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
     eprintln!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
     eprintln!("  --write-timeout <SECS>     Response write timeout in seconds (default: 60)");
+    #[cfg(feature = "tls")]
+    {
+        eprintln!("  --tls-cert <PATH>          PEM certificate chain (requires --tls-key)");
+        eprintln!("  --tls-key <PATH>           PEM private key (requires --tls-cert)");
+    }
     eprintln!("  -h, --help                Print this help message");
     eprintln!("  -V, --version             Print version");
     eprintln!();

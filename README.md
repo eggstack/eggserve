@@ -51,6 +51,10 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 #   --header-timeout SECS    Header read timeout (default: 10)
 #   --idle-timeout SECS      Idle keep-alive timeout (default: 30)
 #   --write-timeout SECS     Response write timeout (default: 60)
+
+# TLS options (requires tls feature):
+#   --tls-cert PATH          PEM certificate chain
+#   --tls-key PATH           PEM private key
 ```
 
 ## Security defaults
@@ -72,7 +76,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 008 complete.** Directory listings respect symlink-denied policy, error taxonomy distinguishes symlink/root-escape denial from parent traversal, and body-metadata test coverage is symmetrical for GET/HEAD. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, corrective hardening, and filesystem-policy tightening. See [plans/](plans/) for the full sequence.
+**Plan 009 complete.** Optional TLS support via rustls is available behind the `tls` feature flag. Deployment guidance covers local-only HTTP, reverse proxy TLS, and native TLS patterns. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, corrective hardening, filesystem-policy tightening, and polish. See [plans/](plans/) for the full sequence.
 
 ### Installation
 
@@ -95,6 +99,7 @@ Before pushing, run the full validation sequence:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
+cargo check --workspace --features tls
 cargo audit
 ```
 
