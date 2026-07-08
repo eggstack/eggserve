@@ -43,8 +43,9 @@ Modules:
 | `path/platform.rs` | Windows-specific checks (reserved names, ADS, drive prefixes) |
 | `fs/` | Filesystem confinement: root guard, resolved resource types |
 | `fs/mod.rs` | `RootGuard` — canonical-root enforcement, symlink/dotfile checks, `ResolvedResource` classification |
-| `response.rs` | Response helpers (`text_response`, `empty_response`, `method_not_allowed`) |
-| `service.rs` | HTTP request handler (GET/HEAD/405 routing, path validation, status mapping) |
+| `response.rs` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses, MIME-typed headers |
+| `mime.rs` | MIME type detection via extension lookup (`phf` map), ~60 common types, `application/octet-stream` fallback |
+| `service.rs` | HTTP request handler: GET/HEAD dispatch, path validation, filesystem resolution, index file handling, ETag generation |
 | `telemetry.rs` | Startup logging and policy display |
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.

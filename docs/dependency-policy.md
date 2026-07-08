@@ -20,6 +20,9 @@ The following dependency categories are approved for initial development:
 | Async runtime | `tokio` | Event loop and async primitives |
 | HTTP server | `hyper`, `hyper-util`, `http-body-util` | HTTP protocol handling |
 | Buffer types | `bytes` | Efficient byte buffer management |
+| Streaming | `futures-util` | Async stream utilities for file streaming bodies |
+| Date formatting | `httpdate` | HTTP date formatting for Last-Modified headers |
+| Compile-time map | `phf` | Perfect hash function map for MIME type lookup |
 | CLI parsing | `clap` | Command-line argument parsing |
 | Logging | `tracing` (optional) | Structured logging |
 | TLS | `rustls` (optional, deferred) | TLS termination |
@@ -28,5 +31,6 @@ The following dependency categories are approved for initial development:
 
 - The first milestone (plan 000) added only `clap` for CLI parsing in `eggserve-bin`
 - Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to both crates. `clap` was removed in favor of manual argument parsing.
+- Plan 003 adds streaming/date/compile-time-map dependencies (`futures-util`, `httpdate`, `phf`) for file serving, Last-Modified headers, and MIME type detection.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run as part of the beta release gate (see [release-criteria.md](release-criteria.md))

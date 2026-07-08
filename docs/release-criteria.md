@@ -4,10 +4,10 @@
 
 An alpha release requires:
 
-- [ ] Functional CLI: `eggserve [DIR]` serves static files over HTTP
-- [ ] Safe defaults enforced: loopback bind, no symlinks, no dotfiles, no directory listing
-- [ ] Basic path regression tests: traversal attempts are denied
-- [ ] Workspace builds: `cargo build --workspace` succeeds
+- [x] Functional CLI: `eggserve [DIR]` serves static files over HTTP
+- [x] Safe defaults enforced: loopback bind, no symlinks, no dotfiles, no directory listing
+- [x] Basic path regression tests: traversal attempts are denied
+- [x] Workspace builds: `cargo build --workspace` succeeds
 - [ ] Documentation complete: all docs in `docs/` are written and accurate
 - [ ] Lint clean: `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [ ] Format clean: `cargo fmt --all -- --check` passes

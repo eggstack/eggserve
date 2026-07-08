@@ -2,6 +2,7 @@ pub mod config;
 pub mod error;
 pub mod fs;
 pub mod limits;
+pub mod mime;
 pub mod path;
 pub mod policy;
 pub mod response;

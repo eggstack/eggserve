@@ -31,14 +31,16 @@ eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-g
 ## Expected CLI shape
 
 ```sh
-eggserve [DIR] [--bind HOST:PORT] [--public] [--directory-listing] [--follow-symlinks]
+eggserve [DIR] [--bind HOST:PORT] [--port PORT] [--public] [--directory-listing] [--follow-symlinks] [--serve-dotfiles]
 ```
 
 - `DIR` — directory to serve (default: current directory)
 - `--bind HOST:PORT` — address to bind (default: `127.0.0.1:8000`)
+- `--port PORT` — port to listen on (default: `8000`)
 - `--public` — bind to all interfaces (overrides loopback default)
 - `--directory-listing` — enable directory listing (disabled by default)
 - `--follow-symlinks` — follow symlinks (denied by default)
+- `--serve-dotfiles` — serve dotfiles (denied by default)
 
 ## Security defaults
 
@@ -59,7 +61,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 002 complete.** Path confinement and filesystem policy are implemented. Request targets are parsed, percent-decoded, validated, and checked against the configured root before any filesystem access. Malformed requests return 400, policy violations return 403. Fuzz targets exist for the path module. See [plans/](plans/) for the planned milestone sequence.
+**Plan 003 complete.** eggserve serves real static files over HTTP with safe defaults. GET and HEAD are supported with streaming bodies, MIME type detection, ETag/Last-Modified headers, directory listing behind a flag, and index file handling. Path confinement, filesystem policy, and all security defaults from plans 001-002 remain enforced. See [plans/](plans/) for the planned milestone sequence.
 
 ## Development
 

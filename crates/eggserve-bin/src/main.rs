@@ -33,9 +33,11 @@ async fn main() {
         }
     };
 
+    let static_policy = args.static_policy();
     let config = Arc::new(ServeConfig {
         root: args.root,
         bind: args.bind,
+        static_policy,
         ..ServeConfig::default()
     });
 
@@ -62,7 +64,7 @@ async fn main() {
                             let service = service_fn(move |req: Request<Incoming>| {
                                 let config = config.clone();
                                 async move {
-                                    Ok::<_, std::convert::Infallible>(handle_request(req, &config))
+                                    Ok::<_, std::convert::Infallible>(handle_request(req, &config).await)
                                 }
                             });
                             let conn = http1::Builder::new()
