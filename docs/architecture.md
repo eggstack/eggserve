@@ -59,7 +59,7 @@ This crate is the entrypoint for `eggserve` as a command-line tool. It owns the 
 
 Python wheel packaging via maturin. Contains the Rust binary entrypoint (`src/main.rs` calls `eggserve_bin::run()`) and Python launcher code (`python/eggserve/_bin.py` locates and executes the binary via subprocess). The crate depends on `eggserve-bin` via path.
 
-The Python package provides `pip install eggserve` and `python -m eggserve` entrypoints. All arguments are forwarded directly to the bundled Rust binary.
+The Python package provides `pip install eggserve` and `python -m eggserve` entrypoints. It also exposes a minimal Python API (`ServeConfig`, `StaticPolicy`, `serve_directory`, `ServerProcess`) that translates config objects to CLI arguments and manages the binary subprocess lifecycle. This API is a hardened static-serving primitive, not an ASGI/WSGI server or request callback system.
 
 **Important:** The core crate must never depend on Python packaging. The Python package does not own serving logic.
 

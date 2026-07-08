@@ -10,10 +10,11 @@ crates/eggserve-python/
 ├── pyproject.toml          # maturin build backend
 ├── src/main.rs             # Rust binary entrypoint (calls eggserve_bin::run())
 ├── python/eggserve/
-│   ├── __init__.py         # __version__
+│   ├── __init__.py         # exports version, ServeConfig, StaticPolicy, serve_directory
 │   ├── __main__.py         # python -m eggserve entrypoint
 │   ├── _bin.py             # locates and executes the packaged binary
-│   └── server.py           # thin re-export module
+│   ├── server.py           # Python API implementation
+│   └── test_server.py      # Python API tests
 └── README.md
 ```
 
@@ -27,6 +28,20 @@ crates/eggserve-python/
 ### Why subprocess?
 
 The binary is a standalone process (Tokio runtime, TCP listener, signal handling). It cannot run inside the Python process. The subprocess approach keeps the Rust binary self-contained and avoids PyO3/GIL complexity.
+
+## Python API
+
+In addition to CLI usage, eggserve exposes a minimal Python API:
+
+```python
+from eggserve import ServeConfig, StaticPolicy, serve_directory
+
+# Blocking serve with config
+config = ServeConfig(directory="public", port=9000)
+serve_directory(config.directory, bind=config.bind, port=config.port)
+```
+
+See [docs/python-api.md](python-api.md) for the full API reference.
 
 ## Building
 

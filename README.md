@@ -78,6 +78,33 @@ Key defaults:
 
 **Plan 009 complete.** Optional TLS support via rustls is available behind the `tls` feature flag. Deployment guidance covers local-only HTTP, reverse proxy TLS, and native TLS patterns. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, corrective hardening, filesystem-policy tightening, and polish. See [plans/](plans/) for the full sequence.
 
+## Python API
+
+eggserve provides a minimal Python API for programmatic static file serving:
+
+```python
+from eggserve import serve_directory
+
+# Serve current directory (blocking, safe defaults)
+serve_directory(".")
+```
+
+For lifecycle control (tests, embedding):
+
+```python
+from eggserve import ServeConfig, ServerProcess
+
+config = ServeConfig(directory="public", port=9000)
+proc = ServerProcess(config)
+proc.start()
+proc.wait()
+proc.stop()
+```
+
+Full API reference: [docs/python-api.md](docs/python-api.md)
+
+**This is NOT an ASGI/WSGI server or a web framework.** It is a hardened static-serving primitive.
+
 ### Installation
 
 ```sh
@@ -110,6 +137,9 @@ cd crates/eggserve-python
 maturin build --release -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
+
+# Python API smoke test
+python -c "from eggserve import ServeConfig, StaticPolicy, serve_directory; print(ServeConfig())"
 ```
 
 ## Development

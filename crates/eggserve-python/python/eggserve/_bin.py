@@ -7,7 +7,10 @@ from pathlib import Path
 
 
 def _find_binary() -> str:
-    """Find the eggserve binary bundled in this package."""
+    """Find the eggserve binary bundled in this package.
+
+    Raises FileNotFoundError if the binary cannot be found.
+    """
     package_dir = Path(__file__).resolve().parent.parent
     bin_dir = package_dir / "bin"
     if sys.platform == "win32":
@@ -30,13 +33,18 @@ def _find_binary() -> str:
         if candidate3.is_file():
             return str(candidate3)
 
-    print("error: eggserve binary not found", file=sys.stderr)
-    sys.exit(1)
+    raise FileNotFoundError(
+        "eggserve binary not found; ensure the package is installed correctly"
+    )
 
 
 def main() -> int:
     """Execute the eggserve binary with forwarded CLI arguments."""
-    binary = _find_binary()
+    try:
+        binary = _find_binary()
+    except FileNotFoundError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
     argv = [binary] + sys.argv[1:]
     try:
         result = subprocess.run(argv)

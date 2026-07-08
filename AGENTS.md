@@ -52,10 +52,11 @@ eggserve/
 │       ├── pyproject.toml  # maturin build backend
 │       ├── src/main.rs     # Rust binary entrypoint
 │       └── python/eggserve/
-│           ├── __init__.py
+│           ├── __init__.py # exports version, ServeConfig, StaticPolicy, serve_directory
 │           ├── __main__.py # python -m eggserve
 │           ├── _bin.py     # locates and executes packaged binary
-│           └── server.py   # thin re-export
+│           ├── server.py   # Python API: ServeConfig, StaticPolicy, serve_directory, ServerProcess
+│           └── test_server.py # Python API tests
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
 └── AGENTS.md               # this file
