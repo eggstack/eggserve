@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::path::ConfinedPath;
+use crate::path::{ConfinedPath, PathRejection};
 use crate::policy::{DotfilePolicy, StaticPolicy, SymlinkPolicy};
 
 #[derive(Debug, Clone)]
@@ -13,6 +13,7 @@ pub struct ResolvedFile {
 #[derive(Debug, Clone)]
 pub struct ResolvedDirectory {
     pub path: PathBuf,
+    pub components: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -22,8 +23,6 @@ pub enum ResolvedResource {
     NotFound,
     Denied(PathRejection),
 }
-
-use crate::path::PathRejection;
 
 pub struct RootGuard {
     canonical_root: PathBuf,
@@ -36,27 +35,53 @@ impl RootGuard {
     }
 
     pub fn resolve(&self, confined: &ConfinedPath, policy: &StaticPolicy) -> ResolvedResource {
+        self.resolve_components(confined.components(), policy)
+    }
+
+    pub fn resolve_index(
+        &self,
+        dir_confined: &ConfinedPath,
+        policy: &StaticPolicy,
+    ) -> ResolvedResource {
+        let mut components = dir_confined.components().to_vec();
+        components.push("index.html".to_string());
+        self.resolve_components(&components, policy)
+    }
+
+    pub fn resolve_child(
+        &self,
+        dir: &ResolvedDirectory,
+        child: &str,
+        policy: &StaticPolicy,
+    ) -> ResolvedResource {
+        let mut components = dir.components.clone();
+        components.push(child.to_string());
+        self.resolve_components(&components, policy)
+    }
+
+    fn resolve_components(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
         let mut candidate = self.canonical_root.clone();
 
-        for component in confined.components() {
+        for component in components {
             if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
                 return ResolvedResource::Denied(PathRejection::DotfileDenied);
             }
-            candidate.push(component);
-        }
 
-        if policy.symlinks == SymlinkPolicy::Denied {
-            match fs::symlink_metadata(&candidate) {
-                Ok(meta) => {
-                    if meta.file_type().is_symlink() {
-                        return ResolvedResource::Denied(PathRejection::ParentComponent);
+            candidate.push(component);
+
+            if policy.symlinks == SymlinkPolicy::Denied {
+                match fs::symlink_metadata(&candidate) {
+                    Ok(meta) => {
+                        if meta.file_type().is_symlink() {
+                            return ResolvedResource::Denied(PathRejection::ParentComponent);
+                        }
                     }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
+                    Err(e) => {
+                        if e.kind() == std::io::ErrorKind::NotFound {
+                            return ResolvedResource::NotFound;
+                        }
                         return ResolvedResource::NotFound;
                     }
-                    return ResolvedResource::NotFound;
                 }
             }
         }
@@ -78,94 +103,10 @@ impl RootGuard {
         match fs::metadata(&canonical) {
             Ok(meta) => {
                 if meta.is_dir() {
-                    ResolvedResource::Directory(ResolvedDirectory { path: canonical })
-                } else {
-                    ResolvedResource::File(ResolvedFile {
+                    ResolvedResource::Directory(ResolvedDirectory {
                         path: canonical,
-                        metadata: meta,
+                        components: components.to_vec(),
                     })
-                }
-            }
-            Err(_) => ResolvedResource::NotFound,
-        }
-    }
-
-    pub fn resolve_index(
-        &self,
-        dir_confined: &ConfinedPath,
-        policy: &StaticPolicy,
-    ) -> ResolvedResource {
-        let mut candidate = self.canonical_root.clone();
-
-        for component in dir_confined.components() {
-            if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
-                return ResolvedResource::Denied(PathRejection::DotfileDenied);
-            }
-            candidate.push(component);
-        }
-
-        candidate.push("index.html");
-
-        self.resolve_file_in_dir(&candidate, policy)
-    }
-
-    pub fn resolve_index_at(
-        &self,
-        dir_canonical: &Path,
-        policy: &StaticPolicy,
-    ) -> ResolvedResource {
-        if !dir_canonical.starts_with(&self.canonical_root) {
-            return ResolvedResource::Denied(PathRejection::ParentComponent);
-        }
-
-        let candidate = dir_canonical.join("index.html");
-
-        self.resolve_file_in_dir(&candidate, policy)
-    }
-
-    fn resolve_file_in_dir(&self, candidate: &Path, policy: &StaticPolicy) -> ResolvedResource {
-        if policy.dotfiles == DotfilePolicy::Denied {
-            if let Some(name) = candidate.file_name() {
-                if name.to_string_lossy().starts_with('.') {
-                    return ResolvedResource::Denied(PathRejection::DotfileDenied);
-                }
-            }
-        }
-
-        if policy.symlinks == SymlinkPolicy::Denied {
-            match fs::symlink_metadata(candidate) {
-                Ok(meta) => {
-                    if meta.file_type().is_symlink() {
-                        return ResolvedResource::Denied(PathRejection::ParentComponent);
-                    }
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::NotFound {
-                        return ResolvedResource::NotFound;
-                    }
-                    return ResolvedResource::NotFound;
-                }
-            }
-        }
-
-        let canonical = match fs::canonicalize(candidate) {
-            Ok(p) => p,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    return ResolvedResource::NotFound;
-                }
-                return ResolvedResource::NotFound;
-            }
-        };
-
-        if !canonical.starts_with(&self.canonical_root) {
-            return ResolvedResource::Denied(PathRejection::ParentComponent);
-        }
-
-        match fs::metadata(&canonical) {
-            Ok(meta) => {
-                if meta.is_dir() {
-                    ResolvedResource::Directory(ResolvedDirectory { path: canonical })
                 } else {
                     ResolvedResource::File(ResolvedFile {
                         path: canonical,
@@ -230,6 +171,7 @@ mod tests {
         assert!(matches!(result, ResolvedResource::NotFound));
     }
 
+    #[cfg(unix)]
     #[test]
     fn resolve_symlink_denied() {
         let tmp = TempDir::new().unwrap();
@@ -244,6 +186,7 @@ mod tests {
         assert!(matches!(result, ResolvedResource::Denied(_)));
     }
 
+    #[cfg(unix)]
     #[test]
     fn resolve_symlink_allowed() {
         let tmp = TempDir::new().unwrap();
@@ -257,6 +200,101 @@ mod tests {
         policy.symlinks = SymlinkPolicy::Follow;
         let result = guard.resolve(&path, &policy);
         assert!(matches!(result, ResolvedResource::File(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_intermediate_symlink_denied_when_symlinks_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("real_dir")).unwrap();
+        fs::write(tmp.path().join("real_dir").join("file.txt"), "content").unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir"))
+            .unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/link_dir/file.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(matches!(result, ResolvedResource::Denied(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_intermediate_symlink_inside_root_allowed_when_follow_enabled() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("real_dir")).unwrap();
+        fs::write(tmp.path().join("real_dir").join("file.txt"), "content").unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir"))
+            .unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/link_dir/file.txt");
+        let mut policy = StaticPolicy::safe_default();
+        policy.symlinks = SymlinkPolicy::Follow;
+        let result = guard.resolve(&path, &policy);
+        assert!(matches!(result, ResolvedResource::File(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_intermediate_symlink_escape_denied_when_follow_enabled() {
+        let tmp_root = TempDir::new().unwrap();
+        let tmp_outside = TempDir::new().unwrap();
+        fs::create_dir(tmp_outside.path().join("secret_dir")).unwrap();
+        fs::write(
+            tmp_outside.path().join("secret_dir").join("file.txt"),
+            "leaked",
+        )
+        .unwrap();
+        std::os::unix::fs::symlink(
+            tmp_outside.path().join("secret_dir"),
+            tmp_root.path().join("link_dir"),
+        )
+        .unwrap();
+
+        let guard = RootGuard::new(tmp_root.path()).unwrap();
+        let path = parse_path("/link_dir/file.txt");
+        let mut policy = StaticPolicy::safe_default();
+        policy.symlinks = SymlinkPolicy::Follow;
+        let result = guard.resolve(&path, &policy);
+        assert!(matches!(result, ResolvedResource::Denied(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_final_symlink_outside_root_denied_when_follow_enabled() {
+        let tmp_root = TempDir::new().unwrap();
+        let tmp_outside = TempDir::new().unwrap();
+        fs::write(tmp_outside.path().join("secret.txt"), "leaked").unwrap();
+        std::os::unix::fs::symlink(
+            tmp_outside.path().join("secret.txt"),
+            tmp_root.path().join("escape.txt"),
+        )
+        .unwrap();
+
+        let guard = RootGuard::new(tmp_root.path()).unwrap();
+        let path = parse_path("/escape.txt");
+        let mut policy = StaticPolicy::safe_default();
+        policy.symlinks = SymlinkPolicy::Follow;
+        let result = guard.resolve(&path, &policy);
+        assert!(matches!(result, ResolvedResource::Denied(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_nested_intermediate_symlink_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("a")).unwrap();
+        fs::create_dir(tmp.path().join("b")).unwrap();
+        fs::write(tmp.path().join("b").join("file.txt"), "content").unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("b"), tmp.path().join("a").join("link_b"))
+            .unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/a/link_b/file.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(matches!(result, ResolvedResource::Denied(_)));
     }
 
     #[test]
