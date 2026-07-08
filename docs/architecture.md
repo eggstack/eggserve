@@ -33,9 +33,18 @@ Modules:
 | `policy.rs` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`) |
 | `limits.rs` | Resource limits (connection count, header size, request target size, timeouts) |
 | `error.rs` | Error taxonomy (`Config`, `Bind`, `Runtime`, `RequestRejected`, `PathEscape`, `Io`) |
-| `path.rs` | Path confinement and resolution (root escape prevention, symlink verification) |
+| `path/` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
+| `path/mod.rs` | `ConfinedPath` entry point — parse, validate, and classify request targets |
+| `path/decode.rs` | Single-pass percent decoding (rejects malformed encodings, NUL, invalid UTF-8) |
+| `path/request_target.rs` | HTTP origin-form parsing, query string stripping |
+| `path/components.rs` | Path normalization, component splitting, per-component validation |
+| `path/rejected.rs` | `PathRejection` enum — all path-level rejection reasons |
+| `path/policy.rs` | `PathPolicy` — dotfile and backslash policies for path validation |
+| `path/platform.rs` | Windows-specific checks (reserved names, ADS, drive prefixes) |
+| `fs/` | Filesystem confinement: root guard, resolved resource types |
+| `fs/mod.rs` | `RootGuard` — canonical-root enforcement, symlink/dotfile checks, `ResolvedResource` classification |
 | `response.rs` | Response helpers (`text_response`, `empty_response`, `method_not_allowed`) |
-| `service.rs` | HTTP request handler (GET/HEAD/405 routing, method policy enforcement) |
+| `service.rs` | HTTP request handler (GET/HEAD/405 routing, path validation, status mapping) |
 | `telemetry.rs` | Startup logging and policy display |
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.

@@ -1,0 +1,34 @@
+[workspace]
+
+[package]
+name = "eggserve-fuzz"
+version = "0.0.0"
+edition = "2021"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+[dependencies.eggserve-core]
+path = ".."
+
+[[bin]]
+name = "request_target"
+path = "fuzz_targets/request_target.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "percent_decode"
+path = "fuzz_targets/percent_decode.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "path_components"
+path = "fuzz_targets/path_components.rs"
+test = false
+doc = false

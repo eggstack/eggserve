@@ -19,6 +19,20 @@ eggserve ships with the following safe defaults. These are not configurable with
 
 These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access.
 
+## Path confinement implementation
+
+The path confinement layer enforces the following before any filesystem access:
+
+1. **Request-target parsing** — only HTTP origin-form paths (`/path`) are accepted. Absolute-form, authority-form, and asterisk-form are rejected with 400.
+2. **Percent decoding** — single-pass decoding only. Double-encoded traversal (`%252e%252e`) is not decoded twice. Malformed encodings are rejected.
+3. **Component validation** — `.` and `..` components are rejected. Empty components are normalized away. Components containing NUL, `/`, or `\` (by default) are rejected.
+4. **Dotfile policy** — components starting with `.` are denied unless `DotfilePolicy::Serve` is explicitly configured.
+5. **Platform checks** — Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), alternate data stream syntax (`:`), and drive prefixes (`C:`) are rejected cross-platform.
+6. **Root confinement** — the resolved filesystem path is canonicalized and verified to remain within the configured root directory.
+7. **Symlink policy** — symlinks are denied by default. When denied, `symlink_metadata` is used to detect symlinks before following them.
+
+Malformed syntax returns 400 Bad Request. Policy violations return 403 Forbidden. No local filesystem paths are leaked in response bodies.
+
 ## Unsafe or weaker options
 
 The following options weaken security defaults. Each requires an explicit CLI flag and is **not** the default:

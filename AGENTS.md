@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. The workspace skeleton and HTTP substrate (plan 001) are implemented.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Path confinement and filesystem policy (plan 002) are implemented.
 
 ## Non-negotiables
 
@@ -25,9 +25,18 @@ eggserve/
 │   │       ├── policy.rs   # StaticPolicy, symlink/dotfile/listing policies
 │   │       ├── limits.rs   # connection limits, header/target sizes, timeouts
 │   │       ├── error.rs    # error taxonomy (Config, Bind, Runtime, RequestRejected, Io)
-│   │       ├── path.rs     # path confinement and resolution
+│   │       ├── path/       # path confinement engine
+│   │       │   ├── mod.rs          # ConfinedPath entry point
+│   │       │   ├── decode.rs       # single-pass percent decoding
+│   │       │   ├── request_target.rs # HTTP origin-form parsing
+│   │       │   ├── components.rs   # normalization, component validation
+│   │       │   ├── rejected.rs     # PathRejection enum
+│   │       │   ├── policy.rs       # PathPolicy (dotfile, backslash)
+│   │       │   └── platform.rs     # Windows reserved names, ADS, drives
+│   │       ├── fs/         # filesystem confinement
+│   │       │   └── mod.rs          # RootGuard, ResolvedResource
 │   │       ├── response.rs # text_response, empty_response, method_not_allowed
-│   │       ├── service.rs  # HTTP request handler (GET/HEAD/405)
+│   │       ├── service.rs  # HTTP request handler (GET/HEAD/405, path validation)
 │   │       └── telemetry.rs # startup logging
 │   └── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │       ├── Cargo.toml

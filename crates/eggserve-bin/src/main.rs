@@ -56,11 +56,13 @@ async fn main() {
                 match result {
                     Ok((stream, _addr)) => {
                         let mut shutdown_rx = shutdown_rx.resubscribe();
+                        let config = config.clone();
                         tokio::spawn(async move {
                             let io = TokioIo::new(stream);
                             let service = service_fn(move |req: Request<Incoming>| {
+                                let config = config.clone();
                                 async move {
-                                    Ok::<_, std::convert::Infallible>(handle_request(req))
+                                    Ok::<_, std::convert::Infallible>(handle_request(req, &config))
                                 }
                             });
                             let conn = http1::Builder::new()

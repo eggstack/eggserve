@@ -22,4 +22,10 @@ pub enum Error {
     Io(#[from] std::io::Error),
 }
 
+impl From<crate::path::PathRejection> for Error {
+    fn from(rejection: crate::path::PathRejection) -> Self {
+        Error::RequestRejected(rejection.to_string())
+    }
+}
+
 pub type Result<T> = std::result::Result<T, Error>;

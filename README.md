@@ -59,7 +59,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 001 complete.** The workspace skeleton and Hyper/Tokio HTTP substrate are implemented. A minimal `eggserve` binary starts, accepts HTTP/1.1 connections, and serves placeholder GET/HEAD responses. See [plans/](plans/) for the planned milestone sequence.
+**Plan 002 complete.** Path confinement and filesystem policy are implemented. Request targets are parsed, percent-decoded, validated, and checked against the configured root before any filesystem access. Malformed requests return 400, policy violations return 403. Fuzz targets exist for the path module. See [plans/](plans/) for the planned milestone sequence.
 
 ## Development
 

@@ -47,8 +47,9 @@ The following are explicitly out of scope for the initial version:
 
 ## Defensive layers
 
-1. **Path confinement** — all request paths are resolved and checked against the configured root before any filesystem access. Symlinks are resolved and verified to remain within the root.
+1. **Path confinement** — all request paths are parsed, percent-decoded, validated, and resolved against the configured root. The `ConfinedPath` parser rejects traversal (`..`), absolute paths, NUL bytes, malformed percent-encoding, backslash ambiguity, and platform-specific attacks (Windows reserved names, ADS, drive prefixes). The `RootGuard` canonicalizes the final path and verifies it remains within the root.
 2. **Policy enforcement** — a security policy object controls what is allowed (methods, symlink following, dotfiles, directory listing). Defaults deny everything except direct file GET/HEAD.
-3. **Input validation** — malformed request targets are rejected before path resolution. Percent-encoding is normalized before traversal checks.
-4. **Resource limits** — connection count, request body size, and response rate are bounded to prevent resource exhaustion.
-5. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.
+3. **Input validation** — malformed request targets are rejected before path resolution. Percent-encoding is decoded exactly once. Double-encoded traversal is caught by per-component decode checks.
+4. **Filesystem checks** — when symlink policy denies symlinks, `symlink_metadata` is used to detect symlinks without following them. Dotfile policy checks components at both the path-validation and filesystem-resolution layers.
+5. **Resource limits** — connection count, request body size, and response rate are bounded to prevent resource exhaustion.
+6. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.
