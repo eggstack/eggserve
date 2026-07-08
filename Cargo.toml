@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "crates/eggserve-core",
+    "crates/eggserve-bin",
+]
+resolver = "2"

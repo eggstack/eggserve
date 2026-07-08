@@ -1,0 +1,9 @@
+[package]
+name = "eggserve-core"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Security policy, path confinement, and static-serving primitives for eggserve"
+
+[dependencies]
+thiserror = "2"

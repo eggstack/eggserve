@@ -1,0 +1,10 @@
+[package]
+name = "eggserve-bin"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "CLI binary for eggserve"
+
+[dependencies]
+eggserve-core = { path = "../eggserve-core" }
+clap = { version = "4", features = ["derive"] }
