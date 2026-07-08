@@ -6,4 +6,9 @@ license = "MIT OR Apache-2.0"
 description = "Security policy, path confinement, and static-serving primitives for eggserve"
 
 [dependencies]
+bytes = "1"
+http-body-util = "0.1"
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
 thiserror = "2"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }

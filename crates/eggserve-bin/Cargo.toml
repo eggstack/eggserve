@@ -5,6 +5,14 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "CLI binary for eggserve"
 
+[[bin]]
+name = "eggserve"
+path = "src/main.rs"
+
 [dependencies]
 eggserve-core = { path = "../eggserve-core" }
-clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time"] }
+hyper = { version = "1", features = ["http1", "server"] }
+hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
+http-body-util = "0.1"
+bytes = "1"

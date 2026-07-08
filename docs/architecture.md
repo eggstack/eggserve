@@ -23,25 +23,28 @@ eggserve/
 
 ### `eggserve-core`
 
-The core library crate. Contains security policy, path confinement, static serving primitives, and response construction. This crate must **not** depend on Python packaging concerns.
+The core library crate. Contains security policy, path confinement, HTTP request handling, response construction, and telemetry. This crate must **not** depend on Python packaging concerns.
 
-Placeholder modules:
+Modules:
 
 | Module | Responsibility |
 |--------|----------------|
-| `config.rs` | Configuration types (bind address, root directory, policy flags) |
-| `policy.rs` | Security policy enforcement (method checks, symlink policy, dotfile policy) |
-| `limits.rs` | Resource limits (connection count, request size, rate limits) |
-| `error.rs` | Error types for path resolution, policy rejection, and serving failures |
+| `config.rs` | Configuration types (`ServeConfig` with bind address, root directory, limits, policy) |
+| `policy.rs` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`) |
+| `limits.rs` | Resource limits (connection count, header size, request target size, timeouts) |
+| `error.rs` | Error taxonomy (`Config`, `Bind`, `Runtime`, `RequestRejected`, `PathEscape`, `Io`) |
 | `path.rs` | Path confinement and resolution (root escape prevention, symlink verification) |
+| `response.rs` | Response helpers (`text_response`, `empty_response`, `method_not_allowed`) |
+| `service.rs` | HTTP request handler (GET/HEAD/405 routing, method policy enforcement) |
+| `telemetry.rs` | Startup logging and policy display |
 
-The core crate exposes a public API for path confinement and policy enforcement that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.
+The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.
 
 ### `eggserve-bin`
 
-The CLI binary crate. Handles argument parsing (via `clap`), configuration loading, signal handling, and startup policy display. Depends on `eggserve-core` for policy enforcement and path resolution.
+The CLI binary crate. Handles manual argument parsing, configuration loading, TCP listener setup, signal handling (Ctrl+C, SIGTERM), and graceful shutdown. Contains the Hyper/Tokio HTTP accept loop. Depends on `eggserve-core` for request handling and response construction.
 
-This crate is the entrypoint for `eggserve` as a command-line tool. It does not contain serving logic — that will be introduced in plan 001 via the HTTP substrate.
+This crate is the entrypoint for `eggserve` as a command-line tool. It owns the process lifecycle: argument parsing, startup logging, binding, accept loop, and shutdown coordination.
 
 ### `eggserve-python` (deferred)
 
@@ -57,5 +60,5 @@ Python packaging and `python -m` launcher. Not yet a Cargo crate. Packaging and 
 
 1. **Separation of concerns** — security policy is in the core crate, CLI is in the bin crate, Python packaging is separate
 2. **Core-first** — all security-critical logic lives in `eggserve-core` and can be used independently
-3. **No premature serving** — the first milestone produces skeletons; plan 001 introduces the HTTP substrate
+3. **Core-first serving** — the HTTP substrate lives in `eggserve-core`; the binary crate only owns process concerns
 4. **Minimal surface** — each crate exposes only what is necessary for its purpose

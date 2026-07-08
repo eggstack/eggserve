@@ -35,7 +35,7 @@ eggserve [DIR] [--bind HOST:PORT] [--public] [--directory-listing] [--follow-sym
 ```
 
 - `DIR` — directory to serve (default: current directory)
-- `--bind HOST:PORT` — address to bind (default: `127.0.0.1:8080`)
+- `--bind HOST:PORT` — address to bind (default: `127.0.0.1:8000`)
 - `--public` — bind to all interfaces (overrides loopback default)
 - `--directory-listing` — enable directory listing (disabled by default)
 - `--follow-symlinks` — follow symlinks (denied by default)
@@ -59,7 +59,7 @@ Key defaults:
 
 ## Project status
 
-**Early planning / pre-implementation.** The workspace skeleton and documentation are being established before implementation begins. See [plans/ROADMAP.md](plans/ROADMAP.md) for the planned milestone sequence.
+**Plan 001 complete.** The workspace skeleton and Hyper/Tokio HTTP substrate are implemented. A minimal `eggserve` binary starts, accepts HTTP/1.1 connections, and serves placeholder GET/HEAD responses. See [plans/](plans/) for the planned milestone sequence.
 
 ## Development
 

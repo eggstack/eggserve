@@ -1,16 +1,25 @@
-//! Error and result types for eggserve operations.
-
-/// Errors that can occur in eggserve.
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    /// The requested path is outside the allowed root.
     #[error("path escapes configured root")]
     PathEscape,
 
-    /// The requested path could not be resolved (missing, permissions, etc.).
     #[error("path not accessible: {0}")]
     PathNotAccessible(String),
+
+    #[error("configuration error: {0}")]
+    Config(String),
+
+    #[error("bind error: {0}")]
+    Bind(String),
+
+    #[error("runtime error: {0}")]
+    Runtime(String),
+
+    #[error("request rejected: {0}")]
+    RequestRejected(String),
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
-/// Convenience result alias.
 pub type Result<T> = std::result::Result<T, Error>;

@@ -26,7 +26,7 @@ The following dependency categories are approved for initial development:
 
 ## Notes
 
-- The first milestone (plan 000) adds only `clap` for CLI parsing in `eggserve-bin`
-- HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) come in plan 001
+- The first milestone (plan 000) added only `clap` for CLI parsing in `eggserve-bin`
+- Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to both crates. `clap` was removed in favor of manual argument parsing.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run as part of the beta release gate (see [release-criteria.md](release-criteria.md))

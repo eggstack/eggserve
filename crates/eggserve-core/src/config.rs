@@ -1,10 +1,41 @@
-//! Configuration types for eggserve (bind address, root directory, options).
+use std::net::SocketAddr;
+use std::path::PathBuf;
 
-/// Top-level configuration for an eggserve serving session.
+use crate::limits::Limits;
+use crate::policy::StaticPolicy;
+
 #[derive(Debug, Clone)]
-pub struct Config {
-    /// The filesystem root to serve content from.
-    pub root: std::path::PathBuf,
-    /// Address to bind the listener to.
-    pub bind: std::net::SocketAddr,
+pub struct ServeConfig {
+    pub bind: SocketAddr,
+    pub root: PathBuf,
+    pub limits: Limits,
+    pub static_policy: StaticPolicy,
+}
+
+impl Default for ServeConfig {
+    fn default() -> Self {
+        Self {
+            bind: "127.0.0.1:8000".parse().unwrap(),
+            root: PathBuf::from("."),
+            limits: Limits::default(),
+            static_policy: StaticPolicy::safe_default(),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_config_binds_loopback() {
+        let config = ServeConfig::default();
+        assert!(config.bind.ip().is_loopback());
+    }
+
+    #[test]
+    fn default_config_binds_port_8000() {
+        let config = ServeConfig::default();
+        assert_eq!(config.bind.port(), 8000);
+    }
 }

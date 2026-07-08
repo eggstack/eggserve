@@ -2,13 +2,13 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. The project is currently in early planning; the workspace skeleton exists but no HTTP serving logic is implemented yet.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. The workspace skeleton and HTTP substrate (plan 001) are implemented.
 
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
 - **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. See [docs/threat-model.md](docs/threat-model.md).
-- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). The current dependency set is intentionally tiny: `clap` (CLI) and `thiserror` (errors). `hyper`, `tokio`, and friends are deferred to plan 001.
+- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 
 ## Layout
@@ -17,17 +17,24 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 eggserve/
 ├── Cargo.toml              # workspace root
 ├── crates/
-│   ├── eggserve-core/      # security policy, path confinement, static serving, response construction
+│   ├── eggserve-core/      # security policy, path confinement, HTTP serving, response construction
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── config.rs   # configuration types
-│   │       ├── policy.rs   # security policy enforcement
-│   │       ├── limits.rs   # resource limits
-│   │       ├── error.rs    # error types
-│   │       └── path.rs     # path confinement and resolution
-│   └── eggserve-bin/       # CLI binary, config loading, signal handling
-│       └── Cargo.toml
+│   │       ├── config.rs   # ServeConfig with bind, root, limits, policy
+│   │       ├── policy.rs   # StaticPolicy, symlink/dotfile/listing policies
+│   │       ├── limits.rs   # connection limits, header/target sizes, timeouts
+│   │       ├── error.rs    # error taxonomy (Config, Bind, Runtime, RequestRejected, Io)
+│   │       ├── path.rs     # path confinement and resolution
+│   │       ├── response.rs # text_response, empty_response, method_not_allowed
+│   │       ├── service.rs  # HTTP request handler (GET/HEAD/405)
+│   │       └── telemetry.rs # startup logging
+│   └── eggserve-bin/       # CLI binary, args, signal handling, accept loop
+│       ├── Cargo.toml
+│       └── src/
+│           ├── main.rs     # HTTP accept loop with graceful shutdown
+│           ├── args.rs     # manual argument parsing
+│           └── shutdown.rs # signal handling (Ctrl+C, SIGTERM)
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
 └── AGENTS.md               # this file
@@ -52,7 +59,7 @@ Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
 - Rust edition 2021, workspace `resolver = "2"`.
 - No `rustfmt.toml` / `clippy.toml` — defaults apply; CI enforces `-D warnings`.
 - `target/` is gitignored; `cargo build` / `cargo test` are sufficient setup (no pre-build step, no codegen).
-- `cargo run -p eggserve-bin` currently only prints a skeleton message (see [crates/eggserve-bin/src/main.rs](crates/eggserve-bin/src/main.rs)). It does not serve HTTP yet.
+- `cargo run -p eggserve-bin` starts an HTTP server on `127.0.0.1:8000` serving placeholder GET/HEAD responses. See [crates/eggserve-bin/src/main.rs](crates/eggserve-bin/src/main.rs).
 
 ## Plan-driven development
 
@@ -69,7 +76,6 @@ Before implementing any feature, check:
 ## Don'ts
 
 - Do not add broad dependencies without justification (see [docs/dependency-policy.md](docs/dependency-policy.md))
-- Do not write HTTP server code yet — plan 001 introduces the HTTP substrate
 - Do not add comments to code unless explicitly asked
 - Do not make broad PRs that touch multiple unrelated files
 - Do not create files outside the directories specified by plans

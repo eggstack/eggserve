@@ -1,17 +1,63 @@
-//! Security policy types controlling what requests and paths are allowed.
-
-/// Operating mode that relaxes security constraints for compatibility.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PolicyMode {
-    /// Default mode: deny symlinks, dotfiles, directory listings.
     Strict,
-    /// Compatibility mode: relax some defaults for `http.server` parity.
     Compat,
 }
 
-/// Security policy applied to incoming requests.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DirectoryListingPolicy {
+    Disabled,
+    Enabled,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SymlinkPolicy {
+    Denied,
+    Follow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DotfilePolicy {
+    Denied,
+    Serve,
+}
+
 #[derive(Debug, Clone)]
-pub struct Policy {
-    /// The current policy mode.
-    pub mode: PolicyMode,
+pub struct StaticPolicy {
+    pub directory_listing: DirectoryListingPolicy,
+    pub symlinks: SymlinkPolicy,
+    pub dotfiles: DotfilePolicy,
+}
+
+impl StaticPolicy {
+    pub fn safe_default() -> Self {
+        Self {
+            directory_listing: DirectoryListingPolicy::Disabled,
+            symlinks: SymlinkPolicy::Denied,
+            dotfiles: DotfilePolicy::Denied,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_default_disables_directory_listing() {
+        let policy = StaticPolicy::safe_default();
+        assert_eq!(policy.directory_listing, DirectoryListingPolicy::Disabled);
+    }
+
+    #[test]
+    fn safe_default_denies_symlinks() {
+        let policy = StaticPolicy::safe_default();
+        assert_eq!(policy.symlinks, SymlinkPolicy::Denied);
+    }
+
+    #[test]
+    fn safe_default_denies_dotfiles() {
+        let policy = StaticPolicy::safe_default();
+        assert_eq!(policy.dotfiles, DotfilePolicy::Denied);
+    }
 }
