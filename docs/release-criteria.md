@@ -18,7 +18,7 @@ A beta release requires all alpha criteria plus:
 
 - [ ] Fuzz targets: path resolution and request parsing have fuzz coverage
 - [ ] Multi-platform CI: Linux, macOS, and Windows builds pass in CI
-- [ ] Resource-limit tests: connection limits, request size limits, and rate limits are tested
+- [x] Resource-limit tests: connection limits, file-stream limits, request body rejection, and timeouts are tested
 - [ ] Dependency audit: `cargo audit` and `cargo deny` pass with no advisories
 - [ ] No known unsound `unsafe` code
 

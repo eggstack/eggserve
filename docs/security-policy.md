@@ -15,7 +15,7 @@ eggserve ships with the following safe defaults. These are not configurable with
 | **unknown MIME as application/octet-stream** | Unrecognized file extensions are served with a safe binary MIME type |
 | **malformed request targets rejected** | Invalid paths (traversal, encoding abuse, null bytes) return 400 |
 | **logs sanitized** | Paths and headers are sanitized before writing to logs |
-| **resource limits enabled** | Connection count, request size, and rate limits are active |
+| **resource limits enabled** | Max 64 concurrent connections, 32 file streams, 10s header timeout, 60s write timeout, request bodies rejected |
 
 These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access.
 

@@ -32,6 +32,8 @@ eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-g
 
 ```sh
 eggserve [DIR] [--bind HOST:PORT] [--port PORT] [--public] [--directory-listing] [--follow-symlinks] [--serve-dotfiles]
+         [--max-connections N] [--max-file-streams N] [--max-header-bytes N] [--max-request-target-bytes N]
+         [--header-timeout SECS] [--idle-timeout SECS] [--write-timeout SECS]
 ```
 
 - `DIR` — directory to serve (default: current directory)
@@ -41,6 +43,13 @@ eggserve [DIR] [--bind HOST:PORT] [--port PORT] [--public] [--directory-listing]
 - `--directory-listing` — enable directory listing (disabled by default)
 - `--follow-symlinks` — follow symlinks (denied by default)
 - `--serve-dotfiles` — serve dotfiles (denied by default)
+- `--max-connections N` — max concurrent connections (default: `64`)
+- `--max-file-streams N` — max concurrent file streams (default: `32`)
+- `--max-header-bytes N` — max header size in bytes (default: `32768`)
+- `--max-request-target-bytes N` — max request target size in bytes (default: `8192`)
+- `--header-timeout SECS` — header read timeout in seconds (default: `10`)
+- `--idle-timeout SECS` — idle keep-alive timeout in seconds (default: `30`)
+- `--write-timeout SECS` — response write timeout in seconds (default: `60`)
 
 ## Security defaults
 
@@ -61,7 +70,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 003 complete.** eggserve serves real static files over HTTP with safe defaults. GET and HEAD are supported with streaming bodies, MIME type detection, ETag/Last-Modified headers, directory listing behind a flag, and index file handling. Path confinement, filesystem policy, and all security defaults from plans 001-002 remain enforced. See [plans/](plans/) for the planned milestone sequence.
+**Plan 004 complete.** Resource limits and operational hardening are enforced. Connection limits, file-stream limits, header timeouts, response write timeouts, and request body rejection are active. Startup output displays all enforced limits. See [plans/](plans/) for the planned milestone sequence.
 
 ## Development
 

@@ -29,9 +29,9 @@ Modules:
 
 | Module | Responsibility |
 |--------|----------------|
-| `config.rs` | Configuration types (`ServeConfig` with bind address, root directory, limits, policy) |
+| `config.rs` | Configuration types (`ServeConfig` with bind address, root directory, limits, policy) and `ServeState` (runtime state with file-stream semaphore) |
 | `policy.rs` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`) |
-| `limits.rs` | Resource limits (connection count, header size, request target size, timeouts) |
+| `limits.rs` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
 | `error.rs` | Error taxonomy (`Config`, `Bind`, `Runtime`, `RequestRejected`, `PathEscape`, `Io`) |
 | `path/` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
 | `path/mod.rs` | `ConfinedPath` entry point — parse, validate, and classify request targets |
@@ -43,16 +43,16 @@ Modules:
 | `path/platform.rs` | Windows-specific checks (reserved names, ADS, drive prefixes) |
 | `fs/` | Filesystem confinement: root guard, resolved resource types |
 | `fs/mod.rs` | `RootGuard` — canonical-root enforcement, symlink/dotfile checks, `ResolvedResource` classification |
-| `response.rs` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses, MIME-typed headers |
+| `response.rs` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses (400, 403, 404, 405, 413, 500, 503), MIME-typed headers |
 | `mime.rs` | MIME type detection via extension lookup (`phf` map), ~60 common types, `application/octet-stream` fallback |
-| `service.rs` | HTTP request handler: GET/HEAD dispatch, path validation, filesystem resolution, index file handling, ETag generation |
-| `telemetry.rs` | Startup logging and policy display |
+| `service.rs` | HTTP request handler: GET/HEAD dispatch, path validation, request body rejection, file-stream semaphore, filesystem resolution, index file handling, ETag generation |
+| `telemetry.rs` | Startup logging: bind address, root, methods, policies, enforced limits |
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.
 
 ### `eggserve-bin`
 
-The CLI binary crate. Handles manual argument parsing, configuration loading, TCP listener setup, signal handling (Ctrl+C, SIGTERM), and graceful shutdown. Contains the Hyper/Tokio HTTP accept loop. Depends on `eggserve-core` for request handling and response construction.
+The CLI binary crate. Handles manual argument parsing, configuration loading, TCP listener setup, connection limiting (semaphore), per-connection timeouts (header read, response write), signal handling (Ctrl+C, SIGTERM), and graceful shutdown. Contains the Hyper/Tokio HTTP accept loop. Depends on `eggserve-core` for request handling and response construction.
 
 This crate is the entrypoint for `eggserve` as a command-line tool. It owns the process lifecycle: argument parsing, startup logging, binding, accept loop, and shutdown coordination.
 

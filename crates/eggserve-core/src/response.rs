@@ -44,11 +44,19 @@ pub fn bad_request() -> Response<BoxBodyInner> {
     text_response(StatusCode::BAD_REQUEST, "400 Bad Request\n")
 }
 
+pub fn payload_too_large() -> Response<BoxBodyInner> {
+    text_response(StatusCode::PAYLOAD_TOO_LARGE, "413 Payload Too Large\n")
+}
+
 pub fn internal_error() -> Response<BoxBodyInner> {
     text_response(
         StatusCode::INTERNAL_SERVER_ERROR,
         "500 Internal Server Error\n",
     )
+}
+
+pub fn service_unavailable() -> Response<BoxBodyInner> {
+    text_response(StatusCode::SERVICE_UNAVAILABLE, "503 Service Unavailable\n")
 }
 
 pub fn file_response(

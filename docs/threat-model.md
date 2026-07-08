@@ -51,5 +51,5 @@ The following are explicitly out of scope for the initial version:
 2. **Policy enforcement** — a security policy object controls what is allowed (methods, symlink following, dotfiles, directory listing). Defaults deny everything except direct file GET/HEAD.
 3. **Input validation** — malformed request targets are rejected before path resolution. Percent-encoding is decoded exactly once. Double-encoded traversal is caught by per-component decode checks.
 4. **Filesystem checks** — when symlink policy denies symlinks, `symlink_metadata` is used to detect symlinks without following them. Dotfile policy checks components at both the path-validation and filesystem-resolution layers.
-5. **Resource limits** — connection count, request body size, and response rate are bounded to prevent resource exhaustion.
+5. **Resource limits** — connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), and request body rejection (Content-Length > 0 on GET/HEAD returns 413) are enforced to prevent resource exhaustion.
 6. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.

@@ -1,5 +1,8 @@
 use std::net::SocketAddr;
 use std::path::PathBuf;
+use std::sync::Arc;
+
+use tokio::sync::Semaphore;
 
 use crate::limits::Limits;
 use crate::policy::StaticPolicy;
@@ -19,6 +22,21 @@ impl Default for ServeConfig {
             root: PathBuf::from("."),
             limits: Limits::default(),
             static_policy: StaticPolicy::safe_default(),
+        }
+    }
+}
+
+pub struct ServeState {
+    pub config: Arc<ServeConfig>,
+    pub file_stream_semaphore: Arc<Semaphore>,
+}
+
+impl ServeState {
+    pub fn new(config: Arc<ServeConfig>) -> Self {
+        let file_stream_semaphore = Arc::new(Semaphore::new(config.limits.max_file_streams));
+        Self {
+            config,
+            file_stream_semaphore,
         }
     }
 }

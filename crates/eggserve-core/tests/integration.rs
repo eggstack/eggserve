@@ -1,6 +1,7 @@
 use std::fs;
+use std::sync::Arc;
 
-use eggserve_core::config::ServeConfig;
+use eggserve_core::config::{ServeConfig, ServeState};
 use eggserve_core::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
 use eggserve_core::service::handle_request;
 use http_body_util::BodyExt;
@@ -8,12 +9,13 @@ use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode};
 use tempfile::TempDir;
 
-fn make_config(tmp: &TempDir, policy: StaticPolicy) -> ServeConfig {
-    ServeConfig {
+fn make_state(tmp: &TempDir, policy: StaticPolicy) -> ServeState {
+    let config = Arc::new(ServeConfig {
         root: tmp.path().to_path_buf(),
         static_policy: policy,
         ..ServeConfig::default()
-    }
+    });
+    ServeState::new(config)
 }
 
 fn get(path: &str) -> Request<http_body_util::Empty<Bytes>> {
@@ -48,9 +50,9 @@ async fn body_bytes(resp: hyper::Response<eggserve_core::response::BoxBodyInner>
 async fn get_existing_file_returns_200_with_body() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/hello.txt"), &config).await;
+    let resp = handle_request(get("/hello.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -61,9 +63,9 @@ async fn get_existing_file_returns_200_with_body() {
 async fn head_existing_file_returns_200_empty_body() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(head("/hello.txt"), &config).await;
+    let resp = handle_request(head("/hello.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -73,9 +75,9 @@ async fn head_existing_file_returns_200_empty_body() {
 #[tokio::test]
 async fn get_missing_file_returns_404() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/nonexistent.txt"), &config).await;
+    let resp = handle_request(get("/nonexistent.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
     let body = body_bytes(resp).await;
@@ -86,9 +88,9 @@ async fn get_missing_file_returns_404() {
 async fn get_denied_dotfile_returns_403() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join(".env"), "SECRET_KEY=abc").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/.env"), &config).await;
+    let resp = handle_request(get("/.env"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 
     let body = body_bytes(resp).await;
@@ -101,9 +103,9 @@ async fn get_symlink_returns_403_under_safe_default() {
     fs::write(tmp.path().join("real.txt"), "real content").unwrap();
     #[cfg(unix)]
     std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt")).unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/link.txt"), &config).await;
+    let resp = handle_request(get("/link.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -116,9 +118,9 @@ async fn get_directory_with_index_serves_index() {
         "<html>index</html>",
     )
     .unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &config).await;
+    let resp = handle_request(get("/subdir"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -129,18 +131,18 @@ async fn get_directory_with_index_serves_index() {
 async fn get_directory_without_index_returns_403_when_listing_disabled() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &config).await;
+    let resp = handle_request(get("/subdir"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
 async fn get_unsupported_method_returns_405() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(method(Method::POST, "/anything"), &config).await;
+    let resp = handle_request(method(Method::POST, "/anything"), &state).await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");
 }
@@ -149,9 +151,9 @@ async fn get_unsupported_method_returns_405() {
 async fn content_length_matches_file_length() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file.txt"), "hello").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &config).await;
+    let resp = handle_request(get("/file.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "5");
 }
@@ -160,9 +162,9 @@ async fn content_length_matches_file_length() {
 async fn content_type_defaults_to_octet_stream_for_unknown_extension() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file.xyz"), "data").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.xyz"), &config).await;
+    let resp = handle_request(get("/file.xyz"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -176,21 +178,21 @@ async fn content_type_known_extension_is_mapped() {
     fs::write(tmp.path().join("file.html"), "<html></html>").unwrap();
     fs::write(tmp.path().join("style.css"), "body{}").unwrap();
     fs::write(tmp.path().join("script.js"), "alert(1)").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.html"), &config).await;
+    let resp = handle_request(get("/file.html"), &state).await;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/html; charset=utf-8"
     );
 
-    let resp = handle_request(get("/style.css"), &config).await;
+    let resp = handle_request(get("/style.css"), &state).await;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/css; charset=utf-8"
     );
 
-    let resp = handle_request(get("/script.js"), &config).await;
+    let resp = handle_request(get("/script.js"), &state).await;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "application/javascript; charset=utf-8"
@@ -200,9 +202,9 @@ async fn content_type_known_extension_is_mapped() {
 #[tokio::test]
 async fn response_does_not_leak_absolute_root_path_on_error() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/nonexistent"), &config).await;
+    let resp = handle_request(get("/nonexistent"), &state).await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(
@@ -215,9 +217,9 @@ async fn response_does_not_leak_absolute_root_path_on_error() {
 async fn nosniff_header_present() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &config).await;
+    let resp = handle_request(get("/file.txt"), &state).await;
     assert_eq!(
         resp.headers().get("x-content-type-options").unwrap(),
         "nosniff"
@@ -228,9 +230,9 @@ async fn nosniff_header_present() {
 async fn etag_header_present() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &config).await;
+    let resp = handle_request(get("/file.txt"), &state).await;
     let etag = resp.headers().get("etag").unwrap().to_str().unwrap();
     assert!(etag.starts_with("W/\""));
     assert!(etag.ends_with('"'));
@@ -240,9 +242,9 @@ async fn etag_header_present() {
 async fn last_modified_header_present() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &config).await;
+    let resp = handle_request(get("/file.txt"), &state).await;
     assert!(resp.headers().get("last-modified").is_some());
 }
 
@@ -256,9 +258,9 @@ async fn directory_listing_enabled_shows_entries() {
         directory_listing: DirectoryListingPolicy::Enabled,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &config).await;
+    let resp = handle_request(get("/"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -276,9 +278,9 @@ async fn directory_listing_escapes_html() {
         directory_listing: DirectoryListingPolicy::Enabled,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &config).await;
+    let resp = handle_request(get("/"), &state).await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("file with &#x27;quotes&#x27; &amp; ampersand"));
@@ -291,9 +293,9 @@ async fn directory_listing_has_security_headers() {
         directory_listing: DirectoryListingPolicy::Enabled,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &config).await;
+    let resp = handle_request(get("/"), &state).await;
     assert_eq!(
         resp.headers().get("content-security-policy").unwrap(),
         "default-src 'none'; base-uri 'none'; form-action 'none'"
@@ -315,9 +317,9 @@ async fn directory_listing_does_not_include_absolute_path() {
         directory_listing: DirectoryListingPolicy::Enabled,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &config).await;
+    let resp = handle_request(get("/"), &state).await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(
@@ -334,9 +336,9 @@ async fn directory_listing_head_has_no_body() {
         directory_listing: DirectoryListingPolicy::Enabled,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(head("/"), &config).await;
+    let resp = handle_request(head("/"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -355,9 +357,9 @@ async fn dotfile_allowed_when_policy_permits() {
         dotfiles: DotfilePolicy::Serve,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/.env"), &config).await;
+    let resp = handle_request(get("/.env"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -374,9 +376,9 @@ async fn symlink_followed_when_policy_permits() {
         symlinks: SymlinkPolicy::Follow,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/link.txt"), &config).await;
+    let resp = handle_request(get("/link.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -386,9 +388,9 @@ async fn symlink_followed_when_policy_permits() {
 #[tokio::test]
 async fn get_root_without_index_returns_403() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/"), &config).await;
+    let resp = handle_request(get("/"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -396,9 +398,9 @@ async fn get_root_without_index_returns_403() {
 async fn percent_encoded_path_serves_correct_file() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file with spaces.txt"), "spacey").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file%20with%20spaces.txt"), &config).await;
+    let resp = handle_request(get("/file%20with%20spaces.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -411,9 +413,9 @@ async fn subdir_file_served_correctly() {
     fs::create_dir(tmp.path().join("a")).unwrap();
     fs::create_dir(tmp.path().join("a").join("b")).unwrap();
     fs::write(tmp.path().join("a").join("b").join("c.txt"), "nested").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/a/b/c.txt"), &config).await;
+    let resp = handle_request(get("/a/b/c.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -423,9 +425,9 @@ async fn subdir_file_served_correctly() {
 #[tokio::test]
 async fn method_not_allowed_for_delete() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(method(Method::DELETE, "/file"), &config).await;
+    let resp = handle_request(method(Method::DELETE, "/file"), &state).await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");
 }
@@ -433,19 +435,19 @@ async fn method_not_allowed_for_delete() {
 #[tokio::test]
 async fn method_not_allowed_for_patch() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(method(Method::PATCH, "/file"), &config).await;
+    let resp = handle_request(method(Method::PATCH, "/file"), &state).await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
 #[tokio::test]
 async fn head_returns_same_status_as_get_for_missing() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let get_resp = handle_request(get("/nope"), &config).await;
-    let head_resp = handle_request(head("/nope"), &config).await;
+    let get_resp = handle_request(get("/nope"), &state).await;
+    let head_resp = handle_request(head("/nope"), &state).await;
     assert_eq!(get_resp.status(), head_resp.status());
 }
 
@@ -453,10 +455,10 @@ async fn head_returns_same_status_as_get_for_missing() {
 async fn head_returns_same_status_as_get_for_dotfile() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join(".hidden"), "secret").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let get_resp = handle_request(get("/.hidden"), &config).await;
-    let head_resp = handle_request(head("/.hidden"), &config).await;
+    let get_resp = handle_request(get("/.hidden"), &state).await;
+    let head_resp = handle_request(head("/.hidden"), &state).await;
     assert_eq!(get_resp.status(), head_resp.status());
 }
 
@@ -464,10 +466,10 @@ async fn head_returns_same_status_as_get_for_dotfile() {
 async fn head_returns_same_status_as_get_for_directory_without_index() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("emptydir")).unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let get_resp = handle_request(get("/emptydir"), &config).await;
-    let head_resp = handle_request(head("/emptydir"), &config).await;
+    let get_resp = handle_request(get("/emptydir"), &state).await;
+    let head_resp = handle_request(head("/emptydir"), &state).await;
     assert_eq!(get_resp.status(), head_resp.status());
 }
 
@@ -476,9 +478,9 @@ async fn dotfile_denied_in_subdir() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("sub")).unwrap();
     fs::write(tmp.path().join("sub").join(".gitignore"), "*.o").unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/sub/.gitignore"), &config).await;
+    let resp = handle_request(get("/sub/.gitignore"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -492,9 +494,9 @@ async fn directory_listing_denies_dotfile_entries() {
         dotfiles: DotfilePolicy::Denied,
         ..StaticPolicy::safe_default()
     };
-    let config = make_config(&tmp, policy);
+    let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &config).await;
+    let resp = handle_request(get("/"), &state).await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("visible.txt"));
@@ -506,9 +508,9 @@ async fn large_file_returns_correct_content_length() {
     let tmp = TempDir::new().unwrap();
     let content = "x".repeat(100_000);
     fs::write(tmp.path().join("big.txt"), &content).unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/big.txt"), &config).await;
+    let resp = handle_request(get("/big.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "100000");
 
@@ -527,19 +529,19 @@ async fn symlink_index_denied_when_symlinks_denied() {
         tmp.path().join("subdir").join("index.html"),
     )
     .unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &config).await;
+    let resp = handle_request(get("/subdir"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
 async fn get_put_delete_patch_all_405() {
     let tmp = TempDir::new().unwrap();
-    let config = make_config(&tmp, StaticPolicy::safe_default());
+    let state = make_state(&tmp, StaticPolicy::safe_default());
 
     for m in [Method::PUT, Method::DELETE, Method::PATCH] {
-        let resp = handle_request(method(m.clone(), "/file"), &config).await;
+        let resp = handle_request(method(m.clone(), "/file"), &state).await;
         assert_eq!(
             resp.status(),
             StatusCode::METHOD_NOT_ALLOWED,

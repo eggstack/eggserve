@@ -3,7 +3,7 @@ use std::time::SystemTime;
 
 use hyper::{Method, Request, Response};
 
-use crate::config::ServeConfig;
+use crate::config::ServeState;
 use crate::fs::{ResolvedResource, RootGuard};
 use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
@@ -11,15 +11,25 @@ use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
 use crate::response::BoxBodyInner;
 use crate::response::{
     bad_request, directory_listing_response, file_response, forbidden, internal_error,
-    method_not_allowed, not_found,
+    method_not_allowed, not_found, payload_too_large, service_unavailable,
 };
 
-pub async fn handle_request<B>(req: Request<B>, config: &ServeConfig) -> Response<BoxBodyInner> {
+pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<BoxBodyInner> {
+    let config = &state.config;
+
     match *req.method() {
         Method::GET | Method::HEAD => {
             let uri = req.uri();
             let path_str = uri.path();
             let is_head = *req.method() == Method::HEAD;
+
+            if let Some(content_length) = req.headers().get("content-length") {
+                if let Ok(len) = content_length.to_str().unwrap_or("0").parse::<u64>() {
+                    if len > config.limits.max_request_body_bytes {
+                        return payload_too_large();
+                    }
+                }
+            }
 
             let path_policy = PathPolicy {
                 dotfiles: match config.static_policy.dotfiles {
@@ -53,7 +63,15 @@ pub async fn handle_request<B>(req: Request<B>, config: &ServeConfig) -> Respons
                         Err(_) => return internal_error(),
                     };
 
-                    file_response(tokio_file, len, content_type, last_modified, etag, is_head)
+                    let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
+                        Ok(p) => p,
+                        Err(_) => return service_unavailable(),
+                    };
+
+                    let resp =
+                        file_response(tokio_file, len, content_type, last_modified, etag, is_head);
+                    drop(permit);
+                    resp
                 }
                 ResolvedResource::Directory(dir) => {
                     handle_directory(&dir.path, config, is_head).await
@@ -68,7 +86,7 @@ pub async fn handle_request<B>(req: Request<B>, config: &ServeConfig) -> Respons
 
 async fn handle_directory(
     dir_path: &std::path::Path,
-    config: &ServeConfig,
+    config: &crate::config::ServeConfig,
     is_head: bool,
 ) -> Response<BoxBodyInner> {
     let index_path = dir_path.join("index.html");
@@ -163,24 +181,27 @@ fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::{ServeConfig, ServeState};
     use http_body_util::Empty;
     use hyper::body::Bytes;
     use hyper::StatusCode;
     use std::fs;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
-    fn setup_test_config() -> (TempDir, ServeConfig) {
+    fn setup_test_state() -> (TempDir, ServeState) {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
         fs::write(tmp.path().join(".env"), "secret").unwrap();
         fs::create_dir(tmp.path().join("subdir")).unwrap();
         fs::write(tmp.path().join("subdir").join("file.txt"), "file").unwrap();
 
-        let config = ServeConfig {
+        let config = Arc::new(ServeConfig {
             root: tmp.path().to_path_buf(),
             ..ServeConfig::default()
-        };
-        (tmp, config)
+        });
+        let state = ServeState::new(config);
+        (tmp, state)
     }
 
     fn req_with_path(method: Method, path: &str) -> Request<Empty<Bytes>> {
@@ -193,8 +214,8 @@ mod tests {
 
     #[tokio::test]
     async fn handle_get_existing_file_returns_200() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/hello.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/hello.txt"), &state).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get("content-type").unwrap(),
@@ -205,42 +226,42 @@ mod tests {
 
     #[tokio::test]
     async fn handle_head_existing_file_returns_200() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::HEAD, "/hello.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::HEAD, "/hello.txt"), &state).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(resp.headers().get("content-length").unwrap(), "5");
     }
 
     #[tokio::test]
     async fn handle_get_missing_file_returns_404() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/nope.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/nope.txt"), &state).await;
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 
     #[tokio::test]
     async fn handle_get_dotfile_returns_403() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/.env"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/.env"), &state).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn handle_get_directory_without_index_returns_403() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/subdir"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/subdir"), &state).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn handle_get_directory_with_index_serves_index() {
-        let (_tmp, config) = setup_test_config();
+        let (_tmp, state) = setup_test_state();
         fs::write(
-            config.root.join("subdir").join("index.html"),
+            state.config.root.join("subdir").join("index.html"),
             "<html>hi</html>",
         )
         .unwrap();
-        let resp = handle_request(req_with_path(Method::GET, "/subdir"), &config).await;
+        let resp = handle_request(req_with_path(Method::GET, "/subdir"), &state).await;
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get("content-type").unwrap(),
@@ -250,37 +271,37 @@ mod tests {
 
     #[tokio::test]
     async fn handle_get_post_returns_405() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::POST, "/hello.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::POST, "/hello.txt"), &state).await;
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");
     }
 
     #[tokio::test]
     async fn handle_get_put_returns_405() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::PUT, "/hello.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::PUT, "/hello.txt"), &state).await;
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 
     #[tokio::test]
     async fn handle_get_windows_reserved_returns_403() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/CON"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/CON"), &state).await;
         assert_eq!(resp.status(), StatusCode::FORBIDDEN);
     }
 
     #[tokio::test]
     async fn handle_get_malformed_percent_returns_400() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/%ZZ"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/%ZZ"), &state).await;
         assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]
     async fn handle_get_etag_and_last_modified_present() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/hello.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/hello.txt"), &state).await;
         assert!(resp.headers().get("etag").is_some());
         assert!(resp.headers().get("last-modified").is_some());
         assert_eq!(
@@ -291,11 +312,62 @@ mod tests {
 
     #[tokio::test]
     async fn handle_get_nosniff_header() {
-        let (_tmp, config) = setup_test_config();
-        let resp = handle_request(req_with_path(Method::GET, "/hello.txt"), &config).await;
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::GET, "/hello.txt"), &state).await;
         assert_eq!(
             resp.headers().get("x-content-type-options").unwrap(),
             "nosniff"
         );
+    }
+
+    #[tokio::test]
+    async fn handle_get_with_content_length_body_returns_413() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "1024")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn handle_get_with_zero_content_length_allowed() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "0")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn file_stream_exhaustion_returns_503() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("big.txt"), "x").unwrap();
+        let config = Arc::new(ServeConfig {
+            root: tmp.path().to_path_buf(),
+            ..ServeConfig::default()
+        });
+        let state = ServeState::new(config);
+        let max = state.config.limits.max_file_streams;
+        let mut permits = Vec::with_capacity(max);
+        for _ in 0..max {
+            permits.push(
+                state
+                    .file_stream_semaphore
+                    .clone()
+                    .try_acquire_owned()
+                    .unwrap(),
+            );
+        }
+        let resp = handle_request(req_with_path(Method::GET, "/big.txt"), &state).await;
+        assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+        drop(permits);
     }
 }

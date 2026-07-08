@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Static file serving with safe defaults (plan 003) is implemented.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Resource limits and operational hardening (plan 004) are implemented.
 
 ## Non-negotiables
 
@@ -21,9 +21,9 @@ eggserve/
 │   │   ├── Cargo.toml
 │   │   └── src/
 │   │       ├── lib.rs
-│   │       ├── config.rs   # ServeConfig with bind, root, limits, policy
+│   │       ├── config.rs   # ServeConfig, ServeState (config + file-stream semaphore)
 │   │       ├── policy.rs   # StaticPolicy, symlink/dotfile/listing policies
-│   │       ├── limits.rs   # connection limits, header/target sizes, timeouts
+│   │       ├── limits.rs   # Limits: connection count, file streams, header/target/body sizes, timeouts
 │   │       ├── error.rs    # error taxonomy (Config, Bind, Runtime, RequestRejected, Io)
 │   │       ├── path/       # path confinement engine
 │   │       │   ├── mod.rs          # ConfinedPath entry point
@@ -35,14 +35,14 @@ eggserve/
 │   │       │   └── platform.rs     # Windows reserved names, ADS, drives
 │   │       ├── fs/         # filesystem confinement
 │   │       │   └── mod.rs          # RootGuard, ResolvedResource
-│   │       ├── response.rs # file streaming, directory listing HTML, error responses
+│   │       ├── response.rs # file streaming, directory listing HTML, error responses (413, 503)
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
-│   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, filesystem resolution, index, ETag
+│   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
 │   │       └── telemetry.rs # startup logging
 │   └── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │       ├── Cargo.toml
 │       └── src/
-│           ├── main.rs     # HTTP accept loop with graceful shutdown
+│           ├── main.rs     # HTTP accept loop with connection semaphore, timeouts, graceful shutdown
 │           ├── args.rs     # manual argument parsing
 │           └── shutdown.rs # signal handling (Ctrl+C, SIGTERM)
 ├── docs/                   # project documentation
