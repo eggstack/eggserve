@@ -23,10 +23,7 @@ pub struct Args {
     pub quiet: bool,
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
-    max_header_bytes: Option<usize>,
-    max_request_target_bytes: Option<usize>,
     header_read_timeout: Option<Duration>,
-    idle_timeout: Option<Duration>,
     response_write_timeout: Option<Duration>,
 }
 
@@ -49,10 +46,7 @@ impl Args {
         let mut quiet = false;
         let mut max_connections: Option<usize> = None;
         let mut max_file_streams: Option<usize> = None;
-        let mut max_header_bytes: Option<usize> = None;
-        let mut max_request_target_bytes: Option<usize> = None;
         let mut header_read_timeout: Option<Duration> = None;
-        let mut idle_timeout: Option<Duration> = None;
         let mut response_write_timeout: Option<Duration> = None;
         let mut positional_args: Vec<String> = Vec::new();
 
@@ -67,11 +61,17 @@ impl Args {
                 "--bind" => {
                     i += 1;
                     let addr = args.get(i).ok_or("--bind requires an argument")?;
-                    let parsed: SocketAddr = addr
-                        .parse()
-                        .map_err(|e| format!("invalid bind address '{}': {}", addr, e))?;
-                    bind_ip = parsed.ip();
-                    bind_port = parsed.port();
+                    if let Ok(parsed) = addr.parse::<SocketAddr>() {
+                        bind_ip = parsed.ip();
+                        bind_port = parsed.port();
+                    } else if let Ok(ip) = addr.parse::<IpAddr>() {
+                        bind_ip = ip;
+                    } else {
+                        return Err(format!(
+                            "invalid bind address '{}': expected HOST or HOST:PORT",
+                            addr
+                        ));
+                    }
                 }
                 "--port" => {
                     i += 1;
@@ -141,25 +141,6 @@ impl Args {
                             .map_err(|e| format!("invalid max-file-streams '{}': {}", val, e))?,
                     );
                 }
-                "--max-header-bytes" => {
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--max-header-bytes requires an argument")?;
-                    max_header_bytes = Some(
-                        val.parse()
-                            .map_err(|e| format!("invalid max-header-bytes '{}': {}", val, e))?,
-                    );
-                }
-                "--max-request-target-bytes" => {
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--max-request-target-bytes requires an argument")?;
-                    max_request_target_bytes = Some(val.parse().map_err(|e| {
-                        format!("invalid max-request-target-bytes '{}': {}", val, e)
-                    })?);
-                }
                 "--header-timeout" => {
                     i += 1;
                     let val = args.get(i).ok_or("--header-timeout requires an argument")?;
@@ -167,14 +148,6 @@ impl Args {
                         .parse()
                         .map_err(|e| format!("invalid header-timeout '{}': {}", val, e))?;
                     header_read_timeout = Some(Duration::from_secs(secs));
-                }
-                "--idle-timeout" => {
-                    i += 1;
-                    let val = args.get(i).ok_or("--idle-timeout requires an argument")?;
-                    let secs: u64 = val
-                        .parse()
-                        .map_err(|e| format!("invalid idle-timeout '{}': {}", val, e))?;
-                    idle_timeout = Some(Duration::from_secs(secs));
                 }
                 "--write-timeout" => {
                     i += 1;
@@ -232,10 +205,7 @@ impl Args {
             quiet,
             max_connections,
             max_file_streams,
-            max_header_bytes,
-            max_request_target_bytes,
             header_read_timeout,
-            idle_timeout,
             response_write_timeout,
         })
     }
@@ -256,17 +226,8 @@ impl Args {
         if let Some(v) = self.max_file_streams {
             limits.max_file_streams = v;
         }
-        if let Some(v) = self.max_header_bytes {
-            limits.max_header_bytes = v;
-        }
-        if let Some(v) = self.max_request_target_bytes {
-            limits.max_request_target_bytes = v;
-        }
         if let Some(v) = self.header_read_timeout {
             limits.header_read_timeout = v;
-        }
-        if let Some(v) = self.idle_timeout {
-            limits.idle_timeout = v;
         }
         if let Some(v) = self.response_write_timeout {
             limits.response_write_timeout = v;
@@ -282,7 +243,7 @@ pub fn print_usage() {
     eprintln!();
     eprintln!("Options:");
     eprintln!("  --directory <DIR>         Root directory to serve (default: current directory)");
-    eprintln!("  --bind <HOST>             Bind host (default: 127.0.0.1)");
+    eprintln!("  --bind <HOST[:PORT]>      Bind host or host:port (default: 127.0.0.1)");
     eprintln!("  --port <PORT>             Bind port (default: 8000)");
     eprintln!("  --addr <HOST:PORT>        Full socket address (overrides --bind and --port)");
     eprintln!(
@@ -295,10 +256,7 @@ pub fn print_usage() {
     eprintln!("  --quiet                   Suppress startup banner except errors");
     eprintln!("  --max-connections <N>      Max concurrent connections (default: 64)");
     eprintln!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
-    eprintln!("  --max-header-bytes <N>     Max header bytes (default: 32768)");
-    eprintln!("  --max-request-target-bytes <N>  Max request target bytes (default: 8192)");
     eprintln!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
-    eprintln!("  --idle-timeout <SECS>      Idle keep-alive timeout in seconds (default: 30)");
     eprintln!("  --write-timeout <SECS>     Response write timeout in seconds (default: 60)");
     eprintln!("  -h, --help                Print this help message");
     eprintln!("  -V, --version             Print version");
@@ -362,6 +320,20 @@ mod tests {
     fn bind_and_port_separate_flags() {
         let args = parse(&["--bind", "192.168.1.1:3000"]).unwrap();
         assert_eq!(args.bind, "192.168.1.1:3000".parse().unwrap());
+    }
+
+    #[test]
+    fn bind_host_only_preserves_default_port() {
+        let args = parse(&["--bind", "192.168.1.1"]).unwrap();
+        assert_eq!(args.bind.ip(), "192.168.1.1".parse::<IpAddr>().unwrap());
+        assert_eq!(args.bind.port(), 8000);
+    }
+
+    #[test]
+    fn bind_invalid_address_fails() {
+        let result = parse(&["--bind", "not-an-address"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid bind address"));
     }
 
     #[test]

@@ -23,8 +23,13 @@ The goal is that a user familiar with `python -m http.server` can switch to `egg
 | Symlinks | platform behavior | denied | `--follow-symlinks` |
 | Methods | basic GET/HEAD | GET/HEAD | none initially |
 | CGI | separate module | unsupported | unsupported |
-| Dotfiles | served | denied | (not yet available) |
+| Dotfiles | served | denied | `--allow-dotfiles` |
+| Percent encoding | single-pass decode | conservative single-pass decode | — |
 | `python -m` invocation | `python -m http.server` | `python -m eggserve` | (deferred to plan 005) |
+
+### Percent encoding behavior
+
+eggserve performs single-pass percent decoding. Double-encoded paths (`%252e%252e`) decode to literal filenames (`%2e%2e`), not to traversal sequences. This is more conservative than `python -m http.server`, which may follow double-encoded paths differently. In practice, this means double-encoded traversal attempts will resolve to 404 (file not found) rather than escaping the root.
 
 ## Invocation shape
 

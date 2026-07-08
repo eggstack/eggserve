@@ -16,7 +16,7 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 |------|-------------|---------|
 | `--directory DIR` | Root directory to serve | `.` (current directory) |
 | `--addr HOST:PORT` | Bind address (sets both host and port) | `127.0.0.1:8000` |
-| `--bind HOST:PORT` | Bind address (alias for `--addr`) | `127.0.0.1:8000` |
+| `--bind HOST[:PORT]` | Bind host or host:port (alias for `--addr`) | `127.0.0.1:8000` |
 | `--port PORT` | Port to listen on (overrides `--addr` port) | `8000` |
 | `PORT` | Positional port argument (overrides all port sources) | `8000` |
 | `--public` | Bind to all interfaces (required for non-loopback binds) | off |
@@ -39,15 +39,12 @@ Binding to `0.0.0.0` or a non-loopback address without `--public` is rejected wi
 |------|-------------|---------|
 | `--max-connections N` | Maximum concurrent connections | `64` |
 | `--max-file-streams N` | Maximum concurrent file streams | `32` |
-| `--max-header-bytes N` | Maximum header size in bytes | `32768` |
-| `--max-request-target-bytes N` | Maximum request target size in bytes | `8192` |
 
 ### Timeouts
 
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--header-timeout SECS` | Header read timeout (seconds) | `10` |
-| `--idle-timeout SECS` | Idle keep-alive timeout (seconds) | `30` |
 | `--write-timeout SECS` | Response write timeout (seconds) | `60` |
 
 ### Output

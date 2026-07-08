@@ -89,6 +89,93 @@ impl RootGuard {
             Err(_) => ResolvedResource::NotFound,
         }
     }
+
+    pub fn resolve_index(
+        &self,
+        dir_confined: &ConfinedPath,
+        policy: &StaticPolicy,
+    ) -> ResolvedResource {
+        let mut candidate = self.canonical_root.clone();
+
+        for component in dir_confined.components() {
+            if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
+                return ResolvedResource::Denied(PathRejection::DotfileDenied);
+            }
+            candidate.push(component);
+        }
+
+        candidate.push("index.html");
+
+        self.resolve_file_in_dir(&candidate, policy)
+    }
+
+    pub fn resolve_index_at(
+        &self,
+        dir_canonical: &Path,
+        policy: &StaticPolicy,
+    ) -> ResolvedResource {
+        if !dir_canonical.starts_with(&self.canonical_root) {
+            return ResolvedResource::Denied(PathRejection::ParentComponent);
+        }
+
+        let candidate = dir_canonical.join("index.html");
+
+        self.resolve_file_in_dir(&candidate, policy)
+    }
+
+    fn resolve_file_in_dir(&self, candidate: &Path, policy: &StaticPolicy) -> ResolvedResource {
+        if policy.dotfiles == DotfilePolicy::Denied {
+            if let Some(name) = candidate.file_name() {
+                if name.to_string_lossy().starts_with('.') {
+                    return ResolvedResource::Denied(PathRejection::DotfileDenied);
+                }
+            }
+        }
+
+        if policy.symlinks == SymlinkPolicy::Denied {
+            match fs::symlink_metadata(candidate) {
+                Ok(meta) => {
+                    if meta.file_type().is_symlink() {
+                        return ResolvedResource::Denied(PathRejection::ParentComponent);
+                    }
+                }
+                Err(e) => {
+                    if e.kind() == std::io::ErrorKind::NotFound {
+                        return ResolvedResource::NotFound;
+                    }
+                    return ResolvedResource::NotFound;
+                }
+            }
+        }
+
+        let canonical = match fs::canonicalize(candidate) {
+            Ok(p) => p,
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    return ResolvedResource::NotFound;
+                }
+                return ResolvedResource::NotFound;
+            }
+        };
+
+        if !canonical.starts_with(&self.canonical_root) {
+            return ResolvedResource::Denied(PathRejection::ParentComponent);
+        }
+
+        match fs::metadata(&canonical) {
+            Ok(meta) => {
+                if meta.is_dir() {
+                    ResolvedResource::Directory(ResolvedDirectory { path: canonical })
+                } else {
+                    ResolvedResource::File(ResolvedFile {
+                        path: canonical,
+                        metadata: meta,
+                    })
+                }
+            }
+            Err(_) => ResolvedResource::NotFound,
+        }
+    }
 }
 
 #[cfg(test)]

@@ -24,7 +24,7 @@ These defaults are enforced at the library level in `eggserve-core`. They are no
 The path confinement layer enforces the following before any filesystem access:
 
 1. **Request-target parsing** — only HTTP origin-form paths (`/path`) are accepted. Absolute-form, authority-form, and asterisk-form are rejected with 400.
-2. **Percent decoding** — single-pass decoding only. Double-encoded traversal (`%252e%252e`) is not decoded twice. Malformed encodings are rejected.
+2. **Percent decoding** — single-pass decoding only. The percent-decoder converts `%XX` sequences to their byte value exactly once. Double-encoded traversal (`%252e%252e`) decodes to `%2e%2e` (a literal filename), not to `..`. After decoding, each component is re-checked: if the decoded result equals `.` or `..`, the request is rejected. This conservative approach means double-encoded paths are treated as literal filenames — they will resolve to 404 if no such file exists.
 3. **Component validation** — `.` and `..` components are rejected. Empty components are normalized away. Components containing NUL, `/`, or `\` (by default) are rejected.
 4. **Dotfile policy** — components starting with `.` are denied unless `DotfilePolicy::Serve` is explicitly configured.
 5. **Platform checks** — Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), alternate data stream syntax (`:`), and drive prefixes (`C:`) are rejected cross-platform.

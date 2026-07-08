@@ -10,8 +10,8 @@ use crate::path::{ConfinedPath, PathPolicy};
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
 use crate::response::BoxBodyInner;
 use crate::response::{
-    bad_request, directory_listing_response, file_response, forbidden, internal_error,
-    method_not_allowed, not_found, payload_too_large, service_unavailable,
+    bad_request, directory_listing_response, file_response, file_response_head, forbidden,
+    internal_error, method_not_allowed, not_found, payload_too_large, service_unavailable,
 };
 
 pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<BoxBodyInner> {
@@ -58,6 +58,10 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                     let content_type = mime_for_path(&file.path);
                     let len = file.metadata.len();
 
+                    if is_head {
+                        return file_response_head(len, content_type, last_modified, etag);
+                    }
+
                     let tokio_file = match tokio::fs::File::open(&file.path).await {
                         Ok(f) => f,
                         Err(_) => return internal_error(),
@@ -68,13 +72,10 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                         Err(_) => return service_unavailable(),
                     };
 
-                    let resp =
-                        file_response(tokio_file, len, content_type, last_modified, etag, is_head);
-                    drop(permit);
-                    resp
+                    file_response(tokio_file, len, content_type, last_modified, etag, permit)
                 }
                 ResolvedResource::Directory(dir) => {
-                    handle_directory(&dir.path, config, is_head).await
+                    handle_directory(&dir.path, config, state, is_head).await
                 }
                 ResolvedResource::NotFound => not_found(),
                 ResolvedResource::Denied(_) => forbidden(),
@@ -87,48 +88,49 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
 async fn handle_directory(
     dir_path: &std::path::Path,
     config: &crate::config::ServeConfig,
+    state: &crate::config::ServeState,
     is_head: bool,
 ) -> Response<BoxBodyInner> {
-    let index_path = dir_path.join("index.html");
-
-    let index_ok = match fs::metadata(&index_path) {
-        Ok(meta) if meta.is_file() => {
-            if config.static_policy.symlinks == crate::policy::SymlinkPolicy::Denied {
-                match fs::symlink_metadata(&index_path) {
-                    Ok(sm) => !sm.file_type().is_symlink(),
-                    Err(_) => false,
-                }
-            } else {
-                true
-            }
-        }
-        _ => false,
+    let guard = match RootGuard::new(&config.root) {
+        Ok(g) => g,
+        Err(_) => return internal_error(),
     };
 
-    if index_ok {
-        let meta = fs::metadata(&index_path).unwrap();
-        let etag = generate_etag(&meta);
-        let last_modified = meta.modified().ok();
-        let content_type = mime_for_path(&index_path);
-        let len = meta.len();
+    match guard.resolve_index_at(dir_path, &config.static_policy) {
+        ResolvedResource::File(file) => {
+            let etag = generate_etag(&file.metadata);
+            let last_modified = file.metadata.modified().ok();
+            let content_type = mime_for_path(&file.path);
+            let len = file.metadata.len();
 
-        let tokio_file = match tokio::fs::File::open(&index_path).await {
-            Ok(f) => f,
-            Err(_) => return internal_error(),
-        };
+            if is_head {
+                return file_response_head(len, content_type, last_modified, etag);
+            }
 
-        return file_response(tokio_file, len, content_type, last_modified, etag, is_head);
-    }
-
-    match config.static_policy.directory_listing {
-        DirectoryListingPolicy::Enabled => {
-            let entries = match build_listing_entries(dir_path, &config.static_policy) {
-                Ok(e) => e,
+            let tokio_file = match tokio::fs::File::open(&file.path).await {
+                Ok(f) => f,
                 Err(_) => return internal_error(),
             };
-            directory_listing_response(&entries, is_head)
+
+            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => return service_unavailable(),
+            };
+
+            file_response(tokio_file, len, content_type, last_modified, etag, permit)
         }
-        DirectoryListingPolicy::Disabled => forbidden(),
+        ResolvedResource::NotFound => match config.static_policy.directory_listing {
+            DirectoryListingPolicy::Enabled => {
+                let entries = match build_listing_entries(dir_path, &config.static_policy) {
+                    Ok(e) => e,
+                    Err(_) => return internal_error(),
+                };
+                directory_listing_response(&entries, is_head)
+            }
+            DirectoryListingPolicy::Disabled => forbidden(),
+        },
+        ResolvedResource::Denied(_) => forbidden(),
+        ResolvedResource::Directory(_) => internal_error(),
     }
 }
 

@@ -519,20 +519,18 @@ async fn large_file_returns_correct_content_length() {
 }
 
 #[tokio::test]
-async fn symlink_index_denied_when_symlinks_denied() {
+async fn intermediate_symlink_followed_but_canonicalized() {
     let tmp = TempDir::new().unwrap();
-    fs::create_dir(tmp.path().join("subdir")).unwrap();
-    fs::write(tmp.path().join("real_index.html"), "real").unwrap();
+    fs::create_dir(tmp.path().join("real_dir")).unwrap();
+    fs::write(tmp.path().join("real_dir").join("file.txt"), "content").unwrap();
     #[cfg(unix)]
-    std::os::unix::fs::symlink(
-        tmp.path().join("real_index.html"),
-        tmp.path().join("subdir").join("index.html"),
-    )
-    .unwrap();
+    std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &state).await;
-    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+    let resp = handle_request(get("/link_dir/file.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_bytes(resp).await;
+    assert_eq!(body, "content");
 }
 
 #[tokio::test]
@@ -549,4 +547,148 @@ async fn get_put_delete_patch_all_405() {
             m
         );
     }
+}
+
+#[tokio::test]
+async fn head_does_not_consume_file_stream_permit() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("file.txt"), "data").unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let max = state.config.limits.max_file_streams;
+    let mut permits = Vec::with_capacity(max);
+    for _ in 0..max {
+        permits.push(
+            state
+                .file_stream_semaphore
+                .clone()
+                .try_acquire_owned()
+                .unwrap(),
+        );
+    }
+
+    let resp = handle_request(head("/file.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    drop(permits);
+}
+
+#[tokio::test]
+async fn file_stream_permit_held_until_body_drop() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("file.txt"), "data").unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let max = state.config.limits.max_file_streams;
+    let mut permits = Vec::with_capacity(max);
+    for _ in 0..max - 1 {
+        permits.push(
+            state
+                .file_stream_semaphore
+                .clone()
+                .try_acquire_owned()
+                .unwrap(),
+        );
+    }
+
+    let resp = handle_request(get("/file.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    assert!(
+        state
+            .file_stream_semaphore
+            .clone()
+            .try_acquire_owned()
+            .is_err(),
+        "permit should be held while body exists"
+    );
+
+    drop(resp);
+
+    assert!(
+        state
+            .file_stream_semaphore
+            .clone()
+            .try_acquire_owned()
+            .is_ok(),
+        "permit should be released after body drop"
+    );
+
+    drop(permits);
+}
+
+#[tokio::test]
+async fn double_encoded_dotdot_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/%252e%252e/hello.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn double_encoded_slash_is_treated_as_literal() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/%252f%252e%252e/hello.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+}
+
+#[tokio::test]
+async fn single_encoded_dotdot_is_rejected() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/%2e%2e/hello.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn encoded_dotfile_denied() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join(".env"), "secret").unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/%2eenv"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn symlink_outside_root_denied_even_when_follow_enabled() {
+    let tmp_root = TempDir::new().unwrap();
+    let tmp_outside = TempDir::new().unwrap();
+    fs::write(tmp_outside.path().join("secret.txt"), "leaked").unwrap();
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(
+        tmp_outside.path().join("secret.txt"),
+        tmp_root.path().join("escape.txt"),
+    )
+    .unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp_root, policy);
+
+    let resp = handle_request(get("/escape.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[tokio::test]
+async fn dotfile_index_in_subdir_denied() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("subdir")).unwrap();
+    fs::write(
+        tmp.path().join("subdir").join(".index.html"),
+        "secret index",
+    )
+    .unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/subdir"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
