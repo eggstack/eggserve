@@ -97,11 +97,11 @@ async fn get_denied_dotfile_returns_403() {
     assert_eq!(body, "403 Forbidden\n");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn get_symlink_returns_403_under_safe_default() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("real.txt"), "real content").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
@@ -125,6 +125,112 @@ async fn get_directory_with_index_serves_index() {
 
     let body = body_bytes(resp).await;
     assert_eq!(body, "<html>index</html>");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn index_final_symlink_denied_when_symlinks_denied() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("subdir")).unwrap();
+    fs::write(tmp.path().join("real_index.html"), "<html>real</html>").unwrap();
+    std::os::unix::fs::symlink(
+        tmp.path().join("real_index.html"),
+        tmp.path().join("subdir").join("index.html"),
+    )
+    .unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/subdir"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn index_final_symlink_allowed_when_follow_enabled_if_inside_root() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("subdir")).unwrap();
+    fs::write(tmp.path().join("real_index.html"), "<html>real</html>").unwrap();
+    std::os::unix::fs::symlink(
+        tmp.path().join("real_index.html"),
+        tmp.path().join("subdir").join("index.html"),
+    )
+    .unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp, policy);
+
+    let resp = handle_request(get("/subdir"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_bytes(resp).await;
+    assert_eq!(body, "<html>real</html>");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn index_final_symlink_outside_root_denied_when_follow_enabled() {
+    let tmp_root = TempDir::new().unwrap();
+    let tmp_outside = TempDir::new().unwrap();
+    fs::create_dir(tmp_root.path().join("subdir")).unwrap();
+    fs::write(
+        tmp_outside.path().join("real_index.html"),
+        "<html>leaked</html>",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        tmp_outside.path().join("real_index.html"),
+        tmp_root.path().join("subdir").join("index.html"),
+    )
+    .unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp_root, policy);
+
+    let resp = handle_request(get("/subdir"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn index_under_intermediate_symlink_denied_when_symlinks_denied() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("real_dir")).unwrap();
+    fs::write(
+        tmp.path().join("real_dir").join("index.html"),
+        "<html>real</html>",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/link_dir"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn index_under_intermediate_symlink_allowed_when_follow_enabled_if_inside_root() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("real_dir")).unwrap();
+    fs::write(
+        tmp.path().join("real_dir").join("index.html"),
+        "<html>real</html>",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp, policy);
+
+    let resp = handle_request(get("/link_dir"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = body_bytes(resp).await;
+    assert_eq!(body, "<html>real</html>");
 }
 
 #[tokio::test]
@@ -366,11 +472,11 @@ async fn dotfile_allowed_when_policy_permits() {
     assert_eq!(body, "SECRET");
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn symlink_followed_when_policy_permits() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("real.txt"), "real content").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt")).unwrap();
     let policy = StaticPolicy {
         symlinks: SymlinkPolicy::Follow,
@@ -518,19 +624,97 @@ async fn large_file_returns_correct_content_length() {
     assert_eq!(body.len(), 100_000);
 }
 
+#[cfg(unix)]
 #[tokio::test]
-async fn intermediate_symlink_followed_but_canonicalized() {
+async fn intermediate_symlink_denied_when_symlinks_denied() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("real_dir")).unwrap();
     fs::write(tmp.path().join("real_dir").join("file.txt"), "content").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/link_dir/file.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn intermediate_symlink_inside_root_allowed_when_follow_enabled() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("real_dir")).unwrap();
+    fs::write(tmp.path().join("real_dir").join("file.txt"), "content").unwrap();
+    std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp, policy);
 
     let resp = handle_request(get("/link_dir/file.txt"), &state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_bytes(resp).await;
     assert_eq!(body, "content");
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn intermediate_symlink_escape_denied_when_follow_enabled() {
+    let tmp_root = TempDir::new().unwrap();
+    let tmp_outside = TempDir::new().unwrap();
+    fs::create_dir(tmp_outside.path().join("secret_dir")).unwrap();
+    fs::write(
+        tmp_outside.path().join("secret_dir").join("file.txt"),
+        "leaked",
+    )
+    .unwrap();
+    std::os::unix::fs::symlink(
+        tmp_outside.path().join("secret_dir"),
+        tmp_root.path().join("out"),
+    )
+    .unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp_root, policy);
+
+    let resp = handle_request(get("/out/file.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn final_symlink_outside_root_denied_when_follow_enabled() {
+    let tmp_root = TempDir::new().unwrap();
+    let tmp_outside = TempDir::new().unwrap();
+    fs::write(tmp_outside.path().join("secret.txt"), "leaked").unwrap();
+    std::os::unix::fs::symlink(
+        tmp_outside.path().join("secret.txt"),
+        tmp_root.path().join("escape.txt"),
+    )
+    .unwrap();
+    let policy = StaticPolicy {
+        symlinks: SymlinkPolicy::Follow,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp_root, policy);
+
+    let resp = handle_request(get("/escape.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn nested_intermediate_symlink_denied() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("a")).unwrap();
+    fs::create_dir(tmp.path().join("b")).unwrap();
+    fs::write(tmp.path().join("b").join("file.txt"), "content").unwrap();
+    std::os::unix::fs::symlink(tmp.path().join("b"), tmp.path().join("a").join("link_b")).unwrap();
+    let state = make_state(&tmp, StaticPolicy::safe_default());
+
+    let resp = handle_request(get("/a/link_b/file.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
 #[tokio::test]
@@ -657,12 +841,12 @@ async fn encoded_dotfile_denied() {
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
+#[cfg(unix)]
 #[tokio::test]
 async fn symlink_outside_root_denied_even_when_follow_enabled() {
     let tmp_root = TempDir::new().unwrap();
     let tmp_outside = TempDir::new().unwrap();
     fs::write(tmp_outside.path().join("secret.txt"), "leaked").unwrap();
-    #[cfg(unix)]
     std::os::unix::fs::symlink(
         tmp_outside.path().join("secret.txt"),
         tmp_root.path().join("escape.txt"),
@@ -679,7 +863,7 @@ async fn symlink_outside_root_denied_even_when_follow_enabled() {
 }
 
 #[tokio::test]
-async fn dotfile_index_in_subdir_denied() {
+async fn hidden_index_name_is_not_considered_index() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
     fs::write(
