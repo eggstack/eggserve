@@ -22,30 +22,41 @@ eggserve/
 
 ### `eggserve-core`
 
-The core library crate. Contains security policy, path confinement, HTTP request handling, response construction, and telemetry. This crate must **not** depend on Python packaging concerns.
+The core library crate. Contains security policy, path confinement, HTTP request handling, response construction, and a public `StartupSummary` helper. This crate must **not** depend on Python packaging concerns.
+
+#### Public API surface (alpha)
+
+The crate divides its modules into three buckets. External callers should only depend on the first two:
+
+| Bucket | Modules | Stability |
+|--------|---------|-----------|
+| Stable-ish | `config`, `limits`, `policy` | Field shapes may evolve before 1.0; breaking changes bump the major version |
+| Experimental | `service` (`handle_request`) | Body type and async surface are not stable; may change in minor releases |
+| Internal | `fs`, `path`, `response`, MIME detection, error taxonomy | Not part of the public API; crate-private (`pub(crate)`) |
+
+`service::handle_request` returns `Response<BoxBody<Bytes, Infallible>>`. The body type alias is crate-private; embedding users that need it should reach in through the public `service` module and accept the type as an opaque body type from `hyper::body::Body`. The binary crate owns stdout policy: it imports `ServeConfig::startup_summary()` and prints the banner itself.
 
 Modules:
 
-| Module | Responsibility |
-|--------|----------------|
-| `config.rs` | Configuration types (`ServeConfig` with bind address, root directory, limits, policy) and `ServeState` (runtime state with file-stream semaphore; public accessors, private fields) |
-| `policy.rs` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
-| `limits.rs` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
-| `error.rs` | Error taxonomy (`Config`, `Bind`, `Runtime`, `RequestRejected`, `PathEscape`, `Io`) |
-| `path/` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
-| `path/mod.rs` | `ConfinedPath` entry point — parse, validate, and classify request targets |
-| `path/decode.rs` | Single-pass percent decoding (rejects malformed encodings, NUL, invalid UTF-8) |
-| `path/request_target.rs` | HTTP origin-form parsing, query string stripping |
-| `path/components.rs` | Path normalization, component splitting, per-component validation |
-| `path/rejected.rs` | `PathRejection` enum — all path-level rejection reasons |
-| `path/policy.rs` | `PathPolicy` — dotfile and backslash policies for path validation |
-| `path/platform.rs` | Windows-specific checks (reserved names, ADS, drive prefixes) |
-| `fs/` | Filesystem confinement: root guard, resolved resource types |
-| `fs/mod.rs` | `RootGuard` — component-wise path resolution, canonical-root enforcement, per-component symlink/dotfile checks, `ResolvedResource` classification (`File`/`Directory`/`NotFound`/`Denied` with `SymlinkDenied`/`RootEscapeDenied` variants). Directory results carry the original safe components so index lookup can use the same resolver without ad hoc path joins. |
-| `response.rs` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses (400, 403, 404, 405, 413, 500, 503), MIME-typed headers |
-| `mime.rs` | MIME type detection via extension lookup (`phf` map), ~60 common types, `application/octet-stream` fallback |
-| `service.rs` | HTTP request handler: GET/HEAD dispatch, path validation, body-metadata validation (`Content-Length`/`Transfer-Encoding`), file-stream semaphore, filesystem resolution, index file handling via `RootGuard::resolve_child`, ETag generation, symlink-aware directory listing |
-| `telemetry.rs` | Startup logging: bind address, root, methods, policies, enforced limits |
+| Module | Visibility | Responsibility |
+|--------|------------|----------------|
+| `config.rs` | `pub` | `ServeConfig` (bind, root, limits, static policy), `ServeState` (runtime state with file-stream semaphore), `StartupSummary` (logging-friendly summary used by the binary to print the startup banner) |
+| `policy.rs` | `pub` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
+| `limits.rs` | `pub` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
+| `service.rs` | `pub` (experimental) | HTTP request handler: GET/HEAD dispatch, path validation, body-metadata validation, file-stream semaphore, filesystem resolution, index file handling via `RootGuard::resolve_child`, ETag generation, symlink-aware directory listing. Body type is crate-private. |
+| `error.rs` | `pub(crate)` | Error taxonomy (`RequestRejected`, `Io`) |
+| `path/` | `pub(crate)` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
+| `path/mod.rs` | `pub(crate)` | `ConfinedPath` entry point — parse, validate, and classify request targets |
+| `path/decode.rs` | `pub(crate)` | Single-pass percent decoding (rejects malformed encodings, NUL, invalid UTF-8) |
+| `path/request_target.rs` | `pub(crate)` | HTTP origin-form parsing, query string stripping |
+| `path/components.rs` | `pub(crate)` | Path normalization, component splitting, per-component validation |
+| `path/rejected.rs` | `pub(crate)` | `PathRejection` enum — all path-level rejection reasons (parser and filesystem). `SymlinkDenied` and `RootEscapeDenied` are produced at the `fs/` layer. |
+| `path/policy.rs` | `pub(crate)` | `PathPolicy` — dotfile and backslash policies for path validation |
+| `path/platform.rs` | `pub(crate)` | Windows-specific checks (reserved names, ADS, drive prefixes) |
+| `fs/` | `pub(crate)` | Filesystem confinement: root guard, resolved resource types |
+| `fs/mod.rs` | `pub(crate)` | `RootGuard` — component-wise path resolution, canonical-root enforcement, per-component symlink/dotfile checks, `ResolvedResource` classification (`File`/`Directory`/`NotFound`/`Denied(PathRejection)`). Each denial carries the specific `PathRejection` reason (`SymlinkDenied`, `RootEscapeDenied`, `DotfileDenied`) so tests can assert intent. HTTP responses remain a generic 403 — denial reasons are never leaked to clients. |
+| `response.rs` | `pub(crate)` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses (400, 403, 404, 405, 413, 500, 503), MIME-typed headers |
+| `mime.rs` | `pub(crate)` | MIME type detection via extension lookup (`phf` map), ~60 common types, `application/octet-stream` fallback |
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.
 

@@ -317,6 +317,42 @@ pub fn print_version() {
 mod tests {
     use super::*;
 
+    #[cfg(feature = "tls")]
+    #[test]
+    fn tls_cert_without_key_fails() {
+        let result = parse(&["--tls-cert", "/tmp/cert.pem"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--tls-key"));
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn tls_key_without_cert_fails() {
+        let result = parse(&["--tls-key", "/tmp/key.pem"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--tls-cert"));
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn no_tls_args_parses_successfully_as_plaintext_mode() {
+        let result = parse(&[]);
+        assert!(result.is_ok());
+        let args = result.unwrap();
+        assert!(args.tls_cert.is_none());
+        assert!(args.tls_key.is_none());
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn tls_cert_and_key_parse_successfully() {
+        let result = parse(&["--tls-cert", "/tmp/cert.pem", "--tls-key", "/tmp/key.pem"]);
+        assert!(result.is_ok());
+        let args = result.unwrap();
+        assert_eq!(args.tls_cert, Some(PathBuf::from("/tmp/cert.pem")));
+        assert_eq!(args.tls_key, Some(PathBuf::from("/tmp/key.pem")));
+    }
+
     fn parse(args: &[&str]) -> Result<Args, String> {
         Args::parse_from(args.iter().map(|s| s.to_string()).collect())
     }

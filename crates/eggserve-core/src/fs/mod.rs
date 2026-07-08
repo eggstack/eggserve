@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::path::ConfinedPath;
+use crate::path::{ConfinedPath, PathRejection};
 use crate::policy::{DotfilePolicy, StaticPolicy, SymlinkPolicy};
 
 #[derive(Debug, Clone)]
@@ -23,7 +23,7 @@ pub(crate) enum ResolvedResource {
     File(ResolvedFile),
     Directory(ResolvedDirectory),
     NotFound,
-    Denied(()),
+    Denied(#[allow(dead_code)] PathRejection),
 }
 
 pub(crate) struct RootGuard {
@@ -71,7 +71,7 @@ impl RootGuard {
 
         for component in components {
             if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
-                return ResolvedResource::Denied(());
+                return ResolvedResource::Denied(PathRejection::DotfileDenied);
             }
 
             candidate.push(component);
@@ -80,7 +80,7 @@ impl RootGuard {
                 match fs::symlink_metadata(&candidate) {
                     Ok(meta) => {
                         if meta.file_type().is_symlink() {
-                            return ResolvedResource::Denied(());
+                            return ResolvedResource::Denied(PathRejection::SymlinkDenied);
                         }
                     }
                     Err(e) => {
@@ -104,7 +104,7 @@ impl RootGuard {
         };
 
         if !canonical.starts_with(&self.canonical_root) {
-            return ResolvedResource::Denied(());
+            return ResolvedResource::Denied(PathRejection::RootEscapeDenied);
         }
 
         match fs::metadata(&canonical) {
@@ -190,7 +190,10 @@ mod tests {
         let path = parse_path("/link.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
-        assert!(matches!(result, ResolvedResource::Denied(())));
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::SymlinkDenied)
+        ));
     }
 
     #[cfg(unix)]
@@ -222,7 +225,10 @@ mod tests {
         let path = parse_path("/link_dir/file.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
-        assert!(matches!(result, ResolvedResource::Denied(())));
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::SymlinkDenied)
+        ));
     }
 
     #[cfg(unix)]
@@ -264,7 +270,10 @@ mod tests {
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
         let result = guard.resolve(&path, &policy);
-        assert!(matches!(result, ResolvedResource::Denied(())));
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::RootEscapeDenied)
+        ));
     }
 
     #[cfg(unix)]
@@ -284,7 +293,10 @@ mod tests {
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
         let result = guard.resolve(&path, &policy);
-        assert!(matches!(result, ResolvedResource::Denied(())));
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::RootEscapeDenied)
+        ));
     }
 
     #[cfg(unix)]
@@ -301,7 +313,10 @@ mod tests {
         let path = parse_path("/a/link_b/file.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
-        assert!(matches!(result, ResolvedResource::Denied(())));
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::SymlinkDenied)
+        ));
     }
 
     #[test]
@@ -330,7 +345,10 @@ mod tests {
         let path = parse_path_with_policy("/.env", &path_policy);
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
-        assert!(matches!(result, ResolvedResource::Denied(())));
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::DotfileDenied)
+        ));
     }
 
     #[test]

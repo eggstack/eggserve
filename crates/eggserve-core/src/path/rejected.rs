@@ -18,9 +18,7 @@ pub enum PathRejection {
     WindowsPrefixDenied,
     WindowsReservedNameDenied,
     WindowsAlternateStreamDenied,
-    #[allow(dead_code)]
     SymlinkDenied,
-    #[allow(dead_code)]
     RootEscapeDenied,
 }
 

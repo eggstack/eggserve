@@ -84,10 +84,14 @@ Methods:
 
 | Condition | Exception |
 |-----------|-----------|
-| Bind to 0.0.0.0 without `public=True` | `ValueError` |
+| Invalid `port` (non-int, out of range, bool) | `ValueError` (at config construction) |
+| Invalid `log_format` (not in `text`/`json`/`none`) | `ValueError` (at config construction) |
+| Bind to `0.0.0.0` or `::` without `public=True` | `ValueError` (at config construction) |
 | Binary not found | `FileNotFoundError` |
 | Server already running | `RuntimeError` |
 | Interrupted | `KeyboardInterrupt` (normal) |
+
+`ServeConfig.__post_init__` validates port, log format, and public-bind combinations so invalid configurations fail before the subprocess is spawned. The Rust CLI performs the same checks independently as defense in depth.
 
 ## Defaults
 

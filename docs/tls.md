@@ -24,6 +24,10 @@ Or when building from the workspace root:
 cargo build -p eggserve-bin --features tls
 ```
 
+### TLS feature compiled, no TLS flags
+
+When eggserve is built with the `tls` feature but invoked without `--tls-cert` and `--tls-key`, the binary runs as plain HTTP. The TLS feature only adds the capability to terminate TLS when both flags are supplied; it does not force TLS. This is deliberate: operators who keep the feature enabled in their distribution get a working plaintext server by default and opt into HTTPS explicitly per invocation.
+
 ## Usage
 
 ```sh
@@ -32,6 +36,10 @@ eggserve --tls-cert cert.pem --tls-key key.pem --port 8443
 ```
 
 Both `--tls-cert` and `--tls-key` must be provided together. If only one is provided, eggserve exits with an error.
+
+## Handshake timeout
+
+TLS handshakes are bounded by the same timeout as HTTP header reads (`--header-timeout`, default 10 seconds). A client that opens a TCP connection but never completes the TLS handshake will hold a connection permit for at most that duration; after timeout the connection is dropped silently. The connection-permit semaphore prevents an unbounded number of pending handshakes, and the per-handshake timeout prevents a single slow client from holding a permit indefinitely.
 
 ## Certificate requirements
 

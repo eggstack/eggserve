@@ -95,10 +95,7 @@ pub fn load_tls_config(cert_path: &Path, key_path: &Path) -> Result<Arc<ServerCo
 
     let key = private_key.ok_or(TlsError::NoPrivateKeyFound)?;
 
-    let cert_chain: Vec<_> = certs
-        .into_iter()
-        .map(rustls::pki_types::CertificateDer::from)
-        .collect();
+    let cert_chain: Vec<_> = certs.into_iter().collect();
 
     let config = ServerConfig::builder()
         .with_no_client_auth()

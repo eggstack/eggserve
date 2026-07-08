@@ -16,7 +16,7 @@ jobs:
           components: rustfmt
       - run: cargo fmt --all -- --check
 
-  check:
+  rust:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
@@ -29,6 +29,29 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+
+  tls:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
+      - run: cargo test -p eggserve-bin --features tls
+
+  python-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - name: Run Python API unit tests
+        run: |
+          PYTHONPATH=crates/eggserve-python/python \
+            python -m unittest eggserve.test_server -v
 
   python-wheel:
     runs-on: ubuntu-latest
@@ -43,11 +66,25 @@ jobs:
         working-directory: crates/eggserve-python
       - run: pip install dist/*.whl
       - run: python -m eggserve --help
+      - name: Wheel import smoke test
+        run: |
+          python - <<'PY'
+          from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory
+          print(ServeConfig())
+          PY
 
   audit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-audit
+      - run: cargo install cargo-audit --locked
       - run: cargo audit
+
+  deny:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-deny --locked
+      - run: cargo deny check

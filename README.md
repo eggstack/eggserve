@@ -36,9 +36,9 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 # Options:
 #   --directory DIR          Root directory to serve (default: .)
 #   --addr HOST:PORT         Bind address (default: 127.0.0.1:8000)
-#   --bind HOST:PORT         Bind address (alias for --addr)
+#   --bind HOST              Bind host (host:port or bare host)
 #   --port PORT              Port to listen on
-#   --public                 Bind to all interfaces
+#   --public                 Bind to all interfaces (required for 0.0.0.0)
 #   --directory-listing      Enable directory listing
 #   --follow-symlinks        Follow symlinks
 #   --allow-dotfiles         Serve dotfiles
@@ -46,15 +46,12 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 #   --quiet                  Suppress startup banner
 #   --max-connections N      Max concurrent connections (default: 64)
 #   --max-file-streams N     Max concurrent file streams (default: 32)
-#   --max-header-bytes N     Max header size (default: 32768)
-#   --max-request-target-bytes N  Max request target size (default: 8192)
-#   --header-timeout SECS    Header read timeout (default: 10)
-#   --idle-timeout SECS      Idle keep-alive timeout (default: 30)
+#   --header-timeout SECS    Header read timeout, also bounds TLS handshake (default: 10)
 #   --write-timeout SECS     Response write timeout (default: 60)
 
 # TLS options (requires tls feature):
-#   --tls-cert PATH          PEM certificate chain
-#   --tls-key PATH           PEM private key
+#   --tls-cert PATH          PEM certificate chain (requires --tls-key)
+#   --tls-key PATH           PEM private key (requires --tls-cert)
 ```
 
 ## Security defaults
@@ -76,7 +73,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 011 complete.** Public API has been tightened with conservative visibility, module-level documentation added, and release hardening completed. See [plans/011-library-stabilization-release-hardening.md](plans/011-library-stabilization-release-hardening.md) for details. Optional TLS support via rustls is available behind the `tls` feature flag. See [plans/](plans/) for the full sequence.
+**Plan 012 complete.** CI now exercises the TLS feature build, Python API tests, and `cargo deny`. TLS handshakes are bounded by the header-read timeout. Filesystem denial reasons are preserved internally (no dead `PathRejection` variants). The Python `ServeConfig` validates port, log format, and public-bind combinations at construction. The `eggserve-core` public API surface has been tightened: `config`, `limits`, `policy` are stable-ish; `service` is experimental; `fs`, `path`, `response`, MIME detection, and telemetry are internal. Optional TLS support via rustls is available behind the `tls` feature flag. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
@@ -138,20 +135,28 @@ Before pushing, run the full validation sequence:
 cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
-cargo check --workspace --features tls
+cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
+cargo test -p eggserve-bin --features tls
 cargo audit
+cargo deny check
 ```
 
-Python packaging smoke test:
+Python tests and packaging smoke:
 
 ```sh
+# Python API unit tests (no wheel build needed)
+PYTHONPATH=crates/eggserve-python/python \
+  python -m unittest eggserve.test_server -v
+
+# Python packaging smoke test
 cd crates/eggserve-python
 maturin build --release -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
-
-# Python API smoke test
-python -c "from eggserve import ServeConfig, StaticPolicy, serve_directory; print(ServeConfig())"
+python - <<'PY'
+from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory
+print(ServeConfig())
+PY
 ```
 
 ## Development

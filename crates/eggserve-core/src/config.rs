@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::sync::Semaphore;
 
 use crate::limits::Limits;
-use crate::policy::StaticPolicy;
+use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -25,6 +25,37 @@ impl Default for ServeConfig {
             root: PathBuf::from("."),
             limits: Limits::default(),
             static_policy: StaticPolicy::safe_default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+#[must_use]
+pub struct StartupSummary {
+    pub bind_is_unspecified: bool,
+    pub directory_listing_enabled: bool,
+    pub symlinks_followed: bool,
+    pub dotfiles_served: bool,
+    pub max_connections: usize,
+    pub max_file_streams: usize,
+}
+
+impl ServeConfig {
+    /// Build a logging-friendly summary of this configuration.
+    ///
+    /// The binary crate uses this to print a startup banner. Callers that
+    /// embed `eggserve-core` directly can use it for their own logging.
+    pub fn startup_summary(&self) -> StartupSummary {
+        StartupSummary {
+            bind_is_unspecified: self.bind.ip().is_unspecified(),
+            directory_listing_enabled: matches!(
+                self.static_policy.directory_listing,
+                DirectoryListingPolicy::Enabled
+            ),
+            symlinks_followed: matches!(self.static_policy.symlinks, SymlinkPolicy::Follow),
+            dotfiles_served: matches!(self.static_policy.dotfiles, DotfilePolicy::Serve),
+            max_connections: self.limits.max_connections,
+            max_file_streams: self.limits.max_file_streams,
         }
     }
 }
@@ -66,5 +97,16 @@ mod tests {
     fn default_config_binds_port_8000() {
         let config = ServeConfig::default();
         assert_eq!(config.bind.port(), 8000);
+    }
+
+    #[test]
+    fn default_startup_summary_is_safe() {
+        let summary = ServeConfig::default().startup_summary();
+        assert!(!summary.bind_is_unspecified);
+        assert!(!summary.directory_listing_enabled);
+        assert!(!summary.symlinks_followed);
+        assert!(!summary.dotfiles_served);
+        assert_eq!(summary.max_connections, 64);
+        assert_eq!(summary.max_file_streams, 32);
     }
 }

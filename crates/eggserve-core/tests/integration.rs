@@ -4,7 +4,6 @@ use std::sync::Arc;
 use eggserve_core::config::{ServeConfig, ServeState};
 use eggserve_core::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
 use eggserve_core::service::handle_request;
-use http_body_util::BodyExt;
 use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode};
 use tempfile::TempDir;
@@ -42,7 +41,12 @@ fn method(method: Method, path: &str) -> Request<http_body_util::Empty<Bytes>> {
         .unwrap()
 }
 
-async fn body_bytes(resp: hyper::Response<eggserve_core::BoxBodyInner>) -> Bytes {
+async fn body_bytes<B>(resp: hyper::Response<B>) -> Bytes
+where
+    B: hyper::body::Body + Send,
+    B::Error: std::fmt::Debug,
+{
+    use http_body_util::BodyExt;
     resp.into_body().collect().await.unwrap().to_bytes()
 }
 

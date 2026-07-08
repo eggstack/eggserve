@@ -7,10 +7,13 @@
 - [ ] `cargo fmt --all -- --check` passes
 - [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [ ] `cargo test --workspace` passes
-- [ ] `cargo check --workspace --features tls` passes
+- [ ] `cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings` passes
+- [ ] `cargo test -p eggserve-bin --features tls` passes
 - [ ] Platform CI green (Linux, macOS, Windows)
+- [ ] Python API unit tests pass (`PYTHONPATH=crates/eggserve-python/python python -m unittest eggserve.test_server -v`)
 - [ ] Python wheel smoke test passes
 - [ ] `cargo audit` clean or exceptions documented
+- [ ] `cargo deny check` clean or exceptions documented
 - [ ] Dependency/license review complete
 - [ ] README examples manually verified
 - [ ] Security policy reviewed

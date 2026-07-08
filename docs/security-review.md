@@ -45,6 +45,8 @@ This is sufficient to deny:
 - Symlink escape (both intermediate and final)
 - Double-encoded traversal (`%252e%252e`)
 
+Each denial reason is preserved in the `ResolvedResource::Denied(PathRejection)` variant so the boundary between parser-layer and filesystem-layer denials is explicit. `SymlinkDenied`, `RootEscapeDenied`, and `DotfileDenied` are produced by the filesystem layer; all other variants are produced by the parser.
+
 ### Known limitation
 
 This is **not** descriptor-relative (`openat`-style) traversal. There is a theoretical TOCTOU window between the `symlink_metadata` check and the eventual file open. This window is narrow in practice (no concurrent filesystem modification assumed) but is acknowledged as a hardening target for 1.0.

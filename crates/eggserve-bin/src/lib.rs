@@ -11,7 +11,6 @@ use tokio::sync::{broadcast, Semaphore};
 
 use eggserve_core::config::{ServeConfig, ServeState};
 use eggserve_core::service::handle_request;
-use eggserve_core::telemetry;
 
 pub mod args;
 mod shutdown;
@@ -62,7 +61,7 @@ pub fn run() {
     let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
 
     if !quiet {
-        telemetry::log_startup(&config);
+        log_startup(&config, config.startup_summary());
         #[cfg(feature = "tls")]
         if tls_config.is_some() {
             println!(
@@ -191,12 +190,18 @@ async fn accept_loop_with_tls(
                             match tls_config {
                                 Some(tls_config) => {
                                     let tls_accept = tokio_rustls::TlsAcceptor::from(tls_config);
-                                    match tls_accept.accept(stream).await {
-                                        Ok(tls_stream) => {
+                                    match tokio::time::timeout(
+                                        header_timeout,
+                                        tls_accept.accept(stream),
+                                    )
+                                    .await
+                                    {
+                                        Ok(Ok(tls_stream)) => {
                                             let io = TokioIo::new(tls_stream);
                                             serve_connection(io, state, header_timeout, write_timeout, &mut shutdown_rx).await;
                                         }
-                                        Err(_) => return,
+                                        Ok(Err(_)) => {}
+                                        Err(_) => {}
                                     }
                                 }
                                 None => {
@@ -262,5 +267,48 @@ async fn serve_connection<I>(
         _ = shutdown_rx.recv() => {
             conn.as_mut().graceful_shutdown();
         }
+    }
+}
+
+fn log_startup(config: &ServeConfig, summary: eggserve_core::config::StartupSummary) {
+    println!("eggserve {}", env!("CARGO_PKG_VERSION"));
+    println!("Serving root: {}", config.root.display());
+    println!("Listening: http://{}", config.bind);
+    println!("Methods: GET, HEAD");
+    println!(
+        "Directory listing: {}",
+        if summary.directory_listing_enabled {
+            "enabled"
+        } else {
+            "disabled"
+        }
+    );
+    println!(
+        "Symlinks: {}",
+        if summary.symlinks_followed {
+            "follow"
+        } else {
+            "denied"
+        }
+    );
+    println!(
+        "Dotfiles: {}",
+        if summary.dotfiles_served {
+            "serve"
+        } else {
+            "denied"
+        }
+    );
+    println!("Max connections: {}", summary.max_connections);
+    println!("Max file streams: {}", summary.max_file_streams);
+
+    if summary.bind_is_unspecified {
+        eprintln!("WARNING: public bind enabled");
+    }
+    if summary.symlinks_followed {
+        eprintln!("WARNING: symlink following enabled");
+    }
+    if summary.dotfiles_served {
+        eprintln!("WARNING: dotfile serving enabled");
     }
 }

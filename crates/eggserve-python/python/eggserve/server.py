@@ -41,12 +41,21 @@ class StaticPolicy:
     allow_dotfiles: bool = False
 
 
+_VALID_LOG_FORMATS = frozenset({"text", "json", "none"})
+_PUBLIC_BIND_VALUES = frozenset({"0.0.0.0", "::"})
+
+
 @dataclass(frozen=True)
 class ServeConfig:
     """Configuration for the eggserve static file server.
 
     Defaults match the CLI and Rust core safe-by-default behavior:
     loopback bind, no directory listing, no symlinks, no dotfiles.
+
+    Validation runs in ``__post_init__``: an invalid port, ``log_format``,
+    or public-bind combination raises ``ValueError`` before any subprocess
+    is spawned. The Rust CLI performs the same checks independently as
+    defense in depth.
     """
 
     directory: str | Path = "."
@@ -55,6 +64,26 @@ class ServeConfig:
     public: bool = False
     policy: StaticPolicy = field(default_factory=StaticPolicy)
     log_format: Literal["text", "json", "none"] = "text"
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.port, int) or isinstance(self.port, bool):
+            raise ValueError(
+                f"port must be an int, got {type(self.port).__name__}: {self.port!r}"
+            )
+        if not (1 <= self.port <= 65535):
+            raise ValueError(
+                f"port must be between 1 and 65535, got {self.port}"
+            )
+        if self.log_format not in _VALID_LOG_FORMATS:
+            raise ValueError(
+                f"log_format must be one of {sorted(_VALID_LOG_FORMATS)}, "
+                f"got {self.log_format!r}"
+            )
+        if not self.public and self.bind in _PUBLIC_BIND_VALUES:
+            raise ValueError(
+                f"binding to {self.bind} requires public=True "
+                "to acknowledge public exposure intent"
+            )
 
 
 def _config_to_argv(config: ServeConfig) -> list[str]:
@@ -104,7 +133,8 @@ def serve_directory(
         log_format: Log output format: "text", "json", or "none".
 
     Raises:
-        ValueError: If bind is a public address without public=True.
+        ValueError: If configuration is invalid (port, log_format, or
+            public-bind combination).
         FileNotFoundError: If the eggserve binary is not found.
     """
     config = ServeConfig(
@@ -138,7 +168,6 @@ class ServerProcess:
         """Start the server subprocess.
 
         Raises:
-            ValueError: If bind is a public address without public=True.
             FileNotFoundError: If the eggserve binary is not found.
             RuntimeError: If the server is already running.
         """
@@ -146,13 +175,6 @@ class ServerProcess:
             raise RuntimeError("server is already running")
 
         config = self._config
-
-        if not config.public:
-            if config.bind in ("0.0.0.0", "::"):
-                raise ValueError(
-                    f"binding to {config.bind} requires public=True "
-                    "to acknowledge public exposure intent"
-                )
 
         binary = _find_binary()
         argv = [binary] + _config_to_argv(config)

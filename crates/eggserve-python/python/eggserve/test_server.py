@@ -133,18 +133,78 @@ class TestConfigToArgv(unittest.TestCase):
         self.assertEqual(argv[idx + 1], "none")
 
 
-class TestPublicBindGuard(unittest.TestCase):
-    def test_public_bind_without_public_raises(self):
-        proc = ServerProcess(ServeConfig(bind="0.0.0.0", public=False))
+class TestConfigValidation(unittest.TestCase):
+    def test_invalid_log_format_raises(self):
         with self.assertRaises(ValueError) as ctx:
-            proc.start()
+            ServeConfig(log_format="xml")
+        self.assertIn("log_format", str(ctx.exception))
+
+    def test_port_zero_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(port=0)
+        self.assertIn("port", str(ctx.exception))
+
+    def test_port_above_65535_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(port=70000)
+        self.assertIn("port", str(ctx.exception))
+
+    def test_negative_port_raises(self):
+        with self.assertRaises(ValueError):
+            ServeConfig(port=-1)
+
+    def test_non_int_port_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(port="8000")
+        self.assertIn("port", str(ctx.exception))
+
+    def test_bool_port_raises(self):
+        with self.assertRaises(ValueError):
+            ServeConfig(port=True)
+
+    def test_public_ipv4_without_public_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(bind="0.0.0.0", public=False)
         self.assertIn("public=True", str(ctx.exception))
 
-    def test_unspecified_ipv6_without_public_raises(self):
-        proc = ServerProcess(ServeConfig(bind="::", public=False))
+    def test_public_ipv6_without_public_raises(self):
         with self.assertRaises(ValueError) as ctx:
-            proc.start()
+            ServeConfig(bind="::", public=False)
         self.assertIn("public=True", str(ctx.exception))
+
+    def test_valid_public_bind_with_public_true_allowed(self):
+        config = ServeConfig(bind="0.0.0.0", public=True)
+        self.assertEqual(config.bind, "0.0.0.0")
+        self.assertTrue(config.public)
+
+    def test_valid_ipv6_public_bind_allowed(self):
+        config = ServeConfig(bind="::", public=True, port=9000)
+        self.assertEqual(config.bind, "::")
+        self.assertEqual(config.port, 9000)
+
+    def test_valid_log_formats_accepted(self):
+        for fmt in ("text", "json", "none"):
+            config = ServeConfig(log_format=fmt)
+            self.assertEqual(config.log_format, fmt)
+
+    def test_boundary_ports_accepted(self):
+        ServeConfig(port=1)
+        ServeConfig(port=65535)
+
+
+class TestLegacyPublicBindGuard(unittest.TestCase):
+    """Pre-validation construction succeeded, so this exercises the
+    documented behavior that public-bind misconfiguration is caught at
+    ServeConfig construction, not at ServerProcess.start()."""
+
+    def test_construction_raises_before_start(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(bind="0.0.0.0", public=False)
+        self.assertIn("public=True", str(ctx.exception))
+
+    def test_unspecified_ipv6_raises_at_construction(self):
+        with self.assertRaises(ValueError):
+            ServeConfig(bind="::", public=False)
 
 
 class TestServerProcess(unittest.TestCase):

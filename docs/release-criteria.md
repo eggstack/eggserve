@@ -27,6 +27,13 @@ A beta release requires all alpha criteria plus:
 - [x] Release checklist documented
 - [x] Platform support matrix documented
 - [x] Security review note documented
+- [x] TLS feature validated in CI: clippy and tests with `--features tls`
+- [x] Python API tests run in CI from source
+- [x] `cargo deny check` runs in CI as a release gate
+- [x] Filesystem denial taxonomy is meaningful: `ResolvedResource::Denied(PathRejection)` preserves the specific denial reason for tests, with HTTP responses still returning a generic 403
+- [x] Python `ServeConfig` validates port, log format, and public-bind combinations at construction
+- [x] TLS handshakes are bounded by `--header-timeout`
+- [x] `eggserve-core` public API surface is documented: stable-ish, experimental, internal
 - [ ] No known unsound `unsafe` code
 
 ## 1.0

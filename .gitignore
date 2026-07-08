@@ -1,5 +1,6 @@
 /target
 crates/eggserve-python/target
+crates/eggserve-python/dist
 crates/eggserve-python/Cargo.lock
 *.pyc
 __pycache__/
