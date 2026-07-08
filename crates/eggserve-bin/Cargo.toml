@@ -5,6 +5,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "CLI binary for eggserve"
 
+[lib]
+name = "eggserve_bin"
+path = "src/lib.rs"
+
 [[bin]]
 name = "eggserve"
 path = "src/main.rs"

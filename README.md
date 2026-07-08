@@ -31,25 +31,27 @@ eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-g
 ## Expected CLI shape
 
 ```sh
-eggserve [DIR] [--bind HOST:PORT] [--port PORT] [--public] [--directory-listing] [--follow-symlinks] [--serve-dotfiles]
-         [--max-connections N] [--max-file-streams N] [--max-header-bytes N] [--max-request-target-bytes N]
-         [--header-timeout SECS] [--idle-timeout SECS] [--write-timeout SECS]
-```
+eggserve [OPTIONS] [PORT] [--directory DIR]
 
-- `DIR` — directory to serve (default: current directory)
-- `--bind HOST:PORT` — address to bind (default: `127.0.0.1:8000`)
-- `--port PORT` — port to listen on (default: `8000`)
-- `--public` — bind to all interfaces (overrides loopback default)
-- `--directory-listing` — enable directory listing (disabled by default)
-- `--follow-symlinks` — follow symlinks (denied by default)
-- `--serve-dotfiles` — serve dotfiles (denied by default)
-- `--max-connections N` — max concurrent connections (default: `64`)
-- `--max-file-streams N` — max concurrent file streams (default: `32`)
-- `--max-header-bytes N` — max header size in bytes (default: `32768`)
-- `--max-request-target-bytes N` — max request target size in bytes (default: `8192`)
-- `--header-timeout SECS` — header read timeout in seconds (default: `10`)
-- `--idle-timeout SECS` — idle keep-alive timeout in seconds (default: `30`)
-- `--write-timeout SECS` — response write timeout in seconds (default: `60`)
+# Options:
+#   --directory DIR          Root directory to serve (default: .)
+#   --addr HOST:PORT         Bind address (default: 127.0.0.1:8000)
+#   --bind HOST:PORT         Bind address (alias for --addr)
+#   --port PORT              Port to listen on
+#   --public                 Bind to all interfaces
+#   --directory-listing      Enable directory listing
+#   --follow-symlinks        Follow symlinks
+#   --allow-dotfiles         Serve dotfiles
+#   --log-format FORMAT      text, json, or none (default: text)
+#   --quiet                  Suppress startup banner
+#   --max-connections N      Max concurrent connections (default: 64)
+#   --max-file-streams N     Max concurrent file streams (default: 32)
+#   --max-header-bytes N     Max header size (default: 32768)
+#   --max-request-target-bytes N  Max request target size (default: 8192)
+#   --header-timeout SECS    Header read timeout (default: 10)
+#   --idle-timeout SECS      Idle keep-alive timeout (default: 30)
+#   --write-timeout SECS     Response write timeout (default: 60)
+```
 
 ## Security defaults
 
@@ -70,7 +72,20 @@ Key defaults:
 
 ## Project status
 
-**Plan 004 complete.** Resource limits and operational hardening are enforced. Connection limits, file-stream limits, header timeouts, response write timeouts, and request body rejection are active. Startup output displays all enforced limits. See [plans/](plans/) for the planned milestone sequence.
+**Plan 005 complete.** CLI arguments match the plan 005 spec. Python wheel packaging via maturin is functional. The `python -m eggserve` launcher works. See [plans/](plans/) for the planned milestone sequence.
+
+### Installation
+
+```sh
+# From source (requires Rust toolchain)
+cargo install --path crates/eggserve-bin
+
+# Via Python wheel (requires Python 3.8+)
+pip install eggserve
+
+# Or run directly with pipx
+pipx run eggserve
+```
 
 ## Development
 

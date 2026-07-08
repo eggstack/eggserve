@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Resource limits and operational hardening (plan 004) are implemented.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-005 are complete.
 
 ## Non-negotiables
 
@@ -39,18 +39,26 @@ eggserve/
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
 │   │       └── telemetry.rs # startup logging
-│   └── eggserve-bin/       # CLI binary, args, signal handling, accept loop
-│       ├── Cargo.toml
-│       └── src/
-│           ├── main.rs     # HTTP accept loop with connection semaphore, timeouts, graceful shutdown
-│           ├── args.rs     # manual argument parsing
-│           └── shutdown.rs # signal handling (Ctrl+C, SIGTERM)
+│   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
+│   │   ├── Cargo.toml
+│   │   └── src/
+│   │       ├── main.rs     # HTTP accept loop with connection semaphore, timeouts, graceful shutdown
+│   │       ├── lib.rs      # pub fn run() entrypoint
+│   │       ├── args.rs     # manual argument parsing
+│   │       └── shutdown.rs # signal handling (Ctrl+C, SIGTERM)
+│   └── eggserve-python/    # Python wheel packaging (maturin)
+│       ├── Cargo.toml      # depends on eggserve-bin
+│       ├── pyproject.toml  # maturin build backend
+│       ├── src/main.rs     # Rust binary entrypoint
+│       └── python/eggserve/
+│           ├── __init__.py
+│           ├── __main__.py # python -m eggserve
+│           ├── _bin.py     # locates and executes packaged binary
+│           └── server.py   # thin re-export
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
 └── AGENTS.md               # this file
 ```
-
-`eggserve-python/` is not yet a Cargo crate; Python packaging is deferred to plan 005.
 
 ## Common commands
 

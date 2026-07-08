@@ -1,0 +1,13 @@
+[package]
+name = "eggserve-python"
+version = "0.1.0"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Python wheel packaging for eggserve"
+
+[[bin]]
+name = "eggserve"
+path = "src/main.rs"
+
+[dependencies]
+eggserve-bin = { path = "../eggserve-bin" }

@@ -3,4 +3,7 @@ members = [
     "crates/eggserve-core",
     "crates/eggserve-bin",
 ]
+exclude = [
+    "crates/eggserve-python",
+]
 resolver = "2"

@@ -7,7 +7,8 @@ eggserve/
 ├── Cargo.toml              # workspace root
 ├── crates/
 │   ├── eggserve-core/      # library crate: security primitives
-│   └── eggserve-bin/       # binary crate: CLI entrypoint
+│   ├── eggserve-bin/       # binary crate: CLI entrypoint
+│   └── eggserve-python/    # Python wheel packaging (maturin)
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
 ├── README.md
@@ -16,8 +17,6 @@ eggserve/
 ├── CONTRIBUTING.md
 └── AGENTS.md
 ```
-
-`eggserve-python/` is not yet a Cargo crate. Python packaging is deferred to plan 005.
 
 ## Crate responsibilities
 
@@ -52,19 +51,17 @@ The core crate exposes a public API for path confinement, policy enforcement, an
 
 ### `eggserve-bin`
 
-The CLI binary crate. Handles manual argument parsing, configuration loading, TCP listener setup, connection limiting (semaphore), per-connection timeouts (header read, response write), signal handling (Ctrl+C, SIGTERM), and graceful shutdown. Contains the Hyper/Tokio HTTP accept loop. Depends on `eggserve-core` for request handling and response construction.
+The CLI binary crate. Exposes a library interface (`lib.rs` with `pub fn run()`) and a thin binary entrypoint (`main.rs`). Handles manual argument parsing, configuration loading, TCP listener setup, connection limiting (semaphore), per-connection timeouts (header read, response write), signal handling (Ctrl+C, SIGTERM), and graceful shutdown. Contains the Hyper/Tokio HTTP accept loop. Depends on `eggserve-core` for request handling and response construction.
 
-This crate is the entrypoint for `eggserve` as a command-line tool. It owns the process lifecycle: argument parsing, startup logging, binding, accept loop, and shutdown coordination.
+This crate is the entrypoint for `eggserve` as a command-line tool. It owns the process lifecycle: argument parsing, startup logging, binding, accept loop, and shutdown coordination. The library interface allows the Python package to call `run()` directly.
 
-### `eggserve-python` (deferred)
+### `eggserve-python`
 
-Python packaging and `python -m` launcher. Not yet a Cargo crate. Packaging and the `python -m` entrypoint are deferred to plan 005. When implemented, this crate will handle:
+Python wheel packaging via maturin. Contains the Rust binary entrypoint (`src/main.rs` calls `eggserve_bin::run()`) and Python launcher code (`python/eggserve/_bin.py` locates and executes the binary via subprocess). The crate depends on `eggserve-bin` via path.
 
-- Python wheel packaging via maturin/PyO3
-- `python -m eggserve` launcher
-- Python-side configuration bridging
+The Python package provides `pip install eggserve` and `python -m eggserve` entrypoints. All arguments are forwarded directly to the bundled Rust binary.
 
-**Important:** The core crate must never depend on Python packaging. The Python package must initially not own serving logic.
+**Important:** The core crate must never depend on Python packaging. The Python package does not own serving logic.
 
 ## Design principles
 
@@ -72,3 +69,4 @@ Python packaging and `python -m` launcher. Not yet a Cargo crate. Packaging and 
 2. **Core-first** — all security-critical logic lives in `eggserve-core` and can be used independently
 3. **Core-first serving** — the HTTP substrate lives in `eggserve-core`; the binary crate only owns process concerns
 4. **Minimal surface** — each crate exposes only what is necessary for its purpose
+5. **Binary-not-library Python packaging** — the Python wheel contains the compiled binary, not a PyO3 binding

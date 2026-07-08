@@ -1,0 +1,27 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "eggserve"
+version = "0.1.0"
+description = "A hardened, Rust-backed static file server"
+readme = "README.md"
+license = { text = "MIT OR Apache-2.0" }
+requires-python = ">=3.8"
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Rust",
+    "Topic :: Internet :: WWW/HTTP :: HTTP Servers",
+    "Topic :: System :: Filesystems",
+]
+
+[tool.maturin]
+bindings = "bin"
