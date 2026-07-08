@@ -16,6 +16,8 @@ pub enum PathRejection {
     WindowsPrefixDenied,
     WindowsReservedNameDenied,
     WindowsAlternateStreamDenied,
+    SymlinkDenied,
+    RootEscapeDenied,
 }
 
 impl fmt::Display for PathRejection {
@@ -41,6 +43,8 @@ impl fmt::Display for PathRejection {
             PathRejection::WindowsAlternateStreamDenied => {
                 write!(f, "Windows alternate stream denied")
             }
+            PathRejection::SymlinkDenied => write!(f, "symlink denied by policy"),
+            PathRejection::RootEscapeDenied => write!(f, "canonical path escapes root"),
         }
     }
 }
@@ -76,6 +80,11 @@ mod tests {
             (
                 PathRejection::WindowsAlternateStreamDenied,
                 "Windows alternate stream denied",
+            ),
+            (PathRejection::SymlinkDenied, "symlink denied by policy"),
+            (
+                PathRejection::RootEscapeDenied,
+                "canonical path escapes root",
             ),
         ];
         for (rejection, expected) in cases {

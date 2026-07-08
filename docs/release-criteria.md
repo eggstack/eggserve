@@ -11,6 +11,9 @@ An alpha release requires:
 - [x] Documentation complete: all docs in `docs/` are written and accurate
 - [x] Lint clean: `cargo clippy --workspace --all-targets -- -D warnings` passes
 - [x] Format clean: `cargo fmt --all -- --check` passes
+- [x] Listing policy: directory listings respect symlink-denied policy
+- [x] Error taxonomy: denial reasons distinguish symlink/root-escape from parent traversal
+- [x] Body metadata: GET and HEAD test coverage is symmetrical for Content-Length/Transfer-Encoding
 
 ## Beta
 

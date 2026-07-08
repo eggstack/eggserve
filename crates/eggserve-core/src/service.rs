@@ -7,7 +7,7 @@ use crate::config::ServeState;
 use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
 use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
-use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
+use crate::policy::{DirectoryListingPolicy, DotfilePolicy, SymlinkPolicy};
 use crate::response::BoxBodyInner;
 use crate::response::{
     bad_request, directory_listing_response, file_response, file_response_head, forbidden,
@@ -202,7 +202,16 @@ fn build_listing_entries(
             continue;
         }
 
-        let is_dir = entry.metadata()?.is_dir();
+        let meta = match entry.path().symlink_metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        if policy.symlinks == SymlinkPolicy::Denied && meta.file_type().is_symlink() {
+            continue;
+        }
+
+        let is_dir = meta.is_dir();
         entries.push((name, is_dir));
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
@@ -239,6 +248,7 @@ fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner
 mod tests {
     use super::*;
     use crate::config::{ServeConfig, ServeState};
+    use http_body_util::BodyExt;
     use http_body_util::Empty;
     use hyper::body::Bytes;
     use hyper::StatusCode;
@@ -531,5 +541,99 @@ mod tests {
             .unwrap();
         let resp = handle_request(req, &state).await;
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn directory_listing_hides_symlink_entries_when_symlinks_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("real.txt"), "real").unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt"))
+            .unwrap();
+        fs::create_dir(tmp.path().join("subdir")).unwrap();
+
+        let config = Arc::new(ServeConfig {
+            root: tmp.path().to_path_buf(),
+            static_policy: crate::policy::StaticPolicy {
+                directory_listing: DirectoryListingPolicy::Enabled,
+                ..crate::policy::StaticPolicy::safe_default()
+            },
+            ..ServeConfig::default()
+        });
+        let state = ServeState::new(config);
+
+        let resp = handle_request(req_with_path(Method::GET, "/"), &state).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = std::str::from_utf8(&body).unwrap();
+        assert!(
+            !body_str.contains("link.txt"),
+            "symlink should be hidden: {}",
+            body_str
+        );
+        assert!(
+            body_str.contains("real.txt"),
+            "real file should be shown: {}",
+            body_str
+        );
+        assert!(
+            body_str.contains("subdir"),
+            "directory should be shown: {}",
+            body_str
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn listing_does_not_classify_symlink_to_dir_as_dir_when_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("real_dir")).unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir"))
+            .unwrap();
+
+        let config = Arc::new(ServeConfig {
+            root: tmp.path().to_path_buf(),
+            static_policy: crate::policy::StaticPolicy {
+                directory_listing: DirectoryListingPolicy::Enabled,
+                ..crate::policy::StaticPolicy::safe_default()
+            },
+            ..ServeConfig::default()
+        });
+        let state = ServeState::new(config);
+
+        let resp = handle_request(req_with_path(Method::GET, "/"), &state).await;
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = std::str::from_utf8(&body).unwrap();
+        assert!(
+            !body_str.contains("link_dir"),
+            "symlink-to-dir should be hidden: {}",
+            body_str
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn listing_never_contains_symlink_target_path() {
+        let tmp = TempDir::new().unwrap();
+        std::os::unix::fs::symlink("target.txt", tmp.path().join("link.txt")).unwrap();
+
+        let config = Arc::new(ServeConfig {
+            root: tmp.path().to_path_buf(),
+            static_policy: crate::policy::StaticPolicy {
+                directory_listing: DirectoryListingPolicy::Enabled,
+                ..crate::policy::StaticPolicy::safe_default()
+            },
+            ..ServeConfig::default()
+        });
+        let state = ServeState::new(config);
+
+        let resp = handle_request(req_with_path(Method::GET, "/"), &state).await;
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let body_str = std::str::from_utf8(&body).unwrap();
+        assert!(
+            !body_str.contains("target.txt"),
+            "symlink target should not be exposed: {}",
+            body_str
+        );
     }
 }

@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-007 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-008 are complete.
 
 ## Non-negotiables
 
@@ -34,7 +34,7 @@ eggserve/
 │   │       │   ├── policy.rs       # PathPolicy (dotfile, backslash)
 │   │       │   └── platform.rs     # Windows reserved names, ADS, drives
 │   │       ├── fs/         # filesystem confinement
-│   │       │   └── mod.rs          # RootGuard, ResolvedResource
+│   │       │   └── mod.rs          # RootGuard, ResolvedResource, symlink-aware resolution
 │   │       ├── response.rs # file streaming, directory listing HTML, error responses (413, 503)
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
@@ -71,6 +71,15 @@ cargo test --workspace                                     # tests
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
+
+Python packaging smoke test:
+
+```sh
+cd crates/eggserve-python
+maturin build --release -o dist
+python -m pip install --force-reinstall dist/*.whl
+python -m eggserve --help
+```
 
 ## Toolchain notes
 

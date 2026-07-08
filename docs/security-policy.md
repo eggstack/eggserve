@@ -59,11 +59,11 @@ This closes the previous behavior where malformed `Content-Length` values were s
 
 ## Implementation status and limitations
 
-The current alpha implementation uses component-wise metadata checks plus a final canonical-root verification. This is sufficient to deny intermediate symlink traversal under safe defaults and to deny symlink escape under follow-enabled mode, but it is not yet descriptor-relative traversal. A later hardening pass should replace or augment this with `openat`/directory-fd traversal on Unix to reduce TOCTOU exposure between the metadata check and the eventual file open. Windows reparse-point detection beyond what the parser already denies is also deferred.
+The current alpha implementation uses component-wise metadata checks plus a final canonical-root verification. Symlink denial produces `PathRejection::SymlinkDenied`; canonical root escape produces `PathRejection::RootEscapeDenied`. This is sufficient to deny intermediate symlink traversal under safe defaults and to deny symlink escape under follow-enabled mode, but it is not yet descriptor-relative traversal. A later hardening pass should replace or augment this with `openat`/directory-fd traversal on Unix to reduce TOCTOU exposure between the metadata check and the eventual file open. Windows reparse-point detection beyond what the parser already denies is also deferred. Directory listings hide symlink entries when symlink policy is denied.
 
 ### `--directory-listing`
 
-Enables HTML directory listing for directories without an index file. Directory listings expose file names, sizes, and modification times.
+Enables HTML directory listing for directories without an index file. Under safe defaults, symlink entries are hidden from listings. Directory listings expose file names and directory status.
 
 ## Compatibility mode
 

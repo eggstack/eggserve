@@ -61,7 +61,7 @@ Key defaults:
 
 - **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
 - **GET and HEAD only** — all other methods are rejected
-- **No request bodies** — `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding` on GET/HEAD are rejected (413 for body-size, 400 for malformed framing)
+- **No request bodies** — `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding` on GET/HEAD are rejected (413 for body-size limits, 400 for malformed framing)
 - **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed; even with follow enabled, symlinks whose final canonical target escapes the root are denied
 - **No dotfiles served** — hidden files are excluded
 - **No directory listing** — unless `--directory-listing` is passed
@@ -72,7 +72,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 007 complete.** Filesystem policy now rejects intermediate symlinks under safe defaults, index lookup uses the same component-wise resolver as ordinary file lookup, and `GET`/`HEAD` reject malformed `Content-Length` and any `Transfer-Encoding`. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, and the corrective hardening pass. See [plans/](plans/) for the full sequence.
+**Plan 008 complete.** Directory listings respect symlink-denied policy, error taxonomy distinguishes symlink/root-escape denial from parent traversal, and body-metadata test coverage is symmetrical for GET/HEAD. Earlier plans established the substrate, path confinement, MVP serving, resource limits, CLI parity, corrective hardening, and filesystem-policy tightening. See [plans/](plans/) for the full sequence.
 
 ### Installation
 
@@ -85,6 +85,26 @@ pip install eggserve
 
 # Or run directly with pipx
 pipx run eggserve
+```
+
+## Local validation
+
+Before pushing, run the full validation sequence:
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo audit
+```
+
+Python packaging smoke test:
+
+```sh
+cd crates/eggserve-python
+maturin build --release -o dist
+python -m pip install --force-reinstall dist/*.whl
+python -m eggserve --help
 ```
 
 ## Development
