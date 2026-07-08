@@ -4,7 +4,7 @@ use std::time::SystemTime;
 use hyper::{Method, Request, Response};
 
 use crate::config::ServeState;
-use crate::fs::{ResolvedResource, RootGuard};
+use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
 use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
@@ -13,6 +13,58 @@ use crate::response::{
     bad_request, directory_listing_response, file_response, file_response_head, forbidden,
     internal_error, method_not_allowed, not_found, payload_too_large, service_unavailable,
 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyRejection {
+    InvalidContentLength,
+    BodyTooLarge,
+    UnsupportedTransferEncoding,
+    ConflictingBodyHeaders,
+}
+
+pub fn validate_no_request_body<B>(
+    req: &hyper::Request<B>,
+    max_body_bytes: u64,
+) -> Result<(), BodyRejection> {
+    let headers = req.headers();
+
+    let content_length_header = headers.get(hyper::header::CONTENT_LENGTH);
+    let transfer_encoding_header = headers.get(hyper::header::TRANSFER_ENCODING);
+
+    if content_length_header.is_some() && transfer_encoding_header.is_some() {
+        return Err(BodyRejection::ConflictingBodyHeaders);
+    }
+
+    if let Some(te) = transfer_encoding_header {
+        let value = te
+            .to_str()
+            .map_err(|_| BodyRejection::UnsupportedTransferEncoding)?;
+        if !value.trim().is_empty() {
+            return Err(BodyRejection::UnsupportedTransferEncoding);
+        }
+    }
+
+    if let Some(cl) = content_length_header {
+        let value = cl
+            .to_str()
+            .map_err(|_| BodyRejection::InvalidContentLength)?;
+        let trimmed = value.trim();
+        if trimmed.is_empty() {
+            return Err(BodyRejection::InvalidContentLength);
+        }
+        if !trimmed.chars().all(|c| c.is_ascii_digit()) {
+            return Err(BodyRejection::InvalidContentLength);
+        }
+        let len: u64 = trimmed
+            .parse()
+            .map_err(|_| BodyRejection::InvalidContentLength)?;
+        if len > max_body_bytes {
+            return Err(BodyRejection::BodyTooLarge);
+        }
+    }
+
+    Ok(())
+}
 
 pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<BoxBodyInner> {
     let config = &state.config;
@@ -23,12 +75,15 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
             let path_str = uri.path();
             let is_head = *req.method() == Method::HEAD;
 
-            if let Some(content_length) = req.headers().get("content-length") {
-                if let Ok(len) = content_length.to_str().unwrap_or("0").parse::<u64>() {
-                    if len > config.limits.max_request_body_bytes {
-                        return payload_too_large();
-                    }
-                }
+            if let Err(rejection) =
+                validate_no_request_body(&req, config.limits.max_request_body_bytes)
+            {
+                return match rejection {
+                    BodyRejection::BodyTooLarge => payload_too_large(),
+                    BodyRejection::InvalidContentLength
+                    | BodyRejection::UnsupportedTransferEncoding
+                    | BodyRejection::ConflictingBodyHeaders => bad_request(),
+                };
             }
 
             let path_policy = PathPolicy {
@@ -75,7 +130,7 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                     file_response(tokio_file, len, content_type, last_modified, etag, permit)
                 }
                 ResolvedResource::Directory(dir) => {
-                    handle_directory(&dir.path, config, state, is_head).await
+                    handle_directory(&dir, config, state, is_head).await
                 }
                 ResolvedResource::NotFound => not_found(),
                 ResolvedResource::Denied(_) => forbidden(),
@@ -86,7 +141,7 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
 }
 
 async fn handle_directory(
-    dir_path: &std::path::Path,
+    dir: &ResolvedDirectory,
     config: &crate::config::ServeConfig,
     state: &crate::config::ServeState,
     is_head: bool,
@@ -96,7 +151,7 @@ async fn handle_directory(
         Err(_) => return internal_error(),
     };
 
-    match guard.resolve_index_at(dir_path, &config.static_policy) {
+    match guard.resolve_child(dir, "index.html", &config.static_policy) {
         ResolvedResource::File(file) => {
             let etag = generate_etag(&file.metadata);
             let last_modified = file.metadata.modified().ok();
@@ -121,7 +176,7 @@ async fn handle_directory(
         }
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
-                let entries = match build_listing_entries(dir_path, &config.static_policy) {
+                let entries = match build_listing_entries(&dir.path, &config.static_policy) {
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };
@@ -371,5 +426,110 @@ mod tests {
         let resp = handle_request(req_with_path(Method::GET, "/big.txt"), &state).await;
         assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
         drop(permits);
+    }
+
+    #[tokio::test]
+    async fn get_content_length_zero_allowed() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "0")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn head_content_length_positive_rejected_413() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::HEAD)
+            .uri("/hello.txt")
+            .header("content-length", "1")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    }
+
+    #[tokio::test]
+    async fn get_invalid_content_length_rejected_400() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "not-a-number")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_negative_content_length_rejected_400() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "-1")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_overflow_content_length_rejected_400() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "99999999999999999999")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_transfer_encoding_chunked_rejected_400() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("transfer-encoding", "chunked")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn get_content_length_and_transfer_encoding_rejected_400() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("/hello.txt")
+            .header("content-length", "0")
+            .header("transfer-encoding", "chunked")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn unsupported_method_with_content_length_still_returns_405() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::POST)
+            .uri("/hello.txt")
+            .header("content-length", "1024")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     }
 }
