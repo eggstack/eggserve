@@ -8,7 +8,7 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
 - **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. See [docs/threat-model.md](docs/threat-model.md).
-- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md).
+- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). The current dependency set is intentionally tiny: `clap` (CLI) and `thiserror` (errors). `hyper`, `tokio`, and friends are deferred to plan 001.
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 
 ## Layout
@@ -37,11 +37,22 @@ eggserve/
 
 ## Common commands
 
+CI runs these in order; match it locally before pushing:
+
 ```sh
-cargo fmt --all                    # format all crates
-cargo clippy --workspace --all-targets -- -D warnings  # lint
-cargo test --workspace             # run tests
+cargo fmt --all -- --check                                 # format check
+cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
+cargo test --workspace                                     # tests
 ```
+
+Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
+
+## Toolchain notes
+
+- Rust edition 2021, workspace `resolver = "2"`.
+- No `rustfmt.toml` / `clippy.toml` — defaults apply; CI enforces `-D warnings`.
+- `target/` is gitignored; `cargo build` / `cargo test` are sufficient setup (no pre-build step, no codegen).
+- `cargo run -p eggserve-bin` currently only prints a skeleton message (see [crates/eggserve-bin/src/main.rs](crates/eggserve-bin/src/main.rs)). It does not serve HTTP yet.
 
 ## Plan-driven development
 
