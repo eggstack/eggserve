@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-019 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-022 are complete.
 
 ## Non-negotiables
 
@@ -83,6 +83,18 @@ cargo check --workspace --features tls                     # TLS feature build c
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
 
+Full validation sequence (from README):
+
+```sh
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
+cargo test -p eggserve-bin --features tls
+cargo audit
+cargo deny check
+```
+
 Python packaging smoke test:
 
 ```sh
@@ -112,6 +124,17 @@ PYTHONPATH=python python -m unittest eggserve.test_server -v
 - No `rustfmt.toml` / `clippy.toml` — defaults apply; CI enforces `-D warnings`.
 - `target/` is gitignored; `cargo build` / `cargo test` are sufficient setup (no pre-build step, no codegen).
 - `cargo run -p eggserve-bin` starts an HTTP server on `127.0.0.1:8000` serving static files from the current directory. See [crates/eggserve-bin/src/main.rs](crates/eggserve-bin/src/main.rs).
+
+## Important quirks
+
+- **Two DotfilePolicy types**: `path::DotfilePolicy` (parsing level) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served. Don't confuse them.
+- **eggserve-python is excluded from the workspace** — it has its own `Cargo.lock` and is built independently via `maturin`. Don't run `cargo test --workspace` expecting to cover Python crate code.
+- **test_primitives.py requires a built wheel** (imports `_native`). test_server.py does not (uses mocks).
+- **Manual argument parsing** in `args.rs` — no clap dependency.
+- **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
+- **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
+- **Windows**: functional but reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
+- **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 
 ## Plan-driven development
 
