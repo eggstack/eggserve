@@ -1,0 +1,801 @@
+use pyo3::prelude::*;
+use pyo3::types::{PyList, PyTuple};
+
+use eggserve_core::policy::{
+    DirectoryListingPolicy, DotfilePolicy, StaticPolicy as RustStaticPolicy, SymlinkPolicy,
+};
+use eggserve_core::primitives::http::{self, ReadOnlyMethod};
+use eggserve_core::primitives::planner;
+use eggserve_core::primitives::response::BodyPlan;
+use eggserve_core::primitives::{
+    ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
+    ResolvedResource as RustResolvedResource, ResourceDeniedReason, SecureRoot as RustSecureRoot,
+};
+
+// ---------------------------------------------------------------------------
+// Exceptions
+// ---------------------------------------------------------------------------
+
+pyo3::create_exception!(
+    _native,
+    EggserveError,
+    pyo3::exceptions::PyException,
+    "Base exception for eggserve native primitives."
+);
+
+pyo3::create_exception!(
+    _native,
+    PathPolicyError,
+    EggserveError,
+    "Path validation or confinement error."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestTargetError,
+    EggserveError,
+    "Malformed or unsupported request target."
+);
+
+pyo3::create_exception!(
+    _native,
+    SecureRootError,
+    EggserveError,
+    "Secure root initialization or resolution error."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestValidationError,
+    EggserveError,
+    "Request validation error."
+);
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+fn path_rejection_code(rejection: &PathRejection) -> &'static str {
+    match rejection {
+        PathRejection::Empty => "empty_path",
+        PathRejection::TooLong => "path_too_long",
+        PathRejection::UnsupportedUriForm => "unsupported_uri_form",
+        PathRejection::MalformedPercentEncoding => "malformed_percent_encoding",
+        PathRejection::InvalidUtf8 => "invalid_utf8",
+        PathRejection::NulByte => "nul_byte",
+        PathRejection::AbsolutePath => "absolute_path",
+        PathRejection::ParentComponent => "traversal_denied",
+        PathRejection::CurrentComponent => "current_component",
+        PathRejection::SeparatorAmbiguity => "separator_ambiguity",
+        PathRejection::DotfileDenied => "dotfile_denied",
+        PathRejection::WindowsPrefixDenied => "windows_prefix_denied",
+        PathRejection::WindowsReservedNameDenied => "windows_reserved_name_denied",
+        PathRejection::WindowsAlternateStreamDenied => "windows_alternate_stream_denied",
+        PathRejection::SymlinkDenied => "symlink_denied",
+        PathRejection::RootEscapeDenied => "root_escape_denied",
+    }
+}
+
+fn path_rejection_to_pyerr(rejection: PathRejection) -> PyErr {
+    let code = path_rejection_code(&rejection);
+    let msg = rejection.to_string();
+    match code {
+        "traversal_denied"
+        | "dotfile_denied"
+        | "separator_ambiguity"
+        | "empty_path"
+        | "unsupported_uri_form"
+        | "nul_byte"
+        | "malformed_percent_encoding" => PathPolicyError::new_err((msg, code)),
+        _ => RequestTargetError::new_err((msg, code)),
+    }
+}
+
+fn io_err_to_pyerr(err: std::io::Error) -> PyErr {
+    SecureRootError::new_err((err.to_string(), "io_error"))
+}
+
+fn parse_method(method: &str) -> Result<ReadOnlyMethod, PyErr> {
+    match method {
+        "GET" => Ok(ReadOnlyMethod::Get),
+        "HEAD" => Ok(ReadOnlyMethod::Head),
+        _ => Err(RequestValidationError::new_err((
+            format!("unsupported method: {method}"),
+            "method_not_allowed",
+        ))),
+    }
+}
+
+fn headers_from_list(headers: Option<&Bound<'_, PyList>>) -> Result<Vec<(String, String)>, PyErr> {
+    match headers {
+        None => Ok(Vec::new()),
+        Some(list) => {
+            let mut result = Vec::with_capacity(list.len());
+            for item in list.iter() {
+                let pair: (String, String) = item.extract().map_err(|_| {
+                    RequestValidationError::new_err((
+                        "headers must be a list of (name, value) tuples",
+                        "invalid_headers",
+                    ))
+                })?;
+                result.push(pair);
+            }
+            Ok(result)
+        }
+    }
+}
+
+fn plan_to_python(py: Python<'_>, plan: StaticResponsePlan) -> PyResult<PyObject> {
+    let status = plan.status_code();
+
+    let headers_list = PyList::empty(py);
+    for h in plan.headers.iter() {
+        let tup = PyTuple::new(py, [h.name.as_str(), h.value.as_str()])?;
+        headers_list.append(tup)?;
+    }
+
+    let body_kind = match &plan.body {
+        BodyPlan::Empty => "empty",
+        BodyPlan::FullBytes(_) => "bytes",
+        BodyPlan::FileFull => "file_full",
+        BodyPlan::FileRange { .. } => "file_range",
+    };
+
+    let range: Option<(u64, u64)> = match &plan.body {
+        BodyPlan::FileRange {
+            start,
+            end_inclusive,
+        } => Some((*start, *end_inclusive)),
+        _ => None,
+    };
+
+    let range_obj: PyObject = match range {
+        Some((s, e)) => PyTuple::new(py, [s, e])?.into_any().unbind(),
+        None => py.None(),
+    };
+
+    let plan_cls = py.import("eggserve")?.getattr("ResponsePlan")?;
+    plan_cls
+        .call1((status, headers_list, body_kind, range_obj))
+        .map(|b| b.unbind())
+}
+
+fn confined_from_components(components: &[String]) -> PyResult<ConfinedPath> {
+    if components.is_empty() {
+        return ConfinedPath::parse("/", &PathPolicy::default()).map_err(path_rejection_to_pyerr);
+    }
+    let decoded = format!("/{}", components.join("/"));
+    ConfinedPath::parse(&decoded, &PathPolicy::default()).map_err(path_rejection_to_pyerr)
+}
+
+// ---------------------------------------------------------------------------
+// PathPolicy
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "PathPolicy", frozen)]
+struct PyPathPolicy {
+    inner: PathPolicy,
+}
+
+#[pymethods]
+impl PyPathPolicy {
+    #[new]
+    #[pyo3(signature = (allow_dotfiles=false, reject_backslash=true))]
+    fn py_new(allow_dotfiles: bool, reject_backslash: bool) -> Self {
+        Self {
+            inner: PathPolicy {
+                dotfiles: if allow_dotfiles {
+                    PathDotfilePolicy::Allow
+                } else {
+                    PathDotfilePolicy::Denied
+                },
+                reject_backslash,
+            },
+        }
+    }
+
+    #[getter]
+    fn allow_dotfiles(&self) -> bool {
+        self.inner.dotfiles == PathDotfilePolicy::Allow
+    }
+
+    #[getter]
+    fn reject_backslash(&self) -> bool {
+        self.inner.reject_backslash
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "PathPolicy(allow_dotfiles={}, reject_backslash={})",
+            self.allow_dotfiles(),
+            self.reject_backslash()
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// StaticPolicy
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "StaticPolicy", frozen)]
+struct PyStaticPolicy {
+    inner: RustStaticPolicy,
+}
+
+#[pymethods]
+impl PyStaticPolicy {
+    #[new]
+    #[pyo3(signature = (directory_listing=false, follow_symlinks=false, allow_dotfiles=false))]
+    fn py_new(directory_listing: bool, follow_symlinks: bool, allow_dotfiles: bool) -> Self {
+        Self {
+            inner: RustStaticPolicy {
+                directory_listing: if directory_listing {
+                    DirectoryListingPolicy::Enabled
+                } else {
+                    DirectoryListingPolicy::Disabled
+                },
+                symlinks: if follow_symlinks {
+                    SymlinkPolicy::Follow
+                } else {
+                    SymlinkPolicy::Denied
+                },
+                dotfiles: if allow_dotfiles {
+                    DotfilePolicy::Serve
+                } else {
+                    DotfilePolicy::Denied
+                },
+            },
+        }
+    }
+
+    #[getter]
+    fn directory_listing(&self) -> bool {
+        self.inner.directory_listing == DirectoryListingPolicy::Enabled
+    }
+
+    #[getter]
+    fn follow_symlinks(&self) -> bool {
+        self.inner.symlinks == SymlinkPolicy::Follow
+    }
+
+    #[getter]
+    fn allow_dotfiles(&self) -> bool {
+        self.inner.dotfiles == DotfilePolicy::Serve
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "StaticPolicy(directory_listing={}, follow_symlinks={}, allow_dotfiles={})",
+            self.directory_listing(),
+            self.follow_symlinks(),
+            self.allow_dotfiles()
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// RequestTarget
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "RequestTarget", frozen)]
+struct PyRequestTarget {
+    decoded: String,
+    components: Vec<String>,
+}
+
+#[pymethods]
+impl PyRequestTarget {
+    #[staticmethod]
+    #[pyo3(signature = (raw, policy=None))]
+    fn parse(raw: &str, policy: Option<&PyPathPolicy>) -> PyResult<Self> {
+        let pp = match policy {
+            Some(p) => p.inner.clone(),
+            None => PathPolicy::default(),
+        };
+        let confined = ConfinedPath::parse(raw, &pp).map_err(path_rejection_to_pyerr)?;
+        Ok(Self {
+            decoded: confined.as_str().to_owned(),
+            components: confined.components().to_vec(),
+        })
+    }
+
+    #[getter]
+    fn decoded_path(&self) -> &str {
+        &self.decoded
+    }
+
+    #[getter]
+    fn components(&self) -> Vec<String> {
+        self.components.clone()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("RequestTarget({:?})", self.decoded)
+    }
+
+    fn __str__(&self) -> &str {
+        &self.decoded
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SecureRoot
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "SecureRoot")]
+struct PySecureRoot {
+    root_path: std::path::PathBuf,
+    inner: RustSecureRoot,
+}
+
+#[pymethods]
+impl PySecureRoot {
+    #[new]
+    #[pyo3(signature = (path, policy=None))]
+    fn py_new(path: &Bound<'_, pyo3::PyAny>, policy: Option<&PyStaticPolicy>) -> PyResult<Self> {
+        let path_buf: std::path::PathBuf = path.extract()?;
+        let static_policy = policy
+            .map(|p| p.inner.clone())
+            .unwrap_or_else(RustStaticPolicy::safe_default);
+        let root = RustSecureRoot::new(&path_buf, static_policy).map_err(io_err_to_pyerr)?;
+        let root_path = root.root_path().to_path_buf();
+        Ok(Self {
+            root_path,
+            inner: root,
+        })
+    }
+
+    #[getter]
+    fn policy(&self) -> PyStaticPolicy {
+        PyStaticPolicy {
+            inner: self.inner.policy().clone(),
+        }
+    }
+
+    fn resolve(&self, target: &PyRequestTarget) -> PyResult<PyResolvedResource> {
+        let confined = ConfinedPath::parse(&target.decoded, &PathPolicy::default())
+            .map_err(path_rejection_to_pyerr)?;
+        let result = self.inner.resolve(&confined);
+        Ok(PyResolvedResource::from_rust(result, self))
+    }
+
+    #[pyo3(signature = (raw_path, path_policy=None))]
+    #[allow(unused_variables)]
+    fn resolve_path(
+        &self,
+        raw_path: &str,
+        path_policy: Option<&PyPathPolicy>,
+    ) -> PyResult<PyResolvedResource> {
+        let result = self
+            .inner
+            .resolve_uri(raw_path)
+            .map_err(path_rejection_to_pyerr)?;
+        Ok(PyResolvedResource::from_rust(result, self))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("SecureRoot({:?})", self.root_path)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ResolvedResource
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "ResolvedResource", frozen)]
+struct PyResolvedResource {
+    kind: String,
+    file_data: Option<PyResolvedFileData>,
+    dir_components: Option<Vec<String>>,
+    root_path: Option<std::path::PathBuf>,
+    denied_reason_msg: Option<String>,
+    denied_code: Option<String>,
+}
+
+struct PyResolvedFileData {
+    metadata: std::fs::Metadata,
+    components: Vec<String>,
+    content_type: String,
+}
+
+#[pymethods]
+impl PyResolvedResource {
+    #[getter]
+    fn kind(&self) -> &str {
+        &self.kind
+    }
+
+    #[getter]
+    fn is_file(&self) -> bool {
+        self.kind == "file"
+    }
+
+    #[getter]
+    fn is_directory(&self) -> bool {
+        self.kind == "directory"
+    }
+
+    #[getter]
+    fn is_not_found(&self) -> bool {
+        self.kind == "not_found"
+    }
+
+    #[getter]
+    fn is_denied(&self) -> bool {
+        self.kind == "denied"
+    }
+
+    #[getter]
+    fn file(&self) -> PyResult<PyResolvedFile> {
+        match &self.file_data {
+            Some(fd) => Ok(PyResolvedFile {
+                metadata: fd.metadata.clone(),
+                components: fd.components.clone(),
+                content_type: fd.content_type.clone(),
+            }),
+            None => Err(EggserveError::new_err((
+                "resource is not a file",
+                "not_a_file",
+            ))),
+        }
+    }
+
+    #[getter]
+    fn directory(&self) -> PyResult<PyResolvedDirectory> {
+        match (&self.dir_components, &self.root_path) {
+            (Some(comps), Some(rp)) => Ok(PyResolvedDirectory {
+                components: comps.clone(),
+                root_path: rp.clone(),
+            }),
+            _ => Err(EggserveError::new_err((
+                "resource is not a directory",
+                "not_a_directory",
+            ))),
+        }
+    }
+
+    #[getter]
+    fn denied_reason(&self) -> PyResult<(&str, &str)> {
+        match (&self.denied_reason_msg, &self.denied_code) {
+            (Some(reason), Some(code)) => Ok((reason.as_str(), code.as_str())),
+            _ => Err(EggserveError::new_err((
+                "resource is not denied",
+                "not_denied",
+            ))),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        match self.kind.as_str() {
+            "file" => "ResolvedResource(kind='file')".to_string(),
+            "directory" => "ResolvedResource(kind='directory')".to_string(),
+            "not_found" => "ResolvedResource(kind='not_found')".to_string(),
+            "denied" => format!(
+                "ResolvedResource(kind='denied', reason={:?})",
+                self.denied_reason_msg.as_deref().unwrap_or("")
+            ),
+            _ => "ResolvedResource(kind='?')".to_string(),
+        }
+    }
+}
+
+impl PyResolvedResource {
+    fn from_rust(resource: RustResolvedResource, root: &PySecureRoot) -> Self {
+        match resource {
+            RustResolvedResource::File(f) => {
+                let ct = f.content_type().to_string();
+                let comps = f.safe_relative_components().to_vec();
+                let (_, metadata) = f.into_parts();
+                Self {
+                    kind: "file".to_string(),
+                    file_data: Some(PyResolvedFileData {
+                        metadata,
+                        components: comps,
+                        content_type: ct,
+                    }),
+                    dir_components: None,
+                    root_path: None,
+                    denied_reason_msg: None,
+                    denied_code: None,
+                }
+            }
+            RustResolvedResource::Directory(d) => Self {
+                kind: "directory".to_string(),
+                file_data: None,
+                dir_components: Some(d.components().to_vec()),
+                root_path: Some(root.root_path.clone()),
+                denied_reason_msg: None,
+                denied_code: None,
+            },
+            RustResolvedResource::NotFound => Self {
+                kind: "not_found".to_string(),
+                file_data: None,
+                dir_components: None,
+                root_path: None,
+                denied_reason_msg: None,
+                denied_code: None,
+            },
+            RustResolvedResource::Denied(reason) => {
+                let (msg, code) = match &reason {
+                    ResourceDeniedReason::SymlinkDenied => {
+                        ("symlink denied".to_string(), "symlink_denied".to_string())
+                    }
+                    ResourceDeniedReason::DotfileDenied => {
+                        ("dotfile denied".to_string(), "dotfile_denied".to_string())
+                    }
+                    ResourceDeniedReason::RootEscapeDenied => (
+                        "root escape denied".to_string(),
+                        "root_escape_denied".to_string(),
+                    ),
+                    ResourceDeniedReason::PolicyDenied(inner) => {
+                        (inner.to_string(), path_rejection_code(inner).to_string())
+                    }
+                };
+                Self {
+                    kind: "denied".to_string(),
+                    file_data: None,
+                    dir_components: None,
+                    root_path: None,
+                    denied_reason_msg: Some(msg),
+                    denied_code: Some(code),
+                }
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ResolvedFile
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "ResolvedFile", frozen)]
+struct PyResolvedFile {
+    metadata: std::fs::Metadata,
+    components: Vec<String>,
+    content_type: String,
+}
+
+#[pymethods]
+impl PyResolvedFile {
+    #[getter]
+    fn length(&self) -> u64 {
+        self.metadata.len()
+    }
+
+    #[getter]
+    fn modified(&self) -> Option<f64> {
+        self.metadata.modified().ok().and_then(|t| {
+            t.duration_since(std::time::UNIX_EPOCH)
+                .ok()
+                .map(|d| d.as_secs_f64())
+        })
+    }
+
+    #[getter]
+    fn content_type(&self) -> &str {
+        &self.content_type
+    }
+
+    #[getter]
+    fn safe_relative_components(&self) -> Vec<String> {
+        self.components.clone()
+    }
+
+    #[pyo3(signature = (method="GET", headers=None))]
+    fn plan_response(
+        &self,
+        py: Python<'_>,
+        method: &str,
+        headers: Option<&Bound<'_, PyList>>,
+    ) -> PyResult<PyObject> {
+        let _ = headers_from_list(headers)?;
+        let ro = parse_method(method)?;
+        let plan = planner::plan_file_response(
+            ro,
+            &self.metadata,
+            &self.content_type,
+            None,
+            None,
+            None,
+            None,
+        );
+        plan_to_python(py, plan)
+    }
+
+    #[pyo3(signature = (method="GET", headers=None))]
+    fn plan_conditional_response(
+        &self,
+        py: Python<'_>,
+        method: &str,
+        headers: Option<&Bound<'_, PyList>>,
+    ) -> PyResult<PyObject> {
+        let hdrs = headers_from_list(headers)?;
+        let ro = parse_method(method)?;
+
+        let mut if_none_match: Option<String> = None;
+        let mut if_modified_since: Option<String> = None;
+        let mut range_header: Option<String> = None;
+        let mut if_range: Option<String> = None;
+
+        for (name, value) in &hdrs {
+            match name.to_lowercase().as_str() {
+                "if-none-match" => if_none_match = Some(value.clone()),
+                "if-modified-since" => if_modified_since = Some(value.clone()),
+                "range" => range_header = Some(value.clone()),
+                "if-range" => if_range = Some(value.clone()),
+                _ => {}
+            }
+        }
+
+        let plan = planner::plan_file_response(
+            ro,
+            &self.metadata,
+            &self.content_type,
+            if_none_match.as_deref(),
+            if_modified_since.as_deref(),
+            range_header.as_deref(),
+            if_range.as_deref(),
+        );
+        plan_to_python(py, plan)
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ResolvedFile(length={}, content_type={:?})",
+            self.metadata.len(),
+            self.content_type
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ResolvedDirectory
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "ResolvedDirectory", frozen)]
+struct PyResolvedDirectory {
+    components: Vec<String>,
+    root_path: std::path::PathBuf,
+}
+
+#[pymethods]
+impl PyResolvedDirectory {
+    #[getter]
+    fn safe_relative_components(&self) -> Vec<String> {
+        self.components.clone()
+    }
+
+    fn list(&self) -> PyResult<PyObject> {
+        Python::with_gil(|py| {
+            let root = RustSecureRoot::new(&self.root_path, RustStaticPolicy::safe_default())
+                .map_err(io_err_to_pyerr)?;
+            let confined = confined_from_components(&self.components)?;
+            let result = root.resolve(&confined);
+            match result {
+                RustResolvedResource::Directory(dir) => {
+                    let entries = dir.list(&root).map_err(io_err_to_pyerr)?;
+                    let py_list = PyList::empty(py);
+                    for entry in &entries {
+                        let name_obj: PyObject =
+                            entry.0.as_str().into_pyobject(py)?.into_any().unbind();
+                        let flag_obj: PyObject =
+                            entry.1.into_pyobject(py)?.to_owned().into_any().unbind();
+                        let tup = PyTuple::new(py, [name_obj, flag_obj])?;
+                        py_list.append(tup)?;
+                    }
+                    Ok(py_list.into_any().unbind())
+                }
+                _ => Err(SecureRootError::new_err((
+                    "path does not resolve to a directory",
+                    "not_a_directory",
+                ))),
+            }
+        })
+    }
+
+    fn resolve_child(&self, child: &str) -> PyResult<PyResolvedResource> {
+        Python::with_gil(|_py| {
+            let root = RustSecureRoot::new(&self.root_path, RustStaticPolicy::safe_default())
+                .map_err(io_err_to_pyerr)?;
+            let confined = confined_from_components(&self.components)?;
+            let result = root.resolve(&confined);
+            match result {
+                RustResolvedResource::Directory(dir) => {
+                    let child_result = dir.resolve_child(child, &root);
+                    Ok(PyResolvedResource::from_rust(
+                        child_result,
+                        &PySecureRoot {
+                            root_path: self.root_path.clone(),
+                            inner: root,
+                        },
+                    ))
+                }
+                _ => Err(SecureRootError::new_err((
+                    "path does not resolve to a directory",
+                    "not_a_directory",
+                ))),
+            }
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        format!("ResolvedDirectory(components={:?})", self.components)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standalone functions
+// ---------------------------------------------------------------------------
+
+#[pyfunction]
+#[pyo3(name = "validate_method")]
+#[pyo3(signature = (method,))]
+fn validate_method_fn(method: &str) -> PyResult<String> {
+    let ro = parse_method(method)?;
+    Ok(ro.as_str().to_string())
+}
+
+#[pyfunction]
+#[pyo3(name = "validate_request_body")]
+#[pyo3(signature = (content_length=None, transfer_encoding=None, max_body_bytes=0))]
+fn validate_request_body_fn(
+    content_length: Option<&str>,
+    transfer_encoding: Option<&str>,
+    max_body_bytes: u64,
+) -> PyResult<()> {
+    http::validate_request_body(content_length, transfer_encoding, max_body_bytes)
+        .map_err(|e| RequestValidationError::new_err((e.to_string(), "body_validation_error")))
+}
+
+#[pyfunction]
+#[pyo3(name = "validate_request_target")]
+#[pyo3(signature = (target,))]
+fn validate_request_target_fn(target: &str) -> PyResult<()> {
+    http::validate_request_target(target)
+        .map_err(|e| RequestValidationError::new_err((e.to_string(), "invalid_request_target")))
+}
+
+#[pyfunction]
+#[pyo3(name = "generate_etag")]
+fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<PyObject> {
+    match planner::generate_etag(&file.metadata) {
+        Some(etag) => Ok(etag.into_pyobject(py)?.into_any().unbind()),
+        None => Ok(py.None()),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Module
+// ---------------------------------------------------------------------------
+
+use eggserve_core::primitives::response::StaticResponsePlan;
+
+#[pymodule]
+fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
+    m.add("EggserveError", m.py().get_type::<EggserveError>())?;
+    m.add("PathPolicyError", m.py().get_type::<PathPolicyError>())?;
+    m.add(
+        "RequestTargetError",
+        m.py().get_type::<RequestTargetError>(),
+    )?;
+    m.add("SecureRootError", m.py().get_type::<SecureRootError>())?;
+    m.add(
+        "RequestValidationError",
+        m.py().get_type::<RequestValidationError>(),
+    )?;
+
+    m.add_class::<PyPathPolicy>()?;
+    m.add_class::<PyStaticPolicy>()?;
+    m.add_class::<PyRequestTarget>()?;
+    m.add_class::<PySecureRoot>()?;
+    m.add_class::<PyResolvedResource>()?;
+    m.add_class::<PyResolvedFile>()?;
+    m.add_class::<PyResolvedDirectory>()?;
+
+    m.add_function(wrap_pyfunction!(validate_method_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_request_body_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_request_target_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(generate_etag_fn, m)?)?;
+
+    Ok(())
+}

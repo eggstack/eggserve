@@ -73,7 +73,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 017 complete (SecureRoot public API).** The public `SecureRoot` API exposes audited filesystem resolution as capability-oriented primitives. Callers can resolve request-derived paths under the same descriptor-relative hardening (Unix safe defaults) without touching internal types. `ResolvedFile` wraps an already-opened file handle with safe metadata methods; `ResolvedDirectory` supports child resolution and policy-filtered listing. Weaker modes (follow-symlinks, non-Unix) are documented accurately in [docs/secure-root.md](docs/secure-root.md). See [plans/](plans/) for the full sequence.
+**Plan 019 in progress (Python native bindings).** PyO3-backed native bindings expose path parsing, policy, secure root, resolved resources, and response planning to Python without launching the binary. The subprocess API (`ServeConfig`, `ServerProcess`, `serve_directory`) remains available. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
@@ -89,7 +89,21 @@ Windows is functional but filesystem hardening (reparse-point/NTFS junction hand
 
 ## Python API
 
-eggserve provides a minimal Python API for programmatic static file serving:
+eggserve provides a Python API with two layers:
+
+**Native primitives** (PyO3-backed Rust bindings) — path parsing, policy enforcement, secure root resolution, and response planning without launching the binary:
+
+```python
+from eggserve import SecureRoot, StaticPolicy
+
+root = SecureRoot("public", policy=StaticPolicy())
+resource = root.resolve_path("/assets/app.css")
+if resource.is_file:
+    plan = resource.file.plan_response("GET")
+    print(plan.status, plan.body_kind)  # 200 file_full
+```
+
+**Subprocess lifecycle** — full HTTP serving via the Rust binary:
 
 ```python
 from eggserve import serve_directory
@@ -144,6 +158,10 @@ cargo deny check
 Python tests and packaging smoke:
 
 ```sh
+# Native primitives tests (requires built wheel or maturin develop)
+PYTHONPATH=crates/eggserve-python/python \
+  python -m unittest eggserve.test_primitives -v
+
 # Python API unit tests (no wheel build needed)
 PYTHONPATH=crates/eggserve-python/python \
   python -m unittest eggserve.test_server -v

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. This plan builds on Plans 016, 017, and 018 by exposing the hardened primitive layer to Python through native bindings while preserving Rust-side security invariants.
+Complete.
 
 ## Objective
 

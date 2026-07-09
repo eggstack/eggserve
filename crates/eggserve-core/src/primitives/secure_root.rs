@@ -85,6 +85,21 @@ impl ResolvedFile {
     pub fn into_parts(self) -> (std::fs::File, std::fs::Metadata) {
         (self.inner.file, self.inner.metadata)
     }
+
+    #[allow(dead_code)]
+    pub fn from_parts(
+        file: std::fs::File,
+        metadata: std::fs::Metadata,
+        safe_relative_components: Vec<String>,
+    ) -> Self {
+        Self {
+            inner: crate::fs::ResolvedFile {
+                file,
+                metadata,
+                safe_relative_components,
+            },
+        }
+    }
 }
 
 #[derive(Debug)]

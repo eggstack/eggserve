@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "eggserve"
 version = "0.1.0"
-description = "A hardened, Rust-backed static file server"
+description = "A hardened, Rust-backed static file server with native Python bindings"
 readme = "README.md"
 license = { text = "MIT OR Apache-2.0" }
 requires-python = ">=3.8"
@@ -24,5 +24,6 @@ classifiers = [
 ]
 
 [tool.maturin]
-bindings = "bin"
+bindings = "pyo3"
 python-source = "python"
+module-name = "eggserve._native"

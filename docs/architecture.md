@@ -72,9 +72,13 @@ This crate is the entrypoint for `eggserve` as a command-line tool. It owns the 
 
 ### `eggserve-python`
 
-Python wheel packaging via maturin. Contains the Rust binary entrypoint (`src/main.rs` calls `eggserve_bin::run()`) and Python launcher code (`python/eggserve/_bin.py` locates and executes the binary via subprocess). The crate depends on `eggserve-bin` via path.
+Python wheel packaging via maturin. Contains PyO3 native bindings (`src/lib.rs`) that expose `eggserve-core` primitives (path parsing, policy, secure root, resolved resources, response planning) as `eggserve._native`, and Python wrapper code (`python/eggserve/`) that re-exports primitives alongside the subprocess lifecycle API (`ServeConfig`, `ServerProcess`, `serve_directory`).
 
-The Python package provides `pip install eggserve` and `python -m eggserve` entrypoints. It also exposes a minimal Python API (`ServeConfig`, `StaticPolicy`, `serve_directory`, `ServerProcess`) that translates config objects to CLI arguments and manages the binary subprocess lifecycle. This API is a hardened static-serving primitive, not an ASGI/WSGI server or request callback system.
+The Python package provides two API layers:
+1. **Native primitives** — Rust-backed path parsing, policy enforcement, secure root resolution, and response planning, available without launching the binary
+2. **Subprocess lifecycle** — translates config objects to CLI arguments and manages the binary subprocess for full HTTP serving
+
+The crate depends on `eggserve-core` (for primitives) via path. The `eggserve-bin` dependency was removed when the binary was decoupled from the Python package.
 
 **Important:** The core crate must never depend on Python packaging. The Python package does not own serving logic.
 
@@ -84,4 +88,4 @@ The Python package provides `pip install eggserve` and `python -m eggserve` entr
 2. **Core-first** — all security-critical logic lives in `eggserve-core` and can be used independently
 3. **Core-first serving** — the HTTP substrate lives in `eggserve-core`; the binary crate only owns process concerns
 4. **Minimal surface** — each crate exposes only what is necessary for its purpose
-5. **Binary-not-library Python packaging** — the Python wheel contains the compiled binary, not a PyO3 binding
+5. **Native Python bindings** — the Python package uses PyO3 to expose Rust primitives directly, with the subprocess API as a fallback for full HTTP serving

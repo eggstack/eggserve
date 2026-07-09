@@ -3,11 +3,12 @@ name = "eggserve-python"
 version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
-description = "Python wheel packaging for eggserve"
+description = "Python native bindings for eggserve hardened primitives"
 
-[[bin]]
-name = "eggserve"
-path = "src/main.rs"
+[lib]
+name = "_native"
+crate-type = ["cdylib"]
 
 [dependencies]
-eggserve-bin = { path = "../eggserve-bin" }
+eggserve-core = { path = "../eggserve-core" }
+pyo3 = { version = "0.24", features = ["extension-module"] }

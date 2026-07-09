@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-018 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-019 are complete.
 
 ## Non-negotiables
 
@@ -55,15 +55,16 @@ eggserve/
 │   │       ├── tls.rs      # TLS certificate loading and rustls config (behind tls feature)
 │   │       └── shutdown.rs # signal handling (Ctrl+C, SIGTERM)
 │   └── eggserve-python/    # Python wheel packaging (maturin)
-│       ├── Cargo.toml      # depends on eggserve-bin
+│       ├── Cargo.toml      # lib crate with PyO3 bindings
 │       ├── pyproject.toml  # maturin build backend
-│       ├── src/main.rs     # Rust binary entrypoint
+│       ├── src/lib.rs      # PyO3 native module (_native)
 │       └── python/eggserve/
-│           ├── __init__.py # exports version, ServeConfig, StaticPolicy, serve_directory
+│           ├── __init__.py # exports version, native primitives, subprocess API
 │           ├── __main__.py # python -m eggserve
 │           ├── _bin.py     # locates and executes packaged binary
 │           ├── server.py   # Python API: ServeConfig, StaticPolicy, serve_directory, ServerProcess
-│           └── test_server.py # Python API tests
+│           ├── test_primitives.py # native primitives tests (81 tests)
+│           └── test_server.py     # subprocess API tests
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
 └── AGENTS.md               # this file
@@ -89,6 +90,20 @@ cd crates/eggserve-python
 maturin build --release -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
+```
+
+Python native primitives tests (requires built wheel):
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_primitives -v
+```
+
+Python subprocess API tests:
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_server -v
 ```
 
 ## Toolchain notes
