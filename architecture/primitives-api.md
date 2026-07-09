@@ -176,3 +176,37 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 - [filesystem-confinement.md](filesystem-confinement.md) — `SecureRoot` internals
 - [path-confinement.md](path-confinement.md) — `ConfinedPath` construction
 - [eggserve-python.md](eggserve-python.md) — Python bindings for primitives
+
+## API Classification
+
+| API item | Language | Status | Security invariant | Downstream use case |
+|----------|----------|--------|-------------------|---------------------|
+| `StaticPolicy` | Rust, Python | Implemented and stable-ish | Denies all optional behaviors by default (symlinks, dotfiles, directory listing) | Policy configuration for downstream serving |
+| `PathPolicy` | Rust, Python | Implemented and stable-ish | Controls dotfile acceptance and backslash rejection at parse time | Request-target filtering |
+| `ConfinedPath` / `RequestTarget` | Rust, Python | Implemented and stable-ish | Rejects traversal, NUL, ambiguous separators, Windows prefixes, reserved names, ADS | Request-target validation |
+| `SecureRoot` | Rust, Python | Implemented and stable-ish | Canonicalizes root, enforces policy, descriptor-relative resolution on Unix | Filesystem resolution entry point |
+| `ResolvedResource` | Rust, Python | Implemented and stable-ish | Capability object — no public constructor, only obtainable through resolution | Serving decision (file, directory, denied, not-found) |
+| `ResolvedFile` | Rust, Python | Implemented but provisional | File handle opened under policy during resolution; no public constructor | Metadata access and response planning |
+| `ResolvedDirectory` | Rust, Python | Implemented but provisional | Directory listing filtered by policy; child resolution uses originating policy | Directory listing and navigation |
+| `StaticResponsePlan` / `ResponsePlan` | Rust, Python | Implemented and stable-ish | Framework-independent value object; status, headers, body plan | Response construction |
+| `HeaderMapPlan` | Rust | Implemented and stable-ish | Case-insensitive header storage | Response header construction |
+| `validate_method` | Rust, Python | Implemented and stable-ish | Only GET/HEAD allowed; all others rejected | Request method validation |
+| `validate_request_body` | Rust, Python | Implemented and stable-ish | Rejects non-empty bodies on GET/HEAD, invalid Content-Length, Transfer-Encoding | Body framing validation |
+| `validate_request_target` | Rust, Python | Implemented and provisional | Coarse origin-form check (starts with `/`, no whitespace) | Pre-validation before full path parsing |
+| `BodyPlan` | Rust | Implemented and provisional | Variants: Empty, FullBytes, FileFull, FileRange | Body source selection |
+| `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |
+| Planned `BodySource` | Rust, Python | Missing, planned | Will provide safe body streaming without path reconstruction | File streaming for downstream servers |
+| Planned Python server primitive | Python | Missing, planned | Rust must own socket I/O, timeouts, and file streaming | Dynamic server use in Python |
+| Planned HTTP client primitive | Rust, Python | Missing, planned | TLS verification by default | Downstream client adapters |
+
+## Invariant checklist
+
+- Safe defaults are shared across CLI, Rust primitives, and Python primitives
+- Path parsing rejects traversal, NUL, ambiguous separators, Windows prefixes, reserved device names, and ADS syntax according to current policy
+- Static filesystem resolution must not serve outside root
+- Under Unix safe defaults, symlink denial is descriptor-relative
+- `--follow-symlinks` is weaker and outside the descriptor-relative guarantee
+- Python consumers must not reconstruct and reopen paths for static serving
+- Future Python server APIs must keep socket I/O, timeout enforcement, and file streaming in Rust
+- Future client APIs must verify TLS by default
+- Unsupported behavior fails closed or is explicitly out of contract

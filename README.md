@@ -79,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–022 complete.** eggserve ships as a hardened CLI static server and a primitive library. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Plan 022 added polish, testing, and verification. See [plans/](plans/) for the full sequence.
+**Plans 000–024 complete.** eggserve ships as a hardened CLI static server and a primitive library. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Plan 024 defines the production contract and API boundary for downstream consumers. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 

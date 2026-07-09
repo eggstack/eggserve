@@ -262,10 +262,21 @@ The Python API deliberately does **not** provide:
 - ASGI or WSGI compatibility
 - Request callbacks or middleware
 - Routing or template engines
+- Session, cookie, or auth framework
+- Reverse proxying
+- Generic plugin host
 - Async server lifecycle
 - Dynamic Python code execution in request paths
 
 The native primitives provide response **planning**, not response **writing**. The caller maps plans to sockets. For those use cases, consider Uvicorn, Granian, or similar application servers.
+
+## Adapter-building posture
+
+Python primitives are intended to allow downstream projects to build app servers and adapters. eggserve does not implement ASGI or WSGI. The safe design is to let Rust own socket I/O and let Python return explicit response values.
+
+Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
+
+Response and body streaming primitives are planned. Until they are implemented, Python dynamic-server use should not be considered production-grade.
 
 ## Installation
 

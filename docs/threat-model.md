@@ -53,3 +53,52 @@ The following are explicitly out of scope for the initial version:
 4. **Filesystem checks** — when symlink policy denies symlinks, on Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat(..., O_NOFOLLOW)` to detect symlinks at each path component and to refuse to follow them at open time. Intermediate components are opened with `O_DIRECTORY|O_NOFOLLOW`, final components with `O_RDONLY|O_NOFOLLOW`. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical path is verified against the root; this fallback is **weaker** than the descriptor-relative path and is explicitly outside the hardened guarantee. Files are opened during resolution — never re-opened later by absolute path. Canonical root escape is rejected with `PathRejection::RootEscapeDenied`. Dotfile policy checks components at both the path-validation and filesystem-resolution layers. Directory listings also respect symlink policy and hide symlink entries when denied.
 5. **Resource limits** — connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), and request body metadata rejection (`Content-Length > 0`, invalid `Content-Length`, or any `Transfer-Encoding` on GET/HEAD) are enforced to prevent resource exhaustion.
 6. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.
+
+## Primitive consumer trust boundaries
+
+### Rust embedding consumers
+
+- Must route all paths through `SecureRoot` or `ConfinedPath` parsing.
+- Must not reconstruct paths from `safe_relative_components()` and reopen them — descriptor-relative hardening applies only when files are opened during resolution via `openat(O_NOFOLLOW)`.
+- Must preserve `StaticPolicy` defaults unless the user explicitly opts in.
+
+### Python primitive consumers
+
+- Native primitives provide the same security posture as Rust primitives.
+- `SecureRoot`, `ConfinedPath`, `StaticPolicy`, and response planners are backed by the same Rust code.
+- Reopening paths in Python (e.g. using `open()` with a reconstructed path) is outside the security guarantee.
+
+### Python server callback consumers
+
+- The subprocess API manages the Rust binary; Python does not handle socket I/O.
+- Future Python server APIs must keep socket I/O, timeout enforcement, and file streaming in Rust.
+- Python callbacks may be untrusted from a latency/resource perspective but are not sandboxed. Rust should enforce connection and I/O policy around them, but eggserve does not make Python application code safe.
+
+### Downstream adapter authors
+
+- ASGI/WSGI adapters should live out-of-tree (see `docs/extension-contract.md`).
+- New APIs added for adapter authors must remain protocol- and framework-neutral.
+
+## Unsafe path reconstruction risk
+
+Extracting paths from `safe_relative_components()` and reopening them manually bypasses descriptor-relative TOCTOU hardening. This is safe for read-only metadata inspection but not for reopening files for serving.
+
+## Request-body policy risk
+
+eggserve rejects non-empty request bodies on GET/HEAD. Downstream adapters must enforce the same policy or explicitly document the difference.
+
+## Header spoofing/normalization risk
+
+Downstream adapters must be careful about header normalization and spoofing. eggserve's primitives validate method and body framing but do not normalize arbitrary headers.
+
+## Response serialization risk
+
+`StaticResponsePlan` values are framework-independent. Downstream adapters must correctly translate status codes, headers, and body plans to their framework's response API without losing security-relevant headers (e.g. `x-content-type-options: nosniff`).
+
+## Callback-induced latency and backpressure risk
+
+If a downstream adapter introduces Python callbacks into the request path, those callbacks may introduce latency and backpressure that eggserve's resource limits (connection count, file streams, timeouts) were not designed to handle.
+
+## Trust boundary between Rust runtime and Python user code
+
+Rust enforces path confinement, policy, and I/O limits. Python user code runs in the same process (via PyO3) or in a managed subprocess. eggserve does not sandbox Python application code.
