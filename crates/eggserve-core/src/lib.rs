@@ -12,9 +12,16 @@
 //!   integration users that want to embed `handle_request` in their own
 //!   accept loop, but the body type (`BoxBodyInner`) and async surface are
 //!   not stable. Breaking changes may occur in minor releases.
-//! - **Internal**: [`fs`], [`path`], [`response`], [`telemetry`], MIME
-//!   detection, and the error taxonomy. These are not part of the public API
-//!   and are not re-exported. External callers should not depend on them.
+//! - **Internal**: [`fs`], [`path`], [`response`], MIME detection, and the
+//!   error taxonomy. These are not part of the public API and are not
+//!   re-exported. External callers should not depend on them.
+//!
+//! # Primitives facade
+//!
+//! The [`primitives`] module is the **intended public boundary** for Rust
+//! consumers that want to embed eggserve's hardened path validation and policy
+//! enforcement without pulling in the full HTTP service layer. It re-exports
+//! the core types with invariant-focused documentation.
 //!
 //! Before 1.0, every public type or function in this crate is best-effort
 //! and may change without a major version bump. See
@@ -27,5 +34,6 @@ pub mod limits;
 pub(crate) mod mime;
 pub(crate) mod path;
 pub mod policy;
+pub mod primitives;
 pub(crate) mod response;
 pub mod service;

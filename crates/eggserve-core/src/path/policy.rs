@@ -1,11 +1,23 @@
 use super::rejected::PathRejection;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+/// Controls whether dotfile paths are accepted during [`ConfinedPath`](super::ConfinedPath) parsing.
+///
+/// Default: `Denied`. Paths containing a component starting with `.` are
+/// rejected before filesystem resolution.
+///
+/// This is distinct from [`crate::policy::DotfilePolicy`], which controls
+/// whether dotfiles are served in the final response. Both must allow dotfiles
+/// for them to be served.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum DotfilePolicy {
+    #[default]
     Denied,
     Allow,
 }
 
+/// Configuration for path validation during [`ConfinedPath`](super::ConfinedPath) parsing.
+///
+/// Default: dotfiles denied, backslash rejected.
 #[derive(Debug, Clone)]
 pub struct PathPolicy {
     pub dotfiles: DotfilePolicy,

@@ -73,7 +73,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 014 complete (filesystem hardening corrective pass).** Unix safe-default traversal uses descriptor-relative `openat(O_NOFOLLOW)` + `statat(AT_SYMLINK_NOFOLLOW)` per component. The `O_NOFOLLOW` flag prevents the service layer from following a symlink that an attacker swapped into place between the stat and the open. Files are opened during resolution, never re-opened by absolute path. Directory listings flow through the resolver. Follow-symlinks mode and Windows reparse-point handling are explicitly outside the descriptor-relative hardening guarantee and are documented as such. See [plans/](plans/) for the full sequence.
+**Plan 017 complete (SecureRoot public API).** The public `SecureRoot` API exposes audited filesystem resolution as capability-oriented primitives. Callers can resolve request-derived paths under the same descriptor-relative hardening (Unix safe defaults) without touching internal types. `ResolvedFile` wraps an already-opened file handle with safe metadata methods; `ResolvedDirectory` supports child resolution and policy-filtered listing. Weaker modes (follow-symlinks, non-Unix) are documented accurately in [docs/secure-root.md](docs/secure-root.md). See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 

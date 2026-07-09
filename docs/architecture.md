@@ -40,6 +40,7 @@ Modules:
 
 | Module | Visibility | Responsibility |
 |--------|------------|----------------|
+| `primitives/` | `pub` | Public facade: re-exports `ConfinedPath`, `PathPolicy`, `PathRejection`, `PathDotfilePolicy` (path-level), `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` (response-level), plus `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, `ResourceDeniedReason` (secure root and resolution capabilities). Intended boundary for Rust/Python bindings. |
 | `config.rs` | `pub` | `ServeConfig` (bind, root, limits, static policy), `ServeState` (runtime state with file-stream semaphore), `StartupSummary` (logging-friendly summary used by the binary to print the startup banner) |
 | `policy.rs` | `pub` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
 | `limits.rs` | `pub` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |

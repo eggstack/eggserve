@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-013 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-017 are complete.
 
 ## Non-negotiables
 
@@ -39,6 +39,9 @@ eggserve/
 │   │       ├── response.rs # file streaming, directory listing HTML, error responses (413, 503)
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
+│   │       ├── primitives/ # public API facade
+│   │       │   ├── mod.rs          # re-exports: ConfinedPath, PathPolicy, StaticPolicy, etc.
+│   │       │   └── secure_root.rs  # SecureRoot, ResolvedResource, ResolvedFile, ResolvedDirectory
 │   │       └── telemetry.rs # startup logging
 │   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │   │   ├── Cargo.toml
@@ -123,4 +126,5 @@ Before implementing any feature, check:
 - [docs/release-checklist.md](docs/release-checklist.md) — pre-release checklist and release blockers
 - [docs/security-review.md](docs/security-review.md) — alpha security posture and known limitations
 - [docs/tls.md](docs/tls.md) — optional TLS feature, certificate requirements, limitations
+- [docs/secure-root.md](docs/secure-root.md) — SecureRoot public API, resolved-resource capabilities, platform guarantees
 - [docs/deployment.md](docs/deployment.md) — deployment patterns (local, reverse proxy, native TLS)
