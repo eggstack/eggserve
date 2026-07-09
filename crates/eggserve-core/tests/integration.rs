@@ -2,7 +2,9 @@ use std::fs;
 use std::sync::Arc;
 
 use eggserve_core::config::{ServeConfig, ServeState};
-use eggserve_core::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
+#[cfg(unix)]
+use eggserve_core::policy::SymlinkPolicy;
+use eggserve_core::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy};
 use eggserve_core::service::handle_request;
 use hyper::body::Bytes;
 use hyper::{Method, Request, StatusCode};
