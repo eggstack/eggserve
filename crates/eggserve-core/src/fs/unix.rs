@@ -24,9 +24,9 @@ use crate::policy::{DotfilePolicy, StaticPolicy, SymlinkPolicy};
 
 use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
 
-const S_IFMT: u16 = 0o170000;
-const S_IFDIR: u16 = 0o040000;
-const S_IFLNK: u16 = 0o120000;
+const S_IFMT: u32 = 0o170000;
+const S_IFDIR: u32 = 0o040000;
+const S_IFLNK: u32 = 0o120000;
 
 pub(crate) fn resolve_fd_relative(
     root_fd: &fs::File,
@@ -56,7 +56,7 @@ pub(crate) fn resolve_fd_relative(
                 Ok(s) => s,
                 Err(_) => return ResolvedResource::NotFound,
             };
-            if (stat.st_mode & S_IFMT) == S_IFLNK {
+            if (stat.st_mode as u32 & S_IFMT) == S_IFLNK {
                 return ResolvedResource::Denied(PathRejection::SymlinkDenied);
             }
         }
@@ -126,7 +126,7 @@ pub(crate) fn resolve_child_fd(
             Ok(s) => s,
             Err(_) => return ResolvedResource::NotFound,
         };
-        if (stat.st_mode & S_IFMT) == S_IFLNK {
+        if (stat.st_mode as u32 & S_IFMT) == S_IFLNK {
             return ResolvedResource::Denied(PathRejection::SymlinkDenied);
         }
     }
@@ -192,7 +192,7 @@ pub(crate) fn list_directory_fd(
             Err(_) => continue,
         };
 
-        let mode = stat.st_mode;
+        let mode = stat.st_mode as u32;
         let is_symlink = (mode & S_IFMT) == S_IFLNK;
         if policy.symlinks == SymlinkPolicy::Denied && is_symlink {
             continue;
