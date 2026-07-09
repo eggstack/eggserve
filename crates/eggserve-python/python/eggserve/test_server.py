@@ -206,6 +206,38 @@ class TestLegacyPublicBindGuard(unittest.TestCase):
         with self.assertRaises(ValueError):
             ServeConfig(bind="::", public=False)
 
+    def test_bind_with_mismatched_port_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(bind="0.0.0.0:9000", public=True)
+        self.assertIn("port", str(ctx.exception))
+
+    def test_bind_with_mismatched_ipv6_port_raises(self):
+        with self.assertRaises(ValueError) as ctx:
+            ServeConfig(bind="[::]:9000", public=True)
+        self.assertIn("port", str(ctx.exception))
+
+    def test_bind_host_port_form_without_public_raises(self):
+        with self.assertRaises(ValueError):
+            ServeConfig(bind="0.0.0.0:9000", public=False)
+
+    def test_bind_ipv6_host_port_form_without_public_raises(self):
+        with self.assertRaises(ValueError):
+            ServeConfig(bind="[::]:9000", public=False)
+
+    def test_bind_host_port_form_with_matching_port_accepted(self):
+        config = ServeConfig(bind="0.0.0.0:9000", public=True, port=9000)
+        self.assertEqual(config.bind, "0.0.0.0:9000")
+        self.assertEqual(config.port, 9000)
+
+    def test_bind_ipv6_host_port_form_with_matching_port_accepted(self):
+        config = ServeConfig(bind="[::]:9000", public=True, port=9000)
+        self.assertEqual(config.bind, "[::]:9000")
+        self.assertEqual(config.port, 9000)
+
+    def test_bind_invalid_address_raises(self):
+        with self.assertRaises(ValueError):
+            ServeConfig(bind="not-an-address")
+
 
 class TestServerProcess(unittest.TestCase):
     def test_not_running_before_start(self):

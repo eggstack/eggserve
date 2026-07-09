@@ -11,6 +11,7 @@ system. It is a hardened static-serving primitive.
 
 from __future__ import annotations
 
+import ipaddress
 import subprocess
 import sys
 import time
@@ -42,7 +43,81 @@ class StaticPolicy:
 
 
 _VALID_LOG_FORMATS = frozenset({"text", "json", "none"})
-_PUBLIC_BIND_VALUES = frozenset({"0.0.0.0", "::"})
+
+
+def _parse_bind(bind: str) -> tuple[str, Optional[int]]:
+    """Parse ``bind`` into ``(host, port)``.
+
+    Accepts either a bare IP address (host-only; port carried separately
+    via ``ServeConfig.port``) or a ``HOST:PORT`` socket address. IPv6
+    host:port forms must use brackets (e.g. ``[::1]:8000``) to disambiguate
+    colons in the address. Returns ``(host, port_or_none)``. Raises
+    ``ValueError`` for unparseable values.
+    """
+    if not isinstance(bind, str):
+        raise ValueError(
+            f"bind must be a str, got {type(bind).__name__}: {bind!r}"
+        )
+    # Bracketed IPv6 socket form: [host]:port
+    if bind.startswith("["):
+        end = bind.find("]")
+        if end == -1:
+            raise ValueError(f"invalid bind address {bind!r}: missing ']'")
+        host = bind[1:end]
+        rest = bind[end + 1:]
+        if not rest.startswith(":"):
+            raise ValueError(f"invalid bind address {bind!r}: expected ':' after ']'")
+        try:
+            port = int(rest[1:])
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid bind address {bind!r}: bad port: {exc}"
+            ) from None
+        if not (0 <= port <= 65535):
+            raise ValueError(f"invalid bind address {bind!r}: port out of range")
+        try:
+            ipaddress.ip_address(host)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid bind address {bind!r}: {exc}"
+            ) from None
+        return (host, port)
+    # Bare IPv6 (no brackets): multiple colons mean it can't carry a port.
+    if bind.count(":") > 1:
+        try:
+            ipaddress.ip_address(bind)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid bind address {bind!r}: {exc}"
+            ) from None
+        return (bind, None)
+    # HOST:PORT for IPv4 or hostname. We require an IP literal here so
+    # the public-bind guard is unambiguous.
+    if ":" in bind:
+        host, port_str = bind.rsplit(":", 1)
+        try:
+            port = int(port_str)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid bind address {bind!r}: bad port: {exc}"
+            ) from None
+        if not (0 <= port <= 65535):
+            raise ValueError(f"invalid bind address {bind!r}: port out of range")
+        try:
+            ipaddress.ip_address(host)
+        except ValueError as exc:
+            raise ValueError(
+                f"invalid bind address {bind!r}: {exc}"
+            ) from None
+        return (host, port)
+    # Bare IPv4.
+    try:
+        ipaddress.ip_address(bind)
+    except ValueError as exc:
+        raise ValueError(
+            f"invalid bind address {bind!r}: {exc}"
+        ) from None
+    return (bind, None)
 
 
 @dataclass(frozen=True)
@@ -52,10 +127,10 @@ class ServeConfig:
     Defaults match the CLI and Rust core safe-by-default behavior:
     loopback bind, no directory listing, no symlinks, no dotfiles.
 
-    Validation runs in ``__post_init__``: an invalid port, ``log_format``,
-    or public-bind combination raises ``ValueError`` before any subprocess
-    is spawned. The Rust CLI performs the same checks independently as
-    defense in depth.
+    Validation runs in ``__post_init__``: an invalid bind, port,
+    ``log_format``, or public-bind combination raises ``ValueError``
+    before any subprocess is spawned. The Rust CLI performs the same
+    checks independently as defense in depth.
     """
 
     directory: str | Path = "."
@@ -74,12 +149,18 @@ class ServeConfig:
             raise ValueError(
                 f"port must be between 1 and 65535, got {self.port}"
             )
+        host, embedded_port = _parse_bind(self.bind)
+        if embedded_port is not None and embedded_port != self.port:
+            raise ValueError(
+                f"bind={self.bind!r} carries port {embedded_port} but "
+                f"port={self.port}; omit the port from bind or use the same value"
+            )
         if self.log_format not in _VALID_LOG_FORMATS:
             raise ValueError(
                 f"log_format must be one of {sorted(_VALID_LOG_FORMATS)}, "
                 f"got {self.log_format!r}"
             )
-        if not self.public and self.bind in _PUBLIC_BIND_VALUES:
+        if not self.public and ipaddress.ip_address(host).is_unspecified:
             raise ValueError(
                 f"binding to {self.bind} requires public=True "
                 "to acknowledge public exposure intent"
@@ -91,7 +172,8 @@ def _config_to_argv(config: ServeConfig) -> list[str]:
     argv: list[str] = []
 
     argv.extend(["--directory", str(config.directory)])
-    argv.extend(["--bind", config.bind])
+    host, _ = _parse_bind(config.bind)
+    argv.extend(["--bind", host])
     argv.extend(["--port", str(config.port)])
 
     if config.public:

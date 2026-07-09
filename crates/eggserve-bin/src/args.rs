@@ -134,20 +134,26 @@ impl Args {
                     let val = args
                         .get(i)
                         .ok_or("--max-connections requires an argument")?;
-                    max_connections = Some(
-                        val.parse()
-                            .map_err(|e| format!("invalid max-connections '{}': {}", val, e))?,
-                    );
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-connections '{}': {}", val, e))?;
+                    if parsed == 0 {
+                        return Err("--max-connections must be greater than 0".to_string());
+                    }
+                    max_connections = Some(parsed);
                 }
                 "--max-file-streams" => {
                     i += 1;
                     let val = args
                         .get(i)
                         .ok_or("--max-file-streams requires an argument")?;
-                    max_file_streams = Some(
-                        val.parse()
-                            .map_err(|e| format!("invalid max-file-streams '{}': {}", val, e))?,
-                    );
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-file-streams '{}': {}", val, e))?;
+                    if parsed == 0 {
+                        return Err("--max-file-streams must be greater than 0".to_string());
+                    }
+                    max_file_streams = Some(parsed);
                 }
                 "--header-timeout" => {
                     i += 1;
@@ -513,5 +519,19 @@ mod tests {
         let limits = args.limits();
         assert_eq!(limits.max_connections, 128);
         assert_eq!(limits.max_file_streams, 64);
+    }
+
+    #[test]
+    fn max_connections_zero_fails() {
+        let result = parse(&["--max-connections", "0"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--max-connections"));
+    }
+
+    #[test]
+    fn max_file_streams_zero_fails() {
+        let result = parse(&["--max-file-streams", "0"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("--max-file-streams"));
     }
 }

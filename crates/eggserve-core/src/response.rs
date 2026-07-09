@@ -143,17 +143,15 @@ pub fn directory_listing_response(
     );
 
     for (name, is_dir) in entries {
-        let escaped = html_escape(name);
+        let visible = html_escape(name);
+        let href = html_escape(&percent_encode_path_segment(name));
         if *is_dir {
             html.push_str(&format!(
                 "<li><a href=\"{}/\">{}/</a></li>\n",
-                escaped, escaped
+                href, visible
             ));
         } else {
-            html.push_str(&format!(
-                "<li><a href=\"{}\">{}</a></li>\n",
-                escaped, escaped
-            ));
+            html.push_str(&format!("<li><a href=\"{}\">{}</a></li>\n", href, visible));
         }
     }
 
@@ -214,6 +212,22 @@ fn html_escape(s: &str) -> String {
     out
 }
 
+fn percent_encode_path_segment(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for byte in s.as_bytes() {
+        let unreserved = matches!(
+            byte,
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~'
+        );
+        if unreserved {
+            out.push(*byte as char);
+        } else {
+            out.push_str(&format!("%{:02X}", byte));
+        }
+    }
+    out
+}
+
 fn full_body(s: &'static str) -> BoxBodyInner {
     Full::new(Bytes::from(s))
         .map_err(|never| match never {})
@@ -254,6 +268,16 @@ mod tests {
         assert_eq!(html_escape("a&b"), "a&amp;b");
         assert_eq!(html_escape("\"quoted\""), "&quot;quoted&quot;");
         assert_eq!(html_escape("it's"), "it&#x27;s");
+    }
+
+    #[test]
+    fn percent_encode_path_segment_encodes_url_significant_chars() {
+        assert_eq!(percent_encode_path_segment("a b.txt"), "a%20b.txt");
+        assert_eq!(percent_encode_path_segment("a?b.txt"), "a%3Fb.txt");
+        assert_eq!(percent_encode_path_segment("a#b.txt"), "a%23b.txt");
+        assert_eq!(percent_encode_path_segment("a%b.txt"), "a%25b.txt");
+        assert_eq!(percent_encode_path_segment("plain.txt"), "plain.txt");
+        assert_eq!(percent_encode_path_segment("a-b_c.d~e"), "a-b_c.d~e");
     }
 
     #[test]

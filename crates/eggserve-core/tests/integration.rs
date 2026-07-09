@@ -399,6 +399,24 @@ async fn directory_listing_escapes_html() {
 }
 
 #[tokio::test]
+async fn directory_listing_percent_encodes_url_significant_chars_in_href() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("a?b.txt"), "x").unwrap();
+    fs::write(tmp.path().join("a b.txt"), "x").unwrap();
+    let policy = StaticPolicy {
+        directory_listing: DirectoryListingPolicy::Enabled,
+        ..StaticPolicy::safe_default()
+    };
+    let state = make_state(&tmp, policy);
+
+    let resp = handle_request(get("/"), &state).await;
+    let body = body_bytes(resp).await;
+    let body_str = String::from_utf8_lossy(&body);
+    assert!(body_str.contains("href=\"a%3Fb.txt\""));
+    assert!(body_str.contains("href=\"a%20b.txt\""));
+}
+
+#[tokio::test]
 async fn directory_listing_has_security_headers() {
     let tmp = TempDir::new().unwrap();
     let policy = StaticPolicy {

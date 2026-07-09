@@ -38,6 +38,19 @@ The following dependency categories are approved for initial development:
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run as part of the beta release gate (see [release-criteria.md](release-criteria.md))
 
+## Accepted maintenance-risk dependencies
+
+- `rustls-pemfile` (optional, behind the `tls` feature) is flagged as
+  unmaintained by `cargo audit` under `RUSTSEC-2025-0134`. The crate is
+  still in the official `rustls` GitHub organization and is the supported
+  PEM parser consumed by `rustls` consumers; there is no published
+  drop-in replacement that integrates with the in-tree `rustls 0.23`
+  version pinned by `eggserve-bin`. We accept the risk because:
+  - It is only pulled in when the `tls` feature is enabled
+  - It is a small parser with a narrow surface (PEM → DER)
+  - It is not on a network or authentication code path
+  - The risk is tracked and re-evaluated each release via `cargo audit`
+
 ## Automated enforcement
 
 `cargo-deny` is configured via `deny.toml` at the workspace root. It checks:
