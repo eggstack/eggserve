@@ -1,6 +1,7 @@
 //! HTTP request handler for static file serving.
 
 use std::fs;
+use std::path::PathBuf;
 use std::time::SystemTime;
 
 use hyper::{Method, Request, Response};
@@ -9,7 +10,7 @@ use crate::config::ServeState;
 use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
 use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
-use crate::policy::{DirectoryListingPolicy, DotfilePolicy, SymlinkPolicy};
+use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
 use crate::response::BoxBodyInner;
 use crate::response::{
     bad_request, directory_listing_response, file_response, file_response_head, forbidden,
@@ -112,17 +113,15 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                 ResolvedResource::File(file) => {
                     let etag = generate_etag(&file.metadata);
                     let last_modified = file.metadata.modified().ok();
-                    let content_type = mime_for_path(&file.path);
+                    let safe_path: PathBuf = file.safe_relative_components.iter().collect();
+                    let content_type = mime_for_path(&safe_path);
                     let len = file.metadata.len();
 
                     if is_head {
                         return file_response_head(len, content_type, last_modified, etag);
                     }
 
-                    let tokio_file = match tokio::fs::File::open(&file.path).await {
-                        Ok(f) => f,
-                        Err(_) => return internal_error(),
-                    };
+                    let tokio_file = tokio::fs::File::from_std(file.file);
 
                     let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
                         Ok(p) => p,
@@ -157,17 +156,15 @@ async fn handle_directory(
         ResolvedResource::File(file) => {
             let etag = generate_etag(&file.metadata);
             let last_modified = file.metadata.modified().ok();
-            let content_type = mime_for_path(&file.path);
+            let safe_path: PathBuf = file.safe_relative_components.iter().collect();
+            let content_type = mime_for_path(&safe_path);
             let len = file.metadata.len();
 
             if is_head {
                 return file_response_head(len, content_type, last_modified, etag);
             }
 
-            let tokio_file = match tokio::fs::File::open(&file.path).await {
-                Ok(f) => f,
-                Err(_) => return internal_error(),
-            };
+            let tokio_file = tokio::fs::File::from_std(file.file);
 
             let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
                 Ok(p) => p,
@@ -178,7 +175,7 @@ async fn handle_directory(
         }
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
-                let entries = match build_listing_entries(&dir.path, &config.static_policy) {
+                let entries = match guard.list_directory(dir, &config.static_policy) {
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };
@@ -189,35 +186,6 @@ async fn handle_directory(
         ResolvedResource::Denied(_) => forbidden(),
         ResolvedResource::Directory(_) => internal_error(),
     }
-}
-
-fn build_listing_entries(
-    dir: &std::path::Path,
-    policy: &crate::policy::StaticPolicy,
-) -> Result<Vec<(String, bool)>, std::io::Error> {
-    let mut entries = Vec::new();
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
-
-        if policy.dotfiles == DotfilePolicy::Denied && name.starts_with('.') {
-            continue;
-        }
-
-        let meta = match entry.path().symlink_metadata() {
-            Ok(m) => m,
-            Err(_) => continue,
-        };
-
-        if policy.symlinks == SymlinkPolicy::Denied && meta.file_type().is_symlink() {
-            continue;
-        }
-
-        let is_dir = meta.is_dir();
-        entries.push((name, is_dir));
-    }
-    entries.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(entries)
 }
 
 fn generate_etag(metadata: &fs::Metadata) -> Option<String> {

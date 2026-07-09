@@ -47,7 +47,6 @@ The following items block specific release milestones:
 
 ### Blocks 1.0
 
-- Descriptor-relative/openat traversal not complete
 - Windows reparse-point policy not complete
 - Stable public API not frozen
 - Signed releases not implemented

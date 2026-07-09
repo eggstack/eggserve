@@ -103,6 +103,7 @@ dependencies = [
  "hyper",
  "hyper-util",
  "phf",
+ "rustix",
  "tempfile",
  "thiserror",
  "tokio",

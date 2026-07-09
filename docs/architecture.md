@@ -53,8 +53,9 @@ Modules:
 | `path/rejected.rs` | `pub(crate)` | `PathRejection` enum — all path-level rejection reasons (parser and filesystem). `SymlinkDenied` and `RootEscapeDenied` are produced at the `fs/` layer. |
 | `path/policy.rs` | `pub(crate)` | `PathPolicy` — dotfile and backslash policies for path validation |
 | `path/platform.rs` | `pub(crate)` | Windows-specific checks (reserved names, ADS, drive prefixes) |
-| `fs/` | `pub(crate)` | Filesystem confinement: root guard, resolved resource types |
-| `fs/mod.rs` | `pub(crate)` | `RootGuard` — component-wise path resolution, canonical-root enforcement, per-component symlink/dotfile checks, `ResolvedResource` classification (`File`/`Directory`/`NotFound`/`Denied(PathRejection)`). Each denial carries the specific `PathRejection` reason (`SymlinkDenied`, `RootEscapeDenied`, `DotfileDenied`) so tests can assert intent. HTTP responses remain a generic 403 — denial reasons are never leaked to clients. |
+| `fs/` | `pub(crate)` | Filesystem confinement: root guard, resolved resource types, platform-specific traversal |
+| `fs/mod.rs` | `pub(crate)` | `RootGuard` — opens root dir fd on Unix, dispatches to platform-specific resolver, `ResolvedResource` classification (`File`/`Directory`/`NotFound`/`Denied(PathRejection)`). `ResolvedFile` carries pre-opened file handle (no TOCTOU on re-open). `ResolvedDirectory` carries dir fd on Unix. Each denial carries the specific `PathRejection` reason. |
+| `fs/unix.rs` | `pub(crate)` | Unix descriptor-relative traversal: `resolve_fd_relative`, `resolve_child_fd`, `list_directory_fd`. Uses `statat(AT_SYMLINK_NOFOLLOW)` + `openat` for symlink-safe resolution. |
 | `response.rs` | `pub(crate)` | Response helpers: file streaming (`StreamBody`), directory listing HTML, error responses (400, 403, 404, 405, 413, 500, 503), MIME-typed headers |
 | `mime.rs` | `pub(crate)` | MIME type detection via extension lookup (`phf` map), ~60 common types, `application/octet-stream` fallback |
 

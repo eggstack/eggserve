@@ -63,7 +63,7 @@ Key defaults:
 - **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
 - **GET and HEAD only** — all other methods are rejected
 - **No request bodies** — `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding` on GET/HEAD are rejected (413 for body-size limits, 400 for malformed framing)
-- **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed; even with follow enabled, symlinks whose final canonical target escapes the root are denied
+- **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed; on Unix, descriptor-relative traversal (`statat` + `openat`) prevents TOCTOU between symlink detection and file open; even with follow enabled, symlinks whose final canonical target escapes the root are denied
 - **No dotfiles served** — hidden files are excluded
 - **No directory listing** — unless `--directory-listing` is passed
 - **Unknown MIME as application/octet-stream** — safe fallback
@@ -73,7 +73,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 012 complete.** CI now exercises the TLS feature build, Python API tests, and `cargo deny`. TLS handshakes are bounded by the header-read timeout. Filesystem denial reasons are preserved internally (no dead `PathRejection` variants). The Python `ServeConfig` validates port, log format, and public-bind combinations at construction. The `eggserve-core` public API surface has been tightened: `config`, `limits`, `policy` are stable-ish; `service` is experimental; `fs`, `path`, `response`, MIME detection, and telemetry are internal. Optional TLS support via rustls is available behind the `tls` feature flag. See [plans/](plans/) for the full sequence.
+**Plan 013 complete.** Unix safe-default traversal is now descriptor-relative using `openat`/`statat` — files are opened during resolution, never re-opened by absolute path. Directory listings flow through the resolver. All 232 tests pass. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
@@ -83,9 +83,9 @@ Key defaults:
 | Linux aarch64 | Supported, tested in CI |
 | macOS arm64 (Apple Silicon) | Supported, tested in CI |
 | macOS x86_64 | Supported, tested in CI |
-| Windows x86_64 | Supported, tested in CI; reparse-point hardening deferred |
+| Windows x86_64 | Supported; parser-level checks only, reparse-point hardening deferred |
 
-Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not claim production-readiness on Windows until that work is done.
+Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.
 
 ## Python API
 

@@ -28,8 +28,8 @@ The path confinement layer enforces the following before any filesystem access:
 3. **Component validation** — `.` and `..` components are rejected. Empty components are normalized away. Components containing NUL, `/`, or `\` (by default) are rejected.
 4. **Dotfile policy** — components starting with `.` are denied unless `DotfilePolicy::Serve` is explicitly configured.
 5. **Platform checks** — Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), alternate data stream syntax (`:`), and drive prefixes (`C:`) are rejected cross-platform.
-6. **Root confinement** — the resolved filesystem path is canonicalized and verified to remain within the configured root directory.
-7. **Symlink policy** — symlinks are denied by default. When denied, every component of the request path is checked with `symlink_metadata` before it is followed, so both final symlinks and intermediate directory symlinks are rejected. The final canonical target is also verified to remain inside the configured root.
+6. **Root confinement** — the resolved filesystem path is verified to remain within the configured root directory.
+7. **Symlink policy** — symlinks are denied by default. On Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat` call to detect symlinks, so both final and intermediate symlinks are rejected. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical target is verified against the root.
 
 Malformed syntax returns 400 Bad Request. Policy violations return 403 Forbidden. No local filesystem paths are leaked in response bodies.
 
@@ -59,7 +59,7 @@ This closes the previous behavior where malformed `Content-Length` values were s
 
 ## Implementation status and limitations
 
-The current alpha implementation uses component-wise metadata checks plus a final canonical-root verification. Symlink denial produces `PathRejection::SymlinkDenied`; canonical root escape produces `PathRejection::RootEscapeDenied`. This is sufficient to deny intermediate symlink traversal under safe defaults and to deny symlink escape under follow-enabled mode, but it is not yet descriptor-relative traversal. A later hardening pass should replace or augment this with `openat`/directory-fd traversal on Unix to reduce TOCTOU exposure between the metadata check and the eventual file open. Windows reparse-point detection beyond what the parser already denies is also deferred. Directory listings hide symlink entries when symlink policy is denied.
+On Unix (Linux, macOS) with safe defaults, eggserve uses descriptor-relative traversal: the root directory is opened as a file descriptor at startup, and each path component is resolved using `statat` (to detect symlinks) followed by `openat`. This eliminates the TOCTOU window between metadata inspection and file open for the final component. On non-Unix platforms or when `--follow-symlinks` is enabled, the implementation falls back to `symlink_metadata` checks plus `canonicalize` with root verification. Files are always opened during resolution — never re-opened later by absolute path. Windows reparse-point detection beyond what the parser already denies is deferred. Directory listings hide symlink entries when symlink policy is denied.
 
 ### `--directory-listing`
 

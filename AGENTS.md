@@ -2,13 +2,13 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-011 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-013 are complete.
 
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
-- **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. Symlink denial is **component-wise** under safe defaults — every intermediate directory component is checked with `symlink_metadata` before it is followed, not just the final candidate. See [docs/threat-model.md](docs/threat-model.md) and [plans/007-filesystem-policy-tightening.md](plans/007-filesystem-policy-tightening.md).
-- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map). Optional: `rustls`/`tokio-rustls`/`rustls-pemfile` (TLS, behind `tls` feature flag).
+- **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. On Unix with safe defaults, symlink denial is **descriptor-relative** — `statat(AT_SYMLINK_NOFOLLOW)` before `openat` at each path component. On non-Unix or follow-symlinks mode, component-wise `symlink_metadata` checks are used. See [docs/threat-model.md](docs/threat-model.md) and [plans/007-filesystem-policy-tightening.md](plans/007-filesystem-policy-tightening.md).
+- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map). Optional: `rustls`/`tokio-rustls`/`rustls-pemfile` (TLS, behind `tls` feature flag). Unix-only: `rustix` (descriptor-relative filesystem traversal).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 
 ## Layout
@@ -34,7 +34,8 @@ eggserve/
 │   │       │   ├── policy.rs       # PathPolicy (dotfile, backslash)
 │   │       │   └── platform.rs     # Windows reserved names, ADS, drives
 │   │       ├── fs/         # filesystem confinement
-│   │       │   └── mod.rs          # RootGuard, ResolvedResource, symlink-aware resolution
+│   │       │   ├── mod.rs          # RootGuard, ResolvedResource, symlink-aware resolution
+│   │       │   └── unix.rs         # descriptor-relative traversal (statat + openat)
 │   │       ├── response.rs # file streaming, directory listing HTML, error responses (413, 503)
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag

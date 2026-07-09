@@ -24,21 +24,25 @@ Every security default is enforced at the library level in `eggserve-core`. See 
 | Loopback bind | `127.0.0.1` unless `--public` |
 | GET/HEAD only | 405 for other methods |
 | No request bodies | 413/400 for body signals |
-| No symlinks | Component-wise `symlink_metadata` check |
+| No symlinks | Descriptor-relative `statat(AT_SYMLINK_NOFOLLOW)` on Unix; component-wise `symlink_metadata` on non-Unix |
 | No dotfiles | Component-level dotfile check |
 | No directory listing | Explicit opt-in required |
 | Unknown MIME as `application/octet-stream` | Safe fallback |
 
 ## Filesystem traversal model
 
-### Current implementation (alpha)
+### Current implementation
 
-The current implementation uses **component-wise metadata checks** plus **canonical-root verification**:
+On Unix (Linux, macOS), eggserve uses **descriptor-relative traversal** for safe-default mode (symlinks denied):
 
 1. Each path component is validated (no `.`, `..`, NUL, backslash)
 2. Dotfile policy is checked per component
-3. Symlink policy is checked per component using `symlink_metadata`
-4. The final resolved path is canonicalized and verified to remain within the configured root
+3. The root directory is opened as a file descriptor at startup
+4. Each path component is resolved using `statat(AT_SYMLINK_NOFOLLOW)` to detect symlinks before opening
+5. Intermediate components are opened with `openat(O_DIRECTORY)`, final components with `openat(O_RDONLY)`
+6. The canonical path is tracked and verified to remain within the configured root
+
+On non-Unix platforms or when `--follow-symlinks` is enabled, eggserve falls back to **canonicalize-based** resolution: `symlink_metadata` checks per component, then `fs::canonicalize` on the final path with root-containment verification. Files are opened during resolution (not re-opened later) to eliminate TOCTOU.
 
 This is sufficient to deny:
 - Parent traversal (`../../../etc/passwd`)
@@ -47,13 +51,9 @@ This is sufficient to deny:
 
 Each denial reason is preserved in the `ResolvedResource::Denied(PathRejection)` variant so the boundary between parser-layer and filesystem-layer denials is explicit. `SymlinkDenied`, `RootEscapeDenied`, and `DotfileDenied` are produced by the filesystem layer; all other variants are produced by the parser.
 
-### Known limitation
+### macOS note
 
-This is **not** descriptor-relative (`openat`-style) traversal. There is a theoretical TOCTOU window between the `symlink_metadata` check and the eventual file open. This window is narrow in practice (no concurrent filesystem modification assumed) but is acknowledged as a hardening target for 1.0.
-
-### Future hardening (1.0 target)
-
-Descriptor-relative traversal using `openat`/`O_DIRECTORY` on Unix would eliminate the TOCTOU window by resolving paths through directory file descriptors rather than absolute paths.
+On macOS, `openat` with `O_DIRECTORY|O_NOFOLLOW` on a symlink-to-directory does not reliably return `ELOOP`. The implementation uses `statat` before `openat` to detect symlinks explicitly. This introduces a small TOCTOU window between stat and open for intermediate components, but the final component's statat is atomic with the open.
 
 ## Request body policy
 
@@ -84,13 +84,14 @@ When directory listing is enabled:
 
 ## Known limitations
 
-1. **Component-wise traversal, not descriptor-relative** — TOCTOU window exists between metadata check and file open
-2. **Windows reparse-point hardening** — not fully audited; Windows is supported with parser-level checks but production hardening is deferred
-3. **No Range requests** — full-file streaming only
-4. **No HTTP/2** — HTTP/1.1 only
-5. **No native TLS by default** — requires `tls` feature flag
-6. **No request body processing** — all bodies rejected on GET/HEAD
-7. **No authentication** — access control is network-level only (loopback bind)
+1. **Windows reparse-point hardening** — not fully audited; Windows is supported with parser-level checks but production hardening is deferred
+2. **Follow-symlinks mode uses canonicalize-based resolution** — TOCTOU window exists when `--follow-symlinks` is enabled; final canonical path is still verified against root
+3. **macOS intermediate-component TOCTOU** — on macOS, the statat-to-openat gap for intermediate directory components is not fully closed (final component is atomic)
+4. **No Range requests** — full-file streaming only
+5. **No HTTP/2** — HTTP/1.1 only
+6. **No native TLS by default** — requires `tls` feature flag
+7. **No request body processing** — all bodies rejected on GET/HEAD
+8. **No authentication** — access control is network-level only (loopback bind)
 
 ## Reporting process
 

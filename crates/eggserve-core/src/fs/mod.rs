@@ -1,4 +1,9 @@
 //! Filesystem confinement: root guard and resolved resource types.
+//!
+//! Under safe defaults (symlinks denied), resolution uses descriptor-relative
+//! traversal via `openat` with `O_NOFOLLOW` on Unix. This eliminates the
+//! TOCTOU window between policy check and file open. Under follow-symlinks
+//! mode, a canonicalize-based fallback is used.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -6,19 +11,38 @@ use std::path::{Path, PathBuf};
 use crate::path::{ConfinedPath, PathRejection};
 use crate::policy::{DotfilePolicy, StaticPolicy, SymlinkPolicy};
 
-#[derive(Debug, Clone)]
+#[cfg(unix)]
+pub(crate) mod unix;
+
+/// A resolved file with a pre-opened handle.
+///
+/// The file is opened during resolution via `openat` with `O_NOFOLLOW` on
+/// Unix safe defaults, eliminating the TOCTOU gap between metadata check and
+/// file open. MIME detection uses `safe_relative_components`, never the
+/// absolute path.
+#[derive(Debug)]
 pub(crate) struct ResolvedFile {
-    pub(crate) path: PathBuf,
+    pub(crate) file: fs::File,
     pub(crate) metadata: fs::Metadata,
+    /// Safe relative path components for MIME detection only.
+    /// Never used for file access.
+    pub(crate) safe_relative_components: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+/// A resolved directory with an optional pre-opened handle.
+///
+/// On Unix safe defaults, `dir_fd` is an open directory file descriptor used
+/// for fd-relative child resolution and listing. On the fallback path
+/// (follow-symlinks or non-Unix), `canonical_path` is used instead.
+#[derive(Debug)]
 pub(crate) struct ResolvedDirectory {
-    pub(crate) path: PathBuf,
+    #[cfg(unix)]
+    pub(crate) dir_fd: fs::File,
+    pub(crate) canonical_path: PathBuf,
     pub(crate) components: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(crate) enum ResolvedResource {
     File(ResolvedFile),
     Directory(ResolvedDirectory),
@@ -28,12 +52,20 @@ pub(crate) enum ResolvedResource {
 
 pub(crate) struct RootGuard {
     canonical_root: PathBuf,
+    #[cfg(unix)]
+    root_fd: fs::File,
 }
 
 impl RootGuard {
     pub(crate) fn new(root: &Path) -> Result<Self, std::io::Error> {
         let canonical_root = fs::canonicalize(root)?;
-        Ok(Self { canonical_root })
+        #[cfg(unix)]
+        let root_fd = fs::File::open(&canonical_root)?;
+        Ok(Self {
+            canonical_root,
+            #[cfg(unix)]
+            root_fd,
+        })
     }
 
     pub(crate) fn resolve(
@@ -41,18 +73,16 @@ impl RootGuard {
         confined: &ConfinedPath,
         policy: &StaticPolicy,
     ) -> ResolvedResource {
-        self.resolve_components(confined.components(), policy)
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn resolve_index(
-        &self,
-        dir_confined: &ConfinedPath,
-        policy: &StaticPolicy,
-    ) -> ResolvedResource {
-        let mut components = dir_confined.components().to_vec();
-        components.push("index.html".to_string());
-        self.resolve_components(&components, policy)
+        #[cfg(unix)]
+        if policy.symlinks == SymlinkPolicy::Denied {
+            return unix::resolve_fd_relative(
+                &self.root_fd,
+                &self.canonical_root,
+                confined.components(),
+                policy,
+            );
+        }
+        self.resolve_fallback(confined.components(), policy)
     }
 
     pub(crate) fn resolve_child(
@@ -61,12 +91,28 @@ impl RootGuard {
         child: &str,
         policy: &StaticPolicy,
     ) -> ResolvedResource {
+        #[cfg(unix)]
+        if policy.symlinks == SymlinkPolicy::Denied {
+            return unix::resolve_child_fd(&dir.dir_fd, &dir.components, child, policy);
+        }
         let mut components = dir.components.clone();
         components.push(child.to_string());
-        self.resolve_components(&components, policy)
+        self.resolve_fallback(&components, policy)
     }
 
-    fn resolve_components(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
+    pub(crate) fn list_directory(
+        &self,
+        dir: &ResolvedDirectory,
+        policy: &StaticPolicy,
+    ) -> Result<Vec<(String, bool)>, std::io::Error> {
+        #[cfg(unix)]
+        if policy.symlinks == SymlinkPolicy::Denied {
+            return unix::list_directory_fd(&dir.dir_fd, policy);
+        }
+        build_listing_entries_fallback(&dir.canonical_path, policy)
+    }
+
+    fn resolve_fallback(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
         let mut candidate = self.canonical_root.clone();
 
         for component in components {
@@ -110,20 +156,58 @@ impl RootGuard {
         match fs::metadata(&canonical) {
             Ok(meta) => {
                 if meta.is_dir() {
-                    ResolvedResource::Directory(ResolvedDirectory {
-                        path: canonical,
-                        components: components.to_vec(),
-                    })
+                    match fs::File::open(&canonical) {
+                        Ok(dir_fd) => ResolvedResource::Directory(ResolvedDirectory {
+                            #[cfg(unix)]
+                            dir_fd,
+                            canonical_path: canonical,
+                            components: components.to_vec(),
+                        }),
+                        Err(_) => ResolvedResource::NotFound,
+                    }
                 } else {
-                    ResolvedResource::File(ResolvedFile {
-                        path: canonical,
-                        metadata: meta,
-                    })
+                    match fs::File::open(&canonical) {
+                        Ok(file) => ResolvedResource::File(ResolvedFile {
+                            file,
+                            metadata: meta,
+                            safe_relative_components: components.to_vec(),
+                        }),
+                        Err(_) => ResolvedResource::NotFound,
+                    }
                 }
             }
             Err(_) => ResolvedResource::NotFound,
         }
     }
+}
+
+fn build_listing_entries_fallback(
+    dir: &Path,
+    policy: &crate::policy::StaticPolicy,
+) -> Result<Vec<(String, bool)>, std::io::Error> {
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+
+        if policy.dotfiles == DotfilePolicy::Denied && name.starts_with('.') {
+            continue;
+        }
+
+        let meta = match entry.path().symlink_metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+
+        if policy.symlinks == SymlinkPolicy::Denied && meta.file_type().is_symlink() {
+            continue;
+        }
+
+        let is_dir = meta.is_dir();
+        entries.push((name, is_dir));
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(entries)
 }
 
 #[cfg(test)]
