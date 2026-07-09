@@ -110,7 +110,9 @@ Kind values: `"file"`, `"directory"`, `"not_found"`, `"denied"`.
 
 ### `ResolvedFile`
 
-Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.file`.
+Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.file`. `ResolvedFile` is a resolver-created capability — there is no public constructor; it can only be obtained through `SecureRoot` resolution.
+
+Python `ResolvedFile` currently supports metadata and response planning. It does not yet expose the resolver-opened file handle for streaming; production byte-serving should wait for a dedicated file-streaming primitive.
 
 - `length` — file size in bytes
 - `modified` — modification time as UNIX timestamp (float), or `None`
@@ -121,11 +123,11 @@ Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.
 
 ### `ResolvedDirectory`
 
-Directory listing and child resolution. Only obtainable via `ResolvedResource.directory`.
+Directory listing and child resolution. Only obtainable via `ResolvedResource.directory`. Directory primitive listing is policy-filtered filesystem listing; HTTP directory-listing exposure remains separately controlled by `StaticPolicy.directory_listing`.
 
 - `safe_relative_components` — path components as list of strings
-- `list()` — returns `[(name: str, is_dir: bool), ...]` filtered by policy
-- `resolve_child(name: str) -> ResolvedResource` — resolve a child entry
+- `list()` — returns `[(name: str, is_dir: bool), ...]` filtered by the originating `StaticPolicy`
+- `resolve_child(name: str) -> ResolvedResource` — resolve a child entry using the originating `StaticPolicy`
 
 ### `ResponsePlan`
 
@@ -142,6 +144,8 @@ validate_request_body(content_length="100")         # raises RequestValidationEr
 validate_request_target("/valid/path")              # OK
 validate_request_target("http://example.com/path")  # raises RequestValidationError
 ```
+
+**Note:** `validate_request_target()` performs a coarse origin-form syntax check (starts with `/`, no `*` or authority form). It is not a replacement for `RequestTarget.parse()` / `ConfinedPath` validation, which performs full path confinement, dotfile, traversal, and backslash checks.
 
 ### `generate_etag`
 

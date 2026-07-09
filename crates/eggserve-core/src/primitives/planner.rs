@@ -67,7 +67,14 @@ pub fn plan_file_response(
 
         if range_valid {
             if let RangeRequestOutcome::Satisfiable(file_range) = range_outcome {
-                return build_range_response(method, file_range, len);
+                return build_range_response(
+                    method,
+                    file_range,
+                    len,
+                    content_type,
+                    etag.as_deref(),
+                    last_modified_str.as_deref(),
+                );
             }
         } else {
             match range_outcome {
@@ -236,6 +243,7 @@ fn build_full_response(
     let mut headers = HeaderMapPlan::new();
     headers.push("content-length", len.to_string());
     headers.push("content-type", content_type.to_owned());
+    headers.push("accept-ranges", "bytes".to_owned());
     headers.push("x-content-type-options", "nosniff".to_owned());
 
     if let Some(lm) = last_modified {
@@ -262,10 +270,15 @@ fn build_range_response(
     method: ReadOnlyMethod,
     range: FileRange,
     file_size: u64,
+    content_type: &str,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
 ) -> StaticResponsePlan {
     let mut headers = HeaderMapPlan::new();
     let content_length = range.len();
     headers.push("content-length", content_length.to_string());
+    headers.push("content-type", content_type.to_owned());
+    headers.push("accept-ranges", "bytes".to_owned());
     headers.push(
         "content-range",
         format!(
@@ -274,6 +287,13 @@ fn build_range_response(
         ),
     );
     headers.push("x-content-type-options", "nosniff".to_owned());
+
+    if let Some(lm) = last_modified {
+        headers.push("last-modified", lm.to_owned());
+    }
+    if let Some(tag) = etag {
+        headers.push("etag", tag.to_owned());
+    }
 
     let body = if method == ReadOnlyMethod::Head {
         BodyPlan::Empty
@@ -293,6 +313,8 @@ fn build_range_response(
 
 fn build_not_range_satisfiable(file_size: u64) -> StaticResponsePlan {
     let mut headers = HeaderMapPlan::new();
+    headers.push("content-length", "0".to_owned());
+    headers.push("accept-ranges", "bytes".to_owned());
     headers.push("content-range", format!("bytes */{}", file_size));
 
     StaticResponsePlan {
@@ -642,6 +664,8 @@ mod tests {
         assert_eq!(plan.status.as_u16(), 206);
         assert_eq!(plan.headers.get("content-range"), Some("bytes 0-49/100"));
         assert_eq!(plan.headers.get("content-length"), Some("50"));
+        assert_eq!(plan.headers.get("content-type"), Some("text/plain"));
+        assert_eq!(plan.headers.get("accept-ranges"), Some("bytes"));
     }
 
     #[test]
@@ -661,6 +685,8 @@ mod tests {
 
         assert_eq!(plan.status.as_u16(), 416);
         assert_eq!(plan.headers.get("content-range"), Some("bytes */100"));
+        assert_eq!(plan.headers.get("content-length"), Some("0"));
+        assert_eq!(plan.headers.get("accept-ranges"), Some("bytes"));
         assert_eq!(plan.body, BodyPlan::Empty);
     }
 
@@ -682,6 +708,7 @@ mod tests {
         assert_eq!(plan.status.as_u16(), 206);
         assert_eq!(plan.body, BodyPlan::Empty);
         assert_eq!(plan.headers.get("content-length"), Some("50"));
+        assert_eq!(plan.headers.get("content-type"), Some("text/plain"));
     }
 
     #[test]

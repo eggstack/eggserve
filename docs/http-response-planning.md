@@ -78,8 +78,8 @@ Under the default zero-body policy (`max_request_body_bytes: 0`):
 ### Behavior
 
 - Single byte ranges only. Multiple ranges are not supported — the planner returns `200 OK` (full response) when multiple ranges are present.
-- Unsatisfiable ranges (start >= file size, or suffix length > file size) return `416 Range Not Satisfiable` with `Content-Range: bytes */<len>`.
-- `206 Partial Content` includes `Content-Range: bytes <start>-<end>/<len>` and `Content-Length` for the range.
+- Unsatisfiable ranges (start >= file size, or suffix length > file size) return `416 Range Not Satisfiable` with `Content-Range: bytes */<len>` and `Content-Length: 0`.
+- `206 Partial Content` includes `Content-Range: bytes <start>-<end>/<len>`, `Content-Length`, `Content-Type`, `Accept-Ranges: bytes`, and validators (`ETag`, `Last-Modified`) when available.
 
 ### If-Range
 

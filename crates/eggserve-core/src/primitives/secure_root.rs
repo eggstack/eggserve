@@ -44,6 +44,10 @@ impl From<PathRejection> for ResourceDeniedReason {
     }
 }
 
+/// A resolved file capability created by the filesystem resolver.
+///
+/// This type cannot be constructed directly by external callers; it is only
+/// created through the resolver's path confinement pipeline.
 #[derive(Debug)]
 pub struct ResolvedFile {
     inner: crate::fs::ResolvedFile,
@@ -87,7 +91,7 @@ impl ResolvedFile {
     }
 
     #[allow(dead_code)]
-    pub fn from_parts(
+    pub(crate) fn from_parts(
         file: std::fs::File,
         metadata: std::fs::Metadata,
         safe_relative_components: Vec<String>,

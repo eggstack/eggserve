@@ -14,6 +14,7 @@ pub use rejected::PathRejection;
 pub struct ConfinedPath {
     decoded: String,
     components: Vec<String>,
+    path_policy: PathPolicy,
 }
 
 impl ConfinedPath {
@@ -31,6 +32,7 @@ impl ConfinedPath {
         Ok(Self {
             decoded,
             components: parts,
+            path_policy: policy.clone(),
         })
     }
 
@@ -41,6 +43,10 @@ impl ConfinedPath {
 
     pub fn components(&self) -> &[String] {
         &self.components
+    }
+
+    pub fn path_policy(&self) -> &PathPolicy {
+        &self.path_policy
     }
 }
 

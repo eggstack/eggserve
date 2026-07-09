@@ -79,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–019 complete.** eggserve ships as a hardened CLI static server and a primitive library. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. See [plans/](plans/) for the full sequence.
+**Plans 000–021 complete.** eggserve ships as a hardened CLI static server and a primitive library. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Plan 021 tightened the primitive API: Rust `ResolvedFile` is now a resolver-only capability, Python path-policy decisions are preserved across the resolution boundary, `ResolvedDirectory` methods carry the originating `StaticPolicy`, and range/conditional response planning includes full metadata. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 

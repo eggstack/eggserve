@@ -281,6 +281,7 @@ impl PyStaticPolicy {
 struct PyRequestTarget {
     decoded: String,
     components: Vec<String>,
+    confined: ConfinedPath,
 }
 
 #[pymethods]
@@ -296,6 +297,7 @@ impl PyRequestTarget {
         Ok(Self {
             decoded: confined.as_str().to_owned(),
             components: confined.components().to_vec(),
+            confined,
         })
     }
 
@@ -353,23 +355,27 @@ impl PySecureRoot {
     }
 
     fn resolve(&self, target: &PyRequestTarget) -> PyResult<PyResolvedResource> {
-        let confined = ConfinedPath::parse(&target.decoded, &PathPolicy::default())
-            .map_err(path_rejection_to_pyerr)?;
-        let result = self.inner.resolve(&confined);
+        let result = self.inner.resolve(&target.confined);
         Ok(PyResolvedResource::from_rust(result, self))
     }
 
     #[pyo3(signature = (raw_path, path_policy=None))]
-    #[allow(unused_variables)]
     fn resolve_path(
         &self,
         raw_path: &str,
         path_policy: Option<&PyPathPolicy>,
     ) -> PyResult<PyResolvedResource> {
-        let result = self
-            .inner
-            .resolve_uri(raw_path)
-            .map_err(path_rejection_to_pyerr)?;
+        let result = match path_policy {
+            Some(pp) => {
+                let confined =
+                    ConfinedPath::parse(raw_path, &pp.inner).map_err(path_rejection_to_pyerr)?;
+                self.inner.resolve(&confined)
+            }
+            None => self
+                .inner
+                .resolve_uri(raw_path)
+                .map_err(path_rejection_to_pyerr)?,
+        };
         Ok(PyResolvedResource::from_rust(result, self))
     }
 
@@ -390,6 +396,7 @@ struct PyResolvedResource {
     root_path: Option<std::path::PathBuf>,
     denied_reason_msg: Option<String>,
     denied_code: Option<String>,
+    static_policy: Option<RustStaticPolicy>,
 }
 
 struct PyResolvedFileData {
@@ -446,6 +453,10 @@ impl PyResolvedResource {
             (Some(comps), Some(rp)) => Ok(PyResolvedDirectory {
                 components: comps.clone(),
                 root_path: rp.clone(),
+                static_policy: self
+                    .static_policy
+                    .clone()
+                    .unwrap_or_else(RustStaticPolicy::safe_default),
             }),
             _ => Err(EggserveError::new_err((
                 "resource is not a directory",
@@ -481,6 +492,7 @@ impl PyResolvedResource {
 
 impl PyResolvedResource {
     fn from_rust(resource: RustResolvedResource, root: &PySecureRoot) -> Self {
+        let static_policy = root.inner.policy().clone();
         match resource {
             RustResolvedResource::File(f) => {
                 let ct = f.content_type().to_string();
@@ -497,6 +509,7 @@ impl PyResolvedResource {
                     root_path: None,
                     denied_reason_msg: None,
                     denied_code: None,
+                    static_policy: Some(static_policy),
                 }
             }
             RustResolvedResource::Directory(d) => Self {
@@ -506,6 +519,7 @@ impl PyResolvedResource {
                 root_path: Some(root.root_path.clone()),
                 denied_reason_msg: None,
                 denied_code: None,
+                static_policy: Some(static_policy),
             },
             RustResolvedResource::NotFound => Self {
                 kind: "not_found".to_string(),
@@ -514,6 +528,7 @@ impl PyResolvedResource {
                 root_path: None,
                 denied_reason_msg: None,
                 denied_code: None,
+                static_policy: None,
             },
             RustResolvedResource::Denied(reason) => {
                 let (msg, code) = match &reason {
@@ -538,6 +553,7 @@ impl PyResolvedResource {
                     root_path: None,
                     denied_reason_msg: Some(msg),
                     denied_code: Some(code),
+                    static_policy: None,
                 }
             }
         }
@@ -656,6 +672,7 @@ impl PyResolvedFile {
 struct PyResolvedDirectory {
     components: Vec<String>,
     root_path: std::path::PathBuf,
+    static_policy: RustStaticPolicy,
 }
 
 #[pymethods]
@@ -667,8 +684,8 @@ impl PyResolvedDirectory {
 
     fn list(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let root = RustSecureRoot::new(&self.root_path, RustStaticPolicy::safe_default())
-                .map_err(io_err_to_pyerr)?;
+            let root =
+                RustSecureRoot::new(&self.root_path, self.static_policy.clone()).map_err(io_err_to_pyerr)?;
             let confined = confined_from_components(&self.components)?;
             let result = root.resolve(&confined);
             match result {
@@ -695,8 +712,8 @@ impl PyResolvedDirectory {
 
     fn resolve_child(&self, child: &str) -> PyResult<PyResolvedResource> {
         Python::with_gil(|_py| {
-            let root = RustSecureRoot::new(&self.root_path, RustStaticPolicy::safe_default())
-                .map_err(io_err_to_pyerr)?;
+            let root =
+                RustSecureRoot::new(&self.root_path, self.static_policy.clone()).map_err(io_err_to_pyerr)?;
             let confined = confined_from_components(&self.components)?;
             let result = root.resolve(&confined);
             match result {

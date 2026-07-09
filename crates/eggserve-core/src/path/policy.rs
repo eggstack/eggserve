@@ -18,7 +18,7 @@ pub enum DotfilePolicy {
 /// Configuration for path validation during [`ConfinedPath`](super::ConfinedPath) parsing.
 ///
 /// Default: dotfiles denied, backslash rejected.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PathPolicy {
     pub dotfiles: DotfilePolicy,
     pub reject_backslash: bool,

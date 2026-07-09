@@ -43,7 +43,7 @@ pub enum ResolvedResource {
 
 ### `ResolvedFile`
 
-Capability object wrapping an already-opened file handle. The file was opened during resolution via `openat(O_NOFOLLOW)` on Unix safe defaults — the service layer never reopens it by absolute path.
+Capability object wrapping an already-opened file handle. `ResolvedFile` is a resolver-created capability — there is no public constructor; it can only be obtained through `SecureRoot` resolution. The file was opened during resolution via `openat(O_NOFOLLOW)` on Unix safe defaults — the service layer never reopens it by absolute path.
 
 | Method | Returns | Description |
 |--------|---------|-------------|
@@ -103,7 +103,7 @@ Canonicalize-based fallback with root escape check:
 2. The final canonical path is verified against the canonical root.
 3. Symlinks whose canonical target escapes the root are denied.
 
-**This mode is weaker.** A symlink could be swapped after canonicalization and before the file is opened. Root escape is still checked against the canonical root, but the TOCTOU window is wider.
+**This mode is weaker.** A symlink could be swapped after canonicalization and before the file is opened. Root escape is still checked against the canonical root, but the TOCTOU window is wider. Follow-symlinks is explicitly outside the descriptor-relative hardening guarantee.
 
 ### Non-Unix
 
