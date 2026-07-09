@@ -16,6 +16,8 @@ use std::path::{Path, PathBuf};
 
 use crate::path::{ConfinedPath, PathRejection};
 use crate::policy::{DotfilePolicy, StaticPolicy, SymlinkPolicy};
+use crate::primitives::body::{BodySource, BodySourceError};
+use crate::primitives::response::{BodyPlan, FileRange, StaticResponsePlan};
 
 #[cfg(unix)]
 pub(crate) mod unix;
@@ -32,6 +34,46 @@ pub(crate) struct ResolvedFile {
     /// Safe relative path components for MIME detection only.
     /// Never used for file access.
     pub(crate) safe_relative_components: Vec<String>,
+}
+
+impl ResolvedFile {
+    pub(crate) fn into_body(
+        self,
+        plan: &StaticResponsePlan,
+    ) -> Result<BodySource, BodySourceError> {
+        match &plan.body {
+            BodyPlan::Empty => Ok(BodySource::Empty),
+            BodyPlan::FullBytes(b) => Ok(BodySource::Bytes(b.clone())),
+            BodyPlan::FileFull => {
+                let len = self.metadata.len();
+                let path: std::path::PathBuf = self.safe_relative_components.iter().collect();
+                let mime = crate::mime::mime_for_path(&path);
+                Ok(BodySource::FileFull {
+                    file: self.file,
+                    len,
+                    mime,
+                })
+            }
+            BodyPlan::FileRange {
+                start,
+                end_inclusive,
+            } => {
+                let total_len = self.metadata.len();
+                if *end_inclusive >= total_len {
+                    return Err(BodySourceError::InvalidRange);
+                }
+                let range = FileRange::new(*start, *end_inclusive);
+                let path: std::path::PathBuf = self.safe_relative_components.iter().collect();
+                let mime = crate::mime::mime_for_path(&path);
+                Ok(BodySource::FileRange {
+                    file: self.file,
+                    range,
+                    total_len,
+                    mime,
+                })
+            }
+        }
+    }
 }
 
 /// A resolved directory with an optional pre-opened handle.

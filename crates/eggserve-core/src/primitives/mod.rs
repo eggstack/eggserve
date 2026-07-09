@@ -44,10 +44,12 @@ pub use secure_root::{
     ResolvedDirectory, ResolvedFile, ResolvedResource, ResourceDeniedReason, SecureRoot,
 };
 
+pub mod body;
 pub mod http;
 pub mod planner;
 pub mod response;
 
+pub use body::{BodyKind, BodySource, BodySourceError};
 pub use http::{
     validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,
     RequestValidationError,

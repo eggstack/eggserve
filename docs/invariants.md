@@ -73,6 +73,21 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Range 206 includes content-type, accept-ranges, etag, last-modified | `planner.rs` — `plan_file_response_range_206` |
 | Range 416 includes content-length: 0, accept-ranges, content-range | `planner.rs` — `plan_file_response_range_416` |
 
+## Body-source invariants
+
+| Invariant | Test coverage |
+|-----------|---------------|
+| Full file body source streams exact bytes | `primitives/body.rs` — `file_full_body_source` |
+| Range body source streams exact bytes | `primitives/body.rs` — `file_range_body_source`, `file_range_body_source_middle` |
+| Empty body source produces zero bytes | `primitives/body.rs` — `empty_body_source` |
+| Bytes body source produces exact bytes | `primitives/body.rs` — `bytes_body_source` |
+| Range bounds are checked | `primitives/body.rs` — `read_range_inverted_returns_empty`; `secure_root.rs` — `into_body_range_invalid` |
+| Consuming conversion prevents double-use | `secure_root.rs` — `into_body_consumes_file` |
+| No path reopening in safe-default static path | Structural invariant: `into_body()` and `into_range_body()` consume the file handle directly from `ResolvedFile`, never reconstruct a path |
+| Denied resources cannot produce body sources | `test_primitives.py` — denied resources return `Denied`, not `File` |
+| Python body source exposes correct kind | `test_primitives.py` — `test_body_source_repr` |
+| Python body source read returns expected bytes | `test_primitives.py` — `test_body_for_plan_read_range` |
+
 ## Python binding invariants
 
 | Invariant | Test coverage |

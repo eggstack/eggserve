@@ -112,7 +112,7 @@ Kind values: `"file"`, `"directory"`, `"not_found"`, `"denied"`.
 
 Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.file`. `ResolvedFile` is a resolver-created capability — there is no public constructor; it can only be obtained through `SecureRoot` resolution.
 
-Python `ResolvedFile` currently supports metadata and response planning. It does not yet expose the resolver-opened file handle for streaming; production byte-serving should wait for a dedicated file-streaming primitive.
+`ResolvedFile` supports metadata, response planning, and safe body streaming via the resolver-opened file handle. Use `body_for_plan(plan)` to obtain a `BodySource` that carries the opened file forward without path reopening.
 
 **Do not** reconstruct a filesystem path from `safe_relative_components()` and reopen it manually. The file handle from `resource.file` was opened under policy enforcement during resolution; reopening by path bypasses the security guarantees.
 
@@ -122,6 +122,7 @@ Python `ResolvedFile` currently supports metadata and response planning. It does
 - `safe_relative_components` — path components as list of strings
 - `plan_response(method="GET", headers=None)` — returns `ResponsePlan`
 - `plan_conditional_response(method="GET", headers=None)` — handles `If-None-Match`, `If-Modified-Since`, `Range`, `If-Range`
+- `body_for_plan(plan)` — consumes the resolved file, returns a `BodySource` for the given response plan. The file handle is consumed; this method may only be called once per `ResolvedFile`.
 
 ### `ResolvedDirectory`
 
@@ -134,6 +135,23 @@ Directory listing and child resolution. Only obtainable via `ResolvedResource.di
 ### `ResponsePlan`
 
 A `namedtuple` with fields: `status` (int), `headers` (list of `(name, value)` tuples), `body_kind` (`"empty"`, `"bytes"`, `"file_full"`, `"file_range"`), `range` (tuple or `None`).
+
+### `BodySource`
+
+Opaque Rust-backed body object obtained from `ResolvedFile.body_for_plan(plan)`. Carries the resolver-opened file handle without path reopening.
+
+Properties:
+- `kind` — `"empty"`, `"bytes"`, `"file_full"`, or `"file_range"`
+- `length` — content length in bytes (`int` or `None`)
+- `range` — `(start, end_inclusive)` tuple for range bodies, or `None`
+
+Methods:
+- `read_all()` — reads entire body into memory (suitable for small files and tests)
+- `read_range(start, end_inclusive)` — reads a byte sub-range
+
+`BodySource` is non-frozen; `read_all()` and `read_range()` take `&mut self` because they advance the file position. The body source is consumed after reading; it cannot be reused.
+
+**Do not** use `read_all()` for large files in production. For production streaming, pass the `BodySource` back to Rust for Hyper response construction.
 
 ### Validation functions
 
@@ -276,7 +294,7 @@ Python primitives are intended to allow downstream projects to build app servers
 
 Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
 
-Response and body streaming primitives are planned. Until they are implemented, Python dynamic-server use should not be considered production-grade.
+Response and body streaming primitives are implemented. Python can obtain `BodySource` objects from resolved files and read them for tests and integration. For production servers, body sources should be passed back to Rust for streaming rather than read fully into Python memory.
 
 ## Installation
 

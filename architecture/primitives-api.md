@@ -15,6 +15,7 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `http.rs` | `primitives/http.rs` | `ReadOnlyMethod`, request validation functions |
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
+| `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
 
 ## Public Types
 
@@ -77,6 +78,8 @@ Public methods:
 - `etag()` → `&str`
 - `plan_response(...)` → `StaticResponsePlan`
 - `plan_conditional_response(...)` → `StaticResponsePlan`
+- `into_body(&StaticResponsePlan)` → `Result<BodySource, BodySourceError>`
+- `into_range_body(start, end_inclusive)` → `Result<BodySource, BodySourceError>`
 
 ### `ResolvedDirectory` (`secure_root.rs`)
 
@@ -194,8 +197,10 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 | `validate_request_body` | Rust, Python | Implemented and stable-ish | Rejects non-empty bodies on GET/HEAD, invalid Content-Length, Transfer-Encoding | Body framing validation |
 | `validate_request_target` | Rust, Python | Implemented and provisional | Coarse origin-form check (starts with `/`, no whitespace) | Pre-validation before full path parsing |
 | `BodyPlan` | Rust | Implemented and provisional | Variants: Empty, FullBytes, FileFull, FileRange | Body source selection |
+| `BodySource` | Rust, Python | Implemented | Owns resolved file handle; converts to Hyper body without path reopening | Safe body streaming for downstream servers |
+| `BodyKind` | Rust, Python | Implemented | Discriminant: Empty, Bytes, FileFull, FileRange | Body type identification |
+| `BodySourceError` | Rust, Python | Implemented | InvalidRange, AlreadyConsumed | Error handling for body conversion |
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |
-| Planned `BodySource` | Rust, Python | Missing, planned | Will provide safe body streaming without path reconstruction | File streaming for downstream servers |
 | Planned Python server primitive | Python | Missing, planned | Rust must own socket I/O, timeouts, and file streaming | Dynamic server use in Python |
 | Planned HTTP client primitive | Rust, Python | Missing, planned | TLS verification by default | Downstream client adapters |
 

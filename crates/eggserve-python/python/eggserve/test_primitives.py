@@ -9,6 +9,7 @@ import tempfile
 import unittest
 
 from eggserve._native import (
+    BodySource,
     EggserveError,
     PathPolicy,
     PathPolicyError,
@@ -18,6 +19,7 @@ from eggserve._native import (
     ResolvedDirectory,
     ResolvedFile,
     ResolvedResource,
+    ResponsePlan,
     SecureRoot,
     SecureRootError,
     StaticPolicy,
@@ -968,6 +970,87 @@ class TestResponsePlanExtended(unittest.TestCase):
         self.assertEqual(plan.body_kind, "empty")
         headers = dict(plan.headers)
         self.assertEqual(headers.get("content-length"), "50")
+
+
+class TestBodySource(unittest.TestCase):
+    def _make_resolved_file(self, content=b"hello world"):
+        self._td = tempfile.mkdtemp()
+        path = os.path.join(self._td, "test.txt")
+        with open(path, "wb") as f:
+            f.write(content)
+        root = SecureRoot(self._td)
+        res = root.resolve_path("/test.txt")
+        self.assertIsInstance(res, ResolvedResource)
+        self.assertTrue(res.is_file)
+        return res.file
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_body_for_plan_file_full(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_response("GET")
+        self.assertEqual(plan.status, 200)
+        self.assertEqual(plan.body_kind, "file_full")
+        body = f.body_for_plan(plan)
+        self.assertIsInstance(body, BodySource)
+        self.assertEqual(body.kind, "file_full")
+        self.assertEqual(body.read_all(), b"hello world")
+
+    def test_body_for_plan_file_range(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=0-4")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.body_kind, "file_range")
+        body = f.body_for_plan(plan)
+        self.assertEqual(body.kind, "file_range")
+        self.assertEqual(body.range, (0, 4))
+        self.assertEqual(body.read_all(), b"hello")
+
+    def test_body_for_plan_read_range(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_response("GET")
+        body = f.body_for_plan(plan)
+        self.assertEqual(body.read_range(6, 10), b"world")
+
+    def test_body_for_plan_consumes_file(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_response("GET")
+        body = f.body_for_plan(plan)
+        self.assertIsNotNone(body)
+        with self.assertRaises(EggserveError):
+            f.body_for_plan(plan)
+
+    def test_body_source_length(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_response("GET")
+        body = f.body_for_plan(plan)
+        self.assertEqual(body.length, 11)
+
+    def test_body_source_repr(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_response("GET")
+        body = f.body_for_plan(plan)
+        r = repr(body)
+        self.assertIn("BodySource", r)
+        self.assertIn("FileFull", r)
+
+    def test_response_plan_properties(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_response("GET")
+        self.assertIsInstance(plan, ResponsePlan)
+        self.assertEqual(plan.status, 200)
+        self.assertEqual(plan.body_kind, "file_full")
+        self.assertIsNone(plan.range)
+        self.assertIsInstance(plan.headers, list)
+
+    def test_response_plan_range(self):
+        f = self._make_resolved_file(b"hello world")
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=0-4")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.body_kind, "file_range")
+        self.assertEqual(plan.range, (0, 4))
 
 
 if __name__ == "__main__":

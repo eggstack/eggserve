@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 use crate::fs::RootGuard;
 use crate::path::{ConfinedPath, PathPolicy, PathRejection};
 use crate::policy::StaticPolicy;
+use crate::primitives::body::{BodySource, BodySourceError};
+use crate::primitives::response::{BodyPlan, FileRange, StaticResponsePlan};
 
 #[derive(Debug)]
 pub enum ResourceDeniedReason {
@@ -91,7 +93,7 @@ impl ResolvedFile {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn from_parts(
+    pub fn from_parts(
         file: std::fs::File,
         metadata: std::fs::Metadata,
         safe_relative_components: Vec<String>,
@@ -103,6 +105,63 @@ impl ResolvedFile {
                 safe_relative_components,
             },
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn into_body(self, plan: &StaticResponsePlan) -> Result<BodySource, BodySourceError> {
+        match &plan.body {
+            BodyPlan::Empty => Ok(BodySource::Empty),
+            BodyPlan::FullBytes(b) => Ok(BodySource::Bytes(b.clone())),
+            BodyPlan::FileFull => {
+                let len = self.inner.metadata.len();
+                let path: PathBuf = self.inner.safe_relative_components.iter().collect();
+                let mime = crate::mime::mime_for_path(&path);
+                Ok(BodySource::FileFull {
+                    file: self.inner.file,
+                    len,
+                    mime,
+                })
+            }
+            BodyPlan::FileRange {
+                start,
+                end_inclusive,
+            } => {
+                let total_len = self.inner.metadata.len();
+                if *end_inclusive >= total_len {
+                    return Err(BodySourceError::InvalidRange);
+                }
+                let range = FileRange::new(*start, *end_inclusive);
+                let path: PathBuf = self.inner.safe_relative_components.iter().collect();
+                let mime = crate::mime::mime_for_path(&path);
+                Ok(BodySource::FileRange {
+                    file: self.inner.file,
+                    range,
+                    total_len,
+                    mime,
+                })
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn into_range_body(
+        self,
+        start: u64,
+        end_inclusive: u64,
+    ) -> Result<BodySource, BodySourceError> {
+        let total_len = self.inner.metadata.len();
+        if end_inclusive >= total_len {
+            return Err(BodySourceError::InvalidRange);
+        }
+        let range = FileRange::new(start, end_inclusive);
+        let path: PathBuf = self.inner.safe_relative_components.iter().collect();
+        let mime = crate::mime::mime_for_path(&path);
+        Ok(BodySource::FileRange {
+            file: self.inner.file,
+            range,
+            total_len,
+            mime,
+        })
     }
 }
 
@@ -269,6 +328,7 @@ mod tests {
     use super::*;
     use crate::path::PathPolicy as PP;
     use crate::policy::{DirectoryListingPolicy, DotfilePolicy, SymlinkPolicy};
+    use crate::primitives::body::BodyKind;
     use std::fs;
     use tempfile::TempDir;
 
@@ -802,5 +862,115 @@ mod tests {
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();
         assert_eq!(contents, "hello");
+    }
+
+    // ── Body source conversion ─────────────────────────────────────
+
+    #[test]
+    fn into_body_file_full() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let plan = StaticResponsePlan {
+            status: crate::primitives::response::ResponseStatus::OK,
+            headers: crate::primitives::response::HeaderMapPlan::new(),
+            body: BodyPlan::FileFull,
+        };
+        let mut body = file.into_body(&plan).unwrap();
+        assert_eq!(body.kind(), BodyKind::FileFull);
+        assert_eq!(body.len(), 5);
+        assert_eq!(body.read_all().unwrap(), b"hello");
+    }
+
+    #[test]
+    fn into_body_empty() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let plan = StaticResponsePlan {
+            status: crate::primitives::response::ResponseStatus::OK,
+            headers: crate::primitives::response::HeaderMapPlan::new(),
+            body: BodyPlan::Empty,
+        };
+        let body = file.into_body(&plan).unwrap();
+        assert_eq!(body.kind(), BodyKind::Empty);
+        assert!(body.is_empty());
+    }
+
+    #[test]
+    fn into_body_file_range() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let plan = StaticResponsePlan {
+            status: crate::primitives::response::ResponseStatus::PARTIAL_CONTENT,
+            headers: crate::primitives::response::HeaderMapPlan::new(),
+            body: BodyPlan::FileRange {
+                start: 0,
+                end_inclusive: 2,
+            },
+        };
+        let mut body = file.into_body(&plan).unwrap();
+        assert_eq!(body.kind(), BodyKind::FileRange);
+        assert_eq!(body.len(), 3);
+        assert_eq!(body.read_all().unwrap(), b"hel");
+    }
+
+    #[test]
+    fn into_body_file_range_invalid() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let plan = StaticResponsePlan {
+            status: crate::primitives::response::ResponseStatus::PARTIAL_CONTENT,
+            headers: crate::primitives::response::HeaderMapPlan::new(),
+            body: BodyPlan::FileRange {
+                start: 0,
+                end_inclusive: 999,
+            },
+        };
+        let err = file.into_body(&plan).unwrap_err();
+        assert!(matches!(err, BodySourceError::InvalidRange));
+    }
+
+    #[test]
+    fn into_range_body_valid() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let mut body = file.into_range_body(1, 3).unwrap();
+        assert_eq!(body.kind(), BodyKind::FileRange);
+        assert_eq!(body.len(), 3);
+        assert_eq!(body.read_all().unwrap(), b"ell");
+    }
+
+    #[test]
+    fn into_range_body_invalid() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let err = file.into_range_body(0, 999).unwrap_err();
+        assert!(matches!(err, BodySourceError::InvalidRange));
+    }
+
+    #[test]
+    fn into_body_prevents_double_use() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let plan = StaticResponsePlan {
+            status: crate::primitives::response::ResponseStatus::OK,
+            headers: crate::primitives::response::HeaderMapPlan::new(),
+            body: BodyPlan::FileFull,
+        };
+        let _body = file.into_body(&plan).unwrap();
+        // file is consumed — cannot use again
+    }
+
+    #[test]
+    fn into_body_bytes_variant() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let plan = StaticResponsePlan {
+            status: crate::primitives::response::ResponseStatus::OK,
+            headers: crate::primitives::response::HeaderMapPlan::new(),
+            body: BodyPlan::FullBytes(b"custom".to_vec()),
+        };
+        let mut body = file.into_body(&plan).unwrap();
+        assert_eq!(body.kind(), BodyKind::Bytes);
+        assert_eq!(body.read_all().unwrap(), b"custom");
     }
 }

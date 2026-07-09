@@ -54,6 +54,8 @@ Capability object wrapping an already-opened file handle. `ResolvedFile` is a re
 | `safe_relative_components()` | `&[String]` | Path components relative to root (for MIME detection only) |
 | `into_std_file()` | `std::fs::File` | Consumes self, returns the underlying file handle |
 | `into_parts()` | `(std::fs::File, std::fs::Metadata)` | Returns file handle and metadata |
+| `into_body(plan)` | `Result<BodySource, BodySourceError>` | Consumes self, converts to a body source for the given `StaticResponsePlan` |
+| `into_range_body(start, end_inclusive)` | `Result<BodySource, BodySourceError>` | Consumes self, converts to a range body source |
 
 ### `ResolvedDirectory`
 
@@ -156,5 +158,5 @@ The file handle from `ResolvedFile` was opened under policy enforcement (descrip
 
 - **No descriptor caching.** `RootGuard` is created per resolution call. The root directory is opened fresh on every `resolve` / `resolve_child` / `list` call. This is correct but has overhead; caching the root descriptor across requests is a future optimization.
 - **Directory child resolution creates a fresh `RootGuard`.** `resolve_child` does not reuse the parent directory's descriptor. The new guard reopens the root and resolves from there.
-- **Response planning is available in `primitives::planner`.** Callers can use `plan_file_response()` to generate `StaticResponsePlan` from a `ResolvedFile` + method + request headers, covering conditional requests (If-None-Match, If-Modified-Since), range requests, and ETag generation. See the planner module for details.
+- **Response planning and body conversion available.** Callers can use `plan_file_response()` to generate `StaticResponsePlan` from a `ResolvedFile` + method + request headers, covering conditional requests (If-None-Match, If-Modified-Since), range requests, and ETag generation. Use `into_body(&plan)` or `into_range_body(start, end_inclusive)` to convert a resolved file into a `BodySource` that carries the opened file handle forward without path reopening. See the planner and body modules for details.
 - **Python bindings available.** `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, and `StaticPolicy` are exposed via PyO3 in the `eggserve` package. See [python-api.md](python-api.md) for the full API reference.

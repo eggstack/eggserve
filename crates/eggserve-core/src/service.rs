@@ -11,9 +11,10 @@ use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
 use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
+use crate::primitives::body::BodySource;
 use crate::primitives::http::ReadOnlyMethod;
 use crate::primitives::planner::plan_file_response;
-use crate::primitives::response::BodyPlan;
+use crate::primitives::response::HeaderMapPlan;
 use crate::response::BoxBodyInner;
 use crate::response::{
     bad_request, directory_listing_response, file_response, file_response_range, forbidden,
@@ -119,7 +120,6 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                     let last_modified = file.metadata.modified().ok();
                     let safe_path: PathBuf = file.safe_relative_components.iter().collect();
                     let content_type = mime_for_path(&safe_path);
-                    let len = file.metadata.len();
 
                     let method = if is_head {
                         ReadOnlyMethod::Head
@@ -144,12 +144,6 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                         .get(hyper::header::IF_RANGE)
                         .and_then(|v| v.to_str().ok());
 
-                    let last_modified_str = last_modified.and_then(|t| {
-                        t.duration_since(SystemTime::UNIX_EPOCH)
-                            .ok()
-                            .map(|d| httpdate::fmt_http_date(SystemTime::UNIX_EPOCH + d))
-                    });
-
                     let plan = plan_file_response(
                         method,
                         &file.metadata,
@@ -159,7 +153,6 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                         range,
                         if_range,
                     );
-                    drop(last_modified_str);
 
                     let status = match plan.status.as_u16() {
                         200 => StatusCode::OK,
@@ -176,46 +169,19 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                         return planned_response(status, &plan.headers);
                     }
 
-                    match plan.body {
-                        BodyPlan::Empty => planned_response(status, &plan.headers),
-                        BodyPlan::FileFull => {
-                            let tokio_file = tokio::fs::File::from_std(file.file);
-                            let permit =
-                                match state.file_stream_semaphore.clone().try_acquire_owned() {
-                                    Ok(p) => p,
-                                    Err(_) => return service_unavailable(),
-                                };
-                            file_response(
-                                tokio_file,
-                                len,
-                                content_type,
-                                last_modified,
-                                etag,
-                                permit,
-                            )
-                        }
-                        BodyPlan::FileRange {
-                            start,
-                            end_inclusive,
-                        } => {
-                            let tokio_file = tokio::fs::File::from_std(file.file);
-                            let permit =
-                                match state.file_stream_semaphore.clone().try_acquire_owned() {
-                                    Ok(p) => p,
-                                    Err(_) => return service_unavailable(),
-                                };
-                            file_response_range(
-                                tokio_file,
-                                start,
-                                end_inclusive,
-                                status,
-                                &plan.headers,
-                                permit,
-                            )
-                            .await
-                        }
-                        BodyPlan::FullBytes(_) => internal_error(),
-                    }
+                    let body_source = match file.into_body(&plan) {
+                        Ok(bs) => bs,
+                        Err(_) => return planned_response(status, &plan.headers),
+                    };
+                    body_source_to_response(
+                        body_source,
+                        status,
+                        &plan.headers,
+                        etag,
+                        last_modified,
+                        state,
+                    )
+                    .await
                 }
                 ResolvedResource::Directory(dir) => {
                     handle_directory(&dir, config, state, is_head).await
@@ -245,7 +211,6 @@ async fn handle_directory(
             let last_modified = file.metadata.modified().ok();
             let safe_path: PathBuf = file.safe_relative_components.iter().collect();
             let content_type = mime_for_path(&safe_path);
-            let len = file.metadata.len();
 
             let method = if is_head {
                 ReadOnlyMethod::Head
@@ -269,18 +234,19 @@ async fn handle_directory(
                 return planned_response(status, &plan.headers);
             }
 
-            match plan.body {
-                BodyPlan::Empty => planned_response(status, &plan.headers),
-                BodyPlan::FileFull => {
-                    let tokio_file = tokio::fs::File::from_std(file.file);
-                    let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
-                        Ok(p) => p,
-                        Err(_) => return service_unavailable(),
-                    };
-                    file_response(tokio_file, len, content_type, last_modified, etag, permit)
-                }
-                BodyPlan::FileRange { .. } | BodyPlan::FullBytes(_) => internal_error(),
-            }
+            let body_source = match file.into_body(&plan) {
+                Ok(bs) => bs,
+                Err(_) => return planned_response(status, &plan.headers),
+            };
+            body_source_to_response(
+                body_source,
+                status,
+                &plan.headers,
+                etag,
+                last_modified,
+                state,
+            )
+            .await
         }
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
@@ -320,6 +286,59 @@ fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner
         bad_request()
     } else {
         forbidden()
+    }
+}
+
+pub(crate) async fn body_source_to_response(
+    source: BodySource,
+    status: StatusCode,
+    headers: &HeaderMapPlan,
+    etag: Option<String>,
+    last_modified: Option<SystemTime>,
+    state: &ServeState,
+) -> Response<BoxBodyInner> {
+    match source {
+        BodySource::Empty => planned_response(status, headers),
+        BodySource::Bytes(b) => {
+            use http_body_util::BodyExt;
+            let body = http_body_util::Full::new(hyper::body::Bytes::from(b))
+                .map_err(|never| match never {})
+                .boxed();
+            let mut builder = Response::builder().status(status);
+            for header in headers.iter() {
+                builder = builder.header(&header.name, &header.value);
+            }
+            builder.body(body).unwrap()
+        }
+        BodySource::FileFull { file, len, mime } => {
+            let tokio_file = tokio::fs::File::from_std(file);
+            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => return service_unavailable(),
+            };
+            file_response(tokio_file, len, mime, last_modified, etag, permit)
+        }
+        BodySource::FileRange {
+            file,
+            range,
+            mime: _,
+            ..
+        } => {
+            let tokio_file = tokio::fs::File::from_std(file);
+            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
+                Ok(p) => p,
+                Err(_) => return service_unavailable(),
+            };
+            file_response_range(
+                tokio_file,
+                range.start,
+                range.end_inclusive,
+                status,
+                headers,
+                permit,
+            )
+            .await
+        }
     }
 }
 

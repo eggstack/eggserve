@@ -182,6 +182,38 @@ All types in the planner are pure value objects with no Hyper dependency. This e
 2. **Testing** — Plans can be asserted without starting an HTTP server
 3. **Embedding** — Other HTTP frameworks can consume the plan without Hyper coupling
 
+## Body-Source Conversion
+
+After planning, the resolved file is converted to a `BodySource` that carries the opened file handle forward:
+
+```
+ResolvedResource::File(file)
+    │
+    ▼
+plan_file_response(method, metadata, ...)
+    │
+    ▼
+StaticResponsePlan { status, headers, body: BodyPlan }
+    │
+    ▼
+file.into_body(&plan)  →  BodySource
+    │
+    ▼
+body_source_to_response(status, headers, body_source, semaphore)
+    │
+    ▼
+Hyper Response<BoxBody>
+```
+
+The `into_body()` conversion is consuming — it takes ownership of the `ResolvedFile` and maps each `BodyPlan` variant:
+
+- `BodyPlan::Empty` → `BodySource::Empty`
+- `BodyPlan::FullBytes(bytes)` → `BodySource::Bytes(bytes)`
+- `BodyPlan::FileFull` → `BodySource::FileFull { file, len, mime }`
+- `BodyPlan::FileRange { start, end_inclusive }` → `BodySource::FileRange { file, range, total_len, mime }`
+
+The service layer's `body_source_to_response()` async function then converts the `BodySource` into a Hyper streaming body, acquiring a semaphore permit for file-backed variants to enforce `max_file_streams`.
+
 ## See Also
 
 - [primitives-api.md](primitives-api.md) — Public API for response planning

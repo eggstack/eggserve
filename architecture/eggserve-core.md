@@ -17,6 +17,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing HTML, error responses) |
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map |
 | `primitives/` | **pub** | Public facade for embedding consumers |
+| `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 
 ## Key Types
 
@@ -65,8 +66,8 @@ The HTTP request handler. Steps:
 2. Reject request body (metadata-only) via `Content-Length` and `Transfer-Encoding` checks
 3. Parse request target → `ConfinedPath`
 4. Resolve via the internal `RootGuard` → `ResolvedResource` (the public `SecureRoot` primitive is the embedding-consumer facade; the service uses `RootGuard` directly)
-5. For files, call `primitives::planner::plan_file_response()` to evaluate conditional headers (`If-None-Match`, `If-Modified-Since`) and range requests (`Range`, `If-Range`), then translate the resulting `StaticResponsePlan` into a Hyper response (200 / 206 / 304 / 416)
-6. Stream the file body, render a directory listing, or return the appropriate error
+5. For files, call `primitives::planner::plan_file_response()` to evaluate conditional headers (`If-None-Match`, `If-Modified-Since`) and range requests (`Range`, `If-Range`), then convert the resolved file into a `BodySource` via `into_body(&plan)`, and translate the resulting plan into a Hyper response (200 / 206 / 304 / 416)
+6. Stream the file body via `body_source_to_response()`, render a directory listing, or return the appropriate error
 
 Returns `Response<BoxBody<Bytes, Infallible>>`.
 

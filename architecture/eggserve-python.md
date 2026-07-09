@@ -31,8 +31,10 @@ PyO3 bindings wrapping `eggserve-core` types. All classes are **frozen** (`#[pyc
 | `RequestTarget` | `ConfinedPath` | `parse(raw, policy=None)` → `decoded_path`, `components` |
 | `SecureRoot` | `primitives::SecureRoot` | `__init__(path, policy)`, `resolve(target)`, `resolve_path(raw_path)` |
 | `ResolvedResource` | `primitives::ResolvedResource` | `kind` getter, `file`, `directory`, `denied_reason` |
-| `ResolvedFile` | `primitives::ResolvedFile` | `length`, `modified`, `content_type`, `plan_response()`, `plan_conditional_response()` |
+| `ResolvedFile` | `primitives::ResolvedFile` | `length`, `modified`, `content_type`, `plan_response()`, `plan_conditional_response()`, `body_for_plan(plan)` |
 | `ResolvedDirectory` | `primitives::ResolvedDirectory` | `list()`, `resolve_child(child)` |
+| `BodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range(start, end)` |
+| `ResponsePlan` | `primitives::StaticResponsePlan` | `status`, `headers`, `body_kind`, `range` |
 
 Functions: `validate_method()`, `validate_request_body()`, `validate_request_target()`, `generate_etag()`.
 

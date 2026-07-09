@@ -130,6 +130,9 @@ The following types are in the stable tier. They are safe to build on; breaking 
 | `FileRange` | `primitives::response` |
 | `ConditionalRequestOutcome` | `primitives::response` |
 | `RangeRequestOutcome` | `primitives::response` |
+| `BodySource` | `primitives::body` |
+| `BodyKind` | `primitives::body` |
+| `BodySourceError` | `primitives::body` |
 
 ## Which modules are internal and must not be depended on
 
@@ -165,6 +168,7 @@ Downstream code must:
 
 - Use the `File` handle returned by `ResolvedFile` (Rust) or the `file` attribute on the resolved resource (Python) directly.
 - Plan responses with `plan_file_response()` or `ResolvedFile::plan_response()` using the resolved resource.
+- Convert resolved files to `BodySource` objects via `into_body(&plan)` (Rust) or `body_for_plan(plan)` (Python) for streaming, rather than reopening paths.
 - Never extract a path from a resolved resource and reopen it. Descriptor-relative hardening applies only when files are opened during resolution via `openat(O_NOFOLLOW)`. Reopening by path — even a relative path reconstructed from components — bypasses the guarantee.
 
 ## The concurrency rule

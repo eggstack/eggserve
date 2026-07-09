@@ -4,6 +4,7 @@ use pyo3::types::{PyList, PyTuple};
 use eggserve_core::policy::{
     DirectoryListingPolicy, DotfilePolicy, StaticPolicy as RustStaticPolicy, SymlinkPolicy,
 };
+use eggserve_core::primitives::body::{BodyKind as RustBodyKind, BodySource as RustBodySource};
 use eggserve_core::primitives::http::{self, ReadOnlyMethod};
 use eggserve_core::primitives::planner;
 use eggserve_core::primitives::response::BodyPlan;
@@ -49,6 +50,13 @@ pyo3::create_exception!(
     RequestValidationError,
     EggserveError,
     "Request validation error."
+);
+
+pyo3::create_exception!(
+    _native,
+    BodySourceError,
+    EggserveError,
+    "Body source conversion error."
 );
 
 // ---------------------------------------------------------------------------
@@ -158,6 +166,66 @@ fn plan_to_python(py: Python<'_>, plan: StaticResponsePlan) -> PyResult<PyObject
     plan_cls
         .call1((status, headers_list, body_kind, range_obj))
         .map(|b| b.unbind())
+}
+
+// ---------------------------------------------------------------------------
+// BodySource (Rust wrapper for Python body source)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "BodySource")]
+struct PyBodySource {
+    inner: RustBodySource,
+}
+
+#[pymethods]
+impl PyBodySource {
+    #[getter]
+    fn kind(&self) -> &str {
+        match self.inner.kind() {
+            RustBodyKind::Empty => "empty",
+            RustBodyKind::Bytes => "bytes",
+            RustBodyKind::FileFull => "file_full",
+            RustBodyKind::FileRange => "file_range",
+        }
+    }
+
+    #[getter]
+    fn length(&self) -> Option<u64> {
+        Some(self.inner.len())
+    }
+
+    #[getter]
+    fn range(&self) -> Option<(u64, u64)> {
+        self.inner.range().map(|r| (r.start, r.end_inclusive))
+    }
+
+    fn read_all(&mut self) -> PyResult<Vec<u8>> {
+        self.inner
+            .read_all()
+            .map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
+    }
+
+    fn read_range(&mut self, start: u64, end_inclusive: u64) -> PyResult<Vec<u8>> {
+        self.inner
+            .read_range(start, end_inclusive)
+            .map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
+    }
+
+    fn __repr__(&self) -> String {
+        match self.inner.range() {
+            Some(r) => format!(
+                "BodySource(kind={:?}, range=({}..={}))",
+                self.inner.kind(),
+                r.start,
+                r.end_inclusive
+            ),
+            None => format!(
+                "BodySource(kind={:?}, length={:?})",
+                self.inner.kind(),
+                self.inner.len()
+            ),
+        }
+    }
 }
 
 fn confined_from_components(components: &[String]) -> PyResult<ConfinedPath> {
@@ -400,6 +468,7 @@ struct PyResolvedResource {
 }
 
 struct PyResolvedFileData {
+    file: std::sync::Mutex<Option<std::fs::File>>,
     metadata: std::fs::Metadata,
     components: Vec<String>,
     content_type: String,
@@ -435,11 +504,17 @@ impl PyResolvedResource {
     #[getter]
     fn file(&self) -> PyResult<PyResolvedFile> {
         match &self.file_data {
-            Some(fd) => Ok(PyResolvedFile {
-                metadata: fd.metadata.clone(),
-                components: fd.components.clone(),
-                content_type: fd.content_type.clone(),
-            }),
+            Some(fd) => {
+                let file_handle = fd.file.lock().map_err(|_| {
+                    EggserveError::new_err(("failed to acquire file lock", "lock_error"))
+                })?.take();
+                Ok(PyResolvedFile {
+                    file: std::sync::Mutex::new(file_handle),
+                    metadata: fd.metadata.clone(),
+                    components: fd.components.clone(),
+                    content_type: fd.content_type.clone(),
+                })
+            }
             None => Err(EggserveError::new_err((
                 "resource is not a file",
                 "not_a_file",
@@ -497,10 +572,11 @@ impl PyResolvedResource {
             RustResolvedResource::File(f) => {
                 let ct = f.content_type().to_string();
                 let comps = f.safe_relative_components().to_vec();
-                let (_, metadata) = f.into_parts();
+                let (file_handle, metadata) = f.into_parts();
                 Self {
                     kind: "file".to_string(),
                     file_data: Some(PyResolvedFileData {
+                        file: std::sync::Mutex::new(Some(file_handle)),
                         metadata,
                         components: comps,
                         content_type: ct,
@@ -566,6 +642,7 @@ impl PyResolvedResource {
 
 #[pyclass(name = "ResolvedFile", frozen)]
 struct PyResolvedFile {
+    file: std::sync::Mutex<Option<std::fs::File>>,
     metadata: std::fs::Metadata,
     components: Vec<String>,
     content_type: String,
@@ -600,10 +677,10 @@ impl PyResolvedFile {
     #[pyo3(signature = (method="GET", headers=None))]
     fn plan_response(
         &self,
-        py: Python<'_>,
+        _py: Python<'_>,
         method: &str,
         headers: Option<&Bound<'_, PyList>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<PyResponsePlan> {
         let _ = headers_from_list(headers)?;
         let ro = parse_method(method)?;
         let plan = planner::plan_file_response(
@@ -615,16 +692,19 @@ impl PyResolvedFile {
             None,
             None,
         );
-        plan_to_python(py, plan)
+        Ok(PyResponsePlan {
+            inner: plan,
+            py_obj: std::sync::OnceLock::new(),
+        })
     }
 
     #[pyo3(signature = (method="GET", headers=None))]
     fn plan_conditional_response(
         &self,
-        py: Python<'_>,
+        _py: Python<'_>,
         method: &str,
         headers: Option<&Bound<'_, PyList>>,
-    ) -> PyResult<PyObject> {
+    ) -> PyResult<PyResponsePlan> {
         let hdrs = headers_from_list(headers)?;
         let ro = parse_method(method)?;
 
@@ -652,7 +732,10 @@ impl PyResolvedFile {
             range_header.as_deref(),
             if_range.as_deref(),
         );
-        plan_to_python(py, plan)
+        Ok(PyResponsePlan {
+            inner: plan,
+            py_obj: std::sync::OnceLock::new(),
+        })
     }
 
     fn __repr__(&self) -> String {
@@ -661,6 +744,27 @@ impl PyResolvedFile {
             self.metadata.len(),
             self.content_type
         )
+    }
+
+    #[pyo3(signature = (plan,))]
+    fn body_for_plan(&self, _py: Python<'_>, plan: &PyResponsePlan) -> PyResult<PyBodySource> {
+        let mut file_guard = self.file.lock().map_err(|_| {
+            EggserveError::new_err(("failed to acquire file lock", "lock_error"))
+        })?;
+        let file = file_guard.take().ok_or_else(|| {
+            BodySourceError::new_err(("resolved file already consumed", "already_consumed"))
+        })?;
+        drop(file_guard);
+
+        let resolved_file = eggserve_core::primitives::ResolvedFile::from_parts(
+            file,
+            self.metadata.clone(),
+            self.components.clone(),
+        );
+        let body_source = resolved_file.into_body(&plan.inner).map_err(|e| {
+            BodySourceError::new_err((e.to_string(), "body_source_error"))
+        })?;
+        Ok(PyBodySource { inner: body_source })
     }
 }
 
@@ -787,6 +891,76 @@ fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<PyObject>
 
 use eggserve_core::primitives::response::StaticResponsePlan;
 
+// ---------------------------------------------------------------------------
+// ResponsePlan (Rust wrapper for Python ResponsePlan)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "ResponsePlan", frozen)]
+#[allow(dead_code)]
+struct PyResponsePlan {
+    inner: StaticResponsePlan,
+    py_obj: std::sync::OnceLock<PyObject>,
+}
+
+#[pymethods]
+#[allow(dead_code)]
+impl PyResponsePlan {
+    #[getter]
+    fn status(&self) -> u16 {
+        self.inner.status_code()
+    }
+
+    #[getter]
+    fn headers(&self, py: Python<'_>) -> PyObject {
+        let list = pyo3::types::PyList::empty(py);
+        for h in self.inner.headers.iter() {
+            let tup = pyo3::types::PyTuple::new(py, [h.name.as_str(), h.value.as_str()])
+                .unwrap();
+            list.append(tup).unwrap();
+        }
+        list.into_any().unbind()
+    }
+
+    #[getter]
+    fn body_kind(&self) -> &str {
+        match &self.inner.body {
+            BodyPlan::Empty => "empty",
+            BodyPlan::FullBytes(_) => "bytes",
+            BodyPlan::FileFull => "file_full",
+            BodyPlan::FileRange { .. } => "file_range",
+        }
+    }
+
+    #[getter]
+    fn range(&self) -> Option<(u64, u64)> {
+        match &self.inner.body {
+            BodyPlan::FileRange {
+                start,
+                end_inclusive,
+            } => Some((*start, *end_inclusive)),
+            _ => None,
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ResponsePlan(status={}, body_kind={:?})",
+            self.inner.status_code(),
+            self.body_kind()
+        )
+    }
+}
+
+#[allow(dead_code)]
+impl PyResponsePlan {
+    fn to_py(&self, py: Python<'_>) -> PyResult<PyObject> {
+        if let Some(obj) = self.py_obj.get() {
+            return Ok(obj.clone_ref(py));
+        }
+        plan_to_python(py, self.inner.clone())
+    }
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EggserveError", m.py().get_type::<EggserveError>())?;
@@ -808,6 +982,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyResolvedResource>()?;
     m.add_class::<PyResolvedFile>()?;
     m.add_class::<PyResolvedDirectory>()?;
+    m.add_class::<PyResponsePlan>()?;
+    m.add_class::<PyBodySource>()?;
 
     m.add_function(wrap_pyfunction!(validate_method_fn, m)?)?;
     m.add_function(wrap_pyfunction!(validate_request_body_fn, m)?)?;
