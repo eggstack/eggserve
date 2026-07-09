@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-017 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-018 are complete.
 
 ## Non-negotiables
 
@@ -41,7 +41,10 @@ eggserve/
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
 │   │       ├── primitives/ # public API facade
 │   │       │   ├── mod.rs          # re-exports: ConfinedPath, PathPolicy, StaticPolicy, etc.
-│   │       │   └── secure_root.rs  # SecureRoot, ResolvedResource, ResolvedFile, ResolvedDirectory
+│   │       │   ├── secure_root.rs  # SecureRoot, ResolvedResource, ResolvedFile, ResolvedDirectory
+│   │       │   ├── http.rs         # request validation: ReadOnlyMethod, validate_method/body/target
+│   │       │   ├── response.rs     # response planning types: BodyPlan, HeaderMapPlan, StaticResponsePlan
+│   │       │   └── planner.rs      # response planner: conditional requests, range requests, ETag generation
 │   │       └── telemetry.rs # startup logging
 │   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │   │   ├── Cargo.toml

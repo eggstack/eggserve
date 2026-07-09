@@ -44,6 +44,23 @@ pub use secure_root::{
     ResolvedDirectory, ResolvedFile, ResolvedResource, ResourceDeniedReason, SecureRoot,
 };
 
+pub mod http;
+pub mod planner;
+pub mod response;
+
+pub use http::{
+    validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,
+    RequestValidationError,
+};
+pub use planner::{
+    evaluate_conditional_headers, evaluate_if_none_match, evaluate_if_range, evaluate_range_header,
+    generate_etag, plan_directory_listing, plan_file_response,
+};
+pub use response::{
+    BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,
+    ResponseHeader, ResponseStatus, StaticResponsePlan,
+};
+
 #[cfg(test)]
 mod tests {
     use super::*;

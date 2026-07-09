@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. This plan builds on Plans 016 and 017 by turning existing request validation and response construction behavior into reusable primitives.
+Complete. This plan builds on Plans 016 and 017 by turning existing request validation and response construction behavior into reusable primitives.
 
 ## Objective
 

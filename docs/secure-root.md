@@ -156,5 +156,5 @@ The file handle from `ResolvedFile` was opened under policy enforcement (descrip
 
 - **No descriptor caching.** `RootGuard` is created per resolution call. The root directory is opened fresh on every `resolve` / `resolve_child` / `list` call. This is correct but has overhead; caching the root descriptor across requests is a future optimization.
 - **Directory child resolution creates a fresh `RootGuard`.** `resolve_child` does not reuse the parent directory's descriptor. The new guard reopens the root and resolves from there.
-- **No response planning.** Plan 018 will add response planning capabilities (headers, body streaming) on top of `ResolvedFile` and `ResolvedDirectory`.
+- **Response planning is available in `primitives::planner`.** Callers can use `plan_file_response()` to generate `StaticResponsePlan` from a `ResolvedFile` + method + request headers, covering conditional requests (If-None-Match, If-Modified-Since), range requests, and ETag generation. See the planner module for details.
 - **No Python bindings yet.** Python access to these types will wrap them via PyO3 in a future plan.
