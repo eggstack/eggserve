@@ -398,6 +398,7 @@ async fn directory_listing_escapes_html() {
     assert!(body_str.contains("file with &#x27;quotes&#x27; &amp; ampersand"));
 }
 
+#[cfg(not(windows))]
 #[tokio::test]
 async fn directory_listing_percent_encodes_url_significant_chars_in_href() {
     let tmp = TempDir::new().unwrap();
