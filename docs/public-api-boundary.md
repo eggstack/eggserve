@@ -56,6 +56,8 @@ Every type in the public API enforces safety invariants at construction time:
 
 4. **No information leakage.** Rejected paths never reveal filesystem content or structure.
 
+5. **Policy separation.** The path policy (`PathPolicy`) controls request-target acceptance during parsing. The static policy (`StaticPolicy`) controls whether a resolved resource may be served. A custom path policy that permits dotfile paths does not override a static policy that denies dotfile serving.
+
 ## Versioning policy
 
 Before 1.0:

@@ -57,7 +57,7 @@ Capability object wrapping an already-opened file handle. `ResolvedFile` is a re
 
 ### `ResolvedDirectory`
 
-Wraps a resolved directory with an open directory descriptor on Unix. Child resolution and listing use the same policy as the parent.
+Wraps a resolved directory with an open directory descriptor on Unix. Child resolution and listing use the same policy as the parent. `list()` returns a policy-filtered filesystem listing; HTTP directory-listing exposure is separately controlled by `StaticPolicy.directory_listing`.
 
 | Method | Returns | Description |
 |--------|---------|-------------|

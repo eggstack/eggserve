@@ -17,6 +17,7 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Windows drive prefixes rejected | `integration.rs` — `request_target_rejects_windows_drive` |
 | Windows ADS syntax rejected | `integration.rs` — `request_target_rejects_ads_syntax` |
 | Windows reserved names rejected | `integration.rs` — `request_target_rejects_reserved_name` |
+| ConfinedPath preserves the policy used during parsing | `path/mod.rs` — `path_policy_returns_parsed_policy` |
 
 ## Policy invariants
 
@@ -43,6 +44,7 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Follow-symlinks outside-root target denied | `secure_root.rs` — `resolve_outside_root_symlink_denied_when_follow_enabled` (cfg(unix)) |
 | Directory listings hide dotfiles and symlinks under safe defaults | `secure_root.rs` — `directory_list_hides_dotfiles_under_defaults`, `directory_listing_hides_symlinks_under_defaults` (cfg(unix)); `test_primitives.py` — `TestSecureRoot.test_list_hides_dotfiles` |
 | File serving path does not reopen by absolute path under Unix safe defaults | `secure_root.rs` — tests use `into_std_file()` / `into_parts()` confirming handle-based access; `integration.rs` — response tests confirm file handle origin |
+| ConfinedPath preserves the policy used during parsing | `path/mod.rs` — `path_policy_returns_parsed_policy` |
 
 ## HTTP validation invariants
 
@@ -68,6 +70,8 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Directory listing HTML escapes visible names | `response.rs` — directory listing HTML tests |
 | Directory listing hrefs percent-encode path segments | `response.rs` — directory listing HTML tests |
 | Directory listing response includes CSP and referrer policy | `integration.rs` — directory listing header tests |
+| Range 206 includes content-type, accept-ranges, etag, last-modified | `planner.rs` — `plan_file_response_range_206` |
+| Range 416 includes content-length: 0, accept-ranges, content-range | `planner.rs` — `plan_file_response_range_416` |
 
 ## Python binding invariants
 
@@ -77,3 +81,9 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Python cannot directly construct `ResolvedFile` or `ResolvedDirectory` from arbitrary paths | `test_primitives.py` — access tests confirm only `resource.file` / `resource.directory` paths |
 | Python exceptions expose stable machine-readable codes | `test_primitives.py` — exception hierarchy tests |
 | Python response plans expose plain status/header/body-plan values, not Hyper internals | `test_primitives.py` — `TestResponsePlan` tests confirming `ResponsePlan` namedtuple fields |
+| PathPolicy from RequestTarget.parse() survives resolve() | `test_primitives.py` — `test_request_target_dotfile_resolves_with_matching_policy` |
+| PathPolicy does not override StaticPolicy serving decisions | `test_primitives.py` — `test_request_target_path_policy_does_not_override_static_policy` |
+| resolve_path(path_policy=...) is honored | `test_primitives.py` — `test_resolve_path_with_path_policy` |
+| resolve_path explicit path_policy does not bypass StaticPolicy | `test_primitives.py` — `test_resolve_path_explicit_path_policy_does_not_bypass_static_policy` |
+| ResolvedDirectory.list() preserves allow_dotfiles policy | `test_primitives.py` — `test_directory_list_preserves_dotfile_policy` |
+| ResolvedDirectory.resolve_child() preserves allow_dotfiles policy | `test_primitives.py` — `test_directory_resolve_child_with_dotfile_policy` |

@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned. This is a small follow-up pass after Plan 021. It should not introduce new architecture. Its purpose is to verify that the policy-preservation fixes are directly tested and that documentation no longer overstates current Python primitive capabilities.
+Complete.
 
 ## Objective
 

@@ -114,6 +114,8 @@ Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.
 
 Python `ResolvedFile` currently supports metadata and response planning. It does not yet expose the resolver-opened file handle for streaming; production byte-serving should wait for a dedicated file-streaming primitive.
 
+**Do not** reconstruct a filesystem path from `safe_relative_components()` and reopen it manually. The file handle from `resource.file` was opened under policy enforcement during resolution; reopening by path bypasses the security guarantees.
+
 - `length` — file size in bytes
 - `modified` — modification time as UNIX timestamp (float), or `None`
 - `content_type` — MIME type string (e.g. `"text/plain; charset=utf-8"`)

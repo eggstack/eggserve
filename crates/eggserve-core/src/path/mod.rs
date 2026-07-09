@@ -308,4 +308,20 @@ mod tests {
         let p = ConfinedPath::parse("///", &default_policy()).unwrap();
         assert_eq!(p.components().len(), 0);
     }
+
+    #[test]
+    fn path_policy_returns_parsed_policy() {
+        let policy = PathPolicy {
+            dotfiles: DotfilePolicy::Allow,
+            ..PathPolicy::default()
+        };
+        let p = ConfinedPath::parse("/.env", &policy).unwrap();
+        assert_eq!(p.path_policy(), &policy);
+    }
+
+    #[test]
+    fn path_policy_default_returns_default() {
+        let p = ConfinedPath::parse("/foo", &default_policy()).unwrap();
+        assert_eq!(p.path_policy(), &default_policy());
+    }
 }

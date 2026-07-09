@@ -666,6 +666,8 @@ mod tests {
         assert_eq!(plan.headers.get("content-length"), Some("50"));
         assert_eq!(plan.headers.get("content-type"), Some("text/plain"));
         assert_eq!(plan.headers.get("accept-ranges"), Some("bytes"));
+        assert!(plan.headers.get("etag").is_some());
+        assert!(plan.headers.get("last-modified").is_some());
     }
 
     #[test]

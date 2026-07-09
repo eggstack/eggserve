@@ -469,6 +469,12 @@ class TestResolvedFile(unittest.TestCase):
         self.assertEqual(plan.status, 206)
         self.assertEqual(plan.body_kind, "file_range")
         self.assertEqual(plan.range, (0, 0))
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("content-range"), "bytes 0-0/100")
+        self.assertEqual(headers.get("content-length"), "1")
+        self.assertEqual(headers.get("accept-ranges"), "bytes")
+        self.assertIn("etag", headers)
+        self.assertIn("last-modified", headers)
 
     def test_plan_range_open_ended(self):
         f = self._make_file("x" * 100)
@@ -487,6 +493,10 @@ class TestResolvedFile(unittest.TestCase):
         plan = f.plan_conditional_response("GET", headers=[("range", "bytes=200-300")])
         self.assertEqual(plan.status, 416)
         self.assertEqual(plan.body_kind, "empty")
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("content-length"), "0")
+        self.assertEqual(headers.get("accept-ranges"), "bytes")
+        self.assertEqual(headers.get("content-range"), "bytes */100")
 
     def test_plan_if_range_match(self):
         f = self._make_file("x" * 100)
@@ -691,6 +701,27 @@ class TestPolicyPreservation(unittest.TestCase):
             self.assertIn(".hidden", names)
             self.assertIn("visible.txt", names)
 
+    def test_request_target_path_policy_does_not_override_static_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, ".hidden"), "w") as f:
+                f.write("secret")
+            target = RequestTarget.parse(
+                "/.hidden", PathPolicy(allow_dotfiles=True)
+            )
+            root = SecureRoot(td, StaticPolicy(allow_dotfiles=False))
+            res = root.resolve(target)
+            self.assertTrue(res.is_denied)
+            self.assertEqual(res.denied_reason[1], "dotfile_denied")
+
+    def test_resolve_path_explicit_path_policy_does_not_bypass_static_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, ".hidden"), "w") as f:
+                f.write("secret")
+            root = SecureRoot(td, StaticPolicy(allow_dotfiles=False))
+            res = root.resolve_path("/.hidden", PathPolicy(allow_dotfiles=True))
+            self.assertTrue(res.is_denied)
+            self.assertEqual(res.denied_reason[1], "dotfile_denied")
+
     def test_directory_resolve_child_with_dotfile_policy(self):
         with tempfile.TemporaryDirectory() as td:
             with open(os.path.join(td, ".env"), "w") as f:
@@ -701,6 +732,18 @@ class TestPolicyPreservation(unittest.TestCase):
             d = res.directory
             child = d.resolve_child(".env")
             self.assertTrue(child.is_file)
+
+    def test_resolved_directory_list_includes_both_dotfile_and_visible(self):
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, ".hidden"), "w") as f:
+                f.write("x")
+            with open(os.path.join(td, "visible.txt"), "w") as f:
+                f.write("v")
+            root = SecureRoot(td, StaticPolicy(allow_dotfiles=True))
+            directory = root.resolve_path("/").directory
+            names = [name for name, _is_dir in directory.list()]
+            self.assertIn(".hidden", names)
+            self.assertIn("visible.txt", names)
 
 
 if __name__ == "__main__":
