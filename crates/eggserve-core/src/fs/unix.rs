@@ -1,9 +1,14 @@
 //! Unix descriptor-relative filesystem traversal using openat.
 //!
 //! Under safe defaults (symlinks denied), every path component is opened via
-//! `openat` with `O_NOFOLLOW`, which eliminates the TOCTOU window between
-//! metadata check and file open. If any component is a symlink, `openat`
-//! returns `ELOOP` and the request is denied.
+//! `openat` with `O_NOFOLLOW`. Combined with a `statat(AT_SYMLINK_NOFOLLOW)`
+//! pre-check, this prevents the service layer from reopening validated
+//! absolute paths and closes the primary final-object symlink-swap issue:
+//! if a symlink is swapped into the path between `statat` and `openat`, the
+//! open will fail rather than follow the new target.
+//!
+//! Platform-specific semantics around directory no-follow behavior are
+//! documented in `docs/security-review.md`.
 //!
 //! Under follow-symlinks mode, the fallback canonicalize-based resolver is
 //! used instead. Follow mode is documented as less hardened.
@@ -57,16 +62,16 @@ pub(crate) fn resolve_fd_relative(
         }
 
         let flags = if is_final {
-            OFlags::RDONLY | OFlags::CLOEXEC
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW
         } else {
-            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW
         };
 
         let new_fd = match openat(&current_fd, component.as_str(), flags, Mode::empty()) {
             Ok(fd) => fd,
             Err(e) => {
                 return match e {
-                    rustix::io::Errno::LOOP => {
+                    rustix::io::Errno::LOOP | rustix::io::Errno::MLINK => {
                         ResolvedResource::Denied(PathRejection::SymlinkDenied)
                     }
                     _ => ResolvedResource::NotFound,
@@ -126,10 +131,17 @@ pub(crate) fn resolve_child_fd(
         }
     }
 
-    let flags = OFlags::RDONLY | OFlags::CLOEXEC;
+    let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
     let new_fd = match openat(dir_fd, child, flags, Mode::empty()) {
         Ok(fd) => fd,
-        Err(_) => return ResolvedResource::NotFound,
+        Err(e) => {
+            return match e {
+                rustix::io::Errno::LOOP | rustix::io::Errno::MLINK => {
+                    ResolvedResource::Denied(PathRejection::SymlinkDenied)
+                }
+                _ => ResolvedResource::NotFound,
+            };
+        }
     };
 
     let std_file: fs::File = new_fd.into();

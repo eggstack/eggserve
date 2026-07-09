@@ -63,7 +63,7 @@ Key defaults:
 - **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
 - **GET and HEAD only** — all other methods are rejected
 - **No request bodies** — `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding` on GET/HEAD are rejected (413 for body-size limits, 400 for malformed framing)
-- **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed; on Unix, descriptor-relative traversal (`statat` + `openat`) prevents TOCTOU between symlink detection and file open; even with follow enabled, symlinks whose final canonical target escapes the root are denied
+- **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed. On Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)` to prevent symlink detection bypass and to refuse to follow a symlink swapped into the path between the two calls. Even with `--follow-symlinks`, symlinks whose final canonical target escapes the root are denied. **Follow-symlinks mode is weaker and is not covered by the descriptor-relative hardening guarantee.**
 - **No dotfiles served** — hidden files are excluded
 - **No directory listing** — unless `--directory-listing` is passed
 - **Unknown MIME as application/octet-stream** — safe fallback
@@ -73,16 +73,16 @@ Key defaults:
 
 ## Project status
 
-**Plan 013 complete.** Unix safe-default traversal is now descriptor-relative using `openat`/`statat` — files are opened during resolution, never re-opened by absolute path. Directory listings flow through the resolver. All 232 tests pass. See [plans/](plans/) for the full sequence.
+**Plan 014 complete (filesystem hardening corrective pass).** Unix safe-default traversal uses descriptor-relative `openat(O_NOFOLLOW)` + `statat(AT_SYMLINK_NOFOLLOW)` per component. The `O_NOFOLLOW` flag prevents the service layer from following a symlink that an attacker swapped into place between the stat and the open. Files are opened during resolution, never re-opened by absolute path. Directory listings flow through the resolver. Follow-symlinks mode and Windows reparse-point handling are explicitly outside the descriptor-relative hardening guarantee and are documented as such. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
 | Platform | Status |
 |----------|--------|
-| Linux x86_64 | Supported, tested in CI |
-| Linux aarch64 | Supported, tested in CI |
-| macOS arm64 (Apple Silicon) | Supported, tested in CI |
-| macOS x86_64 | Supported, tested in CI |
+| Linux x86_64 | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
+| Linux aarch64 | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
+| macOS arm64 (Apple Silicon) | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
+| macOS x86_64 | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
 | Windows x86_64 | Supported; parser-level checks only, reparse-point hardening deferred |
 
 Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.

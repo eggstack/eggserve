@@ -56,6 +56,10 @@ The following items block specific release milestones:
 - Windows reparse-point behavior not audited/tested
 - Windows-specific path edge cases not fully covered
 
+### Blocks follow-symlinks production claims
+
+- Follow-symlinks uses canonicalize-based resolution; not covered by the descriptor-relative hardening guarantee. Release notes must mark it explicitly as weaker/experimental.
+
 ### Not blockers (documented non-features)
 
 - Range requests absent — documented limitation

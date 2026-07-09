@@ -43,7 +43,8 @@ A 1.0 release requires all beta criteria plus:
 - [ ] Dependency audit clean: `cargo audit` and `cargo deny` pass with no advisories or unresolved warnings
 - [ ] Documented security review: a written review of the threat model and defensive layers
 - [ ] Windows path coverage: Windows-specific path edge cases (UNC, `\\?\`, drive letters) are tested
+- [ ] Windows reparse-point coverage: reparse-point/junction hardening is audited and tested
 - [ ] Stable public API: `eggserve-core` public API is reviewed and frozen for the 1.x series
 - [ ] Signed releases: release artifacts are signed
 - [ ] No outstanding security issues in the issue tracker
-- [x] Descriptor-relative traversal: filesystem traversal uses directory-fd/`openat`-style resolution on Unix with safe defaults (symlinks denied), using `statat` + `openat` to detect and deny symlinks at each path component. Falls back to canonicalize-based resolution on non-Unix or when `--follow-symlinks` is enabled.
+- [x] Descriptor-relative traversal: filesystem traversal uses directory-fd/`openat`-style resolution on Unix with safe defaults (symlinks denied). Each component is checked with `statat(AT_SYMLINK_NOFOLLOW)` and opened with `openat(O_NOFOLLOW)`; if a symlink is swapped into place between the two, the open fails rather than following. Falls back to canonicalize-based resolution on non-Unix or when `--follow-symlinks` is enabled; follow-symlinks is explicitly outside the descriptor-relative hardening guarantee.

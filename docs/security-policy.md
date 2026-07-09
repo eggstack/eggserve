@@ -29,7 +29,7 @@ The path confinement layer enforces the following before any filesystem access:
 4. **Dotfile policy** — components starting with `.` are denied unless `DotfilePolicy::Serve` is explicitly configured.
 5. **Platform checks** — Windows reserved names (CON, PRN, AUX, NUL, COM1-9, LPT1-9), alternate data stream syntax (`:`), and drive prefixes (`C:`) are rejected cross-platform.
 6. **Root confinement** — the resolved filesystem path is verified to remain within the configured root directory.
-7. **Symlink policy** — symlinks are denied by default. On Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat` call to detect symlinks, so both final and intermediate symlinks are rejected. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical target is verified against the root.
+7. **Symlink policy** — symlinks are denied by default. On Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat(..., O_NOFOLLOW)` call to detect symlinks, so both final and intermediate symlinks are rejected. The `O_NOFOLLOW` flag also prevents an attacker from swapping a symlink into place between the stat and the open. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical target is verified against the root.
 
 Malformed syntax returns 400 Bad Request. Policy violations return 403 Forbidden. No local filesystem paths are leaked in response bodies.
 
@@ -45,6 +45,8 @@ Binds to all network interfaces (`0.0.0.0`) instead of loopback. Use only when t
 
 Enables following symbolic links. When enabled, both final and intermediate symlinks are followed, and the resolved canonical path is still checked against the configured root. Symlinks whose final canonical target escapes the root are denied regardless of this flag.
 
+**This mode falls back to canonicalize-based resolution and is weaker than the safe-default descriptor-relative path.** It is **not** covered by the same TOCTOU-hardening guarantee that applies to safe-default symlink-denied mode on Unix. Avoid `--follow-symlinks` for untrusted mutable roots.
+
 ## Request body metadata handling
 
 For read-only methods (`GET`, `HEAD`), eggserve rejects any request that signals a body:
@@ -59,7 +61,13 @@ This closes the previous behavior where malformed `Content-Length` values were s
 
 ## Implementation status and limitations
 
-On Unix (Linux, macOS) with safe defaults, eggserve uses descriptor-relative traversal: the root directory is opened as a file descriptor at startup, and each path component is resolved using `statat` (to detect symlinks) followed by `openat`. This eliminates the TOCTOU window between metadata inspection and file open for the final component. On non-Unix platforms or when `--follow-symlinks` is enabled, the implementation falls back to `symlink_metadata` checks plus `canonicalize` with root verification. Files are always opened during resolution — never re-opened later by absolute path. Windows reparse-point detection beyond what the parser already denies is deferred. Directory listings hide symlink entries when symlink policy is denied.
+On Unix (Linux, macOS) with safe defaults, eggserve resolves request paths relative to an opened root directory descriptor. Components are checked with `statat(..., AT_SYMLINK_NOFOLLOW)` and opened with `openat(..., O_NOFOLLOW)`. This prevents the service layer from reopening validated absolute paths and closes the primary final-object symlink-swap issue. Files are always opened during resolution — never re-opened later by absolute path.
+
+On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementation falls back to `symlink_metadata` checks plus `canonicalize` with root verification. Follow-symlinks mode is **not** covered by the descriptor-relative hardening guarantee.
+
+The configured root is canonicalized and opened as a directory descriptor during request resolution (per request), not once at server startup. Caching the root descriptor across requests is a future optimization; current behavior is correct and tested.
+
+Windows reparse-point detection beyond what the parser already denies is deferred. Do not use eggserve on Windows for untrusted mutable public roots. Directory listings hide symlink entries when symlink policy is denied.
 
 ### `--directory-listing`
 

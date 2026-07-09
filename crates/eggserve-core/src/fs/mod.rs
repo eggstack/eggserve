@@ -1,9 +1,15 @@
 //! Filesystem confinement: root guard and resolved resource types.
 //!
 //! Under safe defaults (symlinks denied), resolution uses descriptor-relative
-//! traversal via `openat` with `O_NOFOLLOW` on Unix. This eliminates the
-//! TOCTOU window between policy check and file open. Under follow-symlinks
-//! mode, a canonicalize-based fallback is used.
+//! traversal via `openat` with `O_NOFOLLOW` on Unix. Each component is
+//! pre-checked with `statat(AT_SYMLINK_NOFOLLOW)` and then opened
+//! no-follow; if a symlink is swapped in between the two, the open fails
+//! rather than following it. Under follow-symlinks mode, a canonicalize-based
+//! fallback is used.
+//!
+//! The `RootGuard` is constructed per request. The configured root is
+//! canonicalized and opened as a directory descriptor during request
+//! resolution.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -17,9 +23,8 @@ pub(crate) mod unix;
 /// A resolved file with a pre-opened handle.
 ///
 /// The file is opened during resolution via `openat` with `O_NOFOLLOW` on
-/// Unix safe defaults, eliminating the TOCTOU gap between metadata check and
-/// file open. MIME detection uses `safe_relative_components`, never the
-/// absolute path.
+/// Unix safe defaults, so the service layer does not reopen by absolute path.
+/// MIME detection uses `safe_relative_components`, never the absolute path.
 #[derive(Debug)]
 pub(crate) struct ResolvedFile {
     pub(crate) file: fs::File,
@@ -459,5 +464,33 @@ mod tests {
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
         assert!(matches!(result, ResolvedResource::Directory(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn openat_nofollow_kernel_rejects_symlink() {
+        use rustix::fs::{openat, Mode, OFlags};
+
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("real.txt"), "real").unwrap();
+        std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt"))
+            .unwrap();
+
+        let root_fd = fs::File::open(tmp.path()).unwrap();
+
+        let result = openat(
+            &root_fd,
+            "link.txt",
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+            Mode::empty(),
+        );
+
+        match result {
+            Err(rustix::io::Errno::LOOP) | Err(rustix::io::Errno::MLINK) => {}
+            Err(other) => {
+                panic!("expected ELOOP/EMLINK from openat(NOFOLLOW) on symlink, got {other:?}")
+            }
+            Ok(_) => panic!("openat(NOFOLLOW) on a symlink unexpectedly succeeded"),
+        }
     }
 }
