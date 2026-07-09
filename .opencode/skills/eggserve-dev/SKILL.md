@@ -49,7 +49,7 @@ cargo deny check
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan count** — Plans 000–024 complete. Verify against `plans/` directory.
+- **Plan count** — Plans 000–025 complete. Verify against `plans/` directory.
 
 ## Architecture docs
 

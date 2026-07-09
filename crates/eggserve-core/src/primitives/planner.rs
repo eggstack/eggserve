@@ -939,4 +939,188 @@ mod tests {
         assert_eq!(plan.body, BodyPlan::Empty);
         assert_eq!(plan.headers.get("content-length"), Some("500"));
     }
+
+    #[test]
+    fn evaluate_if_none_match_weak_etag_matches_strong() {
+        assert!(evaluate_if_none_match("W/\"100-1234\"", "\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_strong_etag_matches_weak() {
+        assert!(evaluate_if_none_match("\"100-1234\"", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_empty_list() {
+        assert!(!evaluate_if_none_match("", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_range_header_first_byte() {
+        let result = evaluate_range_header("bytes=0-0", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(0, 0))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_open_ended() {
+        let result = evaluate_range_header("bytes=50-", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(50, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_suffix_one() {
+        let result = evaluate_range_header("bytes=-1", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(99, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_suffix_larger_than_file() {
+        let result = evaluate_range_header("bytes=-200", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(0, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_start_beyond_eof() {
+        let result = evaluate_range_header("bytes=100-", 100);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_range_header_start_greater_than_end() {
+        let result = evaluate_range_header("bytes=50-10", 100);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_range_header_unsupported_unit() {
+        let result = evaluate_range_header("items=0-9", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_multiple_ranges() {
+        let result = evaluate_range_header("bytes=0-9, 50-59", 100);
+        assert_eq!(result, RangeRequestOutcome::MultipleRanges);
+    }
+
+    #[test]
+    fn plan_file_response_zero_length_file_range_416() {
+        let tmp = make_file_with_size(0);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "application/octet-stream",
+            None,
+            None,
+            Some("bytes=0-0"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 416);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn plan_file_response_if_range_matching_date_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let lm_time = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs);
+        let date_str = httpdate::fmt_http_date(lm_time);
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&date_str),
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+    }
+
+    #[test]
+    fn plan_file_response_if_range_stale_date_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let stale = UNIX_EPOCH + std::time::Duration::from_secs(0);
+        let date_str = httpdate::fmt_http_date(stale);
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&date_str),
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_head_with_range_returns_headers_no_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-0"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("1"));
+        assert_eq!(plan.headers.get("content-range"), Some("bytes 0-0/100"));
+    }
+
+    #[test]
+    fn evaluate_conditional_headers_both_present_etag_wins() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let outcome = evaluate_conditional_headers(
+            &etag,
+            None,
+            Some(&etag),
+            Some("Tue, 01 Jan 2030 00:00:00 GMT"),
+        );
+
+        assert!(matches!(outcome, ConditionalRequestOutcome::NotModified(_)));
+    }
+
+    #[test]
+    fn evaluate_conditional_headers_no_match_no_ims() {
+        let outcome =
+            evaluate_conditional_headers("W/\"100-1234\"", None, Some("W/\"999-999\""), None);
+
+        assert_eq!(outcome, ConditionalRequestOutcome::FullResponse);
+    }
 }

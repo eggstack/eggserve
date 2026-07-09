@@ -746,5 +746,229 @@ class TestPolicyPreservation(unittest.TestCase):
             self.assertIn("visible.txt", names)
 
 
+class TestValidateMethodExtended(unittest.TestCase):
+    def test_get_returns_get(self):
+        result = validate_method("GET")
+        self.assertEqual(result, "GET")
+
+    def test_head_returns_head(self):
+        result = validate_method("HEAD")
+        self.assertEqual(result, "HEAD")
+
+    def test_options_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_method("OPTIONS")
+
+    def test_delete_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_method("DELETE")
+
+    def test_patch_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_method("PATCH")
+
+
+class TestValidateRequestBodyExtended(unittest.TestCase):
+    def test_empty_transfer_encoding_allowed(self):
+        validate_request_body(transfer_encoding="")
+
+    def test_whitespace_transfer_encoding_allowed(self):
+        validate_request_body(transfer_encoding="  ")
+
+    def test_conflicting_headers_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(content_length="0", transfer_encoding="chunked")
+
+    def test_overflow_content_length_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(content_length="99999999999999999999")
+
+    def test_negative_content_length_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(content_length="-1")
+
+    def test_empty_content_length_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(content_length="")
+
+    def test_whitespace_content_length_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(content_length="  ")
+
+    def test_max_body_bytes_respected(self):
+        validate_request_body(content_length="100", max_body_bytes=100)
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(content_length="101", max_body_bytes=100)
+
+
+class TestValidateRequestTargetExtended(unittest.TestCase):
+    def test_root_valid(self):
+        validate_request_target("/")
+
+    def test_deep_path_valid(self):
+        validate_request_target("/a/b/c/d.txt")
+
+    def test_empty_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_target("")
+
+    def test_no_leading_slash_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_target("foo")
+
+    def test_asterisk_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_target("*")
+
+    def test_whitespace_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_target("/foo bar")
+
+
+class TestResponsePlanExtended(unittest.TestCase):
+    def _make_file(self, content="x" * 100):
+        self._td = tempfile.mkdtemp()
+        path = os.path.join(self._td, "test.txt")
+        with open(path, "w") as f:
+            f.write(content)
+        sr = SecureRoot(self._td)
+        res = sr.resolve_path("/test.txt")
+        return res.file
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_plan_response_status_code(self):
+        f = self._make_file()
+        plan = f.plan_response("GET")
+        self.assertEqual(plan.status, 200)
+
+    def test_plan_response_headers_include_content_type(self):
+        f = self._make_file()
+        plan = f.plan_response("GET")
+        headers = dict(plan.headers)
+        self.assertIn("content-type", headers)
+        self.assertIn("text/plain", headers["content-type"])
+
+    def test_plan_response_headers_include_content_length(self):
+        f = self._make_file("hello")
+        plan = f.plan_response("GET")
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("content-length"), "5")
+
+    def test_plan_response_headers_include_etag(self):
+        f = self._make_file()
+        plan = f.plan_response("GET")
+        headers = dict(plan.headers)
+        self.assertIn("etag", headers)
+        self.assertTrue(headers["etag"].startswith("W/\""))
+
+    def test_plan_response_headers_include_accept_ranges(self):
+        f = self._make_file()
+        plan = f.plan_response("GET")
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("accept-ranges"), "bytes")
+
+    def test_plan_response_headers_include_nosniff(self):
+        f = self._make_file()
+        plan = f.plan_response("GET")
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("x-content-type-options"), "nosniff")
+
+    def test_plan_head_body_kind_empty(self):
+        f = self._make_file()
+        plan = f.plan_response("HEAD")
+        self.assertEqual(plan.body_kind, "empty")
+
+    def test_plan_head_status_matches_get(self):
+        f = self._make_file()
+        get_plan = f.plan_response("GET")
+        head_plan = f.plan_response("HEAD")
+        self.assertEqual(get_plan.status, head_plan.status)
+
+    def test_plan_conditional_not_modified_304(self):
+        f = self._make_file()
+        etag = generate_etag(f)
+        plan = f.plan_conditional_response("GET", headers=[("if-none-match", etag)])
+        self.assertEqual(plan.status, 304)
+        self.assertEqual(plan.body_kind, "empty")
+        headers = dict(plan.headers)
+        self.assertIn("etag", headers)
+
+    def test_plan_conditional_modified_200(self):
+        f = self._make_file()
+        plan = f.plan_conditional_response("GET", headers=[("if-none-match", "W/\"bogus\"")])
+        self.assertEqual(plan.status, 200)
+        self.assertEqual(plan.body_kind, "file_full")
+
+    def test_plan_range_single_byte(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=0-0")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.body_kind, "file_range")
+        self.assertEqual(plan.range, (0, 0))
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("content-range"), "bytes 0-0/100")
+        self.assertEqual(headers.get("content-length"), "1")
+
+    def test_plan_range_open_ended(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=50-")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.range, (50, 99))
+
+    def test_plan_range_suffix(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=-10")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.range, (90, 99))
+
+    def test_plan_range_suffix_exceeds_file(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=-200")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.range, (0, 99))
+
+    def test_plan_range_416(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=200-300")])
+        self.assertEqual(plan.status, 416)
+        self.assertEqual(plan.body_kind, "empty")
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("content-range"), "bytes */100")
+
+    def test_plan_range_inverted_returns_416(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[("range", "bytes=50-10")])
+        self.assertEqual(plan.status, 416)
+
+    def test_plan_if_range_matching_etag_206(self):
+        f = self._make_file("x" * 100)
+        etag = generate_etag(f)
+        plan = f.plan_conditional_response("GET", headers=[
+            ("range", "bytes=0-0"),
+            ("if-range", etag),
+        ])
+        self.assertEqual(plan.status, 206)
+
+    def test_plan_if_range_mismatched_etag_200(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("GET", headers=[
+            ("range", "bytes=0-0"),
+            ("if-range", "W/\"bogus\""),
+        ])
+        self.assertEqual(plan.status, 200)
+        self.assertEqual(plan.body_kind, "file_full")
+
+    def test_plan_head_range_206_empty_body(self):
+        f = self._make_file("x" * 100)
+        plan = f.plan_conditional_response("HEAD", headers=[("range", "bytes=0-49")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.body_kind, "empty")
+        headers = dict(plan.headers)
+        self.assertEqual(headers.get("content-length"), "50")
+
+
 if __name__ == "__main__":
     unittest.main()

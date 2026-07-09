@@ -187,3 +187,12 @@ All types in the planner are pure value objects with no Hyper dependency. This e
 - [primitives-api.md](primitives-api.md) — Public API for response planning
 - [eggserve-core.md](eggserve-core.md) — Core library context
 - [architecture/overview.md](overview.md) — Data flow diagram
+
+## Test coverage
+
+The response planner has extensive test coverage:
+
+- **Unit tests** (`planner.rs`): 52 tests covering ETag generation, conditional headers, range parsing, If-Range evaluation, HEAD parity, directory listing planning, and edge cases.
+- **Integration tests** (`integration.rs`): tests for the full request handling path including method validation, body rejection, conditional requests, range requests, and HEAD parity.
+- **Live HTTP tests** (`http_primitives_integration.rs`): 15 tests exercising real TCP connections through hyper's client/server stack, covering GET, HEAD, POST (405), 404, 403, 400, 413, 206, 416, and 304 responses.
+- **Python tests** (`test_primitives.py`): comprehensive tests for method validation, body validation, request target validation, response planning, range responses, conditional responses, and HEAD parity through PyO3 bindings.

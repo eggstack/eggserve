@@ -20,4 +20,5 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
+hyper = { version = "1", features = ["client"] }
 tempfile = "3"

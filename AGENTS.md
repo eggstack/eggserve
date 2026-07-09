@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-024 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-025 are complete.
 
 ## Non-negotiables
 
@@ -173,6 +173,7 @@ Before implementing any feature, check:
 - [docs/deployment.md](docs/deployment.md) — deployment patterns (local, reverse proxy, native TLS)
 - [docs/extension-contract.md](docs/extension-contract.md) — how downstream projects may build on eggserve
 - [docs/invariants.md](docs/invariants.md) — invariant test matrix across Rust and Python APIs
+- [docs/http-primitives.md](docs/http-primitives.md) — HTTP/1.1 primitive contract, supported subset, and behavior guarantees
 
 ## Architecture deep dives
 

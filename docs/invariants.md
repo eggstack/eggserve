@@ -87,3 +87,52 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | resolve_path explicit path_policy does not bypass StaticPolicy | `test_primitives.py` — `test_resolve_path_explicit_path_policy_does_not_bypass_static_policy` |
 | ResolvedDirectory.list() preserves allow_dotfiles policy | `test_primitives.py` — `test_directory_list_preserves_dotfile_policy` |
 | ResolvedDirectory.resolve_child() preserves allow_dotfiles policy | `test_primitives.py` — `test_directory_resolve_child_with_dotfile_policy` |
+
+## HTTP primitive invariants
+
+| Invariant | Test coverage |
+|-----------|---------------|
+| GET/HEAD method validation returns ReadOnlyMethod | `primitives/http.rs` — method validation tests |
+| Unsupported methods rejected with MethodNotAllowed | `primitives/http.rs` — method rejection tests |
+| Origin-form request target accepted | `primitives/http.rs` — request target tests |
+| Empty/absolute/asterisk/whitespace targets rejected | `primitives/http.rs` — request target rejection tests |
+| Zero Content-Length allowed under zero-body policy | `primitives/http.rs` — body validation tests |
+| Positive Content-Length rejected under zero-body policy | `primitives/http.rs` — body validation tests |
+| Malformed Content-Length rejected | `primitives/http.rs` — body validation tests |
+| Non-empty Transfer-Encoding rejected | `primitives/http.rs` — body validation tests |
+| Conflicting Content-Length and Transfer-Encoding rejected | `primitives/http.rs` — body validation tests |
+| Configurable max_body_bytes enforced | `primitives/http.rs` — body validation with max_body_bytes |
+| ETag weak comparison matches strong | `primitives/planner.rs` — ETag comparison tests |
+| If-None-Match wildcard matches any ETag | `primitives/planner.rs` — wildcard test |
+| If-None-Match list matching | `primitives/planner.rs` — list matching tests |
+| If-Modified-Since future date triggers 304 | `primitives/planner.rs` — IMS future test |
+| If-Modified-Since past date triggers 200 | `primitives/planner.rs` — IMS past test |
+| Malformed If-Modified-Since ignored | `primitives/planner.rs` — malformed IMS test |
+| Range bytes=0-0 returns first byte | `primitives/planner.rs` — single byte range test |
+| Range bytes=0- returns to EOF | `primitives/planner.rs` — open-ended range test |
+| Range bytes=-N returns last N bytes | `primitives/planner.rs` — suffix range test |
+| Range suffix exceeding file returns whole file | `primitives/planner.rs` — suffix exceeds file test |
+| Range start beyond EOF returns 416 | `primitives/planner.rs` — start beyond EOF test |
+| Range start > end returns 416 | `primitives/planner.rs` — inverted range test |
+| Multiple ranges fall through to 200 | `primitives/planner.rs` — multiple ranges test |
+| Unsupported range unit falls through to 200 | `primitives/planner.rs` — unsupported unit test |
+| Zero-length file range returns 416 | `primitives/planner.rs` — zero-length file test |
+| If-Range matching ETag serves 206 | `primitives/planner.rs` — If-Range matching test |
+| If-Range non-matching ETag serves 200 | `primitives/planner.rs` — If-Range mismatch test |
+| If-Range matching date serves 206 | `primitives/planner.rs` — If-Range date match test |
+| If-Range stale date serves 200 | `primitives/planner.rs` — If-Range stale date test |
+| HEAD with range returns headers but no body | `primitives/planner.rs` — HEAD range test |
+| HEAD parity: same status, headers, empty body | `primitives/planner.rs` — HEAD parity tests; `integration.rs` — HEAD parity tests |
+| Live TCP: GET file returns 200 with body | `http_primitives_integration.rs` — live GET test |
+| Live TCP: HEAD file returns 200 no body | `http_primitives_integration.rs` — live HEAD test |
+| Live TCP: missing file returns 404 | `http_primitives_integration.rs` — live 404 test |
+| Live TCP: dotfile returns 403 | `http_primitives_integration.rs` — live dotfile test |
+| Live TCP: POST returns 405 with Allow header | `http_primitives_integration.rs` — live 405 test |
+| Live TCP: malformed percent returns 400 | `http_primitives_integration.rs` — live 400 test |
+| Live TCP: traversal returns 403 | `http_primitives_integration.rs` — live traversal test |
+| Live TCP: positive Content-Length returns 413 | `http_primitives_integration.rs` — live 413 test |
+| Live TCP: invalid Content-Length returns 400 | `http_primitives_integration.rs` — live invalid CL test |
+| Live TCP: Range returns 206 with correct body | `http_primitives_integration.rs` — live range test |
+| Live TCP: unsatisfiable range returns 416 | `http_primitives_integration.rs` — live 416 test |
+| Live TCP: conditional ETag returns 304 | `http_primitives_integration.rs` — live 304 test |
+| Live TCP: HEAD range returns 206 no body | `http_primitives_integration.rs` — live HEAD range test |
