@@ -162,9 +162,9 @@ impl RootGuard {
             Ok(meta) => {
                 if meta.is_dir() {
                     match fs::File::open(&canonical) {
-                        Ok(dir_fd) => ResolvedResource::Directory(ResolvedDirectory {
+                        Ok(_dir_fd) => ResolvedResource::Directory(ResolvedDirectory {
                             #[cfg(unix)]
-                            dir_fd,
+                            dir_fd: _dir_fd,
                             canonical_path: canonical,
                             components: components.to_vec(),
                         }),

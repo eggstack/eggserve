@@ -64,7 +64,7 @@ jobs:
       - run: pip install maturin
       - run: maturin build --release -o dist
         working-directory: crates/eggserve-python
-      - run: pip install dist/*.whl
+      - run: pip install crates/eggserve-python/dist/*.whl
       - run: python -m eggserve --help
       - name: Wheel import smoke test
         run: |
