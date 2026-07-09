@@ -161,14 +161,23 @@ impl RootGuard {
         match fs::metadata(&canonical) {
             Ok(meta) => {
                 if meta.is_dir() {
-                    match fs::File::open(&canonical) {
-                        Ok(_dir_fd) => ResolvedResource::Directory(ResolvedDirectory {
-                            #[cfg(unix)]
-                            dir_fd: _dir_fd,
+                    #[cfg(unix)]
+                    {
+                        match fs::File::open(&canonical) {
+                            Ok(dir_fd) => ResolvedResource::Directory(ResolvedDirectory {
+                                dir_fd,
+                                canonical_path: canonical,
+                                components: components.to_vec(),
+                            }),
+                            Err(_) => ResolvedResource::NotFound,
+                        }
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        ResolvedResource::Directory(ResolvedDirectory {
                             canonical_path: canonical,
                             components: components.to_vec(),
-                        }),
-                        Err(_) => ResolvedResource::NotFound,
+                        })
                     }
                 } else {
                     match fs::File::open(&canonical) {
