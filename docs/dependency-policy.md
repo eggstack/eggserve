@@ -23,16 +23,17 @@ The following dependency categories are approved for initial development:
 | Streaming | `futures-util` | Async stream utilities for file streaming bodies |
 | Date formatting | `httpdate` | HTTP date formatting for Last-Modified headers |
 | Compile-time map | `phf` | Perfect hash function map for MIME type lookup |
-| CLI parsing | `clap` | Command-line argument parsing |
-| Logging | `tracing` (optional) | Structured logging |
+| CLI parsing | manual (no clap) | Manual argument parsing in `eggserve-bin` |
+| Error derive | `thiserror` | Derive macro for Error types |
+| Python bindings | `pyo3` (optional, eggserve-python only) | PyO3 bindings for Python wheel |
 | TLS | `rustls` (optional, deferred) | TLS termination |
 | TLS | `tokio-rustls` (optional, deferred) | Async TLS stream wrapping |
 | TLS | `rustls-pemfile` (optional, deferred) | PEM certificate and key parsing |
 
 ## Notes
 
-- The first milestone (plan 000) added only `clap` for CLI parsing in `eggserve-bin`
-- Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to both crates. `clap` was removed in favor of manual argument parsing.
+- The first milestone (plan 000) added initial dependencies
+- Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to both crates. Manual argument parsing was adopted instead of `clap`.
 - Plan 003 adds streaming/date/compile-time-map dependencies (`futures-util`, `httpdate`, `phf`) for file serving, Last-Modified headers, and MIME type detection.
 - Plan 009 adds optional TLS dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`) behind the `tls` feature flag in `eggserve-bin`. The default build remains TLS-free.
 - No dependency is added without updating this document

@@ -6,9 +6,9 @@ eggserve is distributed as a Python wheel containing the pre-built Rust binary. 
 
 ```
 crates/eggserve-python/
-├── Cargo.toml              # depends on eggserve-bin
+├── Cargo.toml              # depends on eggserve-core + pyo3
 ├── pyproject.toml          # maturin build backend
-├── src/main.rs             # Rust binary entrypoint (calls eggserve_bin::run())
+├── src/lib.rs              # PyO3 native module (_native)
 ├── python/eggserve/
 │   ├── __init__.py         # exports version, ServeConfig, StaticPolicy, serve_directory
 │   ├── __main__.py         # python -m eggserve entrypoint
@@ -20,14 +20,15 @@ crates/eggserve-python/
 
 ### How it works
 
-1. **maturin** builds the Rust binary and packages it into a platform-specific wheel
-2. `pip install eggserve` installs the wheel, which places the binary in the package directory
-3. `python -m eggserve` invokes `_bin.py`, which locates the binary and executes it via `subprocess.run()`
+1. **maturin** builds the Rust lib crate (with PyO3 bindings) and packages it into a platform-specific wheel
+2. `pip install eggserve` installs the wheel, which places the native module and Python package in site-packages
+3. `python -m eggserve` invokes `_bin.py`, which locates the bundled binary and executes it via `subprocess.run()`
 4. All CLI arguments are forwarded directly to the binary
+5. Native primitives (path parsing, resolution, response planning) are available directly via the `_native` PyO3 module without subprocess overhead
 
-### Why subprocess?
+### Why subprocess for CLI?
 
-The binary is a standalone process (Tokio runtime, TCP listener, signal handling). It cannot run inside the Python process. The subprocess approach keeps the Rust binary self-contained and avoids PyO3/GIL complexity.
+The binary is a standalone process (Tokio runtime, TCP listener, signal handling). It cannot run inside the Python process for full HTTP serving. The subprocess approach keeps the Rust binary self-contained. For primitive operations (path parsing, resolution, response planning), the native `_native` PyO3 module provides direct in-process access without subprocess overhead.
 
 ## Python API
 

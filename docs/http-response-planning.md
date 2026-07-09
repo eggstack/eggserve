@@ -98,13 +98,13 @@ HEAD responses use the same status and headers as GET, but with an empty body:
 
 ## ETag generation
 
-Weak ETags are generated from file size and mtime seconds:
+Weak ETags are generated from file size and mtime seconds. Returns `None` if metadata has no modification time:
 
 ```
 W/"<size>-<mtime_secs>"
 ```
 
-This matches the existing `service::generate_etag()` behavior. The ETag is a weak validator — acceptable for static files where strong consistency is not required.
+This matches the existing `planner::generate_etag()` behavior. The ETag is a weak validator — acceptable for static files where strong consistency is not required.
 
 ## Directory listing planning
 

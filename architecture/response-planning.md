@@ -23,12 +23,15 @@ pub struct StaticResponsePlan {
 ### `ResponseStatus`
 
 ```rust
-pub enum ResponseStatus {
-    Ok,              // 200
-    NotModified,     // 304
-    PartialContent,  // 206
-    RangeNotSatisfiable, // 416
-    // ... error variants
+pub struct ResponseStatus(pub u16);
+
+impl ResponseStatus {
+    pub const OK: Self = Self(200);
+    pub const NOT_MODIFIED: Self = Self(304);
+    pub const PARTIAL_CONTENT: Self = Self(206);
+    pub const NOT_RANGE_SATISFIABLE: Self = Self(416);
+    pub const METHOD_NOT_ALLOWED: Self = Self(405);
+    // ... other status constants
 }
 ```
 
@@ -51,20 +54,19 @@ pub struct ResponseHeader {
 
 ```rust
 pub enum BodyPlan {
-    File { file: ResolvedFile, range: FileRange },
-    DirectoryListing { html: String },
     Empty,
-    Error { body: String },
+    FullBytes(Vec<u8>),
+    FileFull,
+    FileRange { start: u64, end_inclusive: u64 },
 }
 ```
 
 ### `FileRange`
 
 ```rust
-pub enum FileRange {
-    Full,
-    Satisfiable { start: u64, end: u64 },
-    NotSatisfiable,
+pub struct FileRange {
+    pub start: u64,
+    pub end_inclusive: u64,
 }
 ```
 
@@ -76,8 +78,9 @@ Main entry point for file responses:
 
 ```rust
 pub fn plan_file_response(
-    file: &ResolvedFile,
     method: &ReadOnlyMethod,
+    metadata: &std::fs::Metadata,
+    content_type: &str,
     if_none_match: Option<&str>,
     if_modified_since: Option<&str>,
     range_header: Option<&str>,
@@ -121,10 +124,10 @@ Validates `If-Range` validator against current ETag/Last-Modified. If mismatch â
 Generates ETag from file metadata:
 
 ```rust
-pub fn generate_etag(metadata: &std::fs::Metadata) -> String
+pub fn generate_etag(metadata: &std::fs::Metadata) -> Option<String>
 ```
 
-Format: `"<inode>-<size>-<mtime>"` (strong validator).
+Returns `None` if metadata has no modification time. Format when present: `W/"<size>-<mtime_secs>"` (weak validator).
 
 ### `plan_directory_listing()`
 

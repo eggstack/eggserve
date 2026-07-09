@@ -17,7 +17,6 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing HTML, error responses) |
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map |
 | `primitives/` | **pub** | Public facade for embedding consumers |
-| `telemetry.rs` | pub(crate) | Startup logging |
 
 ## Key Types
 
@@ -75,12 +74,12 @@ Returns `Response<BoxBody<Bytes, Infallible>>`.
 
 ```rust
 pub enum Error {
-    PathEscape(PathRejection),
-    PathNotAccessible(std::io::Error),
+    PathEscape,
+    PathNotAccessible(String),
     Config(String),
-    Bind(std::io::Error),
+    Bind(String),
     Runtime(String),
-    RequestRejected(RequestRejected),
+    RequestRejected(String),
     Io(std::io::Error),
 }
 ```

@@ -43,7 +43,6 @@ python -m eggserve [DIRECTORY] [--bind HOST:PORT]  # eggserve via Python (deferr
 
 eggserve currently does not support:
 
-- **Range requests** — full-file streaming only
 - **HTTP/2** — HTTP/1.1 only
 - **CGI** — not supported (deferred as a non-goal)
 - **PUT/POST/DELETE** — read-only by design

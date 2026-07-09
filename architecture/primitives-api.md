@@ -133,10 +133,10 @@ pub struct StaticResponsePlan {
     pub body: BodyPlan,
 }
 
-pub struct HeaderMapPlan { pub headers: Vec<ResponseHeader> }
+pub struct HeaderMapPlan { headers: Vec<ResponseHeader> }
 pub struct ResponseHeader { pub name: String, pub value: String }
-pub enum BodyPlan { File { .. }, DirectoryListing { .. }, Empty, Error { .. } }
-pub enum ResponseStatus { Ok, NotModified, PartialContent, ... }
+pub enum BodyPlan { Empty, FullBytes(Vec<u8>), FileFull, FileRange { start: u64, end_inclusive: u64 } }
+pub struct ResponseStatus(pub u16); // associated constants: OK(200), NOT_MODIFIED(304), PARTIAL_CONTENT(206), etc.
 ```
 
 ## Usage Pattern

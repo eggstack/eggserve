@@ -45,7 +45,6 @@ eggserve/
 │   │       │   ├── http.rs         # request validation: ReadOnlyMethod, validate_method/body/target
 │   │       │   ├── response.rs     # response planning types: BodyPlan, HeaderMapPlan, StaticResponsePlan
 │   │       │   └── planner.rs      # response planner: conditional requests, range requests, ETag generation
-│   │       └── telemetry.rs # startup logging
 │   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │   │   ├── Cargo.toml
 │   │   └── src/
@@ -65,8 +64,11 @@ eggserve/
 │           ├── server.py   # Python API: ServeConfig, StaticPolicy, serve_directory, ServerProcess
 │           ├── test_primitives.py # native primitives tests (81 tests)
 │           └── test_server.py     # subprocess API tests
+├── architecture/           # deep-dive docs for each subsystem
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
+├── examples/               # usage examples (Python, Rust)
+├── fuzz/                   # fuzzing targets
 └── AGENTS.md               # this file
 ```
 
@@ -171,3 +173,15 @@ Before implementing any feature, check:
 - [docs/deployment.md](docs/deployment.md) — deployment patterns (local, reverse proxy, native TLS)
 - [docs/extension-contract.md](docs/extension-contract.md) — how downstream projects may build on eggserve
 - [docs/invariants.md](docs/invariants.md) — invariant test matrix across Rust and Python APIs
+
+## Architecture deep dives
+
+- [architecture/overview.md](architecture/overview.md) — workspace structure, data flow, architectural decisions
+- [architecture/eggserve-core.md](architecture/eggserve-core.md) — core library module map, key types, error taxonomy
+- [architecture/eggserve-bin.md](architecture/eggserve-bin.md) — CLI binary, accept loop, signal handling
+- [architecture/eggserve-python.md](architecture/eggserve-python.md) — Python bindings, PyO3, maturin packaging
+- [architecture/path-confinement.md](architecture/path-confinement.md) — path validation pipeline
+- [architecture/filesystem-confinement.md](architecture/filesystem-confinement.md) — SecureRoot, symlink-aware resolution
+- [architecture/policy-system.md](architecture/policy-system.md) — StaticPolicy, symlink/dotfile/listing policies
+- [architecture/primitives-api.md](architecture/primitives-api.md) — public API boundary for embedding consumers
+- [architecture/response-planning.md](architecture/response-planning.md) — conditional/range/ETag response planning
