@@ -327,7 +327,6 @@ fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner
 mod tests {
     use super::*;
     use crate::config::{ServeConfig, ServeState};
-    #[cfg(unix)]
     use http_body_util::BodyExt;
     use http_body_util::Empty;
     use hyper::body::Bytes;
