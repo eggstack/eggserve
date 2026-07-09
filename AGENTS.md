@@ -146,3 +146,5 @@ Before implementing any feature, check:
 - [docs/tls.md](docs/tls.md) — optional TLS feature, certificate requirements, limitations
 - [docs/secure-root.md](docs/secure-root.md) — SecureRoot public API, resolved-resource capabilities, platform guarantees
 - [docs/deployment.md](docs/deployment.md) — deployment patterns (local, reverse proxy, native TLS)
+- [docs/extension-contract.md](docs/extension-contract.md) — how downstream projects may build on eggserve
+- [docs/invariants.md](docs/invariants.md) — invariant test matrix across Rust and Python APIs

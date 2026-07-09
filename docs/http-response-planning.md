@@ -138,7 +138,7 @@ let plan = plan_file_response(
 
 ## Usage from Python
 
-The planner produces value objects (`StaticResponsePlan` with `ResponseStatus`, `HeaderMapPlan`, `BodyPlan`) that can be serialized to `(name, value)` header pairs and byte bodies. Python bindings (future plan) will expose these directly.
+The planner produces value objects (`StaticResponsePlan` with `ResponseStatus`, `HeaderMapPlan`, `BodyPlan`) that can be serialized to `(name, value)` header pairs and byte bodies. Python bindings expose these via `ResolvedFile.plan_response()` and `ResolvedFile.plan_conditional_response()`. See [python-api.md](python-api.md) for details.
 
 ## Non-goals
 

@@ -6,7 +6,13 @@
 
 ## What is eggserve?
 
-eggserve provides a single-purpose CLI and a Rust library for serving static files over HTTP with security as the default, not an afterthought. It targets the common developer workflow of "I need to serve this directory locally" while rejecting the unsafe behaviors baked into Python's `http.server` module.
+eggserve provides two layers:
+
+1. **CLI static server** — a hardened replacement for `python -m http.server` that serves static files with secure-by-default behavior. Bind to loopback, deny symlinks, reject dotfiles, disable directory listing — all unless explicitly opted in.
+
+2. **Primitive library** — hardened Rust/Python building blocks for request-target parsing, path confinement, secure static resolution, and response planning. Use these to build custom serving logic without launching the binary.
+
+Both layers share the same security policy and path confinement engine. The CLI is the simplest path; the primitives are for integration.
 
 ## Why not Python http.server?
 
@@ -73,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plan 019 in progress (Python native bindings).** PyO3-backed native bindings expose path parsing, policy, secure root, resolved resources, and response planning to Python without launching the binary. The subprocess API (`ServeConfig`, `ServerProcess`, `serve_directory`) remains available. See [plans/](plans/) for the full sequence.
+**Plans 000–019 complete.** eggserve ships as a hardened CLI static server and a primitive library. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
@@ -140,6 +146,16 @@ pip install eggserve
 # Or run directly with pipx
 pipx run eggserve
 ```
+
+## Examples
+
+See the [examples/](examples/) directory:
+
+- `examples/python_basic.py` — minimal subprocess API usage
+- `examples/python_dynamic_static.py` — dynamic health endpoint + static assets using primitives
+- `examples/python_safe_download.py` — safe file download handler with user-provided names
+
+Rust example: `crates/eggserve-core/examples/rust_primitives.rs` (run with `cargo run --example rust_primitives -p eggserve-core`)
 
 ## Local validation
 
