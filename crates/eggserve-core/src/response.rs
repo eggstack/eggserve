@@ -9,6 +9,8 @@ use hyper::body::Frame;
 use hyper::{Response, StatusCode};
 use std::time::SystemTime;
 
+use crate::primitives::response::HeaderMapPlan;
+
 pub type BoxBodyInner = BoxBody<Bytes, std::convert::Infallible>;
 
 pub fn text_response(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
@@ -108,30 +110,62 @@ pub fn file_response(
     builder.body(body.boxed()).unwrap()
 }
 
-pub fn file_response_head(
-    len: u64,
-    mime: &'static str,
-    last_modified: Option<SystemTime>,
-    etag: Option<String>,
-) -> Response<BoxBodyInner> {
-    let mut builder = Response::builder()
-        .status(StatusCode::OK)
-        .header("content-length", len.to_string())
-        .header("content-type", mime)
-        .header("x-content-type-options", "nosniff");
-
-    if let Some(mtime) = last_modified {
-        if let Ok(secs) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
-            let formatted = httpdate::fmt_http_date(SystemTime::UNIX_EPOCH + secs);
-            builder = builder.header("last-modified", formatted);
-        }
+pub fn planned_response(status: StatusCode, headers: &HeaderMapPlan) -> Response<BoxBodyInner> {
+    let mut builder = Response::builder().status(status);
+    for header in headers.iter() {
+        builder = builder.header(&header.name, &header.value);
     }
-
-    if let Some(tag) = etag {
-        builder = builder.header("etag", tag);
-    }
-
     builder.body(full_body("")).unwrap()
+}
+
+pub async fn file_response_range(
+    mut file: tokio::fs::File,
+    start: u64,
+    end_inclusive: u64,
+    status: StatusCode,
+    headers: &HeaderMapPlan,
+    permit: tokio::sync::OwnedSemaphorePermit,
+) -> Response<BoxBodyInner> {
+    use std::io::SeekFrom;
+    use tokio::io::AsyncSeekExt;
+
+    let mut builder = Response::builder().status(status);
+    for header in headers.iter() {
+        builder = builder.header(&header.name, &header.value);
+    }
+
+    let len = end_inclusive - start + 1;
+    if file.seek(SeekFrom::Start(start)).await.is_err() {
+        return planned_response(StatusCode::INTERNAL_SERVER_ERROR, headers);
+    }
+
+    let stream = futures_util::stream::unfold(
+        (file, permit, len),
+        |(mut file, permit, remaining)| async move {
+            if remaining == 0 {
+                return None;
+            }
+            let mut buf = vec![0u8; (remaining as usize).min(8192)];
+            match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    let n = (n as u64).min(remaining) as usize;
+                    buf.truncate(n);
+                    let remaining = remaining.saturating_sub(n as u64);
+                    Some((
+                        Ok::<_, std::convert::Infallible>(Frame::data(Bytes::from(buf))),
+                        (file, permit, remaining),
+                    ))
+                }
+                Err(_) => None,
+            }
+        },
+    );
+
+    let body = StreamBody::new(stream);
+    let body: BoxBodyInner = BodyExt::boxed(body);
+
+    builder.body(body.boxed()).unwrap()
 }
 
 pub fn directory_listing_response(

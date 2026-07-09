@@ -5,7 +5,7 @@ use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
 use hyper::Request;
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Semaphore};
 
@@ -248,6 +248,7 @@ async fn serve_connection<I>(
         async move { Ok::<_, std::convert::Infallible>(handle_request(req, &state).await) }
     });
     let conn = http1::Builder::new()
+        .timer(TokioTimer::new())
         .header_read_timeout(header_timeout)
         .serve_connection(io, service)
         .with_upgrades();
@@ -310,5 +311,113 @@ fn log_startup(config: &ServeConfig, summary: eggserve_core::config::StartupSumm
     }
     if summary.dotfiles_served {
         eprintln!("WARNING: dotfile serving enabled");
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use eggserve_core::config::ServeState;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    use tokio::net::TcpListener;
+
+    fn build_state(tmp: &TempDir) -> Arc<ServeState> {
+        let config = Arc::new(ServeConfig {
+            root: tmp.path().to_path_buf(),
+            ..ServeConfig::default()
+        });
+        Arc::new(ServeState::new(config))
+    }
+
+    #[tokio::test]
+    async fn serve_connection_handles_get_without_panicking_on_timer() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
+        let state = build_state(&tmp);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, _rx) = broadcast::channel::<()>(1);
+
+        let state_clone = state.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
+            let mut shutdown_rx = tx.subscribe();
+            serve_connection(
+                io,
+                state_clone,
+                Duration::from_secs(10),
+                Duration::from_secs(60),
+                &mut shutdown_rx,
+            )
+            .await;
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        client.read_to_end(&mut buf).await.unwrap();
+
+        let _ = server.await;
+
+        let response = String::from_utf8_lossy(&buf);
+        assert!(
+            response.starts_with("HTTP/1.1 200 OK"),
+            "unexpected response: {}",
+            response
+        );
+        assert!(response.contains("hello"), "missing body: {}", response);
+    }
+
+    #[tokio::test]
+    async fn serve_connection_handles_range_request() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
+        let state = build_state(&tmp);
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (tx, _rx) = broadcast::channel::<()>(1);
+
+        let state_clone = state.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let io = TokioIo::new(stream);
+            let mut shutdown_rx = tx.subscribe();
+            serve_connection(
+                io,
+                state_clone,
+                Duration::from_secs(10),
+                Duration::from_secs(60),
+                &mut shutdown_rx,
+            )
+            .await;
+        });
+
+        let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        client
+            .write_all(
+                b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        client.read_to_end(&mut buf).await.unwrap();
+
+        let _ = server.await;
+
+        let response = String::from_utf8_lossy(&buf);
+        assert!(
+            response.starts_with("HTTP/1.1 206 Partial Content"),
+            "unexpected response: {}",
+            response
+        );
+        assert!(response.contains("content-range: bytes 0-4/11"));
     }
 }

@@ -78,7 +78,8 @@ Under the default zero-body policy (`max_request_body_bytes: 0`):
 ### Behavior
 
 - Single byte ranges only. Multiple ranges are not supported — the planner returns `200 OK` (full response) when multiple ranges are present.
-- Unsatisfiable ranges (start >= file size, or suffix length > file size) return `416 Range Not Satisfiable` with `Content-Range: bytes */<len>` and `Content-Length: 0`.
+- Unsatisfiable ranges (start >= file size) return `416 Range Not Satisfiable` with `Content-Range: bytes */<len>` and `Content-Length: 0`.
+- Suffix ranges (`bytes=-N`) where `N` exceeds the file size are satisfied as the whole file (`Content-Range: bytes 0-<last>/<len>`) rather than `416`.
 - `206 Partial Content` includes `Content-Range: bytes <start>-<end>/<len>`, `Content-Length`, `Content-Type`, `Accept-Ranges: bytes`, and validators (`ETag`, `Last-Modified`) when available.
 
 ### If-Range
@@ -124,12 +125,13 @@ use eggserve_core::primitives::planner::plan_file_response;
 use eggserve_core::primitives::http::ReadOnlyMethod;
 
 let plan = plan_file_response(
-    &resolved_file,
     ReadOnlyMethod::Get,
-    if_none_match_header,    // Option<&str>
+    &file_metadata,           // &std::fs::Metadata
+    content_type,             // &str, e.g. "text/plain; charset=utf-8"
+    if_none_match_header,     // Option<&str>
     if_modified_since_header, // Option<&str>
-    range_header,            // Option<&str>
-    if_range_header,         // Option<&str>
+    range_header,             // Option<&str>
+    if_range_header,          // Option<&str>
 );
 
 // plan.status, plan.headers, plan.body are Hyper-independent

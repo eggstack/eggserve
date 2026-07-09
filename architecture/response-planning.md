@@ -78,7 +78,7 @@ Main entry point for file responses:
 
 ```rust
 pub fn plan_file_response(
-    method: &ReadOnlyMethod,
+    method: ReadOnlyMethod,
     metadata: &std::fs::Metadata,
     content_type: &str,
     if_none_match: Option<&str>,
@@ -105,7 +105,7 @@ Handles `If-None-Match` and `If-Modified-Since`:
 
 ### `evaluate_if_none_match()`
 
-Strict ETag comparison. Supports weak validators (`W/"..."`) but prefers strong comparison.
+Weak ETag comparison. Supports the `W/"..."` weak prefix and the `*` wildcard, and matches comma-separated ETag lists by inner-quoted value.
 
 ### `evaluate_range_header()`
 
@@ -113,7 +113,7 @@ Parses `Range: bytes=START-END` header:
 
 - Valid range within file bounds → `206 Partial Content`
 - Range beyond file size → `416 Range Not Satisfiable`
-- Multiple ranges → single range only (first range served)
+- Multiple ranges → fall through to full `200 OK` (single-range only is served, and the planner currently does not select the first range)
 
 ### `evaluate_if_range()`
 

@@ -22,7 +22,7 @@ A beta release requires all alpha criteria plus:
 - [x] Fuzz targets: path resolution and request parsing have fuzz coverage
 - [x] Multi-platform CI: Linux, macOS, and Windows builds pass in CI
 - [x] Resource-limit tests: connection limits, file-stream limits, request body rejection, and timeouts are tested
-- [x] Dependency audit: `cargo audit` passes with no advisories
+- [x] Dependency audit: `cargo audit` passes with documented exceptions (see [dependency-policy.md](dependency-policy.md) for accepted `rustls-pemfile` unmaintained warning)
 - [x] deny.toml present for automated license/advisory checking
 - [x] Release checklist documented
 - [x] Platform support matrix documented

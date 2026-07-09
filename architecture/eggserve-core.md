@@ -61,12 +61,12 @@ Resource limits with safe defaults:
 
 The HTTP request handler. Steps:
 
-1. Validate method (GET/HEAD only via `ReadOnlyMethod`)
-2. Reject request body (metadata-only)
+1. Match Hyper `Method` directly against `GET` and `HEAD` (non-read-only methods return 405)
+2. Reject request body (metadata-only) via `Content-Length` and `Transfer-Encoding` checks
 3. Parse request target → `ConfinedPath`
-4. Resolve via `SecureRoot` → `ResolvedResource`
-5. Plan response (conditional, range, ETag)
-6. Stream file / list directory / return error
+4. Resolve via the internal `RootGuard` → `ResolvedResource` (the public `SecureRoot` primitive is the embedding-consumer facade; the service uses `RootGuard` directly)
+5. For files, call `primitives::planner::plan_file_response()` to evaluate conditional headers (`If-None-Match`, `If-Modified-Since`) and range requests (`Range`, `If-Range`), then translate the resulting `StaticResponsePlan` into a Hyper response (200 / 206 / 304 / 416)
+6. Stream the file body, render a directory listing, or return the appropriate error
 
 Returns `Response<BoxBody<Bytes, Infallible>>`.
 
