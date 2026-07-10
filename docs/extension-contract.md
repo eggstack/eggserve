@@ -49,6 +49,10 @@ Dynamic endpoints must not bypass eggserve's path resolution. User-provided path
 
 Integration tests may use request validation (`validate_method`, `validate_request_body`) and response planning (`plan_file_response`) to verify server behavior without spinning up a full HTTP listener. The planner produces Hyper-independent value objects that can be inspected, asserted on, or mapped into test fixtures.
 
+### Server primitives
+
+Python code may use `StaticResponder`, `Server`, and `Response` to build HTTP servers while Rust owns socket I/O, connection management, and file streaming. The server calls `responder.respond(method, target, headers)` for each request and streams the returned `Response` back to the client. Python never touches sockets directly.
+
 ## How downstream projects should consume the Rust primitives
 
 Use the `primitives` module. It is the stable public boundary for embedding consumers.
@@ -103,6 +107,7 @@ The following types are in the stable tier. They are safe to build on; breaking 
 | Type | Source |
 |------|--------|
 | `SecureRoot` | `primitives::secure_root` |
+| `resolve_and_plan` | `primitives::secure_root` |
 | `ResolvedResource` | `primitives::secure_root` |
 | `ResolvedFile` | `primitives::secure_root` |
 | `ResolvedDirectory` | `primitives::secure_root` |
@@ -175,11 +180,12 @@ Downstream code must:
 
 Rust owns sockets, timeouts, and file streaming for Python server APIs.
 
-When Python code is used to build a server (via the subprocess API or a future native server primitive):
+When Python code is used to build a server (via the `Server` primitive or the subprocess API):
 
 - Socket I/O, connection acceptance, and timeout enforcement are handled by the Rust runtime.
-- File streaming is handled by the Rust runtime.
-- Python code returns explicit response values; it does not drive socket I/O directly.
+- File streaming is handled by the Rust runtime; file bodies never pass through Python memory.
+- Python code returns explicit `Response` values; it does not drive socket I/O directly.
+- The GIL is released during I/O operations, allowing other Python threads to run.
 - Callback-induced latency or errors must not prevent Rust from enforcing connection-level policy.
 
 This separation ensures that Python application code cannot bypass timeout limits, connection caps, or file-stream quotas.
@@ -188,12 +194,13 @@ This separation ensures that Python application code cannot bypass timeout limit
 
 ASGI/WSGI adapters should live downstream.
 
-eggserve provides the primitives that adapters need: path resolution, request validation, response planning, and resolved file handles. The adapter is responsible for:
+eggserve provides the primitives that adapters need: path resolution, request validation, response planning, resolved file handles, and server primitives (`StaticResponder`, `Server`, `Response`). The adapter is responsible for:
 
 1. Extracting the request path and method from the framework's request object.
 2. Calling `SecureRoot.resolve_path()` or `ConfinedPath::parse()` + `SecureRoot::resolve()`.
 3. Calling `plan_file_response()` or `plan_directory_listing()` with the resolved resource.
 4. Mapping `StaticResponsePlan` fields into the framework's response API.
+5. For server-based adapters: returning `Response` objects from the responder callback.
 
 eggserve does not provide ASGI/WSGI interfaces directly (see [non-goals.md](non-goals.md)).
 

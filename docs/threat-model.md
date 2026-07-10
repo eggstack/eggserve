@@ -70,9 +70,12 @@ The following are explicitly out of scope for the initial version:
 
 ### Python server callback consumers
 
+- The `Server` primitive runs a tokio runtime in a background thread. Python receives parsed `Request` objects and returns `Response` values.
+- Socket I/O, HTTP parsing, connection acceptance, and timeout enforcement are handled by Rust.
+- File streaming is handled by Rust; file bodies never pass through Python memory in the server path.
+- The GIL is released during I/O operations, allowing other Python threads to run.
+- Python callbacks may be untrusted from a latency/resource perspective but are not sandboxed. Rust enforces connection and I/O policy around them — timeout limits, connection caps, and file-stream quotas are not affected by Python callback behavior.
 - The subprocess API manages the Rust binary; Python does not handle socket I/O.
-- Future Python server APIs must keep socket I/O, timeout enforcement, and file streaming in Rust.
-- Python callbacks may be untrusted from a latency/resource perspective but are not sandboxed. Rust should enforce connection and I/O policy around them, but eggserve does not make Python application code safe.
 
 ### Downstream adapter authors
 

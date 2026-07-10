@@ -1,20 +1,23 @@
 # eggserve-python — Deep Dive
 
-Python wheel packaging via maturin. Provides two API layers: native Rust primitives via PyO3, and subprocess lifecycle management for full HTTP serving.
+Python wheel packaging via maturin. Provides three API layers: native Rust primitives via PyO3, server primitives for building HTTP servers with Rust-owned I/O, and subprocess lifecycle management for full HTTP serving.
 
 ## Structure
 
 ```
 crates/eggserve-python/
-├── Cargo.toml          # cdylib, depends on eggserve-core + pyo3
+├── Cargo.toml          # cdylib, depends on eggserve-core + pyo3 + tokio + hyper
 ├── pyproject.toml      # maturin build backend, module-name = "eggserve._native"
-├── src/lib.rs          # PyO3 native module (_native)
+├── src/
+│   ├── lib.rs          # PyO3 native module (_native): primitives bindings
+│   └── server.rs       # Server primitives: PyRequest, PyResponse, StaticResponder, Server
 └── python/eggserve/
     ├── __init__.py     # exports all public symbols
     ├── __main__.py     # python -m eggserve
     ├── _bin.py         # locates packaged binary or PATH fallback
     ├── server.py       # Python API: ServeConfig, ServerProcess, serve_directory
     ├── test_primitives.py
+    ├── test_server_primitives.py
     └── test_server.py
 ```
 
@@ -39,6 +42,44 @@ PyO3 bindings wrapping `eggserve-core` types. All classes are **frozen** (`#[pyc
 Functions: `validate_method()`, `validate_request_body()`, `validate_request_target()`, `generate_etag()`.
 
 Exceptions: `EggserveError` (base), `PathPolicyError`, `RequestTargetError`, `SecureRootError`, `RequestValidationError`.
+
+## Server Primitives (`src/server.rs`)
+
+PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for the async runtime, `hyper` for HTTP/1.1, and `futures-util` for streaming.
+
+| Python Class | Wraps | Key Methods |
+|---|---|---|
+| `Request` | parsed HTTP request | `method`, `path`, `query`, `headers`, `remote_addr`, `http_version`, `has_body` |
+| `Response` | response builder | `empty(status)`, `bytes(status, data)`, `text(status, text)`, `body_source(status, source)` |
+| `StaticResponder` | `SecureRoot` + `resolve_and_plan` | `respond(method, target, headers=None)` → `Response` |
+| `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(...)`, `deny_all()`, getters |
+| `ServerSecureRoot` | `primitives::SecureRoot` | `new(path, policy)`, `root_path` getter |
+| `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response()` |
+| `Server` | tokio runtime + TcpListener | `start()`, `stop()`, `addr`, context manager |
+
+Functions: `parse_request(target, headers)` → `Request`.
+
+Exceptions: `ServerRequestError` (method not allowed, target invalid, body not allowed).
+
+### Architecture
+
+```
+Python handler code
+    ↓ respond(method, target, headers)
+StaticResponder
+    ↓ resolve_and_plan() [eggserve-core]
+    ↓ returns (StaticResponsePlan, BodySource)
+PyResponse constructed
+    ↓ returned to ServerService
+convert_to_hyper_response()
+    ↓ streams file body via futures_util::stream::unfold
+Hyper Response sent to client
+```
+
+- **GIL management:** `tokio::task::spawn_blocking` + `Python::with_gil` ensures tokio is never blocked by Python.
+- **File streaming:** File bodies bypass Python entirely — Rust streams `BodySource` directly to the socket.
+- **Error handling:** Handler exceptions → 500 Internal Server Error without leaking tracebacks.
+- **Readiness signal:** `start()` blocks until the listener is bound and ready, using `std::sync::mpsc`.
 
 ## Python Wrapper Layer (`server.py`)
 
@@ -81,26 +122,33 @@ Searches for the `eggserve` binary in:
 
 ## Key Design Decisions
 
-1. **No serving logic in Python** — The Python layer is purely a lifecycle manager and config translator. All serving happens in the Rust binary.
+1. **No serving logic in Python** — The Python layer is purely a lifecycle manager and config translator. All serving happens in the Rust binary or via Rust-owned I/O in the server primitives.
 
 2. **Subprocess, not FFI** — The binary is spawned as a subprocess rather than linked as a shared library. This isolates the Python process from the server's memory and lifecycle.
 
-3. **Frozen immutability** — All PyO3 classes use `#[pyclass(frozen)]`. All Python dataclasses use `frozen=True`. This prevents mutation at both layers.
+3. **Server primitives use Rust-owned I/O** — The `Server` type runs a tokio runtime in a background thread. Python code receives parsed `Request` objects and returns `Response` values. Socket I/O, HTTP parsing, and file streaming are handled by Rust. The GIL is released during I/O.
 
-4. **Independent build** — The Python crate has its own `Cargo.lock` and is built via `maturin`, not the workspace. This avoids pulling workspace dependencies into the Python wheel.
+4. **Frozen immutability** — All PyO3 classes use `#[pyclass(frozen)]`. All Python dataclasses use `frozen=True`. This prevents mutation at both layers.
+
+5. **Independent build** — The Python crate has its own `Cargo.lock` and is built via `maturin`, not the workspace. This avoids pulling workspace dependencies into the Python wheel.
+
+6. **File streaming bypasses Python** — File bodies are streamed directly from Rust to the socket. Python never sees file contents in the server path, keeping memory usage low and avoiding GIL contention.
 
 ## Build & Test
 
 ```sh
 # Build wheel
 cd crates/eggserve-python
-maturin build --release -o dist
+maturin build --release --interpreter 3.14 --target x86_64-apple-darwin -o dist
 
 # Install
-python -m pip install --force-reinstall dist/*.whl
+python3.14 -m pip install --force-reinstall dist/*.whl
 
 # Run native primitives tests (requires built wheel)
 PYTHONPATH=python python -m unittest eggserve.test_primitives -v
+
+# Run server primitives tests (requires built wheel)
+PYTHONPATH=python python -m unittest eggserve.test_server_primitives -v
 
 # Run subprocess API tests (no wheel needed, uses mocks)
 PYTHONPATH=python python -m unittest eggserve.test_server -v

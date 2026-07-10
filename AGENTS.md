@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-025 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-027 are complete.
 
 ## Non-negotiables
 
@@ -56,14 +56,17 @@ eggserve/
 │   └── eggserve-python/    # Python wheel packaging (maturin)
 │       ├── Cargo.toml      # lib crate with PyO3 bindings
 │       ├── pyproject.toml  # maturin build backend
-│       ├── src/lib.rs      # PyO3 native module (_native)
+│       ├── src/
+│       │   ├── lib.rs      # PyO3 native module (_native)
+│       │   └── server.rs   # Server primitives: PyRequest, PyResponse, StaticResponder, Server
 │       └── python/eggserve/
 │           ├── __init__.py # exports version, native primitives, subprocess API
 │           ├── __main__.py # python -m eggserve
 │           ├── _bin.py     # locates and executes packaged binary
 │           ├── server.py   # Python API: ServeConfig, StaticPolicy, serve_directory, ServerProcess
-│           ├── test_primitives.py # native primitives tests (81 tests)
-│           └── test_server.py     # subprocess API tests
+│           ├── test_primitives.py # native primitives tests (142 tests)
+│           ├── test_server_primitives.py # server primitives tests (47 tests)
+│           └── test_server.py     # subprocess API tests (43 tests)
 ├── architecture/           # deep-dive docs for each subsystem
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
@@ -101,7 +104,7 @@ Python packaging smoke test:
 
 ```sh
 cd crates/eggserve-python
-maturin build --release -o dist
+maturin build --release --interpreter 3.14 -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
 ```
@@ -111,6 +114,13 @@ Python native primitives tests (requires built wheel):
 ```sh
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_primitives -v
+```
+
+Python server primitives tests (requires built wheel):
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_server_primitives -v
 ```
 
 Python subprocess API tests:
@@ -137,6 +147,7 @@ PYTHONPATH=python python -m unittest eggserve.test_server -v
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Windows**: functional but reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
+- **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
 
 ## Plan-driven development
 

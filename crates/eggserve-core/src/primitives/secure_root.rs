@@ -5,6 +5,7 @@ use crate::fs::RootGuard;
 use crate::path::{ConfinedPath, PathPolicy, PathRejection};
 use crate::policy::StaticPolicy;
 use crate::primitives::body::{BodySource, BodySourceError};
+use crate::primitives::http::ReadOnlyMethod;
 use crate::primitives::response::{BodyPlan, FileRange, StaticResponsePlan};
 
 #[derive(Debug)]
@@ -269,7 +270,7 @@ impl From<crate::fs::ResolvedResource> for ResolvedResource {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct SecureRoot {
     root: PathBuf,
     policy: StaticPolicy,
@@ -320,6 +321,85 @@ impl SecureRoot {
         };
         let confined = ConfinedPath::parse(uri, &path_policy)?;
         Ok(self.resolve(&confined))
+    }
+}
+
+/// Resolve a confined path against a [`SecureRoot`] and, if the result is a
+/// file, plan the response and produce a [`BodySource`] in one call.
+///
+/// This exists because [`plan_file_response`] requires `&Metadata` (which is
+/// only available inside [`ResolvedFile`]) and [`ResolvedFile::into_body`]
+/// consumes the file.  Combining both steps here avoids exposing the internal
+/// `Metadata` field across crate boundaries.
+///
+/// Returns `(StaticResponsePlan, BodySource)` on success, or a
+/// [`ResourceDeniedReason`] / [`PathRejection`] on failure.
+#[allow(dead_code)]
+pub fn resolve_and_plan(
+    root: &SecureRoot,
+    path: &ConfinedPath,
+    method: ReadOnlyMethod,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range_header: Option<&str>,
+    if_range: Option<&str>,
+) -> Result<(StaticResponsePlan, BodySource), ResolveAndPlanError> {
+    let resource = root.resolve(path);
+    match resource {
+        ResolvedResource::File(file) => {
+            let content_type = file.content_type();
+            let plan = crate::primitives::planner::plan_file_response(
+                method,
+                &file.inner.metadata,
+                content_type,
+                if_none_match,
+                if_modified_since,
+                range_header,
+                if_range,
+            );
+            let body = file.into_body(&plan)?;
+            Ok((plan, body))
+        }
+        ResolvedResource::Directory(_) => Err(ResolveAndPlanError::IsDirectory),
+        ResolvedResource::NotFound => Err(ResolveAndPlanError::NotFound),
+        ResolvedResource::Denied(reason) => Err(ResolveAndPlanError::Denied(reason)),
+    }
+}
+
+/// Errors returned by [`resolve_and_plan`].
+#[derive(Debug)]
+#[allow(dead_code)]
+pub enum ResolveAndPlanError {
+    NotFound,
+    IsDirectory,
+    Denied(ResourceDeniedReason),
+    Body(BodySourceError),
+}
+
+impl fmt::Display for ResolveAndPlanError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotFound => write!(f, "not found"),
+            Self::IsDirectory => write!(f, "is a directory"),
+            Self::Denied(r) => write!(f, "{}", r),
+            Self::Body(e) => write!(f, "{}", e),
+        }
+    }
+}
+
+impl std::error::Error for ResolveAndPlanError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Denied(r) => Some(r),
+            Self::Body(e) => Some(e),
+            _ => None,
+        }
+    }
+}
+
+impl From<BodySourceError> for ResolveAndPlanError {
+    fn from(e: BodySourceError) -> Self {
+        Self::Body(e)
     }
 }
 

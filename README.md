@@ -79,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–025 complete.** eggserve ships as a hardened CLI static server and a primitive library. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Plan 025 defines the HTTP/1.1 primitive contract for downstream consumers. See [plans/](plans/) for the full sequence.
+**Plans 000–027 complete.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
@@ -107,6 +107,17 @@ resource = root.resolve_path("/assets/app.css")
 if resource.is_file:
     plan = resource.file.plan_response("GET")
     print(plan.status, plan.body_kind)  # 200 file_full
+```
+
+**Server primitives** — build HTTP servers with Rust-owned I/O:
+
+```python
+from eggserve import Server, StaticResponder, ServerSecureRoot
+
+root = ServerSecureRoot(".")
+responder = StaticResponder(root)
+with Server(root=root, responder=responder) as server:
+    print(f"Serving on {server.addr}")
 ```
 
 **Subprocess lifecycle** — full HTTP serving via the Rust binary:
@@ -178,17 +189,21 @@ Python tests and packaging smoke:
 PYTHONPATH=crates/eggserve-python/python \
   python -m unittest eggserve.test_primitives -v
 
+# Server primitives tests (requires built wheel)
+PYTHONPATH=crates/eggserve-python/python \
+  python -m unittest eggserve.test_server_primitives -v
+
 # Python API unit tests (no wheel build needed)
 PYTHONPATH=crates/eggserve-python/python \
   python -m unittest eggserve.test_server -v
 
 # Python packaging smoke test
 cd crates/eggserve-python
-maturin build --release -o dist
+maturin build --release --interpreter 3.14 -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
 python - <<'PY'
-from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory
+from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory, Server, StaticResponder, ServerSecureRoot
 print(ServeConfig())
 PY
 ```

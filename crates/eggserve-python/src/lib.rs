@@ -13,6 +13,8 @@ use eggserve_core::primitives::{
     ResolvedResource as RustResolvedResource, ResourceDeniedReason, SecureRoot as RustSecureRoot,
 };
 
+mod server;
+
 // ---------------------------------------------------------------------------
 // Exceptions
 // ---------------------------------------------------------------------------
@@ -505,9 +507,13 @@ impl PyResolvedResource {
     fn file(&self) -> PyResult<PyResolvedFile> {
         match &self.file_data {
             Some(fd) => {
-                let file_handle = fd.file.lock().map_err(|_| {
-                    EggserveError::new_err(("failed to acquire file lock", "lock_error"))
-                })?.take();
+                let file_handle = fd
+                    .file
+                    .lock()
+                    .map_err(|_| {
+                        EggserveError::new_err(("failed to acquire file lock", "lock_error"))
+                    })?
+                    .take();
                 Ok(PyResolvedFile {
                     file: std::sync::Mutex::new(file_handle),
                     metadata: fd.metadata.clone(),
@@ -748,9 +754,10 @@ impl PyResolvedFile {
 
     #[pyo3(signature = (plan,))]
     fn body_for_plan(&self, _py: Python<'_>, plan: &PyResponsePlan) -> PyResult<PyBodySource> {
-        let mut file_guard = self.file.lock().map_err(|_| {
-            EggserveError::new_err(("failed to acquire file lock", "lock_error"))
-        })?;
+        let mut file_guard = self
+            .file
+            .lock()
+            .map_err(|_| EggserveError::new_err(("failed to acquire file lock", "lock_error")))?;
         let file = file_guard.take().ok_or_else(|| {
             BodySourceError::new_err(("resolved file already consumed", "already_consumed"))
         })?;
@@ -761,9 +768,9 @@ impl PyResolvedFile {
             self.metadata.clone(),
             self.components.clone(),
         );
-        let body_source = resolved_file.into_body(&plan.inner).map_err(|e| {
-            BodySourceError::new_err((e.to_string(), "body_source_error"))
-        })?;
+        let body_source = resolved_file
+            .into_body(&plan.inner)
+            .map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))?;
         Ok(PyBodySource { inner: body_source })
     }
 }
@@ -788,8 +795,8 @@ impl PyResolvedDirectory {
 
     fn list(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let root =
-                RustSecureRoot::new(&self.root_path, self.static_policy.clone()).map_err(io_err_to_pyerr)?;
+            let root = RustSecureRoot::new(&self.root_path, self.static_policy.clone())
+                .map_err(io_err_to_pyerr)?;
             let confined = confined_from_components(&self.components)?;
             let result = root.resolve(&confined);
             match result {
@@ -816,8 +823,8 @@ impl PyResolvedDirectory {
 
     fn resolve_child(&self, child: &str) -> PyResult<PyResolvedResource> {
         Python::with_gil(|_py| {
-            let root =
-                RustSecureRoot::new(&self.root_path, self.static_policy.clone()).map_err(io_err_to_pyerr)?;
+            let root = RustSecureRoot::new(&self.root_path, self.static_policy.clone())
+                .map_err(io_err_to_pyerr)?;
             let confined = confined_from_components(&self.components)?;
             let result = root.resolve(&confined);
             match result {
@@ -914,8 +921,7 @@ impl PyResponsePlan {
     fn headers(&self, py: Python<'_>) -> PyObject {
         let list = pyo3::types::PyList::empty(py);
         for h in self.inner.headers.iter() {
-            let tup = pyo3::types::PyTuple::new(py, [h.name.as_str(), h.value.as_str()])
-                .unwrap();
+            let tup = pyo3::types::PyTuple::new(py, [h.name.as_str(), h.value.as_str()]).unwrap();
             list.append(tup).unwrap();
         }
         list.into_any().unbind()
@@ -989,6 +995,15 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(validate_request_body_fn, m)?)?;
     m.add_function(wrap_pyfunction!(validate_request_target_fn, m)?)?;
     m.add_function(wrap_pyfunction!(generate_etag_fn, m)?)?;
+
+    m.add_class::<server::PyRequest>()?;
+    m.add_class::<server::PyResponse>()?;
+    m.add_class::<server::PyStaticResponder>()?;
+    m.add_class::<server::PyStaticPolicyWrapper>()?;
+    m.add_class::<server::ServerSecureRoot>()?;
+    m.add_class::<server::ServerBodySource>()?;
+    m.add_class::<server::ServerRequestError>()?;
+    m.add_class::<server::PyServer>()?;
 
     Ok(())
 }

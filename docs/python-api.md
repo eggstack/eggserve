@@ -1,6 +1,6 @@
 # Python API
 
-eggserve provides a Python API with two layers: native primitives (PyO3-backed Rust bindings) and a subprocess lifecycle wrapper. The native layer exposes hardened path parsing, policy enforcement, resource resolution, and response planning without launching the server binary. The subprocess layer manages the Rust binary for full HTTP serving.
+eggserve provides a Python API with two layers: native primitives (PyO3-backed Rust bindings) and a subprocess lifecycle wrapper. The native layer exposes hardened path parsing, policy enforcement, resource resolution, and response planning without launching the server binary. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, response serialization, file streaming, and timeout enforcement. The subprocess layer manages the Rust binary for full HTTP serving.
 
 **This is NOT an ASGI/WSGI server, a web framework, or a request callback system.** It is a hardened static-serving primitive.
 
@@ -11,6 +11,17 @@ from eggserve import serve_directory
 
 # Serve current directory on 127.0.0.1:8000 (blocking)
 serve_directory(".")
+```
+
+For programmatic server control:
+
+```python
+from eggserve import Server, StaticResponder, ServerSecureRoot
+
+root = ServerSecureRoot(".")
+responder = StaticResponder(root)
+with Server(root=root, responder=responder) as server:
+    print(f"Serving on {server.addr}")
 ```
 
 ## Native primitives
@@ -185,10 +196,158 @@ Exception
     ├── PathPolicyError        # path validation/confinement errors
     ├── RequestTargetError     # malformed/unsupported request targets
     ├── SecureRootError        # root initialization/resolution errors
-    └── RequestValidationError # request validation errors
+    ├── RequestValidationError # request validation errors
+    └── ServerRequestError     # server request handling errors
 ```
 
 All exceptions carry `(message, code)` args.
+
+## Server primitives
+
+Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, response serialization, file streaming, backpressure, concurrency limits, and timeout enforcement. Python receives parsed `Request` objects and returns `Response` values. Rust streams file bodies directly without passing through Python memory.
+
+### `StaticResponder`
+
+Resolves request paths under a secure root and produces responses. Wraps `SecureRoot` and `resolve_and_plan()` from the core crate.
+
+```python
+from eggserve import StaticResponder, ServerSecureRoot
+
+root = ServerSecureRoot("/var/www")
+responder = StaticResponder(root)
+response = responder.respond("GET", "/index.html")
+print(response.status)   # 200
+print(response.headers)  # {"content-length": "1234", ...}
+```
+
+Methods:
+- `respond(method, target, headers=None)` — returns a `Response` object
+
+The responder derives `PathPolicy` from the `SecureRoot`'s `StaticPolicy`. If the policy denies dotfiles, dotfile requests are rejected at the path-parsing level (403 Forbidden).
+
+### `Response`
+
+Response object returned by `StaticResponder` or constructed manually for dynamic endpoints.
+
+```python
+from eggserve import Response
+
+# Empty response
+r = Response.empty(204)
+
+# Bytes response
+r = Response.bytes(200, b"Hello, world!")
+
+# Text response
+r = Response.text(200, "Hello, world!")
+
+# Body source response (for file streaming)
+r = Response.body_source(200, body_source)
+```
+
+Properties: `status` (int), `headers` (dict of string → string).
+
+Factory methods:
+- `Response.empty(status)` — zero-length body
+- `Response.bytes(status, data, headers=None)` — in-memory bytes body
+- `Response.text(status, text, content_type="text/plain; charset=utf-8")` — text body with correct content type
+- `Response.body_source(status, source, headers=None)` — file-backed body from `ServerBodySource`
+
+### `Server`
+
+TCP server that accepts connections, parses HTTP requests, and dispatches to a responder function. Rust owns the accept loop, connection parsing, and response serialization. Python runs in a callback during request handling.
+
+```python
+from eggserve import Server, StaticResponder, ServerSecureRoot
+
+root = ServerSecureRoot("/var/www")
+responder = StaticResponder(root)
+server = Server(root=root, bind="127.0.0.1", port=8000, responder=responder)
+server.start()
+print(f"Listening on {server.addr}")
+# ...
+server.stop()
+```
+
+Or as a context manager:
+
+```python
+with Server(root=root, bind="127.0.0.1", port=8000, responder=responder) as server:
+    print(f"Listening on {server.addr}")
+    # server stops on __exit__
+```
+
+Constructor: `Server(root, bind="127.0.0.1", port=8000, responder=responder)`
+
+Properties:
+- `addr` — bound address string (e.g. `"127.0.0.1:8000"`), or `None` when stopped
+
+Methods:
+- `start()` — start the server in a background thread; blocks until the listener is ready
+- `stop()` — shut down the server and join the background thread
+- `__enter__` / `__exit__` — context manager support
+
+The server calls `responder.respond(method, target, headers)` for each request. If the responder raises an exception, the server returns 500 Internal Server Error. Method validation (GET/HEAD only) and body rejection are enforced by the server before calling the responder.
+
+### `ServerSecureRoot`
+
+Root directory for the server. Wraps `SecureRoot` from the core crate.
+
+```python
+from eggserve import ServerSecureRoot, StaticPolicyWrapper
+
+policy = StaticPolicyWrapper(allow_dotfiles=True)
+root = ServerSecureRoot("/var/www", policy=policy)
+print(root.root_path)  # "/var/www"
+```
+
+Constructor: `ServerSecureRoot(path, policy=None)` — defaults to safe policy if omitted.
+
+### `StaticPolicyWrapper`
+
+Policy wrapper for use with `ServerSecureRoot`. Maps Python booleans to the Rust policy enums.
+
+```python
+from eggserve import StaticPolicyWrapper
+
+policy = StaticPolicyWrapper(
+    directory_listing=False,
+    follow_symlinks=False,
+    allow_dotfiles=False,
+)
+```
+
+Constructor: `StaticPolicyWrapper(directory_listing=False, follow_symlinks=False, allow_dotfiles=False)`
+
+### `ServerBodySource`
+
+File-backed body source for the server API. Wraps `BodySource` from the core crate. Obtained from `ResolvedFile.body_for_plan(plan)` via the native primitives.
+
+Properties:
+- `kind` — `"empty"`, `"bytes"`, `"file_full"`, or `"file_range"`
+- `length` — content length in bytes (`int` or `None`)
+- `range` — `(start, end_inclusive)` tuple for range bodies, or `None`
+
+Methods:
+- `read_all()` — reads entire body into memory
+- `read_range(start, end_inclusive)` — reads a byte sub-range
+- `to_response(status=200, headers=None)` — creates a `Response` from this body source
+
+### `ServerRequestError`
+
+Exception raised for invalid server requests.
+
+```python
+try:
+    responder.respond("POST", "/file.txt")
+except ServerRequestError as e:
+    print(e)  # "Method not allowed; supported: GET, HEAD"
+```
+
+Variants:
+- `MethodNotAllowed(allowed)` — non-GET/HEAD method received
+- `TargetInvalid(reason)` — malformed request target
+- `BodyNotAllowed()` — request body on GET/HEAD
 
 ## Configuration (subprocess API)
 
@@ -283,7 +442,6 @@ The Python API deliberately does **not** provide:
 - Session, cookie, or auth framework
 - Reverse proxying
 - Generic plugin host
-- Async server lifecycle
 - Dynamic Python code execution in request paths
 
 The native primitives provide response **planning**, not response **writing**. The caller maps plans to sockets. For those use cases, consider Uvicorn, Granian, or similar application servers.
@@ -292,9 +450,11 @@ The native primitives provide response **planning**, not response **writing**. T
 
 Python primitives are intended to allow downstream projects to build app servers and adapters. eggserve does not implement ASGI or WSGI. The safe design is to let Rust own socket I/O and let Python return explicit response values.
 
+The `StaticResponder` and `Server` primitives provide the building blocks for custom servers: Python handles request logic, Rust handles connection management, file streaming, and timeouts. Reopening paths in Python is outside the security guarantee.
+
 Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
 
-Response and body streaming primitives are implemented. Python can obtain `BodySource` objects from resolved files and read them for tests and integration. For production servers, body sources should be passed back to Rust for streaming rather than read fully into Python memory.
+For production file serving, prefer `StaticResponder` which streams file bodies directly through Rust without passing through Python memory.
 
 ## Installation
 
@@ -306,7 +466,7 @@ The wheel includes the native extension (PyO3) and the Rust binary. If the nativ
 
 ## Examples
 
-See [examples/python_basic.py](../examples/python_basic.py).
+See [examples/python_basic.py](../examples/python_basic.py) and [examples/python_dynamic_static.py](../examples/python_dynamic_static.py).
 
 ## Testing
 
@@ -314,6 +474,10 @@ See [examples/python_basic.py](../examples/python_basic.py).
 # Native primitives tests
 PYTHONPATH=crates/eggserve-python/python \
   python -m unittest eggserve.test_primitives -v
+
+# Server primitives tests
+PYTHONPATH=crates/eggserve-python/python \
+  python -m unittest eggserve.test_server_primitives -v
 
 # Subprocess API tests
 PYTHONPATH=crates/eggserve-python/python \

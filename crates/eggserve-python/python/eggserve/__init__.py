@@ -33,6 +33,15 @@ try:
         validate_method,
         validate_request_body,
         validate_request_target,
+        BodySource,
+        Request,
+        Response,
+        Server,
+        ServerBodySource,
+        ServerRequestError,
+        ServerSecureRoot,
+        StaticResponder,
+        StaticPolicyWrapper,
     )
 
     NATIVE_AVAILABLE = True
@@ -66,4 +75,13 @@ if NATIVE_AVAILABLE:
         "validate_method",
         "validate_request_body",
         "validate_request_target",
+        "BodySource",
+        "Request",
+        "Response",
+        "Server",
+        "ServerBodySource",
+        "ServerRequestError",
+        "ServerSecureRoot",
+        "StaticResponder",
+        "StaticPolicyWrapper",
     ]

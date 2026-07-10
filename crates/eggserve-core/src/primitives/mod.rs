@@ -41,7 +41,8 @@ pub use crate::policy::SymlinkPolicy;
 
 mod secure_root;
 pub use secure_root::{
-    ResolvedDirectory, ResolvedFile, ResolvedResource, ResourceDeniedReason, SecureRoot,
+    resolve_and_plan, ResolveAndPlanError, ResolvedDirectory, ResolvedFile, ResolvedResource,
+    ResourceDeniedReason, SecureRoot,
 };
 
 pub mod body;
