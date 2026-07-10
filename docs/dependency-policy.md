@@ -4,7 +4,7 @@
 
 Every dependency must have an explicit purpose. The following rules apply to all dependencies:
 
-- **No HTTP client stack for a server-only feature** — eggserve is a server, not a client
+- **No HTTP client stack without a plan** — HTTP client dependencies require an explicit plan and feature gate
 - **No web framework dependency in the initial milestones** — no actix-web, axum, warp, etc.
 - **No templating dependency for generated directory listings** — directory listings use static HTML
 - **No default TLS dependency before TLS milestone** — TLS is deferred; dependencies for it are deferred
@@ -29,6 +29,7 @@ The following dependency categories are approved for initial development:
 | TLS | `rustls` (optional, deferred) | TLS termination |
 | TLS | `tokio-rustls` (optional, deferred) | Async TLS stream wrapping |
 | TLS | `rustls-pemfile` (optional, deferred) | PEM certificate and key parsing |
+| HTTP client TLS | `webpki-roots` (optional, behind `client-tls`) | Mozilla CA root certificates for TLS verification |
 
 ## Notes
 
@@ -36,6 +37,7 @@ The following dependency categories are approved for initial development:
 - Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to both crates. Manual argument parsing was adopted instead of `clap`.
 - Plan 003 adds streaming/date/compile-time-map dependencies (`futures-util`, `httpdate`, `phf`) for file serving, Last-Modified headers, and MIME type detection.
 - Plan 009 adds optional TLS dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`) behind the `tls` feature flag in `eggserve-bin`. The default build remains TLS-free.
+- Plan 028 adds optional HTTP client dependencies behind the `client` feature flag in `eggserve-core`. Reuses `hyper` and `hyper-util` (already non-optional) with `client`/`client-legacy` features. Adds `rustls`, `tokio-rustls`, `webpki-roots` behind the `client-tls` feature. Default build remains server-only.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run as part of the beta release gate (see [release-criteria.md](release-criteria.md))
 

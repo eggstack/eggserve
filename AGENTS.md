@@ -2,13 +2,13 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-027 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-028 are complete.
 
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
 - **No serving outside the configured root.** Path traversal and symlink escape must be denied at the library level. On Unix with safe defaults, symlink denial is **descriptor-relative** — each path component is checked with `statat(AT_SYMLINK_NOFOLLOW)` and opened with `openat(O_NOFOLLOW)`, so a symlink swapped into place between the two is refused rather than followed. On non-Unix or follow-symlinks mode, component-wise `symlink_metadata` checks are used. Follow-symlinks is weaker and is explicitly outside the descriptor-relative hardening guarantee. See [docs/threat-model.md](docs/threat-model.md) and [plans/007-filesystem-policy-tightening.md](plans/007-filesystem-policy-tightening.md).
-- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map). Optional: `rustls`/`tokio-rustls`/`rustls-pemfile` (TLS, behind `tls` feature flag). Unix-only: `rustix` (descriptor-relative filesystem traversal).
+- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current dependencies: `thiserror` (errors), `tokio` (async runtime), `hyper`/`hyper-util`/`http-body-util` (HTTP), `bytes` (buffers), `futures-util` (streaming bodies), `httpdate` (Last-Modified), `phf` (MIME map). Optional: `rustls`/`tokio-rustls`/`webpki-roots` (TLS, behind `client-tls` feature in eggserve-core; `tls` feature in eggserve-bin). Unix-only: `rustix` (descriptor-relative filesystem traversal).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 
 ## Layout
@@ -44,7 +44,14 @@ eggserve/
 │   │       │   ├── secure_root.rs  # SecureRoot, ResolvedResource, ResolvedFile, ResolvedDirectory
 │   │       │   ├── http.rs         # request validation: ReadOnlyMethod, validate_method/body/target
 │   │       │   ├── response.rs     # response planning types: BodyPlan, HeaderMapPlan, StaticResponsePlan
-│   │       │   └── planner.rs      # response planner: conditional requests, range requests, ETag generation
+│   │       │   ├── planner.rs      # response planner: conditional requests, range requests, ETag generation
+│   │       │   └── client/         # HTTP client primitives (behind `client` feature gate)
+│   │       │       ├── mod.rs      # re-exports: HttpClient, ClientConfig, ClientRequest, ClientResponse
+│   │       │       ├── error.rs    # ClientError taxonomy (12 variants)
+│   │       │       ├── url.rs      # Scheme, ParsedUrl — hand-parsed URL validation
+│   │       │       ├── request.rs  # ClientConfig, Method, ClientRequest, ClientRequestBuilder, validate_header
+│   │       │       ├── response.rs # ClientResponse — status, headers, body
+│   │       │       └── http_client.rs # HttpClient — hyper client, TLS, timeouts
 │   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │   │   ├── Cargo.toml
 │   │   └── src/
@@ -83,6 +90,7 @@ CI runs these in order; match it locally before pushing:
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
 cargo test --workspace                                     # tests
+cargo test -p eggserve-core --features client              # client feature tests
 cargo check --workspace --features tls                     # TLS feature build check
 ```
 
@@ -128,6 +136,13 @@ Python subprocess API tests:
 ```sh
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_server -v
+```
+
+Python client primitives tests (requires built wheel):
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_client_primitives -v
 ```
 
 ## Toolchain notes
@@ -185,6 +200,7 @@ Before implementing any feature, check:
 - [docs/extension-contract.md](docs/extension-contract.md) — how downstream projects may build on eggserve
 - [docs/invariants.md](docs/invariants.md) — invariant test matrix across Rust and Python APIs
 - [docs/http-primitives.md](docs/http-primitives.md) — HTTP/1.1 primitive contract, supported subset, and behavior guarantees
+- [docs/http-client-primitives.md](docs/http-client-primitives.md) — HTTP client primitive contract, feature gates, and usage
 
 ## Architecture deep dives
 
@@ -197,3 +213,4 @@ Before implementing any feature, check:
 - [architecture/policy-system.md](architecture/policy-system.md) — StaticPolicy, symlink/dotfile/listing policies
 - [architecture/primitives-api.md](architecture/primitives-api.md) — public API boundary for embedding consumers
 - [architecture/response-planning.md](architecture/response-planning.md) — conditional/range/ETag response planning
+- [architecture/client.md](architecture/client.md) — HTTP client primitives, feature-gated substrate

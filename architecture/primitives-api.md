@@ -16,6 +16,7 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
+| `client/` | `primitives/client/` | HTTP client primitives (feature-gated: `client`) |
 
 ## Public Types
 
@@ -202,7 +203,12 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 | `BodySourceError` | Rust, Python | Implemented | InvalidRange, AlreadyConsumed | Error handling for body conversion |
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |
 | Planned Python server primitive | Python | Missing, planned | Rust must own socket I/O, timeouts, and file streaming | Dynamic server use in Python |
-| Planned HTTP client primitive | Rust, Python | Missing, planned | TLS verification by default | Downstream client adapters |
+| `HttpClient` | Rust, Python | Implemented, experimental | Feature-gated (`client`). Uses hyper client, enforces timeouts, verifies TLS by default | Low-level outbound HTTP requests |
+| `ClientConfig` | Rust, Python | Implemented, experimental | Timeout policy, max response body bytes, TLS verification flag | Client configuration |
+| `ClientRequest` / `ClientRequestBuilder` | Rust, Python | Implemented, experimental | Method/URL/header/body validation before network I/O | Request construction |
+| `ClientResponse` | Rust, Python | Implemented, experimental | Status, headers, body (fully buffered with max-bytes enforcement) | Response consumption |
+| `ClientError` | Rust, Python | Implemented, experimental | 12-variant taxonomy: InvalidUrl, UnsupportedScheme, Timeout, TlsError, etc. | Structured error handling |
+| `Scheme` / `ParsedUrl` | Rust | Implemented, experimental | Hand-parsed URL validation, no new dependency | URL validation |
 
 ## Invariant checklist
 

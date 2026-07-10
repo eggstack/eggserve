@@ -1,5 +1,7 @@
 # Plan 028: HTTP Client Primitive Substrate
 
+> **Status: Complete** — All implementation tasks done. 23 Rust integration tests, 10 Python bindings tests. CI passes.
+
 ## Purpose
 
 Add a low-level, Rust-backed HTTP client primitive substrate that Python users and downstream projects can build on. This should be conceptually closer to Python's `http.client` than `requests` or `httpx`: explicit request construction, timeout policy, TLS verification, response metadata, and response body streaming.

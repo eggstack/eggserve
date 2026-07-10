@@ -18,6 +18,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map |
 | `primitives/` | **pub** | Public facade for embedding consumers |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
+| `primitives/client/` | **pub** (feature-gated: `client`) | HTTP client primitives: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse` |
 
 ## Key Types
 
@@ -99,6 +100,9 @@ pub enum Error {
 | `thiserror` | Derive macro for Error types |
 | `tokio` | Async runtime |
 | `rustix` (Unix only) | Descriptor-relative filesystem syscalls |
+| `rustls` (optional, `client-tls`) | TLS for client HTTPS connections |
+| `tokio-rustls` (optional, `client-tls`) | Async TLS stream wrapping for client |
+| `webpki-roots` (optional, `client-tls`) | Mozilla CA root certificates for TLS verification |
 
 ## See Also
 
@@ -107,3 +111,4 @@ pub enum Error {
 - [filesystem-confinement.md](filesystem-confinement.md) — Filesystem traversal
 - [primitives-api.md](primitives-api.md) — Public API boundary
 - [response-planning.md](response-planning.md) — HTTP response planning
+- [client.md](client.md) — HTTP client primitives

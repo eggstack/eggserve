@@ -50,6 +50,9 @@ pub mod http;
 pub mod planner;
 pub mod response;
 
+#[cfg(feature = "client")]
+pub mod client;
+
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use http::{
     validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,

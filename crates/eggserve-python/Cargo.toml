@@ -10,11 +10,11 @@ name = "_native"
 crate-type = ["cdylib"]
 
 [dependencies]
-eggserve-core = { path = "../eggserve-core" }
+eggserve-core = { path = "../eggserve-core", features = ["client"] }
 pyo3 = { version = "0.24", features = ["extension-module"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
-hyper = { version = "1", features = ["http1", "server"] }
-hyper-util = { version = "0.1", features = ["tokio", "http1"] }
+hyper = { version = "1", features = ["http1", "server", "client"] }
+hyper-util = { version = "0.1", features = ["tokio", "http1", "client-legacy"] }
 http-body-util = "0.1"
 bytes = "1"
 futures-util = "0.3"

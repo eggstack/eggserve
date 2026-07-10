@@ -53,6 +53,25 @@ Integration tests may use request validation (`validate_method`, `validate_reque
 
 Python code may use `StaticResponder`, `Server`, and `Response` to build HTTP servers while Rust owns socket I/O, connection management, and file streaming. The server calls `responder.respond(method, target, headers)` for each request and streams the returned `Response` back to the client. Python never touches sockets directly.
 
+### HTTP client substrate
+
+Downstream projects may use the feature-gated (`client`) client primitives to perform outbound HTTP requests:
+
+```rust
+use eggserve_core::primitives::client::{
+    HttpClient, ClientConfig, ClientRequest, Method,
+};
+
+let client = HttpClient::new(ClientConfig::default());
+let request = ClientRequest::builder()
+    .method(Method::Get)
+    .url("http://localhost:8080/api/data")?
+    .build()?;
+let response = client.send(request)?;
+```
+
+The client is a transport substrate — downstream projects build higher-level clients (cookie management, retries, redirects, auth) on top. The client enforces timeouts, verifies TLS by default, and provides structured errors. It does not provide convenience features that should be decided by the application layer.
+
 ## How downstream projects should consume the Rust primitives
 
 Use the `primitives` module. It is the stable public boundary for embedding consumers.
@@ -138,6 +157,12 @@ The following types are in the stable tier. They are safe to build on; breaking 
 | `BodySource` | `primitives::body` |
 | `BodyKind` | `primitives::body` |
 | `BodySourceError` | `primitives::body` |
+| `HttpClient` | `primitives::client` (feature-gated: `client`) |
+| `ClientConfig` | `primitives::client` (feature-gated: `client`) |
+| `ClientRequest` | `primitives::client` (feature-gated: `client`) |
+| `ClientRequestBuilder` | `primitives::client` (feature-gated: `client`) |
+| `ClientResponse` | `primitives::client` (feature-gated: `client`) |
+| `ClientError` | `primitives::client` (feature-gated: `client`) |
 
 ## Which modules are internal and must not be depended on
 

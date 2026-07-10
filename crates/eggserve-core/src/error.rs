@@ -23,6 +23,10 @@ pub enum Error {
 
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
+
+    #[cfg(feature = "client")]
+    #[error("client error: {0}")]
+    Client(#[from] crate::primitives::client::ClientError),
 }
 
 impl From<crate::path::PathRejection> for Error {
