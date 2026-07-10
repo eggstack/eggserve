@@ -287,7 +287,6 @@ class TestServer(unittest.TestCase):
 
     def test_context_manager(self):
         with Server(root=self._td, port=0) as s:
-            s.start()
             addr = s.addr
             self.assertIsNotNone(addr)
             url = f"http://{addr}/index.html"
@@ -407,6 +406,26 @@ class TestServerConstructorValidation(unittest.TestCase):
         with self.assertRaises(ValueError) as ctx:
             Server(root=".", write_timeout_secs=0)
         self.assertIn("write_timeout_secs", str(ctx.exception))
+
+    def test_negative_max_connections(self):
+        with self.assertRaises(OverflowError):
+            Server(root=".", max_connections=-1)
+
+    def test_negative_header_timeout(self):
+        with self.assertRaises(OverflowError):
+            Server(root=".", header_timeout_secs=-1)
+
+    def test_nan_header_timeout(self):
+        with self.assertRaises(TypeError):
+            Server(root=".", header_timeout_secs=float("nan"))
+
+    def test_inf_header_timeout(self):
+        with self.assertRaises(TypeError):
+            Server(root=".", header_timeout_secs=float("inf"))
+
+    def test_float_max_connections(self):
+        with self.assertRaises(TypeError):
+            Server(root=".", max_connections=1.5)
 
 
 class TestServerRequestError(unittest.TestCase):

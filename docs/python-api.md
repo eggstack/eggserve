@@ -196,10 +196,11 @@ Exception
     ├── RequestTargetError     # malformed/unsupported request targets
     ├── SecureRootError        # root initialization/resolution errors
     ├── RequestValidationError # request validation errors
-    └── ServerRequestError     # server request handling errors
+    ├── BodySourceError        # body source conversion errors
+    └── ServerRequestError     # server request handling errors (raises as ValueError)
 ```
 
-All exceptions carry `(message, code)` args.
+`BodySourceError` covers body-source conversion failures (e.g., invalid range, already consumed). `ServerRequestError` is a PyO3 enum that raises as `ValueError` with a string message, not a native exception with `(message, code)` tuple args.
 
 ## Server primitives
 

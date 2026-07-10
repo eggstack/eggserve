@@ -53,7 +53,7 @@ Internal flow:
 pub struct ClientConfig {
     pub connect_timeout: Duration,       // default: 10s
     pub request_timeout: Duration,       // default: 30s
-    pub max_response_body_bytes: u64,    // default: 10 MiB
+    pub max_response_body_bytes: Option<u64>,    // default: Some(10 MiB)
     pub verify_tls: bool,                // default: true
 }
 ```
@@ -144,7 +144,7 @@ Pattern: spin up a TCP listener, accept connections via `hyper::server::conn::ht
 - `PyClientConfig` — frozen dataclass with defaults
 - `PyClientRequest` — frozen, no public constructor (created by send methods)
 - `PyClientResponse` — frozen, methods: `text()`, `bytes()`, `is_success()`, `content_length()`, `content_type()`
-- `PyClientError` — enum mapped to Python `ValueError`
+- `PyClientError` — enum mapped to Python `EggserveError`
 
 ## See Also
 

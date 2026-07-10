@@ -124,6 +124,68 @@ class TestConnectionLimitSaturation(unittest.TestCase):
         resp2.close()
         s.stop()
 
+    def test_connection_saturation_beyond_limit(self):
+        s = Server(
+            root=self._td,
+            port=0,
+            max_connections=2,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/big.bin"
+        self.assertTrue(_wait_for_server(url))
+
+        host, port_str = addr.split(":")
+        port = int(port_str)
+        held_sockets = []
+        results = []
+        errors = []
+
+        for _ in range(4):
+            try:
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(5)
+                sock.connect((host, port))
+                request = (
+                    b"GET /big.bin HTTP/1.1\r\n"
+                    b"Host: " + addr.encode() + b"\r\n"
+                    b"Connection: keep-alive\r\n"
+                    b"\r\n"
+                )
+                sock.sendall(request)
+                time.sleep(0.2)
+                try:
+                    data = sock.recv(1024)
+                    if data:
+                        held_sockets.append(sock)
+                        results.append(True)
+                    else:
+                        sock.close()
+                        results.append(False)
+                except (socket.timeout, OSError):
+                    sock.close()
+                    results.append(False)
+            except (ConnectionRefusedError, OSError) as e:
+                errors.append(e)
+                try:
+                    sock.close()
+                except Exception:
+                    pass
+
+        for sock in held_sockets:
+            try:
+                sock.close()
+            except Exception:
+                pass
+
+        time.sleep(0.5)
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.status, 200)
+        resp.close()
+        s.stop()
+
 
 class TestHeaderTimeout(unittest.TestCase):
     """A2: Verify header timeout closes slow connections."""
@@ -283,6 +345,59 @@ class TestFileStreamSemaphore(unittest.TestCase):
 
         s.stop()
 
+    def test_concurrent_file_stream_blocking(self):
+        s = Server(
+            root=self._td,
+            port=0,
+            max_connections=10,
+            max_file_streams=1,
+            header_timeout_secs=10,
+            write_timeout_secs=5,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        host, port_str = addr.split(":")
+        port = int(port_str)
+
+        sock1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock1.settimeout(5)
+        sock1.connect((host, port))
+        request1 = (
+            b"GET /large.bin HTTP/1.1\r\n"
+            b"Host: " + addr.encode() + b"\r\n"
+            b"\r\n"
+        )
+        sock1.sendall(request1)
+        time.sleep(0.3)
+        try:
+            sock1.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+
+        second_results = []
+
+        def fetch_second():
+            try:
+                resp = urllib.request.urlopen(url, timeout=3)
+                second_results.append(resp.status)
+            except Exception as e:
+                second_results.append(e)
+
+        t = threading.Thread(target=fetch_second)
+        t.start()
+        t.join(timeout=5)
+
+        sock1.close()
+        time.sleep(1.0)
+
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"ok")
+        resp.close()
+        s.stop()
+
 
 class TestHandlerBehavior(unittest.TestCase):
     """B1-B6: Handler return-type validation and error handling."""
@@ -416,6 +531,54 @@ class TestHandlerBehavior(unittest.TestCase):
         finally:
             s.stop()
 
+    def test_handler_returning_string_causes_500(self):
+        def handler(req):
+            return "not a response"
+
+        s = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        try:
+            urllib.request.urlopen(url, timeout=5)
+            self.fail("Expected HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 500)
+        finally:
+            s.stop()
+
+    def test_handler_returning_bytes_causes_500(self):
+        def handler(req):
+            return b"raw bytes"
+
+        s = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        try:
+            urllib.request.urlopen(url, timeout=5)
+            self.fail("Expected HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 500)
+        finally:
+            s.stop()
+
     def test_server_continues_after_handler_error(self):
         call_count = [0]
 
@@ -448,6 +611,86 @@ class TestHandlerBehavior(unittest.TestCase):
         self.assertEqual(resp.read(), b"ok")
         resp.close()
         s.stop()
+
+    def test_handler_concurrent_requests(self):
+        def handler(req):
+            time.sleep(0.1)
+            return Response.text(200, "ok")
+
+        s = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        results = []
+        errors = []
+
+        def fetch():
+            try:
+                resp = urllib.request.urlopen(url, timeout=10)
+                results.append(resp.status)
+            except Exception as e:
+                errors.append(e)
+
+        threads = [threading.Thread(target=fetch) for _ in range(4)]
+        start = time.monotonic()
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=15)
+        elapsed = time.monotonic() - start
+
+        self.assertEqual(len(results), 4)
+        self.assertEqual(len(errors), 0)
+        self.assertTrue(all(r == 200 for r in results))
+        self.assertLess(elapsed, 12.0)
+        s.stop()
+
+    def test_shutdown_with_active_handler(self):
+        handler_started = threading.Event()
+        handler_proceed = threading.Event()
+        handler_completed = threading.Event()
+
+        def handler(req):
+            handler_started.set()
+            handler_proceed.wait(timeout=10)
+            handler_completed.set()
+            return Response.text(200, "ok")
+
+        s = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+
+        def background_request():
+            for _ in range(20):
+                try:
+                    urllib.request.urlopen(url, timeout=2)
+                    return
+                except Exception:
+                    time.sleep(0.1)
+
+        t = threading.Thread(target=background_request)
+        t.start()
+        handler_started.wait(timeout=5)
+
+        handler_proceed.set()
+        t.join(timeout=5)
+        s.stop()
+        self.assertTrue(handler_completed.is_set())
 
 
 class TestHeadSemantics(unittest.TestCase):
@@ -498,6 +741,38 @@ class TestHeadSemantics(unittest.TestCase):
         self.assertEqual(resp.status, 200)
         self.assertEqual(resp.read(), b"")
         resp.close()
+        s.stop()
+
+    def test_head_with_text_handler(self):
+        def handler(req):
+            return Response.text(200, "hello world")
+
+        s = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/data.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        get_resp = urllib.request.urlopen(url, timeout=5)
+        get_body = get_resp.read()
+        get_headers = dict(get_resp.headers)
+        get_resp.close()
+
+        head_req = urllib.request.Request(url, method="HEAD")
+        head_resp = urllib.request.urlopen(head_req, timeout=5)
+        self.assertEqual(head_resp.status, 200)
+        self.assertEqual(head_resp.read(), b"")
+        self.assertEqual(
+            head_resp.headers.get("content-length"),
+            get_headers.get("content-length"),
+        )
+        head_resp.close()
         s.stop()
 
 

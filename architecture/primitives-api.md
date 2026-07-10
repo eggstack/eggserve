@@ -53,34 +53,35 @@ pub enum ResolvedResource {
 pub enum ResourceDeniedReason {
     SymlinkDenied,
     DotfileDenied,
-    DirectoryListingDenied,
-    RootEscape,
-    IoError(String),
+    RootEscapeDenied,
+    PolicyDenied(PathRejection),
 }
 ```
 
 ### `ResolvedFile` (`secure_root.rs`)
 
-A capability object — no public constructor. Obtained only through `SecureRoot::resolve()`.
+A capability object — no public constructor. Obtained only through `SecureRoot::resolve()`. Wraps the internal `fs::ResolvedFile` which holds the open file handle and metadata.
 
 ```rust
 pub struct ResolvedFile {
-    pub(crate) file: std::fs::File,
-    pub(crate) metadata: std::fs::Metadata,
-    pub(crate) content_type: String,
-    pub(crate) etag: String,
+    inner: crate::fs::ResolvedFile,
 }
 ```
 
 Public methods:
-- `length()` → `u64`
+- `len()` → `u64`
 - `modified()` → `Option<SystemTime>`
 - `content_type()` → `&str`
-- `etag()` → `&str`
 - `plan_response(...)` → `StaticResponsePlan`
 - `plan_conditional_response(...)` → `StaticResponsePlan`
 - `into_body(&StaticResponsePlan)` → `Result<BodySource, BodySourceError>`
 - `into_range_body(start, end_inclusive)` → `Result<BodySource, BodySourceError>`
+- `safe_relative_components()` → `Vec<String>`
+
+Extraction methods (behind `python-bindings-internal` feature only):
+- `into_std_file()` → `std::fs::File`
+- `into_parts()` → `(std::fs::File, std::fs::Metadata)`
+- `from_parts(file, metadata, content_type, total_len)` → `ResolvedFile`
 
 ### `ResolvedDirectory` (`secure_root.rs`)
 
@@ -202,7 +203,7 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 | `BodyKind` | Rust, Python | Implemented | Discriminant: Empty, Bytes, FileFull, FileRange | Body type identification |
 | `BodySourceError` | Rust, Python | Implemented | InvalidRange, AlreadyConsumed | Error handling for body conversion |
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |
-| Planned Python server primitive | Python | Missing, planned | Rust must own socket I/O, timeouts, and file streaming | Dynamic server use in Python |
+| `Server` | Python | Implemented | Rust owns socket I/O, timeouts, file streaming; Python supplies optional handler callback | Dynamic server use in Python |
 | `HttpClient` | Rust, Python | Implemented, experimental | Feature-gated (`client`). Uses hyper client, enforces timeouts, verifies TLS by default | Low-level outbound HTTP requests |
 | `ClientConfig` | Rust, Python | Implemented, experimental | Timeout policy, max response body bytes, TLS verification flag | Client configuration |
 | `ClientRequest` / `ClientRequestBuilder` | Rust, Python | Implemented, experimental | Method/URL/header/body validation before network I/O | Request construction |

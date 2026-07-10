@@ -60,6 +60,9 @@ let client = HttpClient::new(config);
 let response = client.get("http://localhost:8080/index.html")?;
 let response = client.head("http://localhost:8080/style.css")?;
 let response = client.post("http://localhost:8080/submit", body_bytes)?;
+let response = client.put("http://localhost:8080/resource", body_bytes)?;
+let response = client.delete("http://localhost:8080/resource")?;
+let response = client.patch("http://localhost:8080/resource", patch_bytes)?;
 
 // Builder pattern
 let request = ClientRequest::builder()
@@ -95,13 +98,11 @@ config = ClientConfig(
 )
 client = HttpClient(config)
 
-# Builder
-request = (
-    ClientRequest.builder()
-    .method(Method.Get)
-    .url("http://localhost:8080/data")
-    .header("Accept", "application/json")
-    .build()
+# Custom request
+request = ClientRequest(
+    method=Method.Get,
+    url="http://localhost:8080/data",
+    headers={"Accept": "application/json"},
 )
 response = client.send(request)
 ```
@@ -148,14 +149,14 @@ pub enum ClientError {
     InvalidUrl(String),
     UnsupportedScheme(String),
     MissingHost,
-    InvalidHeader { name: String, reason: String },
+    InvalidHeader(String),
     BodyTooLarge { max: u64 },
     Timeout(String),
     DnsError(String),
     ConnectError(String),
     TlsError(String),
     ProtocolError(String),
-    ResponseBodyTooLarge { max: u64 },
+    ResponseBodyTooLarge { limit: u64 },
     Io(io::Error),
 }
 ```
