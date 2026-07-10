@@ -16,11 +16,10 @@ serve_directory(".")
 For programmatic server control:
 
 ```python
-from eggserve import Server, StaticResponder, ServerSecureRoot
+from eggserve import Server, ServerSecureRoot
 
 root = ServerSecureRoot(".")
-responder = StaticResponder(root)
-with Server(root=root, responder=responder) as server:
+with Server(root=root) as server:
     print(f"Serving on {server.addr}")
 ```
 
@@ -121,7 +120,7 @@ Kind values: `"file"`, `"directory"`, `"not_found"`, `"denied"`.
 
 ### `ResolvedFile`
 
-Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.file`. `ResolvedFile` is a resolver-created capability — there is no public constructor; it can only be obtained through `SecureRoot` resolution.
+Safe metadata wrapper for an opened file. Only obtainable via `ResolvedResource.file`. `ResolvedFile` is a resolver-created capability. While `from_parts()` exists for internal bridging, external consumers should obtain `ResolvedFile` only through `SecureRoot` resolution. Reconstructing from raw parts bypasses the path confinement guarantee.
 
 `ResolvedFile` supports metadata, response planning, and safe body streaming via the resolver-opened file handle. Use `body_for_plan(plan)` to obtain a `BodySource` that carries the opened file forward without path reopening.
 
@@ -255,39 +254,57 @@ Factory methods:
 
 ### `Server`
 
-TCP server that accepts connections, parses HTTP requests, and dispatches to a responder function. Rust owns the accept loop, connection parsing, and response serialization. Python runs in a callback during request handling.
+TCP server that accepts connections, parses HTTP requests, and dispatches to a responder or handler callback. Rust owns the accept loop, connection parsing, response serialization, and timeout enforcement.
 
 ```python
-from eggserve import Server, StaticResponder, ServerSecureRoot
+from eggserve import Server, ServerSecureRoot
 
-root = ServerSecureRoot("/var/www")
-responder = StaticResponder(root)
-server = Server(root=root, bind="127.0.0.1", port=8000, responder=responder)
-server.start()
-print(f"Listening on {server.addr}")
-# ...
-server.stop()
+root = ServerSecureRoot(".")
+with Server(root=root) as server:
+    print(f"Serving on {server.addr}")
 ```
 
-Or as a context manager:
+With handler callback:
 
 ```python
-with Server(root=root, bind="127.0.0.1", port=8000, responder=responder) as server:
-    print(f"Listening on {server.addr}")
-    # server stops on __exit__
+from eggserve import Server, ServerSecureRoot, Request, Response
+
+root = ServerSecureRoot(".")
+
+def handler(request: Request) -> Response:
+    if request.path == "/health":
+        return Response.text(200, "ok")
+    return Response.empty(404)
+
+with Server(root=root, handler=handler) as server:
+    print(f"Serving on {server.addr}")
 ```
 
-Constructor: `Server(root, bind="127.0.0.1", port=8000, responder=responder)`
+Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, header_timeout_secs=10, write_timeout_secs=30)`
+
+Parameters:
+- `root` — server root directory path (string)
+- `bind` — bind address (default: "127.0.0.1")
+- `port` — listen port (default: 8000)
+- `policy` — optional `StaticPolicyWrapper` for filesystem policy
+- `handler` — optional Python callable `(Request) -> Response` for dynamic responses
+- `public` — must be `True` to bind to 0.0.0.0 or ::
+- `max_connections` — maximum concurrent connections (default: 100)
+- `max_file_streams` — maximum concurrent file streams (default: 64)
+- `header_timeout_secs` — header read timeout in seconds (default: 10)
+- `write_timeout_secs` — response write timeout in seconds (default: 30)
 
 Properties:
-- `addr` — bound address string (e.g. `"127.0.0.1:8000"`), or `None` when stopped
+- `addr` — bound address string (e.g. "127.0.0.1:8000"), or `None` when stopped
 
 Methods:
 - `start()` — start the server in a background thread; blocks until the listener is ready
 - `stop()` — shut down the server and join the background thread
 - `__enter__` / `__exit__` — context manager support
 
-The server calls `responder.respond(method, target, headers)` for each request. If the responder raises an exception, the server returns 500 Internal Server Error. Method validation (GET/HEAD only) and body rejection are enforced by the server before calling the responder.
+When `handler` is provided, the server calls `handler(request)` for each request and streams the returned `Response` back to the client. When `handler` is `None`, the server serves static files from the root directory. Handler exceptions map to generic 500 Internal Server Error responses without traceback leakage.
+
+The server enforces connection limits, header read timeouts, and response write timeouts. Binding to 0.0.0.0 or :: requires `public=True`.
 
 ### `ServerSecureRoot`
 
@@ -347,6 +364,7 @@ except ServerRequestError as e:
 Variants:
 - `MethodNotAllowed(allowed)` — non-GET/HEAD method received
 - `TargetInvalid(reason)` — malformed request target
+- `PathRejected(reason)` — path failed policy validation
 - `BodyNotAllowed()` — request body on GET/HEAD
 
 ## Configuration (subprocess API)

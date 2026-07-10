@@ -10,6 +10,13 @@
 //! following, no proxy support, no HTTP/2. It is a substrate for
 //! downstream projects to build higher-level clients on.
 //!
+//! # Behavior
+//!
+//! The client buffers the complete response body in memory. The
+//! `max_response_body_bytes` config option enforces an upper bound.
+//! Streaming responses are not yet supported and are planned for a
+//! future release.
+//!
 //! # Usage
 //!
 //! ```rust,no_run

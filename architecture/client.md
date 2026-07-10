@@ -25,7 +25,7 @@ client-tls = ["client", "dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 
 ### `HttpClient` (`http_client.rs`)
 
-The core client. Wraps `hyper_util::client::legacy::Client` with `hyper`'s HTTP/1.1 client connection.
+The core client. Wraps TCP connections with optional TLS (behind `client-tls` feature). HTTPS URLs are rejected when TLS is not compiled in.
 
 ```rust
 pub struct HttpClient {
@@ -41,10 +41,11 @@ Methods:
 Internal flow:
 1. Parse URL via `ParsedUrl::parse()`
 2. Connect with timeout via `tokio::time::timeout()`
-3. Set `Host` and `User-Agent` headers
-4. Send request via hyper
-5. Collect response body with max-bytes enforcement
-6. Return `ClientResponse` (fully buffered)
+3. For HTTPS: wrap TCP in TLS via `tokio-rustls` (when `client-tls` enabled), reject if not enabled
+4. Set `Host` and `User-Agent` headers
+5. Send request via hyper HTTP/1.1
+6. Collect response body with max-bytes enforcement (buffered, not streaming)
+7. Return `ClientResponse` (fully buffered)
 
 ### `ClientConfig` (`request.rs`)
 

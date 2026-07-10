@@ -79,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–027 complete.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence.
+**Plans 000–029 complete.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence.
 
 ## Supported platforms
 
@@ -112,11 +112,26 @@ if resource.is_file:
 **Server primitives** — build HTTP servers with Rust-owned I/O:
 
 ```python
-from eggserve import Server, StaticResponder, ServerSecureRoot
+from eggserve import Server, ServerSecureRoot
 
 root = ServerSecureRoot(".")
-responder = StaticResponder(root)
-with Server(root=root, responder=responder) as server:
+with Server(root=root) as server:
+    print(f"Serving on {server.addr}")
+```
+
+**Handler callback** — intercept requests with a Python handler:
+
+```python
+from eggserve import Server, ServerSecureRoot, Request, Response
+
+root = ServerSecureRoot(".")
+
+def handler(request: Request) -> Response:
+    if request.path == "/health":
+        return Response.text(200, "ok")
+    return Response.empty(404)
+
+with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
@@ -203,7 +218,7 @@ maturin build --release --interpreter 3.14 -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
 python - <<'PY'
-from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory, Server, StaticResponder, ServerSecureRoot
+from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory, Server, ServerSecureRoot
 print(ServeConfig())
 PY
 ```

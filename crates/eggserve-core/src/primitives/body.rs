@@ -149,25 +149,67 @@ impl BodySource {
         match self {
             Self::Empty => Ok(Vec::new()),
             Self::Bytes(b) => {
-                let s = start as usize;
-                let e = (end_inclusive as usize + 1).min(b.len());
+                let s: usize = start.try_into().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "start offset too large")
+                })?;
+                let e_plus_1: usize = end_inclusive
+                    .checked_add(1)
+                    .and_then(|v| v.try_into().ok())
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "end offset too large")
+                    })?;
+                let e = e_plus_1.min(b.len());
                 if s >= b.len() {
                     return Ok(Vec::new());
                 }
                 Ok(b[s..e].to_vec())
             }
-            Self::FileFull { file, .. } => {
+            Self::FileFull { file, len, .. } => {
+                if start >= *len {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "read start exceeds file length",
+                    ));
+                }
+                if end_inclusive >= *len {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "read end exceeds file length",
+                    ));
+                }
+                let request_len = end_inclusive
+                    .checked_sub(start)
+                    .and_then(|v| v.checked_add(1))
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid range"))?;
+                let effective_len = request_len.min(*len - start);
                 file.seek(SeekFrom::Start(start))?;
-                let len = (end_inclusive - start + 1) as usize;
-                let mut buf = vec![0u8; len];
+                let mut buf = vec![0u8; effective_len as usize];
                 file.read_exact(&mut buf)?;
                 Ok(buf)
             }
             Self::FileRange { file, range, .. } => {
-                let absolute_start = range.start + start;
+                let sub_len = end_inclusive
+                    .checked_sub(start)
+                    .and_then(|v| v.checked_add(1))
+                    .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid range"))?;
+                if sub_len > range.len() {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "sub-range exceeds body range",
+                    ));
+                }
+                let absolute_start = range.start.checked_add(start).ok_or_else(|| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "absolute offset overflow")
+                })?;
+                let absolute_end = absolute_start + sub_len - 1;
+                if absolute_end > range.end_inclusive {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidInput,
+                        "sub-range exceeds body range",
+                    ));
+                }
                 file.seek(SeekFrom::Start(absolute_start))?;
-                let len = (end_inclusive - start + 1) as usize;
-                let mut buf = vec![0u8; len];
+                let mut buf = vec![0u8; sub_len as usize];
                 file.read_exact(&mut buf)?;
                 Ok(buf)
             }
@@ -291,6 +333,87 @@ mod tests {
     fn read_range_inverted_returns_empty() {
         let mut bs = BodySource::Bytes(b"ab".to_vec());
         assert_eq!(bs.read_range(3, 1).unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn read_range_file_full_within_bounds() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileFull {
+            file,
+            len: 11,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_range(0, 4).unwrap(), b"hello");
+        assert_eq!(bs.read_range(6, 10).unwrap(), b"world");
+    }
+
+    #[test]
+    fn read_range_file_full_beyond_eof_rejected() {
+        let (_tmp, file) = make_file(b"hello");
+        let mut bs = BodySource::FileFull {
+            file,
+            len: 5,
+            mime: "text/plain",
+        };
+        let result = bs.read_range(0, 99);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_range_file_full_start_past_len_rejected() {
+        let (_tmp, file) = make_file(b"hello");
+        let mut bs = BodySource::FileFull {
+            file,
+            len: 5,
+            mime: "text/plain",
+        };
+        let result = bs.read_range(10, 20);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_range_file_range_within_bounds() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileRange {
+            file,
+            range: FileRange::new(0, 4),
+            total_len: 11,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_range(0, 2).unwrap(), b"hel");
+    }
+
+    #[test]
+    fn read_range_file_range_beyond_end_rejected() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileRange {
+            file,
+            range: FileRange::new(0, 4),
+            total_len: 11,
+            mime: "text/plain",
+        };
+        let result = bs.read_range(0, 10);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_range_bytes_large_offset_rejected() {
+        let mut bs = BodySource::Bytes(b"test".to_vec());
+        let result = bs.read_range(u64::MAX, u64::MAX);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_range_file_range_overflow_rejected() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileRange {
+            file,
+            range: FileRange::new(u64::MAX - 2, u64::MAX),
+            total_len: 11,
+            mime: "text/plain",
+        };
+        let result = bs.read_range(5, 10);
+        assert!(result.is_err());
     }
 
     #[test]

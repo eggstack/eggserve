@@ -83,16 +83,39 @@ impl ResolvedFile {
         &self.inner.safe_relative_components
     }
 
+    /// Extract the underlying `std::fs::File`.
+    ///
+    /// # Security note
+    ///
+    /// After extraction, the confinement guarantee no longer applies to the
+    /// raw file handle. This is intended for internal bridging to the Python
+    /// bindings layer.
     #[allow(dead_code)]
     pub fn into_std_file(self) -> std::fs::File {
         self.inner.file
     }
 
+    /// Extract the underlying file and metadata.
+    ///
+    /// # Security note
+    ///
+    /// After extraction, the confinement guarantee no longer applies to the
+    /// raw file handle. This is intended for internal bridging to the Python
+    /// bindings layer.
     #[allow(dead_code)]
     pub fn into_parts(self) -> (std::fs::File, std::fs::Metadata) {
         (self.inner.file, self.inner.metadata)
     }
 
+    /// Reconstruct a `ResolvedFile` from raw components.
+    ///
+    /// # Security note
+    ///
+    /// This constructor does not verify that the file was opened through the
+    /// path confinement pipeline. It is intended for internal use by the
+    /// Python bindings where the file was already resolved through a secure
+    /// path. External Rust consumers should use [`SecureRoot::resolve`] or
+    /// [`resolve_and_plan`] instead.
     #[allow(dead_code)]
     pub fn from_parts(
         file: std::fs::File,

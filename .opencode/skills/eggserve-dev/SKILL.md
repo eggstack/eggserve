@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace)
 
-Other directories: `architecture/` (9 deep-dive docs), `docs/` (19 reference docs), `plans/` (25 plans, 000–024 + ROADMAP), `examples/`, `fuzz/`.
+Other directories: `architecture/` (10 deep-dive docs), `docs/` (19 reference docs), `plans/` (30 plans, 000–029 + ROADMAP), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -49,7 +49,7 @@ cargo deny check
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan count** — Plans 000–025 complete. Verify against `plans/` directory.
+- **Plan count** — Plans 000–029 complete. Verify against `plans/` directory.
 
 ## Architecture docs
 
@@ -75,3 +75,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `ResponseStatus` is a struct with associated constants, not an enum
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
+- **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
+- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction. External consumers should use `SecureRoot` resolution.
+- **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback. Parameters: `handler`, `public`, `max_connections`, `max_file_streams`, `header_timeout_secs`, `write_timeout_secs`.
+- **Python 3.14 build** — requires `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` env var for maturin builds (PyO3 0.24.2 doesn't natively support 3.14).

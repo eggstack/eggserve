@@ -13,8 +13,8 @@ use eggserve_core::primitives::{
     ResolvedResource as RustResolvedResource, ResourceDeniedReason, SecureRoot as RustSecureRoot,
 };
 
-mod server;
 mod client;
+mod server;
 
 // ---------------------------------------------------------------------------
 // Exceptions

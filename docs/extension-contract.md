@@ -51,7 +51,7 @@ Integration tests may use request validation (`validate_method`, `validate_reque
 
 ### Server primitives
 
-Python code may use `StaticResponder`, `Server`, and `Response` to build HTTP servers while Rust owns socket I/O, connection management, and file streaming. The server calls `responder.respond(method, target, headers)` for each request and streams the returned `Response` back to the client. Python never touches sockets directly.
+Python code may use `StaticResponder`, `Server`, and `Response` to build HTTP servers while Rust owns socket I/O, connection management, and file streaming. The server can dispatch to a Python handler callback for dynamic responses, or serve static files via `StaticResponder`. Python never touches sockets directly.
 
 ### HTTP client substrate
 

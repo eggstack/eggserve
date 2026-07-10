@@ -55,7 +55,7 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 | `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(...)`, `deny_all()`, getters |
 | `ServerSecureRoot` | `primitives::SecureRoot` | `new(path, policy)`, `root_path` getter |
 | `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response()` |
-| `Server` | tokio runtime + TcpListener | `start()`, `stop()`, `addr`, context manager |
+| `Server` | tokio runtime + TcpListener | `start()`, `stop()`, `addr`, context manager, optional `handler` callback |
 
 Functions: `parse_request(target, headers)` → `Request`.
 
@@ -126,7 +126,7 @@ Searches for the `eggserve` binary in:
 
 2. **Subprocess, not FFI** — The binary is spawned as a subprocess rather than linked as a shared library. This isolates the Python process from the server's memory and lifecycle.
 
-3. **Server primitives use Rust-owned I/O** — The `Server` type runs a tokio runtime in a background thread. Python code receives parsed `Request` objects and returns `Response` values. Socket I/O, HTTP parsing, and file streaming are handled by Rust. The GIL is released during I/O.
+3. **Server primitives use Rust-owned I/O** — The `Server` type runs a tokio runtime in a background thread. When a handler callback is provided, Python code receives parsed `Request` objects and returns `Response` values. When no handler is provided, the server serves static files. Socket I/O, HTTP parsing, and file streaming are handled by Rust. Connection limits, header timeouts, and write timeouts are enforced. The GIL is released during I/O.
 
 4. **Frozen immutability** — All PyO3 classes use `#[pyclass(frozen)]`. All Python dataclasses use `frozen=True`. This prevents mutation at both layers.
 

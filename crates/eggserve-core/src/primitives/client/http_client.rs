@@ -19,6 +19,53 @@ use super::error::ClientError;
 use super::request::{ClientConfig, ClientRequest};
 use super::response::ClientResponse;
 
+#[cfg(feature = "client-tls")]
+use std::sync::Arc;
+#[cfg(feature = "client-tls")]
+use tokio_rustls::{rustls, TlsConnector};
+
+#[cfg(feature = "client-tls")]
+#[derive(Debug)]
+struct NoVerifier;
+
+#[cfg(feature = "client-tls")]
+impl rustls::client::danger::ServerCertVerifier for NoVerifier {
+    fn verify_server_cert(
+        &self,
+        _end_entity: &rustls::pki_types::CertificateDer<'_>,
+        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
+        _server_name: &rustls::pki_types::ServerName<'_>,
+        _ocsp_response: &[u8],
+        _now: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        Ok(rustls::client::danger::ServerCertVerified::assertion())
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        _message: &[u8],
+        _cert: &rustls::pki_types::CertificateDer<'_>,
+        _dss: &rustls::DigitallySignedStruct,
+    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
+        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
+        rustls::crypto::ring::default_provider()
+            .signature_verification_algorithms
+            .supported_schemes()
+    }
+}
+
 /// A low-level HTTP/1.1 client backed by Rust networking.
 ///
 /// Each instance shares a configuration. Requests are executed
@@ -50,8 +97,8 @@ impl HttpClient {
 
     /// Execute an HTTP request and return the full response.
     ///
-    /// The response body is collected into memory. For large responses,
-    /// use lower-level streaming APIs.
+    /// The response body is fully buffered in memory, up to
+    /// `max_response_body_bytes`. Streaming is not yet supported.
     ///
     /// # Errors
     ///
@@ -75,70 +122,150 @@ impl HttpClient {
 
         let _ = tcp.set_nodelay(true);
 
-        let io = TokioIo::new(tcp);
-
-        // Build hyper request
-        let mut builder = Request::builder();
-        builder = builder.method(request.method.as_str());
-
         let authority = url.authority();
-        let uri = format!("{}://{}{}", url.scheme, authority, url.path);
-        builder = builder.uri(&uri);
 
-        for (name, value) in &request.headers {
-            builder = builder.header(name.as_str(), value.as_str());
+        #[cfg(not(feature = "client-tls"))]
+        if url.is_https() {
+            return Err(ClientError::TlsError(
+                "TLS support not enabled; enable the client-tls feature".into(),
+            ));
         }
 
-        if !request.headers.contains_key("host") {
-            builder = builder.header("host", &authority);
+        #[cfg(not(feature = "client-tls"))]
+        {
+            return send_request_over_io(
+                TokioIo::new(tcp),
+                request,
+                &authority,
+                self.config.request_timeout,
+                self.config.max_response_body_bytes,
+            )
+            .await;
         }
 
-        if !request.headers.contains_key("user-agent") {
-            builder = builder.header("user-agent", "eggserve-client/0.1");
+        #[cfg(feature = "client-tls")]
+        if url.is_https() {
+            let mut root_store = rustls::RootCertStore::empty();
+            root_store.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+            let config = if self.config.verify_tls {
+                rustls::ClientConfig::builder()
+                    .with_root_certificates(root_store)
+                    .with_no_client_auth()
+            } else {
+                rustls::ClientConfig::builder()
+                    .dangerous()
+                    .with_custom_certificate_verifier(Arc::new(NoVerifier))
+                    .with_no_client_auth()
+            };
+
+            let connector = TlsConnector::from(Arc::new(config));
+            let domain = rustls::pki_types::ServerName::try_from(url.host.as_str())
+                .map_err(|e| ClientError::TlsError(format!("invalid server name: {e}")))?;
+            let tls_stream = timeout(
+                self.config.connect_timeout,
+                connector.connect(domain.to_owned(), tcp),
+            )
+            .await
+            .map_err(|_| ClientError::Timeout("TLS handshake timed out".into()))?
+            .map_err(|e| ClientError::TlsError(format!("TLS handshake failed: {e}")))?;
+
+            return send_request_over_io(
+                TokioIo::new(tls_stream),
+                request,
+                &authority,
+                self.config.request_timeout,
+                self.config.max_response_body_bytes,
+            )
+            .await;
         }
 
-        let body_bytes = request.body.as_deref().unwrap_or(&[]);
-        let hyper_req: Request<Full<Bytes>> = builder
-            .body(Full::new(Bytes::copy_from_slice(body_bytes)))
+        #[cfg(feature = "client-tls")]
+        {
+            send_request_over_io(
+                TokioIo::new(tcp),
+                request,
+                &authority,
+                self.config.request_timeout,
+                self.config.max_response_body_bytes,
+            )
+            .await
+        }
+    }
+}
+
+async fn send_request_over_io<I>(
+    io: I,
+    request: &ClientRequest,
+    authority: &str,
+    request_timeout: std::time::Duration,
+    max_response_body_bytes: Option<u64>,
+) -> Result<ClientResponse, ClientError>
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send + 'static,
+{
+    let url = &request.url;
+
+    // Build hyper request
+    let mut builder = Request::builder();
+    builder = builder.method(request.method.as_str());
+
+    let uri = format!("{}://{}{}", url.scheme, authority, url.path);
+    builder = builder.uri(&uri);
+
+    for (name, value) in &request.headers {
+        builder = builder.header(name.as_str(), value.as_str());
+    }
+
+    if !request.headers.contains_key("host") {
+        builder = builder.header("host", authority);
+    }
+
+    if !request.headers.contains_key("user-agent") {
+        builder = builder.header("user-agent", "eggserve-client/0.1");
+    }
+
+    let body_bytes = request.body.as_deref().unwrap_or(&[]);
+    let hyper_req: Request<Full<Bytes>> = builder
+        .body(Full::new(Bytes::copy_from_slice(body_bytes)))
+        .map_err(|e| ClientError::ProtocolError(e.to_string()))?;
+
+    // Perform HTTP/1.1 handshake and send
+    let response = timeout(request_timeout, async {
+        let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
+            .await
             .map_err(|e| ClientError::ProtocolError(e.to_string()))?;
 
-        // Perform HTTP/1.1 handshake and send
-        let response = timeout(self.config.request_timeout, async {
-            let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
-                .await
-                .map_err(|e| ClientError::ProtocolError(e.to_string()))?;
+        tokio::spawn(async move {
+            let _ = conn.await;
+        });
 
-            tokio::spawn(async move {
-                let _ = conn.await;
-            });
+        sender
+            .send_request(hyper_req)
+            .await
+            .map_err(|e| ClientError::ProtocolError(e.to_string()))
+    })
+    .await
+    .map_err(|_| ClientError::Timeout("request timed out".into()))?;
 
-            sender
-                .send_request(hyper_req)
-                .await
-                .map_err(|e| ClientError::ProtocolError(e.to_string()))
-        })
-        .await
-        .map_err(|_| ClientError::Timeout("request timed out".into()))?;
+    let response = response?;
 
-        let response = response?;
+    let (parts, body) = response.into_parts();
 
-        let (parts, body) = response.into_parts();
+    let body_bytes = collect_body(body, max_response_body_bytes).await?;
 
-        let body_bytes = collect_body(body, self.config.max_response_body_bytes).await?;
-
-        let mut headers = HashMap::new();
-        for (name, value) in &parts.headers {
-            if let Ok(v) = value.to_str() {
-                headers.insert(name.as_str().to_lowercase(), v.to_string());
-            }
+    let mut headers = HashMap::new();
+    for (name, value) in &parts.headers {
+        if let Ok(v) = value.to_str() {
+            headers.insert(name.as_str().to_lowercase(), v.to_string());
         }
-
-        Ok(ClientResponse {
-            status: parts.status.as_u16(),
-            headers,
-            body: body_bytes,
-        })
     }
+
+    Ok(ClientResponse {
+        status: parts.status.as_u16(),
+        headers,
+        body: body_bytes,
+    })
 }
 
 async fn collect_body(body: Incoming, max_bytes: Option<u64>) -> Result<Vec<u8>, ClientError> {
@@ -176,6 +303,8 @@ async fn collect_body(body: Incoming, max_bytes: Option<u64>) -> Result<Vec<u8>,
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[allow(unused_imports)]
+    use crate::primitives::client::{ClientRequestBuilder, Method};
     use std::time::Duration;
 
     #[test]
@@ -195,5 +324,22 @@ mod tests {
         let client = HttpClient::new(config);
         assert_eq!(client.config.connect_timeout, Duration::from_secs(5));
         assert_eq!(client.config.request_timeout, Duration::from_secs(10));
+    }
+
+    #[cfg(not(feature = "client-tls"))]
+    #[test]
+    fn client_rejects_https_without_tls() {
+        let client = HttpClient::with_defaults();
+        let req = ClientRequestBuilder::new(Method::Get)
+            .url("https://example.com/")
+            .unwrap()
+            .build()
+            .unwrap();
+        let result = client.send(&req);
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            ClientError::TlsError(_) => {}
+            other => panic!("expected TlsError, got {other:?}"),
+        }
     }
 }

@@ -32,8 +32,8 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header(n, v)
             self.end_headers()
             if plan.body_kind == "file_full":
-                with resource.file.into_std_file() as f:
-                    self.wfile.write(f.read())
+                body = resource.file.body_for_plan(plan)
+                self.wfile.write(body.read_all())
         elif resource.is_denied:
             self.send_error(403, "Access denied")
         else:

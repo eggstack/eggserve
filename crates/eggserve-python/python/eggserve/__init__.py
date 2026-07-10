@@ -42,6 +42,12 @@ try:
         ServerSecureRoot,
         StaticResponder,
         StaticPolicyWrapper,
+        HttpClient,
+        ClientConfig,
+        ClientRequest,
+        ClientResponse,
+        ClientError,
+        Method,
     )
 
     NATIVE_AVAILABLE = True
@@ -84,4 +90,10 @@ if NATIVE_AVAILABLE:
         "ServerSecureRoot",
         "StaticResponder",
         "StaticPolicyWrapper",
+        "HttpClient",
+        "ClientConfig",
+        "ClientRequest",
+        "ClientResponse",
+        "ClientError",
+        "Method",
     ]

@@ -70,6 +70,16 @@ impl ParsedUrl {
 
         let rest = &url[scheme_end + 3..];
 
+        // Reject control characters and spaces in URL
+        if url.bytes().any(|b| b < 0x20 || b == 0x7f) {
+            return Err(ClientError::InvalidUrl(
+                "URL contains control characters".into(),
+            ));
+        }
+        if url.contains(' ') {
+            return Err(ClientError::InvalidUrl("URL contains spaces".into()));
+        }
+
         // Reject userinfo (user:pass@host)
         if rest.contains('@') {
             return Err(ClientError::InvalidUrl(
@@ -83,6 +93,9 @@ impl ParsedUrl {
             None => (rest, "/"),
         };
 
+        // Strip URL fragment (not sent to servers per RFC 7230)
+        let path = path.split('#').next().unwrap_or(path);
+
         if host_port.is_empty() {
             return Err(ClientError::MissingHost);
         }
@@ -94,8 +107,8 @@ impl ParsedUrl {
             })?;
             let host = host_port[1..bracket_end].to_string();
             let after_bracket = &host_port[bracket_end + 1..];
-            let port = if after_bracket.starts_with(':') {
-                after_bracket[1..]
+            let port = if let Some(port_str) = after_bracket.strip_prefix(':') {
+                port_str
                     .parse::<u16>()
                     .map_err(|_| ClientError::InvalidUrl("invalid port number".into()))?
             } else {
@@ -301,5 +314,32 @@ mod tests {
     fn is_https_false_for_http() {
         let url = ParsedUrl::parse("http://example.com/").unwrap();
         assert!(!url.is_https());
+    }
+
+    #[test]
+    fn parse_url_fragment_stripped() {
+        let url = ParsedUrl::parse("http://example.com/path#fragment").unwrap();
+        assert_eq!(url.path, "/path");
+    }
+
+    #[test]
+    fn parse_url_fragment_with_query_stripped() {
+        let url = ParsedUrl::parse("http://example.com/path?q=1#frag").unwrap();
+        assert_eq!(url.path, "/path?q=1");
+    }
+
+    #[test]
+    fn parse_url_with_control_chars_rejected() {
+        assert!(ParsedUrl::parse("http://exam\x01ple.com/").is_err());
+    }
+
+    #[test]
+    fn parse_url_with_tab_rejected() {
+        assert!(ParsedUrl::parse("http://exam\tple.com/").is_err());
+    }
+
+    #[test]
+    fn parse_url_with_spaces_rejected() {
+        assert!(ParsedUrl::parse("http://exam ple.com/").is_err());
     }
 }

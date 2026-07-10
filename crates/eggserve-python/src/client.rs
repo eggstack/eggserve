@@ -6,8 +6,7 @@ use pyo3::types::PyBytes;
 
 use eggserve_core::primitives::client::{
     ClientConfig as RustClientConfig, ClientError, ClientRequestBuilder,
-    ClientResponse as RustClientResponse, HttpClient as RustHttpClient,
-    Method as RustMethod,
+    ClientResponse as RustClientResponse, HttpClient as RustHttpClient, Method as RustMethod,
 };
 
 #[pyclass(frozen, name = "ClientError")]
@@ -169,10 +168,7 @@ pub struct PyClientRequest {
 #[pymethods]
 impl PyClientRequest {
     fn __repr__(&self) -> String {
-        format!(
-            "ClientRequest(method={:?}, url={})",
-            self.method, self.url
-        )
+        format!("ClientRequest(method={:?}, url={})", self.method, self.url)
     }
 }
 

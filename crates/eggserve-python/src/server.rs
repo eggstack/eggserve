@@ -1,6 +1,8 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::Duration;
 
 use bytes::Bytes;
 use http_body_util::combinators::BoxBody;
@@ -8,12 +10,12 @@ use http_body_util::{BodyExt, Full, StreamBody};
 use hyper::body::Frame;
 use hyper::service::Service;
 use hyper::{Request, Response};
-use hyper_util::rt::TokioIo;
+use hyper_util::rt::{TokioIo, TokioTimer};
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Semaphore};
 use tokio::task;
 
 use eggserve_core::policy;
@@ -475,25 +477,48 @@ impl ServerBodySource {
 }
 
 #[pyclass(frozen, name = "Server")]
+#[allow(dead_code)]
 pub struct PyServer {
     bind: String,
     port: u16,
+    public: bool,
     addr: std::sync::Mutex<Option<String>>,
     responder: PyStaticResponder,
+    handler: Option<std::sync::Mutex<Option<Py<PyAny>>>>,
     shutdown_tx: std::sync::Mutex<Option<broadcast::Sender<()>>>,
     handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
+    max_connections: usize,
+    max_file_streams: usize,
+    header_timeout: Duration,
+    write_timeout: Duration,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None))]
+    #[allow(clippy::too_many_arguments)]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, header_timeout_secs=10, write_timeout_secs=30))]
     fn new(
         root: String,
         bind: &str,
         port: u16,
         policy: Option<PyStaticPolicyWrapper>,
+        handler: Option<Py<PyAny>>,
+        public: bool,
+        max_connections: usize,
+        max_file_streams: usize,
+        header_timeout_secs: u64,
+        write_timeout_secs: u64,
     ) -> PyResult<Self> {
+        let bind_addr: SocketAddr = format!("{bind}:{port}")
+            .parse()
+            .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid bind address"))?;
+        if !public && bind_addr.ip().is_unspecified() {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "binding to 0.0.0.0 or :: requires public=True",
+            ));
+        }
+
         let static_policy = policy
             .map(|p| p.inner)
             .unwrap_or_else(StaticPolicy::safe_default);
@@ -505,10 +530,16 @@ impl PyServer {
         Ok(Self {
             bind: bind.to_string(),
             port,
+            public,
             addr: std::sync::Mutex::new(None),
             responder,
+            handler: handler.map(|h| std::sync::Mutex::new(Some(h))),
             shutdown_tx: std::sync::Mutex::new(None),
             handle: std::sync::Mutex::new(None),
+            max_connections,
+            max_file_streams,
+            header_timeout: Duration::from_secs(header_timeout_secs),
+            write_timeout: Duration::from_secs(write_timeout_secs),
         })
     }
 
@@ -536,6 +567,17 @@ impl PyServer {
         *tx_guard = Some(shutdown_tx.clone());
 
         let responder = self.responder.clone();
+        let handler: Option<Arc<std::sync::Mutex<Option<Py<PyAny>>>>> =
+            self.handler.as_ref().map(|m| {
+                Arc::new(std::sync::Mutex::new(m.lock().ok().and_then(|guard| {
+                    guard
+                        .as_ref()
+                        .map(|py_any| Python::with_gil(|py| py_any.clone_ref(py)))
+                })))
+            });
+        let max_file_streams = self.max_file_streams;
+        let header_timeout = self.header_timeout;
+        let write_timeout = self.write_timeout;
 
         let bind_str = format!("{}:{}", self.bind, self.port);
         let bind_addr: SocketAddr = bind_str
@@ -564,6 +606,9 @@ impl PyServer {
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
             Some(local_addr.to_string());
 
+        let conn_semaphore = Arc::new(Semaphore::new(self.max_connections));
+        let file_stream_semaphore = Arc::new(Semaphore::new(max_file_streams));
+
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
             rt.block_on(async move {
@@ -574,16 +619,40 @@ impl PyServer {
                         accept = listener.accept() => {
                             match accept {
                                 Ok((stream, _remote_addr)) => {
+                                    let permit = match conn_semaphore.clone().acquire_owned().await {
+                                        Ok(p) => p,
+                                        Err(_) => break,
+                                    };
                                     let responder = responder.clone();
+                                    let handler = handler.clone();
+                                    let file_stream_semaphore = file_stream_semaphore.clone();
+                                    let mut conn_shutdown_rx = shutdown_tx.subscribe();
                                     task::spawn(async move {
+                                        let _permit = permit;
                                         let io = TokioIo::new(stream);
                                         let service = ServerService {
                                             responder,
+                                            handler,
+                                            file_stream_semaphore,
                                         };
-                                        if let Err(_e) = hyper::server::conn::http1::Builder::new()
-                                            .serve_connection(io, service)
-                                            .await
-                                        {
+                                        let conn = hyper::server::conn::http1::Builder::new()
+                                            .timer(TokioTimer::new())
+                                            .header_read_timeout(header_timeout)
+                                            .serve_connection(io, service);
+                                        let mut conn = std::pin::pin!(conn);
+                                        tokio::select! {
+                                            result = tokio::time::timeout(write_timeout, &mut conn) => {
+                                                match result {
+                                                    Ok(Ok(())) => {}
+                                                    Ok(Err(_e)) => {}
+                                                    Err(_elapsed) => {
+                                                        conn.as_mut().graceful_shutdown();
+                                                    }
+                                                }
+                                            }
+                                            _ = conn_shutdown_rx.recv() => {
+                                                conn.as_mut().graceful_shutdown();
+                                            }
                                         }
                                     });
                                 }
@@ -662,8 +731,11 @@ impl PyServer {
 }
 
 #[derive(Clone)]
+#[allow(dead_code)]
 struct ServerService {
     responder: PyStaticResponder,
+    handler: Option<Arc<std::sync::Mutex<Option<Py<PyAny>>>>>,
+    file_stream_semaphore: Arc<Semaphore>,
 }
 
 impl Service<Request<hyper::body::Incoming>> for ServerService {
@@ -674,6 +746,7 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
 
     fn call(&self, req: Request<hyper::body::Incoming>) -> Self::Future {
         let responder = self.responder.clone();
+        let handler = self.handler.clone();
 
         Box::pin(async move {
             let method = req.method().clone();
@@ -688,44 +761,111 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
             let query = uri.query().unwrap_or("").to_string();
             let http_version = format!("{:?}", req.version());
 
-            let response = task::spawn_blocking(move || {
-                let method_str = method.as_str().to_string();
-                let full_target = if query.is_empty() {
-                    target.clone()
-                } else {
-                    format!("{target}?{query}")
+            let method_str = method.as_str().to_string();
+            let full_target = if query.is_empty() {
+                target.clone()
+            } else {
+                format!("{target}?{query}")
+            };
+
+            let response = if let Some(handler_arc) = handler {
+                let py_request = PyRequest {
+                    method: method_str,
+                    path: target,
+                    query,
+                    headers,
+                    remote_addr: None,
+                    http_version,
+                    has_body,
                 };
 
-                if method_str != "GET" && method_str != "HEAD" {
-                    return build_error_response(405, "Method Not Allowed").unwrap();
-                }
-                if has_body {
-                    return build_error_response(400, "Bad Request").unwrap();
-                }
-
-                responder
-                    .respond(
-                        &method_str,
-                        &full_target,
-                        Some(headers),
-                        false,
-                        None,
-                        Some(http_version),
-                    )
-                    .unwrap_or_else(|e| {
-                        let py_str = e.to_string();
-                        let msg = py_str.strip_prefix("ValueError: ").unwrap_or(&py_str);
-                        if msg.starts_with("Path rejected") {
-                            build_error_response(403, "Forbidden").unwrap()
-                        } else if msg.starts_with("Invalid request target") {
-                            build_error_response(400, "Bad Request").unwrap()
-                        } else {
-                            build_error_response(500, "Internal Server Error").unwrap()
+                let handler_gil = handler_arc
+                    .lock()
+                    .map_err(|_| -> BoxError { "handler lock poisoned".into() })?;
+                let handler_ref = handler_gil
+                    .as_ref()
+                    .ok_or_else(|| -> BoxError { "handler already consumed".into() })?;
+                let response = Python::with_gil(|py| {
+                    let py_req_obj = py_request.into_pyobject(py)?;
+                    match handler_ref.bind(py).call1((py_req_obj,)) {
+                        Ok(obj) => {
+                            let status: u16 = obj
+                                .getattr("status")
+                                .and_then(|v| v.extract())
+                                .unwrap_or(500);
+                            let headers: HashMap<String, String> = obj
+                                .getattr("headers")
+                                .and_then(|v| v.extract())
+                                .unwrap_or_default();
+                            let body = match obj.getattr("body") {
+                                Ok(b) => {
+                                    let kind: String = b
+                                        .getattr("kind")
+                                        .and_then(|v| v.extract())
+                                        .unwrap_or_default();
+                                    match kind.as_str() {
+                                        "empty" => PyResponseBody::Empty,
+                                        "bytes" => {
+                                            let data: Vec<u8> = b
+                                                .call_method0("read_all")
+                                                .and_then(|v| v.extract())
+                                                .unwrap_or_default();
+                                            PyResponseBody::Bytes(data)
+                                        }
+                                        _ => PyResponseBody::Empty,
+                                    }
+                                }
+                                Err(_) => PyResponseBody::Empty,
+                            };
+                            Ok::<_, BoxError>(PyResponse {
+                                status,
+                                headers,
+                                body,
+                            })
                         }
-                    })
-            })
-            .await
-            .map_err(|e| -> BoxError { Box::new(e) })?;
+                        Err(e) => {
+                            eprintln!("Handler error: {e}");
+                            Err("handler raised an exception".into())
+                        }
+                    }
+                });
+                drop(handler_gil);
+
+                response
+                    .unwrap_or_else(|_| build_error_response(500, "Internal Server Error").unwrap())
+            } else {
+                task::spawn_blocking(move || {
+                    if method_str != "GET" && method_str != "HEAD" {
+                        return build_error_response(405, "Method Not Allowed").unwrap();
+                    }
+                    if has_body {
+                        return build_error_response(400, "Bad Request").unwrap();
+                    }
+
+                    responder
+                        .respond(
+                            &method_str,
+                            &full_target,
+                            Some(headers),
+                            false,
+                            None,
+                            Some(http_version),
+                        )
+                        .unwrap_or_else(|e| {
+                            let py_str = e.to_string();
+                            let msg = py_str.strip_prefix("ValueError: ").unwrap_or(&py_str);
+                            if msg.starts_with("Path rejected") {
+                                build_error_response(403, "Forbidden").unwrap()
+                            } else if msg.starts_with("Invalid request target") {
+                                build_error_response(400, "Bad Request").unwrap()
+                            } else {
+                                build_error_response(500, "Internal Server Error").unwrap()
+                            }
+                        })
+                })
+                .await
+                .map_err(|e| -> BoxError { Box::new(e) })?
+            };
 
             convert_to_hyper_response(response).await
         })
