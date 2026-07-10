@@ -11,8 +11,8 @@ eggserve/
 │   ├── eggserve-core/      # library: security primitives, HTTP serving
 │   ├── eggserve-bin/       # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/    # Python wheel (maturin + PyO3, independent build)
-├── docs/                   # project documentation (19 files)
-├── plans/                  # design plans (000–022 complete)
+├── docs/                   # project documentation (21 files)
+├── plans/                  # design plans (000–031 complete)
 ├── fuzz/                   # fuzzing targets
 └── examples/
 ```

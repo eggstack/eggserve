@@ -151,3 +151,7 @@ Pattern: spin up a TCP listener, accept connections via `hyper::server::conn::ht
 - [../docs/http-client-primitives.md](../docs/http-client-primitives.md) — Public API contract
 - [primitives-api.md](primitives-api.md) — Overall primitives API boundary
 - [eggserve-core.md](eggserve-core.md) — Core library overview
+
+## API Stability
+
+All client types are **experimental** in the first release. The client provides buffered, one-connection-per-request behavior with no pooling, redirects, cookies, proxies, retries, decompression, or streaming response API. See [api-stability.md](../docs/api-stability.md) for the full classification and [release-contract.md](../docs/release-contract.md) for behavioral guarantees.

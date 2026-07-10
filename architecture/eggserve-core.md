@@ -10,7 +10,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `policy.rs` | **pub** | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
 | `limits.rs` | **pub** | `Limits` — connection count, file streams, header/target/body sizes, timeouts |
-| `service.rs` | **pub** (experimental) | `handle_request()` — the HTTP handler |
+| `service.rs` | **pub** (experimental) | `handle_request()` — the HTTP handler. Stability: experimental. See [api-stability.md](../docs/api-stability.md) |
 | `error.rs` | pub(crate) | `Error` enum taxonomy |
 | `path/` | pub(crate) | Path confinement pipeline |
 | `fs/` | pub(crate) | Filesystem confinement |
@@ -112,3 +112,5 @@ pub enum Error {
 - [primitives-api.md](primitives-api.md) — Public API boundary
 - [response-planning.md](response-planning.md) — HTTP response planning
 - [client.md](client.md) — HTTP client primitives
+- [api-stability.md](../docs/api-stability.md) — API classification by stability tier
+- [release-contract.md](../docs/release-contract.md) — Product surface and compatibility commitments

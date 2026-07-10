@@ -173,7 +173,7 @@ match resource {
 
 ## Stability
 
-The `primitives` module is the **stable** tier. Breaking changes bump the major version. Pre-1.0, minor versions may break.
+The `primitives` module is the **stable** tier. Breaking changes bump the major version. Pre-1.0, minor versions may break. For the full API classification, see [api-stability.md](../docs/api-stability.md) and [release-contract.md](../docs/release-contract.md).
 
 ## See Also
 
@@ -181,6 +181,8 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 - [filesystem-confinement.md](filesystem-confinement.md) — `SecureRoot` internals
 - [path-confinement.md](path-confinement.md) — `ConfinedPath` construction
 - [eggserve-python.md](eggserve-python.md) — Python bindings for primitives
+- [api-stability.md](../docs/api-stability.md) — API classification by stability tier
+- [release-contract.md](../docs/release-contract.md) — Product surface and compatibility commitments
 
 ## API Classification
 

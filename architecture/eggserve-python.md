@@ -156,3 +156,13 @@ PYTHONPATH=python python -m unittest eggserve.test_server -v
 
 - [eggserve-core.md](eggserve-core.md) — Core library (native types)
 - [primitives-api.md](primitives-api.md) — Public API boundary
+
+## API Stability
+
+Python API stability follows the same tiers as the Rust core. See [api-stability.md](../docs/api-stability.md) for the full classification and [release-contract.md](../docs/release-contract.md) for the product surface.
+
+Key points:
+- `ServeConfig`, `ServerProcess`, `serve_directory`, and all native primitives are **stable**.
+- `Server`, `Request`, `Response`, `StaticResponder`, and server primitives are **stable**.
+- `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse`, `ClientError`, and `Method` are **experimental**.
+- Internal names (`_bin.py`, `_parse_bind`, `_config_to_argv`) are **internal** and not exported.

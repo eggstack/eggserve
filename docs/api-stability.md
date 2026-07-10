@@ -1,0 +1,275 @@
+# API Stability Inventory
+
+This document classifies every exported Rust and Python item by stability tier: **stable**, **experimental**, or **internal**. It is the authoritative reference for the release contract.
+
+See [release-contract.md](release-contract.md) for the overall product surface and behavioral guarantees.
+
+## Stability Tiers
+
+| Tier | Meaning |
+|------|---------|
+| **stable** | Intentional public API. Breaking changes bump the major version. Pre-1.0, minor versions may break. |
+| **experimental** | Functional but interface not finalized. May change in any release. Pin to a specific version. |
+| **internal** | Not part of the public contract. Used only for cross-crate communication. May be removed without notice. |
+
+## Rust API — `eggserve-core`
+
+### Crate Root Modules
+
+| Module | Visibility | Tier | Notes |
+|--------|-----------|------|-------|
+| `config` | pub | stable | `ServeConfig`, `StartupSummary`, `ServeState` |
+| `limits` | pub | stable | `Limits` resource-limit configuration |
+| `policy` | pub | stable | `StaticPolicy`, policy enums |
+| `service` | pub | experimental | `handle_request()` — HTTP handler |
+| `primitives` | pub | stable | Public facade for embedding consumers |
+| `error` | pub(crate) | internal | Not externally visible |
+| `fs` | pub(crate) | internal | Not externally visible |
+| `mime` | pub(crate) | internal | Not externally visible |
+| `path` | pub(crate) | internal | Not externally visible |
+| `response` | pub(crate) | internal | Not externally visible |
+
+### `config` Module
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `ServeConfig` | stable | All fields public: `bind`, `root`, `limits`, `static_policy` |
+| `ServeConfig::default()` | stable | Binds to `127.0.0.1:8000`, serves `.` |
+| `StartupSummary` | stable | Read-only summary after startup |
+| `ServeState` | stable | Runtime state; fields are pub(crate), methods are public |
+
+### `limits` Module
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `Limits` | stable | `max_connections`, `max_file_streams`, `header_read_timeout`, `response_write_timeout`, `graceful_shutdown_timeout` are pub; `max_request_body_bytes` is pub(crate) |
+| `Limits::default()` | stable | Safe defaults |
+
+### `policy` Module
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `DirectoryListingPolicy` | stable | Enum: `Disabled`, `Enabled` |
+| `SymlinkPolicy` | stable | Enum: `Denied`, `Follow` |
+| `DotfilePolicy` | stable | Enum: `Denied`, `Serve` |
+| `StaticPolicy` | stable | All fields public |
+| `PolicyMode` | internal | pub(crate) |
+
+### `service` Module
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `handle_request()` | experimental | The HTTP handler. May change with hyper version or protocol updates |
+
+### `primitives` Module — Path Types
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `ConfinedPath` | stable | Parsed request target |
+| `PathDotfilePolicy` | stable | Alias for `path::DotfilePolicy` |
+| `PathPolicy` | stable | Parse-time dotfile/backslash policy |
+| `PathRejection` | stable | 16-variant rejection taxonomy |
+
+### `primitives` Module — Policy Types (re-exported)
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `DirectoryListingPolicy` | stable | Re-export from `policy` |
+| `DotfilePolicy` | stable | Re-export from `policy` |
+| `StaticPolicy` | stable | Re-export from `policy` |
+| `SymlinkPolicy` | stable | Re-export from `policy` |
+
+### `primitives` Module — Secure Root
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `SecureRoot` | stable | Primary entry point for filesystem resolution |
+| `ResolvedResource` | stable | Capability object — file, directory, not-found, denied |
+| `ResolvedFile` | stable | File handle under policy. No public constructor |
+| `ResolvedDirectory` | stable | Directory listing and child resolution |
+| `ResourceDeniedReason` | stable | SymlinkDenied, DotfileDenied, RootEscapeDenied, PolicyDenied |
+| `resolve_and_plan()` | stable | Combined resolve + plan convenience function |
+| `ResolveAndPlanError` | stable | Error taxonomy for resolve_and_plan |
+
+### `primitives` Module — HTTP Validation
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `ReadOnlyMethod` | stable | GET, HEAD only |
+| `RequestValidationError` | stable | 6-variant HTTP validation error |
+| `validate_method()` | stable | Method string → ReadOnlyMethod |
+| `validate_request_body()` | stable | Body metadata validation |
+| `validate_request_target()` | stable | Target string validation |
+
+### `primitives` Module — Response Planning
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `plan_file_response()` | stable | Full response plan for a file |
+| `evaluate_conditional_headers()` | stable | If-None-Match / If-Modified-Since |
+| `evaluate_if_none_match()` | stable | ETag comparison |
+| `evaluate_range_header()` | stable | Range parsing |
+| `evaluate_if_range()` | stable | If-Range evaluation |
+| `generate_etag()` | stable | ETag from metadata |
+| `plan_directory_listing()` | stable | Directory listing plan |
+
+### `primitives` Module — Response Types
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `ResponseStatus` | stable | Newtype u16 with associated constants |
+| `ResponseHeader` | stable | `pub name: String`, `pub value: String` |
+| `HeaderMapPlan` | stable | Ordered Vec of ResponseHeader; preserves duplicates |
+| `FileRange` | stable | `pub start: u64`, `pub end_inclusive: u64` |
+| `BodyPlan` | stable | Enum: Empty, FullBytes, FileFull, FileRange |
+| `StaticResponsePlan` | stable | Status + headers + body plan |
+| `ConditionalRequestOutcome` | stable | NotModified, FullResponse, Malformed |
+| `RangeRequestOutcome` | stable | Satisfiable, NotSatisfiable, MalformedOrUnsupported, MultipleRanges |
+
+### `primitives` Module — Body Types
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `BodySource` | stable | Owned body: Empty, Bytes, FileFull, FileRange |
+| `BodyKind` | stable | Discriminant for BodySource |
+| `BodySourceError` | stable | InvalidRange, AlreadyConsumed |
+
+### `primitives::client` Module (feature-gated: `client`)
+
+**All client items are experimental.**
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `HttpClient` | experimental | Buffered, no pooling, no redirects, no streaming |
+| `ClientConfig` | experimental | Timeout and TLS config |
+| `ClientRequest` | experimental | Request value object |
+| `ClientRequestBuilder` | experimental | Builder pattern |
+| `Method` | experimental | Get, Head, Post, Put, Delete, Patch |
+| `validate_header()` | experimental | Header name/value validation |
+| `ClientResponse` | experimental | Buffered response |
+| `ClientError` | experimental | 12-variant error taxonomy |
+| `Scheme` | experimental | Http, Https |
+| `ParsedUrl` | experimental | Hand-parsed URL |
+
+## Python API — `eggserve` Package
+
+### `eggserve.__init__` — Always Available
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `__version__` | stable | Version string |
+| `ServeConfig` | stable | Server configuration dataclass |
+| `ServerProcess` | stable | Subprocess lifecycle manager |
+| `serve_directory()` | stable | Blocking convenience function |
+| `ResponsePlan` | stable | Namedtuple for response plan |
+| `NATIVE_AVAILABLE` | stable | Whether native module loaded |
+
+### `eggserve.server` — `__all__`
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `StaticPolicy` | stable | Policy dataclass (directory_listing, follow_symlinks, allow_dotfiles) |
+| `ServeConfig` | stable | Config dataclass |
+| `ServerProcess` | stable | Subprocess lifecycle |
+| `serve_directory()` | stable | Blocking server |
+
+### `eggserve._native` — Primitives (when NATIVE_AVAILABLE)
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `EggserveError` | stable | Base exception |
+| `PathPolicyError` | stable | Child of EggserveError |
+| `RequestTargetError` | stable | Child of EggserveError |
+| `RequestValidationError` | stable | Child of EggserveError |
+| `SecureRootError` | stable | Child of EggserveError |
+| `BodySourceError` | stable | Child of EggserveError |
+| `PathPolicy` | stable | Frozen, mirrors Rust PathPolicy |
+| `StaticPolicy` | stable | Frozen, mirrors Rust StaticPolicy |
+| `RequestTarget` | stable | Frozen, mirrors ConfinedPath |
+| `SecureRoot` | stable | Resolution entry point |
+| `ResolvedResource` | stable | Capability object |
+| `ResolvedFile` | stable | File metadata + plan_response/body_for_plan |
+| `ResolvedDirectory` | stable | list() + resolve_child() |
+| `BodySource` | stable | Body read access |
+| `validate_method()` | stable | Method validation |
+| `validate_request_body()` | stable | Body validation |
+| `validate_request_target()` | stable | Target validation |
+| `generate_etag()` | stable | ETag generation |
+
+### `eggserve._native` — Server Types (when NATIVE_AVAILABLE)
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `Request` | stable | Frozen request object |
+| `Response` | stable | Frozen response builder |
+| `StaticResponder` | stable | Static file responder |
+| `StaticPolicyWrapper` | stable | Frozen policy wrapper |
+| `ServerSecureRoot` | stable | Frozen secure root |
+| `ServerBodySource` | stable | Body read + to_response |
+| `ServerRequestError` | stable | Raised as ValueError |
+| `Server` | stable | Rust-owned HTTP server |
+
+### `eggserve._native` — Client Types (when NATIVE_AVAILABLE, feature-gated: `client`)
+
+**All client types are experimental.**
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `HttpClient` | experimental | Buffered HTTP client |
+| `ClientConfig` | experimental | Timeout/TLS config |
+| `ClientRequest` | experimental | Request value |
+| `ClientResponse` | experimental | Buffered response |
+| `ClientError` | experimental | Error enum |
+| `Method` | experimental | HTTP method enum |
+
+### Internal Names (not in `__all__`)
+
+| Name | Location | Tier |
+|------|----------|------|
+| `_find_binary()` | `_bin.py` | internal |
+| `main()` | `_bin.py` | internal |
+| `_parse_bind()` | `server.py` | internal |
+| `_config_to_argv()` | `server.py` | internal |
+| `_VALID_LOG_FORMATS` | `server.py` | internal |
+
+## Internal Bridge APIs
+
+The `python-bindings-internal` feature gate enables:
+
+| Rust Item | Gate | Tier |
+|-----------|------|------|
+| `ResolvedFile::into_std_file()` | `python-bindings-internal` | internal |
+| `ResolvedFile::into_parts()` | `python-bindings-internal` | internal |
+| `ResolvedFile::from_parts()` | `python-bindings-internal` | internal |
+
+These methods:
+- Are disabled by default
+- Are not documented as a user feature
+- Are used only by the Python crate
+- Do not appear in default Rust docs or package examples
+- Are unavailable under `default` or `client` feature builds
+
+## Key Design Decisions
+
+### Header Representation
+
+- **Rust**: `HeaderMapPlan` is an ordered `Vec<ResponseHeader>`. Duplicates are preserved.
+- **Python**: `Response.headers` is `HashMap<String, String>`. Duplicates are lost.
+- **Decision**: The Rust core preserves duplicates. The Python surface uses a flat dict for simplicity. This is an acceptable trade-off for the initial release. A future revision may add ordered-pair support if duplicate headers become a common use case.
+
+### Response Contract
+
+- Python handlers must return a `Response` object (or duck-typed equivalent).
+- Invalid returns produce 500 without leaking tracebacks.
+- HEAD is not special-cased in the Python handler path.
+- 204 and informational statuses are not special-cased — the handler is responsible.
+- Hop-by-hop headers are not filtered — the handler should not emit them.
+- File-backed responses are eagerly read to bytes in the handler path.
+
+### Client Stability
+
+The client is **experimental** in the first release. It provides:
+- Buffered, one-connection-per-request behavior
+- No pooling, redirects, cookies, proxies, retries, decompression, or streaming
+- TLS verification by default
+- Timeout enforcement
