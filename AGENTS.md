@@ -71,8 +71,9 @@ eggserve/
 │           ├── __main__.py # python -m eggserve
 │           ├── _bin.py     # locates and executes packaged binary
 │           ├── server.py   # Python API: ServeConfig, StaticPolicy, serve_directory, ServerProcess
-│           ├── test_primitives.py # native primitives tests (142 tests)
-│           ├── test_server_primitives.py # server primitives tests (47 tests)
+│           ├── test_primitives.py # native primitives tests (143 tests)
+│           ├── test_server_primitives.py # server primitives tests (56 tests)
+│           ├── test_server_integration.py # live concurrency/timeout/shutdown tests (47 tests)
 │           └── test_server.py     # subprocess API tests (43 tests)
 ├── architecture/           # deep-dive docs for each subsystem
 ├── docs/                   # project documentation
@@ -143,6 +144,13 @@ Python client primitives tests (requires built wheel):
 ```sh
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_client_primitives -v
+```
+
+Python server integration tests (requires built wheel):
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
 ```
 
 ## Toolchain notes

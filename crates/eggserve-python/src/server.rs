@@ -15,7 +15,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyBytes;
 use tokio::io::{AsyncReadExt, AsyncSeekExt};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 use tokio::task;
 
 use eggserve_core::policy;
@@ -729,7 +729,7 @@ impl PyServer {
         Ok(())
     }
 
-    fn stop(&self) -> PyResult<()> {
+    fn stop(&self, py: Python<'_>) -> PyResult<()> {
         let mut tx_guard = self
             .shutdown_tx
             .lock()
@@ -744,7 +744,9 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(handle) = handle_guard.take() {
-            let _ = handle.join();
+            py.allow_threads(|| {
+                let _ = handle.join();
+            });
         }
         drop(handle_guard);
 
@@ -767,8 +769,9 @@ impl PyServer {
         _exc_type: Option<&Bound<'_, PyAny>>,
         _exc_value: Option<&Bound<'_, PyAny>>,
         _traceback: Option<&Bound<'_, PyAny>>,
+        py: Python<'_>,
     ) -> PyResult<bool> {
-        self.stop()?;
+        self.stop(py)?;
         Ok(false)
     }
 
@@ -1000,11 +1003,15 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
     }
 }
 
-fn stream_file(file: tokio::fs::File, limit: Option<u64>) -> FileStream {
+fn stream_file(
+    file: tokio::fs::File,
+    limit: Option<u64>,
+    permit: Option<OwnedSemaphorePermit>,
+) -> FileStream {
     let initial_remaining = limit.unwrap_or(u64::MAX);
     let stream = futures_util::stream::unfold(
-        (file, initial_remaining),
-        |(mut file, remaining)| async move {
+        (file, initial_remaining, permit),
+        |(mut file, remaining, permit)| async move {
             if remaining == 0 {
                 return None;
             }
@@ -1017,7 +1024,7 @@ fn stream_file(file: tokio::fs::File, limit: Option<u64>) -> FileStream {
                     buf.truncate(n);
                     Some((
                         Ok::<_, std::io::Error>(Frame::data(Bytes::from(buf))),
-                        (file, remaining - n as u64),
+                        (file, remaining - n as u64, permit),
                     ))
                 }
                 Err(_) => None,
@@ -1099,7 +1106,7 @@ async fn convert_to_hyper_response(
                 Ok(builder.body(body)?)
             }
             BodySource::FileFull { file, len, mime } => {
-                let _permit = if let Some(sem) = &file_stream_semaphore {
+                let permit = if let Some(sem) = &file_stream_semaphore {
                     Some(
                         sem.clone()
                             .acquire_owned()
@@ -1112,7 +1119,7 @@ async fn convert_to_hyper_response(
                 builder = builder.header("content-type", mime);
                 builder = builder.header("content-length", len.to_string());
                 let tokio_file = tokio::fs::File::from_std(file);
-                let body = stream_file(tokio_file, None)
+                let body = stream_file(tokio_file, None, permit)
                     .map_err(|e| -> BoxError { Box::new(e) })
                     .boxed();
                 Ok(builder.body(body)?)
@@ -1123,7 +1130,7 @@ async fn convert_to_hyper_response(
                 total_len,
                 mime,
             } => {
-                let _permit = if let Some(sem) = &file_stream_semaphore {
+                let permit = if let Some(sem) = &file_stream_semaphore {
                     Some(
                         sem.clone()
                             .acquire_owned()
@@ -1146,7 +1153,7 @@ async fn convert_to_hyper_response(
 
                 let mut tokio_file = tokio::fs::File::from_std(file);
                 tokio_file.seek(std::io::SeekFrom::Start(start)).await?;
-                let body = stream_file(tokio_file, Some(range_len))
+                let body = stream_file(tokio_file, Some(range_len), permit)
                     .map_err(|e| -> BoxError { Box::new(e) })
                     .boxed();
                 Ok(builder.body(body)?)

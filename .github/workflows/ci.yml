@@ -119,6 +119,8 @@ jobs:
             python -m unittest eggserve.test_server_primitives -v
           PYTHONPATH=crates/eggserve-python/python \
             python -m unittest eggserve.test_client_primitives -v
+          PYTHONPATH=crates/eggserve-python/python \
+            python -m unittest eggserve.test_server_integration -v
 
   audit:
     runs-on: ubuntu-latest

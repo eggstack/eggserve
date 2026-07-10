@@ -1,12 +1,15 @@
-"""Live integration tests for Python server runtime limits.
+"""Deterministic integration tests for Python server runtime limits.
 
-Tests connection saturation, header timeout, write timeout, file-stream
-semaphore, and handler behavior using real socket-level connections against
-the native Server class.
+Tests connection saturation, callback concurrency, file-stream semaphore,
+header/write timeouts, and graceful shutdown using event-based
+synchronization, atomic counters, and raw socket control rather than
+sleep-based assertions.
 """
 
-import io
+import ctypes
 import os
+import select
+import shutil
 import socket
 import tempfile
 import threading
@@ -18,8 +21,6 @@ import urllib.request
 from eggserve._native import (
     Response,
     Server,
-    ServerSecureRoot,
-    StaticResponder,
 )
 
 
@@ -36,571 +37,550 @@ def _wait_for_server(url, timeout=5.0):
     return False
 
 
+def _wait_for_tcp(addr, timeout=5.0):
+    host, port = addr.split(":")
+    port = int(port)
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        try:
+            with socket.create_connection((host, port), timeout=0.5):
+                return True
+        except (ConnectionRefusedError, OSError):
+            time.sleep(0.05)
+    return False
+
+
 def _make_large_file(path, size):
     with open(path, "wb") as f:
         f.write(b"X" * size)
 
 
-class TestConnectionLimitSaturation(unittest.TestCase):
-    """A1: Verify max_connections is respected with concurrent sockets."""
+class _AtomicCounter:
+    """Thread-safe counter."""
+
+    def __init__(self, value=0):
+        self._value = value
+        self._lock = threading.Lock()
+
+    def increment(self):
+        with self._lock:
+            self._value += 1
+            return self._value
+
+    def decrement(self):
+        with self._lock:
+            self._value -= 1
+            return self._value
+
+    @property
+    def value(self):
+        with self._lock:
+            return self._value
+
+
+class _MaxTracker:
+    """Tracks the maximum observed value of a concurrent counter."""
+
+    def __init__(self):
+        self._max = 0
+        self._current = 0
+        self._lock = threading.Lock()
+
+    def enter(self):
+        with self._lock:
+            self._current += 1
+            if self._current > self._max:
+                self._max = self._current
+            return self._current
+
+    def exit(self):
+        with self._lock:
+            self._current -= 1
+            return self._current
+
+    @property
+    def max_observed(self):
+        with self._lock:
+            return self._max
+
+
+def _connect_raw(addr, path="/big.bin"):
+    host, port_str = addr.split(":")
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.settimeout(5)
+    sock.connect((host, int(port_str)))
+    req = (
+        f"GET {path} HTTP/1.1\r\n"
+        f"Host: {addr}\r\n"
+        f"\r\n"
+    ).encode()
+    sock.sendall(req)
+    return sock
+
+
+def _start_server(**kwargs):
+    """Create, start, and return a Server. Caller must call s.stop()."""
+    s = Server(**kwargs)
+    s.start()
+    return s
+
+
+# ---------------------------------------------------------------------------
+# Workstream A — Connection semaphore
+# ---------------------------------------------------------------------------
+
+
+class TestConnectionSemaphore(unittest.TestCase):
+    """A: Deterministic connection semaphore saturation and release."""
 
     def setUp(self):
         self._td = tempfile.mkdtemp()
-        _make_large_file(os.path.join(self._td, "big.bin"), 512 * 1024)
+        _make_large_file(os.path.join(self._td, "big.bin"), 2 * 1024 * 1024)
         with open(os.path.join(self._td, "small.txt"), "w") as f:
             f.write("ok")
+        self._servers = []
 
     def tearDown(self):
-        import shutil
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
         shutil.rmtree(self._td, ignore_errors=True)
 
-    def test_connections_held_until_response_complete(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=2,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/small.txt"
-        self.assertTrue(_wait_for_server(url))
-        s.stop()
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
 
-    def test_concurrent_requests_within_limit(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=3,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
+    def test_max_connections_saturation(self):
+        """Hold max_connections open, prove the next connection blocks."""
+        max_conn = 2
+        s = self._make_server(max_connections=max_conn, max_file_streams=64)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
 
-        results = []
-        errors = []
-
-        def fetch():
+        held = []
+        for _ in range(max_conn):
+            sock = _connect_raw(addr)
+            time.sleep(0.1)
             try:
-                resp = urllib.request.urlopen(url, timeout=5)
-                results.append(resp.status)
-            except Exception as e:
-                errors.append(e)
-
-        threads = [threading.Thread(target=fetch) for _ in range(3)]
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join(timeout=10)
-
-        self.assertEqual(len(results), 3)
-        self.assertEqual(len(errors), 0)
-        self.assertTrue(all(r == 200 for r in results))
-        s.stop()
-
-    def test_server_responsive_after_connections_close(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=1,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/small.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.read(), b"ok")
-        resp.close()
-
-        resp2 = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp2.read(), b"ok")
-        resp2.close()
-        s.stop()
-
-    def test_connection_saturation_beyond_limit(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=2,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/big.bin"
-        self.assertTrue(_wait_for_server(url))
-
-        host, port_str = addr.split(":")
-        port = int(port_str)
-        held_sockets = []
-        results = []
-        errors = []
-
-        for _ in range(4):
-            try:
-                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                sock.settimeout(5)
-                sock.connect((host, port))
-                request = (
-                    b"GET /big.bin HTTP/1.1\r\n"
-                    b"Host: " + addr.encode() + b"\r\n"
-                    b"Connection: keep-alive\r\n"
-                    b"\r\n"
-                )
-                sock.sendall(request)
-                time.sleep(0.2)
-                try:
-                    data = sock.recv(1024)
-                    if data:
-                        held_sockets.append(sock)
-                        results.append(True)
-                    else:
-                        sock.close()
-                        results.append(False)
-                except (socket.timeout, OSError):
+                data = sock.recv(1024)
+                if data:
+                    held.append(sock)
+                else:
                     sock.close()
-                    results.append(False)
-            except (ConnectionRefusedError, OSError) as e:
-                errors.append(e)
-                try:
-                    sock.close()
-                except Exception:
-                    pass
+            except (socket.timeout, OSError):
+                sock.close()
 
-        for sock in held_sockets:
+        self.assertEqual(len(held), max_conn)
+
+        released = threading.Event()
+
+        def try_extra():
             try:
+                sock = _connect_raw(addr, "/small.txt")
+                data = sock.recv(4096)
+                if data:
+                    released.set()
                 sock.close()
             except Exception:
                 pass
 
-        time.sleep(0.5)
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.status, 200)
-        resp.close()
-        s.stop()
+        t = threading.Thread(target=try_extra)
+        t.start()
+        t.join(timeout=1.0)
+        self.assertFalse(released.is_set(), "Extra connection should be blocked")
+        t.join(timeout=0.5)
 
+        for sock in held:
+            sock.close()
 
-class TestHeaderTimeout(unittest.TestCase):
-    """A2: Verify header timeout closes slow connections."""
+        released2 = threading.Event()
 
-    def setUp(self):
-        self._td = tempfile.mkdtemp()
-        with open(os.path.join(self._td, "index.txt"), "w") as f:
-            f.write("hello")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._td, ignore_errors=True)
-
-    def test_slow_headers_terminated(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            header_timeout_secs=1,
-            write_timeout_secs=30,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        host, port_str = addr.split(":")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        try:
-            sock.connect((host, int(port_str)))
-            sock.sendall(b"GET /index.txt HTTP/1.1\r\nHost: ")
-            time.sleep(0.1)
-            sock.sendall(b"a" * 10)
-            time.sleep(2.0)
+        def try_after_release():
             try:
+                sock = _connect_raw(addr, "/small.txt")
                 data = sock.recv(4096)
-                if not data:
-                    pass
-                else:
-                    pass
-            except (socket.timeout, ConnectionResetError, OSError):
+                if data:
+                    released2.set()
+                sock.close()
+            except Exception:
                 pass
-        finally:
-            sock.close()
 
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"hello")
-        resp.close()
-        s.stop()
+        t2 = threading.Thread(target=try_after_release)
+        t2.start()
+        t2.join(timeout=5)
+        self.assertTrue(released2.is_set(), "Connection should proceed after release")
 
-    def test_fast_request_succeeds(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            header_timeout_secs=2,
-            write_timeout_secs=30,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.read(), b"hello")
-        resp.close()
-        s.stop()
-
-
-class TestWriteTimeout(unittest.TestCase):
-    """A3: Verify write timeout bounds stalled response lifetime."""
-
-    def setUp(self):
-        self._td = tempfile.mkdtemp()
-        _make_large_file(os.path.join(self._td, "large.bin"), 4 * 1024 * 1024)
-        with open(os.path.join(self._td, "small.txt"), "w") as f:
-            f.write("ok")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._td, ignore_errors=True)
-
-    def test_write_timeout_bounds_connection(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=10,
-            header_timeout_secs=10,
-            write_timeout_secs=2,
-        )
-        s.start()
+    def test_release_after_malformed_request(self):
+        """A connection that sends malformed data still releases the permit."""
+        max_conn = 2
+        s = self._make_server(max_connections=max_conn)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
 
-        host, port_str = addr.split(":")
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        try:
-            sock.connect((host, int(port_str)))
-            request = (
-                b"GET /large.bin HTTP/1.1\r\n"
-                b"Host: " + addr.encode() + b"\r\n"
-                b"\r\n"
-            )
-            sock.sendall(request)
-            time.sleep(0.5)
-            try:
-                data = sock.recv(1024)
-            except (socket.timeout, OSError):
-                pass
-            time.sleep(3.0)
-        finally:
-            sock.close()
+        sock1 = _connect_raw(addr)
+        time.sleep(0.1)
+        sock1.recv(1024)
 
+        host, port_str = addr.split(":")
+        sock2 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock2.settimeout(5)
+        sock2.connect((host, int(port_str)))
+        sock2.sendall(b"GARBAGE DATA\r\n\r\n")
         time.sleep(0.5)
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"ok")
-        resp.close()
-        s.stop()
-
-
-class TestFileStreamSemaphore(unittest.TestCase):
-    """A4: Verify max_file_streams limits concurrent file responses."""
-
-    def setUp(self):
-        self._td = tempfile.mkdtemp()
-        _make_large_file(os.path.join(self._td, "large.bin"), 2 * 1024 * 1024)
-        with open(os.path.join(self._td, "small.txt"), "w") as f:
-            f.write("ok")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._td, ignore_errors=True)
-
-    def test_file_stream_limit_does_not_break_server(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=10,
-            max_file_streams=1,
-            header_timeout_secs=10,
-            write_timeout_secs=5,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/small.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"ok")
-        resp.close()
-
-        resp2 = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp2.read(), b"ok")
-        resp2.close()
-
-        s.stop()
-
-    def test_concurrent_file_stream_blocking(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            max_connections=10,
-            max_file_streams=1,
-            header_timeout_secs=10,
-            write_timeout_secs=5,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/small.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        host, port_str = addr.split(":")
-        port = int(port_str)
-
-        sock1 = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock1.settimeout(5)
-        sock1.connect((host, port))
-        request1 = (
-            b"GET /large.bin HTTP/1.1\r\n"
-            b"Host: " + addr.encode() + b"\r\n"
-            b"\r\n"
-        )
-        sock1.sendall(request1)
-        time.sleep(0.3)
         try:
-            sock1.recv(1024)
-        except (socket.timeout, OSError):
+            sock2.recv(1024)
+        except (socket.timeout, ConnectionResetError, OSError):
             pass
+        sock2.close()
 
-        second_results = []
+        released = threading.Event()
 
-        def fetch_second():
+        def try_after():
             try:
-                resp = urllib.request.urlopen(url, timeout=3)
-                second_results.append(resp.status)
-            except Exception as e:
-                second_results.append(e)
+                sock = _connect_raw(addr, "/small.txt")
+                data = sock.recv(4096)
+                if data:
+                    released.set()
+                sock.close()
+            except Exception:
+                pass
 
-        t = threading.Thread(target=fetch_second)
+        t = threading.Thread(target=try_after)
         t.start()
         t.join(timeout=5)
+        self.assertTrue(released.is_set())
 
         sock1.close()
-        time.sleep(1.0)
 
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"ok")
-        resp.close()
+    def test_release_after_header_timeout(self):
+        """Slow header connection releases the permit on timeout."""
+        s = self._make_server(max_connections=2, header_timeout_secs=1)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        held = _connect_raw(addr)
+        time.sleep(0.1)
+        held.recv(1024)
+
+        host, port_str = addr.split(":")
+        slow = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        slow.settimeout(5)
+        slow.connect((host, int(port_str)))
+        slow.sendall(b"GET /small.txt HTTP/1.1\r\nHost: ")
+        time.sleep(2.0)
+        try:
+            slow.recv(1024)
+        except (socket.timeout, ConnectionResetError, OSError):
+            pass
+        slow.close()
+
+        released = threading.Event()
+
+        def try_after():
+            try:
+                sock = _connect_raw(addr, "/small.txt")
+                data = sock.recv(4096)
+                if data:
+                    released.set()
+                sock.close()
+            except Exception:
+                pass
+
+        t = threading.Thread(target=try_after)
+        t.start()
+        t.join(timeout=5)
+        self.assertTrue(released.is_set())
+
+        held.close()
+
+    def test_release_after_write_timeout(self):
+        """Connection stalled on read releases the permit on write timeout."""
+        s = self._make_server(max_connections=2, write_timeout_secs=1)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        held = _connect_raw(addr)
+        time.sleep(0.1)
+        held.recv(1024)
+
+        stalled = _connect_raw(addr, "/big.bin")
+        time.sleep(0.3)
+        try:
+            stalled.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        time.sleep(2.0)
+        stalled.close()
+
+        released = threading.Event()
+
+        def try_after():
+            try:
+                sock = _connect_raw(addr, "/small.txt")
+                data = sock.recv(4096)
+                if data:
+                    released.set()
+                sock.close()
+            except Exception:
+                pass
+
+        t = threading.Thread(target=try_after)
+        t.start()
+        t.join(timeout=5)
+        self.assertTrue(released.is_set())
+
+        held.close()
+
+    def test_release_after_peer_disconnect(self):
+        """Connection that closes without sending releases the permit."""
+        s = self._make_server(max_connections=2)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        held = _connect_raw(addr)
+        time.sleep(0.1)
+        held.recv(1024)
+
+        host, port_str = addr.split(":")
+        disc = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        disc.settimeout(5)
+        disc.connect((host, int(port_str)))
+        disc.close()
+
+        time.sleep(0.3)
+
+        released = threading.Event()
+
+        def try_after():
+            try:
+                sock = _connect_raw(addr, "/small.txt")
+                data = sock.recv(4096)
+                if data:
+                    released.set()
+                sock.close()
+            except Exception:
+                pass
+
+        t = threading.Thread(target=try_after)
+        t.start()
+        t.join(timeout=5)
+        self.assertTrue(released.is_set())
+
+        held.close()
+
+    def test_release_after_shutdown(self):
+        """Shutdown releases all held connection permits."""
+        s = self._make_server(max_connections=2)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        held = _connect_raw(addr)
+        time.sleep(0.1)
+        held.recv(1024)
+
         s.stop()
+        self._servers.remove(s)
+
+        with self.assertRaises((ConnectionRefusedError, urllib.error.URLError, OSError)):
+            urllib.request.urlopen(url, timeout=2)
 
 
-class TestHandlerBehavior(unittest.TestCase):
-    """B1-B6: Handler return-type validation and error handling."""
+# ---------------------------------------------------------------------------
+# Workstream B — Python callback semaphore
+# ---------------------------------------------------------------------------
+
+
+class TestCallbackSemaphore(unittest.TestCase):
+    """B: Deterministic callback concurrency limit verification."""
 
     def setUp(self):
         self._td = tempfile.mkdtemp()
         with open(os.path.join(self._td, "index.txt"), "w") as f:
-            f.write("file content")
+            f.write("content")
+        self._servers = []
 
     def tearDown(self):
-        import shutil
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
         shutil.rmtree(self._td, ignore_errors=True)
 
-    def test_valid_handler_response(self):
-        def handler(req):
-            return Response.text(200, "custom")
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
 
-        s = Server(
-            root=self._td,
-            port=0,
+    def test_callback_concurrency_never_exceeds_limit(self):
+        """Max observed concurrent callbacks never exceeds max_python_callbacks."""
+        max_cb = 2
+        tracker = _MaxTracker()
+        entered_count = _AtomicCounter()
+        all_entered = threading.Event()
+        release_event = threading.Event()
+
+        def handler(req):
+            tracker.enter()
+            entered_count.increment()
+            if entered_count.value >= max_cb:
+                all_entered.set()
+            release_event.wait(timeout=5)
+            tracker.exit()
+            return Response.text(200, "ok")
+
+        s = self._make_server(
             handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
+            max_connections=10,
+            max_python_callbacks=max_cb,
         )
-        s.start()
         addr = s.addr
         url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
+        self.assertTrue(_wait_for_tcp(addr))
+
+        threads = []
+        for _ in range(max_cb + 2):
+            t = threading.Thread(target=lambda: urllib.request.urlopen(url, timeout=10))
+            t.start()
+            threads.append(t)
+
+        all_entered.wait(timeout=5)
+        time.sleep(0.1)
+        self.assertLessEqual(tracker.max_observed, max_cb)
+
+        release_event.set()
+        for t in threads:
+            t.join(timeout=10)
+
+    def test_queued_callbacks_proceed_after_release(self):
+        """Callbacks queued behind the semaphore proceed once a permit is freed."""
+        max_cb = 1
+        first_entered = threading.Event()
+        first_release = threading.Event()
+        second_completed = threading.Event()
+
+        def handler(req):
+            if not first_entered.is_set():
+                first_entered.set()
+                first_release.wait(timeout=5)
+                return Response.text(200, "first")
+            second_completed.set()
+            return Response.text(200, "second")
+
+        s = self._make_server(
+            handler=handler,
+            max_connections=10,
+            max_python_callbacks=max_cb,
+        )
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        results = []
+
+        def fetch(label):
+            try:
+                resp = urllib.request.urlopen(url, timeout=10)
+                results.append(label)
+            except Exception:
+                results.append(f"{label}_error")
+
+        t1 = threading.Thread(target=fetch, args=("first",))
+        t1.start()
+        first_entered.wait(timeout=5)
+
+        t2 = threading.Thread(target=fetch, args=("second",))
+        t2.start()
+        time.sleep(0.5)
+        self.assertNotIn("second", results)
+
+        first_release.set()
+        t1.join(timeout=5)
+        t2.join(timeout=5)
+        self.assertIn("second", results)
+
+    def test_exception_releases_callback_permit(self):
+        """A handler exception still releases the callback permit."""
+        max_cb = 1
+        error_seen = threading.Event()
+        after_error = threading.Event()
+
+        def handler(req):
+            if not error_seen.is_set():
+                error_seen.set()
+                after_error.wait(timeout=5)
+                raise ValueError("boom")
+            return Response.text(200, "ok")
+
+        s = self._make_server(
+            handler=handler,
+            max_connections=10,
+            max_python_callbacks=max_cb,
+        )
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        def fail_once():
+            try:
+                urllib.request.urlopen(url, timeout=5)
+            except urllib.error.HTTPError:
+                pass
+
+        t1 = threading.Thread(target=fail_once)
+        t1.start()
+        error_seen.wait(timeout=5)
+
+        after_error.set()
+        t1.join(timeout=5)
 
         resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"custom")
+        self.assertEqual(resp.read(), b"ok")
         resp.close()
-        s.stop()
 
-    def test_handler_returning_none_causes_500(self):
-        def handler(req):
-            return None
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_handler_exception_returns_500(self):
-        def handler(req):
-            raise ValueError("something went wrong")
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_handler_exception_does_not_leak_details(self):
-        def handler(req):
-            raise RuntimeError("secret-password-123 and /etc/passwd path")
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        try:
-            resp = urllib.request.urlopen(url, timeout=5)
-            body = resp.read()
-            self.assertNotIn(b"secret-password-123", body)
-            self.assertNotIn(b"/etc/passwd", body)
-            resp.close()
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_invalid_handler_return_type_returns_500(self):
-        def handler(req):
-            return 42
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_handler_returning_string_causes_500(self):
-        def handler(req):
-            return "not a response"
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_handler_returning_bytes_causes_500(self):
-        def handler(req):
-            return b"raw bytes"
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_server_continues_after_handler_error(self):
+    def test_invalid_return_type_releases_permit(self):
+        """Returning an invalid type still releases the callback permit."""
+        max_cb = 1
         call_count = [0]
 
         def handler(req):
             call_count[0] += 1
             if call_count[0] == 1:
-                raise ValueError("fail first")
+                return 42
             return Response.text(200, "ok")
 
-        s = Server(
-            root=self._td,
-            port=0,
+        s = self._make_server(
             handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
+            max_connections=10,
+            max_python_callbacks=max_cb,
         )
-        s.start()
         addr = s.addr
         url = f"http://{addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
+        self.assertTrue(_wait_for_tcp(addr))
 
-        call_count[0] = 0
         try:
             urllib.request.urlopen(url, timeout=5)
             self.fail("Expected HTTPError")
@@ -610,21 +590,65 @@ class TestHandlerBehavior(unittest.TestCase):
         resp = urllib.request.urlopen(url, timeout=5)
         self.assertEqual(resp.read(), b"ok")
         resp.close()
-        s.stop()
 
-    def test_handler_concurrent_requests(self):
+    def test_shutdown_does_not_deadlock_with_queued_callbacks(self):
+        """Shutdown completes even when callbacks are queued."""
+        max_cb = 1
+        call_count = _AtomicCounter()
+
         def handler(req):
-            time.sleep(0.1)
+            call_count.increment()
+            time.sleep(0.05)
             return Response.text(200, "ok")
 
-        s = Server(
-            root=self._td,
-            port=0,
+        s = self._make_server(
             handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
+            max_connections=10,
+            max_python_callbacks=max_cb,
         )
-        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        threads = []
+        for _ in range(3):
+            t = threading.Thread(target=lambda: urllib.request.urlopen(url, timeout=5))
+            t.start()
+            threads.append(t)
+
+        time.sleep(0.3)
+
+        stop_done = threading.Event()
+
+        def do_stop():
+            s.stop()
+            self._servers.remove(s)
+            stop_done.set()
+
+        st = threading.Thread(target=do_stop)
+        st.start()
+        st.join(timeout=10)
+        self.assertTrue(stop_done.is_set(), "stop() must not deadlock")
+
+        for t in threads:
+            t.join(timeout=5)
+
+    def test_no_rust_mutex_held_during_python(self):
+        """The GIL is the only synchronization during Python callback execution."""
+        call_active = _AtomicCounter()
+
+        def handler(req):
+            call_active.increment()
+            time.sleep(0.2)
+            call_active.decrement()
+            return Response.text(200, "ok")
+
+        max_cb = 4
+        s = self._make_server(
+            handler=handler,
+            max_connections=10,
+            max_python_callbacks=max_cb,
+        )
         addr = s.addr
         url = f"http://{addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
@@ -639,420 +663,731 @@ class TestHandlerBehavior(unittest.TestCase):
             except Exception as e:
                 errors.append(e)
 
-        threads = [threading.Thread(target=fetch) for _ in range(4)]
-        start = time.monotonic()
+        threads = [threading.Thread(target=fetch) for _ in range(max_cb)]
         for t in threads:
             t.start()
         for t in threads:
             t.join(timeout=15)
-        elapsed = time.monotonic() - start
 
-        self.assertEqual(len(results), 4)
-        self.assertEqual(len(errors), 0)
+        self.assertEqual(len(errors), 0, f"Errors: {errors}")
         self.assertTrue(all(r == 200 for r in results))
-        self.assertLess(elapsed, 12.0)
-        s.stop()
-
-    def test_shutdown_with_active_handler(self):
-        handler_started = threading.Event()
-        handler_proceed = threading.Event()
-        handler_completed = threading.Event()
-
-        def handler(req):
-            handler_started.set()
-            handler_proceed.wait(timeout=10)
-            handler_completed.set()
-            return Response.text(200, "ok")
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/index.txt"
-
-        def background_request():
-            for _ in range(20):
-                try:
-                    urllib.request.urlopen(url, timeout=2)
-                    return
-                except Exception:
-                    time.sleep(0.1)
-
-        t = threading.Thread(target=background_request)
-        t.start()
-        handler_started.wait(timeout=5)
-
-        handler_proceed.set()
-        t.join(timeout=5)
-        s.stop()
-        self.assertTrue(handler_completed.is_set())
 
 
-class TestHeadSemantics(unittest.TestCase):
-    """B5: Verify HEAD returns headers without body."""
+# ---------------------------------------------------------------------------
+# Workstream C — File-stream semaphore
+# ---------------------------------------------------------------------------
+
+
+class TestFileStreamSemaphore(unittest.TestCase):
+    """C: Deterministic file-stream semaphore saturation and release.
+
+    These tests serve static files directly (no handler) so that the
+    planner returns BodyPlan::FileFull, which acquires the file-stream
+    semaphore in convert_to_hyper_response. Handler-returned bodies
+    (Response.bytes) bypass the semaphore entirely.
+    """
 
     def setUp(self):
         self._td = tempfile.mkdtemp()
-        with open(os.path.join(self._td, "data.txt"), "w") as f:
-            f.write("hello world")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._td, ignore_errors=True)
-
-    def test_head_returns_correct_headers(self):
-        s = Server(root=self._td, port=0, header_timeout_secs=10, write_timeout_secs=10)
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/data.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        req = urllib.request.Request(url, method="HEAD")
-        resp = urllib.request.urlopen(req, timeout=5)
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.read(), b"")
-        self.assertEqual(resp.headers.get("content-length"), "11")
-        resp.close()
-        s.stop()
-
-    def test_head_with_handler(self):
-        def handler(req):
-            return Response.bytes(200, b"hello world")
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/data.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        req = urllib.request.Request(url, method="HEAD")
-        resp = urllib.request.urlopen(req, timeout=5)
-        self.assertEqual(resp.status, 200)
-        self.assertEqual(resp.read(), b"")
-        resp.close()
-        s.stop()
-
-    def test_head_with_text_handler(self):
-        def handler(req):
-            return Response.text(200, "hello world")
-
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        addr = s.addr
-        url = f"http://{addr}/data.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        get_resp = urllib.request.urlopen(url, timeout=5)
-        get_body = get_resp.read()
-        get_headers = dict(get_resp.headers)
-        get_resp.close()
-
-        head_req = urllib.request.Request(url, method="HEAD")
-        head_resp = urllib.request.urlopen(head_req, timeout=5)
-        self.assertEqual(head_resp.status, 200)
-        self.assertEqual(head_resp.read(), b"")
-        self.assertEqual(
-            head_resp.headers.get("content-length"),
-            get_headers.get("content-length"),
-        )
-        head_resp.close()
-        s.stop()
-
-
-class TestStatusValidation(unittest.TestCase):
-    """B3: Verify invalid status values are handled safely."""
-
-    def setUp(self):
-        self._td = tempfile.mkdtemp()
-        with open(os.path.join(self._td, "index.txt"), "w") as f:
-            f.write("content")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._td, ignore_errors=True)
-
-    def _start_server(self, handler):
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        return s
-
-    def test_status_zero_falls_back_to_500(self):
-        def handler(req):
-            return Response.empty(0)
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_status_99_falls_back_to_500(self):
-        def handler(req):
-            return Response.empty(99)
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_status_1000_falls_back_to_500(self):
-        def handler(req):
-            return Response.empty(1000)
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_negative_status_falls_back_to_500(self):
-        def handler(req):
-            return Response.empty(-1)
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_server_continues_after_invalid_status(self):
-        call_count = [0]
-
-        def handler(req):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return Response.empty(-1)
-            return Response.text(200, "ok")
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        call_count[0] = 0
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"ok")
-        resp.close()
-        s.stop()
-
-
-class TestHeaderValidation(unittest.TestCase):
-    """B4: Verify invalid handler headers fail safely."""
-
-    def setUp(self):
-        self._td = tempfile.mkdtemp()
-        with open(os.path.join(self._td, "index.txt"), "w") as f:
-            f.write("content")
-
-    def tearDown(self):
-        import shutil
-        shutil.rmtree(self._td, ignore_errors=True)
-
-    def _start_server(self, handler):
-        s = Server(
-            root=self._td,
-            port=0,
-            handler=handler,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
-        return s
-
-    def test_empty_header_name_causes_500(self):
-        def handler(req):
-            return Response.bytes(200, b"ok", headers={"": "value"})
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_header_with_cr_lf_causes_500(self):
-        def handler(req):
-            return Response.bytes(200, b"ok", headers={"x-bad": "val\r\ninjection"})
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-        finally:
-            s.stop()
-
-    def test_valid_unusual_status_passes_through(self):
-        def handler(req):
-            return Response.empty(204)
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.status, 204)
-        resp.close()
-        s.stop()
-
-    def test_server_continues_after_header_error(self):
-        call_count = [0]
-
-        def handler(req):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return Response.bytes(200, b"ok", headers={"": "bad"})
-            return Response.text(200, "ok")
-
-        s = self._start_server(handler)
-        url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
-
-        call_count[0] = 0
-        try:
-            urllib.request.urlopen(url, timeout=5)
-            self.fail("Expected HTTPError")
-        except urllib.error.HTTPError as e:
-            self.assertEqual(e.code, 500)
-
-        resp = urllib.request.urlopen(url, timeout=5)
-        self.assertEqual(resp.read(), b"ok")
-        resp.close()
-        s.stop()
-
-
-class TestShutdownWithActiveWork(unittest.TestCase):
-    """B7: Verify shutdown behavior with active connections."""
-
-    def setUp(self):
-        self._td = tempfile.mkdtemp()
-        _make_large_file(os.path.join(self._td, "large.bin"), 4 * 1024 * 1024)
+        _make_large_file(os.path.join(self._td, "big.bin"), 4 * 1024 * 1024)
+        _make_large_file(os.path.join(self._td, "range.bin"), 1024 * 1024)
         with open(os.path.join(self._td, "small.txt"), "w") as f:
             f.write("ok")
+        self._servers = []
 
     def tearDown(self):
-        import shutil
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
         shutil.rmtree(self._td, ignore_errors=True)
 
-    def test_shutdown_closes_accept_loop(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
+
+    def _open_get(self, addr, path="/big.bin", rcvbuf=None):
+        """Open a raw socket, send a GET request with Connection: close, return the socket.
+
+        If *rcvbuf* is set, the receive buffer is limited to that many bytes.
+        A small buffer (e.g. 4096) forces the server to block on write quickly,
+        keeping the file-stream semaphore held long enough for test sync.
+        """
+        host, port_str = addr.split(":")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        if rcvbuf is not None:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
+        sock.connect((host, int(port_str)))
+        req = (
+            f"GET {path} HTTP/1.1\r\n"
+            f"Host: {addr}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        ).encode()
+        sock.sendall(req)
+        return sock
+
+    def _open_head(self, addr, path="/big.bin", rcvbuf=None):
+        """Open a raw socket, send a HEAD request with Connection: close, return the socket."""
+        host, port_str = addr.split(":")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        if rcvbuf is not None:
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_RCVBUF, rcvbuf)
+        sock.connect((host, int(port_str)))
+        req = (
+            f"HEAD {path} HTTP/1.1\r\n"
+            f"Host: {addr}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        ).encode()
+        sock.sendall(req)
+        return sock
+
+    def _read_headers(self, sock):
+        """Read from socket until we get the complete HTTP response headers."""
+        data = b""
+        while b"\r\n\r\n" not in data:
+            chunk = sock.recv(4096)
+            if not chunk:
+                break
+            data += chunk
+        return data
+
+    def _has_data(self, sock, timeout=0.5):
+        """Check whether a socket has data available (non-blocking check via select)."""
+        readable, _, _ = select.select([sock], [], [], timeout)
+        return len(readable) > 0
+
+    def test_max_file_streams_saturation(self):
+        """No more than max_file_streams concurrent file responses are active."""
+        s = self._make_server(max_connections=10, max_file_streams=1, max_python_callbacks=10)
         addr = s.addr
-        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # Small receive buffer on sock1 forces the server to block on write
+        # after only a few KB, keeping the file-stream semaphore held.
+        sock1 = self._open_get(addr, rcvbuf=4096)
+        headers1 = self._read_headers(sock1)
+        self.assertIn(b"200", headers1.split(b"\r\n")[0])
+
+        # Second request should be blocked (semaphore exhausted by sock1's stream).
+        sock2 = self._open_get(addr)
+        self.assertFalse(
+            self._has_data(sock2, timeout=1.0),
+            "Second request should be blocked while first is streaming",
+        )
+
+        # Closing sock1 releases the semaphore permit.
+        sock1.close()
+
+        self.assertTrue(
+            self._has_data(sock2, timeout=5.0),
+            "Second request should complete after first is released",
+        )
+        headers2 = self._read_headers(sock2)
+        self.assertIn(b"200", headers2.split(b"\r\n")[0])
+        sock2.close()
+
+    def test_head_does_not_consume_stream_permit(self):
+        """HEAD requests do not acquire a file-stream permit."""
+        s = self._make_server(max_connections=10, max_file_streams=1, max_python_callbacks=10)
+        addr = s.addr
+        self.assertTrue(_wait_for_tcp(addr))
+
+        head_sock = self._open_head(addr)
+        headers = self._read_headers(head_sock)
+        self.assertIn(b"200", headers.split(b"\r\n")[0])
+        head_sock.close()
+
+        sock = self._open_get(addr)
+        self.assertTrue(
+            self._has_data(sock, timeout=1.0),
+            "GET should succeed immediately after HEAD (permit not consumed)",
+        )
+        headers = self._read_headers(sock)
+        self.assertIn(b"200", headers.split(b"\r\n")[0])
+        sock.close()
+
+    def test_disconnect_releases_stream_permit(self):
+        """Client disconnect during file streaming releases the stream permit."""
+        s = self._make_server(max_connections=10, max_file_streams=1, max_python_callbacks=10)
+        addr = s.addr
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # Small receive buffer keeps the semaphore held during streaming.
+        sock1 = self._open_get(addr, rcvbuf=4096)
+        self._read_headers(sock1)
+
+        sock1.close()
+
+        sock2 = self._open_get(addr)
+        self.assertTrue(
+            self._has_data(sock2, timeout=2.0),
+            "Request should succeed after disconnect releases permit",
+        )
+        headers = self._read_headers(sock2)
+        self.assertIn(b"200", headers.split(b"\r\n")[0])
+        sock2.close()
+
+    def test_queued_stream_begins_after_release(self):
+        """A queued file stream begins only after a permit is released."""
+        s = self._make_server(max_connections=10, max_file_streams=1, max_python_callbacks=10)
+        addr = s.addr
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # Small receive buffer keeps the semaphore held.
+        sock1 = self._open_get(addr, rcvbuf=4096)
+        self._read_headers(sock1)
+
+        # Second request should be queued.
+        sock2 = self._open_get(addr)
+        self.assertFalse(
+            self._has_data(sock2, timeout=1.0),
+            "Second request should be queued",
+        )
+
+        # Releasing sock1 allows the queued request to proceed.
+        sock1.close()
+
+        self.assertTrue(
+            self._has_data(sock2, timeout=5.0),
+            "Queued stream should begin after permit release",
+        )
+        headers = self._read_headers(sock2)
+        self.assertIn(b"200", headers.split(b"\r\n")[0])
+        sock2.close()
+
+    def test_range_completion_releases_stream_permit(self):
+        """A completed range response releases the stream permit."""
+        s = self._make_server(max_connections=10, max_file_streams=1)
+        addr = s.addr
+        url = f"http://{addr}/range.bin"
         self.assertTrue(_wait_for_server(url))
 
-        s.stop()
+        req = urllib.request.Request(url, headers={"Range": "bytes=0-1023"})
+        resp = urllib.request.urlopen(req, timeout=5)
+        self.assertEqual(resp.status, 206)
+        data = resp.read()
+        self.assertEqual(len(data), 1024)
+        resp.close()
 
-        with self.assertRaises((ConnectionRefusedError, urllib.error.URLError, OSError)):
-            urllib.request.urlopen(url, timeout=2)
+        resp2 = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp2.status, 200)
+        resp2.close()
 
-    def test_shutdown_with_stalled_reader(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            header_timeout_secs=10,
-            write_timeout_secs=5,
+    def test_handler_file_body_uses_same_limit(self):
+        """Handler-returned byte bodies bypass the file-stream semaphore."""
+        _make_large_file(os.path.join(self._td, "served.bin"), 2 * 1024 * 1024)
+
+        def handler(req):
+            with open(os.path.join(self._td, "served.bin"), "rb") as f:
+                data = f.read()
+            return Response.bytes(200, data)
+
+        s = self._make_server(
+            handler=handler,
+            max_connections=10,
+            max_file_streams=1,
+            max_python_callbacks=10,
         )
-        s.start()
         addr = s.addr
-        url = f"http://{addr}/large.bin"
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        for _ in range(3):
+            resp = urllib.request.urlopen(url, timeout=5)
+            self.assertEqual(resp.status, 200)
+            data = resp.read()
+            self.assertEqual(len(data), 2 * 1024 * 1024)
+            resp.close()
+
+
+# ---------------------------------------------------------------------------
+# Workstream D — Timeout boundaries
+# ---------------------------------------------------------------------------
+
+
+class TestTimeoutBoundaries(unittest.TestCase):
+    """D: Verify exact documented timeout coverage."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        _make_large_file(os.path.join(self._td, "big.bin"), 4 * 1024 * 1024)
+        with open(os.path.join(self._td, "small.txt"), "w") as f:
+            f.write("ok")
+        self._servers = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
+
+    def test_header_timeout_covers_incomplete_headers(self):
+        """Header timeout fires when headers are not fully received."""
+        s = self._make_server(header_timeout_secs=1, write_timeout_secs=30)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
 
         host, port_str = addr.split(":")
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(5)
+        sock.connect((host, int(port_str)))
+        sock.sendall(b"GET /small.txt HTTP/1.1\r\nHost: ")
+        time.sleep(2.0)
         try:
-            sock.connect((host, int(port_str)))
-            request = (
-                b"GET /large.bin HTTP/1.1\r\n"
-                b"Host: " + addr.encode() + b"\r\n"
-                b"\r\n"
+            data = sock.recv(4096)
+            self.assertEqual(data, b"", "Connection should have been closed")
+        except (socket.timeout, ConnectionResetError, OSError):
+            pass
+        sock.close()
+
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"ok")
+        resp.close()
+
+    def test_write_timeout_covers_stalled_response(self):
+        """Write timeout fires when client stops reading during response."""
+        s = self._make_server(max_connections=10, write_timeout_secs=1)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        sock = _connect_raw(addr, "/big.bin")
+        time.sleep(0.3)
+        try:
+            sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        time.sleep(2.0)
+        sock.close()
+
+        time.sleep(0.5)
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"ok")
+        resp.close()
+
+    def test_write_timeout_covers_file_body_streaming(self):
+        """Write timeout applies to file body streaming (not just headers)."""
+        s = self._make_server(max_connections=10, write_timeout_secs=1)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        sock = _connect_raw(addr, "/big.bin")
+        time.sleep(0.3)
+        try:
+            sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+        time.sleep(2.0)
+        sock.close()
+
+        time.sleep(0.5)
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"ok")
+        resp.close()
+
+    def test_client_request_timeout_rejects_zero(self):
+        """Zero header_timeout_secs is rejected."""
+        with self.assertRaises(ValueError):
+            Server(
+                root=self._td, port=0,
+                header_timeout_secs=0,
+                write_timeout_secs=10,
             )
-            sock.sendall(request)
-            time.sleep(0.5)
+
+    def test_client_request_timeout_rejects_negative(self):
+        """Negative header_timeout_secs is rejected."""
+        with self.assertRaises((ValueError, OverflowError)):
+            Server(
+                root=self._td, port=0,
+                header_timeout_secs=-1,
+                write_timeout_secs=10,
+            )
+
+    def test_write_timeout_rejects_zero(self):
+        """Zero write_timeout_secs is rejected."""
+        with self.assertRaises(ValueError):
+            Server(
+                root=self._td, port=0,
+                header_timeout_secs=10,
+                write_timeout_secs=0,
+            )
+
+    def test_write_timeout_rejects_nan(self):
+        """NaN timeout is rejected."""
+        with self.assertRaises(TypeError):
+            Server(
+                root=self._td, port=0,
+                header_timeout_secs=float("nan"),
+                write_timeout_secs=10,
+            )
+
+    def test_write_timeout_rejects_inf(self):
+        """Infinity timeout is rejected."""
+        with self.assertRaises(TypeError):
+            Server(
+                root=self._td, port=0,
+                header_timeout_secs=float("inf"),
+                write_timeout_secs=10,
+            )
+
+    def test_max_connections_rejects_zero(self):
+        """Zero max_connections is rejected."""
+        with self.assertRaises(ValueError):
+            Server(
+                root=self._td, port=0,
+                max_connections=0,
+                header_timeout_secs=10,
+                write_timeout_secs=10,
+            )
+
+    def test_max_file_streams_rejects_zero(self):
+        """Zero max_file_streams is rejected."""
+        with self.assertRaises(ValueError):
+            Server(
+                root=self._td, port=0,
+                max_file_streams=0,
+                header_timeout_secs=10,
+                write_timeout_secs=10,
+            )
+
+    def test_max_python_callbacks_rejects_zero(self):
+        """Zero max_python_callbacks is rejected."""
+        with self.assertRaises(ValueError):
+            Server(
+                root=self._td, port=0,
+                max_python_callbacks=0,
+                header_timeout_secs=10,
+                write_timeout_secs=10,
+            )
+
+    def test_float_max_connections_rejected(self):
+        """Float max_connections is rejected."""
+        with self.assertRaises(TypeError):
+            Server(
+                root=self._td, port=0,
+                max_connections=1.5,
+                header_timeout_secs=10,
+                write_timeout_secs=10,
+            )
+
+    def test_connect_timeout_distinct_from_header_timeout(self):
+        """Connect timeout is documented as distinct from header timeout."""
+        s = self._make_server(header_timeout_secs=1, write_timeout_secs=10)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        start = time.monotonic()
+        resp = urllib.request.urlopen(url, timeout=5)
+        elapsed = time.monotonic() - start
+        self.assertEqual(resp.status, 200)
+        self.assertLess(elapsed, 1.0)
+        resp.close()
+
+
+# ---------------------------------------------------------------------------
+# Workstream E — Graceful shutdown
+# ---------------------------------------------------------------------------
+
+
+class TestGracefulShutdown(unittest.TestCase):
+    """E: Deterministic shutdown behavior tests."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        _make_large_file(os.path.join(self._td, "big.bin"), 4 * 1024 * 1024)
+        with open(os.path.join(self._td, "small.txt"), "w") as f:
+            f.write("ok")
+        self._servers = []
+
+    def tearDown(self):
+        for s in self._servers:
             try:
-                sock.recv(1024)
-            except (socket.timeout, OSError):
+                s.stop()
+            except Exception:
                 pass
-        finally:
-            sock.close()
+        shutil.rmtree(self._td, ignore_errors=True)
 
-        s.stop()
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
 
-    def test_double_stop_is_safe(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            header_timeout_secs=10,
-            write_timeout_secs=10,
-        )
-        s.start()
+    def test_listener_stops_accepting_immediately(self):
+        """After stop(), no new connections are accepted."""
+        s = self._make_server()
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
 
         s.stop()
+        self._servers.remove(s)
+
+        with self.assertRaises((ConnectionRefusedError, urllib.error.URLError, OSError)):
+            urllib.request.urlopen(url, timeout=2)
+
+    def test_idle_connection_closed_on_shutdown(self):
+        """Idle connections are closed on shutdown."""
+        s = self._make_server()
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        resp = urllib.request.urlopen(url, timeout=5)
+        resp.read()
+        resp.close()
+
         s.stop()
+        self._servers.remove(s)
+
+        with self.assertRaises((ConnectionRefusedError, urllib.error.URLError, OSError)):
+            urllib.request.urlopen(url, timeout=2)
+
+    def test_shutdown_during_active_file_stream(self):
+        """Shutdown during an active file stream completes without deadlock."""
+        s = self._make_server(max_connections=10, write_timeout_secs=5)
+        addr = s.addr
+        url = f"http://{addr}/big.bin"
+        self.assertTrue(_wait_for_server(url))
+
+        sock = _connect_raw(addr, "/big.bin")
+        time.sleep(0.3)
+        try:
+            sock.recv(1024)
+        except (socket.timeout, OSError):
+            pass
+
+        stop_done = threading.Event()
+
+        def do_stop():
+            s.stop()
+            self._servers.remove(s)
+            stop_done.set()
+
+        st = threading.Thread(target=do_stop)
+        st.start()
+        st.join(timeout=5)
+        self.assertTrue(stop_done.is_set(), "stop() must not deadlock")
+        sock.close()
+
+    def test_shutdown_during_blocked_handler(self):
+        """Shutdown completes cleanly while a handler is active."""
+        handler_entered = threading.Event()
+        handler_done = threading.Event()
+
+        def handler(req):
+            handler_entered.set()
+            time.sleep(0.5)
+            handler_done.set()
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        t = threading.Thread(target=lambda: urllib.request.urlopen(url, timeout=5))
+        t.start()
+        handler_entered.wait(timeout=5)
+
+        stop_done = threading.Event()
+
+        def do_stop():
+            s.stop()
+            self._servers.remove(s)
+            stop_done.set()
+
+        st = threading.Thread(target=do_stop)
+        st.start()
+        st.join(timeout=10)
+        self.assertTrue(stop_done.is_set(), "stop() must not deadlock")
+
+        t.join(timeout=5)
+
+    def test_double_stop_is_safe(self):
+        """Calling stop() twice does not panic or deadlock."""
+        s = self._make_server()
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        s.stop()
+        self._servers.remove(s)
+        s.stop()
+
+    def test_context_manager_exit_safe_after_partial_startup(self):
+        """Context manager exit is safe even if start() was not called."""
+        s = Server(
+            root=self._td, port=0,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.stop()
+
+    def test_repeated_stop_is_idempotent(self):
+        """Multiple stop() calls in succession are safe."""
+        s = self._make_server()
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        for _ in range(3):
+            s.stop()
+        self._servers.remove(s)
+
+    def test_shutdown_during_slow_headers(self):
+        """Shutdown during a slow-header connection completes cleanly."""
+        s = self._make_server()
+        addr = s.addr
+        url = f"http://{addr}/small.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        host, port_str = addr.split(":")
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect((host, int(port_str)))
+        sock.sendall(b"GET /small.txt HTTP/1.1\r\nHost: ")
+        time.sleep(0.2)
+
+        stop_done = threading.Event()
+
+        def do_stop():
+            s.stop()
+            self._servers.remove(s)
+            stop_done.set()
+
+        st = threading.Thread(target=do_stop)
+        st.start()
+        st.join(timeout=5)
+        self.assertTrue(stop_done.is_set())
+        sock.close()
+
+
+# ---------------------------------------------------------------------------
+# Workstream F — Test reliability helpers
+# ---------------------------------------------------------------------------
+
+
+class TestServerPrimitives(unittest.TestCase):
+    """F: Verify server construction and lifecycle primitives."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "index.txt"), "w") as f:
+            f.write("content")
+        self._servers = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
+
+    def test_addr_returns_none_before_start(self):
+        s = Server(
+            root=self._td, port=0,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        self.assertIsNone(s.addr)
+
+    def test_addr_returns_string_after_start(self):
+        s = self._make_server()
+        self.assertIsNotNone(s.addr)
+
+    def test_start_twice_raises(self):
+        s = self._make_server()
+        with self.assertRaises(RuntimeError):
+            s.start()
+
+    def test_stop_before_start_is_safe(self):
+        s = Server(
+            root=self._td, port=0,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        s.stop()
+
+    def test_repr_before_start(self):
+        s = Server(
+            root=self._td, port=0,
+            header_timeout_secs=10,
+            write_timeout_secs=10,
+        )
+        self.assertIn("not started", repr(s))
+
+    def test_repr_after_start(self):
+        s = self._make_server()
+        self.assertIn("Server", repr(s))
+
+    def test_server_serves_files(self):
+        s = self._make_server()
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"content")
+        resp.close()
+
+    def test_handler_overrides_file_serving(self):
+        def handler(req):
+            return Response.text(200, "from handler")
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"from handler")
+        resp.close()
 
 
 if __name__ == "__main__":

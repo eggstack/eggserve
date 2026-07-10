@@ -98,6 +98,23 @@ Mark platform-specific timing tests carefully; do not solve flakiness by making 
 - No test proves correctness only through arbitrary sleep duration.
 - Full Rust/Python/feature CI remains green.
 
+## Bugs found and fixed
+
+### Bug 1: GIL deadlock in `stop()` (server.rs)
+
+The `stop()` method is a `#[pymethod]` that holds the Python GIL while calling `handle.join()`. The tokio runtime's `Drop` impl waits for all spawned tasks to complete. Spawned connection tasks call `Python::with_gil` to invoke handlers. If a handler is sleeping (e.g., `time.sleep`), the GIL is released during sleep, but the handler needs the GIL again to complete. Since `stop()` holds the GIL while waiting for the runtime to shut down, the handler can never finish → deadlock.
+
+**Fix**: Wrap `handle.join()` in `py.allow_threads(|| { ... })` to release the GIL during the blocking join. Also update `__exit__` to pass `py` to `stop()`.
+
+### Bug 2: File-stream semaphore permit not held during streaming (server.rs)
+
+The file-stream semaphore permit was acquired in `convert_to_hyper_response` but stored as a local variable that was dropped when the function returned. The permit was NOT passed into `stream_file()`, so the semaphore was effectively a no-op — permits were acquired and immediately released.
+
+**Fix**:
+1. Add `OwnedSemaphorePermit` import
+2. Change `stream_file` to accept `permit: Option<OwnedSemaphorePermit>` and hold it in the stream state tuple
+3. Pass the permit from `convert_to_hyper_response` to `stream_file`
+
 ## Non-goals
 
 - No new scheduler or worker pool.
