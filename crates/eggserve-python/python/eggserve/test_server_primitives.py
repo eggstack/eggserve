@@ -387,6 +387,28 @@ class TestServer(unittest.TestCase):
             s.stop()
 
 
+class TestServerConstructorValidation(unittest.TestCase):
+    def test_zero_max_connections(self):
+        with self.assertRaises(ValueError) as ctx:
+            Server(root=".", max_connections=0)
+        self.assertIn("max_connections", str(ctx.exception))
+
+    def test_zero_max_file_streams(self):
+        with self.assertRaises(ValueError) as ctx:
+            Server(root=".", max_file_streams=0)
+        self.assertIn("max_file_streams", str(ctx.exception))
+
+    def test_zero_header_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            Server(root=".", header_timeout_secs=0)
+        self.assertIn("header_timeout_secs", str(ctx.exception))
+
+    def test_zero_write_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            Server(root=".", write_timeout_secs=0)
+        self.assertIn("write_timeout_secs", str(ctx.exception))
+
+
 class TestServerRequestError(unittest.TestCase):
     def test_method_not_allowed_message(self):
         try:

@@ -107,6 +107,11 @@ impl ParsedUrl {
             })?;
             let host = host_port[1..bracket_end].to_string();
             let after_bracket = &host_port[bracket_end + 1..];
+            if !after_bracket.is_empty() && !after_bracket.starts_with(':') {
+                return Err(ClientError::InvalidUrl(
+                    "invalid characters after IPv6 bracket".into(),
+                ));
+            }
             let port = if let Some(port_str) = after_bracket.strip_prefix(':') {
                 port_str
                     .parse::<u16>()
@@ -341,5 +346,47 @@ mod tests {
     #[test]
     fn parse_url_with_spaces_rejected() {
         assert!(ParsedUrl::parse("http://exam ple.com/").is_err());
+    }
+
+    #[test]
+    fn parse_query_without_slash_rejected() {
+        let err = ParsedUrl::parse("http://example.com?query=1").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn parse_percent_encoded_path_preserved() {
+        let url = ParsedUrl::parse("http://example.com/path%20with%20spaces").unwrap();
+        assert_eq!(url.path, "/path%20with%20spaces");
+    }
+
+    #[test]
+    fn parse_hostname_case_preserved() {
+        let url = ParsedUrl::parse("http://EXAMPLE.COM/").unwrap();
+        assert_eq!(url.host, "EXAMPLE.COM");
+    }
+
+    #[test]
+    fn parse_idn_hostname_rejected() {
+        let err = ParsedUrl::parse("http://münchen.de/").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn parse_ipv6_extra_after_bracket_rejected() {
+        let err = ParsedUrl::parse("http://[::1]extra/").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn parse_empty_port_rejected() {
+        let err = ParsedUrl::parse("http://example.com:/").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn parse_negative_port_rejected() {
+        let err = ParsedUrl::parse("http://example.com:-1/").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidUrl(_)));
     }
 }

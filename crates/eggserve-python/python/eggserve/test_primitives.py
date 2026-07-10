@@ -10,6 +10,7 @@ import unittest
 
 from eggserve._native import (
     BodySource,
+    BodySourceError,
     EggserveError,
     PathPolicy,
     PathPolicyError,
@@ -635,6 +636,9 @@ class TestExceptionHierarchy(unittest.TestCase):
 
     def test_request_validation_error_is_eggserve_error(self):
         self.assertTrue(issubclass(RequestValidationError, EggserveError))
+
+    def test_body_source_error_is_eggserve_error(self):
+        self.assertTrue(issubclass(BodySourceError, EggserveError))
 
     def test_eggserve_error_is_exception(self):
         self.assertTrue(issubclass(EggserveError, Exception))

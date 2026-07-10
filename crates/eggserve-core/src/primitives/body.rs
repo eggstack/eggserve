@@ -134,6 +134,39 @@ impl BodySource {
         }
     }
 
+    /// Read the entire body into memory, capped at `max_bytes`.
+    ///
+    /// Returns at most `max_bytes` bytes. If the body is larger, the excess
+    /// is silently truncated. This prevents unbounded allocation when reading
+    /// file-backed bodies whose size may be large.
+    ///
+    /// # Errors
+    ///
+    /// Returns an I/O error if the file cannot be read or the range cannot be
+    /// seeked to.
+    pub fn read_all_bounded(&mut self, max_bytes: usize) -> io::Result<Vec<u8>> {
+        match self {
+            Self::Empty => Ok(Vec::new()),
+            Self::Bytes(b) => {
+                let len = b.len().min(max_bytes);
+                Ok(b[..len].to_vec())
+            }
+            Self::FileFull { file, .. } => {
+                let mut buf = vec![0u8; max_bytes];
+                let n = file.read(&mut buf)?;
+                buf.truncate(n);
+                Ok(buf)
+            }
+            Self::FileRange { file, range, .. } => {
+                file.seek(SeekFrom::Start(range.start))?;
+                let len = (range.len() as usize).min(max_bytes);
+                let mut buf = vec![0u8; len];
+                file.read_exact(&mut buf)?;
+                Ok(buf)
+            }
+        }
+    }
+
     /// Read a specific byte range from the body.
     ///
     /// For file-full bodies, `start` and `end_inclusive` are absolute offsets
@@ -426,5 +459,75 @@ mod tests {
             BodySourceError::AlreadyConsumed.to_string(),
             "resolved file already consumed"
         );
+    }
+
+    #[test]
+    fn read_all_bounded_bytes_within_limit() {
+        let mut bs = BodySource::Bytes(b"hello".to_vec());
+        assert_eq!(bs.read_all_bounded(10).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn read_all_bounded_bytes_truncated() {
+        let mut bs = BodySource::Bytes(b"hello".to_vec());
+        assert_eq!(bs.read_all_bounded(3).unwrap(), b"hel");
+    }
+
+    #[test]
+    fn read_all_bounded_bytes_zero_limit() {
+        let mut bs = BodySource::Bytes(b"hello".to_vec());
+        assert_eq!(bs.read_all_bounded(0).unwrap(), b"");
+    }
+
+    #[test]
+    fn read_all_bounded_empty() {
+        let mut bs = BodySource::Empty;
+        assert_eq!(bs.read_all_bounded(100).unwrap(), b"");
+    }
+
+    #[test]
+    fn read_all_bounded_file_full_within_limit() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileFull {
+            file,
+            len: 11,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_all_bounded(100).unwrap(), b"hello world");
+    }
+
+    #[test]
+    fn read_all_bounded_file_full_truncated() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileFull {
+            file,
+            len: 11,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_all_bounded(5).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn read_all_bounded_file_range_within_limit() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileRange {
+            file,
+            range: FileRange::new(0, 4),
+            total_len: 11,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_all_bounded(100).unwrap(), b"hello");
+    }
+
+    #[test]
+    fn read_all_bounded_file_range_truncated() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileRange {
+            file,
+            range: FileRange::new(0, 10),
+            total_len: 11,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_all_bounded(3).unwrap(), b"hel");
     }
 }

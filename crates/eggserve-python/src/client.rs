@@ -74,7 +74,7 @@ impl From<ClientError> for PyClientError {
 
 impl From<PyClientError> for PyErr {
     fn from(e: PyClientError) -> Self {
-        pyo3::exceptions::PyValueError::new_err(e.to_string())
+        super::EggserveError::new_err(e.to_string())
     }
 }
 
@@ -124,13 +124,30 @@ impl PyClientConfig {
         request_timeout: f64,
         max_response_body_bytes: Option<u64>,
         verify_tls: bool,
-    ) -> Self {
-        Self {
+    ) -> PyResult<Self> {
+        if connect_timeout.is_nan() || connect_timeout.is_infinite() || connect_timeout < 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "connect_timeout must be a non-negative finite number",
+            ));
+        }
+        if request_timeout.is_nan() || request_timeout.is_infinite() || request_timeout < 0.0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "request_timeout must be a non-negative finite number",
+            ));
+        }
+        if let Some(limit) = max_response_body_bytes {
+            if limit == 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "max_response_body_bytes must be greater than zero",
+                ));
+            }
+        }
+        Ok(Self {
             connect_timeout,
             request_timeout,
             max_response_body_bytes,
             verify_tls,
-        }
+        })
     }
 
     fn __repr__(&self) -> String {

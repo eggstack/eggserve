@@ -9,6 +9,7 @@ description = "Security policy, path confinement, and static-serving primitives 
 default = []
 client = ["hyper/client", "hyper-util/client-legacy"]
 client-tls = ["client", "dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
+python-bindings-internal = []
 
 [dependencies]
 bytes = "1"

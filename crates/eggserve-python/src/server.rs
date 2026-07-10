@@ -30,7 +30,7 @@ type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type FileStream = StreamBody<
     Pin<
         Box<
-            dyn futures_util::Stream<Item = Result<Frame<Bytes>, std::convert::Infallible>>
+            dyn futures_util::Stream<Item = Result<Frame<Bytes>, std::io::Error>>
                 + Send
                 + Sync,
         >,
@@ -160,6 +160,26 @@ impl PyResponse {
             headers: headers.unwrap_or_default(),
             body: PyResponseBody::BodySource(source),
         })
+    }
+
+    #[getter]
+    fn body(&self) -> ServerBodySource {
+        let source = match &self.body {
+            PyResponseBody::Empty => BodySource::Empty,
+            PyResponseBody::Bytes(data) => BodySource::Bytes(data.clone()),
+            PyResponseBody::BodySource(source) => {
+                match source {
+                    BodySource::Empty => BodySource::Empty,
+                    BodySource::Bytes(data) => BodySource::Bytes(data.clone()),
+                    BodySource::FileFull { .. } | BodySource::FileRange { .. } => {
+                        BodySource::Empty
+                    }
+                }
+            }
+        };
+        ServerBodySource {
+            inner: std::sync::Mutex::new(Some(source)),
+        }
     }
 
     fn __repr__(&self) -> String {
@@ -489,6 +509,7 @@ pub struct PyServer {
     handle: std::sync::Mutex<Option<std::thread::JoinHandle<()>>>,
     max_connections: usize,
     max_file_streams: usize,
+    max_python_callbacks: usize,
     header_timeout: Duration,
     write_timeout: Duration,
 }
@@ -497,7 +518,7 @@ pub struct PyServer {
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, header_timeout_secs=10, write_timeout_secs=30))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30))]
     fn new(
         root: String,
         bind: &str,
@@ -507,6 +528,7 @@ impl PyServer {
         public: bool,
         max_connections: usize,
         max_file_streams: usize,
+        max_python_callbacks: usize,
         header_timeout_secs: u64,
         write_timeout_secs: u64,
     ) -> PyResult<Self> {
@@ -516,6 +538,31 @@ impl PyServer {
         if !public && bind_addr.ip().is_unspecified() {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "binding to 0.0.0.0 or :: requires public=True",
+            ));
+        }
+        if max_connections == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "max_connections must be greater than zero",
+            ));
+        }
+        if max_file_streams == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "max_file_streams must be greater than zero",
+            ));
+        }
+        if max_python_callbacks == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "max_python_callbacks must be greater than zero",
+            ));
+        }
+        if header_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "header_timeout_secs must be greater than zero",
+            ));
+        }
+        if write_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "write_timeout_secs must be greater than zero",
             ));
         }
 
@@ -538,6 +585,7 @@ impl PyServer {
             handle: std::sync::Mutex::new(None),
             max_connections,
             max_file_streams,
+            max_python_callbacks,
             header_timeout: Duration::from_secs(header_timeout_secs),
             write_timeout: Duration::from_secs(write_timeout_secs),
         })
@@ -576,6 +624,7 @@ impl PyServer {
                 })))
             });
         let max_file_streams = self.max_file_streams;
+        let max_python_callbacks = self.max_python_callbacks;
         let header_timeout = self.header_timeout;
         let write_timeout = self.write_timeout;
 
@@ -608,6 +657,7 @@ impl PyServer {
 
         let conn_semaphore = Arc::new(Semaphore::new(self.max_connections));
         let file_stream_semaphore = Arc::new(Semaphore::new(max_file_streams));
+        let callback_semaphore = Arc::new(Semaphore::new(max_python_callbacks));
 
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         let handle = std::thread::spawn(move || {
@@ -626,6 +676,7 @@ impl PyServer {
                                     let responder = responder.clone();
                                     let handler = handler.clone();
                                     let file_stream_semaphore = file_stream_semaphore.clone();
+                                    let callback_semaphore = callback_semaphore.clone();
                                     let mut conn_shutdown_rx = shutdown_tx.subscribe();
                                     task::spawn(async move {
                                         let _permit = permit;
@@ -634,6 +685,7 @@ impl PyServer {
                                             responder,
                                             handler,
                                             file_stream_semaphore,
+                                            callback_semaphore,
                                         };
                                         let conn = hyper::server::conn::http1::Builder::new()
                                             .timer(TokioTimer::new())
@@ -736,6 +788,7 @@ struct ServerService {
     responder: PyStaticResponder,
     handler: Option<Arc<std::sync::Mutex<Option<Py<PyAny>>>>>,
     file_stream_semaphore: Arc<Semaphore>,
+    callback_semaphore: Arc<Semaphore>,
 }
 
 impl Service<Request<hyper::body::Incoming>> for ServerService {
@@ -747,6 +800,7 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
     fn call(&self, req: Request<hyper::body::Incoming>) -> Self::Future {
         let responder = self.responder.clone();
         let handler = self.handler.clone();
+        let callback_semaphore = self.callback_semaphore.clone();
 
         Box::pin(async move {
             let method = req.method().clone();
@@ -769,6 +823,11 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
             };
 
             let response = if let Some(handler_arc) = handler {
+                let _callback_permit = callback_semaphore
+                    .clone()
+                    .acquire_owned()
+                    .await
+                    .map_err(|_| -> BoxError { "callback semaphore closed".into() })?;
                 let py_request = PyRequest {
                     method: method_str,
                     path: target,
@@ -793,6 +852,11 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                                 .getattr("status")
                                 .and_then(|v| v.extract())
                                 .unwrap_or(500);
+                            let status = if valid_http_status(status) {
+                                status
+                            } else {
+                                500
+                            };
                             let headers: HashMap<String, String> = obj
                                 .getattr("headers")
                                 .and_then(|v| v.extract())
@@ -873,8 +937,6 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
 }
 
 fn stream_file(file: tokio::fs::File, limit: Option<u64>) -> FileStream {
-    use std::convert::Infallible;
-
     let initial_remaining = limit.unwrap_or(u64::MAX);
     let stream = futures_util::stream::unfold(
         (file, initial_remaining),
@@ -890,23 +952,56 @@ fn stream_file(file: tokio::fs::File, limit: Option<u64>) -> FileStream {
                 Ok(n) => {
                     buf.truncate(n);
                     Some((
-                        Ok::<_, Infallible>(Frame::data(Bytes::from(buf))),
+                        Ok::<_, std::io::Error>(Frame::data(Bytes::from(buf))),
                         (file, remaining - n as u64),
                     ))
                 }
-                Err(_) => None,
+                Err(e) => Some((Err(e), (file, remaining))),
             }
         },
     );
     StreamBody::new(Box::pin(stream)
         as Pin<
-            Box<dyn futures_util::Stream<Item = Result<Frame<Bytes>, Infallible>> + Send + Sync>,
+            Box<dyn futures_util::Stream<Item = Result<Frame<Bytes>, std::io::Error>> + Send + Sync>,
         >)
+}
+
+fn valid_http_status(status: u16) -> bool {
+    (100..=999).contains(&status)
+}
+
+fn valid_handler_headers(headers: &HashMap<String, String>) -> bool {
+    for (name, value) in headers {
+        if name.is_empty() {
+            return false;
+        }
+        for &b in value.as_bytes() {
+            if b == 0 || b == b'\r' || b == b'\n' {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+fn fallback_500() -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
+    let body = Full::new(Bytes::from("Internal Server Error"))
+        .map_err(|e| -> BoxError { Box::new(e) })
+        .boxed();
+    Response::builder()
+        .status(500u16)
+        .header("content-type", "text/plain")
+        .body(body)
+        .map_err(|e| -> BoxError { Box::new(e) })
 }
 
 async fn convert_to_hyper_response(
     resp: PyResponse,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
+    if !valid_http_status(resp.status) || !valid_handler_headers(&resp.headers) {
+        return fallback_500();
+    }
+
     let mut builder = Response::builder().status(resp.status);
     for (name, value) in &resp.headers {
         builder = builder.header(name.as_str(), value.as_str());

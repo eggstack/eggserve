@@ -280,7 +280,7 @@ with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
-Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, header_timeout_secs=10, write_timeout_secs=30)`
+Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30)`
 
 Parameters:
 - `root` — server root directory path (string)
@@ -291,6 +291,7 @@ Parameters:
 - `public` — must be `True` to bind to 0.0.0.0 or ::
 - `max_connections` — maximum concurrent connections (default: 100)
 - `max_file_streams` — maximum concurrent file streams (default: 64)
+- `max_python_callbacks` — maximum concurrent handler callbacks (default: 8)
 - `header_timeout_secs` — header read timeout in seconds (default: 10)
 - `write_timeout_secs` — response write timeout in seconds (default: 30)
 

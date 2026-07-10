@@ -77,5 +77,5 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction. External consumers should use `SecureRoot` resolution.
-- **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback. Parameters: `handler`, `public`, `max_connections`, `max_file_streams`, `header_timeout_secs`, `write_timeout_secs`.
+- **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback, callback concurrency limit. Parameters: `handler`, `public`, `max_connections`, `max_file_streams`, `max_python_callbacks`, `header_timeout_secs`, `write_timeout_secs`.
 - **Python 3.14 build** — requires `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` env var for maturin builds (PyO3 0.24.2 doesn't natively support 3.14).

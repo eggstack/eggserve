@@ -981,6 +981,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "RequestValidationError",
         m.py().get_type::<RequestValidationError>(),
     )?;
+    m.add(
+        "BodySourceError",
+        m.py().get_type::<BodySourceError>(),
+    )?;
 
     m.add_class::<PyPathPolicy>()?;
     m.add_class::<PyStaticPolicy>()?;

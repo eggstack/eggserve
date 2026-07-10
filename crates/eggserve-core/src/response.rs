@@ -11,7 +11,7 @@ use std::time::SystemTime;
 
 use crate::primitives::response::HeaderMapPlan;
 
-pub type BoxBodyInner = BoxBody<Bytes, std::convert::Infallible>;
+pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 
 pub fn text_response(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
     Response::builder()
@@ -96,11 +96,11 @@ pub fn file_response(
             Ok(n) => {
                 buf.truncate(n);
                 Some((
-                    Ok::<_, std::convert::Infallible>(Frame::data(Bytes::from(buf))),
+                    Ok::<_, std::io::Error>(Frame::data(Bytes::from(buf))),
                     (file, permit),
                 ))
             }
-            Err(_) => None,
+            Err(e) => Some((Err(e), (file, permit))),
         }
     });
 
@@ -153,11 +153,11 @@ pub async fn file_response_range(
                     buf.truncate(n);
                     let remaining = remaining.saturating_sub(n as u64);
                     Some((
-                        Ok::<_, std::convert::Infallible>(Frame::data(Bytes::from(buf))),
+                        Ok::<_, std::io::Error>(Frame::data(Bytes::from(buf))),
                         (file, permit, remaining),
                     ))
                 }
-                Err(_) => None,
+                Err(e) => Some((Err(e), (file, permit, remaining))),
             }
         },
     );

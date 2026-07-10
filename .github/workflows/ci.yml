@@ -41,6 +41,19 @@ jobs:
       - run: cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
       - run: cargo test -p eggserve-bin --features tls
 
+  client:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy -p eggserve-core --all-targets --features client -- -D warnings
+      - run: cargo test -p eggserve-core --features client
+      - run: cargo clippy -p eggserve-core --all-targets --features client-tls -- -D warnings
+      - run: cargo test -p eggserve-core --features client-tls
+
   python-tests:
     runs-on: ubuntu-latest
     steps:
@@ -74,6 +87,38 @@ jobs:
           from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory
           print(ServeConfig())
           PY
+
+  python-installed:
+    runs-on: ubuntu-latest
+    needs: [fmt, rust]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+      - run: pip install maturin
+      - name: Build wheel
+        run: maturin build --release -o dist
+        working-directory: crates/eggserve-python
+      - name: Build binary
+        run: cargo build --release -p eggserve-bin
+      - name: Install in venv and run tests
+        run: |
+          python -m venv .venv-installed
+          source .venv-installed/bin/activate
+          pip install --upgrade pip
+          pip install --force-reinstall crates/eggserve-python/dist/*.whl
+          cp target/release/eggserve .venv-installed/bin/
+          python -m eggserve --help
+          PYTHONPATH=crates/eggserve-python/python \
+            python -m unittest eggserve.test_primitives -v
+          PYTHONPATH=crates/eggserve-python/python \
+            python -m unittest eggserve.test_server -v
+          PYTHONPATH=crates/eggserve-python/python \
+            python -m unittest eggserve.test_server_primitives -v
+          PYTHONPATH=crates/eggserve-python/python \
+            python -m unittest eggserve.test_client_primitives -v
 
   audit:
     runs-on: ubuntu-latest

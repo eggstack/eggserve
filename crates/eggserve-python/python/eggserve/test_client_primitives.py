@@ -4,6 +4,7 @@ import unittest
 from eggserve._native import (
     ClientConfig,
     ClientError,
+    EggserveError,
     HttpClient,
     Method,
 )
@@ -36,6 +37,53 @@ class TestClientConfig(unittest.TestCase):
         self.assertIn("connect_timeout", r)
 
 
+class TestClientConfigValidation(unittest.TestCase):
+    def test_negative_connect_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(connect_timeout=-1.0)
+        self.assertIn("connect_timeout", str(ctx.exception))
+
+    def test_negative_request_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(request_timeout=-1.0)
+        self.assertIn("request_timeout", str(ctx.exception))
+
+    def test_nan_connect_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(connect_timeout=float("nan"))
+        self.assertIn("connect_timeout", str(ctx.exception))
+
+    def test_nan_request_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(request_timeout=float("nan"))
+        self.assertIn("request_timeout", str(ctx.exception))
+
+    def test_infinite_connect_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(connect_timeout=float("inf"))
+        self.assertIn("connect_timeout", str(ctx.exception))
+
+    def test_infinite_request_timeout(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(request_timeout=float("inf"))
+        self.assertIn("request_timeout", str(ctx.exception))
+
+    def test_zero_max_response_body_bytes_rejected(self):
+        with self.assertRaises(ValueError) as ctx:
+            ClientConfig(max_response_body_bytes=0)
+        self.assertIn("max_response_body_bytes", str(ctx.exception))
+
+    def test_valid_boundary_values(self):
+        config = ClientConfig(
+            connect_timeout=0.0,
+            request_timeout=0.0,
+            max_response_body_bytes=1,
+        )
+        self.assertEqual(config.connect_timeout, 0.0)
+        self.assertEqual(config.request_timeout, 0.0)
+        self.assertEqual(config.max_response_body_bytes, 1)
+
+
 class TestMethod(unittest.TestCase):
     def test_method_variants_exist(self):
         self.assertIsNotNone(Method.Get)
@@ -61,20 +109,25 @@ class TestHttpClient(unittest.TestCase):
 
     def test_unsupported_scheme(self):
         client = HttpClient()
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(EggserveError) as ctx:
             client.get("ftp://example.com/")
         self.assertIn("unsupported scheme", str(ctx.exception))
 
     def test_invalid_url(self):
         client = HttpClient()
-        with self.assertRaises(ValueError) as ctx:
+        with self.assertRaises(EggserveError) as ctx:
             client.get("not-a-url")
         self.assertIn("invalid URL", str(ctx.exception))
 
 
 class TestClientError(unittest.TestCase):
-    def test_error_is_value_error(self):
-        with self.assertRaises(ValueError) as ctx:
+    def test_error_is_eggserve_error(self):
+        with self.assertRaises(EggserveError) as ctx:
+            HttpClient().get("ftp://example.com/")
+        self.assertIn("unsupported scheme", str(ctx.exception))
+
+    def test_error_message_contains_details(self):
+        with self.assertRaises(EggserveError) as ctx:
             HttpClient().get("ftp://example.com/")
         self.assertIn("unsupported scheme", str(ctx.exception))
 

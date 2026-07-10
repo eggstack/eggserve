@@ -52,6 +52,13 @@ impl From<PathRejection> for ResourceDeniedReason {
 /// This type cannot be constructed directly by external callers; it is only
 /// created through the resolver's path confinement pipeline.
 #[derive(Debug)]
+/// A file capability produced by [`SecureRoot::resolve`] or [`resolve_and_plan`].
+///
+/// All public construction paths verify that the file was opened through the
+/// path confinement pipeline. An internal-only constructor
+/// (`from_parts`, behind the `python-bindings-internal` feature) exists for
+/// cross-crate Python bindings where the file was already resolved through a
+/// secure path. This constructor does not re-verify provenance.
 pub struct ResolvedFile {
     inner: crate::fs::ResolvedFile,
 }
@@ -90,6 +97,7 @@ impl ResolvedFile {
     /// After extraction, the confinement guarantee no longer applies to the
     /// raw file handle. This is intended for internal bridging to the Python
     /// bindings layer.
+    #[cfg(feature = "python-bindings-internal")]
     #[allow(dead_code)]
     pub fn into_std_file(self) -> std::fs::File {
         self.inner.file
@@ -102,6 +110,7 @@ impl ResolvedFile {
     /// After extraction, the confinement guarantee no longer applies to the
     /// raw file handle. This is intended for internal bridging to the Python
     /// bindings layer.
+    #[cfg(feature = "python-bindings-internal")]
     #[allow(dead_code)]
     pub fn into_parts(self) -> (std::fs::File, std::fs::Metadata) {
         (self.inner.file, self.inner.metadata)
@@ -116,6 +125,7 @@ impl ResolvedFile {
     /// Python bindings where the file was already resolved through a secure
     /// path. External Rust consumers should use [`SecureRoot::resolve`] or
     /// [`resolve_and_plan`] instead.
+    #[cfg(feature = "python-bindings-internal")]
     #[allow(dead_code)]
     pub fn from_parts(
         file: std::fs::File,
@@ -942,9 +952,10 @@ mod tests {
         ));
     }
 
-    // ── File parts ──────────────────────────────────────────────────
+    // ── File parts (python-bindings-internal only) ───────────────────
 
     #[test]
+    #[cfg(feature = "python-bindings-internal")]
     fn resolved_file_into_std_file() {
         let (_tmp, root) = setup();
         let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
@@ -956,6 +967,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(feature = "python-bindings-internal")]
     fn resolved_file_into_parts() {
         let (_tmp, root) = setup();
         let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();

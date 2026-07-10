@@ -528,3 +528,28 @@ fn missing_url_rejected() {
     let result = ClientRequestBuilder::new(Method::Get).build();
     assert!(result.is_err());
 }
+
+#[test]
+fn server_disconnect_mid_body() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    let addr = rt.block_on(start_server(test_handler));
+
+    let client = HttpClient::new(ClientConfig {
+        connect_timeout: Duration::from_secs(5),
+        request_timeout: Duration::from_secs(5),
+        max_response_body_bytes: Some(10),
+        verify_tls: true,
+    });
+
+    let req = ClientRequestBuilder::new(Method::Get)
+        .url(&format!("http://{}/large", addr))
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let result = client.send(&req);
+    assert!(matches!(
+        result,
+        Err(ClientError::ResponseBodyTooLarge { limit: 10 })
+    ));
+}
