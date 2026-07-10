@@ -15,6 +15,7 @@
 
 use std::fs;
 use std::io;
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 
 use rustix::fs::{openat, statat, AtFlags, Mode, OFlags};
@@ -27,6 +28,7 @@ use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
 const S_IFMT: u32 = 0o170000;
 const S_IFDIR: u32 = 0o040000;
 const S_IFLNK: u32 = 0o120000;
+const S_IFREG: u32 = 0o100000;
 
 pub(crate) fn resolve_fd_relative(
     root_fd: &fs::File,
@@ -95,6 +97,10 @@ pub(crate) fn resolve_fd_relative(
                     components: components.to_vec(),
                 });
             } else {
+                let mode = metadata.mode();
+                if (mode as u32 & S_IFMT) != S_IFREG {
+                    return ResolvedResource::NotFound;
+                }
                 return ResolvedResource::File(ResolvedFile {
                     file: std_file,
                     metadata,
@@ -117,6 +123,10 @@ pub(crate) fn resolve_child_fd(
     child: &str,
     policy: &StaticPolicy,
 ) -> ResolvedResource {
+    if let Err(rejection) = super::validate_child_component(child) {
+        return ResolvedResource::Denied(rejection);
+    }
+
     if policy.dotfiles == DotfilePolicy::Denied && child.starts_with('.') {
         return ResolvedResource::Denied(PathRejection::DotfileDenied);
     }
@@ -160,6 +170,10 @@ pub(crate) fn resolve_child_fd(
             components,
         })
     } else {
+        let mode = metadata.mode();
+        if (mode as u32 & S_IFMT) != S_IFREG {
+            return ResolvedResource::NotFound;
+        }
         ResolvedResource::File(ResolvedFile {
             file: std_file,
             metadata,

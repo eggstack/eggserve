@@ -249,7 +249,7 @@ Properties: `status` (int), `headers` (dict of string → string).
 Factory methods:
 - `Response.empty(status)` — zero-length body
 - `Response.bytes(status, data, headers=None)` — in-memory bytes body
-- `Response.text(status, text, content_type="text/plain; charset=utf-8")` — text body with correct content type
+- `Response.text(status, text, headers=None)` — text body with default content type `text/plain; charset=utf-8`
 - `Response.body_source(status, source, headers=None)` — file-backed body from `ServerBodySource`
 
 ### `Server`
@@ -349,7 +349,7 @@ Properties:
 Methods:
 - `read_all()` — reads entire body into memory
 - `read_range(start, end_inclusive)` — reads a byte sub-range
-- `to_response(status=200, headers=None)` — creates a `Response` from this body source
+- `to_response(status=200)` — creates a `Response` from this body source
 
 ### `ServerRequestError`
 

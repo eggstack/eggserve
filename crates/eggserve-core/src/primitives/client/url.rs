@@ -167,13 +167,18 @@ impl ParsedUrl {
     }
 
     /// Returns the authority (host:port) string, omitting the port if it
-    /// matches the scheme default.
+    /// matches the scheme default. IPv6 hosts are enclosed in brackets.
     pub fn authority(&self) -> String {
         let default_port = self.scheme.default_port();
-        if self.port == default_port {
-            self.host.clone()
+        let host = if self.host.contains(':') {
+            format!("[{}]", self.host)
         } else {
-            format!("{}:{}", self.host, self.port)
+            self.host.clone()
+        };
+        if self.port == default_port {
+            host
+        } else {
+            format!("{}:{}", host, self.port)
         }
     }
 

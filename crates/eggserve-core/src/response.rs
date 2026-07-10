@@ -100,7 +100,7 @@ pub fn file_response(
                     (file, permit),
                 ))
             }
-            Err(e) => Some((Err(e), (file, permit))),
+            Err(_) => None,
         }
     });
 
@@ -157,7 +157,7 @@ pub async fn file_response_range(
                         (file, permit, remaining),
                     ))
                 }
-                Err(e) => Some((Err(e), (file, permit, remaining))),
+                Err(_) => None,
             }
         },
     );

@@ -21,7 +21,7 @@ Raw Request Target
                   │
                   ▼
 ┌─────────────────────────────────┐
-│ 3. normalize_path()             │  Collapse `//`, `./`, `../`, trailing slashes
+│ 3. normalize_path()             │  Collapse `//`, trailing slashes; `.` and `..` are rejected by validation
 │    path/components.rs           │
 └─────────────────┬───────────────┘
                   │

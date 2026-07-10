@@ -19,11 +19,11 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 | `--bind HOST[:PORT]` | Bind host or host:port (alias for `--addr`) | `127.0.0.1:8000` |
 | `--port PORT` | Port to listen on (overrides `--addr` port) | `8000` |
 | `PORT` | Positional port argument (overrides all port sources) | `8000` |
-| `--public` | Bind to all interfaces (required for non-loopback binds) | off |
+| `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
 
 Port resolution order: `PORT` positional > `--port` > `--addr`/`--bind` > default `8000`.
 
-Binding to `0.0.0.0` or a non-loopback address without `--public` is rejected with an error.
+Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 
 ### Security policies
 

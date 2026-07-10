@@ -111,7 +111,19 @@ impl HttpClient {
 
     async fn send_async(&self, request: &ClientRequest) -> Result<ClientResponse, ClientError> {
         let url = &request.url;
-        let addr = format!("{}:{}", url.host, url.port);
+
+        #[cfg(not(feature = "client-tls"))]
+        if url.is_https() {
+            return Err(ClientError::TlsError(
+                "TLS support not enabled; enable the client-tls feature".into(),
+            ));
+        }
+
+        let addr = if url.host.contains(':') {
+            format!("[{}]:{}", url.host, url.port)
+        } else {
+            format!("{}:{}", url.host, url.port)
+        };
 
         // Connect with timeout
         let connect_future = TcpStream::connect(&addr);
@@ -123,25 +135,6 @@ impl HttpClient {
         let _ = tcp.set_nodelay(true);
 
         let authority = url.authority();
-
-        #[cfg(not(feature = "client-tls"))]
-        if url.is_https() {
-            return Err(ClientError::TlsError(
-                "TLS support not enabled; enable the client-tls feature".into(),
-            ));
-        }
-
-        #[cfg(not(feature = "client-tls"))]
-        {
-            return send_request_over_io(
-                TokioIo::new(tcp),
-                request,
-                &authority,
-                self.config.request_timeout,
-                self.config.max_response_body_bytes,
-            )
-            .await;
-        }
 
         #[cfg(feature = "client-tls")]
         if url.is_https() {
@@ -178,6 +171,18 @@ impl HttpClient {
                 self.config.max_response_body_bytes,
             )
             .await;
+        }
+
+        #[cfg(not(feature = "client-tls"))]
+        {
+            send_request_over_io(
+                TokioIo::new(tcp),
+                request,
+                &authority,
+                self.config.request_timeout,
+                self.config.max_response_body_bytes,
+            )
+            .await
         }
 
         #[cfg(feature = "client-tls")]
@@ -230,8 +235,8 @@ where
         .body(Full::new(Bytes::copy_from_slice(body_bytes)))
         .map_err(|e| ClientError::ProtocolError(e.to_string()))?;
 
-    // Perform HTTP/1.1 handshake and send
-    let response = timeout(request_timeout, async {
+    // Perform HTTP/1.1 handshake, send, and collect body within timeout
+    let (parts, body_bytes) = timeout(request_timeout, async {
         let (mut sender, conn) = hyper::client::conn::http1::handshake(io)
             .await
             .map_err(|e| ClientError::ProtocolError(e.to_string()))?;
@@ -240,19 +245,19 @@ where
             let _ = conn.await;
         });
 
-        sender
+        let response = sender
             .send_request(hyper_req)
             .await
-            .map_err(|e| ClientError::ProtocolError(e.to_string()))
+            .map_err(|e| ClientError::ProtocolError(e.to_string()))?;
+
+        let (parts, body) = response.into_parts();
+
+        let body_bytes = collect_body(body, max_response_body_bytes).await?;
+
+        Ok::<_, ClientError>((parts, body_bytes))
     })
     .await
-    .map_err(|_| ClientError::Timeout("request timed out".into()))?;
-
-    let response = response?;
-
-    let (parts, body) = response.into_parts();
-
-    let body_bytes = collect_body(body, max_response_body_bytes).await?;
+    .map_err(|_| ClientError::Timeout("request timed out".into()))??;
 
     let mut headers = HashMap::new();
     for (name, value) in &parts.headers {

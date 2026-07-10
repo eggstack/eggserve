@@ -80,6 +80,9 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
     match *req.method() {
         Method::GET | Method::HEAD => {
             let uri = req.uri();
+            if uri.authority().is_some() {
+                return bad_request();
+            }
             let path_str = uri.path();
             let is_head = *req.method() == Method::HEAD;
 
@@ -788,6 +791,18 @@ mod tests {
         let resp = handle_request(req, &state).await;
         assert_eq!(resp.status(), StatusCode::NOT_MODIFIED);
         assert_eq!(resp.headers().get("etag").unwrap(), &etag);
+    }
+
+    #[tokio::test]
+    async fn handle_get_absolute_form_returns_400() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::GET)
+            .uri("http://example.com/hello.txt")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
     }
 
     #[tokio::test]

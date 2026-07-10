@@ -34,7 +34,8 @@ def _find_binary() -> str:
             return str(candidate3)
 
     raise FileNotFoundError(
-        "eggserve binary not found; ensure the package is installed correctly"
+        "eggserve binary not found; ensure it is installed and available on PATH, "
+        "or install the eggserve-bin package"
     )
 
 

@@ -50,14 +50,12 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 | Python Class | Wraps | Key Methods |
 |---|---|---|
 | `Request` | parsed HTTP request | `method`, `path`, `query`, `headers`, `remote_addr`, `http_version`, `has_body` |
-| `Response` | response builder | `empty(status)`, `bytes(status, data)`, `text(status, text)`, `body_source(status, source)` |
+| `Response` | response builder | `empty(status)`, `bytes(status, data, headers=None)`, `text(status, text, headers=None)`, `body_source(status, source, headers=None)` |
 | `StaticResponder` | `SecureRoot` + `resolve_and_plan` | `respond(method, target, headers=None)` → `Response` |
-| `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(...)`, `deny_all()`, getters |
+| `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(directory_listing, follow_symlinks, allow_dotfiles)`, getters |
 | `ServerSecureRoot` | `primitives::SecureRoot` | `new(path, policy)`, `root_path` getter |
-| `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response()` |
+| `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response(status=200)` |
 | `Server` | tokio runtime + TcpListener | `start()`, `stop()`, `addr`, context manager, optional `handler` callback, `max_python_callbacks` concurrency limit |
-
-Functions: `parse_request(target, headers)` → `Request`.
 
 Exceptions: `ServerRequestError` (method not allowed, target invalid, body not allowed).
 

@@ -19,6 +19,9 @@ pub struct ConfinedPath {
 
 impl ConfinedPath {
     pub fn parse(raw: &str, policy: &PathPolicy) -> Result<Self, PathRejection> {
+        if raw.len() > 8192 {
+            return Err(PathRejection::TooLong);
+        }
         let path = request_target::parse_origin_form(raw)?;
 
         let decoded = decode::percent_decode(path)?;
@@ -323,5 +326,20 @@ mod tests {
     fn path_policy_default_returns_default() {
         let p = ConfinedPath::parse("/foo", &default_policy()).unwrap();
         assert_eq!(p.path_policy(), &default_policy());
+    }
+
+    #[test]
+    fn reject_too_long() {
+        let long = format!("/{}", "a".repeat(8192));
+        assert_eq!(
+            ConfinedPath::parse(&long, &default_policy()).unwrap_err(),
+            PathRejection::TooLong
+        );
+    }
+
+    #[test]
+    fn allow_max_length() {
+        let max_len = format!("/{}", "a".repeat(8191));
+        assert!(ConfinedPath::parse(&max_len, &default_policy()).is_ok());
     }
 }

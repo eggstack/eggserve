@@ -184,6 +184,22 @@ pub struct PyClientRequest {
 
 #[pymethods]
 impl PyClientRequest {
+    #[new]
+    #[pyo3(signature = (method, url, headers=None, body=None))]
+    fn new(
+        method: PyMethod,
+        url: String,
+        headers: Option<HashMap<String, String>>,
+        body: Option<Vec<u8>>,
+    ) -> Self {
+        Self {
+            method,
+            url,
+            headers: headers.unwrap_or_default(),
+            body,
+        }
+    }
+
     fn __repr__(&self) -> String {
         format!("ClientRequest(method={:?}, url={})", self.method, self.url)
     }

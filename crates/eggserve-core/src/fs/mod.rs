@@ -97,6 +97,28 @@ pub(crate) enum ResolvedResource {
     Denied(#[allow(dead_code)] PathRejection),
 }
 
+fn validate_child_component(child: &str) -> Result<(), PathRejection> {
+    if child.is_empty() {
+        return Err(PathRejection::Empty);
+    }
+    if child == "." {
+        return Err(PathRejection::CurrentComponent);
+    }
+    if child == ".." {
+        return Err(PathRejection::ParentComponent);
+    }
+    if child.contains('/') {
+        return Err(PathRejection::SeparatorAmbiguity);
+    }
+    if child.contains('\0') {
+        return Err(PathRejection::NulByte);
+    }
+    if cfg!(unix) && child.contains('\\') {
+        return Err(PathRejection::SeparatorAmbiguity);
+    }
+    Ok(())
+}
+
 pub(crate) struct RootGuard {
     canonical_root: PathBuf,
     #[cfg(unix)]
@@ -138,6 +160,9 @@ impl RootGuard {
         child: &str,
         policy: &StaticPolicy,
     ) -> ResolvedResource {
+        if let Err(rejection) = validate_child_component(child) {
+            return ResolvedResource::Denied(rejection);
+        }
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return unix::resolve_child_fd(&dir.dir_fd, &dir.components, child, policy);
@@ -221,6 +246,8 @@ impl RootGuard {
                             components: components.to_vec(),
                         })
                     }
+                } else if !meta.is_file() {
+                    ResolvedResource::NotFound
                 } else {
                     match fs::File::open(&canonical) {
                         Ok(file) => ResolvedResource::File(ResolvedFile {

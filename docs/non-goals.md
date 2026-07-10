@@ -3,7 +3,7 @@
 These are explicit non-goals for eggserve. If a feature appears here, it is out of scope unless this document is updated first.
 
 - **No in-tree ASGI or WSGI adapter** — eggserve is a static file server, not an application server; ASGI/WSGI integration is left to separate projects
-- **No dynamic Python code execution inside the static server path** — no hook into request handling via Python
+- **No general-purpose request handling framework** — the optional handler callback provides a hook for custom responses, but eggserve is not a routing framework or application server
 - **No CGI** — legacy dynamic content execution is not supported
 - **No upload/write support in the initial product** — the server is read-only by design
 - **No reverse proxying** — eggserve does not forward requests to upstream servers

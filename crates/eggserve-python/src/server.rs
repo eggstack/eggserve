@@ -167,15 +167,13 @@ impl PyResponse {
         let source = match &self.body {
             PyResponseBody::Empty => BodySource::Empty,
             PyResponseBody::Bytes(data) => BodySource::Bytes(data.clone()),
-            PyResponseBody::BodySource(source) => {
-                match source {
-                    BodySource::Empty => BodySource::Empty,
-                    BodySource::Bytes(data) => BodySource::Bytes(data.clone()),
-                    BodySource::FileFull { .. } | BodySource::FileRange { .. } => {
-                        BodySource::Empty
-                    }
+            PyResponseBody::BodySource(source) => match source {
+                BodySource::Empty => BodySource::Empty,
+                BodySource::Bytes(data) => BodySource::Bytes(data.clone()),
+                BodySource::FileFull { .. } | BodySource::FileRange { .. } => {
+                    BodySource::Empty
                 }
-            }
+            },
         };
         ServerBodySource {
             inner: std::sync::Mutex::new(Some(source)),
@@ -757,8 +755,11 @@ impl PyServer {
         Ok(())
     }
 
-    fn __enter__(slf: Py<Self>) -> Py<Self> {
-        slf
+    fn __enter__(slf: Py<Self>) -> PyResult<Py<Self>> {
+        Python::with_gil(|py| {
+            slf.borrow(py).start(py)?;
+            Ok(slf)
+        })
     }
 
     fn __exit__(
@@ -801,10 +802,22 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
         let responder = self.responder.clone();
         let handler = self.handler.clone();
         let callback_semaphore = self.callback_semaphore.clone();
+        let file_stream_semaphore = self.file_stream_semaphore.clone();
 
         Box::pin(async move {
             let method = req.method().clone();
             let uri = req.uri().clone();
+            if uri.authority().is_some() {
+                let body = Full::new(Bytes::from("Bad Request"))
+                    .map_err(|e| -> BoxError { Box::new(e) })
+                    .boxed();
+                let resp = Response::builder()
+                    .status(400u16)
+                    .header("content-type", "text/plain")
+                    .body(body)
+                    .map_err(|e| -> BoxError { Box::new(e) })?;
+                return Ok(resp);
+            }
             let headers: HashMap<String, String> = req
                 .headers()
                 .iter()
@@ -838,15 +851,17 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                     has_body,
                 };
 
-                let handler_gil = handler_arc
-                    .lock()
-                    .map_err(|_| -> BoxError { "handler lock poisoned".into() })?;
-                let handler_ref = handler_gil
-                    .as_ref()
-                    .ok_or_else(|| -> BoxError { "handler already consumed".into() })?;
                 let response = Python::with_gil(|py| {
+                    let handler_gil = handler_arc
+                        .lock()
+                        .map_err(|_| -> BoxError { "handler lock poisoned".into() })?;
+                    let handler_py = handler_gil
+                        .as_ref()
+                        .ok_or_else(|| -> BoxError { "handler already consumed".into() })?
+                        .clone_ref(py);
+                    drop(handler_gil);
                     let py_req_obj = py_request.into_pyobject(py)?;
-                    match handler_ref.bind(py).call1((py_req_obj,)) {
+                    match handler_py.bind(py).call1((py_req_obj,)) {
                         Ok(obj) => {
                             let status: u16 = obj
                                 .getattr("status")
@@ -861,25 +876,75 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                                 .getattr("headers")
                                 .and_then(|v| v.extract())
                                 .unwrap_or_default();
-                            let body = match obj.getattr("body") {
-                                Ok(b) => {
-                                    let kind: String = b
-                                        .getattr("kind")
-                                        .and_then(|v| v.extract())
-                                        .unwrap_or_default();
-                                    match kind.as_str() {
-                                        "empty" => PyResponseBody::Empty,
-                                        "bytes" => {
-                                            let data: Vec<u8> = b
-                                                .call_method0("read_all")
-                                                .and_then(|v| v.extract())
-                                                .unwrap_or_default();
-                                            PyResponseBody::Bytes(data)
-                                        }
-                                        _ => PyResponseBody::Empty,
+                            let body = if let Ok(py_resp) =
+                                obj.extract::<pyo3::Bound<'_, PyResponse>>()
+                            {
+                                match &py_resp.borrow().body {
+                                    PyResponseBody::Empty => PyResponseBody::Empty,
+                                    PyResponseBody::Bytes(data) => {
+                                        PyResponseBody::Bytes(data.clone())
+                                    }
+                                    PyResponseBody::BodySource(BodySource::FileFull {
+                                        file,
+                                        len,
+                                        ..
+                                    }) => {
+                                        let mut cloned = file.try_clone().map_err(
+                                            |e| -> BoxError { Box::new(e) },
+                                        )?;
+                                        let mut data = vec![0u8; *len as usize];
+                                        std::io::Read::read_exact(&mut cloned, &mut data)
+                                            .map_err(|e| -> BoxError { Box::new(e) })?;
+                                        PyResponseBody::Bytes(data)
+                                    }
+                                    PyResponseBody::BodySource(BodySource::FileRange {
+                                        file,
+                                        range,
+                                        ..
+                                    }) => {
+                                        let start = range.start;
+                                        let end_inclusive = range.end_inclusive;
+                                        let range_len = (end_inclusive - start + 1) as usize;
+                                        let mut cloned = file.try_clone().map_err(
+                                            |e| -> BoxError { Box::new(e) },
+                                        )?;
+                                        use std::io::{Read, Seek, SeekFrom};
+                                        cloned.seek(SeekFrom::Start(start)).map_err(
+                                            |e| -> BoxError { Box::new(e) },
+                                        )?;
+                                        let mut data = vec![0u8; range_len];
+                                        cloned.read_exact(&mut data).map_err(
+                                            |e| -> BoxError { Box::new(e) },
+                                        )?;
+                                        PyResponseBody::Bytes(data)
+                                    }
+                                    other => {
+                                        let _ = other;
+                                        PyResponseBody::Empty
                                     }
                                 }
-                                Err(_) => PyResponseBody::Empty,
+                            } else {
+                                let body = match obj.getattr("body") {
+                                    Ok(b) => {
+                                        let kind: String = b
+                                            .getattr("kind")
+                                            .and_then(|v| v.extract())
+                                            .unwrap_or_default();
+                                        match kind.as_str() {
+                                            "empty" => PyResponseBody::Empty,
+                                            "bytes" => {
+                                                let data: Vec<u8> = b
+                                                    .call_method0("read_all")
+                                                    .and_then(|v| v.extract())
+                                                    .unwrap_or_default();
+                                                PyResponseBody::Bytes(data)
+                                            }
+                                            _ => PyResponseBody::Empty,
+                                        }
+                                    }
+                                    Err(_) => PyResponseBody::Empty,
+                                };
+                                body
                             };
                             Ok::<_, BoxError>(PyResponse {
                                 status,
@@ -893,7 +958,6 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                         }
                     }
                 });
-                drop(handler_gil);
 
                 response
                     .unwrap_or_else(|_| build_error_response(500, "Internal Server Error").unwrap())
@@ -931,7 +995,7 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                 .map_err(|e| -> BoxError { Box::new(e) })?
             };
 
-            convert_to_hyper_response(response).await
+            convert_to_hyper_response(response, Some(file_stream_semaphore)).await
         })
     }
 }
@@ -956,7 +1020,7 @@ fn stream_file(file: tokio::fs::File, limit: Option<u64>) -> FileStream {
                         (file, remaining - n as u64),
                     ))
                 }
-                Err(e) => Some((Err(e), (file, remaining))),
+                Err(_) => None,
             }
         },
     );
@@ -997,6 +1061,7 @@ fn fallback_500() -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
 
 async fn convert_to_hyper_response(
     resp: PyResponse,
+    file_stream_semaphore: Option<Arc<Semaphore>>,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
     if !valid_http_status(resp.status) || !valid_handler_headers(&resp.headers) {
         return fallback_500();
@@ -1034,6 +1099,16 @@ async fn convert_to_hyper_response(
                 Ok(builder.body(body)?)
             }
             BodySource::FileFull { file, len, mime } => {
+                let _permit = if let Some(sem) = &file_stream_semaphore {
+                    Some(
+                        sem.clone()
+                            .acquire_owned()
+                            .await
+                            .map_err(|_| -> BoxError { "file stream semaphore closed".into() })?,
+                    )
+                } else {
+                    None
+                };
                 builder = builder.header("content-type", mime);
                 builder = builder.header("content-length", len.to_string());
                 let tokio_file = tokio::fs::File::from_std(file);
@@ -1048,6 +1123,16 @@ async fn convert_to_hyper_response(
                 total_len,
                 mime,
             } => {
+                let _permit = if let Some(sem) = &file_stream_semaphore {
+                    Some(
+                        sem.clone()
+                            .acquire_owned()
+                            .await
+                            .map_err(|_| -> BoxError { "file stream semaphore closed".into() })?,
+                    )
+                } else {
+                    None
+                };
                 let start = range.start;
                 let end_inclusive = range.end_inclusive;
                 let range_len = end_inclusive - start + 1;
