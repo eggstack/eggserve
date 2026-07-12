@@ -1088,4 +1088,75 @@ mod tests {
         assert_eq!(body.kind(), BodyKind::Bytes);
         assert_eq!(body.read_all().unwrap(), b"custom");
     }
+
+    // ── ResolvedDirectory.resolve_child edge cases ──────────────────
+
+    #[test]
+    fn directory_resolve_child_with_dot_component() {
+        let (_tmp, root) = setup();
+        let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
+        let result = dir.resolve_child(".", &root);
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(ResourceDeniedReason::PolicyDenied(
+                PathRejection::CurrentComponent
+            ))
+        ));
+    }
+
+    #[test]
+    fn directory_resolve_child_with_dotdot_component() {
+        let (_tmp, root) = setup();
+        let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
+        let result = dir.resolve_child("..", &root);
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(ResourceDeniedReason::PolicyDenied(
+                PathRejection::ParentComponent
+            ))
+        ));
+    }
+
+    #[test]
+    fn directory_resolve_child_empty_name() {
+        let (_tmp, root) = setup();
+        let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
+        let result = dir.resolve_child("", &root);
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(ResourceDeniedReason::PolicyDenied(PathRejection::Empty))
+        ));
+    }
+
+    #[test]
+    fn directory_resolve_child_nul_byte() {
+        let (_tmp, root) = setup();
+        let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
+        let result = dir.resolve_child("foo\0bar", &root);
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(ResourceDeniedReason::PolicyDenied(PathRejection::NulByte))
+        ));
+    }
+
+    #[test]
+    fn directory_resolve_child_backslash() {
+        let (_tmp, root) = setup();
+        let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
+        let result = dir.resolve_child("foo\\bar", &root);
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(ResourceDeniedReason::PolicyDenied(
+                PathRejection::SeparatorAmbiguity
+            ))
+        ));
+    }
+
+    #[test]
+    fn directory_resolve_child_valid_name() {
+        let (_tmp, root) = setup();
+        let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
+        let result = dir.resolve_child("file.txt", &root);
+        assert!(result.is_file());
+    }
 }

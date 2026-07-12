@@ -31,6 +31,8 @@ An attacker can:
 - Attempt symlink/reparse-point escape to serve files outside the root
 - Attempt platform-specific path bypasses (Windows `\\?\`, UNC paths, etc.)
 
+**Windows note:** Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. However, filesystem-level reparse-point/NTFS junction hardening is deferred (documented non-goal). Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows.
+
 ## Out-of-scope attacker capabilities (initial version)
 
 The following are explicitly out of scope for the initial version:

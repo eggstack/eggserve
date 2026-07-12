@@ -47,14 +47,14 @@ The following items block specific release milestones:
 
 ### Blocks 1.0
 
-- Windows reparse-point policy not complete
 - Stable public API not frozen
 - Signed releases not implemented
 
 ### Blocks Windows production claims
 
-- Windows reparse-point behavior not audited/tested
-- Windows-specific path edge cases not fully covered
+- Windows is explicitly a trusted/local-use platform (parser-level checks only)
+- Reparse-point/NTFS junction hardening is a documented non-goal — see `docs/non-goals.md`
+- Release notes must state: "Do not use with untrusted mutable public content on Windows"
 
 ### Blocks follow-symlinks production claims
 

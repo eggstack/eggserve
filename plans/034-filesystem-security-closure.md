@@ -102,14 +102,14 @@ Ensure stream I/O errors:
 
 ## Acceptance criteria
 
-- No serving path reopens a reconstructed path after secure resolution.
-- Non-regular files are rejected on supported platforms.
-- Child resolution cannot escape or accept ambiguous components.
-- Race/mutation tests cover the documented Unix model.
-- Capability extraction is internal-feature-only and explicitly unsafe in provenance terms.
-- Range/full streams remain bounded to their capability.
-- Windows support level is explicit and evidence-backed.
-- Client-visible errors reveal no filesystem paths.
+- [x] No serving path reopens a reconstructed path after secure resolution. (Workstream A: traced full request→response, no path reconstruction)
+- [x] Non-regular files are rejected on supported platforms. (Workstream C: FIFO, socket, device tests added)
+- [x] Child resolution cannot escape or accept ambiguous components. (Workstream B: 23 tests for validate_child_component and resolve_child)
+- [x] Race/mutation tests cover the documented Unix model. (Workstream D: 7 race tests added)
+- [x] Capability extraction is internal-feature-only and explicitly unsafe in provenance terms. (Workstream E: doc updates to secure-root.md and architecture/filesystem-confinement.md)
+- [x] Range/full streams remain bounded to their capability. (Workstream A: verified in resolution-path audit)
+- [x] Windows support level is explicit and evidence-backed. (Workstream F: decision to trust/local-use, documented in non-goals.md, security-review.md, release-checklist.md, threat-model.md)
+- [x] Client-visible errors reveal no filesystem paths. (Workstream G: verified no path leaking, documented stream I/O behavior)
 
 ## Non-goals
 

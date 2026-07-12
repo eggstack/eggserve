@@ -544,6 +544,76 @@ mod tests {
         assert!(matches!(result, ResolvedResource::Directory(_)));
     }
 
+    #[test]
+    fn validate_child_empty_string() {
+        assert_eq!(validate_child_component(""), Err(PathRejection::Empty));
+    }
+
+    #[test]
+    fn validate_child_dot() {
+        assert_eq!(
+            validate_child_component("."),
+            Err(PathRejection::CurrentComponent)
+        );
+    }
+
+    #[test]
+    fn validate_child_dotdot() {
+        assert_eq!(
+            validate_child_component(".."),
+            Err(PathRejection::ParentComponent)
+        );
+    }
+
+    #[test]
+    fn validate_child_nul_byte() {
+        assert_eq!(
+            validate_child_component("foo\0bar"),
+            Err(PathRejection::NulByte)
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn validate_child_backslash_unix() {
+        assert_eq!(
+            validate_child_component("foo\\bar"),
+            Err(PathRejection::SeparatorAmbiguity)
+        );
+    }
+
+    #[test]
+    fn validate_child_only_spaces() {
+        assert!(validate_child_component("   ").is_ok());
+    }
+
+    #[test]
+    fn validate_child_long_name() {
+        let long_name = "a".repeat(256);
+        assert!(validate_child_component(&long_name).is_ok());
+    }
+
+    #[test]
+    fn validate_child_unicode() {
+        assert!(validate_child_component("日本語").is_ok());
+        assert!(validate_child_component("émojis_🚀").is_ok());
+    }
+
+    #[test]
+    fn validate_child_nested_dotfile() {
+        assert!(validate_child_component(".hidden").is_ok());
+        assert_eq!(
+            validate_child_component(".hidden/file"),
+            Err(PathRejection::SeparatorAmbiguity)
+        );
+    }
+
+    #[test]
+    fn validate_child_normal_name() {
+        assert!(validate_child_component("hello.txt").is_ok());
+        assert!(validate_child_component("subdir").is_ok());
+    }
+
     #[cfg(unix)]
     #[test]
     fn openat_nofollow_kernel_rejects_symlink() {
@@ -570,5 +640,351 @@ mod tests {
             }
             Ok(_) => panic!("openat(NOFOLLOW) on a symlink unexpectedly succeeded"),
         }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_symlink_swap_after_resolution_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        fs::write(tmp.path().join("dir").join("file.txt"), "legitimate").unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let path = parse_path("/dir/file.txt");
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::File(_)),
+            "before mutation: should resolve as file"
+        );
+
+        fs::remove_file(tmp.path().join("dir").join("file.txt")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", tmp.path().join("dir").join("file.txt")).unwrap();
+
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(
+                result,
+                ResolvedResource::Denied(PathRejection::SymlinkDenied)
+            ),
+            "after symlink swap: should be denied, got {:?}",
+            result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_directory_replaced_with_symlink_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(tmp.path().join("dir").join("subdir")).unwrap();
+        fs::write(
+            tmp.path().join("dir").join("subdir").join("file.txt"),
+            "content",
+        )
+        .unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let path = parse_path("/dir/subdir/file.txt");
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::File(_)),
+            "before mutation: should resolve as file"
+        );
+
+        fs::remove_dir_all(tmp.path().join("dir").join("subdir")).unwrap();
+        std::os::unix::fs::symlink("/etc", tmp.path().join("dir").join("subdir")).unwrap();
+
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(
+                result,
+                ResolvedResource::Denied(PathRejection::SymlinkDenied)
+            ),
+            "after directory replaced with symlink: should be denied, got {:?}",
+            result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_file_unlink_returns_not_found() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        fs::write(tmp.path().join("dir").join("file.txt"), "content").unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let path = parse_path("/dir/file.txt");
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::File(_)),
+            "before mutation: should resolve as file"
+        );
+
+        fs::remove_file(tmp.path().join("dir").join("file.txt")).unwrap();
+
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::NotFound),
+            "after unlink: should return NotFound, got {:?}",
+            result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_permission_change_after_resolution_returns_not_found() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        fs::write(tmp.path().join("dir").join("file.txt"), "content").unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let path = parse_path("/dir/file.txt");
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::File(_)),
+            "before mutation: should resolve as file"
+        );
+
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(
+            tmp.path().join("dir").join("file.txt"),
+            fs::Permissions::from_mode(0o000),
+        )
+        .unwrap();
+
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::NotFound),
+            "after chmod 000: openat(O_RDONLY) fails with EACCES, resolution returns NotFound, got {:?}",
+            result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_file_truncation_during_streaming_read_empty() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        fs::write(tmp.path().join("dir").join("file.txt"), "hello world").unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let path = parse_path("/dir/file.txt");
+        let result = guard.resolve(&path, &policy);
+        let file = match result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File, got {:?}", other),
+        };
+
+        fs::remove_file(tmp.path().join("dir").join("file.txt")).unwrap();
+
+        let mut body = BodySource::FileFull {
+            file: file.file,
+            len: file.metadata.len(),
+            mime: "text/plain",
+        };
+        let data = body.read_all().unwrap();
+        assert!(
+            !data.is_empty(),
+            "on Linux, unlinking an open file does not truncate the fd; \
+             data should still be readable, got {} bytes",
+            data.len()
+        );
+        assert_eq!(data, b"hello world");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_disappearing_directory_entry_not_found() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        fs::write(tmp.path().join("dir").join("file.txt"), "content").unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let dir_path = parse_path("/dir");
+        let dir_result = guard.resolve(&dir_path, &policy);
+        assert!(
+            matches!(dir_result, ResolvedResource::Directory(_)),
+            "should resolve as directory"
+        );
+
+        fs::remove_file(tmp.path().join("dir").join("file.txt")).unwrap();
+
+        let file_path = parse_path("/dir/file.txt");
+        let file_result = guard.resolve(&file_path, &policy);
+        assert!(
+            matches!(file_result, ResolvedResource::NotFound),
+            "after unlinking file: resolving dir/file.txt should return NotFound, got {:?}",
+            file_result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn race_index_file_replaced_with_symlink_denied() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        fs::write(tmp.path().join("dir").join("index.html"), "<html>ok</html>").unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let policy = StaticPolicy::safe_default();
+
+        let dir_path = parse_path("/dir");
+        let dir_result = guard.resolve(&dir_path, &policy);
+        let dir = match dir_result {
+            ResolvedResource::Directory(d) => d,
+            other => panic!("expected Directory, got {:?}", other),
+        };
+
+        let index_result = guard.resolve_child(&dir, "index.html", &policy);
+        assert!(
+            matches!(index_result, ResolvedResource::File(_)),
+            "before mutation: index.html should resolve as file"
+        );
+
+        fs::remove_file(tmp.path().join("dir").join("index.html")).unwrap();
+        std::os::unix::fs::symlink("/etc/passwd", tmp.path().join("dir").join("index.html"))
+            .unwrap();
+
+        let index_result = guard.resolve_child(&dir, "index.html", &policy);
+        assert!(
+            matches!(
+                index_result,
+                ResolvedResource::Denied(PathRejection::SymlinkDenied)
+            ),
+            "after replacing index.html with symlink: resolve_child should deny it, got {:?}",
+            index_result
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fifo_rejected_by_type_check() {
+        use std::os::unix::fs::{FileTypeExt, MetadataExt};
+
+        let tmp = TempDir::new().unwrap();
+        let fifo_path = tmp.path().join("pipe.fifo");
+        let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let meta = fs::symlink_metadata(&fifo_path).unwrap();
+        assert!(meta.file_type().is_fifo(), "should be a FIFO");
+
+        let mode = meta.mode();
+        const S_IFMT: u32 = 0o170000;
+        const S_IFREG: u32 = 0o100000;
+        assert_ne!(
+            mode as u32 & S_IFMT,
+            S_IFREG,
+            "FIFO must not pass the S_IFREG check (fs/unix.rs:101)"
+        );
+        assert!(
+            !meta.is_file(),
+            "is_file() must return false for a FIFO (fs/mod.rs:249)"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_fifo_rejected_via_openat() {
+        use std::time::Duration;
+
+        let tmp = TempDir::new().unwrap();
+        let fifo_path = tmp.path().join("pipe.fifo");
+        let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let fifo_clone = fifo_path.clone();
+        let writer = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(50));
+            let _ = std::fs::OpenOptions::new().write(true).open(&fifo_clone);
+        });
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/pipe.fifo");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        let _ = writer.join();
+
+        assert!(
+            matches!(result, ResolvedResource::NotFound),
+            "FIFO should be rejected as NotFound, got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_unix_socket_rejected() {
+        let tmp = TempDir::new().unwrap();
+        let sock_path = tmp.path().join("sock.sock");
+        let listener = std::os::unix::net::UnixListener::bind(&sock_path).unwrap();
+        drop(listener);
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/sock.sock");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::NotFound),
+            "Unix socket should be rejected as NotFound, got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_symlink_to_fifo_denied() {
+        let tmp = TempDir::new().unwrap();
+        let fifo_path = tmp.path().join("pipe.fifo");
+        let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        std::os::unix::fs::symlink("pipe.fifo", tmp.path().join("link.fifo")).unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/link.fifo");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(
+                result,
+                ResolvedResource::Denied(PathRejection::SymlinkDenied)
+            ),
+            "Symlink to FIFO should be denied, got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_directory_not_treated_as_file() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("mydir")).unwrap();
+
+        let guard = RootGuard::new(tmp.path()).unwrap();
+        let path = parse_path("/mydir");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::Directory(_)),
+            "Directory should resolve as Directory, got {result:?}"
+        );
+
+        let meta = fs::metadata(tmp.path().join("mydir")).unwrap();
+        assert!(
+            !meta.is_file(),
+            "is_file() must return false for a directory"
+        );
     }
 }

@@ -102,6 +102,7 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
+ "libc",
  "phf",
  "rustix",
  "rustls",

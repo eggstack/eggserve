@@ -32,4 +32,5 @@ rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 hyper = { version = "1", features = ["client"] }
+libc = "0.2"
 tempfile = "3"

@@ -102,4 +102,81 @@ mod tests {
         };
         assert!(policy.check_backslash("foo\\bar").is_ok());
     }
+
+    #[test]
+    fn dotfile_policy_deny_rejects_hidden_component() {
+        let policy = PathPolicy::default();
+        assert_eq!(
+            policy.check_dotfile(".hidden").unwrap_err(),
+            PathRejection::DotfileDenied
+        );
+    }
+
+    #[test]
+    fn dotfile_policy_allow_permits_hidden_component() {
+        let policy = PathPolicy {
+            dotfiles: DotfilePolicy::Allow,
+            ..PathPolicy::default()
+        };
+        assert!(policy.check_dotfile(".hidden").is_ok());
+    }
+
+    #[test]
+    fn dotfile_policy_deny_rejects_nested_dotfile() {
+        let policy = PathPolicy::default();
+        assert_eq!(
+            policy.check_dotfile(".env").unwrap_err(),
+            PathRejection::DotfileDenied
+        );
+        assert_eq!(
+            policy.check_dotfile(".gitconfig").unwrap_err(),
+            PathRejection::DotfileDenied
+        );
+    }
+
+    #[test]
+    fn dotfile_policy_allow_permits_all_dotfiles() {
+        let policy = PathPolicy {
+            dotfiles: DotfilePolicy::Allow,
+            ..PathPolicy::default()
+        };
+        assert!(policy.check_dotfile(".env").is_ok());
+        assert!(policy.check_dotfile(".hidden").is_ok());
+        assert!(policy.check_dotfile(".gitconfig").is_ok());
+    }
+
+    #[test]
+    fn backslash_rejected_by_default() {
+        let policy = PathPolicy::default();
+        assert_eq!(
+            policy.check_backslash("foo\\bar").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+        assert_eq!(
+            policy.check_backslash("\\").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+        assert_eq!(
+            policy.check_backslash("a\\b\\c").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
+    fn backslash_allowed_when_policy_permits() {
+        let policy = PathPolicy {
+            reject_backslash: false,
+            ..PathPolicy::default()
+        };
+        assert!(policy.check_backslash("foo\\bar").is_ok());
+        assert!(policy.check_backslash("\\").is_ok());
+        assert!(policy.check_backslash("a\\b\\c").is_ok());
+    }
+
+    #[test]
+    fn check_dotfile_no_dot_prefix_allowed() {
+        let policy = PathPolicy::default();
+        assert!(policy.check_dotfile("file.txt").is_ok());
+        assert!(policy.check_dotfile("normaldir").is_ok());
+    }
 }

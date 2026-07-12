@@ -52,10 +52,16 @@ Capability object wrapping an already-opened file handle. `ResolvedFile` is a re
 | `modified()` | `Option<SystemTime>` | Last modification time |
 | `content_type()` | `&'static str` | MIME type derived from `safe_relative_components()` |
 | `safe_relative_components()` | `&[String]` | Path components relative to root (for MIME detection only) |
-| `into_std_file()` | `std::fs::File` | Consumes self, returns the underlying file handle |
-| `into_parts()` | `(std::fs::File, std::fs::Metadata)` | Returns file handle and metadata |
 | `into_body(plan)` | `Result<BodySource, BodySourceError>` | Consumes self, converts to a body source for the given `StaticResponsePlan` |
 | `into_range_body(start, end_inclusive)` | `Result<BodySource, BodySourceError>` | Consumes self, converts to a range body source |
+
+**Feature-gated extraction methods** (behind `python-bindings-internal`):
+
+| Method | Returns | Description |
+|--------|---------|-------------|
+| `into_std_file()` | `std::fs::File` | Consumes self, returns the underlying file handle. **Breaks confinement guarantee** — see [Capability boundary](#capability-boundary) below. |
+| `into_parts()` | `(std::fs::File, std::fs::Metadata)` | Returns file handle and metadata. **Breaks confinement guarantee** — see [Capability boundary](#capability-boundary) below. |
+| `from_parts(file, metadata, components)` | `ResolvedFile` | Reconstructs from raw components without provenance verification. Internal-only; external consumers must not use this. |
 
 ### `ResolvedDirectory`
 
@@ -134,7 +140,9 @@ match resource {
     eggserve_core::primitives::ResolvedResource::File(file) => {
         let content_type = file.content_type();
         let size = file.len();
-        let std_file = file.into_std_file();
+        // Convert to a BodySource for streaming (consumes the file handle)
+        let plan = plan_file_response(method, metadata, content_type, ...);
+        let body = file.into_body(&plan)?;
     }
     eggserve_core::primitives::ResolvedResource::Directory(dir) => {
         let entries = dir.list(&root)?;
@@ -143,6 +151,20 @@ match resource {
     eggserve_core::primitives::ResolvedResource::Denied(reason) => { /* 403 */ }
 }
 ```
+
+## Capability boundary
+
+The extraction methods (`into_std_file`, `into_parts`, `from_parts`) are behind the `python-bindings-internal` feature gate and exist solely for cross-crate Python bindings where the file was already resolved through a secure path.
+
+**When you extract a raw `std::fs::File`, the confinement guarantee ends.** The file handle is no longer tracked by the resolver. A caller that extracts a file handle can:
+
+- Read from the file at arbitrary offsets (no range enforcement)
+- Retain the handle indefinitely (no automatic cleanup on drop of `ResolvedFile`)
+- Pass it to code that does not know it came from a confined resolution
+
+External Rust consumers should use `into_body(plan)` or `into_range_body(start, end_inclusive)` instead. These methods consume the file handle into a `BodySource` that carries the handle forward for streaming without exposing it to arbitrary use.
+
+The `from_parts` constructor reconstructs a `ResolvedFile` without re-verifying that the file was opened through the confinement pipeline. It is intentionally limited to internal bindings where provenance is established by construction (the Python layer resolves through `SecureRoot` before calling `from_parts`).
 
 ## Why not reopen paths
 
