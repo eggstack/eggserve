@@ -21,20 +21,20 @@
 - [ ] Known limitations documented
 - [ ] No accidental broad feature claims in docs or README
 
-## CI hardening (Plan 039)
+## CI and release hardening (Plans 039–040)
 
 - [ ] All GitHub Actions pinned to SHA digests (see `.github/workflows/` for pinned versions)
 - [ ] Workflow permissions are minimal (`contents: read` for CI, `contents: write` only for release)
 - [ ] Supply-chain audit job passes (`cargo audit` + `cargo deny check` in CI)
 - [ ] Raw-wire correctness tests pass in CI
 - [ ] Corpus replay tests pass in CI
-- [ ] Multi-OS CI matrix passes (Linux, macOS)
+- [ ] Multi-OS CI matrix passes (Linux, macOS, Windows)
 - [ ] Release workflow tested in dry-run mode before first real release
 
 ## For crates.io publication (if applicable)
 
-- [ ] `cargo package -p eggserve-core --allow-dirty` passes
-- [ ] `cargo package -p eggserve-bin --allow-dirty` passes
+- [ ] `cargo package -p eggserve-core --locked` passes
+- [ ] `cargo build -p eggserve-bin --locked` passes before core is published; `cargo publish -p eggserve-bin --locked` performs package verification after the core crate is available
 - [ ] Package metadata (description, license, repository) complete in Cargo.toml
 - [ ] README renders correctly on crates.io
 
@@ -74,6 +74,6 @@ The following items block specific release milestones:
 
 ### Not blockers (documented non-features)
 
-- Range requests absent — documented limitation
+- Multi-range requests absent — single byte ranges are supported
 - HTTP/2 absent — documented limitation
 - No native TLS unless `tls` feature enabled — documented

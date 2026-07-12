@@ -335,25 +335,25 @@ async fn prod_connection_limit_enforced() {
     let s = start_production_server(limits).await;
 
     let mut c1 = tokio::net::TcpStream::connect(s.addr).await.unwrap();
-    c1.write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    c1.write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n")
         .await
         .unwrap();
     let mut c2 = tokio::net::TcpStream::connect(s.addr).await.unwrap();
-    c2.write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+    c2.write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n")
         .await
         .unwrap();
 
     let mut c3 = tokio::net::TcpStream::connect(s.addr).await.unwrap();
-    c3.write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
-        .await
-        .unwrap();
+    let mut buf3 = Vec::new();
+    let _ = c3.read_to_end(&mut buf3).await;
+
+    c1.write_all(b"Connection: close\r\n\r\n").await.unwrap();
+    c2.write_all(b"Connection: close\r\n\r\n").await.unwrap();
 
     let mut buf1 = Vec::new();
     let mut buf2 = Vec::new();
-    let mut buf3 = Vec::new();
     let _ = c1.read_to_end(&mut buf1).await;
     let _ = c2.read_to_end(&mut buf2).await;
-    let _ = c3.read_to_end(&mut buf3).await;
 
     let r1 = String::from_utf8_lossy(&buf1);
     let r2 = String::from_utf8_lossy(&buf2);

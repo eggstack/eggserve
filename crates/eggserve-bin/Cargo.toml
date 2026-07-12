@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "CLI binary for eggserve"
+repository = "https://github.com/eggstack/eggserve"
+homepage = "https://github.com/eggstack/eggserve"
+readme = "../../README.md"
 
 [lib]
 name = "eggserve_bin"
@@ -18,7 +21,7 @@ default = []
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 
 [dependencies]
-eggserve-core = { path = "../eggserve-core" }
+eggserve-core = { path = "../eggserve-core", version = "0.1.0" }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal", "time", "sync"] }
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }

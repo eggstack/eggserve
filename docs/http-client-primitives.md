@@ -7,6 +7,7 @@ Low-level, Rust-backed HTTP client substrate for eggserve. Feature-gated behind 
 This is a **transport substrate**, not a high-level client library. It provides:
 
 - HTTP/1.1 request/response over TCP
+- Origin-form request targets with an explicit `Host` header for direct origin-server interoperability
 - Explicit timeout policy (connect, request)
 - TLS verification by default (when `client-tls` is enabled)
 - Structured errors with a 12-variant taxonomy

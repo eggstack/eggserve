@@ -100,6 +100,12 @@ impl ParsedUrl {
             return Err(ClientError::MissingHost);
         }
 
+        if !host_port.starts_with('[') && host_port.matches(':').count() > 1 {
+            return Err(ClientError::InvalidUrl(
+                "IPv6 literals must be enclosed in brackets".into(),
+            ));
+        }
+
         // Handle IPv6 literals [::1]
         let (host, port) = if host_port.starts_with('[') {
             let bracket_end = host_port.find(']').ok_or_else(|| {
@@ -381,6 +387,12 @@ mod tests {
     #[test]
     fn parse_ipv6_extra_after_bracket_rejected() {
         let err = ParsedUrl::parse("http://[::1]extra/").unwrap_err();
+        assert!(matches!(err, ClientError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn parse_unbracketed_ipv6_rejected() {
+        let err = ParsedUrl::parse("http://::1/").unwrap_err();
         assert!(matches!(err, ClientError::InvalidUrl(_)));
     }
 

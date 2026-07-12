@@ -173,22 +173,9 @@ Evidence:
 
 ### Stream I/O error behavior (Workstream G)
 
-The file streaming code in `response.rs` handles I/O errors by silently terminating the stream:
+The file streaming code in `response.rs` propagates read failures through the HTTP body after logging a warning. A seek failure is converted to a generic 500 response before streaming starts. The body error causes Hyper to terminate the affected response/connection instead of silently presenting a successful response with fewer bytes than its `Content-Length`.
 
-- `response.rs:104`: Full-file stream — `Err(_) => None` ends the stream without propagating the error
-- `response.rs:161`: Range stream — same pattern: `Err(_) => None`
-- `response.rs:139-141`: Range seek failure — returns 500 `planned_response` (not a stream error)
-
-**Properties:**
-- Stream errors terminate cleanly (no infinite loops, no panics)
-- Semaphore permit is dropped when the unfold closure ends, releasing the file-stream slot
-- No local filesystem paths are leaked to clients in error responses
-- HTTP response headers are already sent before streaming begins, so a mid-stream termination results in a truncated body with correct `Content-Length` header (client sees an incomplete response)
-
-**Known gaps:**
-- Stream I/O errors are now logged at warn level via `eprintln!` before terminating the stream
-- No explicit mechanism to prevent unsafe connection reuse after a truncated response (HTTP/1.1 keep-alive connections may reuse after a truncated body)
-- These are acceptable for a static file server: stream errors are rare (file deleted after open, disk failure), and the response is already partially sent
+The semaphore permit remains owned by the stream state and is released when the stream completes or errors. Error responses do not expose local filesystem paths.
 
 ## See Also
 

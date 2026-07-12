@@ -90,23 +90,29 @@ pub fn file_response(
         builder = builder.header("etag", tag);
     }
 
-    let stream = futures_util::stream::unfold((file, permit), |(mut file, permit)| async move {
-        let mut buf = vec![0u8; 8192];
-        match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
-            Ok(0) => None,
-            Ok(n) => {
-                buf.truncate(n);
-                Some((
-                    Ok::<_, std::io::Error>(Frame::data(Bytes::from(buf))),
-                    (file, permit),
-                ))
+    let stream = futures_util::stream::unfold(
+        (file, permit, false),
+        |(mut file, permit, failed)| async move {
+            if failed {
+                return None;
             }
-            Err(e) => {
-                eprintln!("warn: file stream I/O error: {e}");
-                None
+            let mut buf = vec![0u8; 8192];
+            match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
+                Ok(0) => None,
+                Ok(n) => {
+                    buf.truncate(n);
+                    Some((
+                        Ok::<_, std::io::Error>(Frame::data(Bytes::from(buf))),
+                        (file, permit, false),
+                    ))
+                }
+                Err(e) => {
+                    eprintln!("warn: file stream I/O error: {e}");
+                    Some((Err(e), (file, permit, true)))
+                }
             }
-        }
-    });
+        },
+    );
 
     let body = StreamBody::new(stream);
     let body: BoxBodyInner = BodyExt::boxed(body);
@@ -138,9 +144,15 @@ pub async fn file_response_range(
         builder = builder.header(&header.name, &header.value);
     }
 
-    let len = end_inclusive - start + 1;
+    let len = match end_inclusive
+        .checked_sub(start)
+        .and_then(|length| length.checked_add(1))
+    {
+        Some(len) => len,
+        None => return internal_error(),
+    };
     if file.seek(SeekFrom::Start(start)).await.is_err() {
-        return planned_response(StatusCode::INTERNAL_SERVER_ERROR, headers);
+        return internal_error();
     }
 
     let stream = futures_util::stream::unfold(
@@ -149,7 +161,7 @@ pub async fn file_response_range(
             if remaining == 0 {
                 return None;
             }
-            let mut buf = vec![0u8; (remaining as usize).min(8192)];
+            let mut buf = vec![0u8; remaining.min(8192) as usize];
             match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
                 Ok(0) => None,
                 Ok(n) => {
@@ -163,7 +175,7 @@ pub async fn file_response_range(
                 }
                 Err(e) => {
                     eprintln!("warn: file stream I/O error: {e}");
-                    None
+                    Some((Err(e), (file, permit, 0)))
                 }
             }
         },

@@ -6,6 +6,7 @@ request representation, and Python API consistency.
 """
 
 import os
+import socket
 import tempfile
 import threading
 import time
@@ -57,6 +58,16 @@ def _wait_for_tcp(addr, timeout=5.0):
         except (ConnectionRefusedError, OSError):
             time.sleep(0.05)
     return False
+
+
+def _raw_status(addr, request):
+    host, port = addr.split(":")
+    with socket.create_connection((host, int(port)), timeout=5) as sock:
+        sock.sendall(request)
+        data = b""
+        while b"\r\n" not in data:
+            data += sock.recv(1024)
+    return int(data.split(b" ", 2)[1])
 
 
 class _TestServerBase(unittest.TestCase):
@@ -229,6 +240,20 @@ class TestResponseValidation(_TestServerBase):
         """Handler returning 'te' header produces 500."""
         def handler(req):
             return Response.bytes(200, b"ok", headers={"te": "chunked"})
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        try:
+            urllib.request.urlopen(url, timeout=2)
+            self.fail("Expected HTTPError")
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 500)
+
+    def test_hop_by_hop_header_names_are_case_insensitive(self):
+        """Header policy rejects hop-by-hop names regardless of casing."""
+        def handler(req):
+            return Response.bytes(200, b"ok", headers={"Connection": "keep-alive"})
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
@@ -663,6 +688,25 @@ class TestRequestRepresentation(_TestServerBase):
         self.assertTrue(_wait_for_server(url))
         urllib.request.urlopen(url, timeout=2)
         self.assertFalse(captured[-1])
+
+    def test_get_body_metadata_is_rejected_before_handler(self):
+        """GET body framing is rejected before callback execution."""
+        called = []
+
+        def handler(req):
+            called.append(True)
+            return Response.text(200, "unexpected")
+
+        s = self._make_server(handler=handler)
+        self.assertTrue(_wait_for_tcp(s.addr))
+        status = _raw_status(
+            s.addr,
+            b"GET /index.txt HTTP/1.1\r\n"
+            + f"Host: {s.addr}\r\n".encode()
+            + b"Content-Length: 1\r\nConnection: close\r\n\r\nx",
+        )
+        self.assertEqual(status, 413)
+        self.assertEqual(called, [])
 
     def test_request_http_version(self):
         """Handler receives http_version string."""

@@ -90,7 +90,7 @@ When directory listing is enabled:
 1. **Windows reparse-point hardening** — not fully audited; Windows is supported with parser-level checks but production hardening is a documented non-goal (`docs/non-goals.md`). Windows is explicitly a trusted/local-use platform. **Do not use on Windows for untrusted mutable public roots.**
 2. **Follow-symlinks mode uses canonicalize-based resolution** — TOCTOU window exists when `--follow-symlinks` is enabled; final canonical path is still verified against root. This mode is **not** covered by the descriptor-relative hardening guarantee and is treated as weaker/experimental.
 3. **macOS intermediate-component TOCTOU** — on macOS, the statat-to-openat gap for intermediate directory components may not be fully closed by `O_NOFOLLOW` on some filesystem configurations; the final component's `O_NOFOLLOW` open prevents swap attacks where supported by the platform.
-4. **No Range requests** — full-file streaming only
+4. **Single-range requests only** — multi-range requests are not supported
 5. **No HTTP/2** — HTTP/1.1 only
 6. **No native TLS by default** — requires `tls` feature flag
 7. **No request body processing** — all bodies rejected on GET/HEAD

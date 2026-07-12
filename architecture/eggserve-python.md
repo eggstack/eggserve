@@ -97,7 +97,7 @@ Hyper Response sent to client
 ```
 
 - **GIL management:** `tokio::task::spawn_blocking` + `Python::with_gil` ensures tokio is never blocked by Python. Callback concurrency is bounded by a semaphore (`max_python_callbacks`), preventing handler overload.
-- **File streaming:** File bodies bypass Python entirely — Rust streams `BodySource` directly to the socket.
+- **File streaming:** File bodies retain their Rust-owned `BodySource` capability and stream directly to the socket without an eager Python-memory copy.
 - **Error handling:** Handler exceptions → 500 Internal Server Error without leaking tracebacks. Python-produced responses are validated in Rust via `validate_handler_response()` (plan 037) — hop-by-hop headers, 204/304 body prohibition, status range checks.
 - **Readiness signal:** `start()` blocks until the listener is bound and ready, using `std::sync::mpsc`.
 
@@ -152,7 +152,7 @@ Searches for the `eggserve` binary in:
 
 5. **Independent build** — The Python crate has its own `Cargo.lock` and is built via `maturin`, not the workspace. This avoids pulling workspace dependencies into the Python wheel.
 
-6. **File streaming bypasses Python** — File bodies are streamed directly from Rust to the socket. Python never sees file contents in the server path, keeping memory usage low and avoiding GIL contention.
+6. **File streaming bypasses Python** — File bodies are streamed directly from Rust to the socket. The handler boundary clones the file capability when necessary but does not read the file into Python memory, keeping memory usage low and avoiding GIL contention.
 
 ## Build & Test
 

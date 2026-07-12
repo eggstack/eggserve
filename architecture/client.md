@@ -42,7 +42,7 @@ Internal flow:
 2. Connect with timeout via `tokio::time::timeout()`
 3. For HTTPS: wrap TCP in TLS via `tokio-rustls` (when `client-tls` enabled), reject if not enabled
 4. Set `Host` and `User-Agent` headers
-5. Send request via hyper HTTP/1.1
+5. Send an origin-form request target via hyper HTTP/1.1
 6. Collect response body with max-bytes enforcement (buffered, not streaming)
 7. Return `ClientResponse` (fully buffered)
 

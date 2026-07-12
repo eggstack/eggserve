@@ -264,7 +264,7 @@ These methods:
 - HEAD is not special-cased in the Python handler path.
 - 204 and informational statuses are not special-cased — the handler is responsible.
 - Hop-by-hop headers are not filtered — the handler should not emit them.
-- File-backed responses are eagerly read to bytes in the handler path.
+- File-backed responses retain their Rust-owned capability and stream without an eager Python-memory copy.
 
 ### Client Stability
 

@@ -38,7 +38,7 @@ A beta release requires all alpha criteria plus:
 - [x] Raw-wire correctness tests in CI: `http_wire_correctness`, `http_primitives_integration`, `production_path` run in CI
 - [x] Corpus replay in CI: fuzz corpus replay runs on every push and PR
 - [x] GitHub Actions pinned to SHA digests: all third-party actions use immutable commit references
-- [x] Workflow permissions minimal: CI workflows declare `contents: read`, release workflow uses `contents: write` + `id-token: write`
+- [x] Workflow permissions minimal: CI and validation jobs use `contents: read`; only the protected publish job uses `contents: write` + `id-token: write`
 - [ ] No known unsound `unsafe` code
 
 ## 1.0

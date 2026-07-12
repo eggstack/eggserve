@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -34,7 +34,10 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
+      - run: cargo test --workspace --doc
       - run: cargo test -p eggserve-core --features client
+      - run: cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings
+      - run: cargo test -p eggserve-core --features client-tls
       - run: cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
       - run: cargo test -p eggserve-bin --features tls
 
@@ -80,6 +83,8 @@ jobs:
   python-unit-tests:
     needs: [rust-check]
     runs-on: ubuntu-latest
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -121,6 +126,8 @@ jobs:
   packaging-smoke:
     needs: [python-unit-tests]
     runs-on: ubuntu-latest
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -146,5 +153,5 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: cargo package -p eggserve-core --allow-dirty
-      - run: cargo package -p eggserve-bin --allow-dirty
+      - run: cargo package -p eggserve-core --locked
+      - run: cargo build -p eggserve-bin --locked

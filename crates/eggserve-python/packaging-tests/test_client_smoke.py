@@ -51,10 +51,8 @@ class TestHttpClientConstruction(unittest.TestCase):
 class TestHttpClientLocalRequest(unittest.TestCase):
     """HttpClient can fetch a local server response.
 
-    NOTE: eggserve's server rejects absolute-form URIs (http://host:port/path)
-    as a security measure. The HttpClient sends absolute-form URIs, so it cannot
-    be used against eggserve's own server. These tests verify the client can
-    connect and handle the resulting 400 response correctly.
+    The client uses origin-form request targets, so it can talk directly to
+    eggserve's origin server.
     """
 
     def setUp(self):
@@ -86,7 +84,7 @@ class TestHttpClientLocalRequest(unittest.TestCase):
         client = HttpClient()
         resp = client.get(url)
         self.assertIsNotNone(resp)
-        self.assertIn(resp.status, (200, 400))
+        self.assertEqual(resp.status, 200)
 
     def test_head_returns_response(self):
         """HttpClient can send HEAD and get a response."""
@@ -94,7 +92,7 @@ class TestHttpClientLocalRequest(unittest.TestCase):
         client = HttpClient()
         resp = client.head(url)
         self.assertIsNotNone(resp)
-        self.assertIn(resp.status, (200, 400))
+        self.assertEqual(resp.status, 200)
 
     def test_response_has_headers(self):
         """Response includes headers dict."""

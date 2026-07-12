@@ -100,7 +100,13 @@ impl FileRange {
     }
 
     pub fn len(&self) -> u64 {
-        self.end_inclusive - self.start + 1
+        if self.is_empty() {
+            return 0;
+        }
+        self.end_inclusive
+            .checked_sub(self.start)
+            .and_then(|len| len.checked_add(1))
+            .unwrap_or(u64::MAX)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -210,6 +216,13 @@ mod tests {
 
         let range = FileRange::new(10, 19);
         assert_eq!(range.len(), 10);
+    }
+
+    #[test]
+    fn invalid_file_range_is_empty() {
+        let range = FileRange::new(10, 9);
+        assert!(range.is_empty());
+        assert_eq!(range.len(), 0);
     }
 
     #[test]

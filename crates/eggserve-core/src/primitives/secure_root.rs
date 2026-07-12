@@ -161,7 +161,7 @@ impl ResolvedFile {
                 end_inclusive,
             } => {
                 let total_len = self.inner.metadata.len();
-                if *end_inclusive >= total_len {
+                if *end_inclusive < *start || *end_inclusive >= total_len {
                     return Err(BodySourceError::InvalidRange);
                 }
                 let range = FileRange::new(*start, *end_inclusive);
@@ -184,7 +184,7 @@ impl ResolvedFile {
         end_inclusive: u64,
     ) -> Result<BodySource, BodySourceError> {
         let total_len = self.inner.metadata.len();
-        if end_inclusive >= total_len {
+        if end_inclusive < start || end_inclusive >= total_len {
             return Err(BodySourceError::InvalidRange);
         }
         let range = FileRange::new(start, end_inclusive);
@@ -1059,6 +1059,14 @@ mod tests {
         let (_tmp, root) = setup();
         let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
         let err = file.into_range_body(0, 999).unwrap_err();
+        assert!(matches!(err, BodySourceError::InvalidRange));
+    }
+
+    #[test]
+    fn into_range_body_reversed_invalid() {
+        let (_tmp, root) = setup();
+        let file = root.resolve(&parse("/hello.txt")).into_file().unwrap();
+        let err = file.into_range_body(3, 1).unwrap_err();
         assert!(matches!(err, BodySourceError::InvalidRange));
     }
 

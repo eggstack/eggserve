@@ -24,8 +24,7 @@ on:
           - "false"
 
 permissions:
-  contents: write
-  id-token: write
+  contents: read
 
 env:
   CARGO_TERM_COLOR: always
@@ -41,7 +40,11 @@ jobs:
 
       - name: Validate tag version consistency
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="manual"
+          fi
           echo "Release tag: $TAG"
 
           # Extract version from Cargo.toml
@@ -53,9 +56,6 @@ jobs:
           echo "Bin version: $BIN_VERSION"
           echo "Python version: $PY_VERSION"
 
-          # For RC releases, strip the -rc.N suffix for version comparison
-          BASE_TAG="${TAG%-rc.*}"
-
           if [ "$CORE_VERSION" != "$BIN_VERSION" ]; then
             echo "::error::Version mismatch: core=$CORE_VERSION bin=$BIN_VERSION"
             exit 1
@@ -66,10 +66,12 @@ jobs:
             exit 1
           fi
 
-          # Verify tag matches version (for non-RC releases)
-          if [[ "$TAG" != *"-rc."* ]] && [ "$TAG" != "v$CORE_VERSION" ]; then
-            echo "::error::Tag $TAG does not match version $CORE_VERSION"
-            exit 1
+          if [ "$TAG" != "manual" ]; then
+            BASE_TAG="${TAG%-rc.*}"
+            if [ "$BASE_TAG" != "v$CORE_VERSION" ]; then
+              echo "::error::Tag $TAG does not match version $CORE_VERSION"
+              exit 1
+            fi
           fi
 
           echo "All versions consistent: $CORE_VERSION"
@@ -79,7 +81,10 @@ jobs:
           cargo fmt --all -- --check
           cargo clippy --workspace --all-targets -- -D warnings
           cargo test --workspace
+          cargo test --workspace --doc
           cargo test -p eggserve-core --features client
+          cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings
+          cargo test -p eggserve-core --features client-tls
           cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
           cargo test -p eggserve-bin --features tls
           cargo audit
@@ -100,8 +105,8 @@ jobs:
 
       - name: Package verification
         run: |
-          cargo package -p eggserve-core --allow-dirty
-          cargo package -p eggserve-bin --allow-dirty
+          cargo package -p eggserve-core --locked
+          cargo build -p eggserve-bin --locked
 
   build-artifacts:
     name: Build ${{ matrix.target }}
@@ -162,6 +167,8 @@ jobs:
     name: Build Python wheel
     needs: [validate]
     runs-on: ubuntu-latest
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     permissions:
       contents: read
     steps:
@@ -177,6 +184,8 @@ jobs:
       - name: Build wheel
         run: maturin build --release --interpreter 3.14 -o dist
         working-directory: crates/eggserve-python
+      - name: Run installed-wheel smoke tests
+        run: bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python3.14
       - name: Upload wheel
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -189,7 +198,7 @@ jobs:
     needs: [build-artifacts, build-python]
     runs-on: ubuntu-latest
     permissions:
-      contents: write
+      contents: read
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
@@ -232,6 +241,8 @@ jobs:
         with:
           name: release-bundle
           path: |
+            artifacts/**/*.tar.gz
+            artifacts/**/*.whl
             artifacts/**/checksums-sha256.txt
             provenance.json
           retention-days: 30
@@ -256,7 +267,7 @@ jobs:
           name: release-bundle
 
       - name: Publish crates.io
-        run: cargo publish -p eggserve-core --allow-dirty
+        run: cargo publish -p eggserve-core --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
@@ -264,22 +275,16 @@ jobs:
         run: sleep 30
 
       - name: Publish eggserve-bin to crates.io
-        run: cargo publish -p eggserve-bin --allow-dirty
+        run: cargo publish -p eggserve-bin --locked
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
 
-      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      - name: Set up Python for PyPI publish
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
           python-version: "3.14"
-
-      - name: Build Python wheel for publication
-        run: |
-          pip install maturin
-          cd crates/eggserve-python
-          maturin build --release --interpreter 3.14 -o dist
-
-      - name: Publish to PyPI
-        run: pip install twine && twine upload crates/eggserve-python/dist/*.whl
+      - name: Upload staged Python wheel to PyPI
+        run: pip install twine && twine upload artifacts/python-wheel/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
@@ -290,5 +295,6 @@ jobs:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/checksums-sha256.txt
-            crates/eggserve-python/dist/*.whl
+            artifacts/**/*.whl
+            provenance.json
           generate_release_notes: true

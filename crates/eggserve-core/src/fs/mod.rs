@@ -59,7 +59,7 @@ impl ResolvedFile {
                 end_inclusive,
             } => {
                 let total_len = self.metadata.len();
-                if *end_inclusive >= total_len {
+                if *end_inclusive < *start || *end_inclusive >= total_len {
                     return Err(BodySourceError::InvalidRange);
                 }
                 let range = FileRange::new(*start, *end_inclusive);

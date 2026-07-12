@@ -20,7 +20,9 @@ use tokio::task;
 
 use eggserve_core::policy;
 use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::http::ReadOnlyMethod;
+use eggserve_core::primitives::http::{
+    validate_request_body, ReadOnlyMethod, RequestValidationError,
+};
 use eggserve_core::primitives::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
     ResolveAndPlanError, SecureRoot, StaticPolicy,
@@ -840,12 +842,25 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                     .map_err(|e| -> BoxError { Box::new(e) })?;
                 return Ok(resp);
             }
+            let is_head = method == hyper::Method::HEAD;
+            let is_read_only = method == hyper::Method::GET || is_head;
+            if is_read_only {
+                if let Err(error) = validate_read_only_body(req.headers()) {
+                    let response = body_validation_response(error);
+                    return convert_to_hyper_response(
+                        response,
+                        Some(file_stream_semaphore),
+                        is_head,
+                    )
+                    .await;
+                }
+            }
             let headers: HashMap<String, String> = req
                 .headers()
                 .iter()
                 .filter_map(|(k, v)| v.to_str().ok().map(|v| (k.to_string(), v.to_string())))
                 .collect();
-            let has_body = method != hyper::Method::GET && method != hyper::Method::HEAD;
+            let has_body = request_has_body(req.headers());
             let target = uri.path().to_string();
             let query = uri.query().unwrap_or("").to_string();
             let http_version = format!("{:?}", req.version());
@@ -909,37 +924,27 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                                     PyResponseBody::BodySource(BodySource::FileFull {
                                         file,
                                         len,
-                                        ..
-                                    }) => {
-                                        let mut cloned = file.try_clone().map_err(
-                                            |e| -> BoxError { Box::new(e) },
-                                        )?;
-                                        let mut data = vec![0u8; *len as usize];
-                                        std::io::Read::read_exact(&mut cloned, &mut data)
-                                            .map_err(|e| -> BoxError { Box::new(e) })?;
-                                        PyResponseBody::Bytes(data)
-                                    }
+                                        mime,
+                                    }) => PyResponseBody::BodySource(BodySource::FileFull {
+                                        file: file
+                                            .try_clone()
+                                            .map_err(|e| -> BoxError { Box::new(e) })?,
+                                        len: *len,
+                                        mime,
+                                    }),
                                     PyResponseBody::BodySource(BodySource::FileRange {
                                         file,
                                         range,
-                                        ..
-                                    }) => {
-                                        let start = range.start;
-                                        let end_inclusive = range.end_inclusive;
-                                        let range_len = (end_inclusive - start + 1) as usize;
-                                        let mut cloned = file.try_clone().map_err(
-                                            |e| -> BoxError { Box::new(e) },
-                                        )?;
-                                        use std::io::{Read, Seek, SeekFrom};
-                                        cloned.seek(SeekFrom::Start(start)).map_err(
-                                            |e| -> BoxError { Box::new(e) },
-                                        )?;
-                                        let mut data = vec![0u8; range_len];
-                                        cloned.read_exact(&mut data).map_err(
-                                            |e| -> BoxError { Box::new(e) },
-                                        )?;
-                                        PyResponseBody::Bytes(data)
-                                    }
+                                        total_len,
+                                        mime,
+                                    }) => PyResponseBody::BodySource(BodySource::FileRange {
+                                        file: file
+                                            .try_clone()
+                                            .map_err(|e| -> BoxError { Box::new(e) })?,
+                                        range: *range,
+                                        total_len: *total_len,
+                                        mime,
+                                    }),
                                     other => {
                                         let _ = other;
                                         PyResponseBody::Empty
@@ -1017,9 +1022,57 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                 .map_err(|e| -> BoxError { Box::new(e) })?
             };
 
-            convert_to_hyper_response(response, Some(file_stream_semaphore)).await
+            convert_to_hyper_response(response, Some(file_stream_semaphore), is_head).await
         })
     }
+}
+
+fn validate_read_only_body(
+    headers: &hyper::HeaderMap,
+) -> Result<(), RequestValidationError> {
+    let content_length = headers
+        .get(hyper::header::CONTENT_LENGTH)
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| RequestValidationError::InvalidContentLength)
+        })
+        .transpose()?;
+    let transfer_encoding = headers
+        .get(hyper::header::TRANSFER_ENCODING)
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| RequestValidationError::UnsupportedTransferEncoding)
+        })
+        .transpose()?;
+    validate_request_body(content_length, transfer_encoding, 0)
+}
+
+fn request_has_body(headers: &hyper::HeaderMap) -> bool {
+    let content_length = headers
+        .get(hyper::header::CONTENT_LENGTH)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .is_some_and(|length| length > 0);
+    let transfer_encoding = headers
+        .get(hyper::header::TRANSFER_ENCODING)
+        .and_then(|value| value.to_str().ok())
+        .is_some_and(|value| !value.trim().is_empty());
+    content_length || transfer_encoding
+}
+
+fn body_validation_response(error: RequestValidationError) -> PyResponse {
+    let (status, reason) = match error {
+        RequestValidationError::BodyTooLarge => (413, "Payload Too Large"),
+        RequestValidationError::InvalidContentLength
+        | RequestValidationError::UnsupportedTransferEncoding
+        | RequestValidationError::ConflictingBodyHeaders => (400, "Bad Request"),
+        RequestValidationError::MethodNotAllowed | RequestValidationError::InvalidRequestTarget => {
+            (400, "Bad Request")
+        }
+    };
+    build_error_response(status, reason).expect("static body validation response is valid")
 }
 
 fn stream_file(
@@ -1048,7 +1101,7 @@ fn stream_file(
                 }
                 Err(e) => {
                     eprintln!("warn: file stream I/O error: {e}");
-                    None
+                    Some((Err(e), (file, 0, permit)))
                 }
             }
         },
@@ -1065,7 +1118,7 @@ fn valid_http_status(status: u16) -> bool {
 
 fn is_hop_by_hop_header(name: &str) -> bool {
     matches!(
-        name,
+        name.to_ascii_lowercase().as_str(),
         "connection"
             | "keep-alive"
             | "proxy-authenticate"
@@ -1086,7 +1139,7 @@ fn validate_handler_response(resp: &PyResponse) -> bool {
         return false;
     }
     for (name, value) in &resp.headers {
-        if name.is_empty() {
+        if name.is_empty() || hyper::header::HeaderName::from_bytes(name.as_bytes()).is_err() {
             return false;
         }
         for &b in value.as_bytes() {
@@ -1120,18 +1173,64 @@ fn fallback_500() -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
 async fn convert_to_hyper_response(
     resp: PyResponse,
     file_stream_semaphore: Option<Arc<Semaphore>>,
+    suppress_body: bool,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
     if !validate_handler_response(&resp) {
         return fallback_500();
     }
 
+    let file_body = match &resp.body {
+        PyResponseBody::BodySource(BodySource::FileFull { len, mime, .. }) => {
+            Some((false, *len, *mime, None))
+        }
+        PyResponseBody::BodySource(BodySource::FileRange {
+            range,
+            total_len,
+            mime,
+            ..
+        }) => {
+            let range_len = match range
+                .end_inclusive
+                .checked_sub(range.start)
+                .and_then(|length| length.checked_add(1))
+            {
+                Some(length) => length,
+                None => return fallback_500(),
+            };
+            Some((true, range_len, *mime, Some((*range, *total_len))))
+        }
+        _ => None,
+    };
     let mut builder = Response::builder().status(resp.status);
     for (name, value) in &resp.headers {
+        if let Some((is_range, _, _, _)) = file_body {
+            let is_body_header = name.eq_ignore_ascii_case("content-length")
+                || name.eq_ignore_ascii_case("content-type")
+                || (is_range && name.eq_ignore_ascii_case("content-range"));
+            if is_body_header {
+                continue;
+            }
+        }
         builder = builder.header(name.as_str(), value.as_str());
     }
+    if let Some((_, file_len, mime, range_info)) = file_body {
+        builder = builder
+            .header("content-type", mime)
+            .header("content-length", file_len.to_string());
+        if let Some((range, total_len)) = range_info {
+            builder = builder
+                .status(206u16)
+                .header(
+                    "content-range",
+                    format!(
+                        "bytes {}-{}/{}",
+                        range.start, range.end_inclusive, total_len
+                    ),
+                );
+        }
+    }
 
-    let is_head = resp.headers.get("x-request-method").map(|s| s.as_str()) == Some("HEAD");
-    let strip_body = is_head || matches!(resp.status, 204 | 304);
+    let strip_body = suppress_body || matches!(resp.status, 204 | 304);
 
     if strip_body {
         let body = Full::new(Bytes::new())
@@ -1166,7 +1265,7 @@ async fn convert_to_hyper_response(
                     .boxed();
                 Ok(builder.body(body)?)
             }
-            BodySource::FileFull { file, len, mime } => {
+            BodySource::FileFull { file, .. } => {
                 let permit = if let Some(sem) = &file_stream_semaphore {
                     Some(
                         sem.clone()
@@ -1177,8 +1276,6 @@ async fn convert_to_hyper_response(
                 } else {
                     None
                 };
-                builder = builder.header("content-type", mime);
-                builder = builder.header("content-length", len.to_string());
                 let tokio_file = tokio::fs::File::from_std(file);
                 let body = stream_file(tokio_file, None, permit)
                     .map_err(|e| -> BoxError { Box::new(e) })
@@ -1188,8 +1285,7 @@ async fn convert_to_hyper_response(
             BodySource::FileRange {
                 file,
                 range,
-                total_len,
-                mime,
+                ..
             } => {
                 let permit = if let Some(sem) = &file_stream_semaphore {
                     Some(
@@ -1202,15 +1298,9 @@ async fn convert_to_hyper_response(
                     None
                 };
                 let start = range.start;
-                let end_inclusive = range.end_inclusive;
-                let range_len = end_inclusive - start + 1;
-                builder = builder.header("content-type", mime);
-                builder = builder.header("content-length", range_len.to_string());
-                builder = builder.header(
-                    "content-range",
-                    format!("bytes {start}-{end_inclusive}/{total_len}"),
-                );
-                builder = builder.status(206u16);
+                let range_len = file_body
+                    .map(|(_, length, _, _)| length)
+                    .ok_or_else(|| -> BoxError { "missing file range metadata".into() })?;
 
                 let mut tokio_file = tokio::fs::File::from_std(file);
                 tokio_file.seek(std::io::SeekFrom::Start(start)).await?;

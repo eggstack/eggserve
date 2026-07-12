@@ -126,7 +126,9 @@ impl BodySource {
             }
             Self::FileRange { file, range, .. } => {
                 file.seek(SeekFrom::Start(range.start))?;
-                let len = range.len() as usize;
+                let len = usize::try_from(range.len()).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "body range too large")
+                })?;
                 let mut buf = vec![0u8; len];
                 file.read_exact(&mut buf)?;
                 Ok(buf)
@@ -216,7 +218,10 @@ impl BodySource {
                     .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "invalid range"))?;
                 let effective_len = request_len.min(*len - start);
                 file.seek(SeekFrom::Start(start))?;
-                let mut buf = vec![0u8; effective_len as usize];
+                let effective_len = usize::try_from(effective_len).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "read range too large")
+                })?;
+                let mut buf = vec![0u8; effective_len];
                 file.read_exact(&mut buf)?;
                 Ok(buf)
             }
@@ -242,7 +247,10 @@ impl BodySource {
                     ));
                 }
                 file.seek(SeekFrom::Start(absolute_start))?;
-                let mut buf = vec![0u8; sub_len as usize];
+                let sub_len = usize::try_from(sub_len).map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidInput, "sub-range too large")
+                })?;
+                let mut buf = vec![0u8; sub_len];
                 file.read_exact(&mut buf)?;
                 Ok(buf)
             }

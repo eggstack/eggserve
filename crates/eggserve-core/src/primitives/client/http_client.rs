@@ -215,8 +215,7 @@ where
     let mut builder = Request::builder();
     builder = builder.method(request.method.as_str());
 
-    let uri = format!("{}://{}{}", url.scheme, authority, url.path);
-    builder = builder.uri(&uri);
+    builder = builder.uri(&url.path);
 
     for (name, value) in &request.headers {
         builder = builder.header(name.as_str(), value.as_str());

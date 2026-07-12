@@ -112,8 +112,8 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Invalid header names (empty) or values (containing NUL, CR, LF) produce 500.
 - Handler exceptions produce 500 without leaking tracebacks.
 - Callback concurrency is bounded (default: 8 concurrent handler calls).
-- File-backed responses are eagerly read to bytes before passing through the handler boundary.
-- **HEAD is not special-cased in the Python handler path** — the handler returns the same response for GET and HEAD; hyper suppresses the body for HEAD.
+- File-backed responses retain their Rust-owned file capability and stream without copying the file through Python memory.
+- HEAD requests still invoke the handler, but the runtime suppresses the body before acquiring file-stream resources.
 
 ### Buffered Client (feature-gated: `client`)
 

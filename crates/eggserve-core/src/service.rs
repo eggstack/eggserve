@@ -35,43 +35,46 @@ pub(crate) fn validate_no_request_body<B>(
     max_body_bytes: u64,
 ) -> Result<(), BodyRejection> {
     let headers = req.headers();
-
     let content_length_header = headers.get(hyper::header::CONTENT_LENGTH);
     let transfer_encoding_header = headers.get(hyper::header::TRANSFER_ENCODING);
+    let content_length = content_length_header
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| BodyRejection::InvalidContentLength)
+        })
+        .transpose()?;
+    let transfer_encoding = transfer_encoding_header
+        .map(|value| {
+            value
+                .to_str()
+                .map_err(|_| BodyRejection::UnsupportedTransferEncoding)
+        })
+        .transpose()?;
 
-    if content_length_header.is_some() && transfer_encoding_header.is_some() {
-        return Err(BodyRejection::ConflictingBodyHeaders);
-    }
-
-    if let Some(te) = transfer_encoding_header {
-        let value = te
-            .to_str()
-            .map_err(|_| BodyRejection::UnsupportedTransferEncoding)?;
-        if !value.trim().is_empty() {
-            return Err(BodyRejection::UnsupportedTransferEncoding);
+    crate::primitives::http::validate_request_body(
+        content_length,
+        transfer_encoding,
+        max_body_bytes,
+    )
+    .map_err(|error| match error {
+        crate::primitives::http::RequestValidationError::InvalidContentLength => {
+            BodyRejection::InvalidContentLength
         }
-    }
-
-    if let Some(cl) = content_length_header {
-        let value = cl
-            .to_str()
-            .map_err(|_| BodyRejection::InvalidContentLength)?;
-        let trimmed = value.trim();
-        if trimmed.is_empty() {
-            return Err(BodyRejection::InvalidContentLength);
+        crate::primitives::http::RequestValidationError::BodyTooLarge => {
+            BodyRejection::BodyTooLarge
         }
-        if !trimmed.chars().all(|c| c.is_ascii_digit()) {
-            return Err(BodyRejection::InvalidContentLength);
+        crate::primitives::http::RequestValidationError::UnsupportedTransferEncoding => {
+            BodyRejection::UnsupportedTransferEncoding
         }
-        let len: u64 = trimmed
-            .parse()
-            .map_err(|_| BodyRejection::InvalidContentLength)?;
-        if len > max_body_bytes {
-            return Err(BodyRejection::BodyTooLarge);
+        crate::primitives::http::RequestValidationError::ConflictingBodyHeaders => {
+            BodyRejection::ConflictingBodyHeaders
         }
-    }
-
-    Ok(())
+        crate::primitives::http::RequestValidationError::MethodNotAllowed
+        | crate::primitives::http::RequestValidationError::InvalidRequestTarget => {
+            BodyRejection::InvalidContentLength
+        }
+    })
 }
 
 pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<BoxBodyInner> {

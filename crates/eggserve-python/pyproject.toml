@@ -23,6 +23,11 @@ classifiers = [
     "Topic :: System :: Filesystems",
 ]
 
+[project.urls]
+Homepage = "https://github.com/eggstack/eggserve"
+Repository = "https://github.com/eggstack/eggserve"
+Documentation = "https://github.com/eggstack/eggserve/tree/main/docs"
+
 [tool.maturin]
 bindings = "pyo3"
 python-source = "python"

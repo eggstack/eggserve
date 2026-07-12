@@ -890,10 +890,8 @@ fn request_uri_is_origin_form() {
     let request_str = String::from_utf8_lossy(&request_bytes);
     let status_line = request_str.lines().next().unwrap();
 
-    // Should use origin-form or absolute-form in the request line
-    assert!(status_line.starts_with("GET "));
+    assert!(status_line.starts_with("GET /path?query=1 HTTP/1.1"));
     assert!(status_line.ends_with(" HTTP/1.1"));
-    assert!(status_line.contains("/path?query=1"));
 }
 
 #[test]
