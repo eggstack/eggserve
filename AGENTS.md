@@ -80,7 +80,7 @@ eggserve/
 ├── plans/                  # design plans and roadmap
 ├── examples/               # usage examples (Python, Rust)
 ├── fuzz/                   # fuzzing targets, seed corpora, fuzz README
-├── .github/workflows/      # CI workflows (fuzz-replay.yml)
+├── .github/workflows/      # CI workflows (ci.yml, fuzz.yml, fuzz-replay.yml, release.yml)
 └── AGENTS.md               # this file
 ```
 
@@ -92,8 +92,15 @@ CI runs these in order; match it locally before pushing:
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
 cargo test --workspace                                     # tests
+cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
+cargo test -p eggserve-bin --features tls                  # TLS tests
 cargo test -p eggserve-core --features client              # client feature tests
-cargo check --workspace --features tls                     # TLS feature build check
+cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
+cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
+cargo test -p eggserve-bin --test production_path          # production path tests
+cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+cargo audit                                                # vulnerability check
+cargo deny check                                           # license/policy check
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
@@ -231,6 +238,7 @@ Before implementing any feature, check:
 - [docs/release-contract.md](docs/release-contract.md) — product surface and compatibility commitments
 - [docs/api-stability.md](docs/api-stability.md) — API classification by stability tier
 - [docs/fuzzing.md](docs/fuzzing.md) — fuzz targets, property tests, seed corpora, CI integration
+- [docs/action-pinning.md](docs/action-pinning.md) — GitHub Action SHA pinning policy and update procedure
 
 ## Architecture deep dives
 

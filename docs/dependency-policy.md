@@ -69,4 +69,11 @@ cargo install cargo-deny
 cargo deny check
 ```
 
-CI should install and run `cargo deny check` as part of the release gate.
+CI enforces dependency policy on every push and pull request:
+
+- **`cargo audit`** — checks for known vulnerabilities in dependencies.
+- **`cargo deny check`** — checks licenses, bans, sources, and advisory databases.
+
+Both run in the `supply-chain` CI job (see `.github/workflows/ci.yml`). The release workflow (`.github/workflows/release.yml`) runs both as a gate before publication.
+
+The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.

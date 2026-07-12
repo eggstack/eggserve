@@ -34,6 +34,11 @@ A beta release requires all alpha criteria plus:
 - [x] Python `ServeConfig` validates port, log format, and public-bind combinations at construction
 - [x] TLS handshakes are bounded by `--header-timeout`
 - [x] `eggserve-core` public API surface is documented: stable-ish, experimental, internal
+- [x] Supply-chain audit job in CI: `cargo audit` + `cargo deny check` run on every push and PR
+- [x] Raw-wire correctness tests in CI: `http_wire_correctness`, `http_primitives_integration`, `production_path` run in CI
+- [x] Corpus replay in CI: fuzz corpus replay runs on every push and PR
+- [x] GitHub Actions pinned to SHA digests: all third-party actions use immutable commit references
+- [x] Workflow permissions minimal: CI workflows declare `contents: read`, release workflow uses `contents: write` + `id-token: write`
 - [ ] No known unsound `unsafe` code
 
 ## 1.0

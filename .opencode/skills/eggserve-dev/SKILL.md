@@ -32,13 +32,18 @@ Other directories: `architecture/` (10 deep-dive docs), `docs/` (21 reference do
 Run before pushing:
 
 ```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
-cargo test -p eggserve-bin --features tls
-cargo audit
-cargo deny check
+cargo fmt --all -- --check                                 # format check
+cargo clippy --workspace --all-targets -- -D warnings      # lint
+cargo test --workspace                                     # tests
+cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
+cargo test -p eggserve-bin --features tls                  # TLS tests
+cargo test -p eggserve-core --features client              # client feature tests
+cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
+cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
+cargo test -p eggserve-bin --test production_path          # production path tests
+cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+cargo audit                                                # vulnerability check
+cargo deny check                                           # license/policy check
 ```
 
 ## Key conventions

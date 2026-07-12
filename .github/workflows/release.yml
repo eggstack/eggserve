@@ -1,0 +1,294 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (skip registry publication)"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      release_candidate:
+        description: "Release candidate (suffix version with -rc.N)"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: write
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  validate:
+    name: Validate release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Validate tag version consistency
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          echo "Release tag: $TAG"
+
+          # Extract version from Cargo.toml
+          CORE_VERSION=$(grep -m1 '^version' crates/eggserve-core/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          BIN_VERSION=$(grep -m1 '^version' crates/eggserve-bin/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+          PY_VERSION=$(grep -m1 '^version' crates/eggserve-python/Cargo.toml | sed 's/.*"\(.*\)".*/\1/')
+
+          echo "Core version: $CORE_VERSION"
+          echo "Bin version: $BIN_VERSION"
+          echo "Python version: $PY_VERSION"
+
+          # For RC releases, strip the -rc.N suffix for version comparison
+          BASE_TAG="${TAG%-rc.*}"
+
+          if [ "$CORE_VERSION" != "$BIN_VERSION" ]; then
+            echo "::error::Version mismatch: core=$CORE_VERSION bin=$BIN_VERSION"
+            exit 1
+          fi
+
+          if [ "$CORE_VERSION" != "$PY_VERSION" ]; then
+            echo "::error::Version mismatch: core=$CORE_VERSION python=$PY_VERSION"
+            exit 1
+          fi
+
+          # Verify tag matches version (for non-RC releases)
+          if [[ "$TAG" != *"-rc."* ]] && [ "$TAG" != "v$CORE_VERSION" ]; then
+            echo "::error::Tag $TAG does not match version $CORE_VERSION"
+            exit 1
+          fi
+
+          echo "All versions consistent: $CORE_VERSION"
+
+      - name: Run all CI checks
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --workspace --all-targets -- -D warnings
+          cargo test --workspace
+          cargo test -p eggserve-core --features client
+          cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
+          cargo test -p eggserve-bin --features tls
+          cargo audit
+          cargo deny check
+
+      - name: Run raw wire tests
+        run: |
+          cargo test -p eggserve-core --test http_wire_correctness
+          cargo test -p eggserve-core --test http_primitives_integration
+          cargo test -p eggserve-bin --test production_path
+
+      - name: Run corpus replay
+        run: |
+          if [ -d fuzz/corpus ]; then
+            cargo test -p eggserve-core --test corpus_replay
+            cargo test -p eggserve-core --test corpus_replay --features client
+          fi
+
+      - name: Package verification
+        run: |
+          cargo package -p eggserve-core --allow-dirty
+          cargo package -p eggserve-bin --allow-dirty
+
+  build-artifacts:
+    name: Build ${{ matrix.target }}
+    needs: [validate]
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: eggserve-x86_64-unknown-linux-gnu
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-latest
+            artifact: eggserve-aarch64-unknown-linux-gnu
+            cross: true
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            artifact: eggserve-x86_64-apple-darwin
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            artifact: eggserve-aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install cross-compilation tools (aarch64-linux)
+        if: matrix.cross
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y gcc-aarch64-linux-gnu
+          echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=aarch64-linux-gnu-gcc" >> "$GITHUB_ENV"
+
+      - name: Build binary
+        run: cargo build --release --locked --target ${{ matrix.target }} -p eggserve-bin
+
+      - name: Package binary
+        run: |
+          cd target/${{ matrix.target }}/release
+          tar czf ../../../${{ matrix.artifact }}.tar.gz eggserve
+          cd ../../..
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.tar.gz
+          retention-days: 5
+
+  build-python:
+    name: Build Python wheel
+    needs: [validate]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+        with:
+          key: release-python
+      - run: pip install maturin
+      - name: Build wheel
+        run: maturin build --release --interpreter 3.14 -o dist
+        working-directory: crates/eggserve-python
+      - name: Upload wheel
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: python-wheel
+          path: crates/eggserve-python/dist/*.whl
+          retention-days: 5
+
+  stage-release:
+    name: Stage release
+    needs: [build-artifacts, build-python]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          fetch-depth: 0
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: artifacts
+
+      - name: Generate checksums
+        run: |
+          cd artifacts
+          find . -type f \( -name "*.tar.gz" -o -name "*.whl" \) -exec sha256sum {} \; | sort -k2 > checksums-sha256.txt
+          echo "Checksums:"
+          cat checksums-sha256.txt
+
+      - name: Record provenance
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          COMMIT="${{ github.sha }}"
+          RUN_ID="${{ github.run_id }}"
+
+          cat > provenance.json <<EOF
+          {
+            "tag": "$TAG",
+            "commit": "$COMMIT",
+            "run_id": "$RUN_ID",
+            "workflow": "${{ github.workflow }}",
+            "repository": "${{ github.repository }}",
+            "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          }
+          EOF
+
+          echo "Provenance:"
+          cat provenance.json
+
+      - name: Upload release bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-bundle
+          path: |
+            artifacts/**/checksums-sha256.txt
+            provenance.json
+          retention-days: 30
+
+  publish:
+    name: Publish to registries
+    needs: [stage-release]
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/') && inputs.dry_run != 'true'
+    permissions:
+      contents: write
+      id-token: write
+    environment: release
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+
+      - name: Download release bundle
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-bundle
+
+      - name: Publish crates.io
+        run: cargo publish -p eggserve-core --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Wait for crates.io index propagation
+        run: sleep 30
+
+      - name: Publish eggserve-bin to crates.io
+        run: cargo publish -p eggserve-bin --allow-dirty
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+
+      - name: Build Python wheel for publication
+        run: |
+          pip install maturin
+          cd crates/eggserve-python
+          maturin build --release --interpreter 3.14 -o dist
+
+      - name: Publish to PyPI
+        run: pip install twine && twine upload crates/eggserve-python/dist/*.whl
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda # v2.2.1
+        with:
+          files: |
+            artifacts/**/*.tar.gz
+            artifacts/**/checksums-sha256.txt
+            crates/eggserve-python/dist/*.whl
+          generate_release_notes: true

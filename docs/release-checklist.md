@@ -21,6 +21,16 @@
 - [ ] Known limitations documented
 - [ ] No accidental broad feature claims in docs or README
 
+## CI hardening (Plan 039)
+
+- [ ] All GitHub Actions pinned to SHA digests (see `.github/workflows/` for pinned versions)
+- [ ] Workflow permissions are minimal (`contents: read` for CI, `contents: write` only for release)
+- [ ] Supply-chain audit job passes (`cargo audit` + `cargo deny check` in CI)
+- [ ] Raw-wire correctness tests pass in CI
+- [ ] Corpus replay tests pass in CI
+- [ ] Multi-OS CI matrix passes (Linux, macOS)
+- [ ] Release workflow tested in dry-run mode before first real release
+
 ## For crates.io publication (if applicable)
 
 - [ ] `cargo package -p eggserve-core --allow-dirty` passes
