@@ -65,5 +65,5 @@ Deterministic property tests using proptest run in normal CI via `cargo test`. S
 
 ## CI integration
 
-- **Normal CI**: Property tests run as part of `cargo test`
+- **Normal CI**: Property tests run as part of `cargo test`. Corpus regression tests in `.github/workflows/fuzz-replay.yml` replay every committed seed on every PR and push to main.
 - **Scheduled fuzz**: `.github/workflows/fuzz.yml` runs weekly (Monday 3:00 UTC) or on manual dispatch, 60s per target, crash artifacts uploaded

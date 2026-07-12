@@ -186,7 +186,7 @@ The file streaming code in `response.rs` handles I/O errors by silently terminat
 - HTTP response headers are already sent before streaming begins, so a mid-stream termination results in a truncated body with correct `Content-Length` header (client sees an incomplete response)
 
 **Known gaps:**
-- No logging or metrics for stream I/O errors (`Err(_) => None` swallows the error)
+- Stream I/O errors are now logged at warn level via `eprintln!` before terminating the stream
 - No explicit mechanism to prevent unsafe connection reuse after a truncated response (HTTP/1.1 keep-alive connections may reuse after a truncated body)
 - These are acceptable for a static file server: stream errors are rare (file deleted after open, disk failure), and the response is already partially sent
 

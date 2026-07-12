@@ -1027,7 +1027,10 @@ fn stream_file(
                         (file, remaining - n as u64, permit),
                     ))
                 }
-                Err(_) => None,
+                Err(e) => {
+                    eprintln!("warn: file stream I/O error: {e}");
+                    None
+                }
             }
         },
     );

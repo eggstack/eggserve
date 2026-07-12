@@ -80,6 +80,7 @@ eggserve/
 ├── plans/                  # design plans and roadmap
 ├── examples/               # usage examples (Python, Rust)
 ├── fuzz/                   # fuzzing targets, seed corpora, fuzz README
+├── .github/workflows/      # CI workflows (fuzz-replay.yml)
 └── AGENTS.md               # this file
 ```
 

@@ -1,0 +1,26 @@
+name: Fuzz corpus replay
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  corpus-replay:
+    name: Corpus regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Run corpus replay tests
+        run: cargo test -p eggserve-core --test corpus_replay
+
+      - name: Run corpus replay tests (client feature)
+        run: cargo test -p eggserve-core --test corpus_replay --features client

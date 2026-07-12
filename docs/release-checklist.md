@@ -33,6 +33,7 @@
 - [ ] `python -m twine check dist/*` passes (if twine available)
 - [ ] Wheel installs cleanly: `pip install --force-reinstall dist/*.whl`
 - [ ] `python -m eggserve --help` works
+- [ ] `dist/` outputs are NOT committed to source control (`.gitignore` excludes them)
 
 ## Release notes
 

@@ -1,7 +1,9 @@
 /target
+/dist
 crates/eggserve-python/target
 crates/eggserve-python/dist
 crates/eggserve-python/Cargo.lock
 crates/eggserve-python/python/eggserve/_native*.so
+*.whl
 *.pyc
 __pycache__/

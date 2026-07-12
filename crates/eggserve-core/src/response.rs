@@ -101,7 +101,10 @@ pub fn file_response(
                     (file, permit),
                 ))
             }
-            Err(_) => None,
+            Err(e) => {
+                eprintln!("warn: file stream I/O error: {e}");
+                None
+            }
         }
     });
 
@@ -158,7 +161,10 @@ pub async fn file_response_range(
                         (file, permit, remaining),
                     ))
                 }
-                Err(_) => None,
+                Err(e) => {
+                    eprintln!("warn: file stream I/O error: {e}");
+                    None
+                }
             }
         },
     );

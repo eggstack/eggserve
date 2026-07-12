@@ -153,11 +153,7 @@ async fn ws_a_absolute_form_rejected() {
         b"GET http://example.com/hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -168,11 +164,7 @@ async fn ws_a_authority_form_rejected() {
         b"CONNECT example.com:443 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("405") || line.is_empty(),
-        "Expected 405 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("405"), "Expected 405, got: {}", line);
 }
 
 #[tokio::test]
@@ -183,11 +175,7 @@ async fn ws_a_asterisk_form_rejected() {
         b"OPTIONS * HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("405") || line.is_empty(),
-        "Expected 405 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("405"), "Expected 405, got: {}", line);
 }
 
 #[tokio::test]
@@ -198,11 +186,7 @@ async fn ws_a_lowercase_method_rejected() {
         b"get /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.contains("405") || line.is_empty(),
-        "Expected 400/405 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("405"), "Expected 405, got: {}", line);
 }
 
 #[tokio::test]
@@ -213,11 +197,7 @@ async fn ws_a_method_with_space_rejected() {
         b"GE T /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -239,11 +219,7 @@ async fn ws_a_http_1_0_rejected() {
         b"GET /hello.txt HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("200") || line.is_empty(),
-        "HTTP/1.0 may be accepted or rejected, got: {}",
-        line
-    );
+    assert!(line.contains("200"), "Expected 200, got: {}", line);
 }
 
 #[tokio::test]
@@ -254,11 +230,7 @@ async fn ws_a_http_2_rejected() {
         b"GET /hello.txt HTTP/2.0\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -269,11 +241,7 @@ async fn ws_a_nul_in_target_rejected() {
     raw.push(0x00);
     raw.extend_from_slice(b"llo.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let line = status_line(s.addr, &raw).await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -284,11 +252,7 @@ async fn ws_a_space_in_target_rejected() {
         b"GET /hello world.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -381,11 +345,7 @@ async fn ws_a_semicolon_in_path() {
 async fn ws_a_garbage_input_rejected() {
     let s = start_server(None).await;
     let line = status_line(s.addr, b"GARBAGE DATA\r\n\r\n").await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 // ---------------------------------------------------------------------------
@@ -400,11 +360,7 @@ async fn ws_b_obsolete_folding_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n X-Folded: value\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -415,11 +371,7 @@ async fn ws_b_leading_space_in_header_name_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n X-Bad: value\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -432,8 +384,8 @@ async fn ws_b_bare_lf_in_header_rejected() {
     raw.extend_from_slice(b"Connection: close\r\n\r\n");
     let line = status_line(s.addr, &raw).await;
     assert!(
-        line.is_empty() || line.contains("400") || line.contains("200"),
-        "Expected connection close, 400, or 200, got: {}",
+        line.contains("200"),
+        "Bare LF accepted by hyper parser, expected 200, got: {}",
         line
     );
 }
@@ -447,8 +399,8 @@ async fn ws_b_cr_lf_injection_in_header_value_rejected() {
     )
     .await;
     assert!(
-        line.is_empty() || line.contains("400") || line.contains("200"),
-        "Unexpected: {}",
+        line.contains("200"),
+        "CR+LF parsed as header separator by hyper, expected 200, got: {}",
         line
     );
 }
@@ -472,11 +424,7 @@ async fn ws_b_content_length_with_spaces_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1 2\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -488,11 +436,7 @@ async fn ws_b_oversized_target_rejected() {
         long_path
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(
-        line.is_empty() || line.contains("400") || line.contains("404") || line.contains("403"),
-        "Unexpected: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -504,11 +448,7 @@ async fn ws_b_header_with_null_byte_rejected() {
     raw.extend_from_slice(b"X-Bad: val\x00ue\r\n");
     raw.extend_from_slice(b"Connection: close\r\n\r\n");
     let line = status_line(s.addr, &raw).await;
-    assert!(
-        line.is_empty() || line.contains("400"),
-        "Expected connection close or 400, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -530,11 +470,7 @@ async fn ws_b_multiple_content_length_conflicting_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -545,11 +481,7 @@ async fn ws_b_content_length_with_comma_values_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1,2\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 // ---------------------------------------------------------------------------
@@ -564,11 +496,7 @@ async fn ws_c_transfer_encoding_chunked_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -579,11 +507,7 @@ async fn ws_c_transfer_encoding_gzip_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: gzip\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -594,11 +518,7 @@ async fn ws_c_te_and_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -609,11 +529,7 @@ async fn ws_c_body_on_get_with_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
     )
     .await;
-    assert!(
-        line.contains("413") || line.contains("400") || line.is_empty(),
-        "Expected 413/400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("413"), "Expected 413, got: {}", line);
 }
 
 #[tokio::test]
@@ -624,11 +540,7 @@ async fn ws_c_body_on_head_rejected() {
         b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
     )
     .await;
-    assert!(
-        line.contains("413") || line.contains("400") || line.is_empty(),
-        "Expected 413/400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("413"), "Expected 413, got: {}", line);
 }
 
 #[tokio::test]
@@ -650,11 +562,7 @@ async fn ws_c_invalid_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: not-a-number\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -665,11 +573,7 @@ async fn ws_c_negative_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: -1\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]
@@ -680,11 +584,7 @@ async fn ws_c_oversized_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 99999999999999999999\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(
-        line.contains("400") || line.is_empty(),
-        "Expected 400 or connection close, got: {}",
-        line
-    );
+    assert!(line.contains("400"), "Expected 400, got: {}", line);
 }
 
 #[tokio::test]

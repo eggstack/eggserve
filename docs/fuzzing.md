@@ -62,6 +62,14 @@ Seeds are automatically loaded by libFuzzer at startup.
 
 Property tests run as part of `cargo test` in the standard CI workflow (`.github/workflows/ci.yml`).
 
+### Corpus regression
+
+`.github/workflows/fuzz-replay.yml` runs on every push to `main` and every PR:
+- Replays every committed corpus input through its target logic deterministically
+- Fails on panic or invariant violation
+- Runs on stable Rust
+- Covers all 9 fuzz targets (url_parse requires the `client` feature)
+
 ### Scheduled fuzz runs
 
 `.github/workflows/fuzz.yml` runs weekly (Monday 3:00 UTC) or on manual dispatch:

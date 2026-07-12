@@ -38,7 +38,8 @@ These rules are enforced at the raw HTTP/1.1 socket boundary and are regression-
 ### Request rejection rules (eggserve policy)
 
 - Non-GET/HEAD methods → 405 with `Allow: GET, HEAD`.
-- Absolute-form (`http://host/path`), authority-form (`host:port`), asterisk-form (`*`) → 400.
+- Absolute-form (`http://host/path`) → 400.
+- Authority-form (`host:port`), asterisk-form (`*`) → 405 (method check fires before target-form check).
 - Empty or missing path → 400.
 - Paths containing NUL bytes, backslashes, or encoded separators (`%2f`, `%5c`) → 400.
 - Path traversal beyond root (`/../`) → 400 or 403.
@@ -59,6 +60,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 - HTTP/1.0 requests are accepted (hyper accepts any `HTTP/x.y` version line).
 - Bare LF (without CR) in header values is accepted by hyper's parser.
+- CR+LF in header values is parsed as a header separator by hyper, resulting in two separate headers.
 - Malformed header names or values that hyper cannot parse result in connection closure.
 - Requests with invalid byte sequences in header names result in connection closure.
 

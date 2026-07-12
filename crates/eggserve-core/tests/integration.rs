@@ -901,3 +901,87 @@ async fn hidden_index_name_is_not_considered_index() {
     let resp = handle_request(get("/subdir"), &state).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
+
+#[cfg(unix)]
+#[tokio::test]
+async fn concurrent_symlink_swap_stress() {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::thread;
+
+    let tmp_root = TempDir::new().unwrap();
+    let tmp_outside = TempDir::new().unwrap();
+
+    fs::write(tmp_root.path().join("safe.txt"), "safe").unwrap();
+    fs::write(tmp_outside.path().join("secret.txt"), "LEAKED").unwrap();
+
+    std::os::unix::fs::symlink(
+        tmp_root.path().join("safe.txt"),
+        tmp_root.path().join("link.txt"),
+    )
+    .unwrap();
+
+    let state = Arc::new(make_state(&tmp_root, StaticPolicy::safe_default()));
+
+    let outside_secret = tmp_outside.path().join("secret.txt");
+    let link_path = tmp_root.path().join("link.txt");
+    let safe_target = tmp_root.path().join("safe.txt");
+    let leaked = Arc::new(AtomicBool::new(false));
+
+    const ITERS: usize = 100;
+    const THREADS: usize = 4;
+
+    let handles: Vec<_> = (0..THREADS)
+        .map(|t| {
+            let state = Arc::clone(&state);
+            let outside_secret = outside_secret.clone();
+            let link_path = link_path.clone();
+            let safe_target = safe_target.clone();
+            let leaked = Arc::clone(&leaked);
+            thread::spawn(move || {
+                let rt = tokio::runtime::Runtime::new().unwrap();
+                for i in 0..ITERS {
+                    let swap_to_outside = i % 2 == 0;
+
+                    let link_tmp = link_path.with_file_name(format!("link.{}.{}.tmp", t, i));
+                    std::os::unix::fs::symlink(
+                        if swap_to_outside {
+                            &outside_secret
+                        } else {
+                            &safe_target
+                        },
+                        &link_tmp,
+                    )
+                    .unwrap();
+                    std::fs::rename(&link_tmp, &link_path).unwrap();
+
+                    let resp = rt.block_on(handle_request(get("/link.txt"), &state));
+                    let status = resp.status();
+
+                    let body = rt.block_on(body_bytes(resp));
+                    let body_str = String::from_utf8_lossy(&body);
+
+                    if body_str.contains("LEAKED") {
+                        leaked.store(true, Ordering::SeqCst);
+                    }
+
+                    assert!(
+                        status == StatusCode::FORBIDDEN || status == StatusCode::OK,
+                        "unexpected status {} on iteration {} (swapped_to_outside={})",
+                        status,
+                        i,
+                        swap_to_outside,
+                    );
+                }
+            })
+        })
+        .collect();
+
+    for h in handles {
+        h.join().expect("thread panicked");
+    }
+
+    assert!(
+        !leaked.load(Ordering::SeqCst),
+        "symlink escape succeeded under concurrent swap stress — content from outside root was served"
+    );
+}

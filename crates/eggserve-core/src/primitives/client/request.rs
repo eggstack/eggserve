@@ -318,13 +318,13 @@ mod tests {
         }
 
         #[test]
-        fn valid_header_name_accepted(name in "[!#-'*+-.0-9A-Z^_`a-z|~]+") {
+        fn valid_header_name_accepted(name in "[!#'*+\\-.0-9A-Z^_`a-z|~]+") {
             prop_assert!(validate_header(&name, "test-value").is_ok());
         }
 
         #[test]
         fn empty_name_rejected(name in "") {
-            prop_assert!(validate_header(name, "value").is_err());
+            prop_assert!(validate_header(&name, "value").is_err());
         }
 
         #[test]

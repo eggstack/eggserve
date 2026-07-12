@@ -433,15 +433,21 @@ mod tests {
                         "IPv6 authority not bracketed: {:?}",
                         authority
                     );
+                    let bracket_close = authority.find(']').unwrap_or(0);
                     assert!(
-                        authority.ends_with(']'),
-                        "IPv6 authority not closed: {:?}",
+                        bracket_close > 1,
+                        "IPv6 authority bracket not closed: {:?}",
                         authority
                     );
                 }
                 if url.port == url.scheme.default_port() {
+                    let after_bracket = if authority.starts_with('[') {
+                        authority.find(']').map(|i| &authority[i + 1..]).unwrap_or("")
+                    } else {
+                        authority.as_str()
+                    };
                     assert!(
-                        !authority.contains(':'),
+                        !after_bracket.contains(':'),
                         "default port in authority: {:?}",
                         authority
                     );
