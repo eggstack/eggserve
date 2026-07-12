@@ -81,6 +81,8 @@ Key defaults:
 
 **Plans 000–031 complete.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence.
 
+**Property testing and fuzzing:** Nine fuzz targets cover path parsing, URL parsing, range/conditional headers, platform checks, and request validation. Deterministic property tests (proptest) run in normal CI. Scheduled fuzz runs run weekly. See [docs/fuzzing.md](docs/fuzzing.md).
+
 **API stability:** Every exported Rust and Python item is classified as stable, experimental, or internal. See [docs/api-stability.md](docs/api-stability.md) for the full inventory and [docs/release-contract.md](docs/release-contract.md) for behavioral guarantees.
 
 ## Supported platforms

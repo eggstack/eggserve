@@ -79,7 +79,7 @@ eggserve/
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
 ├── examples/               # usage examples (Python, Rust)
-├── fuzz/                   # fuzzing targets
+├── fuzz/                   # fuzzing targets, seed corpora, fuzz README
 └── AGENTS.md               # this file
 ```
 
@@ -211,6 +211,7 @@ Before implementing any feature, check:
 - [docs/http-client-primitives.md](docs/http-client-primitives.md) — HTTP client primitive contract, feature gates, and usage
 - [docs/release-contract.md](docs/release-contract.md) — product surface and compatibility commitments
 - [docs/api-stability.md](docs/api-stability.md) — API classification by stability tier
+- [docs/fuzzing.md](docs/fuzzing.md) — fuzz targets, property tests, seed corpora, CI integration
 
 ## Architecture deep dives
 

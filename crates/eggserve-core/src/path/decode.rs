@@ -42,6 +42,7 @@ fn hex_digit(b: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn plain_path() {
@@ -130,5 +131,92 @@ mod tests {
     #[test]
     fn slash_slash_is_normal() {
         assert_eq!(percent_decode("//server").unwrap(), "//server");
+    }
+
+    #[test]
+    fn property_no_nul_in_decoded_output() {
+        let inputs = vec![
+            "/%00",
+            "/foo%00bar",
+            "%00%00%00",
+            "/a%00b%00c",
+            "/%00%2e%2e",
+            "/..%00/..",
+        ];
+        for input in inputs {
+            if let Ok(decoded) = percent_decode(input) {
+                assert!(
+                    !decoded.contains('\0'),
+                    "NUL byte in decoded output for input {:?}: {:?}",
+                    input,
+                    decoded
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn property_decoded_length_bounded() {
+        let inputs = vec![
+            "/%2e%2e/etc/passwd",
+            "/%2E%2E/etc/passwd",
+            "/%252e%252e/etc/passwd",
+            "/foo%20bar%20baz",
+            "/hello%21%40%23",
+        ];
+        for input in inputs {
+            if let Ok(decoded) = percent_decode(input) {
+                assert!(
+                    decoded.len() <= input.len() + 1,
+                    "decoded length {} exceeds input length {} for {:?}",
+                    decoded.len(),
+                    input.len(),
+                    input
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn property_empty_input() {
+        assert_eq!(percent_decode("").unwrap(), "");
+    }
+
+    #[test]
+    fn property_passthrough_no_percent() {
+        let inputs = vec!["/foo/bar", "/hello", "/", "/a/b/c/d"];
+        for input in inputs {
+            assert_eq!(percent_decode(input).unwrap(), input);
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn never_panics_on_any_input(s in ".*") {
+            let _ = percent_decode(&s);
+        }
+
+        #[test]
+        fn successful_decode_never_contains_nul(s in "[^\0]+") {
+            if let Ok(decoded) = percent_decode(&s) {
+                prop_assert!(!decoded.contains('\0'),
+                    "NUL in decoded output for input {:?}: {:?}", s, decoded);
+            }
+        }
+
+        #[test]
+        fn successful_decode_is_valid_utf8(s in ".*") {
+            if let Ok(decoded) = percent_decode(&s) {
+                prop_assert!(std::str::from_utf8(decoded.as_bytes()).is_ok());
+            }
+        }
+
+        #[test]
+        fn decode_length_bounded(s in "/[a-zA-Z0-9]{0,100}") {
+            if let Ok(decoded) = percent_decode(&s) {
+                prop_assert!(decoded.len() <= s.len() + 1,
+                    "decoded len {} > input len {} + 1", decoded.len(), s.len());
+            }
+        }
     }
 }

@@ -272,6 +272,7 @@ fn full_body(s: &'static str) -> BoxBodyInner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn get_returns_200_with_text_content_type() {
@@ -359,5 +360,185 @@ mod tests {
             resp.headers().get("x-content-type-options").unwrap(),
             "nosniff"
         );
+    }
+
+    #[test]
+    fn property_html_escape_no_script_injection() {
+        let malicious = vec![
+            "<script>alert(1)</script>",
+            "javascript:alert(1)",
+            "<img src=x onerror=alert(1)>",
+            "\"><script>alert(1)</script>",
+            "'-alert(1)-'",
+            "<svg onload=alert(1)>",
+            "<<script>alert(1)//<</script>",
+        ];
+        for input in malicious {
+            let escaped = html_escape(input);
+            assert!(
+                !escaped.contains("<script>"),
+                "html_escape did not escape <script> in {:?}",
+                input
+            );
+            assert!(
+                !escaped.contains("<img"),
+                "html_escape did not escape <img tag in {:?}",
+                input
+            );
+            assert!(
+                !escaped.contains("<svg"),
+                "html_escape did not escape <svg tag in {:?}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn property_html_escape_no_control_chars() {
+        let inputs = vec![
+            "a\x00b", "a\x01b", "a\x1fb", "a\x7fb", "a\nb", "a\rb", "a\tb",
+        ];
+        for input in inputs {
+            let escaped = html_escape(input);
+            assert!(
+                !escaped.contains('\0'),
+                "NUL in escaped output for {:?}",
+                input
+            );
+            assert!(
+                !escaped.contains('\n'),
+                "LF in escaped output for {:?}",
+                input
+            );
+            assert!(
+                !escaped.contains('\r'),
+                "CR in escaped output for {:?}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn property_html_escape_preserves_safe_content() {
+        let safe = vec![
+            "hello world",
+            "foo123",
+            "path/to/file.txt",
+            "abc-DEF_123",
+            "café",
+            "日本語",
+        ];
+        for input in safe {
+            let escaped = html_escape(input);
+            assert_eq!(
+                escaped, input,
+                "html_escape modified safe content: {:?}",
+                input
+            );
+        }
+    }
+
+    #[test]
+    fn property_percent_encode_no_special_chars() {
+        let inputs = vec![
+            "file.txt",
+            "path/to/file",
+            "a-b_c.d~e",
+            "hello world",
+            "a?b",
+            "a#b",
+            "a%b",
+            "a&b=c",
+            "a+b",
+        ];
+        for input in inputs {
+            let encoded = percent_encode_path_segment(input);
+            // Encoded output must not contain unencoded special chars
+            assert!(!encoded.contains('?'), "unencoded ? in {:?}", encoded);
+            assert!(!encoded.contains('#'), "unencoded # in {:?}", encoded);
+            // Every % must be followed by exactly two hex digits
+            let bytes = encoded.as_bytes();
+            let mut i = 0;
+            while i < bytes.len() {
+                if bytes[i] == b'%' {
+                    assert!(
+                        i + 2 < bytes.len(),
+                        "truncated percent-encoding at end of {:?}",
+                        encoded
+                    );
+                    assert!(
+                        bytes[i + 1].is_ascii_hexdigit(),
+                        "non-hex digit after %% in {:?}",
+                        encoded
+                    );
+                    assert!(
+                        bytes[i + 2].is_ascii_hexdigit(),
+                        "non-hex digit after %% in {:?}",
+                        encoded
+                    );
+                    i += 3;
+                } else {
+                    i += 1;
+                }
+            }
+            // Unreserved chars should be preserved
+            for c in input.chars() {
+                if matches!(c, 'A'..='Z' | 'a'..='z' | '0'..='9' | '-' | '_' | '.' | '~') {
+                    assert!(
+                        encoded.contains(c),
+                        "unreserved char {} lost in encoding: {:?}",
+                        c,
+                        encoded
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn property_directory_listing_well_formed_html() {
+        let entries = vec![
+            ("file.txt".to_string(), false),
+            ("subdir".to_string(), true),
+            ("<script>".to_string(), false),
+            ("file with spaces.txt".to_string(), false),
+        ];
+        let resp = directory_listing_response(&entries, false);
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Security headers present
+        assert!(resp.headers().get("content-security-policy").is_some());
+        assert!(resp.headers().get("referrer-policy").is_some());
+        assert!(resp.headers().get("x-content-type-options").is_some());
+        assert_eq!(
+            resp.headers().get("x-content-type-options").unwrap(),
+            "nosniff"
+        );
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn html_escape_never_panics(s in ".*") {
+            let _ = html_escape(&s);
+        }
+
+        #[test]
+        fn html_escape_no_raw_angle_brackets(s in "[<>]+") {
+            let escaped = html_escape(&s);
+            prop_assert!(!escaped.contains('<'), "raw < in escaped: {:?}", escaped);
+            prop_assert!(!escaped.contains('>'), "raw > in escaped: {:?}", escaped);
+        }
+
+        #[test]
+        fn percent_encode_never_panics(s in ".*") {
+            let _ = percent_encode_path_segment(&s);
+        }
+
+        #[test]
+        fn percent_encode_no_raw_question_or_hash(s in "[?#]+") {
+            let encoded = percent_encode_path_segment(&s);
+            prop_assert!(!encoded.contains('?'), "raw ? in {:?}", encoded);
+            prop_assert!(!encoded.contains('#'), "raw # in {:?}", encoded);
+        }
     }
 }

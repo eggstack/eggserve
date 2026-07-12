@@ -202,6 +202,7 @@ impl fmt::Display for ParsedUrl {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn parse_http_url() {
@@ -393,5 +394,183 @@ mod tests {
     fn parse_negative_port_rejected() {
         let err = ParsedUrl::parse("http://example.com:-1/").unwrap_err();
         assert!(matches!(err, ClientError::InvalidUrl(_)));
+    }
+
+    #[test]
+    fn property_successful_parse_invariants() {
+        let valid_urls = vec![
+            "http://example.com/",
+            "https://example.com/",
+            "http://localhost:8080/api",
+            "http://[::1]:8080/",
+            "http://[::1]/",
+            "http://127.0.0.1:3000/path",
+            "https://example.com:443/",
+            "http://example.com/path?q=1#frag",
+            "http://example.com/path%20with%20spaces",
+        ];
+        for url_str in valid_urls {
+            if let Ok(url) = ParsedUrl::parse(url_str) {
+                // Scheme is http or https
+                assert!(url.scheme == Scheme::Http || url.scheme == Scheme::Https);
+                // Host is non-empty
+                assert!(!url.host.is_empty(), "empty host for {:?}", url_str);
+                // Port is valid
+                assert!(url.port > 0, "invalid port for {:?}", url_str);
+                // Path starts with /
+                assert!(
+                    url.path.starts_with('/'),
+                    "path {:?} does not start with /",
+                    url.path
+                );
+                // No fragments in path
+                assert!(!url.path.contains('#'), "fragment in path {:?}", url.path);
+                // authority() round-trips
+                let authority = url.authority();
+                if url.host.contains(':') {
+                    assert!(
+                        authority.starts_with('['),
+                        "IPv6 authority not bracketed: {:?}",
+                        authority
+                    );
+                    assert!(
+                        authority.ends_with(']'),
+                        "IPv6 authority not closed: {:?}",
+                        authority
+                    );
+                }
+                if url.port == url.scheme.default_port() {
+                    assert!(
+                        !authority.contains(':'),
+                        "default port in authority: {:?}",
+                        authority
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn property_rejected_urls_never_panic() {
+        let invalid_urls = vec![
+            "",
+            "example.com/",
+            "ftp://example.com/",
+            "http://user:pass@example.com/",
+            "http:///path",
+            "http://example.com:99999/",
+            "http://[::1/",
+            "http://exam\x01ple.com/",
+            "http://exam\tple.com/",
+            "http://exam ple.com/",
+            "http://example.com?query=1",
+            "http://münchen.de/",
+            "http://[::1]extra/",
+            "http://example.com:/",
+            "http://example.com:-1/",
+        ];
+        for url_str in invalid_urls {
+            let _ = ParsedUrl::parse(url_str);
+        }
+    }
+
+    #[test]
+    fn property_display_roundtrip() {
+        let valid_urls = vec![
+            "http://example.com/",
+            "https://example.com/",
+            "http://localhost:8080/api",
+            "http://[::1]:8080/",
+            "http://example.com/path?q=1",
+        ];
+        for url_str in valid_urls {
+            if let Ok(url) = ParsedUrl::parse(url_str) {
+                let displayed = url.to_string();
+                // Displayed URL can be re-parsed
+                let reparsed = ParsedUrl::parse(&displayed);
+                assert!(
+                    reparsed.is_ok(),
+                    "display roundtrip failed for {:?}: {:?}",
+                    url_str,
+                    reparsed.err()
+                );
+                let reparsed = reparsed.unwrap();
+                assert_eq!(url.scheme, reparsed.scheme);
+                assert_eq!(url.host, reparsed.host);
+                assert_eq!(url.port, reparsed.port);
+                assert_eq!(url.path, reparsed.path);
+            }
+        }
+    }
+
+    #[test]
+    fn property_is_https_consistency() {
+        let urls = vec![
+            ("http://example.com/", false),
+            ("https://example.com/", true),
+            ("http://localhost:8080/", false),
+            ("https://localhost:8080/", true),
+        ];
+        for (url_str, expected_https) in urls {
+            if let Ok(url) = ParsedUrl::parse(url_str) {
+                assert_eq!(
+                    url.is_https(),
+                    expected_https,
+                    "is_https mismatch for {:?}",
+                    url_str
+                );
+            }
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn parse_never_panics(s in ".*") {
+            let _ = ParsedUrl::parse(&s);
+        }
+
+        #[test]
+        fn successful_parse_has_valid_scheme(url in "https?://[a-z]{1,10}/.*") {
+            if let Ok(parsed) = ParsedUrl::parse(&url) {
+                prop_assert!(parsed.scheme == Scheme::Http || parsed.scheme == Scheme::Https);
+            }
+        }
+
+        #[test]
+        fn successful_parse_has_non_empty_host(url in "https?://[a-z]{1,10}/.*") {
+            if let Ok(parsed) = ParsedUrl::parse(&url) {
+                prop_assert!(!parsed.host.is_empty());
+            }
+        }
+
+        #[test]
+        fn successful_parse_path_starts_with_slash(url in "https?://[a-z]{1,10}/.*") {
+            if let Ok(parsed) = ParsedUrl::parse(&url) {
+                prop_assert!(parsed.path.starts_with('/'),
+                    "path {:?} does not start with /", parsed.path);
+            }
+        }
+
+        #[test]
+        fn successful_parse_no_fragment_in_path(url in "https?://[a-z]{1,10}/.*") {
+            if let Ok(parsed) = ParsedUrl::parse(&url) {
+                prop_assert!(!parsed.path.contains('#'),
+                    "fragment in path {:?}", parsed.path);
+            }
+        }
+
+        #[test]
+        fn display_roundtrip(url in "https?://[a-z]{1,10}(:\\d{1,5})?/[a-z]*") {
+            if let Ok(parsed) = ParsedUrl::parse(&url) {
+                let displayed = parsed.to_string();
+                let reparsed = ParsedUrl::parse(&displayed);
+                prop_assert!(reparsed.is_ok(), "roundtrip failed: {:?}", reparsed.err());
+                let reparsed = reparsed.unwrap();
+                prop_assert_eq!(parsed.scheme, reparsed.scheme);
+                prop_assert_eq!(parsed.host, reparsed.host);
+                prop_assert_eq!(parsed.port, reparsed.port);
+                prop_assert_eq!(parsed.path, reparsed.path);
+            }
+        }
     }
 }

@@ -64,6 +64,7 @@ fn strip_trailing_dots(s: &str) -> &str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn reserved_con() {
@@ -163,5 +164,50 @@ mod tests {
         assert!(check_component("foo").is_ok());
         assert!(check_component("bar.txt").is_ok());
         assert!(check_component("a1").is_ok());
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn has_windows_drive_prefix_never_panics(s in ".*") {
+            let _ = has_windows_drive_prefix(&s);
+        }
+
+        #[test]
+        fn is_windows_reserved_name_never_panics(s in ".*") {
+            let _ = is_windows_reserved_name(&s);
+        }
+
+        #[test]
+        fn check_component_never_panics(s in ".*") {
+            let _ = check_component(&s);
+        }
+
+        #[test]
+        fn reserved_name_is_always_case_insensitive(s in "[A-Za-z]{1,4}") {
+            let upper = s.to_uppercase();
+            let lower = s.to_lowercase();
+            prop_assert_eq!(is_windows_reserved_name(&upper), is_windows_reserved_name(&lower));
+        }
+
+        #[test]
+        fn drive_prefix_requires_two_bytes(s in ".*") {
+            if has_windows_drive_prefix(&s) {
+                prop_assert!(s.len() >= 2);
+                prop_assert!(s.as_bytes()[0].is_ascii_alphabetic());
+                prop_assert_eq!(s.as_bytes()[1], b':');
+            }
+        }
+
+        #[test]
+        fn check_component_drive_takes_precedence(s in "[A-Za-z]:(.*)") {
+            if let Err(e) = check_component(&s) {
+                prop_assert_eq!(e, PathRejection::WindowsPrefixDenied);
+            }
+        }
+
+        #[test]
+        fn check_component_no_false_positive(s in "[a-zA-Z0-9_-]+") {
+            prop_assert!(check_component(&s).is_ok());
+        }
     }
 }

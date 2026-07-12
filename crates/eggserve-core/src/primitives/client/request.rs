@@ -175,6 +175,7 @@ fn is_token_byte(byte: u8) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn default_config_has_safe_timeouts() {
@@ -308,5 +309,41 @@ mod tests {
         assert!(!is_token_byte(b':'));
         assert!(!is_token_byte(b','));
         assert!(!is_token_byte(b'\x01'));
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn validate_header_never_panics(name in ".*", value in ".*") {
+            let _ = validate_header(&name, &value);
+        }
+
+        #[test]
+        fn valid_header_name_accepted(name in "[!#-'*+-.0-9A-Z^_`a-z|~]+") {
+            prop_assert!(validate_header(&name, "test-value").is_ok());
+        }
+
+        #[test]
+        fn empty_name_rejected(name in "") {
+            prop_assert!(validate_header(name, "value").is_err());
+        }
+
+        #[test]
+        fn null_in_value_rejected(name in "[A-Za-z-]+") {
+            prop_assert!(validate_header(&name, "bad\x00value").is_err());
+        }
+
+        #[test]
+        fn newline_in_value_rejected(name in "[A-Za-z-]+") {
+            prop_assert!(validate_header(&name, "bad\nvalue").is_err());
+            prop_assert!(validate_header(&name, "bad\rvalue").is_err());
+        }
+
+        #[test]
+        fn token_byte_correctness(byte in 0u8..=255) {
+            let expected = matches!(byte,
+                b'!' | b'#'..=b'\'' | b'*' | b'+' | b'-' | b'.' | b'^' | b'_' | b'`' | b'|' | b'~' | b'0'..=b'9' | b'A'..=b'Z' | b'a'..=b'z'
+            );
+            prop_assert_eq!(is_token_byte(byte), expected);
+        }
     }
 }

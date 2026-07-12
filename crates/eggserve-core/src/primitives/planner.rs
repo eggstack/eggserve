@@ -413,6 +413,7 @@ pub fn plan_directory_listing(content_length: usize, is_head: bool) -> StaticRes
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
     use std::io::Write;
 
     fn make_file_with_size(size: u64) -> tempfile::NamedTempFile {
@@ -1122,5 +1123,199 @@ mod tests {
             evaluate_conditional_headers("W/\"100-1234\"", None, Some("W/\"999-999\""), None);
 
         assert_eq!(outcome, ConditionalRequestOutcome::FullResponse);
+    }
+
+    #[test]
+    fn property_range_always_within_file_size() {
+        let file_sizes = [1u64, 10, 100, 1000, u64::MAX];
+        let range_headers = [
+            "bytes=0-0",
+            "bytes=0-49",
+            "bytes=50-",
+            "bytes=-10",
+            "bytes=0-999999",
+            "bytes=-999999",
+            "bytes=50-10",
+            "bytes=200-300",
+            "bytes=abc",
+            "bytes=",
+            "items=0-9",
+            "bytes=-0",
+            "none=0-9",
+        ];
+
+        for &file_size in &file_sizes {
+            for header in &range_headers {
+                let outcome = evaluate_range_header(header, file_size);
+                if let RangeRequestOutcome::Satisfiable(range) = outcome {
+                    assert!(
+                        range.start < file_size,
+                        "range start {} >= file_size {} for header {:?}",
+                        range.start,
+                        file_size,
+                        header
+                    );
+                    assert!(
+                        range.end_inclusive < file_size,
+                        "range end {} >= file_size {} for header {:?}",
+                        range.end_inclusive,
+                        file_size,
+                        header
+                    );
+                    assert!(
+                        range.start <= range.end_inclusive,
+                        "range start {} > end {} for header {:?}",
+                        range.start,
+                        range.end_inclusive,
+                        header
+                    );
+                    assert!(
+                        !range.is_empty(),
+                        "range length is 0 for header {:?}",
+                        header
+                    );
+                    assert!(
+                        range.len() <= file_size,
+                        "range length {} > file_size {} for header {:?}",
+                        range.len(),
+                        file_size,
+                        header
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn property_etag_format() {
+        let sizes = [0u64, 1, 42, 1024, 1024 * 1024];
+        for size in sizes {
+            let tmp = make_file_with_size(size);
+            let meta = std::fs::metadata(tmp.path()).unwrap();
+            if let Some(etag) = generate_etag(&meta) {
+                assert!(
+                    etag.starts_with("W/\""),
+                    "ETag does not start with W/\": {:?}",
+                    etag
+                );
+                assert!(etag.ends_with('"'), "ETag does not end with \": {:?}", etag);
+                // ETag contains the file size
+                assert!(
+                    etag.contains(&size.to_string()),
+                    "ETag {:?} does not contain size {}",
+                    etag,
+                    size
+                );
+                // No CR/LF in ETag
+                assert!(!etag.contains('\r'), "CR in ETag: {:?}", etag);
+                assert!(!etag.contains('\n'), "LF in ETag: {:?}", etag);
+            }
+        }
+    }
+
+    #[test]
+    fn property_head_never_has_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let range_headers = [None, Some("bytes=0-49"), Some("bytes=-10")];
+        let inm_values = [None, Some("W/\"100-1234\""), Some("*")];
+
+        for range in &range_headers {
+            for inm in &inm_values {
+                let plan = plan_file_response(
+                    ReadOnlyMethod::Head,
+                    &meta,
+                    "text/plain",
+                    *inm,
+                    None,
+                    *range,
+                    None,
+                );
+                assert_eq!(
+                    plan.body,
+                    BodyPlan::Empty,
+                    "HEAD request returned non-empty body for range={:?} inm={:?}",
+                    range,
+                    inm
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn property_304_always_empty_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan.status.as_u16(), 304);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn property_weak_strong_etag_equivalence() {
+        // Weak and strong ETags with same inner value should match
+        assert!(evaluate_if_none_match("W/\"100\"", "\"100\""));
+        assert!(evaluate_if_none_match("\"100\"", "W/\"100\""));
+        assert!(evaluate_if_none_match("W/\"100\"", "W/\"100\""));
+        assert!(evaluate_if_none_match("\"100\"", "\"100\""));
+    }
+
+    #[test]
+    fn property_wildcard_always_matches() {
+        let etags = ["W/\"100\"", "\"100\"", "anything", "", "W/\"\""];
+        for etag in &etags {
+            assert!(
+                evaluate_if_none_match("*", etag),
+                "wildcard did not match etag: {:?}",
+                etag
+            );
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn evaluate_range_header_never_panics(header in ".*", file_size in 0u64..=1_000_000) {
+            let _ = evaluate_range_header(&header, file_size);
+        }
+
+        #[test]
+        fn satisfiable_range_within_file_size(header in "bytes=(\\d+)-(\\d+)", file_size in 1u64..=1_000_000) {
+            if let RangeRequestOutcome::Satisfiable(range) = evaluate_range_header(&header, file_size) {
+                prop_assert!(range.start < file_size,
+                    "start {} >= file_size {}", range.start, file_size);
+                prop_assert!(range.end_inclusive < file_size,
+                    "end {} >= file_size {}", range.end_inclusive, file_size);
+                prop_assert!(range.start <= range.end_inclusive,
+                    "start {} > end {}", range.start, range.end_inclusive);
+            }
+        }
+
+        #[test]
+        fn evaluate_if_none_match_never_panics(if_none_match in ".*", current_etag in ".*") {
+            let _ = evaluate_if_none_match(&if_none_match, &current_etag);
+        }
+
+        #[test]
+        fn wildcard_always_matches(current_etag in "[^\"]*") {
+            prop_assert!(evaluate_if_none_match("*", &current_etag));
+        }
+
+        #[test]
+        fn generate_etag_never_panics(size in 0u64..=1_000_000) {
+            let tmp = make_file_with_size(size);
+            let meta = std::fs::metadata(tmp.path()).unwrap();
+            let _ = generate_etag(&meta);
+        }
     }
 }
