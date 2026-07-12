@@ -442,7 +442,10 @@ mod tests {
                 }
                 if url.port == url.scheme.default_port() {
                     let after_bracket = if authority.starts_with('[') {
-                        authority.find(']').map(|i| &authority[i + 1..]).unwrap_or("")
+                        authority
+                            .find(']')
+                            .map(|i| &authority[i + 1..])
+                            .unwrap_or("")
                     } else {
                         authority.as_str()
                     };

@@ -35,7 +35,6 @@ pub struct HttpClient {
 
 Methods:
 - `new(config)` — Create client
-- `get(url)`, `head(url)`, `post(url, body)`, `put(url, body)`, `delete(url)`, `patch(url, body)` — Convenience methods
 - `send(request)` — Send a constructed `ClientRequest`
 
 Internal flow:
@@ -57,6 +56,8 @@ pub struct ClientConfig {
     pub verify_tls: bool,                // default: true
 }
 ```
+
+Note: `max_response_body_bytes` is `Option<u64>`. `Some(n)` enforces a limit; `None` allows unlimited response size (not recommended for untrusted servers).
 
 ### `ClientRequest` / `ClientRequestBuilder` (`request.rs`)
 
@@ -94,20 +95,20 @@ Methods: `is_success()`, `content_length()`, `content_type()`, `text()`, `bytes(
 
 12-variant taxonomy:
 
-| Variant | Meaning |
-|---------|---------|
-| `InvalidUrl(String)` | URL parsing failed |
-| `UnsupportedScheme(String)` | Not HTTP or HTTPS |
-| `MissingHost` | URL has no host component |
-| `InvalidHeader` | Header name/value validation failed |
-| `BodyTooLarge` | Request body exceeds limit |
-| `Timeout(String)` | Connect or request timeout |
-| `DnsError(String)` | DNS resolution failed |
-| `ConnectError(String)` | TCP connection failed |
-| `TlsError(String)` | TLS handshake or verification failed |
-| `ProtocolError(String)` | HTTP protocol error |
-| `ResponseBodyTooLarge` | Response body exceeds max_response_body_bytes |
-| `Io(std::io::Error)` | Underlying I/O error |
+| Variant | Fields | Meaning |
+|---------|--------|---------|
+| `InvalidUrl(String)` | message | URL parsing failed |
+| `UnsupportedScheme(String)` | scheme | Not HTTP or HTTPS |
+| `MissingHost` | — | URL has no host component |
+| `InvalidHeader(String)` | message | Header name/value validation failed |
+| `BodyTooLarge` | `limit: u64, actual: u64` | Request body exceeds limit |
+| `Timeout(String)` | message | Connect or request timeout |
+| `DnsError(String)` | message | DNS resolution failed |
+| `ConnectError(String)` | message | TCP connection failed |
+| `TlsError(String)` | message | TLS handshake or verification failed |
+| `ProtocolError(String)` | message | HTTP protocol error |
+| `ResponseBodyTooLarge` | `limit: u64` | Response body exceeds max_response_body_bytes |
+| `Io(std::io::Error)` | error | Underlying I/O error |
 
 ## Dependencies
 
@@ -123,25 +124,29 @@ All non-optional dependencies (`hyper`, `hyper-util`, `tokio`, `bytes`) are alre
 
 ## Testing
 
-Integration tests in `crates/eggserve-core/tests/client_integration.rs` use local Hyper test servers:
+Integration tests across three test files, all gated `#![cfg(feature = "client")]`:
 
-```rust
-fn start_server<F, Fut>(handler: F) -> SocketAddr
-where
-    F: Fn(Request<Incoming>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = Response<Full<Bytes>>> + Send + 'static,
-```
+**`crates/eggserve-core/tests/client_integration.rs`** — 23 tests using local Hyper test servers:
+- GET, HEAD, POST, PUT, DELETE, PATCH, status codes, headers, body echo
+- Timeouts, connect errors, TLS, URL/header validation, body size limits, server disconnect
 
-Pattern: spin up a TCP listener, accept connections via `hyper::server::conn::http1::Builder`, return the address for the client to connect to.
+**`crates/eggserve-core/tests/client_interop.rs`** — 48 tests covering interoperability edge cases:
+- Fixed Content-Length, chunked Transfer-Encoding, connection-close bodies
+- Empty bodies, duplicate response headers, malformed status/headers
+- Premature EOF, incorrect Content-Length, delayed headers/body, oversized bodies
+- Host header generation, User-Agent, method validation, header validation
+- Response parsing, error mapping, status codes, content helpers
 
-23 tests covering: GET, HEAD, POST, PUT, DELETE, PATCH, status codes, headers, body echo, timeouts, connect errors, TLS (via `client-tls`), URL validation, header validation, and body size limits.
+**`crates/eggserve-core/tests/client_tls.rs`** — 7 tests (behind `client-tls` feature):
+- TLS verification (trusted/untrusted/self-signed certs), `verify_tls=false` bypass
+- HTTP never enters TLS, TLS error variants, sequential HTTPS requests
 
 ## Python Bindings
 
 `crates/eggserve-python/src/client.rs` wraps Rust types with PyO3:
 
-- `PyHttpClient` — frozen class with `get()`, `head()`, `post()`, `put()`, `delete()`, `patch()`, `send()` methods
-- `PyClientConfig` — frozen dataclass with defaults
+- `PyHttpClient` — frozen class with `get()`, `head()`, `post()`, `put()`, `delete()`, `patch()`, `send()` methods. Convenience methods (`get()`, `head()`, etc.) are only available in the Python bindings; the Rust `HttpClient` only exposes `send()`.
+- `PyClientConfig` — frozen dataclass with defaults and validation (rejects zero/negative timeouts, NaN, Inf)
 - `PyClientRequest` — frozen, no public constructor (created by send methods)
 - `PyClientResponse` — frozen, methods: `text()`, `bytes()`, `is_success()`, `content_length()`, `content_type()`
 - `PyClientError` — enum mapped to Python `EggserveError`

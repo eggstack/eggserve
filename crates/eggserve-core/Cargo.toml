@@ -35,3 +35,6 @@ hyper = { version = "1", features = ["client"] }
 libc = "0.2"
 proptest = "1"
 tempfile = "3"
+rcgen = "0.13"
+tokio-rustls = "0.26"
+rustls-pki-types = "1"

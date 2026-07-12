@@ -87,6 +87,13 @@ jobs:
           from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory
           print(ServeConfig())
           PY
+      - name: Client import smoke test
+        run: |
+          python - <<'PY'
+          from eggserve import HttpClient, ClientConfig, ClientRequest, ClientResponse, ClientError, Method
+          print("Client imports OK")
+          print(ClientConfig())
+          PY
 
   python-installed:
     runs-on: ubuntu-latest

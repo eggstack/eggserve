@@ -117,15 +117,50 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 ### Buffered Client (feature-gated: `client`)
 
-- One connection per request. No connection pooling.
-- No redirect following.
-- No cookie handling.
-- No proxy support.
-- No automatic decompression.
-- No streaming response API — the full response body is buffered in memory.
-- TLS verification is enabled by default.
-- Timeout enforcement: connect timeout (default 10s) and request timeout (default 30s).
-- Max response body: 10 MiB default.
+**Stability**: All client types are **experimental**. The interface may change in any release.
+
+**Transport**: HTTP/1.1 only. One connection per request. No connection pooling.
+
+**Supported URL schemes**: `http://` and `https://` only. Other schemes are rejected.
+
+**URL grammar**:
+- Hosts: IPv4, IPv6 bracketed (`[::1]`), domain names
+- Ports: default (80/443) or explicit
+- Path: starts with `/`; percent-encoded paths preserved
+- Query: optional; `?` without `/` before it is rejected
+- Fragments: stripped before sending
+- Rejected: userinfo, empty host/port, control characters, spaces, CR/LF, Unicode/IDN
+
+**Timeouts**:
+
+| Timeout | Default | Scope |
+|---------|---------|-------|
+| `connect_timeout` | 10s | TCP connection + TLS handshake |
+| `request_timeout` | 30s | Full request lifecycle (handshake, headers, body) |
+| `max_response_body_bytes` | 10 MiB | Maximum response body size |
+
+**TLS**:
+- When `client-tls` is enabled: certificates verified by default against Mozilla CA roots
+- `verify_tls: false` disables all certificate verification
+- When `client-tls` is not enabled: HTTPS URLs rejected before TCP connection
+- HTTP URLs never enter TLS
+
+**Response handling**:
+- Full response body buffered in memory (no streaming API)
+- Duplicate response headers: last-value-wins (HashMap)
+- No redirect following
+- No cookie handling
+- No proxy support
+- No automatic decompression
+- No HTTP/2 or HTTP/3
+
+**Error taxonomy** (12 variants): `InvalidUrl`, `UnsupportedScheme`, `MissingHost`, `InvalidHeader`, `BodyTooLarge`, `Timeout`, `DnsError`, `ConnectError`, `TlsError`, `ProtocolError`, `ResponseBodyTooLarge`, `Io`.
+
+**Request construction**:
+- GET and HEAD requests must not have a body (enforced at builder level)
+- Header names must be RFC 7230 tokens; values must not contain NUL/CR/LF
+- Default `User-Agent: eggserve-client/0.1` (overridable)
+- Default `Host` header from URL (overridable)
 
 ## Header Representation
 
