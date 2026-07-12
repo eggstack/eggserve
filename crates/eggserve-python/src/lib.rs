@@ -62,6 +62,20 @@ pyo3::create_exception!(
     "Body source conversion error."
 );
 
+pyo3::create_exception!(
+    _native,
+    ResponseConstructionError,
+    EggserveError,
+    "Response construction or validation error."
+);
+
+pyo3::create_exception!(
+    _native,
+    LifecycleError,
+    EggserveError,
+    "Server lifecycle error (double start, stop before start, etc.)."
+);
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -984,6 +998,14 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add(
         "BodySourceError",
         m.py().get_type::<BodySourceError>(),
+    )?;
+    m.add(
+        "ResponseConstructionError",
+        m.py().get_type::<ResponseConstructionError>(),
+    )?;
+    m.add(
+        "LifecycleError",
+        m.py().get_type::<LifecycleError>(),
     )?;
 
     m.add_class::<PyPathPolicy>()?;

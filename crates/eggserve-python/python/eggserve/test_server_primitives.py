@@ -296,9 +296,10 @@ class TestServer(unittest.TestCase):
         self.assertIsNone(s.addr)
 
     def test_double_start_raises(self):
+        from eggserve._native import LifecycleError
         s = Server(root=self._td, port=0)
         s.start()
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(LifecycleError):
             s.start()
         s.stop()
 

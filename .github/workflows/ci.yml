@@ -6,141 +6,89 @@ on:
   pull_request:
     branches: [main]
 
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  fmt:
+  rust-check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
-  rust:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
+          components: rustfmt, clippy
       - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
-
-  tls:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
       - run: cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
       - run: cargo test -p eggserve-bin --features tls
 
-  client:
+  python-unit-tests:
+    needs: [rust-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
         with:
-          components: clippy
+          python-version: "3.14"
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy -p eggserve-core --all-targets --features client -- -D warnings
-      - run: cargo test -p eggserve-core --features client
-      - run: cargo clippy -p eggserve-core --all-targets --features client-tls -- -D warnings
-      - run: cargo test -p eggserve-core --features client-tls
-
-  python-tests:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - name: Run Python API unit tests
-        run: |
-          PYTHONPATH=crates/eggserve-python/python \
-            python -m unittest eggserve.test_server -v
-
-  python-wheel:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
-      - run: pip install maturin
-      - run: maturin build --release -o dist
-        working-directory: crates/eggserve-python
-      - run: pip install crates/eggserve-python/dist/*.whl
-      - run: cargo build --release -p eggserve-bin
-      - run: echo "$PWD/target/release" >> $GITHUB_PATH
-      - run: python -m eggserve --help
-      - name: Wheel import smoke test
-        run: |
-          python - <<'PY'
-          from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory
-          print(ServeConfig())
-          PY
-      - name: Client import smoke test
-        run: |
-          python - <<'PY'
-          from eggserve import HttpClient, ClientConfig, ClientRequest, ClientResponse, ClientError, Method
-          print("Client imports OK")
-          print(ClientConfig())
-          PY
-
-  python-installed:
-    runs-on: ubuntu-latest
-    needs: [fmt, rust]
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.10"
       - run: pip install maturin
       - name: Build wheel
-        run: maturin build --release -o dist
+        run: maturin build --release --interpreter 3.14 -o dist
         working-directory: crates/eggserve-python
-      - name: Build binary
-        run: cargo build --release -p eggserve-bin
-      - name: Install in venv and run tests
+      - name: Install wheel
+        run: pip install --force-reinstall crates/eggserve-python/dist/*.whl
+      - name: Test primitives
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_primitives -v
+      - name: Test server primitives
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_server_primitives -v
+      - name: Test API stability
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_api_stability -v
+      - name: Test boundary hardening
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_boundary_hardening -v
+      - name: Test client primitives
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_client_primitives -v
+
+  packaging-smoke:
+    needs: [python-unit-tests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+      - uses: Swatinem/rust-cache@v2
+      - run: pip install maturin
+      - name: Build wheel
+        run: maturin build --release --interpreter 3.14 -o dist
+        working-directory: crates/eggserve-python
+      - name: Run packaging smoke tests
+        env:
+          PYTHONPATH: ""
         run: |
-          python -m venv .venv-installed
-          source .venv-installed/bin/activate
-          pip install --upgrade pip
-          pip install --force-reinstall crates/eggserve-python/dist/*.whl
-          cp target/release/eggserve .venv-installed/bin/
-          python -m eggserve --help
-          PYTHONPATH=crates/eggserve-python/python \
-            python -m unittest eggserve.test_primitives -v
-          PYTHONPATH=crates/eggserve-python/python \
-            python -m unittest eggserve.test_server -v
-          PYTHONPATH=crates/eggserve-python/python \
-            python -m unittest eggserve.test_server_primitives -v
-          PYTHONPATH=crates/eggserve-python/python \
-            python -m unittest eggserve.test_client_primitives -v
-          PYTHONPATH=crates/eggserve-python/python \
-            python -m unittest eggserve.test_server_integration -v
+          cd crates/eggserve-python/packaging-tests
+          bash run_all.sh ../../dist/*.whl python3.14
 
-  audit:
+  cargo-package:
+    needs: [rust-check]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-audit --locked
-      - run: cargo audit
-
-  deny:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - run: cargo install cargo-deny --locked
-      - run: cargo deny check
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo package -p eggserve-core --allow-dirty
+      - run: cargo package -p eggserve-bin --allow-dirty

@@ -18,7 +18,16 @@ crates/eggserve-python/
     ├── server.py       # Python API: ServeConfig, ServerProcess, serve_directory
     ├── test_primitives.py
     ├── test_server_primitives.py
-    └── test_server.py
+    ├── test_server_integration.py
+    ├── test_boundary_hardening.py
+    ├── test_server.py
+    └── test_api_stability.py
+└── packaging-tests/
+    ├── run_all.sh              # installs wheel in fresh venv, runs all smoke tests
+    ├── test_imports.py         # import validation, version metadata, no source-tree shadowing
+    ├── test_server_smoke.py    # server lifecycle, callback, HEAD, range, public-bind
+    ├── test_client_smoke.py    # HTTP client local request
+    └── test_cli_smoke.py       # CLI help, binary discovery, version consistency
 ```
 
 **Important:** `eggserve-python` is excluded from the workspace and has its own `Cargo.lock`. It is built independently via `maturin`.
@@ -41,7 +50,7 @@ PyO3 bindings wrapping `eggserve-core` types. All classes are **frozen** (`#[pyc
 
 Functions: `validate_method()`, `validate_request_body()`, `validate_request_target()`, `generate_etag()`.
 
-Exceptions: `EggserveError` (base), `PathPolicyError`, `RequestTargetError`, `SecureRootError`, `RequestValidationError`.
+Exceptions: `EggserveError` (base), `PathPolicyError`, `RequestTargetError`, `SecureRootError`, `RequestValidationError`, `BodySourceError`, `ResponseConstructionError`, `LifecycleError`.
 
 ## Server Primitives (`src/server.rs`)
 
@@ -58,6 +67,19 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 | `Server` | tokio runtime + TcpListener | `start()`, `stop()`, `addr`, context manager, optional `handler` callback, `max_python_callbacks` concurrency limit |
 
 Exceptions: `ServerRequestError` (method not allowed, target invalid, body not allowed).
+
+### Response Validation
+
+Every Python-produced `Response` passes through `validate_handler_response()` in Rust before being sent to the client:
+
+- Status must be 200–999 (1xx informational responses rejected)
+- Header values must not contain NUL, CR, or LF
+- Hop-by-hop headers (connection, transfer-encoding, te, etc.) are blocked — Hyper manages these
+- 204 and 304 responses must have empty bodies (body is stripped regardless of handler return)
+- HEAD responses have body suppressed automatically
+- Invalid responses fall back to 500 Internal Server Error
+
+Handler exceptions produce a generic 500 with no traceback, filesystem path, or Python repr leakage.
 
 ### Architecture
 
@@ -76,7 +98,7 @@ Hyper Response sent to client
 
 - **GIL management:** `tokio::task::spawn_blocking` + `Python::with_gil` ensures tokio is never blocked by Python. Callback concurrency is bounded by a semaphore (`max_python_callbacks`), preventing handler overload.
 - **File streaming:** File bodies bypass Python entirely — Rust streams `BodySource` directly to the socket.
-- **Error handling:** Handler exceptions → 500 Internal Server Error without leaking tracebacks.
+- **Error handling:** Handler exceptions → 500 Internal Server Error without leaking tracebacks. Python-produced responses are validated in Rust via `validate_handler_response()` (plan 037) — hop-by-hop headers, 204/304 body prohibition, status range checks.
 - **Readiness signal:** `start()` blocks until the listener is bound and ready, using `std::sync::mpsc`.
 
 ## Python Wrapper Layer (`server.py`)
@@ -150,7 +172,29 @@ PYTHONPATH=python python -m unittest eggserve.test_server_primitives -v
 
 # Run subprocess API tests (no wheel needed, uses mocks)
 PYTHONPATH=python python -m unittest eggserve.test_server -v
+
+# Run boundary hardening tests (requires built wheel)
+PYTHONPATH=python python -m unittest eggserve.test_boundary_hardening -v
+
+# Run server integration tests (requires built wheel)
+PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
+
+# Run packaging smoke tests (installed-wheel validation, no source-tree imports)
+cd packaging-tests
+bash run_all.sh ../dist/*.whl python3.14
 ```
+
+## Packaging Smoke Tests
+
+Standalone tests in `packaging-tests/` validate the wheel works independently of the source checkout:
+
+- `test_imports.py` — all `__all__` names importable, version metadata valid, native extension loads, no source-tree shadowing
+- `test_server_smoke.py` — server lifecycle, callback handler, HEAD/range responses, public-bind guard
+- `test_client_smoke.py` — HTTP client local request against a running server
+- `test_cli_smoke.py` — `python -m eggserve --help`, binary discovery, version consistency
+- `run_all.sh` — creates fresh venv, installs wheel, copies scripts to temp dir, runs all tests
+
+These tests run from a temporary directory with `PYTHONPATH` unset to ensure no source-tree contamination.
 
 ## See Also
 

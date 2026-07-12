@@ -1346,8 +1346,9 @@ class TestServerPrimitives(unittest.TestCase):
         self.assertIsNotNone(s.addr)
 
     def test_start_twice_raises(self):
+        from eggserve._native import LifecycleError
         s = self._make_server()
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(LifecycleError):
             s.start()
 
     def test_stop_before_start_is_safe(self):

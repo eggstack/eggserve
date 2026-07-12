@@ -170,9 +170,28 @@ impl PyResponse {
             PyResponseBody::BodySource(source) => match source {
                 BodySource::Empty => BodySource::Empty,
                 BodySource::Bytes(data) => BodySource::Bytes(data.clone()),
-                BodySource::FileFull { .. } | BodySource::FileRange { .. } => {
-                    BodySource::Empty
-                }
+                BodySource::FileFull { file, len, mime } => match file.try_clone() {
+                    Ok(cloned) => BodySource::FileFull {
+                        file: cloned,
+                        len: *len,
+                        mime,
+                    },
+                    Err(_) => BodySource::Empty,
+                },
+                BodySource::FileRange {
+                    file,
+                    range,
+                    total_len,
+                    mime,
+                } => match file.try_clone() {
+                    Ok(cloned) => BodySource::FileRange {
+                        file: cloned,
+                        range: *range,
+                        total_len: *total_len,
+                        mime,
+                    },
+                    Err(_) => BodySource::Empty,
+                },
             },
         };
         ServerBodySource {
@@ -604,7 +623,7 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if tx_guard.is_some() {
-            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+            return Err(crate::LifecycleError::new_err(
                 "Server already started",
             ));
         }
@@ -1044,8 +1063,29 @@ fn valid_http_status(status: u16) -> bool {
     (100..=999).contains(&status)
 }
 
-fn valid_handler_headers(headers: &HashMap<String, String>) -> bool {
-    for (name, value) in headers {
+fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name,
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "proxy-connection"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+    )
+}
+
+fn validate_handler_response(resp: &PyResponse) -> bool {
+    if !valid_http_status(resp.status) {
+        return false;
+    }
+    if resp.status < 200 {
+        return false;
+    }
+    for (name, value) in &resp.headers {
         if name.is_empty() {
             return false;
         }
@@ -1054,6 +1094,14 @@ fn valid_handler_headers(headers: &HashMap<String, String>) -> bool {
                 return false;
             }
         }
+        if is_hop_by_hop_header(name) {
+            return false;
+        }
+    }
+    if matches!(resp.status, 204 | 304)
+        && !matches!(resp.body, PyResponseBody::Empty)
+    {
+        return false;
     }
     true
 }
@@ -1073,13 +1121,23 @@ async fn convert_to_hyper_response(
     resp: PyResponse,
     file_stream_semaphore: Option<Arc<Semaphore>>,
 ) -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
-    if !valid_http_status(resp.status) || !valid_handler_headers(&resp.headers) {
+    if !validate_handler_response(&resp) {
         return fallback_500();
     }
 
     let mut builder = Response::builder().status(resp.status);
     for (name, value) in &resp.headers {
         builder = builder.header(name.as_str(), value.as_str());
+    }
+
+    let is_head = resp.headers.get("x-request-method").map(|s| s.as_str()) == Some("HEAD");
+    let strip_body = is_head || matches!(resp.status, 204 | 304);
+
+    if strip_body {
+        let body = Full::new(Bytes::new())
+            .map_err(|e| -> BoxError { Box::new(e) })
+            .boxed();
+        return Ok(builder.body(body)?);
     }
 
     match resp.body {

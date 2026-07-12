@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace)
 
-Other directories: `architecture/` (10 deep-dive docs), `docs/` (21 reference docs), `plans/` (32 plans, 000–031 + ROADMAP), `examples/`, `fuzz/`.
+Other directories: `architecture/` (10 deep-dive docs), `docs/` (21 reference docs), `plans/` (43 plans, 000–039 + ROADMAP), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -49,7 +49,7 @@ cargo deny check
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan count** — Plans 000–031 complete. Verify against `plans/` directory.
+- **Plan count** — Plans 000–039 complete. Verify against `plans/` directory.
 
 ## Architecture docs
 

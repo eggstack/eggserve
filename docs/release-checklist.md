@@ -12,6 +12,7 @@
 - [ ] Platform CI green (Linux, macOS, Windows)
 - [ ] Python API unit tests pass (`PYTHONPATH=crates/eggserve-python/python python -m unittest eggserve.test_server -v`)
 - [ ] Python wheel smoke test passes
+- [ ] Installed-wheel packaging smoke tests pass (`crates/eggserve-python/packaging-tests/run_all.sh`)
 - [ ] `cargo audit` clean or exceptions documented
 - [ ] `cargo deny check` clean or exceptions documented
 - [ ] Dependency/license review complete

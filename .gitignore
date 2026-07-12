@@ -7,3 +7,4 @@ crates/eggserve-python/python/eggserve/_native*.so
 *.whl
 *.pyc
 __pycache__/
+crates/eggserve-python/packaging-tests/__pycache__/

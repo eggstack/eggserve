@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-031 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-039 are complete.
 
 ## Non-negotiables
 
@@ -140,6 +140,13 @@ cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_server -v
 ```
 
+Python boundary hardening tests (requires built wheel):
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_boundary_hardening -v
+```
+
 Python client primitives tests (requires built wheel):
 
 ```sh
@@ -152,6 +159,15 @@ Python server integration tests (requires built wheel):
 ```sh
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
+```
+
+Packaging smoke tests (installed-wheel validation, no source-tree imports):
+
+```sh
+cd crates/eggserve-python
+maturin build --release --interpreter 3.14 -o dist
+cd packaging-tests
+bash run_all.sh ../dist/*.whl python3.14
 ```
 
 ## Toolchain notes
@@ -172,6 +188,8 @@ PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
 - **Windows**: functional but reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
+- **Response validation boundary**: Python handler-returned `Response` objects are validated in Rust via `validate_handler_response()` — status 200–999, no hop-by-hop headers, 204/304 empty bodies, no NUL/CR/LF in header values. Invalid responses fall back to 500.
+- **Typed lifecycle/response exceptions**: `LifecycleError` (double start, stop before start) and `ResponseConstructionError` (response validation failure) are typed exceptions, not generic `PyValueError`.
 
 ## Plan-driven development
 

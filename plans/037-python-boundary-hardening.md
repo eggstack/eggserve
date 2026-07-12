@@ -1,5 +1,7 @@
 # Phase 37 — Python Boundary Hardening
 
+**Status:** Complete.
+
 ## Goal
 
 Ensure the Python API cannot violate Rust-side HTTP, filesystem, lifecycle, concurrency, or body-capability invariants. The Python surface should remain thin, explicit, and auditable.
