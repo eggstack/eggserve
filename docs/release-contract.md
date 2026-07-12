@@ -31,6 +31,47 @@ Version: 0.1.0 (pre-release)
 - **Range requests**: `Range` header with single byte ranges. Multi-range returns the full response.
 - **HEAD parity**: HEAD responses include the same headers as GET with an empty body.
 
+## Wire-level framing rules
+
+These rules are enforced at the raw HTTP/1.1 socket boundary and are regression-tested in `crates/eggserve-core/tests/http_wire_correctness.rs`.
+
+### Request rejection rules (eggserve policy)
+
+- Non-GET/HEAD methods → 405 with `Allow: GET, HEAD`.
+- Absolute-form (`http://host/path`), authority-form (`host:port`), asterisk-form (`*`) → 400.
+- Empty or missing path → 400.
+- Paths containing NUL bytes, backslashes, or encoded separators (`%2f`, `%5c`) → 400.
+- Path traversal beyond root (`/../`) → 400 or 403.
+- `Content-Length > 0` on GET/HEAD → 413.
+- Invalid `Content-Length` (non-numeric, negative, overflow) → 400.
+- `Transfer-Encoding` present on GET/HEAD → 400.
+- Both `Content-Length` and `Transfer-Encoding` present → 400.
+- `Transfer-Encoding` with unsupported codings (e.g. `chunked`) → 400.
+- Duplicate `Content-Length` with conflicting values → 400.
+- Duplicate `Content-Length` with identical values → treated as single `Content-Length`.
+- Comma-joined `Content-Length` values (e.g. `Content-Length: 0, 10`) → 400.
+- Request body bytes present without framing headers → connection closed (premature EOF).
+- Truncated body mid-stream → connection closed, no response sent.
+
+### Parser-level behavior (hyper)
+
+These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
+
+- HTTP/1.0 requests are accepted (hyper accepts any `HTTP/x.y` version line).
+- Bare LF (without CR) in header values is accepted by hyper's parser.
+- Malformed header names or values that hyper cannot parse result in connection closure.
+- Requests with invalid byte sequences in header names result in connection closure.
+
+### Response guarantees (wire-tested)
+
+- `Accept-Ranges: bytes` present on all file responses (200, 206, 416).
+- `Content-Length` matches actual body bytes for all responses.
+- HEAD responses include all headers but suppress body transfer.
+- 304 responses include `ETag` and `Last-Modified` (when available), no body.
+- 416 responses include `Content-Range: bytes */TOTAL` and `Content-Length: 0`.
+- `X-Content-Type-Options: nosniff` present on all file responses.
+- 405 responses include `Allow: GET, HEAD`.
+
 ## Behavioral Guarantees
 
 ### Safe Defaults (enforced at library level)

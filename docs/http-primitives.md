@@ -63,6 +63,15 @@ Error: `RequestValidationError::InvalidRequestTarget` → HTTP 400 (via path par
 
 Note: Full path confinement (traversal, dotfiles, percent-encoding) is handled by `ConfinedPath::parse()`, not by `validate_request_target()`. The target validation is a coarse check; path confinement is the fine-grained check.
 
+### Parser-level target behavior
+
+Target validation happens at two layers:
+
+1. **Hyper's parser** handles HTTP version parsing and request-line splitting. Hyper accepts HTTP/1.0 version lines, bare LF in header values, and certain malformed inputs that eggserve does not actively reject.
+2. **eggserve's validation** (`validate_request_target()` + `ConfinedPath::parse()`) rejects non-origin-form targets, path traversal, NUL bytes, and encoded separators.
+
+The wire-correctness tests in `http_wire_correctness.rs` document exactly which rejections come from which layer.
+
 ## Request body metadata policy
 
 `validate_request_body()` validates body-framing headers for GET/HEAD requests:

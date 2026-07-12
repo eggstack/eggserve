@@ -76,7 +76,8 @@ pub fn file_response(
         .status(StatusCode::OK)
         .header("content-length", len.to_string())
         .header("content-type", mime)
-        .header("x-content-type-options", "nosniff");
+        .header("x-content-type-options", "nosniff")
+        .header("accept-ranges", "bytes");
 
     if let Some(mtime) = last_modified {
         if let Ok(secs) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
