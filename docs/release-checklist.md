@@ -1,10 +1,21 @@
 # Release Checklist
 
-This checklist is evidence-driven. A workflow declaration or a green local
-command is not evidence of a GitHub matrix or release-workflow run. Every
-release-candidate decision must identify one evaluated commit SHA; changes to
-release workflows, manifests, lockfiles, packaging tests, or support claims
-invalidate the affected evidence.
+This checklist is a brief overview. The full gate table is machine-generated
+from the single source of truth at
+[`release/criteria.toml`](../release/criteria.toml) and written to
+[`release-checklist-generated.md`](release-checklist-generated.md).
+
+The human operator guide covering evidence philosophy, command sequences,
+and failure handling is in [`release-process.md`](release-process.md).
+
+## Regenerating the checklist
+
+```sh
+python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml
+```
+
+Run this after editing `release/criteria.toml` or when the generated file
+falls out of date.
 
 ## Evidence record
 
@@ -26,32 +37,6 @@ commit and failed because its original workflow invoked `cargo audit` without
 installing the plugin. It is intentionally not release evidence; a new run
 against the final closure commit is required.
 
-## Release-gate evidence
-
-| Gate | Status | Evidence class | Command/job and result | Run ID / artifact digest |
-|---|---|---|---|---|
-| Rust format, lint, tests, doctests, feature matrices | `PENDING` | `GITHUB` | CI `rust-check`, required matrix green | `PENDING` |
-| Raw-wire and production-path tests | `PENDING` | `GITHUB` | CI `wire-tests`, release validation | `PENDING` |
-| Corpus replay, including client feature | `PENDING` | `GITHUB` | CI `corpus-replay` | `PENDING` |
-| Pinned `cargo-audit` / `cargo-deny` installation and checks | `PENDING` | `GITHUB` | CI/release `scripts/install-cargo-tools.sh`, versions `0.22.2` / `0.19.0` | `PENDING` |
-| `eggserve-core` package/list/publish dry-run | `PENDING` | `GITHUB` | `scripts/verify-cargo-packages.sh` | `PENDING` |
-| `eggserve-bin` local-registry package/list/publish dry-run | `PENDING` | `GITHUB` | Exact packaged core crate staged in temporary registry | `PENDING` |
-| Python metadata and CPython 3.14 support | `PENDING` | `GITHUB` | `Requires-Python >=3.14,<3.15`, imports/API/exception tests | `PENDING` |
-| Installed wheel on Linux, macOS, Windows | `PENDING` | `GITHUB` | Native wheel build, clean venv, `PYTHONPATH` unset, callback/client/CLI smoke | `PENDING` |
-| Release artifacts and checksums | `PENDING` | `GITHUB` | Expected four Unix/one Windows archives and wheels inspected | `PENDING` |
-| Provenance | `PENDING` | `GITHUB` | Commit and workflow run match `provenance.json` | `PENDING` |
-| Latest fuzz campaign | `PENDING` | `GITHUB` | Date, workflow URL, result, and corpus replay result | `PENDING` |
-
-## Pre-release review
-
-- [ ] Version numbers are synchronized across all crates and the Python package.
-- [ ] README, package metadata, release contract, and support classifiers agree.
-- [ ] Known accepted limitations are listed in release notes.
-- [ ] Windows is classified as functional/parser-hardened only; no Unix-level filesystem claim is made.
-- [ ] Follow-symlinks mode is identified as weaker and outside descriptor-relative hardening.
-- [ ] No critical/high release blocker remains.
-- [ ] Approver has signed off on the exact evaluated commit SHA above.
-
 ## Publication gates
 
 The manual release workflow defaults to `dry_run=true`. A dry run must not
@@ -67,6 +52,16 @@ publish dry-run against that packaged graph.
 For PyPI, build the platform wheel after staging the matching CLI binary and
 run `crates/eggserve-python/packaging-tests/run_all.sh` from its clean-venv
 workflow. `dist/` outputs must remain untracked.
+
+## Pre-release review
+
+- [ ] Version numbers are synchronized across all crates and the Python package.
+- [ ] README, package metadata, release contract, and support classifiers agree.
+- [ ] Known accepted limitations are listed in release notes.
+- [ ] Windows is classified as functional/parser-hardened only; no Unix-level filesystem claim is made.
+- [ ] Follow-symlinks mode is identified as weaker and outside descriptor-relative hardening.
+- [ ] No critical/high release blocker remains.
+- [ ] Approver has signed off on the exact evaluated commit SHA above.
 
 ## Known accepted limitations
 

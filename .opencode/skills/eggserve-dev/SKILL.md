@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (10 deep-dive docs), `docs/` (reference docs), `plans/` (000–041 plus roadmap and closure documents), `examples/`, `fuzz/`.
+Other directories: `architecture/` (10 deep-dive docs), `docs/` (reference docs), `plans/` (000–045 plus roadmap and closure documents), `release/` (criteria.toml), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -54,7 +54,7 @@ cargo deny check                                           # license/policy chec
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–040 are complete; Plan 041 is the final release-gate closure pass. Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
+- **Plan status** — Plans 000–040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix, machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
 
 ## Architecture docs
 
@@ -85,3 +85,4 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback, callback concurrency limit. Parameters: `handler`, `public`, `max_connections`, `max_file_streams`, `max_python_callbacks`, `header_timeout_secs`, `write_timeout_secs`.
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix. Builds require `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` with PyO3 0.24.2 and stage `eggserve-bin` under `python/eggserve/bin/` before maturin.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`, and `bash scripts/verify-cargo-packages.sh` for both Rust package gates. The release workflow's manual `dry_run=true` path must be executed and recorded before RC approval.
+- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation.

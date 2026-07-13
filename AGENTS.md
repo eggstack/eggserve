@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-040 are complete; Plan 041 is the final release-gate closure pass.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix, machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`).
 
 ## Non-negotiables
 
@@ -103,6 +103,12 @@ bash scripts/install-cargo-tools.sh                        # deterministic audit
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
 bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
+# Unified local validation:
+./scripts/release-validate.sh fast                 # routine dev check
+./scripts/release-validate.sh full                 # pre-release validation
+./scripts/release-validate.sh gate <gate-id>       # run a single gate
+./scripts/release_criteria.py validate release/criteria.toml  # validate criteria
+./scripts/release_criteria.py list                 # list all gates
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
@@ -214,6 +220,8 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
 - **Response validation boundary**: Python handler-returned `Response` objects are validated in Rust via `validate_handler_response()` — status 200–999, no hop-by-hop headers, 204/304 empty bodies, no NUL/CR/LF in header values. Invalid responses fall back to 500.
 - **Typed lifecycle/response exceptions**: `LifecycleError` (double start, stop before start) and `ResponseConstructionError` (response validation failure) are typed exceptions, not generic `PyValueError`.
+- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation.
+- **Generated release checklist** — `docs/release-checklist-generated.md` is generated from `release/criteria.toml`. Do not edit by hand; regenerate with `python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml`.
 
 ## Plan-driven development
 
@@ -256,6 +264,9 @@ Before implementing any feature, check:
 - [docs/api-stability.md](docs/api-stability.md) — API classification by stability tier
 - [docs/fuzzing.md](docs/fuzzing.md) — fuzz targets, property tests, seed corpora, CI integration
 - [docs/action-pinning.md](docs/action-pinning.md) — GitHub Action SHA pinning policy and update procedure
+- [docs/release-process.md](docs/release-process.md) — release operator guide, evidence philosophy, and failure handling
+- [docs/library-capability-matrix.md](docs/library-capability-matrix.md) — Rust/Python/CLI capability parity matrix
+- [release/criteria.toml](release/criteria.toml) — machine-readable release gate definitions (source of truth)
 
 ## Architecture deep dives
 

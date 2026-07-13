@@ -79,7 +79,9 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–040 complete; Plan 041 closes the final release gates.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence and [docs/release-checklist.md](docs/release-checklist.md) for evidence-backed release status.
+**Plans 000–045 complete; Plans 000–040 built the core; Plan 041 closes final release gates; Plans 042–045 establish the release evidence infrastructure.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence and [docs/release-checklist.md](docs/release-checklist.md) for evidence-backed release status.
+
+Release gates are defined in [release/criteria.toml](release/criteria.toml) and validated by [scripts/release_criteria.py](scripts/release_criteria.py). See [docs/release-process.md](docs/release-process.md) for the release operator guide.
 
 **Property testing and fuzzing:** Nine fuzz targets cover path parsing, URL parsing, range/conditional headers, platform checks, and request validation. Deterministic property tests (proptest) run in normal CI. Scheduled fuzz runs run weekly. See [docs/fuzzing.md](docs/fuzzing.md).
 
@@ -206,6 +208,14 @@ bash scripts/install-cargo-tools.sh                        # install and verify 
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
 bash scripts/verify-cargo-packages.sh                      # crates.io/local-registry package gates
+```
+
+Or use the unified validation entry point:
+
+```sh
+./scripts/release-validate.sh fast                 # routine development
+./scripts/release-validate.sh full                 # pre-release validation
+./scripts/release-validate.sh gate http.raw-wire   # run a single gate
 ```
 
 Python tests and packaging smoke:

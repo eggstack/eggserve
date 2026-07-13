@@ -1,0 +1,586 @@
+# eggserve release gates — machine-readable source of truth
+# Defines every gate from the CI workflow and release checklist.
+# Each gate maps to a CI job step, a validation command, and evidence requirements.
+
+[meta]
+schema_version = "1.0.0"
+project = "eggserve"
+version = "0.1.0"
+description = "Release gate definitions for eggserve CI/CD pipeline"
+
+# ---------------------------------------------------------------------------
+# Supported platforms and language versions
+# ---------------------------------------------------------------------------
+
+[platforms]
+linux = { runner = "ubuntu-latest", targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] }
+macos = { runner = "macos-latest", targets = ["x86_64-apple-darwin", "aarch64-apple-darwin"] }
+windows = { runner = "windows-latest", targets = ["x86_64-pc-windows-msvc"] }
+
+[languages]
+rust = { toolchain = "stable", edition = "2021" }
+python = { version = "3.14", constraint = ">=3.14,<3.15" }
+
+# ---------------------------------------------------------------------------
+# Rust correctness gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "rust.format"
+title = "Rust formatting check"
+description = "Enforces rustfmt style on all workspace crates"
+required = true
+evidence_classes = ["ci-log", "lint-output"]
+command = "cargo fmt --all -- --check"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "preflight"
+
+[[gate]]
+id = "rust.clippy"
+title = "Workspace clippy lint"
+description = "Runs clippy on all workspace targets with warnings-as-errors"
+required = true
+evidence_classes = ["ci-log", "lint-output"]
+command = "cargo clippy --workspace --all-targets -- -D warnings"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "preflight"
+
+[[gate]]
+id = "rust.test"
+title = "Workspace unit tests"
+description = "Runs all unit tests across the workspace"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test --workspace"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "preflight"
+
+[[gate]]
+id = "rust.doctest"
+title = "Rust doc tests"
+description = "Runs documentation tests across the workspace"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test --workspace --doc"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "preflight"
+
+[[gate]]
+id = "rust.test.client"
+title = "Client feature tests"
+description = "Tests eggserve-core with the client feature gate enabled"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --features client"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = ["client"]
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "preflight"
+
+[[gate]]
+id = "rust.test.client-tls"
+title = "Client TLS feature tests"
+description = "Tests eggserve-core with the client-tls feature gate (includes clippy)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings && cargo test -p eggserve-core --features client-tls"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = ["client-tls"]
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "rust.test.server-tls"
+title = "Server TLS feature tests"
+description = "Tests eggserve-bin with the tls feature gate (includes clippy)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings && cargo test -p eggserve-bin --features tls"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = ["tls"]
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+# ---------------------------------------------------------------------------
+# HTTP/filesystem correctness gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "http.raw-wire"
+title = "Raw HTTP/1.x wire correctness tests"
+description = "Validates raw HTTP response formatting against expected wire output"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test http_wire_correctness"
+workflow_job = "wire-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "crates/eggserve-core/tests/**"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "http.production-path"
+title = "Production path tests"
+description = "Tests the production binary path handling and serving behavior"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-bin --test production_path"
+workflow_job = "wire-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-bin/src/**", "crates/eggserve-bin/tests/**", "crates/eggserve-core/src/**"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "http.primitives-integration"
+title = "HTTP primitives integration tests"
+description = "Integration tests for HTTP primitives (request validation, response planning)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test http_primitives_integration"
+workflow_job = "wire-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "crates/eggserve-core/tests/**"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "filesystem.corpus-replay"
+title = "Fuzz corpus replay"
+description = "Replays fuzz corpus seeds to catch regressions against known inputs"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test corpus_replay && cargo test -p eggserve-core --test corpus_replay --features client"
+workflow_job = "corpus-replay"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "fuzz/corpus/**"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+# ---------------------------------------------------------------------------
+# Supply chain gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "supply-chain.audit"
+title = "cargo-audit vulnerability check"
+description = "Scans dependencies for known security vulnerabilities via cargo-audit"
+required = true
+evidence_classes = ["ci-log", "audit-output"]
+command = "bash scripts/install-cargo-tools.sh && cargo audit"
+workflow_job = "supply-chain"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["Cargo.lock", "crates/**/Cargo.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "supply-chain.deny"
+title = "cargo-deny license/policy check"
+description = "Enforces license allow-list and dependency policies via cargo-deny"
+required = true
+evidence_classes = ["ci-log", "deny-output"]
+command = "cargo deny check"
+workflow_job = "supply-chain"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["Cargo.lock", "crates/**/Cargo.toml", "deny.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+# ---------------------------------------------------------------------------
+# Package gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "package.core"
+title = "eggserve-core package/publish dry-run"
+description = "Validates that eggserve-core can be packaged and published"
+required = true
+evidence_classes = ["ci-log", "package-output"]
+command = "bash scripts/verify-cargo-packages.sh"
+workflow_job = "cargo-package"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/**", "Cargo.toml"]
+depends_on = ["rust.format", "rust.clippy", "rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "artifact"
+
+[[gate]]
+id = "package.bin"
+title = "eggserve-bin package/publish dry-run"
+description = "Validates that eggserve-bin can be packaged and published"
+required = true
+evidence_classes = ["ci-log", "package-output"]
+command = "bash scripts/verify-cargo-packages.sh"
+workflow_job = "cargo-package"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-bin/**", "Cargo.toml"]
+depends_on = ["rust.format", "rust.clippy", "rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "artifact"
+
+# ---------------------------------------------------------------------------
+# Python gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "python.unit-tests"
+title = "Python source-only unit tests"
+description = "Unit tests that run from source without requiring a built wheel"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest discover -s python -p 'test_*.py' -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.native-tests"
+title = "Python native primitives tests"
+description = "Tests for native PyO3 primitives (requires a built wheel)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_primitives -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.server-primitives"
+title = "Python server primitives tests"
+description = "Tests for server-side primitives (request/response handling)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_server_primitives -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.api-stability"
+title = "Python API stability tests"
+description = "Validates that the Python API surface is stable across versions"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_api_stability -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.boundary-hardening"
+title = "Python boundary hardening tests"
+description = "Tests for security boundary enforcement at the Python/Rust interface"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_boundary_hardening -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.client-primitives"
+title = "Python client primitives tests"
+description = "Tests for HTTP client primitives exposed to Python"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_client_primitives -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.server-integration"
+title = "Python server integration tests"
+description = "End-to-end integration tests for the Python server API"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_server_integration -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.packaging-smoke"
+title = "Installed wheel packaging smoke tests"
+description = "Validates that the built wheel installs and the binary runs correctly"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python/packaging-tests && bash run_all.sh ../../dist/*.whl python"
+workflow_job = "packaging-smoke"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "Cargo.toml"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "artifact"
+
+[[gate]]
+id = "python.wheel.linux"
+title = "Linux wheel build/install/smoke"
+description = "Builds and smoke-tests the Python wheel on Linux"
+required = true
+evidence_classes = ["ci-log", "test-output", "wheel"]
+command = "bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python"
+workflow_job = "wheel-smoke"
+platforms = ["linux"]
+features = []
+artifacts = ["python-wheel-linux"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "Cargo.toml"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "artifact"
+
+[[gate]]
+id = "python.wheel.macos"
+title = "macOS wheel build/install/smoke"
+description = "Builds and smoke-tests the Python wheel on macOS"
+required = true
+evidence_classes = ["ci-log", "test-output", "wheel"]
+command = "bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python"
+workflow_job = "wheel-smoke"
+platforms = ["macos"]
+features = []
+artifacts = ["python-wheel-macos"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "Cargo.toml"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "artifact"
+
+[[gate]]
+id = "python.wheel.windows"
+title = "Windows wheel build/install/smoke"
+description = "Builds and smoke-tests the Python wheel on Windows"
+required = true
+evidence_classes = ["ci-log", "test-output", "wheel"]
+command = "bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python"
+workflow_job = "wheel-smoke"
+platforms = ["windows"]
+features = []
+artifacts = ["python-wheel-windows"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "Cargo.toml"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "artifact"
+
+# ---------------------------------------------------------------------------
+# Release gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "release.dry-run"
+title = "Release workflow dry run"
+description = "Full release pipeline validation without registry publication"
+required = true
+evidence_classes = ["ci-log", "release-output"]
+command = "cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace && cargo test --workspace --doc && cargo test -p eggserve-core --features client && cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings && cargo test -p eggserve-core --features client-tls && cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings && cargo test -p eggserve-bin --features tls && cargo audit && cargo deny check"
+workflow_job = "validate"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["**"]
+depends_on = ["rust.format", "rust.clippy", "rust.test", "supply-chain.audit", "supply-chain.deny"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "approval"
+
+[[gate]]
+id = "release.artifacts"
+title = "Release artifact assembly and checksums"
+description = "Assembles release artifacts, generates SHA-256 checksums, and stages release bundle"
+required = true
+evidence_classes = ["ci-log", "checksum", "provenance"]
+command = "bash scripts/inspect-release-bundle.sh artifacts provenance.json \"${GITHUB_SHA}\" \"${GITHUB_RUN_ID}\""
+workflow_job = "stage-release"
+platforms = ["linux"]
+features = []
+artifacts = ["release-bundle", "checksums-sha256.txt"]
+max_age_days = 1
+invalidated_by = ["crates/**", "Cargo.toml", "Cargo.lock"]
+depends_on = ["release.dry-run"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "artifact"
+
+[[gate]]
+id = "release.provenance"
+title = "Release provenance record"
+description = "Records tag, commit, run ID, and timestamp for the release"
+required = true
+evidence_classes = ["provenance"]
+command = "echo '{\"tag\": \"${TAG}\", \"commit\": \"${COMMIT}\", \"run_id\": \"${RUN_ID}\"}'"
+workflow_job = "stage-release"
+platforms = ["linux"]
+features = []
+artifacts = ["provenance.json"]
+max_age_days = 1
+invalidated_by = ["crates/**", "Cargo.toml"]
+depends_on = ["release.artifacts"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "approval"
+
+[[gate]]
+id = "release.human-approval"
+title = "Human RC approval"
+description = "Manual review and approval of the release candidate before publication"
+required = true
+evidence_classes = ["approval-record"]
+command = "echo 'Requires manual approval via GitHub environment protection rules'"
+workflow_job = "publish"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 7
+invalidated_by = ["crates/**"]
+depends_on = ["release.provenance"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "approval"

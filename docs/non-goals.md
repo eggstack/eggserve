@@ -7,7 +7,8 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No CGI** — legacy dynamic content execution is not supported
 - **No upload/write support in the initial product** — the server is read-only by design
 - **No reverse proxying** — eggserve does not forward requests to upstream servers
-- **No automatic ACME** — TLS certificate management is out of scope (TLS itself is deferred)
+- **No automatic ACME** — TLS certificate management and automation are out of scope (native TLS server termination and TLS client verification are implemented; see docs/tls.md)
+- **The experimental HTTP client is not an HTTPX/requests replacement** — it supports basic low-level requests but has no connection pooling, redirects, cookies, proxy support, or streaming
 - **No database-backed configuration** — configuration is file/CLI based
 - **No generic plugin host** — eggserve has a fixed feature set, not an extensible architecture
 - **No templating engine** — directory listings use static HTML, not templates

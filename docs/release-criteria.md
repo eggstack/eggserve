@@ -1,8 +1,15 @@
 # Release Criteria
 
-The checkboxes below describe the product gates, but current release status is
-closed only by the evidence record in [release-checklist.md](release-checklist.md).
-CI/release gates are not complete merely because a workflow job exists.
+The checkboxes below describe the product gates at a high level. The
+machine-readable source of truth for release gates is
+[`release/criteria.toml`](../release/criteria.toml). Release status is closed
+only by the evidence record in [release-checklist.md](release-checklist.md)
+(generated from the criteria file). CI/release gates are not complete merely
+because a workflow job exists.
+
+Validate the criteria file: `python scripts/release_criteria.py validate release/criteria.toml`
+Generate the checklist: `python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml`
+Unified local validation: `./scripts/release-validate.sh fast` or `./scripts/release-validate.sh full`
 
 ## Alpha
 

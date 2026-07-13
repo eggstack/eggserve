@@ -40,6 +40,7 @@ eggserve-python        → (standalone, owns Python packaging)
 | Policy system | `eggserve-core::policy` | [policy-system.md](policy-system.md) |
 | HTTP response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) |
 | Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) |
+| Release criteria | `release/criteria.toml` | [../docs/release-process.md](../docs/release-process.md) |
 
 ## Key Architectural Decisions
 
@@ -58,6 +59,8 @@ eggserve-python        → (standalone, owns Python packaging)
 7. **File-stream semaphore** — A bounded semaphore limits concurrent file streams (default 32). When exhausted, the handler returns 503 Service Unavailable.
 
 8. **Python immutability** — All PyO3 classes are `#[pyclass(frozen)]` and Python dataclasses use `frozen=True`. Immutability enforced at both layers.
+
+9. **Evidence-driven release process** — Release gates are defined in `release/criteria.toml` as a machine-readable source of truth. A Python validator (`scripts/release_criteria.py`) checks criteria integrity, generates checklists, and produces structured evidence. A unified local validation script (`scripts/release-validate.sh`) provides fast and full validation modes.
 
 ## Data Flow
 
