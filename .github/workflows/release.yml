@@ -140,7 +140,7 @@ jobs:
             /Cargo.toml
             /LICENSE
             /README.md
-            /crates/
+            /crates/**
           sparse-checkout-cone-mode: false
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
@@ -214,7 +214,7 @@ jobs:
             /Cargo.toml
             /LICENSE
             /README.md
-            /crates/
+            /crates/**
           sparse-checkout-cone-mode: false
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
