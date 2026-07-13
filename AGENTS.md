@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix, machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`).
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). Plans 042-044 are complete; Plan 045 connects these to CI workflows.
 
 ## Non-negotiables
 
@@ -78,6 +78,7 @@ eggserve/
 ├── architecture/           # deep-dive docs for each subsystem
 ├── docs/                   # project documentation
 ├── plans/                  # design plans and roadmap
+├── release/                # machine-readable release criteria (criteria.toml)
 ├── examples/               # usage examples (Python, Rust)
 ├── fuzz/                   # fuzzing targets, seed corpora, fuzz README
 ├── .github/workflows/      # CI workflows (ci.yml, fuzz.yml, fuzz-replay.yml, release.yml)

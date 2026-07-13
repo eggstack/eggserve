@@ -54,7 +54,7 @@ cargo deny check                                           # license/policy chec
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix, machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
+- **Plan status** — Plans 000–040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). Plans 042-044 are complete; Plan 045 connects these to CI workflows. Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
 
 ## Architecture docs
 
