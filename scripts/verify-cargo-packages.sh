@@ -30,6 +30,7 @@ assert_package_contents() {
 
 assert_package_contents eggserve-core \
   Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+cargo package -p eggserve-core "${package_flags[@]}"
 cargo publish -p eggserve-core "${package_flags[@]}" --dry-run
 
 core_version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "eggserve-core") | .version')"
