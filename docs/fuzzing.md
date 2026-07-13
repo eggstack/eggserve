@@ -54,6 +54,9 @@ cargo fuzz run range_header -- -max_total_time=300  # 5 minutes
 - Malformed inputs (truncated, special chars, traversal attempts)
 - Regression inputs from existing test suites
 
+Corpus filenames must be portable across supported checkout platforms; avoid
+Windows device names such as `nul` even when the seed contents are valid.
+
 Seeds are automatically loaded by libFuzzer at startup.
 
 ## CI integration
