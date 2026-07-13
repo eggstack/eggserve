@@ -14,7 +14,7 @@ set -euo pipefail
 #
 # Safety:
 #   - Never publishes or requires production registry credentials
-#   - Displays dirty-tree state (git status --porcelain)
+#   - Refuses to run on dirty working trees (cannot serve as release evidence)
 #   - Preserves command exit codes
 #   - Prints a summary with pass/fail/skip counts
 #   - Writes structured JSON evidence to target/release-evidence/
@@ -407,13 +407,15 @@ preflight() {
 
   # Display dirty-tree state
   if [ -n "$dirty_raw" ]; then
-    warn "Dirty working tree — local runs are not release evidence"
+    warn "Dirty working tree"
     printf "${DIM}$(echo "$dirty_raw" | head -20)${RESET}\n"
     local line_count
     line_count="$(echo "$dirty_raw" | wc -l | tr -d ' ')"
     if [ "$line_count" -gt 20 ]; then
       printf "${DIM}  ... and %d more files${RESET}\n" "$((line_count - 20))"
     fi
+    echo ""
+    die "Dirty working tree detected. Local runs on dirty trees cannot serve as release evidence. Commit or stash changes before running release validation."
   else
     success "Clean working tree"
   fi
@@ -701,7 +703,7 @@ ${BOLD}Evidence output:${RESET}
 
 ${BOLD}Safety:${RESET}
   - Never publishes or requires production registry credentials
-  - Dirty-tree state is displayed before execution
+  - Refuses to run on dirty working trees
   - Exit code reflects first gate failure
 
 ${BOLD}Examples:${RESET}

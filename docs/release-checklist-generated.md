@@ -3,12 +3,13 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 30
+Total gates: 31
 
 ## Preflight
 
 | Gate ID | Title | Required | Evidence Class | Release Stage | Status | Evidence |
 |---------|-------|----------|----------------|---------------|--------|----------|
+| `check-generated` | Generated file cleanliness | yes | ci-log, lint-output | preflight | PENDING | TBD |
 | `rust.clippy` | Workspace clippy lint | yes | ci-log, lint-output | preflight | PENDING | TBD |
 | `rust.doctest` | Rust doc tests | yes | ci-log, test-output | preflight | PENDING | TBD |
 | `rust.format` | Rust formatting check | yes | ci-log, lint-output | preflight | PENDING | TBD |

@@ -12,14 +12,33 @@ description = "Release gate definitions for eggserve CI/CD pipeline"
 # Supported platforms and language versions
 # ---------------------------------------------------------------------------
 
-[platforms]
-linux = { runner = "ubuntu-latest", targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"] }
-macos = { runner = "macos-latest", targets = ["x86_64-apple-darwin", "aarch64-apple-darwin"] }
-windows = { runner = "windows-latest", targets = ["x86_64-pc-windows-msvc"] }
+[platforms.linux]
+runner = "ubuntu-latest"
+targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+support = "supported-hardened"
 
-[languages]
-rust = { toolchain = "stable", edition = "2021" }
-python = { version = "3.14", constraint = ">=3.14,<3.15" }
+[platforms.macos]
+runner = "macos-latest"
+targets = ["x86_64-apple-darwin", "aarch64-apple-darwin"]
+support = "supported-hardened"
+
+[platforms.windows]
+runner = "windows-latest"
+targets = ["x86_64-pc-windows-msvc"]
+support = "supported-functional"
+support_note = "Reparse-point hardening is deferred; do not use with untrusted mutable public content"
+
+[languages.rust]
+toolchain = "stable"
+edition = "2021"
+msrv = "current-stable"
+msrv_policy = "Current stable Rust is required. No MSRV testing in CI; the project tracks stable releases."
+
+[languages.python]
+version = "3.14"
+constraint = ">=3.14,<3.15"
+implementations = ["cpython"]
+unsupported_implementations = ["pypy", "free-threaded-cpython"]
 
 # ---------------------------------------------------------------------------
 # Rust correctness gates
@@ -584,3 +603,21 @@ depends_on = ["release.provenance"]
 waiver_allowed = false
 security_relevance = true
 release_stage = "approval"
+
+[[gate]]
+id = "check-generated"
+title = "Generated file cleanliness"
+description = "Verifies that generated release checklist and other artifacts match their source of truth"
+required = true
+evidence_classes = ["ci-log", "lint-output"]
+command = "python3 scripts/release_criteria.py generate-checklist --check --criteria release/criteria.toml"
+workflow_job = "evidence-aggregate"
+platforms = ["linux"]
+features = []
+artifacts = []
+max_age_days = 1
+invalidated_by = ["release/criteria.toml", "docs/release-checklist.md"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "preflight"

@@ -68,6 +68,16 @@ Serving root: ./public
 Listening: http://127.0.0.1:8000
 ```
 
+## Published binaries and wheels
+
+The `tls` feature in `eggserve-bin` is **non-default**. This means:
+
+- **`cargo install eggserve`** installs a plaintext-only binary unless you pass `--features tls`.
+- **Published PyPI wheels** do not include TLS. The wheel bundles the platform-native CLI binary built without the `tls` feature.
+- To obtain a TLS-capable binary, build from source with `--features tls` or use a reverse proxy in front of the plaintext server.
+
+Release gates validate TLS functionality by explicitly enabling the feature during CI. The `rust.test.server-tls` and `rust.test.client-tls` gates in `release/criteria.toml` cover TLS correctness; they are not satisfied by a default (non-TLS) build.
+
 ## Limitations
 
 eggserve's TLS support is intentionally minimal:

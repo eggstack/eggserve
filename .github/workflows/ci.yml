@@ -325,6 +325,8 @@ jobs:
             release/criteria.toml
           echo "Evidence artifacts collected:"
           find evidence-artifacts/ -type f -name '*.json' | sort || true
+      - name: Verify generated checklist is clean
+        run: python3 scripts/release_criteria.py generate-checklist --check --criteria release/criteria.toml
       - name: Verify commit SHA consistency
         run: |
           COMMIT_SHA="${GITHUB_SHA}"

@@ -253,6 +253,80 @@ release notes:
   are not supported. The wheel matrix covers Linux, macOS, and Windows on
   CPython 3.14.
 
+## Event/cadence model
+
+Gates execute at different cadences depending on their purpose, cost, and
+evidence class. The table below maps each gate family to its execution policy.
+
+### Pull requests
+
+Run fast, high-signal gates to catch regressions before merge:
+
+- `contract-consistency` — cross-document drift check
+- `rust.format` — formatting
+- `rust.clippy` — workspace lint
+- `rust.test` — workspace unit tests
+- `python.unit-tests` — Python source-only unit tests
+- `check-generated` — generated file cleanliness
+
+These gates run on every PR and block merge on failure. They execute on all
+three platforms (Linux, macOS, Windows) via the matrix.
+
+### Main branch
+
+Run the complete validation matrix on every push to `main`:
+
+- All PR gates above, plus:
+- `rust.doctest` — doc tests
+- `rust.test.client`, `rust.test.client-tls`, `rust.test.server-tls` — feature matrix
+- `http.raw-wire`, `http.primitives-integration`, `http.production-path` — HTTP correctness
+- `filesystem.corpus-replay` — fuzz corpus
+- `supply-chain.audit`, `supply-chain.deny` — dependency audit
+- `package.core`, `package.bin` — Rust package validation
+- `python.native-tests`, `python.server-primitives`, `python.api-stability`, `python.boundary-hardening`, `python.client-primitives`, `python.server-integration` — installed-wheel Python tests
+- `python.packaging-smoke` — wheel install/smoke
+- `python.wheel.linux`, `python.wheel.macos`, `python.wheel.windows` — cross-platform wheel matrix
+
+Main-branch evidence is suitable for release qualification if the commit SHA
+matches the candidate.
+
+### Scheduled
+
+Run time-intensive qualification gates on a schedule (weekly or as configured):
+
+- Fuzz campaigns (not currently automated in CI; run manually)
+- Extended corpus replay
+- Dependency audit if cadence differs from main-branch checks
+
+### Manual release dry run
+
+Triggered via the release workflow with `dry_run=true` (the default). Runs every
+mandatory pre-publication gate with publication disabled:
+
+- All main-branch gates
+- Artifact assembly and checksums
+- Provenance record
+- Release checklist generation
+
+### Tagged publication
+
+Consumes previously qualified artifacts and evidence. Requires:
+
+- `release.human-approval` — explicit human gate
+- Environment protection rules on the `publish` job
+- Tag push (not manual dispatch)
+
+Publication never fires from a manual dispatch unless explicitly overridden with
+`dry_run=false`.
+
+### Post-publication
+
+After publication, the operator runs post-publication smoke tests manually:
+
+- `cargo install eggserve` from crates.io
+- `pip install eggserve` from PyPI
+- Basic functionality verification
+
 ## Gate reference
 
 Gate definitions, evidence classes, platform obligations, freshness rules,
