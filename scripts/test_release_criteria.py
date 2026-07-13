@@ -759,5 +759,227 @@ class TestCLI(unittest.TestCase):
         self.assertEqual(data["approver"], "Test User")
 
 
+# ---------------------------------------------------------------------------
+# Aggregation logic tests (Track D)
+# ---------------------------------------------------------------------------
+
+class TestAggregation(unittest.TestCase):
+    def _gate(self, **kwargs) -> rc.Gate:
+        defaults = dict(
+            id="test.gate", title="T", description="", required=True,
+            evidence_classes=["ci-log"], platforms=["linux"],
+            release_stage="preflight", max_age_days=1,
+            invalidated_by=[], depends_on=[], waiver_allowed=False,
+        )
+        defaults.update(kwargs)
+        return rc.Gate(**defaults)
+
+    def test_missing_required_gate(self):
+        gate = self._gate()
+        status, reasons = rc._aggregate_gate(gate, [], "abc123")
+        self.assertEqual(status, "MISSING")
+
+    def test_passed_gate(self):
+        gate = self._gate()
+        ev = _valid_evidence("test.gate")
+        status, reasons = rc._aggregate_gate(gate, [ev], "abc123")
+        self.assertEqual(status, "PASSED")
+
+    def test_failed_gate(self):
+        gate = self._gate()
+        ev = _valid_evidence("test.gate", result="failed")
+        status, reasons = rc._aggregate_gate(gate, [ev], "abc123")
+        self.assertEqual(status, "FAILED")
+
+    def test_stale_gate_sha_mismatch(self):
+        gate = self._gate(max_age_days=0)
+        ev = _valid_evidence("test.gate", commit_sha="wrong_sha")
+        status, reasons = rc._aggregate_gate(gate, [ev], "abc123")
+        self.assertEqual(status, "STALE")
+
+    def test_invalidated_gate(self):
+        gate = self._gate()
+        ev = _valid_evidence("test.gate")
+        ev["dirty_tree"] = True
+        status, reasons = rc._aggregate_gate(gate, [ev], "abc123")
+        self.assertEqual(status, "INVALIDATED")
+
+    def test_malformed_gate(self):
+        gate = self._gate()
+        status, reasons = rc._aggregate_gate(gate, [{"bad": "data"}], "abc123")
+        self.assertEqual(status, "MALFORMED")
+
+    def test_conflicting_records(self):
+        gate = self._gate()
+        ev1 = _valid_evidence("test.gate", result="passed")
+        ev2 = _valid_evidence("test.gate", result="failed")
+        status, reasons = rc._aggregate_gate(gate, [ev1, ev2], "abc123")
+        self.assertEqual(status, "CONFLICTING")
+
+    def test_not_applicable_optional_gate(self):
+        gate = self._gate(required=False)
+        status, reasons = rc._aggregate_gate(gate, [], "abc123")
+        self.assertEqual(status, "NOT-APPLICABLE")
+
+    def test_malformed_overrides_waiver(self):
+        gate = self._gate(waiver_allowed=True)
+        status, reasons = rc._aggregate_gate(
+            gate, [{"bad": "data"}], "abc123",
+        )
+        self.assertEqual(status, "MALFORMED")
+
+    def test_status_precedence(self):
+        self.assertTrue(rc._STATUS_PRECEDENCE.index("MALFORMED") < rc._STATUS_PRECEDENCE.index("CONFLICTING"))
+        self.assertTrue(rc._STATUS_PRECEDENCE.index("CONFLICTING") < rc._STATUS_PRECEDENCE.index("INVALIDATED"))
+        self.assertTrue(rc._STATUS_PRECEDENCE.index("INVALIDATED") < rc._STATUS_PRECEDENCE.index("STALE"))
+        self.assertTrue(rc._STATUS_PRECEDENCE.index("STALE") < rc._STATUS_PRECEDENCE.index("FAILED"))
+        self.assertTrue(rc._STATUS_PRECEDENCE.index("FAILED") < rc._STATUS_PRECEDENCE.index("MISSING"))
+
+    def test_error_result_classified_as_failed(self):
+        gate = self._gate()
+        ev = _valid_evidence("test.gate", result="error")
+        status, reasons = rc._aggregate_gate(gate, [ev], "abc123")
+        self.assertEqual(status, "FAILED")
+
+    def test_skipped_record_not_blocking(self):
+        gate = self._gate()
+        ev = _valid_evidence("test.gate", result="skipped")
+        status, reasons = rc._aggregate_gate(gate, [ev], "abc123")
+        self.assertIn(status, ("NOT-APPLICABLE", "SKIPPED"))
+
+    def test_malformed_and_passed_conflict(self):
+        gate = self._gate()
+        ev = _valid_evidence("test.gate", result="passed")
+        status, reasons = rc._aggregate_gate(
+            gate, [ev, {"bad": "data"}], "abc123",
+        )
+        self.assertEqual(status, "CONFLICTING")
+
+    def test_invalidated_and_passed_conflict(self):
+        gate = self._gate()
+        ev1 = _valid_evidence("test.gate", result="passed")
+        ev2 = _valid_evidence("test.gate", result="passed")
+        ev2["dirty_tree"] = True
+        status, reasons = rc._aggregate_gate(gate, [ev1, ev2], "abc123")
+        self.assertEqual(status, "CONFLICTING")
+
+
+class TestCLIAggregate(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tmpdir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(_RC_PATH)] + list(args),
+            capture_output=True,
+            text=True,
+        )
+
+    def test_aggregate_all_passing(self):
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(
+            _criteria_toml([_make_gate("g1")]), encoding="utf-8",
+        )
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RELEASE READY", result.stdout)
+
+    def test_aggregate_missing_gate_fails(self):
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(
+            _criteria_toml([_make_gate("missing.gate")]), encoding="utf-8",
+        )
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NOT RELEASE READY", result.stderr)
+
+    def test_aggregate_json_output(self):
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(
+            _criteria_toml([_make_gate("g1")]), encoding="utf-8",
+        )
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertTrue(data["release_ready"])
+        self.assertEqual(data["gates"]["g1"]["status"], "PASSED")
+
+    def test_aggregate_nonexistent_evidence(self):
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(
+            _criteria_toml([_make_gate("g1")]), encoding="utf-8",
+        )
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(self.tmpdir / "nonexistent"),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_aggregate_malformed_evidence_file(self):
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(
+            _criteria_toml([_make_gate("g1")]), encoding="utf-8",
+        )
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        malformed = {"gate_id": "g1", "schema_version": "1.0.0"}
+        (gates_dir / "g1.json").write_text(
+            json.dumps(malformed), encoding="utf-8",
+        )
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        self.assertEqual(result.returncode, 1)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["gates"]["g1"]["status"], "MALFORMED")
+
+
 if __name__ == "__main__":
     unittest.main()

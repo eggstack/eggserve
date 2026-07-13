@@ -487,6 +487,101 @@ def _yaml_load_string(text: str) -> dict:
         return {"jobs": jobs}
 
 
+def check_trigger_policy_consistency(repo_root: Path) -> list[str]:
+    """Validate that criteria.toml trigger policies are consistent with ci.yml job conditions.
+
+    Checks that:
+    - Gates with triggers = ["push"] only have corresponding CI jobs with
+      ``if: github.event_name == 'push'``.
+    - Gates with triggers = ["pull_request", "push"] run on jobs without a
+      push-only ``if:`` condition.
+    - No contradictory PR/main policy exists.
+    """
+    errors: list[str] = []
+
+    if tomllib is None:
+        return ["Python 3.11+ required for TOML parsing"]
+
+    # Load criteria.toml
+    criteria_text = _read(repo_root, "release/criteria.toml")
+    if criteria_text is None:
+        return ["release/criteria.toml not found"]
+
+    try:
+        criteria_data = tomllib.loads(criteria_text)
+    except Exception:
+        return ["release/criteria.toml: failed to parse TOML"]
+
+    # Extract triggers and workflow_job from each gate
+    gate_triggers: dict[str, list[str]] = {}
+    gate_jobs: dict[str, str] = {}  # gate_id -> workflow_job
+    for gate in criteria_data.get("gate", []):
+        gate_id = gate.get("id", "")
+        triggers = gate.get("triggers", [])
+        workflow_job = gate.get("workflow_job")
+        if triggers:
+            gate_triggers[gate_id] = triggers
+        if workflow_job:
+            gate_jobs[gate_id] = workflow_job
+
+    if not gate_triggers:
+        return []
+
+    # Load CI workflow
+    ci_text = _read(repo_root, ".github/workflows/ci.yml")
+    if ci_text is None:
+        return [".github/workflows/ci.yml not found"]
+
+    try:
+        ci_data = _yaml_load_string(ci_text)
+    except Exception:
+        return []
+
+    # Build a map of job_name -> whether it has a push-only if condition
+    jobs = ci_data.get("jobs", {})
+    job_push_only: dict[str, bool] = {}
+    for job_key, job_val in jobs.items():
+        if_condition = job_val.get("if", "")
+        job_push_only[job_key] = "github.event_name == 'push'" in if_condition
+
+    # Build reverse map: job display_name -> job_key (for lookup by display name)
+    display_to_key: dict[str, str] = {}
+    for job_key, job_val in jobs.items():
+        display_name = job_val.get("name", job_key)
+        display_to_key[display_name] = job_key
+
+    # Release-only jobs that don't exist in ci.yml are not checked
+    release_only_jobs = {
+        "validate", "stage-release", "publish", "build-artifacts",
+        "build-python",
+    }
+
+    for gate_id, triggers in gate_triggers.items():
+        workflow_job = gate_jobs.get(gate_id, "")
+        if not workflow_job or workflow_job in release_only_jobs:
+            continue
+
+        # Find the CI job key
+        job_key = display_to_key.get(workflow_job, workflow_job)
+        if job_key not in job_push_only:
+            continue
+
+        is_push_only = job_push_only[job_key]
+
+        if triggers == ["push"] and not is_push_only:
+            errors.append(
+                f"Gate '{gate_id}' has triggers = [\"push\"] but CI job "
+                f"'{job_key}' does not have a push-only 'if:' condition"
+            )
+        elif set(triggers) == {"pull_request", "push"} and is_push_only:
+            errors.append(
+                f"Gate '{gate_id}' has triggers = [\"pull_request\", \"push\"] "
+                f"but CI job '{job_key}' has a push-only 'if:' condition"
+            )
+
+    return errors
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
@@ -500,6 +595,7 @@ def main() -> int:
         ("README link validation", check_readme_links),
         ("No stale deferred claims", check_no_stale_deferred_claims),
         ("Workflow/criteria cross-validation", check_workflow_criteria_cross_validation),
+        ("Trigger policy consistency", check_trigger_policy_consistency),
     ]
 
     total_errors = 0

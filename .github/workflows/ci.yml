@@ -7,9 +7,16 @@ on:
     branches: [main]
 
 # Execution policy:
-#   PRs         — all jobs run (format, lint, tests, packaging, supply-chain, wire, corpus, evidence).
-#   main push   — same as PRs; evidence artifacts are collected for release gating.
-#   schedule    — not configured; add cron trigger here if periodic fuzzing or re-audit is desired.
+#   The ``triggers`` field in release/criteria.toml is the authoritative source
+#   for which gates run on which events. This workflow implements:
+#
+#   pull_request — fast correctness gates: rust.*, http.*, filesystem.*,
+#                  python qualification (unit-tests, native-tests, server-primitives,
+#                  api-stability, boundary-hardening, client-primitives,
+#                  server-integration), check-generated.
+#   push         — all PR gates + supply-chain.*, package.*, packaging-smoke,
+#                  wheel.smoke.* (these jobs have ``if: github.event_name == 'push'``).
+#   scheduled    — not configured; add cron trigger here if periodic fuzzing or re-audit is desired.
 #   Evidence type per trigger:
 #     PR          → gate evidence uploaded as artifacts (retention 30 d), not attached to a release.
 #     main push   → same gate evidence; release workflow can consume these artifacts.
@@ -138,7 +145,7 @@ jobs:
           if [ -d fuzz/corpus ]; then
             bash scripts/ci-gate-evidence.sh filesystem.corpus-replay test-output sh -c 'cargo test -p eggserve-core --test corpus_replay && cargo test -p eggserve-core --test corpus_replay --features client'
           else
-            echo "No fuzz corpus directory, skipping"
+            bash scripts/ci-gate-evidence.sh --skip "No fuzz corpus directory" filesystem.corpus-replay test-output
           fi
       - name: Upload gate evidence
         if: always()
@@ -266,8 +273,10 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - name: Validate publishable Rust packages
-        run: bash scripts/ci-gate-evidence.sh package.core package-output bash scripts/verify-cargo-packages.sh
+      - name: Validate eggserve-core package
+        run: bash scripts/ci-gate-evidence.sh package.core package-output bash scripts/verify-cargo-packages.sh --mode core
+      - name: Validate eggserve-bin package
+        run: bash scripts/ci-gate-evidence.sh package.bin package-output bash scripts/verify-cargo-packages.sh --mode bin
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -355,7 +364,7 @@ jobs:
           echo "Evidence artifacts collected:"
           find evidence-artifacts/ -type f -name '*.json' | sort || true
       - name: Verify generated checklist is clean
-        run: python3 scripts/release_criteria.py generate-checklist --check --criteria release/criteria.toml
+        run: python3 scripts/release_criteria.py generate-checklist --check --criteria release/criteria.toml --checklist-output docs/release-checklist.md
       - name: Verify commit SHA consistency
         run: |
           COMMIT_SHA="${GITHUB_SHA}"

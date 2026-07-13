@@ -75,6 +75,7 @@ OPTIONAL_GATE_FIELDS = frozenset({
     "workflow_job",
     "features",
     "artifacts",
+    "triggers",
     "security_relevance",
     "doc_ref",
     "waiver_authority",
@@ -106,6 +107,7 @@ class Gate:
     workflow_job: str | None = None
     features: list[str] = field(default_factory=list)
     artifacts: list[str] = field(default_factory=list)
+    triggers: list[str] = field(default_factory=list)
     security_relevance: bool = False
     doc_ref: str | None = None
     waiver_authority: str | None = None
@@ -134,6 +136,8 @@ class Gate:
             d["features"] = self.features
         if self.artifacts:
             d["artifacts"] = self.artifacts
+        if self.triggers:
+            d["triggers"] = self.triggers
         if self.security_relevance:
             d["security_relevance"] = self.security_relevance
         if self.doc_ref is not None:
@@ -400,6 +404,7 @@ def parse_criteria_file(path: str) -> tuple[CriteriaFile, str]:
             workflow_job=raw.get("workflow_job"),
             features=raw.get("features", []),
             artifacts=raw.get("artifacts", []),
+            triggers=raw.get("triggers", []),
             security_relevance=raw.get("security_relevance", False),
             doc_ref=raw.get("doc_ref"),
             waiver_authority=raw.get("waiver_authority"),
@@ -527,7 +532,7 @@ class CriteriaValidator:
         # Fields where an empty string is truly missing.
         _STRING_FIELDS = {"id", "title", "description", "release_stage"}
         # Fields where an empty list is valid (explicitly "none").
-        _LIST_FIELDS = {"depends_on", "features", "artifacts",
+        _LIST_FIELDS = {"depends_on", "features", "artifacts", "triggers",
                         "evidence_classes", "platforms", "invalidated_by"}
         for gate in self.criteria.gates:
             for fld in REQUIRED_GATE_FIELDS:
@@ -1210,6 +1215,222 @@ def cmd_generate_checklist(args: argparse.Namespace) -> int:
     return 0
 
 
+# ---------------------------------------------------------------------------
+# Evidence aggregation (Track D — fail-closed aggregation)
+# ---------------------------------------------------------------------------
+
+# Status precedence (lower index = higher severity, overrides in aggregation)
+_STATUS_PRECEDENCE = [
+    "MALFORMED",
+    "CONFLICTING",
+    "INVALIDATED",
+    "STALE",
+    "FAILED",
+    "MISSING",
+    "DEFERRED",
+    "NOT-APPLICABLE",
+    "WAIVED",
+    "PASSED",
+]
+
+
+def _classify_evidence_record(
+    gate: Gate,
+    evidence: dict[str, Any],
+    candidate_sha: str,
+) -> str:
+    """Classify a single evidence record into a checklist status.
+
+    Returns one of: PASSED, FAILED, SKIPPED, NOT-APPLICABLE, STALE,
+    INVALIDATED, WAIVED, ERROR, MALFORMED.
+    """
+    if not isinstance(evidence, dict):
+        return "MALFORMED"
+
+    required_fields = {"schema_version", "gate_id", "result", "commit_sha"}
+    if not required_fields.issubset(evidence.keys()):
+        return "MALFORMED"
+
+    result = evidence.get("result", "")
+    if result not in ("passed", "failed", "skipped", "not-applicable", "error"):
+        return "MALFORMED"
+
+    commit_sha = evidence.get("commit_sha", "")
+    dirty_tree = evidence.get("dirty_tree", False)
+    end_time = evidence.get("end_time", "")
+
+    if dirty_tree:
+        return "INVALIDATED"
+
+    if gate.max_age_days == 0 and commit_sha and candidate_sha:
+        if commit_sha != candidate_sha:
+            return "STALE"
+
+    if end_time and gate.max_age_days > 0:
+        try:
+            evidence_time = datetime.fromisoformat(end_time)
+            now = datetime.now(timezone.utc)
+            if evidence_time.tzinfo is None:
+                evidence_time = evidence_time.replace(tzinfo=timezone.utc)
+            age_days = (now - evidence_time).total_seconds() / 86400.0
+            if age_days > gate.max_age_days:
+                return "STALE"
+        except (ValueError, TypeError):
+            return "MALFORMED"
+
+    status_map = {
+        "passed": "PASSED",
+        "failed": "FAILED",
+        "skipped": "SKIPPED",
+        "not-applicable": "NOT-APPLICABLE",
+        "error": "FAILED",
+    }
+    return status_map.get(result, "MALFORMED")
+
+
+def _aggregate_gate(
+    gate: Gate,
+    evidence_records: list[dict[str, Any]],
+    candidate_sha: str,
+) -> tuple[str, list[str]]:
+    """Aggregate evidence for a single gate into a final status.
+
+    Returns (final_status, reasons) where reasons explains the decision.
+    A waiver can never hide MALFORMED or CONFLICTING evidence.
+    """
+    if not evidence_records:
+        if gate.required:
+            return "MISSING", ["no evidence record found for required gate"]
+        return "NOT-APPLICABLE", ["gate not required and no evidence"]
+
+    classifications = []
+    for ev in evidence_records:
+        cls = _classify_evidence_record(gate, ev, candidate_sha)
+        classifications.append((cls, ev))
+
+    non_trivial = {c for c, _ in classifications if c not in ("NOT-APPLICABLE", "SKIPPED")}
+    if len(non_trivial) > 1:
+        return "CONFLICTING", [
+            f"multiple non-trivial statuses: {sorted(non_trivial)}"
+        ]
+
+    has_malformed = any(c == "MALFORMED" for c, _ in classifications)
+    if has_malformed:
+        return "MALFORMED", ["one or more evidence records are malformed"]
+
+    has_invalidated = any(c == "INVALIDATED" for c, _ in classifications)
+    if has_invalidated:
+        return "INVALIDATED", ["evidence produced by dirty tree"]
+
+    has_stale = any(c == "STALE" for c, _ in classifications)
+    if has_stale:
+        return "STALE", ["evidence is stale (SHA mismatch or age exceeded)"]
+
+    for precedence in _STATUS_PRECEDENCE:
+        if any(c == precedence for c, _ in classifications):
+            reasons = []
+            for c, ev in classifications:
+                if c == precedence:
+                    gate_id = ev.get("gate_id", "?")
+                    reasons.append(f"gate {gate_id}: {c.lower()}")
+            return precedence, reasons
+
+    return "NOT-APPLICABLE", ["all records are not-applicable or skipped"]
+
+
+def cmd_aggregate(args: argparse.Namespace) -> int:
+    """Validate an evidence bundle against all criteria gates."""
+    criteria, _ = parse_criteria_file(args.criteria)
+    gate_map = criteria.gate_by_id()
+
+    evidence_path = Path(args.evidence)
+    if not evidence_path.exists():
+        print(f"ERROR: evidence path not found: {args.evidence}", file=sys.stderr)
+        return 2
+
+    all_records: dict[str, list[dict[str, Any]]] = {}
+    evidence_dir = evidence_path
+
+    if evidence_path.is_dir():
+        gates_dir = evidence_dir / "gates"
+        if gates_dir.is_dir():
+            for f in sorted(gates_dir.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    gid = data.get("gate_id", "")
+                    if gid:
+                        all_records.setdefault(gid, []).append(data)
+                except Exception:
+                    pass
+
+        for f in sorted(evidence_dir.glob("*.json")):
+            if f.name == "manifest.json":
+                continue
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    for item in data:
+                        gid = item.get("gate_id", "")
+                        if gid:
+                            all_records.setdefault(gid, []).append(item)
+                elif isinstance(data, dict):
+                    gid = data.get("gate_id", "")
+                    if gid:
+                        all_records.setdefault(gid, []).append(data)
+            except Exception:
+                pass
+
+    candidate_sha = args.sha or ""
+
+    gate_results: dict[str, tuple[str, list[str]]] = {}
+    for gate_id, gate in gate_map.items():
+        records = all_records.get(gate_id, [])
+        status, reasons = _aggregate_gate(gate, records, candidate_sha)
+        gate_results[gate_id] = (status, reasons)
+
+    release_ready = True
+    for gate_id, (status, _reasons) in gate_results.items():
+        gate = gate_map[gate_id]
+        if gate.required and status != "PASSED":
+            release_ready = False
+
+    if args.format == "json":
+        output = {
+            "release_ready": release_ready,
+            "candidate_sha": candidate_sha,
+            "gates": {
+                gid: {"status": s, "reasons": r}
+                for gid, (s, r) in gate_results.items()
+            },
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        for gate_id in sorted(gate_results.keys()):
+            status, reasons = gate_results[gate_id]
+            gate = gate_map[gate_id]
+            req = "required" if gate.required else "optional"
+            reasons_str = ""
+            if reasons:
+                reasons_str = f"  ({'; '.join(reasons)})"
+            print(f"  [{status:<17s}] {gate_id:<40s} {req}{reasons_str}")
+
+        print()
+        if release_ready:
+            print("RELEASE READY: all required gates have passing evidence.")
+        else:
+            failing = [
+                gid for gid, (s, _) in gate_results.items()
+                if gate_map[gid].required and s != "PASSED"
+            ]
+            print(
+                f"NOT RELEASE READY: {len(failing)} required gate(s) "
+                f"not satisfied: {', '.join(sorted(failing))}",
+                file=sys.stderr,
+            )
+
+    return 0 if release_ready else 1
+
+
 def cmd_check_evidence(args: argparse.Namespace) -> int:
     """Validate evidence against criteria gates."""
     criteria, _ = parse_criteria_file(args.criteria)
@@ -1492,10 +1713,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     p_gen.add_argument(
         "--checklist-output",
-        default="docs/release-checklist-generated.md",
+        default="docs/release-checklist.md",
         help=(
             "Output path for generated checklist "
-            "(default: docs/release-checklist-generated.md)"
+            "(default: docs/release-checklist.md)"
         ),
     )
 
@@ -1590,6 +1811,33 @@ def build_parser() -> argparse.ArgumentParser:
         help="Output format (default: text)",
     )
 
+    # aggregate
+    p_agg = sub.add_parser(
+        "aggregate",
+        help="Validate evidence bundle against all criteria gates",
+    )
+    p_agg.add_argument(
+        "--criteria",
+        default="release/criteria.toml",
+        help="Path to criteria TOML file",
+    )
+    p_agg.add_argument(
+        "--evidence",
+        required=True,
+        help="Path to evidence bundle directory",
+    )
+    p_agg.add_argument(
+        "--sha",
+        default="",
+        help="Candidate commit SHA",
+    )
+    p_agg.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
     return parser
 
 
@@ -1611,6 +1859,7 @@ def main() -> int:
         "check-evidence": lambda: cmd_check_evidence(args),
         "record-waiver": lambda: cmd_record_waiver(args),
         "validate-evidence": lambda: cmd_validate_evidence(args),
+        "aggregate": lambda: cmd_aggregate(args),
     }
 
     handler = handlers.get(args.command)

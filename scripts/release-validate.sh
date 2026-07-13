@@ -455,6 +455,15 @@ cmd_check_generated() {
     success "Cargo.lock is clean"
   fi
 
+  # Verify no stale generated file exists
+  info "Checking for stale release-checklist-generated.md"
+  if [ -f "$REPO_ROOT/docs/release-checklist-generated.md" ]; then
+    fail "Stale file docs/release-checklist-generated.md exists — remove it (canonical file is docs/release-checklist.md)"
+    failures=$((failures + 1))
+  else
+    success "No stale generated file"
+  fi
+
   # Check formatting hasn't drifted
   info "Checking rustfmt"
   if cargo fmt --all -- --check 2>/dev/null; then
@@ -567,8 +576,11 @@ cmd_full() {
   # Package verification
   header "Package verification"
 
-  run_gate "package.core+bin" "Package/publish dry-run (core + bin)" \
-    "bash '$SCRIPT_DIR/verify-cargo-packages.sh'"
+  run_gate "package.core" "eggserve-core package/publish dry-run" \
+    "bash '$SCRIPT_DIR/verify-cargo-packages.sh' --mode core"
+
+  run_gate "package.bin" "eggserve-bin package/publish dry-run" \
+    "bash '$SCRIPT_DIR/verify-cargo-packages.sh' --mode bin"
 
   # Generated file cleanliness
   run_gate "check-generated" "Generated file cleanliness" \

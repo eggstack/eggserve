@@ -64,6 +64,8 @@ eggserve-python        → (standalone, owns Python packaging)
 
 10. **Contract-driven documentation** — All public-facing documents are reconciled against a single capability matrix (`docs/library-capability-matrix.md`). `scripts/check-contract-consistency.py` validates cross-document claims about TLS, Python versions, platform support, package versions, and API inventory. The matrix distinguishes stable, experimental, internal, CLI-only, planned, intentionally unsupported, and platform-limited capabilities.
 
+11. **Fail-closed evidence aggregation** — Evidence aggregation uses a severity-ordered precedence (MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING) and never silently ignores malformed or conflicting records. Waivers cannot hide evidence corruption.
+
 ## Data Flow
 
 ```

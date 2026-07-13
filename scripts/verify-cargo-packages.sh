@@ -8,6 +8,29 @@ set -euo pipefail
 # crate. A file-backed registry has no upload API, so `cargo publish --dry-run`
 # is only used for the core crate; this package-and-build check is the
 # documented bin equivalent. Nothing is uploaded to crates.io.
+#
+# --mode core   Only verify eggserve-core
+# --mode bin    Only verify eggserve-bin (packages core first, as bin depends on it)
+# --mode all    Verify both (default)
+
+MODE="all"
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --mode)
+      MODE="$2"
+      shift 2
+      ;;
+    *)
+      echo "Unknown argument: $1" >&2
+      exit 1
+      ;;
+  esac
+done
+
+case "$MODE" in
+  core|bin|all) ;;
+  *) echo "Invalid mode: $MODE (expected: core, bin, or all)" >&2; exit 1 ;;
+esac
 
 package_flags=(--locked)
 if [ "${ALLOW_DIRTY:-false}" = "true" ]; then
@@ -32,6 +55,11 @@ assert_package_contents eggserve-core \
   Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
 cargo package -p eggserve-core "${package_flags[@]}"
 cargo publish -p eggserve-core "${package_flags[@]}" --dry-run
+
+if [ "$MODE" = "core" ]; then
+  echo "eggserve-core passed a crates.io publish dry-run."
+  exit 0
+fi
 
 core_version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "eggserve-core") | .version')"
 core_crate="target/package/eggserve-core-${core_version}.crate"
@@ -122,5 +150,10 @@ rm -f "$bin_source/Cargo.toml.bak"
 printf '\n[patch.crates-io]\neggserve-core = { path = "%s" }\n' "$core_source" >> "$bin_source/Cargo.toml"
 cargo generate-lockfile --manifest-path "$bin_source/Cargo.toml" --offline
 cargo build --manifest-path "$bin_source/Cargo.toml" --locked --offline
+
+if [ "$MODE" = "bin" ]; then
+  echo "eggserve-bin passed equivalent packaged-graph verification."
+  exit 0
+fi
 
 echo "Core passed a crates.io publish dry-run; bin passed equivalent packaged-graph verification."

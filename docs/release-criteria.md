@@ -51,6 +51,7 @@ A beta release requires all alpha criteria plus:
 - [x] GitHub Actions pinned to SHA digests: all third-party actions use immutable commit references
 - [x] Workflow permissions minimal: CI and validation jobs use `contents: read`; only the protected publish job uses `contents: write` + `id-token: write`
 - [ ] No known unsound `unsafe` code
+- Trigger policy is consistent across workflow, criteria, and inventory (`triggers` field in `release/criteria.toml`)
 
 ## 1.0
 

@@ -303,5 +303,28 @@ class TestChecklistReportsStaleEvidence(unittest.TestCase):
             self.assertEqual(r, results[0], "Checklist output is not deterministic")
 
 
+class TestCiGateEvidenceSkipMode(unittest.TestCase):
+    def test_skip_flag_in_script(self):
+        script = _read(SCRIPTS_DIR / "ci-gate-evidence.sh")
+        self.assertIn("--skip", script)
+        self.assertIn("skip_reason", script)
+        self.assertIn("not-applicable", script)
+
+
+class TestCargoPackageModesExist(unittest.TestCase):
+    def test_verify_script_supports_core_mode(self):
+        script = _read(SCRIPTS_DIR / "verify-cargo-packages.sh")
+        self.assertIn("--mode", script)
+        self.assertIn("core", script)
+
+    def test_verify_script_supports_bin_mode(self):
+        script = _read(SCRIPTS_DIR / "verify-cargo-packages.sh")
+        self.assertIn("bin", script)
+
+    def test_verify_script_supports_all_mode(self):
+        script = _read(SCRIPTS_DIR / "verify-cargo-packages.sh")
+        self.assertIn('"all"', script)
+
+
 if __name__ == "__main__":
     unittest.main()

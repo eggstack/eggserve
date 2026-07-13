@@ -59,6 +59,30 @@ Documentation and static review only. CONFIG never satisfies an execution gate.
 Tooling rejects any required gate whose only accepted evidence is CONFIG unless
 the gate is explicitly a documentation/policy gate.
 
+## Evidence status model
+
+Every gate evidence record has a `result` field with one of these values:
+
+| Status | Meaning | Satisfies release? |
+|--------|---------|-------------------|
+| `passed` | Gate executed successfully | Yes |
+| `failed` | Gate executed and failed | No |
+| `skipped` | Gate was deliberately not executed (e.g., feature disabled) | No |
+| `not-applicable` | Gate does not apply in this context (e.g., main-only gate on PR, missing corpus) | No |
+| `error` | Gate could not complete (e.g., infrastructure failure) | No |
+
+For release qualification, only `passed` satisfies a required gate. Gates with
+`not-applicable` status are recorded but do not count toward or against release
+readiness. The checklist uses these statuses:
+
+- **PASSED** — evidence record has `result: "passed"` and is fresh
+- **FAILED** — evidence record has `result: "failed"`
+- **SKIPPED** — evidence record has `result: "skipped"`
+- **NOT-APPLICABLE** — evidence record has `result: "not-applicable"`
+- **STALE** — evidence exists but is too old or SHA-mismatched
+- **INVALIDATED** — evidence exists but was produced by a dirty tree
+- **PENDING** — no evidence record exists yet
+
 ## Release operator sequence
 
 The sequence below assumes the operator has a clean working tree and a candidate
@@ -256,7 +280,9 @@ release notes:
 ## Event/cadence model
 
 Gates execute at different cadences depending on their purpose, cost, and
-evidence class. The table below maps each gate family to its execution policy.
+evidence class. The `triggers` field in [`release/criteria.toml`](../release/criteria.toml)
+is the authoritative source for which gates run on which events. The table below
+maps each gate family to its execution policy.
 
 ### Pull requests
 
@@ -339,6 +365,14 @@ invalidation paths, dependencies, and waiver policy are maintained in
 [`release/criteria.toml`](../release/criteria.toml). This file is the single
 source of truth. Do not duplicate gate definitions in prose or in this
 document.
+
+The release checklist at `docs/release-checklist.md` is the single canonical
+checklist file. It is generated from `release/criteria.toml` and must not be
+edited by hand. Regenerate it with:
+
+```sh
+python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml
+```
 
 To inspect the criteria:
 

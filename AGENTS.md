@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–045 are complete. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–046 are complete. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
 
 ## Non-negotiables
 
@@ -113,6 +113,8 @@ python3 scripts/check-contract-consistency.py              # contract consistenc
 ./scripts/release-validate.sh evidence --output <path>  # copy evidence to output path
 ./scripts/release_criteria.py validate release/criteria.toml  # validate criteria
 ./scripts/release_criteria.py list                 # list all gates
+# Aggregate evidence bundle (fail-closed validation):
+python3 scripts/release_criteria.py aggregate --criteria release/criteria.toml --evidence <evidence-dir> --sha <commit-sha>
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
@@ -232,9 +234,10 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
 - **Response validation boundary**: Python handler-returned `Response` objects are validated in Rust via `validate_handler_response()` — status 200–999, no hop-by-hop headers, 204/304 empty bodies, no NUL/CR/LF in header values. Invalid responses fall back to 500.
 - **Typed lifecycle/response exceptions**: `LifecycleError` (double start, stop before start) and `ResponseConstructionError` (response validation failure) are typed exceptions, not generic `PyValueError`.
-- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation. Dirty-tree runs are refused (cannot serve as release evidence).
-- **Generated release checklist** — `docs/release-checklist-generated.md` is generated from `release/criteria.toml`. Do not edit by hand; regenerate with `python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml`.
+- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. Each gate declares a `triggers` field specifying which CI triggers (pull_request, push, manual_dispatch, tagged_push) apply. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation. Dirty-tree runs are refused (cannot serve as release evidence).
+- **Generated release checklist** — `docs/release-checklist.md` is the single canonical checklist file, generated from `release/criteria.toml`. Do not edit by hand; regenerate with `python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml`.
 - **Contract consistency** — `scripts/check-contract-consistency.py` validates that documentation claims are consistent (TLS, Python version, package versions, platform classifications, stable API inventory, README links). Run via `./scripts/release-validate.sh metadata` or directly.
+- **Fail-closed aggregation** — `scripts/release_criteria.py aggregate` validates an evidence bundle against all criteria gates and fails closed: MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING. Waivers cannot hide malformed or conflicting evidence.
 
 ## Plan-driven development
 
@@ -281,6 +284,7 @@ Before implementing any feature, check:
 - [docs/library-capability-matrix.md](docs/library-capability-matrix.md) — Rust/Python/CLI capability parity matrix
 - [docs/toolchain-support.md](docs/toolchain-support.md) — language, toolchain, and platform support policy
 - [release/criteria.toml](release/criteria.toml) — machine-readable release gate definitions (source of truth)
+- [docs/ci-gate-inventory.md](docs/ci-gate-inventory.md) — CI job-to-gate mapping, execution policy, evidence classes
 
 ## Architecture deep dives
 

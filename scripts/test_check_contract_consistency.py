@@ -200,5 +200,137 @@ class TestAllChecksPassOnCurrentRepo(unittest.TestCase):
         self.assertEqual(all_errors, [], f"Contract consistency errors:\n" + "\n".join(all_errors))
 
 
+class TestCheckTriggerPolicyConsistency(unittest.TestCase):
+    def _make_criteria_toml(self, gates: list[str]) -> str:
+        """Build a criteria.toml string with gates having the given triggers."""
+        lines = [
+            "[meta]",
+            'schema_version = "1.0.0"',
+            'project = "eggserve"',
+            'version = "0.1.0"',
+            'description = "test"',
+            "",
+        ]
+        for gate_id, triggers in gates:
+            lines.append("[[gate]]")
+            lines.append(f'id = "{gate_id}"')
+            lines.append(f'title = "{gate_id}"')
+            lines.append(f'description = "test gate"')
+            lines.append("required = true")
+            lines.append('evidence_classes = ["ci-log"]')
+            lines.append('command = "echo ok"')
+            lines.append(f'workflow_job = "{gate_id.split(".")[0]}"')
+            lines.append('platforms = ["linux"]')
+            lines.append("max_age_days = 1")
+            lines.append("invalidated_by = []")
+            lines.append("depends_on = []")
+            lines.append("waiver_allowed = false")
+            lines.append("release_stage = \"preflight\"")
+            lines.append(f"triggers = {triggers}")
+            lines.append("")
+        return "\n".join(lines)
+
+    def _make_ci_yml(self, jobs: dict[str, dict]) -> str:
+        """Build a ci.yml string with the given job definitions."""
+        lines = ["name: CI", "", "on:", "  push:", "    branches: [main]", "  pull_request:", "    branches: [main]", "", "jobs:"]
+        for job_name, job_val in jobs.items():
+            lines.append(f"  {job_name}:")
+            name = job_val.get("name", job_name)
+            lines.append(f'    name: "{name}"')
+            if "if" in job_val:
+                lines.append(f'    if: {job_val["if"]}')
+            lines.append("    runs-on: ubuntu-latest")
+            lines.append("    steps:")
+            lines.append("      - run: echo ok")
+        return "\n".join(lines)
+
+    def test_pass_consistent_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # supply-chain gates: triggers = ["push"], CI has if: push
+            criteria = self._make_criteria_toml([
+                ("supply-chain.audit", '["push"]'),
+                ("supply-chain.deny", '["push"]'),
+            ])
+            (root / "release").mkdir(parents=True)
+            (root / "release" / "criteria.toml").write_text(criteria)
+
+            ci = self._make_ci_yml({
+                "supply-chain": {
+                    "name": "gate/supply-chain",
+                    "if": "github.event_name == 'push'",
+                },
+            })
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "ci.yml").write_text(ci)
+
+            errors = cc.check_trigger_policy_consistency(root)
+            self.assertEqual(errors, [])
+
+    def test_fail_mismatched_policy(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # Gate says PR+push but CI restricts to push only
+            criteria = self._make_criteria_toml([
+                ("rust.format", '["pull_request", "push"]'),
+            ])
+            (root / "release").mkdir(parents=True)
+            (root / "release" / "criteria.toml").write_text(criteria)
+
+            ci = self._make_ci_yml({
+                "rust": {
+                    "name": "gate/rust",
+                    "if": "github.event_name == 'push'",
+                },
+            })
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "ci.yml").write_text(ci)
+
+            errors = cc.check_trigger_policy_consistency(root)
+            self.assertTrue(len(errors) > 0)
+            self.assertIn("pull_request", errors[0])
+
+    def test_missing_triggers_field(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            # Gate without triggers field — should pass gracefully
+            lines = [
+                "[meta]",
+                'schema_version = "1.0.0"',
+                'project = "eggserve"',
+                'version = "0.1.0"',
+                'description = "test"',
+                "",
+                "[[gate]]",
+                'id = "rust.format"',
+                'title = "rust.format"',
+                'description = "test gate"',
+                "required = true",
+                'evidence_classes = ["ci-log"]',
+                'command = "echo ok"',
+                'workflow_job = "rust"',
+                'platforms = ["linux"]',
+                "max_age_days = 1",
+                "invalidated_by = []",
+                "depends_on = []",
+                "waiver_allowed = false",
+                'release_stage = "preflight"',
+                "",
+            ]
+            (root / "release").mkdir(parents=True)
+            (root / "release" / "criteria.toml").write_text("\n".join(lines))
+
+            ci = self._make_ci_yml({
+                "rust": {
+                    "name": "gate/rust",
+                },
+            })
+            (root / ".github" / "workflows").mkdir(parents=True)
+            (root / ".github" / "workflows" / "ci.yml").write_text(ci)
+
+            errors = cc.check_trigger_policy_consistency(root)
+            self.assertEqual(errors, [])
+
+
 if __name__ == "__main__":
     unittest.main()
