@@ -324,12 +324,7 @@ pub(crate) async fn body_source_to_response(
             };
             file_response(tokio_file, len, mime, last_modified, etag, permit)
         }
-        BodySource::FileRange {
-            file,
-            range,
-            mime: _,
-            ..
-        } => {
+        BodySource::FileRange { file, range, .. } => {
             let tokio_file = tokio::fs::File::from_std(file);
             let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
                 Ok(p) => p,
