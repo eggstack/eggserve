@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-040 are complete; Plan 041 is the final release-gate closure pass. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). Plans 042-044 are complete; Plan 045 connects these to CI workflows.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–045 are complete. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation.
 
 ## Non-negotiables
 
@@ -110,6 +110,7 @@ python3 scripts/check-contract-consistency.py              # contract consistenc
 ./scripts/release-validate.sh full                 # pre-release validation
 ./scripts/release-validate.sh gate <gate-id>       # run a single gate
 ./scripts/release-validate.sh metadata             # metadata/contract consistency check
+./scripts/release-validate.sh evidence --output <path>  # copy evidence to output path
 ./scripts/release_criteria.py validate release/criteria.toml  # validate criteria
 ./scripts/release_criteria.py list                 # list all gates
 ```

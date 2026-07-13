@@ -11,6 +11,7 @@ set -euo pipefail
 #   explain <gate-id>   Explain a single gate
 #   check-generated     Verify generated files are clean (checklists, artifacts)
 #   metadata            Run contract consistency + criteria + generated-file checks
+#   evidence --output <path>  Copy evidence to output path
 #
 # Safety:
 #   - Never publishes or requires production registry credentials
@@ -640,6 +641,54 @@ cmd_metadata() {
 }
 
 # ---------------------------------------------------------------------------
+# Mode: evidence — copy structured evidence to output path
+# ---------------------------------------------------------------------------
+
+cmd_evidence() {
+  local output_path=""
+
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --output)
+        output_path="$2"
+        shift 2
+        ;;
+      *)
+        die "Unknown argument: $1"
+        ;;
+    esac
+  done
+
+  if [ -z "$output_path" ]; then
+    die "Usage: $0 evidence --output <path>"
+  fi
+
+  local evidence_dir="$EVIDENCE_BASE/local"
+  if [ ! -d "$evidence_dir" ]; then
+    die "No evidence directory found at $evidence_dir"
+  fi
+
+  # Find the most recent evidence directory (lexicographic sort on ISO timestamps)
+  local latest
+  latest="$(ls -1d "$evidence_dir"/*/ 2>/dev/null | sort -r | head -1)"
+  if [ -z "$latest" ]; then
+    die "No evidence runs found in $evidence_dir"
+  fi
+
+  # Remove trailing slash
+  latest="${latest%/}"
+
+  if [ ! -f "$latest/manifest.json" ]; then
+    die "Invalid evidence directory: $latest (missing manifest.json)"
+  fi
+
+  info "Copying evidence from $latest to $output_path"
+  mkdir -p "$output_path"
+  cp -R "$latest"/* "$output_path"
+  success "Evidence copied to $output_path"
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -686,6 +735,7 @@ ${BOLD}Usage:${RESET}
   $0 explain <gate-id>    Explain a single gate
   $0 check-generated      Verify generated files are clean
   $0 metadata             Contract consistency + criteria + generated file checks
+  $0 evidence --output <path>  Copy evidence to output path
   $0 help                 Show this help
 
 ${BOLD}Modes:${RESET}
@@ -696,6 +746,7 @@ ${BOLD}Modes:${RESET}
   ${GREEN}explain <id>${RESET}      Show full details for a specific gate
   ${GREEN}check-generated${RESET}   Verify checklists and artifacts are up to date
   ${GREEN}metadata${RESET}          Contract consistency, criteria validation, generated file checks
+  ${GREEN}evidence${RESET}          Copy evidence to output path
 
 ${BOLD}Evidence output:${RESET}
   Structured JSON evidence is written to target/release-evidence/local/<timestamp>/
@@ -713,6 +764,7 @@ ${BOLD}Examples:${RESET}
   $0 gate http.raw-wire     # run just the wire tests
   $0 explain rust.clippy    # show details for a gate
   $0 metadata               # check contract and metadata consistency
+  $0 evidence --output ./ev # copy latest evidence to ./ev
 EOF
 }
 
@@ -746,12 +798,10 @@ main() {
       ;;
     list)
       CURRENT_MODE="list"
-      preflight
       cmd_list
       ;;
     explain)
       CURRENT_MODE="explain"
-      preflight
       local gate_id="${1:-}"
       cmd_explain "$gate_id"
       ;;
@@ -764,6 +814,9 @@ main() {
       preflight
       cmd_metadata
       print_summary
+      ;;
+    evidence)
+      cmd_evidence "$@"
       ;;
     help|--help|-h)
       usage

@@ -6,6 +6,15 @@ on:
   pull_request:
     branches: [main]
 
+# Execution policy:
+#   PRs         — all jobs run (format, lint, tests, packaging, supply-chain, wire, corpus, evidence).
+#   main push   — same as PRs; evidence artifacts are collected for release gating.
+#   schedule    — not configured; add cron trigger here if periodic fuzzing or re-audit is desired.
+#   Evidence type per trigger:
+#     PR          → gate evidence uploaded as artifacts (retention 30 d), not attached to a release.
+#     main push   → same gate evidence; release workflow can consume these artifacts.
+#     (schedule)  → would produce evidence identical to main push.
+
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
@@ -19,7 +28,7 @@ env:
 
 jobs:
   rust-check:
-    name: gate/rust-${{ matrix.os }}
+    name: gate/rust-full-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -86,12 +95,31 @@ jobs:
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - run: cargo test -p eggserve-core --test http_wire_correctness
       - run: cargo test -p eggserve-core --test http_primitives_integration
-      - run: cargo test -p eggserve-bin --test production_path
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-evidence-http-wire
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  production-path:
+    name: gate/production-path
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - run: cargo test -p eggserve-bin --test production_path
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-production-path
           path: |
             target/release-evidence/
           retention-days: 30
@@ -307,7 +335,7 @@ jobs:
     name: gate/evidence-aggregate
     runs-on: ubuntu-latest
     if: always()
-    needs: [rust-check, supply-chain, wire-tests, corpus-replay, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
+    needs: [rust-check, supply-chain, wire-tests, production-path, corpus-replay, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
     permissions:
       contents: read
     steps:
