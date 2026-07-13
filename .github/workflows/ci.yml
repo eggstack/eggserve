@@ -41,15 +41,13 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
-      - run: cargo test --workspace --doc
-      - run: cargo test -p eggserve-core --features client
-      - run: cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings
-      - run: cargo test -p eggserve-core --features client-tls
-      - run: cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
-      - run: cargo test -p eggserve-bin --features tls
+      - run: bash scripts/ci-gate-evidence.sh rust.format lint-output cargo fmt --all -- --check
+      - run: bash scripts/ci-gate-evidence.sh rust.clippy lint-output cargo clippy --workspace --all-targets -- -D warnings
+      - run: bash scripts/ci-gate-evidence.sh rust.test test-output cargo test --workspace
+      - run: bash scripts/ci-gate-evidence.sh rust.doctest test-output cargo test --workspace --doc
+      - run: bash scripts/ci-gate-evidence.sh rust.test.client test-output cargo test -p eggserve-core --features client
+      - run: bash scripts/ci-gate-evidence.sh rust.test.client-tls test-output sh -c 'cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings && cargo test -p eggserve-core --features client-tls'
+      - run: bash scripts/ci-gate-evidence.sh rust.test.server-tls test-output sh -c 'cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings && cargo test -p eggserve-bin --features tls'
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -62,6 +60,7 @@ jobs:
 
   supply-chain:
     name: gate/supply-chain
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -72,8 +71,8 @@ jobs:
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - name: Install pinned cargo supply-chain tools
         run: bash scripts/install-cargo-tools.sh
-      - run: cargo audit
-      - run: cargo deny check
+      - run: bash scripts/ci-gate-evidence.sh supply-chain.audit audit-output cargo audit
+      - run: bash scripts/ci-gate-evidence.sh supply-chain.deny deny-output cargo deny check
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -93,8 +92,8 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: cargo test -p eggserve-core --test http_wire_correctness
-      - run: cargo test -p eggserve-core --test http_primitives_integration
+      - run: bash scripts/ci-gate-evidence.sh http.raw-wire test-output cargo test -p eggserve-core --test http_wire_correctness
+      - run: bash scripts/ci-gate-evidence.sh http.primitives-integration test-output cargo test -p eggserve-core --test http_primitives_integration
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -114,7 +113,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: cargo test -p eggserve-bin --test production_path
+      - run: bash scripts/ci-gate-evidence.sh http.production-path test-output cargo test -p eggserve-bin --test production_path
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -137,8 +136,7 @@ jobs:
       - name: Run corpus replay tests
         run: |
           if [ -d fuzz/corpus ]; then
-            cargo test -p eggserve-core --test corpus_replay
-            cargo test -p eggserve-core --test corpus_replay --features client
+            bash scripts/ci-gate-evidence.sh filesystem.corpus-replay test-output sh -c 'cargo test -p eggserve-core --test corpus_replay && cargo test -p eggserve-core --test corpus_replay --features client'
           else
             echo "No fuzz corpus directory, skipping"
           fi
@@ -216,6 +214,7 @@ jobs:
 
   packaging-smoke:
     name: gate/packaging-smoke
+    if: github.event_name == 'push'
     needs: [python-unit-tests]
     runs-on: ubuntu-latest
     env:
@@ -258,6 +257,7 @@ jobs:
 
   cargo-package:
     name: gate/package
+    if: github.event_name == 'push'
     needs: [rust-check]
     runs-on: ubuntu-latest
     steps:
@@ -267,7 +267,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - name: Validate publishable Rust packages
-        run: bash scripts/verify-cargo-packages.sh
+        run: bash scripts/ci-gate-evidence.sh package.core package-output bash scripts/verify-cargo-packages.sh
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -280,6 +280,7 @@ jobs:
 
   wheel-smoke:
     name: gate/python-${{ matrix.os }}
+    if: github.event_name == 'push'
     needs: [rust-check]
     runs-on: ${{ matrix.os }}
     strategy:

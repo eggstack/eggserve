@@ -7,54 +7,58 @@ Total gates: 31
 
 ## Preflight
 
-| Gate ID | Title | Required | Evidence Class | Release Stage | Status | Evidence |
-|---------|-------|----------|----------------|---------------|--------|----------|
-| `check-generated` | Generated file cleanliness | yes | ci-log, lint-output | preflight | PENDING | TBD |
-| `rust.clippy` | Workspace clippy lint | yes | ci-log, lint-output | preflight | PENDING | TBD |
-| `rust.doctest` | Rust doc tests | yes | ci-log, test-output | preflight | PENDING | TBD |
-| `rust.format` | Rust formatting check | yes | ci-log, lint-output | preflight | PENDING | TBD |
-| `rust.test` | Workspace unit tests | yes | ci-log, test-output | preflight | PENDING | TBD |
-| `rust.test.client` | Client feature tests | yes | ci-log, test-output | preflight | PENDING | TBD |
-| `rust.test.client-tls` | Client TLS feature tests | yes | ci-log, test-output | preflight | PENDING | TBD |
-| `rust.test.server-tls` | Server TLS feature tests | yes | ci-log, test-output | preflight | PENDING | TBD |
-| `supply-chain.audit` | cargo-audit vulnerability check | yes | ci-log, audit-output | preflight | PENDING | TBD |
-| `supply-chain.deny` | cargo-deny license/policy check | yes | ci-log, deny-output | preflight | PENDING | TBD |
+| Gate ID | Title | Required | Evidence Class | Status | Evidence |
+|---------|-------|----------|----------------|--------|----------|
+| `check-generated` | Generated file cleanliness | yes | ci-log, lint-output | PENDING | TBD |
+| `rust.clippy` | Workspace clippy lint | yes | ci-log, lint-output | PENDING | TBD |
+| `rust.doctest` | Rust doc tests | yes | ci-log, test-output | PENDING | TBD |
+| `rust.format` | Rust formatting check | yes | ci-log, lint-output | PENDING | TBD |
+| `rust.test` | Workspace unit tests | yes | ci-log, test-output | PENDING | TBD |
+| `rust.test.client` | Client feature tests | yes | ci-log, test-output | PENDING | TBD |
+| `rust.test.client-tls` | Client TLS feature tests | yes | ci-log, test-output | PENDING | TBD |
+| `rust.test.server-tls` | Server TLS feature tests | yes | ci-log, test-output | PENDING | TBD |
+| `supply-chain.audit` | cargo-audit vulnerability check | yes | ci-log, audit-output | PENDING | TBD |
+| `supply-chain.deny` | cargo-deny license/policy check | yes | ci-log, deny-output | PENDING | TBD |
 
 ## Qualification
 
-| Gate ID | Title | Required | Evidence Class | Release Stage | Status | Evidence |
-|---------|-------|----------|----------------|---------------|--------|----------|
-| `filesystem.corpus-replay` | Fuzz corpus replay | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `http.primitives-integration` | HTTP primitives integration tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `http.production-path` | Production path tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `http.raw-wire` | Raw HTTP/1.x wire correctness tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.api-stability` | Python API stability tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.boundary-hardening` | Python boundary hardening tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.client-primitives` | Python client primitives tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.native-tests` | Python native primitives tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.server-integration` | Python server integration tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.server-primitives` | Python server primitives tests | yes | ci-log, test-output | qualification | PENDING | TBD |
-| `python.unit-tests` | Python source-only unit tests | yes | ci-log, test-output | qualification | PENDING | TBD |
+| Gate ID | Title | Required | Evidence Class | Status | Evidence |
+|---------|-------|----------|----------------|--------|----------|
+| `filesystem.corpus-replay` | Fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
+| `http.primitives-integration` | HTTP primitives integration tests | yes | ci-log, test-output | PENDING | TBD |
+| `http.production-path` | Production path tests | yes | ci-log, test-output | PENDING | TBD |
+| `http.raw-wire` | Raw HTTP/1.x wire correctness tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.api-stability` | Python API stability tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.boundary-hardening` | Python boundary hardening tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.client-primitives` | Python client primitives tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.native-tests` | Python native primitives tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.server-integration` | Python server integration tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.server-primitives` | Python server primitives tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.unit-tests` | Python source-only unit tests | yes | ci-log, test-output | PENDING | TBD |
 
 ## Artifact
 
-| Gate ID | Title | Required | Evidence Class | Release Stage | Status | Evidence |
-|---------|-------|----------|----------------|---------------|--------|----------|
-| `package.bin` | eggserve-bin package/publish dry-run | yes | ci-log, package-output | artifact | PENDING | TBD |
-| `package.core` | eggserve-core package/publish dry-run | yes | ci-log, package-output | artifact | PENDING | TBD |
-| `python.packaging-smoke` | Installed wheel packaging smoke tests | yes | ci-log, test-output | artifact | PENDING | TBD |
-| `python.wheel.linux` | Linux wheel build/install/smoke | yes | ci-log, test-output, wheel | artifact | PENDING | TBD |
-| `python.wheel.macos` | macOS wheel build/install/smoke | yes | ci-log, test-output, wheel | artifact | PENDING | TBD |
-| `python.wheel.windows` | Windows wheel build/install/smoke | yes | ci-log, test-output, wheel | artifact | PENDING | TBD |
-| `release.artifacts` | Release artifact assembly and checksums | yes | ci-log, checksum, provenance | artifact | PENDING | TBD |
+| Gate ID | Title | Required | Evidence Class | Status | Evidence |
+|---------|-------|----------|----------------|--------|----------|
+| `package.bin` | eggserve-bin package/publish dry-run | yes | ci-log, package-output | PENDING | TBD |
+| `package.core` | eggserve-core package/publish dry-run | yes | ci-log, package-output | PENDING | TBD |
+| `python.packaging-smoke` | Installed wheel packaging smoke tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.wheel.linux` | Linux wheel build/install/smoke | yes | ci-log, test-output, wheel | PENDING | TBD |
+| `python.wheel.macos` | macOS wheel build/install/smoke | yes | ci-log, test-output, wheel | PENDING | TBD |
+| `python.wheel.windows` | Windows wheel build/install/smoke | yes | ci-log, test-output, wheel | PENDING | TBD |
+| `release.artifacts` | Release artifact assembly and checksums | yes | ci-log, checksum, provenance | PENDING | TBD |
 
 ## Approval
 
-| Gate ID | Title | Required | Evidence Class | Release Stage | Status | Evidence |
-|---------|-------|----------|----------------|---------------|--------|----------|
-| `release.dry-run` | Release workflow dry run | yes | ci-log, release-output | approval | PENDING | TBD |
-| `release.human-approval` | Human RC approval | yes | approval-record | approval | PENDING | TBD |
-| `release.provenance` | Release provenance record | yes | provenance | approval | PENDING | TBD |
+| Gate ID | Title | Required | Evidence Class | Status | Evidence |
+|---------|-------|----------|----------------|--------|----------|
+| `release.dry-run` | Release workflow dry run | yes | ci-log, release-output | PENDING | TBD |
+| `release.human-approval` | Human RC approval | yes | approval-record | PENDING | TBD |
+| `release.provenance` | Release provenance record | yes | provenance | PENDING | TBD |
+
+## Summary
+
+- PENDING: 31
 
 ## Platform Support
 

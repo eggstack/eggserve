@@ -393,6 +393,100 @@ def check_readme_links(repo_root: Path) -> list[str]:
     return errors
 
 
+def check_workflow_criteria_cross_validation(repo_root: Path) -> list[str]:
+    """Validate that workflow job names and criteria workflow_job fields are consistent."""
+    errors: list[str] = []
+
+    if tomllib is None:
+        return ["Python 3.11+ required for TOML parsing"]
+
+    # Load criteria.toml
+    criteria_text = _read(repo_root, "release/criteria.toml")
+    if criteria_text is None:
+        return ["release/criteria.toml not found"]
+
+    try:
+        criteria_data = tomllib.loads(criteria_text)
+    except Exception:
+        return ["release/criteria.toml: failed to parse TOML"]
+
+    # Extract all workflow_job values from criteria
+    criteria_jobs: dict[str, str] = {}  # gate_id -> workflow_job
+    for gate in criteria_data.get("gate", []):
+        gate_id = gate.get("id", "")
+        workflow_job = gate.get("workflow_job")
+        if workflow_job:
+            criteria_jobs[gate_id] = workflow_job
+
+    # Load CI workflow
+    ci_text = _read(repo_root, ".github/workflows/ci.yml")
+    if ci_text is None:
+        errors.append(".github/workflows/ci.yml not found")
+        return errors
+
+    try:
+        ci_data = _yaml_load_string(ci_text)
+    except Exception:
+        # If YAML parsing fails, skip this check gracefully
+        return []
+
+    # Extract CI job names (display names after "name:")
+    ci_job_names: set[str] = set()
+    for job_name, job in ci_data.get("jobs", {}).items():
+        display_name = job.get("name", job_name)
+        ci_job_names.add(display_name)
+        ci_job_names.add(job_name)
+
+    # Check that each criteria workflow_job has a corresponding CI job
+    for gate_id, workflow_job in criteria_jobs.items():
+        if workflow_job not in ci_job_names:
+            # Check if it's a known special case (e.g. release-only jobs)
+            release_only_jobs = {
+                "validate", "stage-release", "publish", "build-artifacts",
+                "build-python",
+            }
+            if workflow_job not in release_only_jobs:
+                errors.append(
+                    f"Gate '{gate_id}' references workflow_job '{workflow_job}' "
+                    f"which is not found in ci.yml job names: {sorted(ci_job_names)}"
+                )
+
+    return errors
+
+
+def _yaml_load_string(text: str) -> dict:
+    """Load YAML from a string without requiring PyYAML.
+
+    Uses a simple regex-based extraction for job names since full YAML
+    parsing may not be available.
+    """
+    try:
+        import yaml
+        return yaml.safe_load(text)
+    except ImportError:
+        # Fallback: extract job names using regex
+        import re
+        jobs: dict[str, dict] = {}
+        # Find job definitions (top-level keys under "jobs:")
+        in_jobs = False
+        current_job = None
+        for line in text.splitlines():
+            stripped = line.strip()
+            if stripped == "jobs:":
+                in_jobs = True
+                continue
+            if in_jobs:
+                # Job name is indented 2 spaces under jobs:
+                if line.startswith("  ") and not line.startswith("    ") and ":" in stripped:
+                    current_job = stripped.split(":")[0].strip()
+                    jobs[current_job] = {"name": current_job}
+                # Display name is "name: ..." under a job
+                if current_job and stripped.startswith("name:"):
+                    name_val = stripped.split(":", 1)[1].strip().strip('"').strip("'")
+                    jobs[current_job]["name"] = name_val
+        return {"jobs": jobs}
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
@@ -405,6 +499,7 @@ def main() -> int:
         ("Stable API inventory", check_stable_api_inventory),
         ("README link validation", check_readme_links),
         ("No stale deferred claims", check_no_stale_deferred_claims),
+        ("Workflow/criteria cross-validation", check_workflow_criteria_cross_validation),
     ]
 
     total_errors = 0

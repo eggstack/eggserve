@@ -164,6 +164,8 @@ class EvidenceRecord:
     features: list[str] = field(default_factory=list)
     log_path: str | None = None
     skip_reason: str | None = None
+    target_triple: str | None = None
+    invalidation_info: str | None = None
     workflow_run_url: str | None = None  # GITHUB only
     job_id: str | None = None  # GITHUB only
     runner_os: str | None = None  # GITHUB only
@@ -191,6 +193,10 @@ class EvidenceRecord:
             d["log_path"] = self.log_path
         if self.skip_reason is not None:
             d["skip_reason"] = self.skip_reason
+        if self.target_triple is not None:
+            d["target_triple"] = self.target_triple
+        if self.invalidation_info is not None:
+            d["invalidation_info"] = self.invalidation_info
         if self.workflow_run_url is not None:
             d["workflow_run_url"] = self.workflow_run_url
         if self.job_id is not None:
@@ -930,12 +936,168 @@ def cmd_graph(args: argparse.Namespace) -> int:
     return 0
 
 
+def _load_evidence_bundle(
+    evidence_path: str,
+) -> dict[str, dict[str, Any]]:
+    """Load evidence records from a directory or file and index by gate_id.
+
+    Supports:
+    - A directory containing per-gate JSON files (e.g. gates/*.json)
+    - A single JSON file containing a list of records
+    - A manifest.json with a "gates" array
+    """
+    path = Path(evidence_path)
+    records: dict[str, dict[str, Any]] = {}
+
+    if path.is_dir():
+        # Look for a manifest.json first
+        manifest = path / "manifest.json"
+        if manifest.exists():
+            try:
+                data = json.loads(manifest.read_text(encoding="utf-8"))
+                for gate_result in data.get("gates", []):
+                    gid = gate_result.get("gate_id", "")
+                    if gid:
+                        records[gid] = gate_result
+            except Exception:
+                pass
+
+        # Also load per-gate JSON files from gates/ subdirectory
+        gates_dir = path / "gates"
+        if gates_dir.is_dir():
+            for f in sorted(gates_dir.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    gid = data.get("gate_id", "")
+                    if gid:
+                        records[gid] = data
+                except Exception:
+                    pass
+
+        # Also look for top-level JSON files
+        for f in sorted(path.glob("*.json")):
+            if f.name == "manifest.json":
+                continue
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    for item in data:
+                        gid = item.get("gate_id", "")
+                        if gid:
+                            records[gid] = item
+                elif isinstance(data, dict):
+                    gid = data.get("gate_id", "")
+                    if gid:
+                        records[gid] = data
+            except Exception:
+                pass
+    elif path.is_file():
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(data, list):
+                for item in data:
+                    gid = item.get("gate_id", "")
+                    if gid:
+                        records[gid] = item
+            elif isinstance(data, dict):
+                # Could be a manifest
+                for gate_result in data.get("gates", []):
+                    gid = gate_result.get("gate_id", "")
+                    if gid:
+                        records[gid] = gate_result
+                # Or a single record
+                gid = data.get("gate_id", "")
+                if gid:
+                    records[gid] = data
+        except Exception:
+            pass
+
+    return records
+
+
+def _compute_gate_status(
+    gate: Gate,
+    evidence: dict[str, Any] | None,
+    candidate_sha: str,
+) -> tuple[str, str]:
+    """Compute the checklist status for a gate given available evidence.
+
+    Returns (status, evidence_ref) where status is one of:
+    PENDING, PASSED, FAILED, SKIPPED, NOT-APPLICABLE, STALE, INVALIDATED,
+    WAIVED, ERROR.
+    """
+    if evidence is None:
+        return "PENDING", "TBD"
+
+    result = evidence.get("result", "")
+    commit_sha = evidence.get("commit_sha", "")
+    dirty_tree = evidence.get("dirty_tree", False)
+    end_time = evidence.get("end_time", "")
+
+    # Check dirty-tree
+    if dirty_tree:
+        return "INVALIDATED", f"dirty-tree run"
+
+    # Check SHA match
+    if gate.max_age_days == 0 and commit_sha and candidate_sha:
+        if commit_sha != candidate_sha:
+            return "STALE", f"SHA mismatch: {commit_sha[:12]}"
+
+    # Check freshness
+    if end_time and gate.max_age_days > 0:
+        try:
+            evidence_time = datetime.fromisoformat(end_time)
+            now = datetime.now(timezone.utc)
+            if evidence_time.tzinfo is None:
+                evidence_time = evidence_time.replace(tzinfo=timezone.utc)
+            age_days = (now - evidence_time).total_seconds() / 86400.0
+            if age_days > gate.max_age_days:
+                return "STALE", f"{age_days:.0f}d old (max {gate.max_age_days})"
+        except (ValueError, TypeError):
+            return "ERROR", f"unparseable end_time"
+
+    # Map result to status
+    status_map = {
+        "passed": "PASSED",
+        "failed": "FAILED",
+        "skipped": "SKIPPED",
+        "not-applicable": "NOT-APPLICABLE",
+        "error": "ERROR",
+    }
+    status = status_map.get(result, "ERROR")
+
+    # Build evidence reference
+    workflow_url = evidence.get("workflow_run_url", "")
+    job_id = evidence.get("job_id", "")
+    run_id = evidence.get("workflow_run_url", "")
+    evidence_ref = f"{commit_sha[:12]}" if commit_sha else "TBD"
+    if workflow_url:
+        evidence_ref = f"[{commit_sha[:12]}]({workflow_url})"
+    elif commit_sha:
+        evidence_ref = commit_sha[:12]
+
+    return status, evidence_ref
+
+
 def cmd_generate_checklist(args: argparse.Namespace) -> int:
     """Generate a release checklist in Markdown."""
     criteria, _ = parse_criteria_file(args.criteria)
     stages: dict[str, list[Gate]] = {}
     for gate in criteria.gates:
         stages.setdefault(gate.release_stage, []).append(gate)
+
+    # Load evidence if provided
+    evidence_records: dict[str, dict[str, Any]] = {}
+    candidate_sha = getattr(args, "sha", "") or ""
+    if args.evidence:
+        evidence_records = _load_evidence_bundle(args.evidence)
+        # Try to extract candidate SHA from evidence if not provided
+        if not candidate_sha:
+            for gid, ev in evidence_records.items():
+                sha = ev.get("commit_sha", "")
+                if sha:
+                    candidate_sha = sha
+                    break
 
     lines: list[str] = []
     lines.append(
@@ -947,7 +1109,14 @@ def cmd_generate_checklist(args: argparse.Namespace) -> int:
     lines.append("")
     lines.append(f"Schema version: {criteria.meta.schema_version}")
     lines.append(f"Total gates: {len(criteria.gates)}")
+    if candidate_sha:
+        lines.append(f"Candidate SHA: `{candidate_sha}`")
+    if evidence_records:
+        lines.append(f"Evidence records: {len(evidence_records)}")
     lines.append("")
+
+    # Count statuses for summary
+    status_counts: dict[str, int] = {}
 
     for stage in _RELEASE_STAGES_LIST:
         gates = stages.get(stage, [])
@@ -957,21 +1126,35 @@ def cmd_generate_checklist(args: argparse.Namespace) -> int:
         lines.append("")
         lines.append(
             "| Gate ID | Title | Required | Evidence Class "
-            "| Release Stage | Status | Evidence |"
+            "| Status | Evidence |"
         )
         lines.append(
             "|---------|-------|----------|----------------"
-            "|---------------|--------|----------|"
+            "|--------|----------|"
         )
         for gate in sorted(gates, key=lambda g: g.id):
             req = "yes" if gate.required else "no"
             evid = ", ".join(gate.evidence_classes)
-            status = "PENDING"
-            evidence_ref = "TBD"
+            ev_data = evidence_records.get(gate.id)
+            status, evidence_ref = _compute_gate_status(
+                gate, ev_data, candidate_sha,
+            )
+            status_counts[status] = status_counts.get(status, 0) + 1
             lines.append(
                 f"| `{gate.id}` | {gate.title} | {req} | {evid} "
-                f"| {gate.release_stage} | {status} | {evidence_ref} |"
+                f"| {status} | {evidence_ref} |"
             )
+        lines.append("")
+
+    # Summary
+    if status_counts:
+        lines.append("## Summary")
+        lines.append("")
+        for status in ["PASSED", "FAILED", "SKIPPED", "NOT-APPLICABLE",
+                        "STALE", "INVALIDATED", "WAIVED", "ERROR", "PENDING"]:
+            count = status_counts.get(status, 0)
+            if count > 0:
+                lines.append(f"- {status}: {count}")
         lines.append("")
 
     if criteria.platforms:
@@ -1068,6 +1251,8 @@ def cmd_check_evidence(args: argparse.Namespace) -> int:
             features=item.get("features", []),
             log_path=item.get("log_path"),
             skip_reason=item.get("skip_reason"),
+            target_triple=item.get("target_triple"),
+            invalidation_info=item.get("invalidation_info"),
             workflow_run_url=item.get("workflow_run_url"),
             job_id=item.get("job_id"),
             runner_os=item.get("runner_os"),
@@ -1293,7 +1478,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_gen.add_argument(
         "--evidence",
         default=None,
-        help="Path to evidence bundle (reserved for future use)",
+        help="Path to evidence bundle (directory or JSON file) to merge into checklist",
+    )
+    p_gen.add_argument(
+        "--sha",
+        default="",
+        help="Candidate commit SHA for freshness/validation checks",
     )
     p_gen.add_argument(
         "--check",

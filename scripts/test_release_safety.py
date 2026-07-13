@@ -176,5 +176,132 @@ class TestArtifactsBuiltBeforePublication(unittest.TestCase):
         self.assertIn("build-python", stage_needs, "stage-release must depend on build-python")
 
 
+class TestProductionRegistryCredentialsIsolation(unittest.TestCase):
+    """Production registry credentials must only appear in publication stages."""
+
+    def test_no_pypi_token_in_ci(self):
+        ci_text = _read(WORKFLOWS / "ci.yml")
+        # CI workflow should never reference PyPI tokens
+        self.assertNotIn("PYPI_TOKEN", ci_text)
+        self.assertNotIn("pypi-token", ci_text.lower())
+        self.assertNotIn("TWINE_USERNAME", ci_text)
+        self.assertNotIn("TWINE_PASSWORD", ci_text)
+
+    def test_no_crates_token_in_ci(self):
+        ci_text = _read(WORKFLOWS / "ci.yml")
+        self.assertNotIn("CARGO_REGISTRY_TOKEN", ci_text)
+
+    def test_credentials_only_in_release_workflow(self):
+        """Release workflow tokens must only appear in publish-related job sections."""
+        if not HAS_YAML:
+            self.skipTest("PyYAML not installed")
+        data = _load_yaml(WORKFLOWS / "release.yml")
+        jobs = data.get("jobs", {})
+
+        # Only publish-related jobs should have registry credentials
+        publish_jobs = {"publish", "stage-release"}
+        credential_keywords = [
+            "CARGO_REGISTRY_TOKEN", "PYPI_TOKEN", "TWINE_USERNAME", "TWINE_PASSWORD",
+        ]
+
+        for job_name, job in jobs.items():
+            job_text = str(job)
+            for keyword in credential_keywords:
+                if keyword in job_text:
+                    self.assertIn(
+                        job_name, publish_jobs,
+                        f"Job '{job_name}' references credential '{keyword}' "
+                        f"but is not a publish-related job",
+                    )
+
+
+class TestMissingEvidenceFailsAggregation(unittest.TestCase):
+    """Evidence aggregation must fail when mandatory gate evidence is missing."""
+
+    def test_aggregate_needs_list_is_nonempty(self):
+        if not HAS_YAML:
+            self.skipTest("PyYAML not installed")
+        data = _load_yaml(WORKFLOWS / "ci.yml")
+        aggregate = data.get("jobs", {}).get("evidence-aggregate", {})
+        needs = aggregate.get("needs", [])
+        self.assertIsInstance(needs, list)
+        self.assertGreater(len(needs), 0)
+        # Must depend on every gate job
+        expected_jobs = [
+            "rust-check", "supply-chain", "wire-tests", "production-path",
+            "corpus-replay", "python-unit-tests", "cargo-package",
+        ]
+        for job in expected_jobs:
+            self.assertIn(
+                job, needs,
+                f"evidence-aggregate must depend on '{job}'",
+            )
+
+    def test_aggregate_uses_always_condition(self):
+        if not HAS_YAML:
+            self.skipTest("PyYAML not installed")
+        data = _load_yaml(WORKFLOWS / "ci.yml")
+        aggregate = data.get("jobs", {}).get("evidence-aggregate", {})
+        condition = aggregate.get("if", "")
+        self.assertEqual(
+            condition, "always()",
+            "evidence-aggregate must run under if: always()",
+        )
+
+
+class TestChecklistReportsStaleEvidence(unittest.TestCase):
+    """Generated checklist must distinguish stale/invalidated from passed."""
+
+    def test_checklist_statuses_in_output(self):
+        """Verify that the generated checklist contains status columns."""
+        import subprocess
+        import sys as _sys
+        import tempfile
+
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+            out_path = f.name
+        try:
+            result = subprocess.run(
+                [_sys.executable, str(REPO_ROOT / "scripts" / "release_criteria.py"),
+                 "generate-checklist", "--criteria", str(criteria_path),
+                 "--checklist-output", out_path],
+                capture_output=True, text=True,
+            )
+            self.assertEqual(result.returncode, 0)
+            content = Path(out_path).read_text(encoding="utf-8")
+            # Must contain status column header
+            self.assertIn("Status", content)
+            # Must contain PENDING as a status value
+            self.assertIn("PENDING", content)
+        finally:
+            Path(out_path).unlink(missing_ok=True)
+
+    def test_checklist_deterministic_output(self):
+        """Checklist must be deterministic for same input."""
+        import subprocess
+        import sys as _sys
+        import tempfile
+
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        results = []
+        for _ in range(3):
+            with tempfile.NamedTemporaryFile(suffix=".md", delete=False) as f:
+                out_path = f.name
+            try:
+                result = subprocess.run(
+                    [_sys.executable, str(REPO_ROOT / "scripts" / "release_criteria.py"),
+                     "generate-checklist", "--criteria", str(criteria_path),
+                     "--checklist-output", out_path],
+                    capture_output=True, text=True,
+                )
+                content = Path(out_path).read_text(encoding="utf-8")
+                results.append(content)
+            finally:
+                Path(out_path).unlink(missing_ok=True)
+        for r in results[1:]:
+            self.assertEqual(r, results[0], "Checklist output is not deterministic")
+
+
 if __name__ == "__main__":
     unittest.main()

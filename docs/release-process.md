@@ -262,30 +262,35 @@ evidence class. The table below maps each gate family to its execution policy.
 
 Run fast, high-signal gates to catch regressions before merge:
 
-- `contract-consistency` — cross-document drift check
-- `rust.format` — formatting
-- `rust.clippy` — workspace lint
-- `rust.test` — workspace unit tests
-- `python.unit-tests` — Python source-only unit tests
-- `check-generated` — generated file cleanliness
+- `contract-consistency` — cross-document drift check (local)
+- `rust.format` — formatting (CI, all 3 platforms)
+- `rust.clippy` — workspace lint (CI, all 3 platforms)
+- `rust.test` — workspace unit tests (CI, all 3 platforms)
+- `rust.doctest` — doc tests (CI, all 3 platforms)
+- `rust.test.client` — client feature tests (CI, all 3 platforms)
+- `rust.test.client-tls` — client TLS feature tests (CI, all 3 platforms)
+- `rust.test.server-tls` — server TLS feature tests (CI, all 3 platforms)
+- `http.raw-wire` — raw wire correctness (CI, Linux)
+- `http.primitives-integration` — HTTP primitives integration (CI, Linux)
+- `http.production-path` — production path tests (CI, Linux)
+- `filesystem.corpus-replay` — fuzz corpus replay (CI, Linux)
+- `python.unit-tests` — Python source-only unit tests (CI, Linux)
+- `check-generated` — generated file cleanliness (CI, Linux)
 
-These gates run on every PR and block merge on failure. They execute on all
-three platforms (Linux, macOS, Windows) via the matrix.
+These gates run on every PR and block merge on failure. Supply-chain,
+package verification, installed-wheel Python tests, and cross-platform
+wheel builds are deferred to main-branch pushes.
 
 ### Main branch
 
-Run the complete validation matrix on every push to `main`:
+Run the complete validation matrix on every push to `main`. All PR gates
+above, plus:
 
-- All PR gates above, plus:
-- `rust.doctest` — doc tests
-- `rust.test.client`, `rust.test.client-tls`, `rust.test.server-tls` — feature matrix
-- `http.raw-wire`, `http.primitives-integration`, `http.production-path` — HTTP correctness
-- `filesystem.corpus-replay` — fuzz corpus
-- `supply-chain.audit`, `supply-chain.deny` — dependency audit
-- `package.core`, `package.bin` — Rust package validation
-- `python.native-tests`, `python.server-primitives`, `python.api-stability`, `python.boundary-hardening`, `python.client-primitives`, `python.server-integration` — installed-wheel Python tests
-- `python.packaging-smoke` — wheel install/smoke
-- `python.wheel.linux`, `python.wheel.macos`, `python.wheel.windows` — cross-platform wheel matrix
+- `supply-chain.audit`, `supply-chain.deny` — dependency audit (CI, Linux)
+- `package.core`, `package.bin` — Rust package validation (CI, Linux)
+- `python.native-tests`, `python.server-primitives`, `python.api-stability`, `python.boundary-hardening`, `python.client-primitives`, `python.server-integration` — installed-wheel Python tests (CI, Linux)
+- `python.packaging-smoke` — wheel install/smoke (CI, Linux)
+- `python.wheel.linux`, `python.wheel.macos`, `python.wheel.windows` — cross-platform wheel matrix (CI, 3 platforms)
 
 Main-branch evidence is suitable for release qualification if the commit SHA
 matches the candidate.

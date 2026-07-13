@@ -261,7 +261,10 @@ write_gate_evidence() {
   "arch": "$(uname -m)",
   "tool_versions": { $tool_json },
   "features": [],
-  "log_path": null
+  "log_path": null,
+  "target_triple": "$(rustc -vV 2>/dev/null | grep '^host:' | sed 's/^host: //')",
+  "skip_reason": null,
+  "invalidation_info": null
 }
 EOFEVIDENCE
   mv "$tmp_file" "${gates_dir}/${gate_id}.json"
