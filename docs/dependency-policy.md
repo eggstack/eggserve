@@ -7,7 +7,7 @@ Every dependency must have an explicit purpose. The following rules apply to all
 - **No HTTP client stack without a plan** — HTTP client dependencies require an explicit plan and feature gate
 - **No web framework dependency in the initial milestones** — no actix-web, axum, warp, etc.
 - **No templating dependency for generated directory listings** — directory listings use static HTML
-- **No default TLS dependency before TLS milestone** — TLS is deferred; dependencies for it are deferred
+- **No default TLS dependency** — TLS dependencies are optional, behind the `tls` feature flag, and not included in the default build
 - **Feature flags must isolate optional surfaces** — optional dependencies are behind feature flags
 - **Security-critical parsing dependencies require review** — any dependency that handles HTTP parsing, path resolution, or encoding must be reviewed before adoption
 

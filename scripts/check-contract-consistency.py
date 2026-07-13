@@ -340,6 +340,39 @@ def check_stable_api_inventory(repo_root: Path) -> list[str]:
     return errors
 
 
+def check_no_stale_deferred_claims(repo_root: Path) -> list[str]:
+    errors: list[str] = []
+    docs_dir = repo_root / "docs"
+    if not docs_dir.is_dir():
+        errors.append("docs/ directory not found")
+        return errors
+
+    # Features that are implemented and should NOT be described as deferred
+    implemented_features = {
+        "tls": "TLS is implemented behind the `tls` feature flag",
+        "client": "HTTP client is implemented behind the `client` feature flag",
+        "range": "Range requests are implemented and tested",
+    }
+
+    # Patterns that indicate a stale deferred claim
+    stale_patterns = [
+        r"tls\s+is\s+deferred",
+        r"tls\s+server\s+is\s+deferred",
+        r"tls\s+client\s+is\s+deferred",
+        r"tls\s+not\s+implemented",
+        r"tls\s+support\s+is\s+deferred",
+    ]
+
+    for md_file in sorted(docs_dir.glob("*.md")):
+        rel = str(md_file.relative_to(repo_root))
+        text = md_file.read_text(encoding="utf-8").lower()
+        for pattern in stale_patterns:
+            for m in re.finditer(pattern, text):
+                errors.append(f"{rel}: contains stale deferred claim '{m.group()}'")
+
+    return errors
+
+
 def check_readme_links(repo_root: Path) -> list[str]:
     errors: list[str] = []
 
@@ -371,6 +404,7 @@ def main() -> int:
         ("Platform claim consistency", check_platform_claims),
         ("Stable API inventory", check_stable_api_inventory),
         ("README link validation", check_readme_links),
+        ("No stale deferred claims", check_no_stale_deferred_claims),
     ]
 
     total_errors = 0

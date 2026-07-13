@@ -8,9 +8,35 @@ See [release-contract.md](release-contract.md) for the overall product surface a
 
 | Tier | Meaning |
 |------|---------|
-| **stable** | Intentional public API. Breaking changes bump the major version. Pre-1.0, minor versions may break. |
-| **experimental** | Functional but interface not finalized. May change in any release. Pin to a specific version. |
-| **internal** | Not part of the public contract. Used only for cross-crate communication. May be removed without notice. |
+| **stable** | Intentional public API. Patch releases must not break stable APIs. While pre-1.0, a minor release may break stable APIs only with explicit release notes and migration guidance. Semantic behavior identified in the release contract is covered by conformance tests. Unspecified formatting, debug output, log text, and internal implementation details are not stable unless explicitly documented. |
+| **experimental** | May change in any non-patch release. Consumers should pin versions. Functionality is tested but the interface is not frozen. Experimental APIs may be omitted from language parity. |
+| **internal** | Unavailable or unsupported for downstream use. No compatibility guarantee. Internal Python names are not exported through `__all__`. Internal Rust features do not become accidental default features. May be removed without notice. |
+
+## Stability Rules
+
+### Enum variant exhaustiveness
+
+Stable enum variants are exhaustive unless documented otherwise. Adding a new variant to a stable enum is a breaking change.
+
+### Exception classes, fields, and messages
+
+Python exception classes and their field names are stable. Exception message strings are not stable and may change between releases.
+
+### Header ordering and duplicate preservation
+
+Rust `HeaderMapPlan` preserves insertion order and duplicate headers. This behavior is stable. Python `Response.headers` uses a `HashMap` and does not preserve duplicates — this is a known limitation, not a bug.
+
+### Denial/error taxonomy variants
+
+`PathRejection`, `RequestValidationError`, `ClientError`, and `ResourceDeniedReason` variants are stable. Adding a new variant is a breaking change.
+
+### Serialization and repr output
+
+`Debug` output, `Display` formatting, and Python `repr()` output are not stable unless explicitly documented as a contract.
+
+### Deprecation
+
+Deprecated stable items must remain functional for at least one minor release after deprecation is announced. Removal requires explicit release notes and migration guidance.
 
 ## Rust API — `eggserve-core`
 

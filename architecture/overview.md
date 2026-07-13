@@ -62,6 +62,8 @@ eggserve-python        → (standalone, owns Python packaging)
 
 9. **Evidence-driven release process** — Release gates are defined in `release/criteria.toml` as a machine-readable source of truth. A Python validator (`scripts/release_criteria.py`) checks criteria integrity, generates checklists, and produces structured evidence. A unified local validation script (`scripts/release-validate.sh`) provides fast and full validation modes.
 
+10. **Contract-driven documentation** — All public-facing documents are reconciled against a single capability matrix (`docs/library-capability-matrix.md`). `scripts/check-contract-consistency.py` validates cross-document claims about TLS, Python versions, platform support, package versions, and API inventory. The matrix distinguishes stable, experimental, internal, CLI-only, planned, intentionally unsupported, and platform-limited capabilities.
+
 ## Data Flow
 
 ```

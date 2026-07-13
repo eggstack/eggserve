@@ -190,15 +190,24 @@ Every exported Rust and Python item is classified into one of three tiers:
 
 ### Stable
 
-Breaking changes bump the major version. Pre-1.0, minor versions may break. Stable items are reviewed and intentional. Changes require a plan update and migration guide.
+Breaking changes bump the major version. Pre-1.0, minor versions may break stable APIs only with explicit release notes and migration guidance. Patch releases must not break stable APIs. Stable names and signatures are intentionally supported. Semantic behavior identified in this release contract is covered by conformance tests. Unspecified formatting, debug output, log text, and internal implementation details are not stable unless explicitly documented.
 
 ### Experimental
 
-Explicitly exempt from normal compatibility promises. The API may change in any release. Experimental items are functional but their interface is not yet finalized. Consumers should pin to a specific version.
+May change in any non-patch release. Consumers should pin versions. Functionality is tested but the interface is not frozen. Experimental APIs may be omitted from language parity.
 
 ### Internal
 
-Not part of the public contract. Used only for cross-crate communication (e.g. Python bindings). Not documented as a user feature. May be removed or changed without notice.
+Not part of the public contract. Used only for cross-crate communication (e.g. Python bindings). Internal Python names are not exported through `__all__`. Internal Rust features do not become accidental default features. May be removed without notice.
+
+### Compatibility Rules
+
+- **Enum variants** — Stable enum variants are exhaustive unless documented otherwise. Adding a new variant to a stable enum is a breaking change.
+- **Exception classes** — Python exception classes and field names are stable. Message strings are not stable.
+- **Header ordering** — Rust `HeaderMapPlan` preserves order and duplicates (stable). Python `Response.headers` uses `HashMap` and does not preserve duplicates (known limitation).
+- **Error taxonomy** — `PathRejection`, `RequestValidationError`, `ClientError`, and `ResourceDeniedReason` variants are stable.
+- **Serialization** — `Debug`, `Display`, and Python `repr()` output are not stable unless documented.
+- **Deprecation** — Deprecated stable items remain functional for at least one minor release after announcement.
 
 ## Platforms
 
