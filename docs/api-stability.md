@@ -183,6 +183,8 @@ See [release-contract.md](release-contract.md) for the overall product surface a
 | `RequestValidationError` | stable | Child of EggserveError |
 | `SecureRootError` | stable | Child of EggserveError |
 | `BodySourceError` | stable | Child of EggserveError |
+| `LifecycleError` | stable | Raised on lifecycle violations (double start, stop before start) |
+| `ResponseConstructionError` | stable | Raised when handler returns an invalid Response object |
 | `PathPolicy` | stable | Frozen, mirrors Rust PathPolicy |
 | `StaticPolicy` | stable | Frozen, mirrors Rust StaticPolicy |
 | `RequestTarget` | stable | Frozen, mirrors ConfinedPath |

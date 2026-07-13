@@ -10,12 +10,14 @@ set -euo pipefail
 #   list                List all gates defined in criteria.toml
 #   explain <gate-id>   Explain a single gate
 #   check-generated     Verify generated files are clean (checklists, artifacts)
+#   metadata            Run contract consistency + criteria + generated-file checks
 #
 # Safety:
 #   - Never publishes or requires production registry credentials
 #   - Displays dirty-tree state (git status --porcelain)
 #   - Preserves command exit codes
 #   - Prints a summary with pass/fail/skip counts
+#   - Writes structured JSON evidence to target/release-evidence/
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -25,6 +27,14 @@ readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 readonly CRITERIA_FILE="$REPO_ROOT/release/criteria.toml"
 readonly CRITERIA_PY="$SCRIPT_DIR/release_criteria.py"
+readonly EVIDENCE_BASE="$REPO_ROOT/target/release-evidence"
+
+# Populated during preflight
+RUN_TIMESTAMP=""
+COMMIT_SHA=""
+DIRTY_TREE=""
+TOOL_VERSION_NAMES=()
+TOOL_VERSION_VALUES=()
 
 # ---------------------------------------------------------------------------
 # Colors (disabled when not a TTY)
@@ -64,6 +74,17 @@ TOTAL_COUNT=0
 # Track first failure for exit code
 FIRST_FAILURE=""
 
+# Gate result tracking for manifest
+GATE_IDS=()
+GATE_RESULTS=()
+GATE_DURATIONS=()
+
+# Run start time in ISO 8601
+RUN_START_ISO=""
+
+# Current mode for manifest
+CURRENT_MODE=""
+
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -95,26 +116,39 @@ run_gate() {
   printf "${BOLD}[%s]${RESET} %s\n" "$gate_id" "$title"
   printf "${DIM}  $ %s${RESET}\n" "$command"
 
-  local start_time
-  start_time="$(date +%s)"
+  local start_epoch
+  start_epoch="$(date +%s)"
+  local start_iso
+  start_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
 
   local exit_code=0
+  local result="passed"
   if eval "$command"; then
-    local end_time
-    end_time="$(date +%s)"
-    local duration=$((end_time - start_time))
+    local end_epoch
+    end_epoch="$(date +%s)"
+    local duration=$((end_epoch - start_epoch))
     success "passed (${duration}s)"
     PASS_COUNT=$((PASS_COUNT + 1))
+    result="passed"
+    GATE_IDS+=("$gate_id")
+    GATE_RESULTS+=("$result")
+    GATE_DURATIONS+=("$duration")
+    write_gate_evidence "$gate_id" "$result" "$command" 0 "$start_iso" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$duration"
   else
     exit_code=$?
-    local end_time
-    end_time="$(date +%s)"
-    local duration=$((end_time - start_time))
+    local end_epoch
+    end_epoch="$(date +%s)"
+    local duration=$((end_epoch - start_epoch))
     fail "FAILED (exit ${exit_code}, ${duration}s)"
     FAIL_COUNT=$((FAIL_COUNT + 1))
+    result="failed"
     if [ -z "$FIRST_FAILURE" ]; then
       FIRST_FAILURE="$gate_id"
     fi
+    GATE_IDS+=("$gate_id")
+    GATE_RESULTS+=("$result")
+    GATE_DURATIONS+=("$duration")
+    write_gate_evidence "$gate_id" "$result" "$command" "$exit_code" "$start_iso" "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" "$duration"
   fi
   printf "\n"
   return 0
@@ -140,6 +174,139 @@ run_step() {
 # Check if a command exists.
 command_exists() {
   command -v "$1" >/dev/null 2>&1
+}
+
+# ---------------------------------------------------------------------------
+# Evidence helpers
+# ---------------------------------------------------------------------------
+
+# Collect tool versions into TOOL_VERSIONS associative array.
+collect_tool_versions() {
+  TOOL_VERSION_NAMES=()
+  TOOL_VERSION_VALUES=()
+  local v
+  v="$(rustc --version 2>/dev/null || true)"
+  TOOL_VERSION_NAMES+=("rustc")
+  TOOL_VERSION_VALUES+=("${v:-unknown}")
+  v="$(python3 --version 2>/dev/null || true)"
+  TOOL_VERSION_NAMES+=("python3")
+  TOOL_VERSION_VALUES+=("${v:-unknown}")
+  if command_exists cargo; then
+    v="$(cargo --version 2>/dev/null || true)"
+    TOOL_VERSION_NAMES+=("cargo")
+    TOOL_VERSION_VALUES+=("${v:-unknown}")
+  else
+    TOOL_VERSION_NAMES+=("cargo")
+    TOOL_VERSION_VALUES+=("unknown")
+  fi
+}
+
+# Emit a JSON object key-value pair for tool_versions or features.
+# Usage: json_pairs "key1" "val1" "key2" "val2" ...
+# Output: "key1": "val1", "key2": "val2"
+json_pairs() {
+  local out=""
+  while [ $# -ge 2 ]; do
+    if [ -n "$out" ]; then
+      out="$out, "
+    fi
+    out="$out\"$1\": \"$2\""
+    shift 2
+  done
+  printf '%s' "$out"
+}
+
+# Write a single gate evidence JSON file.
+# Usage: write_gate_evidence <gate_id> <result> <command> <exit_code> <start_iso> <end_iso> <duration_secs>
+write_gate_evidence() {
+  local gate_id="$1"
+  local result="$2"
+  local command="$3"
+  local exit_code="$4"
+  local start_iso="$5"
+  local end_iso="$6"
+  local duration_secs="$7"
+
+  [ -z "$RUN_TIMESTAMP" ] && return 0
+
+  local gates_dir="$EVIDENCE_BASE/local/$RUN_TIMESTAMP/gates"
+  mkdir -p "$gates_dir"
+
+  local tool_json=""
+  local i
+  for (( i=0; i<${#TOOL_VERSION_NAMES[@]}; i++ )); do
+    if [ -n "$tool_json" ]; then
+      tool_json="$tool_json, "
+    fi
+    tool_json="$tool_json\"${TOOL_VERSION_NAMES[$i]}\": \"${TOOL_VERSION_VALUES[$i]}\""
+  done
+
+  local tmp_file
+  tmp_file="$(mktemp "${gates_dir}/${gate_id}.json.XXXXXX")"
+  cat > "$tmp_file" <<EOFEVIDENCE
+{
+  "schema_version": "1.0.0",
+  "gate_id": "$gate_id",
+  "result": "$result",
+  "evidence_class": "LOCAL",
+  "command": $(printf '%s' "$command" | python3 -c 'import sys,json; print(json.dumps(sys.stdin.read()))'),
+  "exit_code": $exit_code,
+  "start_time": "$start_iso",
+  "end_time": "$end_iso",
+  "duration_secs": $duration_secs,
+  "commit_sha": "$COMMIT_SHA",
+  "dirty_tree": $DIRTY_TREE,
+  "os": "$(uname -s)",
+  "arch": "$(uname -m)",
+  "tool_versions": { $tool_json },
+  "features": [],
+  "log_path": null
+}
+EOFEVIDENCE
+  mv "$tmp_file" "${gates_dir}/${gate_id}.json"
+}
+
+# Write the manifest.json for this run.
+# Usage: write_manifest <mode>
+write_manifest() {
+  local mode="$1"
+  local manifest_dir="$EVIDENCE_BASE/local/$RUN_TIMESTAMP"
+  mkdir -p "$manifest_dir"
+
+  local now_iso
+  now_iso="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+  local gates_json=""
+  # Iterate over collected gate results (stored as parallel arrays)
+  local i
+  for (( i=0; i<${#GATE_IDS[@]}; i++ )); do
+    if [ -n "$gates_json" ]; then
+      gates_json="$gates_json,"
+    fi
+    gates_json="$gates_json
+    {\"gate_id\": \"${GATE_IDS[$i]}\", \"result\": \"${GATE_RESULTS[$i]}\", \"duration_secs\": ${GATE_DURATIONS[$i]}}"
+  done
+
+  local tmp_file
+  tmp_file="$(mktemp "${manifest_dir}/manifest.json.XXXXXX")"
+  cat > "$tmp_file" <<EOFMANIFEST
+{
+  "schema_version": "1.0.0",
+  "mode": "$mode",
+  "commit_sha": "$COMMIT_SHA",
+  "dirty_tree": $DIRTY_TREE,
+  "start_time": "$RUN_START_ISO",
+  "end_time": "$now_iso",
+  "total": $TOTAL_COUNT,
+  "passed": $PASS_COUNT,
+  "failed": $FAIL_COUNT,
+  "skipped": $SKIP_COUNT,
+  "gates": [$gates_json
+  ]
+}
+EOFMANIFEST
+  mv "$tmp_file" "${manifest_dir}/manifest.json"
+  info "Evidence written to $manifest_dir"
 }
 
 # ---------------------------------------------------------------------------
@@ -205,6 +372,22 @@ preflight() {
     die "Not inside a git repository"
   fi
 
+  # Collect run metadata
+  RUN_TIMESTAMP="$(date -u +"%Y%m%dT%H%M%S")"
+  RUN_START_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+  COMMIT_SHA="$(git -C "$REPO_ROOT" rev-parse HEAD 2>/dev/null || echo "unknown")"
+  local dirty_raw
+  dirty_raw="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
+  if [ -n "$dirty_raw" ]; then
+    DIRTY_TREE="true"
+  else
+    DIRTY_TREE="false"
+  fi
+  collect_tool_versions
+
+  # Create evidence directory
+  mkdir -p "$EVIDENCE_BASE/local/$RUN_TIMESTAMP/gates"
+
   # Verify criteria.toml exists
   if [ ! -f "$CRITERIA_FILE" ]; then
     die "Criteria file not found: $CRITERIA_FILE"
@@ -223,13 +406,11 @@ preflight() {
   success "criteria.toml is valid"
 
   # Display dirty-tree state
-  local dirty
-  dirty="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then
+  if [ -n "$dirty_raw" ]; then
     warn "Dirty working tree — local runs are not release evidence"
-    printf "${DIM}$(echo "$dirty" | head -20)${RESET}\n"
+    printf "${DIM}$(echo "$dirty_raw" | head -20)${RESET}\n"
     local line_count
-    line_count="$(echo "$dirty" | wc -l | tr -d ' ')"
+    line_count="$(echo "$dirty_raw" | wc -l | tr -d ' ')"
     if [ "$line_count" -gt 20 ]; then
       printf "${DIM}  ... and %d more files${RESET}\n" "$((line_count - 20))"
     fi
@@ -290,6 +471,9 @@ cmd_check_generated() {
 cmd_fast() {
   header "Fast validation (routine development)"
 
+  run_gate "contract-consistency" "Contract consistency validation" \
+    "python3 '$SCRIPT_DIR/check-contract-consistency.py'"
+
   # 1. Criteria validation (already done in preflight, but explicit here)
   run_gate "rust.format" "Rust formatting check" \
     "cargo fmt --all -- --check"
@@ -316,6 +500,9 @@ cmd_fast() {
 
 cmd_full() {
   header "Full validation (pre-release)"
+
+  run_gate "contract-consistency" "Contract consistency validation" \
+    "python3 '$SCRIPT_DIR/check-contract-consistency.py'"
 
   # === Fast mode gates ===
   info "Running fast-mode gates first..."
@@ -434,6 +621,23 @@ cmd_explain() {
 }
 
 # ---------------------------------------------------------------------------
+# Mode: metadata — contract consistency + criteria + generated files
+# ---------------------------------------------------------------------------
+
+cmd_metadata() {
+  header "Metadata consistency checks"
+
+  run_gate "contract-consistency" "Contract consistency validation" \
+    "python3 '$SCRIPT_DIR/check-contract-consistency.py'"
+
+  run_gate "criteria.validate" "Criteria file validation" \
+    "python3 '$CRITERIA_PY' validate '$CRITERIA_FILE'"
+
+  run_gate "check-generated" "Generated file cleanliness" \
+    "bash '$SCRIPT_DIR/release-validate.sh' check-generated"
+}
+
+# ---------------------------------------------------------------------------
 # Summary
 # ---------------------------------------------------------------------------
 
@@ -455,9 +659,11 @@ print_summary() {
       printf "${DIM}  First failure: %s${RESET}\n" "$FIRST_FAILURE"
     fi
     printf "\n"
+    write_manifest "${CURRENT_MODE:-unknown}"
     return 1
   else
     printf "${GREEN}${BOLD}RESULT: PASSED${RESET}\n\n"
+    write_manifest "${CURRENT_MODE:-unknown}"
     return 0
   fi
 }
@@ -477,6 +683,7 @@ ${BOLD}Usage:${RESET}
   $0 list                 List all gates
   $0 explain <gate-id>    Explain a single gate
   $0 check-generated      Verify generated files are clean
+  $0 metadata             Contract consistency + criteria + generated file checks
   $0 help                 Show this help
 
 ${BOLD}Modes:${RESET}
@@ -486,6 +693,11 @@ ${BOLD}Modes:${RESET}
   ${GREEN}list${RESET}             Display all gates from criteria.toml
   ${GREEN}explain <id>${RESET}      Show full details for a specific gate
   ${GREEN}check-generated${RESET}   Verify checklists and artifacts are up to date
+  ${GREEN}metadata${RESET}          Contract consistency, criteria validation, generated file checks
+
+${BOLD}Evidence output:${RESET}
+  Structured JSON evidence is written to target/release-evidence/local/<timestamp>/
+  Contains per-gate results and a summary manifest.json
 
 ${BOLD}Safety:${RESET}
   - Never publishes or requires production registry credentials
@@ -498,6 +710,7 @@ ${BOLD}Examples:${RESET}
   $0 gate rust.format       # run just the format check
   $0 gate http.raw-wire     # run just the wire tests
   $0 explain rust.clippy    # show details for a gate
+  $0 metadata               # check contract and metadata consistency
 EOF
 }
 
@@ -511,32 +724,44 @@ main() {
 
   case "$mode" in
     fast)
+      CURRENT_MODE="fast"
       preflight
       cmd_fast
       print_summary
       ;;
     full)
+      CURRENT_MODE="full"
       preflight
       cmd_full
       print_summary
       ;;
     gate)
+      CURRENT_MODE="gate"
       preflight
       local gate_id="${1:-}"
       cmd_gate "$gate_id"
       print_summary
       ;;
     list)
+      CURRENT_MODE="list"
       preflight
       cmd_list
       ;;
     explain)
+      CURRENT_MODE="explain"
       preflight
       local gate_id="${1:-}"
       cmd_explain "$gate_id"
       ;;
     check-generated)
+      CURRENT_MODE="check-generated"
       cmd_check_generated
+      ;;
+    metadata)
+      CURRENT_MODE="metadata"
+      preflight
+      cmd_metadata
+      print_summary
       ;;
     help|--help|-h)
       usage

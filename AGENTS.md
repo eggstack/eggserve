@@ -103,10 +103,12 @@ bash scripts/install-cargo-tools.sh                        # deterministic audit
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
 bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
+python3 scripts/check-contract-consistency.py              # contract consistency validation
 # Unified local validation:
 ./scripts/release-validate.sh fast                 # routine dev check
 ./scripts/release-validate.sh full                 # pre-release validation
 ./scripts/release-validate.sh gate <gate-id>       # run a single gate
+./scripts/release-validate.sh metadata             # metadata/contract consistency check
 ./scripts/release_criteria.py validate release/criteria.toml  # validate criteria
 ./scripts/release_criteria.py list                 # list all gates
 ```
@@ -186,6 +188,14 @@ cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
 ```
 
+Release infrastructure tests:
+
+```sh
+python3 -m unittest scripts.test_release_criteria -v      # criteria validator unit tests
+python3 -m unittest scripts.test_check_contract_consistency -v  # contract consistency tests
+python3 -m unittest scripts.test_release_safety -v        # release safety tests
+```
+
 Packaging smoke tests (installed-wheel validation, no source-tree imports):
 
 ```sh
@@ -222,6 +232,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Typed lifecycle/response exceptions**: `LifecycleError` (double start, stop before start) and `ResponseConstructionError` (response validation failure) are typed exceptions, not generic `PyValueError`.
 - **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation.
 - **Generated release checklist** — `docs/release-checklist-generated.md` is generated from `release/criteria.toml`. Do not edit by hand; regenerate with `python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml`.
+- **Contract consistency** — `scripts/check-contract-consistency.py` validates that documentation claims are consistent (TLS, Python version, package versions, platform classifications, stable API inventory, README links). Run via `./scripts/release-validate.sh metadata` or directly.
 
 ## Plan-driven development
 
@@ -266,6 +277,7 @@ Before implementing any feature, check:
 - [docs/action-pinning.md](docs/action-pinning.md) — GitHub Action SHA pinning policy and update procedure
 - [docs/release-process.md](docs/release-process.md) — release operator guide, evidence philosophy, and failure handling
 - [docs/library-capability-matrix.md](docs/library-capability-matrix.md) — Rust/Python/CLI capability parity matrix
+- [docs/toolchain-support.md](docs/toolchain-support.md) — language, toolchain, and platform support policy
 - [release/criteria.toml](release/criteria.toml) — machine-readable release gate definitions (source of truth)
 
 ## Architecture deep dives

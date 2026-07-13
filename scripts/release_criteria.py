@@ -11,11 +11,15 @@ Requires Python 3.11+ (``tomllib``).  No external dependencies.
 from __future__ import annotations
 
 import argparse
+import fnmatch
 import json
+import platform
 import re
+import subprocess
 import sys
 from collections import deque
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -136,6 +140,95 @@ class Gate:
             d["doc_ref"] = self.doc_ref
         if self.waiver_authority is not None:
             d["waiver_authority"] = self.waiver_authority
+        return d
+
+
+@dataclass
+class EvidenceRecord:
+    """A single evidence record for a gate execution."""
+
+    schema_version: str
+    gate_id: str
+    result: str  # "passed", "failed", "skipped", "not-applicable", "error"
+    evidence_class: str  # "LOCAL", "GITHUB", "ARTIFACT", "HUMAN", "CONFIG"
+    command: str
+    exit_code: int
+    start_time: str  # ISO 8601
+    end_time: str  # ISO 8601
+    duration_secs: float
+    commit_sha: str
+    dirty_tree: bool
+    os: str
+    arch: str
+    tool_versions: dict[str, str] = field(default_factory=dict)
+    features: list[str] = field(default_factory=list)
+    log_path: str | None = None
+    skip_reason: str | None = None
+    workflow_run_url: str | None = None  # GITHUB only
+    job_id: str | None = None  # GITHUB only
+    runner_os: str | None = None  # GITHUB only
+    artifact_ids: list[str] = field(default_factory=list)  # ARTIFACT only
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "schema_version": self.schema_version,
+            "gate_id": self.gate_id,
+            "result": self.result,
+            "evidence_class": self.evidence_class,
+            "command": self.command,
+            "exit_code": self.exit_code,
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_secs": self.duration_secs,
+            "commit_sha": self.commit_sha,
+            "dirty_tree": self.dirty_tree,
+            "os": self.os,
+            "arch": self.arch,
+            "tool_versions": self.tool_versions,
+            "features": self.features,
+        }
+        if self.log_path is not None:
+            d["log_path"] = self.log_path
+        if self.skip_reason is not None:
+            d["skip_reason"] = self.skip_reason
+        if self.workflow_run_url is not None:
+            d["workflow_run_url"] = self.workflow_run_url
+        if self.job_id is not None:
+            d["job_id"] = self.job_id
+        if self.runner_os is not None:
+            d["runner_os"] = self.runner_os
+        if self.artifact_ids:
+            d["artifact_ids"] = self.artifact_ids
+        return d
+
+
+@dataclass
+class WaiverRecord:
+    """A waiver for a specific gate."""
+
+    gate_id: str
+    candidate_sha: str
+    approver: str
+    date: str  # ISO 8601
+    rationale: str
+    risk_classification: str  # "low", "medium", "high", "critical"
+    expiration: str  # ISO 8601
+    compensating_controls: list[str] = field(default_factory=list)
+    disclosure: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        d: dict[str, Any] = {
+            "gate_id": self.gate_id,
+            "candidate_sha": self.candidate_sha,
+            "approver": self.approver,
+            "date": self.date,
+            "rationale": self.rationale,
+            "risk_classification": self.risk_classification,
+            "expiration": self.expiration,
+            "compensating_controls": self.compensating_controls,
+        }
+        if self.disclosure is not None:
+            d["disclosure"] = self.disclosure
         return d
 
 
@@ -600,6 +693,77 @@ def topological_sort(gates: list[Gate]) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Evidence freshness and invalidation
+# ---------------------------------------------------------------------------
+
+def is_path_invalidated(changed_paths: list[str], patterns: list[str]) -> bool:
+    """Check if any changed path matches any invalidation pattern."""
+    for path in changed_paths:
+        for pattern in patterns:
+            if fnmatch.fnmatch(path, pattern):
+                return True
+    return False
+
+
+def is_evidence_valid(
+    gate: Gate,
+    evidence: EvidenceRecord,
+    candidate_sha: str,
+    changed_paths: list[str],
+) -> tuple[bool, list[str]]:
+    """Check if evidence is valid for a gate given current state.
+
+    Returns (is_valid, reasons) where reasons lists invalidity causes.
+    """
+    reasons: list[str] = []
+
+    if gate.waiver_allowed:
+        return True, ["waived"]
+
+    if evidence.gate_id != gate.id:
+        reasons.append(f"evidence gate_id '{evidence.gate_id}' != gate '{gate.id}'")
+
+    if evidence.result not in ("passed", "skipped", "not-applicable"):
+        reasons.append(f"evidence result is '{evidence.result}', not a passing state")
+
+    if gate.max_age_days == 0:
+        if evidence.commit_sha != candidate_sha:
+            reasons.append(
+                f"exact-SHA gate requires commit '{candidate_sha}', "
+                f"evidence has '{evidence.commit_sha}'"
+            )
+    else:
+        try:
+            evidence_time = datetime.fromisoformat(evidence.end_time)
+            now = datetime.now(timezone.utc)
+            if evidence_time.tzinfo is None:
+                evidence_time = evidence_time.replace(tzinfo=timezone.utc)
+            age_days = (now - evidence_time).total_seconds() / 86400.0
+            if age_days > gate.max_age_days:
+                reasons.append(
+                    f"evidence is {age_days:.1f} days old, "
+                    f"max allowed is {gate.max_age_days}"
+                )
+        except (ValueError, TypeError):
+            reasons.append(f"could not parse evidence end_time '{evidence.end_time}'")
+
+    if gate.invalidated_by and is_path_invalidated(changed_paths, gate.invalidated_by):
+        reasons.append(
+            f"changed paths match invalidation patterns: {gate.invalidated_by}"
+        )
+
+    if gate.artifacts:
+        if not evidence.artifact_ids:
+            reasons.append("gate requires artifacts but evidence has none")
+        else:
+            missing = [a for a in gate.artifacts if a not in evidence.artifact_ids]
+            if missing:
+                reasons.append(f"missing required artifacts: {missing}")
+
+    return len(reasons) == 0, reasons
+
+
+# ---------------------------------------------------------------------------
 # Subcommands
 # ---------------------------------------------------------------------------
 
@@ -863,6 +1027,181 @@ def cmd_generate_checklist(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_check_evidence(args: argparse.Namespace) -> int:
+    """Validate evidence against criteria gates."""
+    criteria, _ = parse_criteria_file(args.criteria)
+    gate_map = criteria.gate_by_id()
+
+    evidence_path = Path(args.evidence)
+    if not evidence_path.exists():
+        print(f"ERROR: evidence file not found: {args.evidence}", file=sys.stderr)
+        return 2
+
+    raw = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    candidate_sha = args.sha
+    changed_paths: list[str] = []
+    if args.changed_paths:
+        changed_paths = [p.strip() for p in args.changed_paths.split(",") if p.strip()]
+
+    results: list[dict[str, Any]] = []
+    all_valid = True
+
+    for item in raw:
+        evidence = EvidenceRecord(
+            schema_version=item.get("schema_version", ""),
+            gate_id=item.get("gate_id", ""),
+            result=item.get("result", ""),
+            evidence_class=item.get("evidence_class", ""),
+            command=item.get("command", ""),
+            exit_code=item.get("exit_code", 0),
+            start_time=item.get("start_time", ""),
+            end_time=item.get("end_time", ""),
+            duration_secs=item.get("duration_secs", 0.0),
+            commit_sha=item.get("commit_sha", ""),
+            dirty_tree=item.get("dirty_tree", False),
+            os=item.get("os", ""),
+            arch=item.get("arch", ""),
+            tool_versions=item.get("tool_versions", {}),
+            features=item.get("features", []),
+            log_path=item.get("log_path"),
+            skip_reason=item.get("skip_reason"),
+            workflow_run_url=item.get("workflow_run_url"),
+            job_id=item.get("job_id"),
+            runner_os=item.get("runner_os"),
+            artifact_ids=item.get("artifact_ids", []),
+        )
+
+        gate = gate_map.get(evidence.gate_id)
+        if gate is None:
+            results.append({
+                "gate_id": evidence.gate_id,
+                "valid": False,
+                "reasons": [f"unknown gate '{evidence.gate_id}'"],
+            })
+            all_valid = False
+            continue
+
+        valid, reasons = is_evidence_valid(gate, evidence, candidate_sha, changed_paths)
+        results.append({
+            "gate_id": evidence.gate_id,
+            "valid": valid,
+            "reasons": reasons,
+        })
+        if not valid:
+            all_valid = False
+
+    if args.format == "json":
+        output = {
+            "all_valid": all_valid,
+            "candidate_sha": candidate_sha,
+            "results": results,
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        for r in results:
+            status = "PASS" if r["valid"] else "FAIL"
+            reasons_str = ""
+            if r["reasons"]:
+                reasons_str = f"  ({'; '.join(r['reasons'])})"
+            print(f"  {status} {r['gate_id']}{reasons_str}")
+        print()
+        if all_valid:
+            print("All evidence valid.")
+        else:
+            print("Some evidence is invalid.", file=sys.stderr)
+
+    return 0 if all_valid else 1
+
+
+def cmd_record_waiver(args: argparse.Namespace) -> int:
+    """Record a waiver and output JSON to stdout."""
+    now = datetime.now(timezone.utc).isoformat()
+    waiver = WaiverRecord(
+        gate_id=args.gate_id,
+        candidate_sha=args.sha,
+        approver=args.approver,
+        date=now,
+        rationale=args.rationale,
+        risk_classification=args.risk,
+        expiration=args.expiration,
+        compensating_controls=[],
+        disclosure=None,
+    )
+    print(json.dumps(waiver.to_dict(), indent=2))
+    return 0
+
+
+def cmd_validate_evidence(args: argparse.Namespace) -> int:
+    """Validate an evidence JSON file against the schema."""
+    evidence_path = Path(args.evidence)
+    if not evidence_path.exists():
+        print(f"ERROR: evidence file not found: {args.evidence}", file=sys.stderr)
+        return 2
+
+    raw = json.loads(evidence_path.read_text(encoding="utf-8"))
+    if isinstance(raw, dict):
+        raw = [raw]
+
+    errors: list[str] = []
+    required_fields = {
+        "schema_version", "gate_id", "result", "evidence_class",
+        "command", "exit_code", "start_time", "end_time",
+        "duration_secs", "commit_sha", "dirty_tree", "os", "arch",
+    }
+    valid_results = {"passed", "failed", "skipped", "not-applicable", "error"}
+    valid_classes = {"LOCAL", "GITHUB", "ARTIFACT", "HUMAN", "CONFIG"}
+
+    for idx, item in enumerate(raw):
+        prefix = f"record[{idx}]"
+        for fld in required_fields:
+            if fld not in item:
+                errors.append(f"{prefix}: missing required field '{fld}'")
+
+        if "result" in item and item["result"] not in valid_results:
+            errors.append(
+                f"{prefix}: invalid result '{item['result']}'; "
+                f"valid: {sorted(valid_results)}"
+            )
+
+        if "evidence_class" in item and item["evidence_class"] not in valid_classes:
+            errors.append(
+                f"{prefix}: invalid evidence_class '{item['evidence_class']}'; "
+                f"valid: {sorted(valid_classes)}"
+            )
+
+        if "exit_code" in item and not isinstance(item["exit_code"], int):
+            errors.append(f"{prefix}: exit_code must be an integer")
+
+        if "duration_secs" in item and not isinstance(
+            item["duration_secs"], (int, float)
+        ):
+            errors.append(f"{prefix}: duration_secs must be a number")
+
+        if "dirty_tree" in item and not isinstance(item["dirty_tree"], bool):
+            errors.append(f"{prefix}: dirty_tree must be a boolean")
+
+    if args.format == "json":
+        output = {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "record_count": len(raw),
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        for err in errors:
+            print(f"ERROR: {err}", file=sys.stderr)
+        if errors:
+            print(f"\n{len(errors)} error(s) in {len(raw)} record(s)",
+                  file=sys.stderr)
+        else:
+            print(f"OK: {len(raw)} record(s) valid")
+
+    return 1 if errors else 0
+
+
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -970,6 +1309,97 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
 
+    # check-evidence
+    p_ce = sub.add_parser(
+        "check-evidence",
+        help="Validate evidence against criteria gates",
+    )
+    p_ce.add_argument(
+        "--criteria",
+        default="release/criteria.toml",
+        help="Path to criteria TOML file",
+    )
+    p_ce.add_argument(
+        "--evidence",
+        required=True,
+        help="Path to evidence JSON file",
+    )
+    p_ce.add_argument(
+        "--sha",
+        required=True,
+        help="Candidate commit SHA",
+    )
+    p_ce.add_argument(
+        "--changed-paths",
+        default=None,
+        help="Comma-separated list of changed paths",
+    )
+    p_ce.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
+    # record-waiver
+    p_rw = sub.add_parser(
+        "record-waiver",
+        help="Record a waiver (outputs JSON to stdout)",
+    )
+    p_rw.add_argument(
+        "--criteria",
+        default="release/criteria.toml",
+        help="Path to criteria TOML file",
+    )
+    p_rw.add_argument(
+        "--gate-id",
+        required=True,
+        help="Gate ID to waive",
+    )
+    p_rw.add_argument(
+        "--sha",
+        required=True,
+        help="Candidate commit SHA",
+    )
+    p_rw.add_argument(
+        "--approver",
+        required=True,
+        help="Name of the approver",
+    )
+    p_rw.add_argument(
+        "--rationale",
+        required=True,
+        help="Rationale for the waiver",
+    )
+    p_rw.add_argument(
+        "--risk",
+        choices=["low", "medium", "high", "critical"],
+        required=True,
+        help="Risk classification",
+    )
+    p_rw.add_argument(
+        "--expiration",
+        required=True,
+        help="Expiration date (ISO 8601)",
+    )
+
+    # validate-evidence
+    p_ve = sub.add_parser(
+        "validate-evidence",
+        help="Validate an evidence JSON file against the schema",
+    )
+    p_ve.add_argument(
+        "--evidence",
+        required=True,
+        help="Path to evidence JSON file",
+    )
+    p_ve.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
     return parser
 
 
@@ -988,6 +1418,9 @@ def main() -> int:
         "explain": lambda: cmd_explain(args),
         "graph": lambda: cmd_graph(args),
         "generate-checklist": lambda: cmd_generate_checklist(args),
+        "check-evidence": lambda: cmd_check_evidence(args),
+        "record-waiver": lambda: cmd_record_waiver(args),
+        "validate-evidence": lambda: cmd_validate_evidence(args),
     }
 
     handler = handlers.get(args.command)

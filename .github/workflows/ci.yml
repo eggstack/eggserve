@@ -19,7 +19,7 @@ env:
 
 jobs:
   rust-check:
-    name: Rust ${{ matrix.os }}
+    name: gate/rust-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -41,9 +41,18 @@ jobs:
       - run: cargo test -p eggserve-core --features client-tls
       - run: cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
       - run: cargo test -p eggserve-bin --features tls
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-rust-${{ matrix.os }}
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   supply-chain:
-    name: Supply chain audit
+    name: gate/supply-chain
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -56,9 +65,18 @@ jobs:
         run: bash scripts/install-cargo-tools.sh
       - run: cargo audit
       - run: cargo deny check
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-supply-chain
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   wire-tests:
-    name: Raw wire tests
+    name: gate/http-wire
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -69,9 +87,18 @@ jobs:
       - run: cargo test -p eggserve-core --test http_wire_correctness
       - run: cargo test -p eggserve-core --test http_primitives_integration
       - run: cargo test -p eggserve-bin --test production_path
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-http-wire
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   corpus-replay:
-    name: Corpus replay
+    name: gate/corpus-replay
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
@@ -87,8 +114,18 @@ jobs:
           else
             echo "No fuzz corpus directory, skipping"
           fi
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-corpus-replay
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   python-unit-tests:
+    name: gate/python-unit-tests
     needs: [rust-check]
     runs-on: ubuntu-latest
     env:
@@ -139,8 +176,18 @@ jobs:
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_server_integration -v
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-python-unit-tests
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   packaging-smoke:
+    name: gate/packaging-smoke
     needs: [python-unit-tests]
     runs-on: ubuntu-latest
     env:
@@ -171,8 +218,18 @@ jobs:
         run: |
           cd crates/eggserve-python/packaging-tests
           bash run_all.sh ../../dist/*.whl python
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-packaging-smoke
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   cargo-package:
+    name: gate/package
     needs: [rust-check]
     runs-on: ubuntu-latest
     steps:
@@ -183,9 +240,18 @@ jobs:
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - name: Validate publishable Rust packages
         run: bash scripts/verify-cargo-packages.sh
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-package
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
 
   wheel-smoke:
-    name: Installed wheel ${{ matrix.os }}
+    name: gate/python-${{ matrix.os }}
     needs: [rust-check]
     runs-on: ${{ matrix.os }}
     strategy:
@@ -227,3 +293,59 @@ jobs:
         env:
           PYTHONPATH: ""
         run: bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-python-${{ matrix.os }}
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  evidence-aggregate:
+    name: gate/evidence-aggregate
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [rust-check, supply-chain, wire-tests, corpus-replay, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: gate-evidence-*
+          path: evidence-artifacts/
+          merge-multiple: false
+      - name: Validate evidence records
+        run: |
+          python3 scripts/release_criteria.py validate \
+            release/criteria.toml
+          echo "Evidence artifacts collected:"
+          find evidence-artifacts/ -type f -name '*.json' | sort || true
+      - name: Verify commit SHA consistency
+        run: |
+          COMMIT_SHA="${GITHUB_SHA}"
+          echo "Expected commit: ${COMMIT_SHA}"
+          find evidence-artifacts/ -type f -name '*.json' -exec \
+            python3 -c "
+          import json, sys
+          expected = sys.argv[1]
+          for f in sys.argv[2:]:
+              try:
+                  data = json.load(open(f))
+                  sha = data.get('commit_sha', '')
+                  if sha and sha != expected:
+                      print('WARNING: %s has commit %s, expected %s' % (f, sha, expected))
+              except Exception:
+                  pass
+          " "${COMMIT_SHA}" {} +
+      - name: Upload aggregate manifest
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-evidence-manifest
+          path: evidence-artifacts/
+          retention-days: 30
