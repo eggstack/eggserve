@@ -50,6 +50,8 @@ jobs:
         with:
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Install pinned cargo supply-chain tools
+        run: bash scripts/install-cargo-tools.sh
       - run: cargo audit
       - run: cargo deny check
 
@@ -92,9 +94,16 @@ jobs:
         with:
           python-version: "3.14"
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: pip install maturin
+      - run: pip install maturin==1.14.1
+      - name: Build packaged CLI binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage packaged CLI binary
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
       - name: Build wheel
-        run: maturin build --release --interpreter 3.14 -o dist
+        run: maturin build --release --interpreter python -o dist
         working-directory: crates/eggserve-python
       - name: Install wheel
         run: pip install --force-reinstall crates/eggserve-python/dist/*.whl
@@ -135,16 +144,23 @@ jobs:
         with:
           python-version: "3.14"
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: pip install maturin
+      - run: pip install maturin==1.14.1
+      - name: Build packaged CLI binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage packaged CLI binary
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
       - name: Build wheel
-        run: maturin build --release --interpreter 3.14 -o dist
+        run: maturin build --release --interpreter python -o dist
         working-directory: crates/eggserve-python
       - name: Run packaging smoke tests
         env:
           PYTHONPATH: ""
         run: |
           cd crates/eggserve-python/packaging-tests
-          bash run_all.sh ../../dist/*.whl python3.14
+          bash run_all.sh ../../dist/*.whl python
 
   cargo-package:
     needs: [rust-check]
@@ -153,5 +169,47 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: cargo package -p eggserve-core --locked
-      - run: cargo build -p eggserve-bin --locked
+      - name: Validate publishable Rust packages
+        run: bash scripts/verify-cargo-packages.sh
+
+  wheel-smoke:
+    name: Installed wheel ${{ matrix.os }}
+    needs: [rust-check]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - run: python -m pip install maturin==1.14.1
+      - name: Build packaged CLI binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage packaged CLI binary (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
+      - name: Stage packaged CLI binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force crates/eggserve-python/python/eggserve/bin | Out-Null
+          Copy-Item target/release/eggserve.exe crates/eggserve-python/python/eggserve/bin/eggserve.exe
+      - name: Build wheel
+        run: maturin build --release --interpreter python -o dist
+        working-directory: crates/eggserve-python
+      - name: Run installed-wheel smoke tests
+        shell: bash
+        env:
+          PYTHONPATH: ""
+        run: bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python

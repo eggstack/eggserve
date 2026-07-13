@@ -9,13 +9,13 @@ source tree. Uses only stdlib + eggserve.
 import subprocess
 import sys
 import unittest
+from pathlib import Path
 
 
 class TestCliHelp(unittest.TestCase):
     """python -m eggserve --help must exit 0 and print usage info.
 
-    NOTE: This test requires the eggserve binary to be installed.
-    If the binary is not found, the test is skipped.
+    The wheel must contain the platform-native eggserve binary.
     """
 
     def _run_help(self):
@@ -26,16 +26,12 @@ class TestCliHelp(unittest.TestCase):
             timeout=10,
         )
 
-    def test_module_help_exits_zero_or_skipped(self):
+    def test_module_help_exits_zero(self):
         result = self._run_help()
-        if result.returncode != 0 and "binary not found" in result.stderr.lower():
-            self.skipTest("eggserve binary not found")
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
 
     def test_module_help_outputs_usage(self):
         result = self._run_help()
-        if result.returncode != 0 and "binary not found" in result.stderr.lower():
-            self.skipTest("eggserve binary not found")
         output = result.stdout + result.stderr
         output_lower = output.lower()
         self.assertTrue(
@@ -45,22 +41,16 @@ class TestCliHelp(unittest.TestCase):
 
     def test_module_help_mentions_directory(self):
         result = self._run_help()
-        if result.returncode != 0 and "binary not found" in result.stderr.lower():
-            self.skipTest("eggserve binary not found")
         output = result.stdout + result.stderr
         self.assertIn("--directory", output)
 
     def test_module_help_mentions_bind(self):
         result = self._run_help()
-        if result.returncode != 0 and "binary not found" in result.stderr.lower():
-            self.skipTest("eggserve binary not found")
         output = result.stdout + result.stderr
         self.assertIn("--bind", output)
 
     def test_module_help_mentions_port(self):
         result = self._run_help()
-        if result.returncode != 0 and "binary not found" in result.stderr.lower():
-            self.skipTest("eggserve binary not found")
         output = result.stdout + result.stderr
         self.assertIn("--port", output)
 
@@ -68,37 +58,32 @@ class TestCliHelp(unittest.TestCase):
 class TestBinaryDiscovery(unittest.TestCase):
     """The eggserve binary must be discoverable by the _bin module.
 
-    NOTE: The Python wheel does not bundle the binary. Binary discovery
-    depends on the binary being installed separately (e.g., via cargo install
-    or PATH). If the binary is not found, these tests are skipped.
+    The Python wheel must bundle the binary so discovery is deterministic.
     """
 
     def setUp(self):
         try:
             from eggserve._bin import _find_binary
             self._binary_path = _find_binary()
-        except FileNotFoundError:
-            self._binary_path = None
+        except FileNotFoundError as exc:
+            self.fail(str(exc))
 
-    def test_find_binary_succeeds_or_skipped(self):
-        """Binary discovery succeeds if binary is installed, else skip."""
-        if self._binary_path is None:
-            self.skipTest("eggserve binary not found on PATH")
+    def test_find_binary_succeeds(self):
+        """Binary discovery must resolve the wheel's bundled binary."""
         self.assertIsInstance(self._binary_path, str)
         self.assertGreater(len(self._binary_path), 0)
+        binary_path = Path(self._binary_path)
+        self.assertEqual(binary_path.parent.name, "bin")
+        self.assertEqual(binary_path.parent.parent.name, "eggserve")
 
-    def test_binary_is_executable_or_skipped(self):
-        """Binary must be executable if found."""
-        if self._binary_path is None:
-            self.skipTest("eggserve binary not found on PATH")
+    def test_binary_is_executable(self):
+        """Binary must be executable when installed from the wheel."""
         import os
         self.assertTrue(os.path.isfile(self._binary_path))
         self.assertTrue(os.access(self._binary_path, os.X_OK))
 
-    def test_binary_executes_with_help_or_skipped(self):
-        """Binary must respond to --help if found."""
-        if self._binary_path is None:
-            self.skipTest("eggserve binary not found on PATH")
+    def test_binary_executes_with_help(self):
+        """Binary must respond to --help when installed from the wheel."""
         result = subprocess.run(
             [self._binary_path, "--help"],
             capture_output=True,

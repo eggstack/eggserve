@@ -14,14 +14,6 @@ on:
         options:
           - "true"
           - "false"
-      release_candidate:
-        description: "Release candidate (suffix version with -rc.N)"
-        required: false
-        default: "false"
-        type: choice
-        options:
-          - "true"
-          - "false"
 
 permissions:
   contents: read
@@ -37,6 +29,13 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+
+      - name: Install pinned cargo supply-chain tools
+        run: bash scripts/install-cargo-tools.sh
 
       - name: Validate tag version consistency
         run: |
@@ -104,9 +103,7 @@ jobs:
           fi
 
       - name: Package verification
-        run: |
-          cargo package -p eggserve-core --locked
-          cargo build -p eggserve-bin --locked
+        run: bash scripts/verify-cargo-packages.sh
 
   build-artifacts:
     name: Build ${{ matrix.target }}
@@ -131,6 +128,9 @@ jobs:
           - target: aarch64-apple-darwin
             os: macos-latest
             artifact: eggserve-aarch64-apple-darwin
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            artifact: eggserve-x86_64-pc-windows-msvc
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -150,23 +150,48 @@ jobs:
       - name: Build binary
         run: cargo build --release --locked --target ${{ matrix.target }} -p eggserve-bin
 
-      - name: Package binary
+      - name: Package Unix binary
+        if: runner.os != 'Windows'
+        shell: bash
         run: |
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../${{ matrix.artifact }}.tar.gz eggserve
-          cd ../../..
+          mkdir -p release-files
+          cp target/${{ matrix.target }}/release/eggserve release-files/eggserve
+          cp README.md LICENSE release-files/
+          tar czf ${{ matrix.artifact }}.tar.gz -C release-files .
 
-      - name: Upload artifact
+      - name: Package Windows binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force release-files | Out-Null
+          Copy-Item target/${{ matrix.target }}/release/eggserve.exe release-files/eggserve.exe
+          Copy-Item README.md, LICENSE release-files/
+          Compress-Archive -Path release-files/* -DestinationPath ${{ matrix.artifact }}.zip
+
+      - name: Upload Unix artifact
+        if: runner.os != 'Windows'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.artifact }}.tar.gz
           retention-days: 5
 
+      - name: Upload Windows artifact
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}.zip
+          retention-days: 5
+
   build-python:
     name: Build Python wheel
     needs: [validate]
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
     env:
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     permissions:
@@ -179,17 +204,35 @@ jobs:
           python-version: "3.14"
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
         with:
-          key: release-python
-      - run: pip install maturin
+          key: release-python-${{ matrix.os }}
+      - run: python -m pip install maturin==1.14.1
+      - name: Build packaged CLI binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage packaged CLI binary (Unix)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
+      - name: Stage packaged CLI binary (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force crates/eggserve-python/python/eggserve/bin | Out-Null
+          Copy-Item target/release/eggserve.exe crates/eggserve-python/python/eggserve/bin/eggserve.exe
       - name: Build wheel
-        run: maturin build --release --interpreter 3.14 -o dist
+        run: maturin build --release --interpreter python -o dist
         working-directory: crates/eggserve-python
       - name: Run installed-wheel smoke tests
-        run: bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python3.14
+        shell: bash
+        env:
+          PYTHONPATH: ""
+        run: bash crates/eggserve-python/packaging-tests/run_all.sh crates/eggserve-python/dist/*.whl python
       - name: Upload wheel
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: python-wheel
+          name: python-wheel-${{ matrix.os }}
           path: crates/eggserve-python/dist/*.whl
           retention-days: 5
 
@@ -212,13 +255,17 @@ jobs:
       - name: Generate checksums
         run: |
           cd artifacts
-          find . -type f \( -name "*.tar.gz" -o -name "*.whl" \) -exec sha256sum {} \; | sort -k2 > checksums-sha256.txt
+          find . -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.whl" \) -exec sha256sum {} \; | sort -k2 > checksums-sha256.txt
           echo "Checksums:"
           cat checksums-sha256.txt
 
       - name: Record provenance
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="manual"
+          fi
           COMMIT="${{ github.sha }}"
           RUN_ID="${{ github.run_id }}"
 
@@ -236,14 +283,18 @@ jobs:
           echo "Provenance:"
           cat provenance.json
 
+      - name: Inspect staged release bundle
+        run: bash scripts/inspect-release-bundle.sh artifacts provenance.json "${{ github.sha }}" "${{ github.run_id }}"
+
       - name: Upload release bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-bundle
           path: |
             artifacts/**/*.tar.gz
+            artifacts/**/*.zip
             artifacts/**/*.whl
-            artifacts/**/checksums-sha256.txt
+            artifacts/checksums-sha256.txt
             provenance.json
           retention-days: 30
 
@@ -284,7 +335,7 @@ jobs:
         with:
           python-version: "3.14"
       - name: Upload staged Python wheel to PyPI
-        run: pip install twine && twine upload artifacts/python-wheel/*.whl
+        run: python -m pip install twine==6.1.0 && twine upload artifacts/python-wheel-*/*.whl
         env:
           TWINE_USERNAME: __token__
           TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
@@ -294,7 +345,8 @@ jobs:
         with:
           files: |
             artifacts/**/*.tar.gz
-            artifacts/**/checksums-sha256.txt
+            artifacts/**/*.zip
+            artifacts/checksums-sha256.txt
             artifacts/**/*.whl
             provenance.json
           generate_release_notes: true

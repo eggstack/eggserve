@@ -15,6 +15,7 @@ crates/eggserve-python/
     ├── __init__.py     # exports all public symbols
     ├── __main__.py     # python -m eggserve
     ├── _bin.py         # locates packaged binary or PATH fallback
+    ├── bin/            # staged platform-native eggserve binary included in wheels
     ├── server.py       # Python API: ServeConfig, ServerProcess, serve_directory
     ├── test_primitives.py
     ├── test_server_primitives.py
@@ -30,7 +31,7 @@ crates/eggserve-python/
     └── test_cli_smoke.py       # CLI help, binary discovery, version consistency
 ```
 
-**Important:** `eggserve-python` is excluded from the workspace and has its own `Cargo.lock`. It is built independently via `maturin`.
+**Important:** `eggserve-python` is excluded from the workspace and has its own `Cargo.lock`. It is built independently via `maturin`. Release wheels support CPython 3.14 only (`>=3.14,<3.15`) and bundle the platform-native CLI binary.
 
 ## Native Primitives (`src/lib.rs`)
 
@@ -136,7 +137,7 @@ Blocking convenience function: starts a server and waits.
 Searches for the `eggserve` binary in:
 1. Package `bin/` directory
 2. Parent `bin/` directory
-3. `PATH` fallback
+3. `PATH` fallback, including `eggserve.exe` on Windows
 
 `python -m eggserve` forwards all args to the located binary.
 
@@ -157,12 +158,12 @@ Searches for the `eggserve` binary in:
 ## Build & Test
 
 ```sh
-# Build wheel
+# Build wheel after staging target/release/eggserve under python/eggserve/bin/
 cd crates/eggserve-python
-maturin build --release --interpreter 3.14 --target x86_64-apple-darwin -o dist
+maturin build --release --interpreter python3.14 --target x86_64-apple-darwin -o dist
 
 # Install
-python3.14 -m pip install --force-reinstall dist/*.whl
+python -m pip install --force-reinstall dist/*.whl
 
 # Run native primitives tests (requires built wheel)
 PYTHONPATH=python python -m unittest eggserve.test_primitives -v

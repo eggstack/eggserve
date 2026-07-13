@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-039 are complete.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000-040 are complete; Plan 041 is the final release-gate closure pass.
 
 ## Non-negotiables
 
@@ -99,8 +99,10 @@ cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
 cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
 cargo test -p eggserve-bin --test production_path          # production path tests
 cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
+bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
@@ -113,6 +115,12 @@ cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
 cargo test -p eggserve-bin --features tls
+cargo test -p eggserve-core --features client
+cargo test -p eggserve-core --test http_wire_correctness
+cargo test -p eggserve-core --test http_primitives_integration
+cargo test -p eggserve-bin --test production_path
+cargo test -p eggserve-core --test corpus_replay
+bash scripts/install-cargo-tools.sh
 cargo audit
 cargo deny check
 ```
@@ -120,8 +128,12 @@ cargo deny check
 Python packaging smoke test:
 
 ```sh
+cargo build --release --locked -p eggserve-bin
+mkdir -p crates/eggserve-python/python/eggserve/bin
+cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --release --interpreter 3.14 -o dist
+maturin build --release --interpreter python3.14 -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
 ```
@@ -171,8 +183,12 @@ PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
 Packaging smoke tests (installed-wheel validation, no source-tree imports):
 
 ```sh
+cargo build --release --locked -p eggserve-bin
+mkdir -p crates/eggserve-python/python/eggserve/bin
+cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --release --interpreter 3.14 -o dist
+maturin build --release --interpreter python3.14 -o dist
 cd packaging-tests
 bash run_all.sh ../dist/*.whl python3.14
 ```
@@ -192,6 +208,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Manual argument parsing** in `args.rs` — no clap dependency.
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
+- **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI binary.
 - **Windows**: functional but reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.

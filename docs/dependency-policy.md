@@ -54,6 +54,24 @@ The following dependency categories are approved for initial development:
   - It is not on a network or authentication code path
   - The risk is tracked and re-evaluated each release via `cargo audit`
 
+## Release validation tool versions
+
+CI and release validation install these cargo subcommands from the checked-in
+`scripts/install-cargo-tools.sh` script before invoking them. The versions are
+deliberately pinned and the script fails if the installed executable reports a
+different version.
+
+| Tool | Version | Install command |
+|------|---------|-----------------|
+| `cargo-audit` | `0.22.2` | `cargo install cargo-audit --version 0.22.2 --locked --force` |
+| `cargo-deny` | `0.19.0` | `cargo install cargo-deny --version 0.19.0 --locked --force` |
+
+Run the shared installer locally with:
+
+```bash
+bash scripts/install-cargo-tools.sh
+```
+
 ## Automated enforcement
 
 `cargo-deny` is configured via `deny.toml` at the workspace root. It checks:
@@ -65,7 +83,10 @@ The following dependency categories are approved for initial development:
 
 To run locally:
 ```bash
-cargo install cargo-deny
+bash scripts/install-cargo-tools.sh
+cargo audit --version
+cargo deny --version
+cargo audit
 cargo deny check
 ```
 
@@ -74,6 +95,9 @@ CI enforces dependency policy on every push and pull request:
 - **`cargo audit`** — checks for known vulnerabilities in dependencies.
 - **`cargo deny check`** — checks licenses, bans, sources, and advisory databases.
 
-Both run in the `supply-chain` CI job (see `.github/workflows/ci.yml`). The release workflow (`.github/workflows/release.yml`) runs both as a gate before publication.
+Both run in the `supply-chain` CI job (see `.github/workflows/ci.yml`) after
+the pinned installer. The release workflow (`.github/workflows/release.yml`)
+uses the same installer and runs both as a gate before artifact staging and
+publication.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.

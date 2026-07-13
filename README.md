@@ -79,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–040 complete.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence.
+**Plans 000–040 complete; Plan 041 closes the final release gates.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. See [plans/](plans/) for the full sequence and [docs/release-checklist.md](docs/release-checklist.md) for evidence-backed release status.
 
 **Property testing and fuzzing:** Nine fuzz targets cover path parsing, URL parsing, range/conditional headers, platform checks, and request validation. Deterministic property tests (proptest) run in normal CI. Scheduled fuzz runs run weekly. See [docs/fuzzing.md](docs/fuzzing.md).
 
@@ -89,11 +89,11 @@ Key defaults:
 
 | Platform | Status |
 |----------|--------|
-| Linux x86_64 | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
-| Linux aarch64 | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
-| macOS arm64 (Apple Silicon) | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
-| macOS x86_64 | Supported, tested in CI — hardened (`openat(O_NOFOLLOW)`) |
-| Windows x86_64 | Supported; parser-level checks only, reparse-point hardening deferred |
+| Linux x86_64 | Supported; hardened (`openat(O_NOFOLLOW)`), validated by the release matrix |
+| Linux aarch64 | Release target; hardened (`openat(O_NOFOLLOW)`), release evidence required |
+| macOS arm64 (Apple Silicon) | Supported; hardened (`openat(O_NOFOLLOW)`), validated by the release matrix |
+| macOS x86_64 | Release target; hardened (`openat(O_NOFOLLOW)`), release evidence required |
+| Windows x86_64 | Functional wheel/binary support; parser-level checks only, reparse-point hardening deferred |
 
 Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.
 
@@ -170,7 +170,7 @@ Full API reference: [docs/python-api.md](docs/python-api.md)
 # From source (requires Rust toolchain)
 cargo install --path crates/eggserve-bin
 
-# Via Python wheel (requires Python 3.8+)
+# Via Python wheel (CPython 3.14 on Linux, macOS, or Windows)
 pip install eggserve
 
 # Or run directly with pipx
@@ -202,8 +202,10 @@ cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
 cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
 cargo test -p eggserve-bin --test production_path          # production path tests
 cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+bash scripts/install-cargo-tools.sh                        # install and verify pinned tools
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
+bash scripts/verify-cargo-packages.sh                      # crates.io/local-registry package gates
 ```
 
 Python tests and packaging smoke:
@@ -221,9 +223,13 @@ PYTHONPATH=crates/eggserve-python/python \
 PYTHONPATH=crates/eggserve-python/python \
   python -m unittest eggserve.test_server -v
 
-# Python packaging smoke test
+# Python packaging smoke test (stage the CLI binary into the wheel first)
+cargo build --release --locked -p eggserve-bin
+mkdir -p crates/eggserve-python/python/eggserve/bin
+cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --release --interpreter 3.14 -o dist
+maturin build --release --interpreter python3.14 -o dist
 python -m pip install --force-reinstall dist/*.whl
 python -m eggserve --help
 python - <<'PY'

@@ -37,13 +37,16 @@ echo ""
 # 1. Create fresh venv (no system-site-packages)
 echo "--- Creating virtual environment ---"
 "$PY" -m venv "$WORK_DIR/venv"
-VENV_PY="$WORK_DIR/venv/bin/python"
-VENV_PIP="$WORK_DIR/venv/bin/pip"
+if [ -x "$WORK_DIR/venv/bin/python" ]; then
+    VENV_PY="$WORK_DIR/venv/bin/python"
+else
+    VENV_PY="$WORK_DIR/venv/Scripts/python.exe"
+fi
 
 # 2. Install the wheel (no source-tree PYTHONPATH)
 echo "--- Installing wheel ---"
 unset PYTHONPATH
-"$VENV_PIP" install --no-deps "$WHEEL" 2>&1
+"$VENV_PY" -m pip install --no-deps "$WHEEL" 2>&1
 
 # 3. Verify installation
 echo "--- Verifying installation ---"
@@ -55,13 +58,15 @@ cp "$SCRIPT_DIR"/test_imports.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/test_server_smoke.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/test_client_smoke.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/test_cli_smoke.py "$WORK_DIR/"
+cp "$SCRIPT_DIR"/../python/eggserve/test_api_stability.py "$WORK_DIR/"
+cp "$SCRIPT_DIR"/../python/eggserve/test_boundary_hardening.py "$WORK_DIR/"
 
 # 5. Run each test file from the work directory
 echo ""
 echo "--- Running smoke tests ---"
 echo ""
 
-TESTS=("test_imports.py" "test_server_smoke.py" "test_client_smoke.py" "test_cli_smoke.py")
+TESTS=("test_imports.py" "test_server_smoke.py" "test_client_smoke.py" "test_cli_smoke.py" "test_api_stability.py" "test_boundary_hardening.py")
 PASSED=0
 FAILED=0
 FAILURES=()

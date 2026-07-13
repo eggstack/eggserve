@@ -1,79 +1,79 @@
 # Release Checklist
 
-## Pre-release (every release)
+This checklist is evidence-driven. A workflow declaration or a green local
+command is not evidence of a GitHub matrix or release-workflow run. Every
+release-candidate decision must identify one evaluated commit SHA; changes to
+release workflows, manifests, lockfiles, packaging tests, or support claims
+invalidate the affected evidence.
 
-- [ ] Version numbers synchronized across all crates and Python package
-- [ ] CHANGELOG updated (if one exists)
-- [ ] `cargo fmt --all -- --check` passes
-- [ ] `cargo clippy --workspace --all-targets -- -D warnings` passes
-- [ ] `cargo test --workspace` passes
-- [ ] `cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings` passes
-- [ ] `cargo test -p eggserve-bin --features tls` passes
-- [ ] Platform CI green (Linux, macOS, Windows)
-- [ ] Python API unit tests pass (`PYTHONPATH=crates/eggserve-python/python python -m unittest eggserve.test_server -v`)
-- [ ] Python wheel smoke test passes
-- [ ] Installed-wheel packaging smoke tests pass (`crates/eggserve-python/packaging-tests/run_all.sh`)
-- [ ] `cargo audit` clean or exceptions documented
-- [ ] `cargo deny check` clean or exceptions documented
-- [ ] Dependency/license review complete
-- [ ] README examples manually verified
-- [ ] Security policy reviewed
-- [ ] Known limitations documented
-- [ ] No accidental broad feature claims in docs or README
+## Evidence record
 
-## CI and release hardening (Plans 039–040)
+| Field | Value |
+|---|---|
+| Evaluated commit SHA | `PENDING — fill at RC approval` |
+| CI workflow URL / run ID | `PENDING` |
+| Manual release dry-run URL / run ID | `PENDING` |
+| Dry-run publication result | `PENDING — must be skipped/blocked` |
+| Approver / date | `PENDING` |
 
-- [ ] All GitHub Actions pinned to SHA digests (see `.github/workflows/` for pinned versions)
-- [ ] Workflow permissions are minimal (`contents: read` for CI, `contents: write` only for release)
-- [ ] Supply-chain audit job passes (`cargo audit` + `cargo deny check` in CI)
-- [ ] Raw-wire correctness tests pass in CI
-- [ ] Corpus replay tests pass in CI
-- [ ] Multi-OS CI matrix passes (Linux, macOS, Windows)
-- [ ] Release workflow tested in dry-run mode before first real release
+Use `LOCAL` for an exact command, host platform, tool versions, and exit code;
+use `GITHUB` for a workflow URL/run ID, commit SHA, job result, and artifact
+evidence; use `CONFIG` only for static YAML or policy review. `CONFIG` never
+closes an execution gate.
 
-## For crates.io publication (if applicable)
+The superseded pre-closure dry-run `29258214679` ran against the prior remote
+commit and failed because its original workflow invoked `cargo audit` without
+installing the plugin. It is intentionally not release evidence; a new run
+against the final closure commit is required.
 
-- [ ] `cargo package -p eggserve-core --locked` passes
-- [ ] `cargo build -p eggserve-bin --locked` passes before core is published; `cargo publish -p eggserve-bin --locked` performs package verification after the core crate is available
-- [ ] Package metadata (description, license, repository) complete in Cargo.toml
-- [ ] README renders correctly on crates.io
+## Release-gate evidence
 
-## For PyPI publication (if applicable)
+| Gate | Status | Evidence class | Command/job and result | Run ID / artifact digest |
+|---|---|---|---|---|
+| Rust format, lint, tests, doctests, feature matrices | `PENDING` | `GITHUB` | CI `rust-check`, required matrix green | `PENDING` |
+| Raw-wire and production-path tests | `PENDING` | `GITHUB` | CI `wire-tests`, release validation | `PENDING` |
+| Corpus replay, including client feature | `PENDING` | `GITHUB` | CI `corpus-replay` | `PENDING` |
+| Pinned `cargo-audit` / `cargo-deny` installation and checks | `PENDING` | `GITHUB` | CI/release `scripts/install-cargo-tools.sh`, versions `0.22.2` / `0.19.0` | `PENDING` |
+| `eggserve-core` package/list/publish dry-run | `PENDING` | `GITHUB` | `scripts/verify-cargo-packages.sh` | `PENDING` |
+| `eggserve-bin` local-registry package/list/publish dry-run | `PENDING` | `GITHUB` | Exact packaged core crate staged in temporary registry | `PENDING` |
+| Python metadata and CPython 3.14 support | `PENDING` | `GITHUB` | `Requires-Python >=3.14,<3.15`, imports/API/exception tests | `PENDING` |
+| Installed wheel on Linux, macOS, Windows | `PENDING` | `GITHUB` | Native wheel build, clean venv, `PYTHONPATH` unset, callback/client/CLI smoke | `PENDING` |
+| Release artifacts and checksums | `PENDING` | `GITHUB` | Expected four Unix/one Windows archives and wheels inspected | `PENDING` |
+| Provenance | `PENDING` | `GITHUB` | Commit and workflow run match `provenance.json` | `PENDING` |
+| Latest fuzz campaign | `PENDING` | `GITHUB` | Date, workflow URL, result, and corpus replay result | `PENDING` |
 
-- [ ] `maturin build --release -o dist` succeeds
-- [ ] `python -m twine check dist/*` passes (if twine available)
-- [ ] Wheel installs cleanly: `pip install --force-reinstall dist/*.whl`
-- [ ] `python -m eggserve --help` works
-- [ ] `dist/` outputs are NOT committed to source control (`.gitignore` excludes them)
+## Pre-release review
 
-## Release notes
+- [ ] Version numbers are synchronized across all crates and the Python package.
+- [ ] README, package metadata, release contract, and support classifiers agree.
+- [ ] Known accepted limitations are listed in release notes.
+- [ ] Windows is classified as functional/parser-hardened only; no Unix-level filesystem claim is made.
+- [ ] Follow-symlinks mode is identified as weaker and outside descriptor-relative hardening.
+- [ ] No critical/high release blocker remains.
+- [ ] Approver has signed off on the exact evaluated commit SHA above.
 
-- [ ] Release notes do not claim production-readiness
-- [ ] Alpha/beta limitations are clearly stated
-- [ ] Known limitations are listed
-- [ ] Supported platforms are documented
+## Publication gates
 
-## Release blockers
+The manual release workflow defaults to `dry_run=true`. A dry run must not
+publish to crates.io or PyPI, create a GitHub release, or require production
+registry tokens. The protected `publish` job is entered only by the tagged
+push path with publication enabled and is separately environment-gated.
 
-The following items block specific release milestones:
+For crates.io, run `bash scripts/verify-cargo-packages.sh`; the binary check
+uses a temporary local registry because the core crate must exist in the
+registry before a real crates.io publish. The script still runs Cargo's real
+publish dry-run against that packaged graph.
 
-### Blocks 1.0
+For PyPI, build the platform wheel after staging the matching CLI binary and
+run `crates/eggserve-python/packaging-tests/run_all.sh` from its clean-venv
+workflow. `dist/` outputs must remain untracked.
 
-- Stable public API not frozen
-- Signed releases not implemented
+## Known accepted limitations
 
-### Blocks Windows production claims
-
-- Windows is explicitly a trusted/local-use platform (parser-level checks only)
-- Reparse-point/NTFS junction hardening is a documented non-goal — see `docs/non-goals.md`
-- Release notes must state: "Do not use with untrusted mutable public content on Windows"
-
-### Blocks follow-symlinks production claims
-
-- Follow-symlinks uses canonicalize-based resolution; not covered by the descriptor-relative hardening guarantee. Release notes must mark it explicitly as weaker/experimental.
-
-### Not blockers (documented non-features)
-
-- Multi-range requests absent — single byte ranges are supported
-- HTTP/2 absent — documented limitation
-- No native TLS unless `tls` feature enabled — documented
+- Windows reparse-point/junction hardening is deferred; do not use Windows
+  with untrusted mutable public content.
+- Follow-symlinks mode is weaker than safe-default Unix traversal.
+- HTTP/2, redirects, retries, cookies, proxy support, and multi-range
+  responses are outside this release contract.
+- Python wheels currently support CPython 3.14 only; PyPy and free-threaded
+  CPython are not supported.

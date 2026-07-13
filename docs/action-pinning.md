@@ -37,3 +37,10 @@ grep -rn 'uses:' .github/workflows/ | grep -v '@[a-f0-9]\{40\}'
 ```
 
 Any output indicates an action not pinned to a SHA digest.
+
+Release tooling is kept deterministic separately from action pinning:
+`scripts/install-cargo-tools.sh` installs and verifies the pinned
+`cargo-audit 0.22.2` and `cargo-deny 0.19.0` versions. The manual release
+workflow's default `dry_run=true` input runs validation, cross-platform wheel
+smoke tests, package checks, artifact inspection, checksum generation, and
+provenance without entering the protected publication job.

@@ -27,6 +27,11 @@ The full security policy, including safe defaults and threat model, is documente
 
 eggserve is a static file server. Security issues in upstream dependencies (Rust, hyper, tokio, etc.) should be reported to the respective projects. Report to eggserve only if the vulnerability is in eggserve's own code or policy enforcement.
 
+The release wheel is tested for CPython 3.14 on Linux, macOS, and Windows.
+Windows functionality is covered, but filesystem confinement is not hardened
+to the Unix descriptor-relative level; do not use Windows with untrusted
+mutable public content.
+
 ## Vulnerability triage
 
 1. Acknowledge receipt within 48 hours.

@@ -16,9 +16,9 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 Three crates:
 - `crates/eggserve-core/` — library: security primitives, path confinement, HTTP serving, response construction
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
-- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace)
+- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (10 deep-dive docs), `docs/` (21 reference docs), `plans/` (43 plans, 000–039 + ROADMAP), `examples/`, `fuzz/`.
+Other directories: `architecture/` (10 deep-dive docs), `docs/` (reference docs), `plans/` (000–041 plus roadmap and closure documents), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -54,7 +54,7 @@ cargo deny check                                           # license/policy chec
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan count** — Plans 000–039 complete. Verify against `plans/` directory.
+- **Plan status** — Plans 000–040 are complete; Plan 041 is the final release-gate closure pass. Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
 
 ## Architecture docs
 
@@ -83,4 +83,5 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction. External consumers should use `SecureRoot` resolution.
 - **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback, callback concurrency limit. Parameters: `handler`, `public`, `max_connections`, `max_file_streams`, `max_python_callbacks`, `header_timeout_secs`, `write_timeout_secs`.
-- **Python 3.14 build** — requires `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` env var for maturin builds (PyO3 0.24.2 doesn't natively support 3.14).
+- **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix. Builds require `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` with PyO3 0.24.2 and stage `eggserve-bin` under `python/eggserve/bin/` before maturin.
+- **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`, and `bash scripts/verify-cargo-packages.sh` for both Rust package gates. The release workflow's manual `dry_run=true` path must be executed and recorded before RC approval.

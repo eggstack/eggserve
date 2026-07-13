@@ -11,7 +11,7 @@ def _find_binary() -> str:
 
     Raises FileNotFoundError if the binary cannot be found.
     """
-    package_dir = Path(__file__).resolve().parent.parent
+    package_dir = Path(__file__).resolve().parent
     bin_dir = package_dir / "bin"
     if sys.platform == "win32":
         candidate = bin_dir / "eggserve.exe"
@@ -28,10 +28,12 @@ def _find_binary() -> str:
     if candidate2.is_file():
         return str(candidate2)
 
+    path_names = ["eggserve.exe", "eggserve"] if sys.platform == "win32" else ["eggserve"]
     for path_entry in os.environ.get("PATH", "").split(os.pathsep):
-        candidate3 = Path(path_entry) / "eggserve"
-        if candidate3.is_file():
-            return str(candidate3)
+        for path_name in path_names:
+            candidate3 = Path(path_entry) / path_name
+            if candidate3.is_file():
+                return str(candidate3)
 
     raise FileNotFoundError(
         "eggserve binary not found; ensure it is installed and available on PATH, "

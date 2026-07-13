@@ -4,6 +4,10 @@ This document defines the exact product surface, behavioral guarantees, and comp
 
 Version: 0.1.0 (pre-release)
 
+The Python wheel compatibility declaration is CPython 3.14 only
+(`>=3.14,<3.15`) on Linux, macOS, and Windows. The wheel bundles the matching
+platform-native CLI binary; PyPy and free-threaded CPython are not supported.
+
 ## Release Artifacts
 
 | Artifact | Description | Distribution |
