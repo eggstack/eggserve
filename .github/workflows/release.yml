@@ -143,6 +143,7 @@ jobs:
             /LICENSE
             /README.md
             /crates/**
+            !/fuzz/corpus/percent_decode/nul
           sparse-checkout-cone-mode: false
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
@@ -219,6 +220,7 @@ jobs:
             /LICENSE
             /README.md
             /crates/**
+            !/fuzz/corpus/percent_decode/nul
           sparse-checkout-cone-mode: false
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
