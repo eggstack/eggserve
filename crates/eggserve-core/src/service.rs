@@ -176,12 +176,12 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                     };
 
                     if is_head {
-                        return planned_response(status, &plan.headers);
+                        return planned_response(status, &plan.headers, true);
                     }
 
                     let body_source = match file.into_body(&plan) {
                         Ok(bs) => bs,
-                        Err(_) => return planned_response(status, &plan.headers),
+                        Err(_) => return planned_response(status, &plan.headers, is_head),
                     };
                     body_source_to_response(
                         body_source,
@@ -241,12 +241,12 @@ async fn handle_directory(
             };
 
             if is_head {
-                return planned_response(status, &plan.headers);
+                return planned_response(status, &plan.headers, true);
             }
 
             let body_source = match file.into_body(&plan) {
                 Ok(bs) => bs,
-                Err(_) => return planned_response(status, &plan.headers),
+                Err(_) => return planned_response(status, &plan.headers, is_head),
             };
             body_source_to_response(
                 body_source,
@@ -308,17 +308,37 @@ pub(crate) async fn body_source_to_response(
     state: &ServeState,
 ) -> Response<BoxBodyInner> {
     match source {
-        BodySource::Empty => planned_response(status, headers),
+        BodySource::Empty => planned_response(status, headers, false),
         BodySource::Bytes(b) => {
-            use http_body_util::BodyExt;
-            let body = http_body_util::Full::new(hyper::body::Bytes::from(b))
-                .map_err(|never| match never {})
-                .boxed();
-            let mut builder = Response::builder().status(status);
+            let code = match CanonicalStatusCode::new(status.as_u16()) {
+                Ok(c) => c,
+                Err(_) => return internal_error(),
+            };
+            let mut canonical = match CanonicalResponse::builder()
+                .status(code)
+                .body(ResponseBody::Bytes(b))
+            {
+                Ok(r) => r,
+                Err(_) => return internal_error(),
+            };
             for header in headers.iter() {
-                builder = builder.header(&header.name, &header.value);
+                if let (Ok(name), Ok(value)) = (
+                    crate::primitives::header_block::HeaderName::new(&header.name),
+                    crate::primitives::header_block::HeaderValue::new(&header.value),
+                ) {
+                    canonical.head_mut().headers_mut().push(name, value);
+                }
             }
-            builder.body(body).unwrap()
+            let req = NormalizeRequest::new(false);
+            match normalize_response(canonical, &req) {
+                Ok(normalized) => {
+                    match crate::primitives::canonical::to_hyper_response(normalized) {
+                        Ok(hyper_resp) => hyper_resp,
+                        Err(_) => internal_error(),
+                    }
+                }
+                Err(_) => internal_error(),
+            }
         }
         BodySource::FileFull { file, len, mime } => {
             let tokio_file = tokio::fs::File::from_std(file);

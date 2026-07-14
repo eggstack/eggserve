@@ -55,6 +55,23 @@ constructing transport-independent responses.
 cannot represent duplicate headers. For duplicate headers, use the
 static-responder path which preserves duplicates through `HeaderMapPlan`.
 
+## StatusCode Range Change
+
+`StatusCode` now only accepts values in the 100–999 range (three-digit HTTP
+status codes). Values below 100 (0–99) are no longer valid.
+
+| Before | After | Impact |
+|--------|-------|--------|
+| `StatusCode` accepted 1–999 | `StatusCode` accepts 100–999 | `StatusCode::new(0)` through `StatusCode::new(99)` now return `Err(InvalidStatus)` |
+
+This aligns with HTTP/1.1 syntax requirements: status codes are always
+three-digit integers. Values below 100 are not defined by HTTP/1.1 and have no
+semantic meaning in eggserve's response pipeline.
+
+**Migration**: If you were using status codes below 100, replace them with
+appropriate three-digit codes. The `normalize_metadata()` function enforces this
+range for all response producers.
+
 ## Deprecation Policy
 
 Deprecated stable items remain functional for at least one minor release after

@@ -112,7 +112,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 - Handler receives a `Request` object and must return a `Response` object.
 - Invalid return types produce a generic 500 Internal Server Error.
-- Invalid status codes (outside 100–999) produce 500.
+- Invalid status codes (outside 100–999, non-three-digit) produce 500.
 - Invalid header names (empty) or values (containing NUL, CR, LF) produce 500.
 - Handler exceptions produce 500 without leaking tracebacks.
 - Callback concurrency is bounded (default: 8 concurrent handler calls).
@@ -213,7 +213,7 @@ The canonical response types provide transport-independent, Hyper-independent va
 
 | Type | Module | Description |
 |------|--------|-------------|
-| `StatusCode` | `primitives::canonical` | Validated HTTP status code (1–999 range). |
+| `StatusCode` | `primitives::canonical` | Validated HTTP status code (100–999, three-digit only). |
 | `ResponseHead` | `primitives::canonical` | Status + validated `HeaderBlock`. |
 | `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`. |
 | `Response` | `primitives::canonical` | Complete response: head + body. One-shot consumption. |
@@ -221,14 +221,32 @@ The canonical response types provide transport-independent, Hyper-independent va
 | `NormalizeRequest` | `primitives::canonical` | Context for response normalization. |
 | `ResponseConstructionError` | `primitives::canonical` | Error taxonomy for response construction. |
 
-**Normalization function**: `normalize_response(response, request)` applies the following rules before transport conversion:
-1. HEAD suppression — body discarded, representation headers preserved.
-2. Body-forbidden statuses — 1xx, 204, 304 bodies discarded.
-3. Hop-by-hop header stripping — `Transfer-Encoding` removed.
-4. Content-Length computation — set to actual body length.
-5. Duplicate end-to-end headers preserved.
+**Normalization functions**:
+
+- `normalize_response(response, request)` applies the following rules before transport conversion:
+  1. HEAD suppression — body discarded, representation headers preserved.
+  2. Body-forbidden statuses — 1xx, 204, 304 bodies discarded.
+  3. Hop-by-hop header stripping — `Transfer-Encoding` removed.
+  4. Content-Length computation — set to actual body length.
+  5. Duplicate end-to-end headers preserved.
+
+- `normalize_metadata(status, headers, body_len, is_head)` is the shared normalization entry point for both in-memory and file-backed response producers. It applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) without consuming a `Response` value. File-streaming producers call this directly.
 
 **Conversion**: `to_hyper_response(response)` converts a normalized canonical `Response` into a Hyper `Response<BoxBody>`. This is the final step before sending on the wire.
+
+### Unified Response Architecture
+
+All response producers converge on `normalize_metadata()` for metadata normalization. This function is the shared normalization entry point for both in-memory and file-backed response producers. It applies:
+
+1. Strip runtime-owned `Transfer-Encoding` — always removed regardless of status.
+2. HEAD responses: suppress `Content-Length`.
+3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`.
+4. Normal payloads: set `Content-Length` to actual body length.
+5. Preserve all other headers (including duplicates).
+
+File and byte responses share the same framing policy: `Transfer-Encoding` is always stripped, and `Content-Length` is computed from actual body length. Handler-provided `Content-Length` is overwritten with the computed value.
+
+`normalize_metadata()` is called by `normalize_response()` (for complete `Response` values) and directly by file-streaming producers (for file-backed responses that bypass the canonical `Response` type).
 
 ### Response Normalization Algorithm
 

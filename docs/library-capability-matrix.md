@@ -46,6 +46,8 @@ constrained vocabulary.
 | Connection metadata | — | stable | stable | stable | stable | — | — | — |
 | Conformance corpus and parity testing | — | — | experimental | — | experimental | — | — | — |
 | Bounded request-body support | planned | planned | planned | planned | — | planned | planned | — |
+| `normalize_metadata()` | — | stable | stable | — | — | stable | stable | — |
+| StatusCode range (100–999) | — | stable | stable | stable | — | stable | stable | — |
 | Secure root resolution | stable | stable | stable | stable | — | stable | stable | — |
 | Symlink policy | stable | stable | stable | stable | — | stable | stable | — |
 | Dotfile policy | stable | stable | stable | stable | — | stable | stable | — |

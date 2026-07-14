@@ -9,59 +9,59 @@ use hyper::body::Frame;
 use hyper::{Response, StatusCode};
 use std::time::SystemTime;
 
+use crate::primitives::header_block::HeaderBlock;
 use crate::primitives::response::HeaderMapPlan;
 
 pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 
-pub fn text_response(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
-    Response::builder()
-        .status(status)
-        .header("content-type", "text/plain; charset=utf-8")
-        .body(full_body(body))
-        .unwrap()
-}
-
-#[allow(dead_code)]
-pub fn empty_response(status: StatusCode) -> Response<BoxBodyInner> {
-    Response::builder()
-        .status(status)
-        .body(full_body(""))
-        .unwrap()
-}
-
-pub fn method_not_allowed() -> Response<BoxBodyInner> {
-    Response::builder()
-        .status(StatusCode::METHOD_NOT_ALLOWED)
-        .header("allow", "GET, HEAD")
-        .body(full_body("405 Method Not Allowed\n"))
-        .unwrap()
+fn canonical_error(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
+    let code = crate::primitives::canonical::StatusCode::new(status.as_u16())
+        .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
+    let mut headers = crate::primitives::header_block::HeaderBlock::new();
+    headers
+        .push_str("content-type", "text/plain; charset=utf-8")
+        .unwrap();
+    if status == StatusCode::METHOD_NOT_ALLOWED {
+        headers.push_str("allow", "GET, HEAD").unwrap();
+    }
+    let body_len = body.len() as u64;
+    crate::primitives::canonical::normalize_metadata(code, &mut headers, body_len, false).unwrap();
+    let mut builder = Response::builder().status(status);
+    for field in headers.iter() {
+        builder = builder.header(field.name.as_str(), field.value.as_str());
+    }
+    builder.body(full_body(body)).unwrap()
 }
 
 pub fn not_found() -> Response<BoxBodyInner> {
-    text_response(StatusCode::NOT_FOUND, "404 Not Found\n")
+    canonical_error(StatusCode::NOT_FOUND, "404 Not Found\n")
 }
 
 pub fn forbidden() -> Response<BoxBodyInner> {
-    text_response(StatusCode::FORBIDDEN, "403 Forbidden\n")
+    canonical_error(StatusCode::FORBIDDEN, "403 Forbidden\n")
 }
 
 pub fn bad_request() -> Response<BoxBodyInner> {
-    text_response(StatusCode::BAD_REQUEST, "400 Bad Request\n")
+    canonical_error(StatusCode::BAD_REQUEST, "400 Bad Request\n")
 }
 
 pub fn payload_too_large() -> Response<BoxBodyInner> {
-    text_response(StatusCode::PAYLOAD_TOO_LARGE, "413 Payload Too Large\n")
+    canonical_error(StatusCode::PAYLOAD_TOO_LARGE, "413 Payload Too Large\n")
 }
 
 pub fn internal_error() -> Response<BoxBodyInner> {
-    text_response(
+    canonical_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "500 Internal Server Error\n",
     )
 }
 
 pub fn service_unavailable() -> Response<BoxBodyInner> {
-    text_response(StatusCode::SERVICE_UNAVAILABLE, "503 Service Unavailable\n")
+    canonical_error(StatusCode::SERVICE_UNAVAILABLE, "503 Service Unavailable\n")
+}
+
+pub fn method_not_allowed() -> Response<BoxBodyInner> {
+    canonical_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed\n")
 }
 
 pub fn file_response(
@@ -72,22 +72,28 @@ pub fn file_response(
     etag: Option<String>,
     permit: tokio::sync::OwnedSemaphorePermit,
 ) -> Response<BoxBodyInner> {
-    let mut builder = Response::builder()
-        .status(StatusCode::OK)
-        .header("content-length", len.to_string())
-        .header("content-type", mime)
-        .header("x-content-type-options", "nosniff")
-        .header("accept-ranges", "bytes");
-
+    let mut headers = HeaderBlock::new();
+    headers.push_str("content-type", mime).unwrap();
+    headers
+        .push_str("x-content-type-options", "nosniff")
+        .unwrap();
+    headers.push_str("accept-ranges", "bytes").unwrap();
     if let Some(mtime) = last_modified {
         if let Ok(secs) = mtime.duration_since(SystemTime::UNIX_EPOCH) {
             let formatted = httpdate::fmt_http_date(SystemTime::UNIX_EPOCH + secs);
-            builder = builder.header("last-modified", formatted);
+            headers.push_str("last-modified", formatted).unwrap();
         }
     }
-
     if let Some(tag) = etag {
-        builder = builder.header("etag", tag);
+        headers.push_str("etag", tag).unwrap();
+    }
+
+    let status = crate::primitives::canonical::StatusCode::OK;
+    crate::primitives::canonical::normalize_metadata(status, &mut headers, len, false).unwrap();
+
+    let mut builder = Response::builder().status(StatusCode::OK);
+    for field in headers.iter() {
+        builder = builder.header(field.name.as_str(), field.value.as_str());
     }
 
     let stream = futures_util::stream::unfold(
@@ -120,10 +126,40 @@ pub fn file_response(
     builder.body(body.boxed()).unwrap()
 }
 
-pub fn planned_response(status: StatusCode, headers: &HeaderMapPlan) -> Response<BoxBodyInner> {
-    let mut builder = Response::builder().status(status);
+pub fn planned_response(
+    status: StatusCode,
+    headers: &HeaderMapPlan,
+    is_head: bool,
+) -> Response<BoxBodyInner> {
+    let mut canonical_headers = HeaderBlock::new();
     for header in headers.iter() {
-        builder = builder.header(&header.name, &header.value);
+        canonical_headers
+            .push_str(&header.name, &header.value)
+            .unwrap();
+    }
+    let canonical_status = crate::primitives::canonical::StatusCode::new(status.as_u16())
+        .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
+    // For HEAD responses, extract file size from the planner's content-length
+    // header so normalization preserves it. For non-HEAD, pass 0 (normalization
+    // sets it from body_len for payload-permitting statuses).
+    let body_len = if is_head {
+        canonical_headers
+            .get_first("content-length")
+            .and_then(|v| v.as_str().parse::<u64>().ok())
+            .unwrap_or(0)
+    } else {
+        0
+    };
+    crate::primitives::canonical::normalize_metadata(
+        canonical_status,
+        &mut canonical_headers,
+        body_len,
+        is_head,
+    )
+    .unwrap();
+    let mut builder = Response::builder().status(status);
+    for field in canonical_headers.iter() {
+        builder = builder.header(field.name.as_str(), field.value.as_str());
     }
     builder.body(full_body("")).unwrap()
 }
@@ -139,11 +175,6 @@ pub async fn file_response_range(
     use std::io::SeekFrom;
     use tokio::io::AsyncSeekExt;
 
-    let mut builder = Response::builder().status(status);
-    for header in headers.iter() {
-        builder = builder.header(&header.name, &header.value);
-    }
-
     let len = match end_inclusive
         .checked_sub(start)
         .and_then(|length| length.checked_add(1))
@@ -153,6 +184,28 @@ pub async fn file_response_range(
     };
     if file.seek(SeekFrom::Start(start)).await.is_err() {
         return internal_error();
+    }
+
+    let mut canonical_headers = HeaderBlock::new();
+    for header in headers.iter() {
+        canonical_headers
+            .push_str(&header.name, &header.value)
+            .unwrap();
+    }
+
+    let canonical_status = crate::primitives::canonical::StatusCode::new(status.as_u16())
+        .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
+    crate::primitives::canonical::normalize_metadata(
+        canonical_status,
+        &mut canonical_headers,
+        len,
+        false,
+    )
+    .unwrap();
+
+    let mut builder = Response::builder().status(status);
+    for field in canonical_headers.iter() {
+        builder = builder.header(field.name.as_str(), field.value.as_str());
     }
 
     let stream = futures_util::stream::unfold(
@@ -213,36 +266,44 @@ pub fn directory_listing_response(
     let body_bytes = html.into_bytes();
     let len = body_bytes.len();
 
+    let mut headers = HeaderBlock::new();
+    headers
+        .push_str("content-type", "text/html; charset=utf-8")
+        .unwrap();
+    headers
+        .push_str("x-content-type-options", "nosniff")
+        .unwrap();
+    headers
+        .push_str(
+            "content-security-policy",
+            "default-src 'none'; base-uri 'none'; form-action 'none'",
+        )
+        .unwrap();
+    headers.push_str("referrer-policy", "no-referrer").unwrap();
+
+    let status = crate::primitives::canonical::StatusCode::OK;
+    let body_len = if is_head { 0 } else { len };
+    crate::primitives::canonical::normalize_metadata(
+        status,
+        &mut headers,
+        body_len as u64,
+        is_head,
+    )
+    .unwrap();
+
+    let mut builder = Response::builder().status(StatusCode::OK);
+    for field in headers.iter() {
+        builder = builder.header(field.name.as_str(), field.value.as_str());
+    }
+
     if is_head {
-        return Response::builder()
-            .status(StatusCode::OK)
-            .header("content-type", "text/html; charset=utf-8")
-            .header("content-length", len.to_string())
-            .header("x-content-type-options", "nosniff")
-            .header(
-                "content-security-policy",
-                "default-src 'none'; base-uri 'none'; form-action 'none'",
-            )
-            .header("referrer-policy", "no-referrer")
-            .body(full_body(""))
-            .unwrap();
+        return builder.body(full_body("")).unwrap();
     }
 
     let body = Full::new(Bytes::from(body_bytes));
     let body = body.map_err(|never| match never {});
 
-    Response::builder()
-        .status(StatusCode::OK)
-        .header("content-type", "text/html; charset=utf-8")
-        .header("content-length", len.to_string())
-        .header("x-content-type-options", "nosniff")
-        .header(
-            "content-security-policy",
-            "default-src 'none'; base-uri 'none'; form-action 'none'",
-        )
-        .header("referrer-policy", "no-referrer")
-        .body(body.boxed())
-        .unwrap()
+    builder.body(body.boxed()).unwrap()
 }
 
 fn html_escape(s: &str) -> String {
@@ -294,8 +355,8 @@ mod tests {
 
     #[test]
     fn get_returns_200_with_text_content_type() {
-        let resp = text_response(StatusCode::OK, "hello\n");
-        assert_eq!(resp.status(), StatusCode::OK);
+        let resp = not_found();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             resp.headers().get("content-type").unwrap(),
             "text/plain; charset=utf-8"
@@ -303,13 +364,7 @@ mod tests {
     }
 
     #[test]
-    fn head_returns_200_empty_body() {
-        let resp = empty_response(StatusCode::OK);
-        assert_eq!(resp.status(), StatusCode::OK);
-    }
-
-    #[test]
-    fn post_returns_405_with_allow_header() {
+    fn method_not_allowed_returns_405_with_allow_header() {
         let resp = method_not_allowed();
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");

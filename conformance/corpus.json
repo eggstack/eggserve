@@ -392,11 +392,49 @@
           "expected_error": "ResponseConstructionError::InvalidStatus"
         },
         {
-          "id": "status-1-valid",
-          "description": "Status code 1 is valid (range 1-999)",
+          "id": "status-1-rejected",
+          "description": "Status code 1 rejected (below 100)",
           "input": 1,
+          "expected_error": "ResponseConstructionError::InvalidStatus"
+        },
+        {
+          "id": "status-42-rejected",
+          "description": "Status code 42 rejected (below 100)",
+          "input": 42,
+          "expected_error": "ResponseConstructionError::InvalidStatus"
+        },
+        {
+          "id": "status-99-rejected",
+          "description": "Status code 99 rejected (below 100)",
+          "input": 99,
+          "expected_error": "ResponseConstructionError::InvalidStatus"
+        },
+        {
+          "id": "status-100-accepted",
+          "description": "Status code 100 is valid (lower boundary)",
+          "input": 100,
           "expected": {
-            "as_u16": 1,
+            "as_u16": 100,
+            "is_informational": true,
+            "permits_payload_body": false
+          }
+        },
+        {
+          "id": "status-599-accepted",
+          "description": "Status code 599 is valid",
+          "input": 599,
+          "expected": {
+            "as_u16": 599,
+            "is_server_error": true,
+            "permits_payload_body": true
+          }
+        },
+        {
+          "id": "status-999-accepted",
+          "description": "Status code 999 is valid (upper boundary)",
+          "input": 999,
+          "expected": {
+            "as_u16": 999,
             "is_informational": false,
             "is_success": false,
             "is_redirection": false,
@@ -542,8 +580,8 @@
           }
         },
         {
-          "id": "norm-head-no-content-length",
-          "description": "HEAD response does not set Content-Length for body",
+          "id": "norm-head-preserves-content-length",
+          "description": "HEAD response includes Content-Length matching body size",
           "input": {
             "status": 200,
             "headers": [],
@@ -553,7 +591,66 @@
           "expected": {
             "status": 200,
             "body": "",
-            "headers_not_contain": ["content-length"]
+            "headers_contain": {"content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-te-plus-cl-strips-te",
+          "description": "Transfer-Encoding stripped when Content-Length also present",
+          "input": {
+            "status": 200,
+            "headers": [["transfer-encoding", "chunked"], ["content-length", "999"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_not_contain": ["transfer-encoding"],
+            "headers_contain": {"content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-duplicate-cl-replaced",
+          "description": "Duplicate Content-Length headers replaced by normalized value",
+          "input": {
+            "status": 200,
+            "headers": [["content-length", "999"], ["content-length", "888"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_contain": {"content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-hop-by-hop-connection-stripped",
+          "description": "Connection header is stripped as hop-by-hop",
+          "input": {
+            "status": 200,
+            "headers": [["connection", "keep-alive"], ["content-type", "text/plain"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_not_contain": ["connection"],
+            "headers_contain": {"content-type": "text/plain", "content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-multiple-hop-by-hop-stripped",
+          "description": "Multiple hop-by-hop headers stripped together",
+          "input": {
+            "status": 200,
+            "headers": [["transfer-encoding", "chunked"], ["connection", "keep-alive"], ["trailer", "x-checksum"], ["upgrade", "h2c"], ["content-type", "text/plain"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_not_contain": ["transfer-encoding", "connection", "trailer", "upgrade"],
+            "headers_contain": {"content-type": "text/plain", "content-length": "5"}
           }
         }
       ]

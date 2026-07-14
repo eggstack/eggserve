@@ -15,8 +15,8 @@ fuzz_target!(|data: &[u8]| {
     let body_byte = data[2];
     let header_byte = data[3];
 
-    // Build a status code: map to valid range 1..=599
-    let raw_status = (status_byte as u16 % 599) + 1;
+    // Build a status code: map to valid range 100..=999
+    let raw_status = (status_byte as u16 % 899) + 100;
     let status = StatusCode::new(raw_status).unwrap();
 
     // Build body

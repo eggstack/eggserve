@@ -21,7 +21,7 @@ use super::header_block::{HeaderBlock, HeaderError, HeaderField, HeaderName, Hea
 /// Errors from response construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResponseConstructionError {
-    /// The status code is outside the valid 1–999 range.
+    /// The status code is outside the valid 100–999 range.
     InvalidStatus(u16),
     /// A header name or value failed validation.
     InvalidHeader(HeaderError),
@@ -62,7 +62,7 @@ impl From<HeaderError> for ResponseConstructionError {
     }
 }
 
-/// A validated HTTP status code (1–999).
+/// A validated HTTP status code (100–999).
 ///
 /// Wraps a `u16` with range enforcement at construction time. Reason phrases
 /// are not stored — they are not authoritative application data per HTTP/1.1.
@@ -91,9 +91,9 @@ impl StatusCode {
     /// # Errors
     ///
     /// Returns [`ResponseConstructionError::InvalidStatus`] if the code is
-    /// outside 1–999.
+    /// outside 100–999. Only three-digit HTTP status codes are accepted.
     pub fn new(code: u16) -> Result<Self, ResponseConstructionError> {
-        if code == 0 || code > 999 {
+        if !(100..=999).contains(&code) {
             return Err(ResponseConstructionError::InvalidStatus(code));
         }
         Ok(Self(code))
@@ -396,6 +396,9 @@ pub fn normalize_response(
 ) -> Result<Response, ResponseConstructionError> {
     let status = response.status();
 
+    // Compute body length before any suppression.
+    let body_len = response.body.as_ref().map_or(0, |b| b.len());
+
     // Rule 1: HEAD suppression — discard body, preserve headers.
     if request.is_head {
         response.body = Some(ResponseBody::Empty);
@@ -406,24 +409,84 @@ pub fn normalize_response(
         response.body = Some(ResponseBody::Empty);
     }
 
-    // Rule 3: Strip runtime-owned Transfer-Encoding.
-    remove_header(response.head.headers_mut(), "transfer-encoding");
+    // Apply shared metadata normalization.
+    normalize_metadata(
+        status,
+        response.head.headers_mut(),
+        body_len,
+        request.is_head,
+    )?;
 
-    // Rule 4-5: Content-Length handling.
-    let body_len = response.body.as_ref().map_or(0, |b| b.len());
+    Ok(response)
+}
 
-    // Remove existing Content-Length if present, then re-set to actual length.
-    remove_header(response.head.headers_mut(), "content-length");
+/// Normalize response metadata without consuming a response body.
+///
+/// This is the shared normalization entry point for both in-memory and
+/// file-backed response producers. It applies:
+///
+/// 1. Strip runtime-owned `Transfer-Encoding`.
+/// 2. HEAD responses: suppress `Content-Length` only when `body_len` is 0
+///    (empty body). Non-empty HEAD responses retain `Content-Length` to
+///    match the equivalent GET representation.
+/// 3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`.
+/// 4. Normal payloads: set `Content-Length` to `body_len`.
+/// 5. Preserve all other headers (including duplicates).
+///
+/// # Response architecture
+///
+/// All response producers must converge on `normalize_metadata()` for
+/// response metadata and framing. The allowed sequences are:
+///
+/// ```text
+/// // For in-memory bodies:
+/// producer -> Response -> normalize_response() -> to_hyper_response()
+///
+/// // For file-backed bodies:
+/// producer -> normalize_metadata(headers, body_len) -> streaming transport
+/// ```
+///
+/// `normalize_metadata()` enforces:
+/// - Transfer-Encoding is always stripped (runtime-owned)
+/// - Content-Length is set from actual body length for payload-permitting responses
+/// - Content-Length is suppressed for body-forbidden (1xx/204/304) responses
+/// - Content-Length is suppressed only when HEAD body is empty (body_len == 0)
+pub fn normalize_metadata(
+    status: StatusCode,
+    headers: &mut HeaderBlock,
+    body_len: u64,
+    is_head: bool,
+) -> Result<(), ResponseConstructionError> {
+    // Rule 1: Strip all hop-by-hop headers.
+    strip_hop_by_hop(headers);
 
-    if status.permits_payload_body() && !request.is_head {
-        response
-            .head
-            .headers
+    // Rule 2-4: Content-Length handling.
+    remove_header(headers, "content-length");
+
+    if status.permits_payload_body() && !(is_head && body_len == 0) {
+        headers
             .push_str("content-length", body_len.to_string())
             .map_err(ResponseConstructionError::from)?;
     }
 
-    Ok(response)
+    Ok(())
+}
+
+/// Returns `true` if the header is a hop-by-hop header that must not be
+/// forwarded by intermediaries per RFC 7230 § 4.1.2.
+pub fn is_hop_by_hop_header(name: &str) -> bool {
+    matches!(
+        name.to_ascii_lowercase().as_str(),
+        "connection"
+            | "keep-alive"
+            | "proxy-authenticate"
+            | "proxy-authorization"
+            | "proxy-connection"
+            | "te"
+            | "trailer"
+            | "transfer-encoding"
+            | "upgrade"
+    )
 }
 
 /// Remove all headers with the given name (case-insensitive).
@@ -432,6 +495,19 @@ fn remove_header(headers: &mut HeaderBlock, name: &str) {
     let fields: Vec<HeaderField> = headers
         .iter()
         .filter(|f| f.name.as_str().to_ascii_lowercase() != lower)
+        .cloned()
+        .collect();
+    *headers = HeaderBlock::new();
+    for field in fields {
+        headers.push(field.name, field.value);
+    }
+}
+
+/// Remove all hop-by-hop headers from the block.
+fn strip_hop_by_hop(headers: &mut HeaderBlock) {
+    let fields: Vec<HeaderField> = headers
+        .iter()
+        .filter(|f| !is_hop_by_hop_header(f.name.as_str()))
         .cloned()
         .collect();
     *headers = HeaderBlock::new();
@@ -486,7 +562,7 @@ mod tests {
 
     #[test]
     fn status_code_valid_range() {
-        assert!(StatusCode::new(1).is_ok());
+        assert!(StatusCode::new(100).is_ok());
         assert!(StatusCode::new(200).is_ok());
         assert!(StatusCode::new(999).is_ok());
     }
@@ -497,8 +573,24 @@ mod tests {
     }
 
     #[test]
+    fn status_code_below_100_rejected() {
+        assert!(StatusCode::new(1).is_err());
+        assert!(StatusCode::new(42).is_err());
+        assert!(StatusCode::new(99).is_err());
+    }
+
+    #[test]
     fn status_code_over_999_rejected() {
         assert!(StatusCode::new(1000).is_err());
+    }
+
+    #[test]
+    fn status_code_boundary_values() {
+        assert!(StatusCode::new(100).is_ok());
+        assert!(StatusCode::new(199).is_ok());
+        assert!(StatusCode::new(200).is_ok());
+        assert!(StatusCode::new(599).is_ok());
+        assert!(StatusCode::new(999).is_ok());
     }
 
     #[test]
@@ -717,5 +809,141 @@ mod tests {
     fn status_code_into_u16() {
         let code: u16 = StatusCode::OK.into();
         assert_eq!(code, 200);
+    }
+
+    #[test]
+    fn is_hop_by_hop_header_recognizes_all_variants() {
+        assert!(is_hop_by_hop_header("connection"));
+        assert!(is_hop_by_hop_header("Connection"));
+        assert!(is_hop_by_hop_header("CONNECTION"));
+        assert!(is_hop_by_hop_header("keep-alive"));
+        assert!(is_hop_by_hop_header("Keep-Alive"));
+        assert!(is_hop_by_hop_header("proxy-authenticate"));
+        assert!(is_hop_by_hop_header("proxy-authorization"));
+        assert!(is_hop_by_hop_header("proxy-connection"));
+        assert!(is_hop_by_hop_header("te"));
+        assert!(is_hop_by_hop_header("TE"));
+        assert!(is_hop_by_hop_header("trailer"));
+        assert!(is_hop_by_hop_header("Trailer"));
+        assert!(is_hop_by_hop_header("transfer-encoding"));
+        assert!(is_hop_by_hop_header("Transfer-Encoding"));
+        assert!(is_hop_by_hop_header("upgrade"));
+        assert!(is_hop_by_hop_header("Upgrade"));
+    }
+
+    #[test]
+    fn is_hop_by_hop_header_rejects_end_to_end() {
+        assert!(!is_hop_by_hop_header("content-type"));
+        assert!(!is_hop_by_hop_header("content-length"));
+        assert!(!is_hop_by_hop_header("host"));
+        assert!(!is_hop_by_hop_header("set-cookie"));
+        assert!(!is_hop_by_hop_header("etag"));
+        assert!(!is_hop_by_hop_header("authorization"));
+        assert!(!is_hop_by_hop_header("cache-control"));
+    }
+
+    #[test]
+    fn normalize_metadata_strips_all_hop_by_hop() {
+        let code = StatusCode::OK;
+        let mut headers = HeaderBlock::new();
+        headers.push_str("content-type", "text/plain").unwrap();
+        headers.push_str("transfer-encoding", "chunked").unwrap();
+        headers.push_str("connection", "keep-alive").unwrap();
+        headers.push_str("trailer", "x-checksum").unwrap();
+        headers.push_str("upgrade", "h2c").unwrap();
+        headers.push_str("te", "deflate").unwrap();
+
+        normalize_metadata(code, &mut headers, 5, false).unwrap();
+
+        assert!(!headers.contains("transfer-encoding"));
+        assert!(!headers.contains("connection"));
+        assert!(!headers.contains("trailer"));
+        assert!(!headers.contains("upgrade"));
+        assert!(!headers.contains("te"));
+        assert!(headers.contains("content-type"));
+        assert_eq!(headers.get_first("content-length").unwrap().as_str(), "5");
+    }
+
+    #[test]
+    fn duplicate_content_length_replaced_by_normalized_value() {
+        let code = StatusCode::OK;
+        let mut headers = HeaderBlock::new();
+        headers.push_str("content-length", "999").unwrap();
+        headers.push_str("content-length", "888").unwrap();
+
+        normalize_metadata(code, &mut headers, 42, false).unwrap();
+
+        let all_cl = headers.get_all("content-length");
+        assert_eq!(all_cl.len(), 1, "only one Content-Length must remain");
+        assert_eq!(all_cl[0].as_str(), "42");
+    }
+
+    #[test]
+    fn transfer_encoding_plus_content_length_strips_te() {
+        let resp = Response::builder()
+            .status(StatusCode::OK)
+            .header("transfer-encoding", "chunked")
+            .unwrap()
+            .header("content-length", "100")
+            .unwrap()
+            .body(ResponseBody::Bytes(b"hello".to_vec()))
+            .unwrap();
+
+        let req = NormalizeRequest::new(false);
+        let normalized = normalize_response(resp, &req).unwrap();
+
+        assert!(!normalized.headers().contains("transfer-encoding"));
+        assert_eq!(
+            normalized
+                .headers()
+                .get_first("content-length")
+                .unwrap()
+                .as_str(),
+            "5"
+        );
+    }
+
+    #[test]
+    fn normalize_metadata_preserves_duplicate_set_cookie() {
+        let code = StatusCode::OK;
+        let mut headers = HeaderBlock::new();
+        headers.push_str("set-cookie", "a=1").unwrap();
+        headers.push_str("set-cookie", "b=2").unwrap();
+
+        normalize_metadata(code, &mut headers, 0, false).unwrap();
+
+        let all = headers.get_all("set-cookie");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].as_str(), "a=1");
+        assert_eq!(all[1].as_str(), "b=2");
+    }
+
+    #[test]
+    fn normalize_metadata_head_preserves_content_length_when_body_nonempty() {
+        let code = StatusCode::OK;
+        let mut headers = HeaderBlock::new();
+        headers.push_str("content-length", "100").unwrap();
+
+        normalize_metadata(code, &mut headers, 100, true).unwrap();
+
+        assert_eq!(
+            headers.get_first("content-length").unwrap().as_str(),
+            "100",
+            "HEAD with non-empty body must preserve Content-Length"
+        );
+    }
+
+    #[test]
+    fn normalize_metadata_head_suppresses_content_length_when_body_empty() {
+        let code = StatusCode::OK;
+        let mut headers = HeaderBlock::new();
+        headers.push_str("content-length", "100").unwrap();
+
+        normalize_metadata(code, &mut headers, 0, true).unwrap();
+
+        assert!(
+            !headers.contains("content-length"),
+            "HEAD with empty body must suppress Content-Length"
+        );
     }
 }

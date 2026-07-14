@@ -404,7 +404,7 @@ fn response_builder_invalid_header_value_rejected() {
 
 #[test]
 fn status_code_valid_range() {
-    assert!(StatusCode::new(1).is_ok());
+    assert!(StatusCode::new(100).is_ok());
     assert!(StatusCode::new(200).is_ok());
     assert!(StatusCode::new(999).is_ok());
 }
@@ -417,6 +417,21 @@ fn status_code_zero_rejected() {
 #[test]
 fn status_code_over_999_rejected() {
     assert!(StatusCode::new(1000).is_err());
+}
+
+#[test]
+fn status_code_rejects_below_100() {
+    assert!(StatusCode::new(0).is_err());
+    assert!(StatusCode::new(1).is_err());
+    assert!(StatusCode::new(42).is_err());
+    assert!(StatusCode::new(99).is_err());
+}
+
+#[test]
+fn status_code_accepts_boundary_values() {
+    assert!(StatusCode::new(100).is_ok());
+    assert!(StatusCode::new(599).is_ok());
+    assert!(StatusCode::new(999).is_ok());
 }
 
 #[test]

@@ -356,11 +356,12 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `RequestTarget` | Rust, Python | Implemented and stable | Validated origin-form target (path + query) | Canonical request target |
 | `RequestHead` | Rust, Python | Implemented and stable | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |
 | `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (addrs, scheme, TLS); separate from headers | Connection-level metadata |
-| `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (1–999 range) with classification helpers | Canonical status code |
+| `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (100–999, three-digit only) with classification helpers | Canonical status code |
 | `ResponseHead` | Rust, Python | Implemented and stable | Status + HeaderBlock; transport-independent response metadata | Canonical response head |
 | `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes | Canonical response body |
 | `Response` | Rust, Python | Implemented and stable | Complete response with one-shot body consumption | Canonical complete response |
 | `normalize_response()` | Rust | Implemented and stable | Single normalization path: HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation | Response normalization |
+| `normalize_metadata()` | Rust | Implemented and stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation | Response metadata normalization |
 
 ## Invariant checklist
 

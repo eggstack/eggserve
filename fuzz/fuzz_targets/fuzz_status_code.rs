@@ -13,8 +13,8 @@ fuzz_target!(|data: &[u8]| {
 
     match result {
         Ok(status) => {
-            // Valid codes are in 1..=999
-            assert!(code >= 1 && code <= 999);
+            // Valid codes are in 100..=999
+            assert!(code >= 100 && code <= 999);
             // Round-trip
             assert_eq!(status.as_u16(), code);
             // Classification is mutually exclusive
@@ -42,7 +42,7 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(back, code);
         }
         Err(e) => {
-            // Invalid codes (0 or >999) produce InvalidStatus
+            // Invalid codes (0, <100, or >999) produce InvalidStatus
             assert!(
                 matches!(e, ResponseConstructionError::InvalidStatus(c) if c == code),
                 "unexpected error: {:?}",

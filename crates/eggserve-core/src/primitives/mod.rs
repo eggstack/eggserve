@@ -66,8 +66,9 @@ pub use crate::path::platform::{
 };
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use canonical::{
-    normalize_response, to_hyper_response, NormalizeRequest, Response, ResponseBody,
-    ResponseBuilder, ResponseConstructionError, StatusCode,
+    is_hop_by_hop_header, normalize_metadata, normalize_response, to_hyper_response,
+    NormalizeRequest, Response, ResponseBody, ResponseBuilder, ResponseConstructionError,
+    StatusCode,
 };
 pub use connection_info::{ConnectionInfo, Scheme, TlsInfo};
 pub use header_block::{

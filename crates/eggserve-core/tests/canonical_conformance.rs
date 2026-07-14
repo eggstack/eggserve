@@ -554,6 +554,151 @@ fn status_code_construction_and_classification() {
 }
 
 // ---------------------------------------------------------------------------
+// StatusCode boundary tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn status_code_rejects_below_100() {
+    for code in [0u16, 1, 42, 99] {
+        assert!(
+            StatusCode::new(code).is_err(),
+            "StatusCode::new({code}) should be rejected"
+        );
+    }
+}
+
+#[test]
+fn status_code_accepts_all_hundreds() {
+    for code in [100u16, 200, 300, 400, 500, 599, 999] {
+        assert!(
+            StatusCode::new(code).is_ok(),
+            "StatusCode::new({code}) should be accepted"
+        );
+    }
+}
+
+#[test]
+fn status_code_rejects_above_999() {
+    for code in [1000u16, 65535] {
+        assert!(
+            StatusCode::new(code).is_err(),
+            "StatusCode::new({code}) should be rejected"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Response normalization idempotency and edge cases
+// ---------------------------------------------------------------------------
+
+#[test]
+fn normalize_response_idempotent_for_bytes() {
+    let req = NormalizeRequest::new(false);
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(b"hello world".to_vec()))
+        .unwrap();
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 200);
+    let cl = normalized.headers().get_first("content-length").unwrap();
+    assert_eq!(cl.as_str(), "11");
+    assert!(!normalized.headers().contains("transfer-encoding"));
+    let body_len = normalized.body().map(|b| b.len()).unwrap_or(0);
+    assert_eq!(body_len, 11);
+}
+
+#[test]
+fn normalize_response_idempotent_for_empty() {
+    let req = NormalizeRequest::new(false);
+    let resp = Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .empty()
+        .unwrap();
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 204);
+    assert!(normalized.body().unwrap().is_empty());
+    assert!(!normalized.headers().contains("content-length"));
+}
+
+#[test]
+fn head_preserves_content_length_when_body_nonempty() {
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"hello".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(true);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(
+        normalized
+            .headers()
+            .get_first("content-length")
+            .unwrap()
+            .as_str(),
+        "5",
+        "HEAD response must include Content-Length matching equivalent GET"
+    );
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn head_suppresses_content_length_when_body_empty() {
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain")
+        .unwrap()
+        .body(ResponseBody::Empty)
+        .unwrap();
+    let req = NormalizeRequest::new(true);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert!(
+        !normalized.headers().contains("content-length"),
+        "HEAD with empty body must not contain Content-Length"
+    );
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn body_forbidden_never_sets_content_length() {
+    for status in [StatusCode::NO_CONTENT, StatusCode::NOT_MODIFIED] {
+        let resp = Response::builder()
+            .status(status)
+            .body(ResponseBody::Bytes(b"surprise".to_vec()))
+            .unwrap();
+        let req = NormalizeRequest::new(false);
+        let normalized = normalize_response(resp, &req).unwrap();
+        assert!(
+            !normalized.headers().contains("content-length"),
+            "status {} must not set Content-Length",
+            status.as_u16()
+        );
+        assert!(normalized.body().unwrap().is_empty());
+    }
+}
+
+#[test]
+fn duplicate_set_cookie_preserved_through_normalization() {
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("set-cookie", "a=1")
+        .unwrap()
+        .header("set-cookie", "b=2")
+        .unwrap()
+        .header("set-cookie", "c=3")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"ok".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+    let all = normalized.headers().get_all("set-cookie");
+    assert_eq!(all.len(), 3, "all three Set-Cookie headers must survive");
+    assert_eq!(all[0].as_str(), "a=1");
+    assert_eq!(all[1].as_str(), "b=2");
+    assert_eq!(all[2].as_str(), "c=3");
+}
+
+// ---------------------------------------------------------------------------
 // Response normalization tests
 // ---------------------------------------------------------------------------
 

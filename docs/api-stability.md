@@ -196,7 +196,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `StatusCode` | stable | Validated HTTP status code (1–999) |
+| `StatusCode` | stable | Validated HTTP status code (100–999, three-digit only) |
 | `ResponseHead` | stable | Status + `HeaderBlock`; transport-independent response metadata |
 | `ResponseBody` | stable | Body representation: Empty, Bytes |
 | `Response` | stable | Complete response: head + body; one-shot consumption |
@@ -204,6 +204,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `NormalizeRequest` | stable | Context for response normalization (is_head flag) |
 | `ResponseConstructionError` | stable | InvalidStatus, InvalidHeader, ForbiddenFramingHeader, BodyAlreadyConsumed, ContentLengthMismatch |
 | `normalize_response()` | stable | Applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation |
+| `normalize_metadata()` | stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation |
 | `to_hyper_response()` | stable | Converts canonical Response to Hyper Response |
 
 ### `primitives` Module — Body Types

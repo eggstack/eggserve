@@ -15,7 +15,7 @@ fuzz_target!(|data: &[u8]| {
     let has_cl = data[2] & 2 == 2;
     let is_head = data[3] & 1 == 1;
 
-    let raw_status = (status_byte as u16 % 599) + 1;
+    let raw_status = (status_byte as u16 % 899) + 100;
     let status = match StatusCode::new(raw_status) {
         Ok(s) => s,
         Err(_) => return,

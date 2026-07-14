@@ -12,7 +12,7 @@ eggserve/
 │   ├── eggserve-bin/       # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/    # Python wheel (maturin + PyO3, independent build)
 ├── docs/                   # project documentation
-├── plans/                  # design plans (000–040 complete; 041 release closure)
+├── plans/                  # design plans (000–049 complete; 050 release closure)
 ├── fuzz/                   # fuzzing targets
 └── examples/
 ```
@@ -54,19 +54,19 @@ eggserve-python        → (standalone, owns Python packaging)
 
 5. **Framework-independent response planning** — `StaticResponsePlan`, `BodyPlan`, `HeaderMapPlan` are pure value objects with no Hyper dependency. The Python bindings consume these directly.
 
-6. **Canonical response normalization** — All response producers (static file serving, Python callbacks) converge on a single normalization path via `primitives::canonical::normalize_response()`. This enforces HEAD suppression, body-forbidden status handling, hop-by-hop header stripping, and content-length computation uniformly.
+6. **Canonical response normalization** — All response producers (static file serving, Python callbacks) converge on a single normalization path. In-memory bodies use `primitives::canonical::normalize_response()` which enforces HEAD suppression, body-forbidden status handling, hop-by-hop header stripping, and content-length computation. File-backed bodies use `primitives::canonical::normalize_metadata()` to apply the same framing rules without consuming a `Response` value.
 
-6. **Two DotfilePolicy types** — `path::DotfilePolicy` (parsing level, controls whether dotfile paths are accepted) and `policy::DotfilePolicy` (serving level, controls whether dotfiles are served). Both must agree for dotfiles to be served.
+7. **Two DotfilePolicy types** — `path::DotfilePolicy` (parsing level, controls whether dotfile paths are accepted) and `policy::DotfilePolicy` (serving level, controls whether dotfiles are served). Both must agree for dotfiles to be served.
 
-7. **File-stream semaphore** — A bounded semaphore limits concurrent file streams (default 32). When exhausted, the handler returns 503 Service Unavailable.
+8. **File-stream semaphore** — A bounded semaphore limits concurrent file streams (default 32). When exhausted, the handler returns 503 Service Unavailable.
 
-8. **Python immutability** — All PyO3 classes are `#[pyclass(frozen)]` and Python dataclasses use `frozen=True`. Immutability enforced at both layers.
+9. **Python immutability** — All PyO3 classes are `#[pyclass(frozen)]` and Python dataclasses use `frozen=True`. Immutability enforced at both layers.
 
-9. **Evidence-driven release process** — Release gates are defined in `release/criteria.toml` as a machine-readable source of truth. A Python validator (`scripts/release_criteria.py`) checks criteria integrity, generates checklists, and produces structured evidence. A unified local validation script (`scripts/release-validate.sh`) provides fast and full validation modes.
+10. **Evidence-driven release process** — Release gates are defined in `release/criteria.toml` as a machine-readable source of truth. A Python validator (`scripts/release_criteria.py`) checks criteria integrity, generates checklists, and produces structured evidence. A unified local validation script (`scripts/release-validate.sh`) provides fast and full validation modes.
 
-10. **Contract-driven documentation** — All public-facing documents are reconciled against a single capability matrix (`docs/library-capability-matrix.md`). `scripts/check-contract-consistency.py` validates cross-document claims about TLS, Python versions, platform support, package versions, and API inventory. The matrix distinguishes stable, experimental, internal, CLI-only, planned, intentionally unsupported, and platform-limited capabilities.
+11. **Contract-driven documentation** — All public-facing documents are reconciled against a single capability matrix (`docs/library-capability-matrix.md`). `scripts/check-contract-consistency.py` validates cross-document claims about TLS, Python versions, platform support, package versions, and API inventory. The matrix distinguishes stable, experimental, internal, CLI-only, planned, intentionally unsupported, and platform-limited capabilities.
 
-11. **Fail-closed evidence aggregation** — Evidence aggregation uses a severity-ordered precedence (MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING) and never silently ignores malformed or conflicting records. Waivers cannot hide evidence corruption.
+12. **Fail-closed evidence aggregation** — Evidence aggregation uses a severity-ordered precedence (MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING) and never silently ignores malformed or conflicting records. Waivers cannot hide evidence corruption.
 
 ## Data Flow
 
@@ -100,9 +100,9 @@ HTTP Request
 
 | Tier | Modules | Stability |
 |------|---------|-----------|
-| Stable | `primitives` (facade), `primitives::http`, `primitives::planner`, `primitives::response` | Intended public boundary for embedding consumers |
+| Stable | `primitives` (facade), `primitives::http`, `primitives::planner`, `primitives::response`, `primitives::canonical` (response types + normalization) | Intended public boundary for embedding consumers |
 | Stable-ish | `config`, `limits`, `policy` | Field shapes may evolve before 1.0 |
-| Experimental | `service` (`handle_request`), `primitives::canonical` (response types + normalization) | Body type and async surface may change; canonical types are experimental |
+| Experimental | `service` (`handle_request`) | Body type and async surface may change |
 | Internal | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
 
 ## Non-Goals

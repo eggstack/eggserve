@@ -188,7 +188,7 @@ The canonical response types (`primitives::canonical`) provide a transport-indep
 
 ### Key Types
 
-- `StatusCode` — validated HTTP status code (1–999 range) with classification helpers
+- `StatusCode` — validated HTTP status code (100–999, three-digit only) with classification helpers
 - `ResponseHead` — status + `HeaderBlock` (duplicate-preserving headers)
 - `ResponseBody` — `Empty` or `Bytes` body representation
 - `Response` — complete response with one-shot body consumption
@@ -205,6 +205,19 @@ The `normalize_response()` function is the single final normalization path. It a
 
 ### Conversion Flow
 
+All response producers converge on a single normalization path. There are two
+allowed sequences depending on whether the body is in-memory or file-backed:
+
+```
+For in-memory bodies:
+  producer → Response → normalize_response() → to_hyper_response()
+
+For file-backed bodies:
+  producer → normalize_metadata(headers, body_len) → streaming transport
+```
+
+In-memory path (e.g. Python handler responses, error responses):
+
 ```
 StaticResponsePlan / Python Response
     │
@@ -220,6 +233,33 @@ canonical::to_hyper_response(normalized)
     ▼
 hyper::Response<BoxBody>
 ```
+
+File-backed path (e.g. file streaming):
+
+```
+StaticResponsePlan + ResolvedFile
+    │
+    ▼
+normalize_metadata(status, headers, body_len, is_head)
+    │
+    ▼
+Streaming transport (body_source_to_response)
+```
+
+### Metadata Normalization (Shared)
+
+`normalize_metadata()` is the shared normalization entry point for both
+in-memory and file-backed response producers. It applies the same framing rules
+as `normalize_response()` but without consuming a `Response` value:
+
+1. Strip runtime-owned `Transfer-Encoding`
+2. HEAD responses: suppress `Content-Length`
+3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`
+4. Normal payloads: set `Content-Length` to actual body length
+5. Preserve all other headers (including duplicates)
+
+File-streaming producers call `normalize_metadata()` directly to apply the
+same framing policy without constructing a canonical `Response`.
 
 ## Body-Source Conversion
 

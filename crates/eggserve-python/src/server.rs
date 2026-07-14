@@ -832,15 +832,12 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
             let method = req.method().clone();
             let uri = req.uri().clone();
             if uri.authority().is_some() {
-                let body = Full::new(Bytes::from("Bad Request"))
-                    .map_err(|e| -> BoxError { Box::new(e) })
-                    .boxed();
-                let resp = Response::builder()
-                    .status(400u16)
-                    .header("content-type", "text/plain")
-                    .body(body)
-                    .map_err(|e| -> BoxError { Box::new(e) })?;
-                return Ok(resp);
+                return convert_to_hyper_response(
+                    build_error_response(400, "Bad Request").unwrap(),
+                    Some(file_stream_semaphore),
+                    method == hyper::Method::HEAD,
+                )
+                .await;
             }
             let is_head = method == hyper::Method::HEAD;
             let is_read_only = method == hyper::Method::GET || is_head;
@@ -1160,14 +1157,27 @@ fn validate_handler_response(resp: &PyResponse) -> bool {
 }
 
 fn fallback_500() -> Result<Response<BoxBody<Bytes, BoxError>>, BoxError> {
-    let body = Full::new(Bytes::from("Internal Server Error"))
+    let code = eggserve_core::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR;
+    let mut headers = eggserve_core::primitives::header_block::HeaderBlock::new();
+    headers
+        .push_str("content-type", "text/plain; charset=utf-8")
+        .unwrap();
+    let body = b"Internal Server Error";
+    eggserve_core::primitives::canonical::normalize_metadata(
+        code,
+        &mut headers,
+        body.len() as u64,
+        false,
+    )
+    .unwrap();
+    let hyper_body = Full::new(Bytes::from_static(body))
         .map_err(|e| -> BoxError { Box::new(e) })
         .boxed();
-    Response::builder()
-        .status(500u16)
-        .header("content-type", "text/plain")
-        .body(body)
-        .map_err(|e| -> BoxError { Box::new(e) })
+    let mut builder = Response::builder().status(500u16);
+    for field in headers.iter() {
+        builder = builder.header(field.name.as_str(), field.value.as_str());
+    }
+    builder.body(hyper_body).map_err(|e| -> BoxError { Box::new(e) })
 }
 
 async fn convert_to_hyper_response(
@@ -1261,7 +1271,9 @@ async fn convert_to_hyper_response(
         }
         _ => None,
     };
-    let mut builder = Response::builder().status(resp.status);
+
+    // Build canonical headers, filter body-specific headers, apply normalization.
+    let mut canonical_headers = eggserve_core::primitives::header_block::HeaderBlock::new();
     for (name, value) in &resp.headers {
         if let Some((is_range, _, _, _)) = file_body {
             let is_body_header = name.eq_ignore_ascii_case("content-length")
@@ -1271,22 +1283,61 @@ async fn convert_to_hyper_response(
                 continue;
             }
         }
-        builder = builder.header(name.as_str(), value.as_str());
+        if let (Ok(n), Ok(v)) = (
+            eggserve_core::primitives::header_block::HeaderName::new(name.as_str()),
+            eggserve_core::primitives::header_block::HeaderValue::new(value.as_str()),
+        ) {
+            canonical_headers.push(n, v);
+        }
     }
     if let Some((_, file_len, mime, range_info)) = file_body {
-        builder = builder
-            .header("content-type", mime)
-            .header("content-length", file_len.to_string());
+        canonical_headers
+            .push_str("content-type", mime)
+            .unwrap();
         if let Some((range, total_len)) = range_info {
-            builder = builder
-                .status(206u16)
-                .header(
+            canonical_headers
+                .push_str(
                     "content-range",
                     format!(
                         "bytes {}-{}/{}",
                         range.start, range.end_inclusive, total_len
                     ),
-                );
+                )
+                .unwrap();
+            let status = eggserve_core::primitives::canonical::StatusCode::PARTIAL_CONTENT;
+            eggserve_core::primitives::canonical::normalize_metadata(
+                status,
+                &mut canonical_headers,
+                file_len,
+                suppress_body,
+            )
+            .unwrap();
+        } else {
+            let status = eggserve_core::primitives::canonical::StatusCode::new(resp.status)
+                .map_err(|e| -> BoxError { e.into() })?;
+            eggserve_core::primitives::canonical::normalize_metadata(
+                status,
+                &mut canonical_headers,
+                file_len,
+                suppress_body,
+            )
+            .unwrap();
+        }
+    }
+
+    let mut builder = Response::builder().status(resp.status);
+    if let Some((is_range, _, _, _)) = file_body {
+        for field in canonical_headers.iter() {
+            builder = builder.header(field.name.as_str(), field.value.as_str());
+        }
+        if let Some((range, total_len)) =
+            file_body.and_then(|(_, _, _, r)| r)
+        {
+            builder = builder.status(206u16);
+        }
+    } else {
+        for (name, value) in &resp.headers {
+            builder = builder.header(name.as_str(), value.as_str());
         }
     }
 

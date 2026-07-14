@@ -36,7 +36,6 @@ rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
-dhat = "0.3"
 hyper = { version = "1", features = ["client"] }
 libc = "0.2"
 proptest = "1"
