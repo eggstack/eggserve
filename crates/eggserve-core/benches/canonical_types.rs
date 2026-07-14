@@ -1,7 +1,10 @@
+use std::net::SocketAddr;
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use eggserve_core::primitives::canonical::{
     normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
 };
+use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
 use eggserve_core::primitives::method::Method;
 use eggserve_core::primitives::request_head::RequestHead;
@@ -106,6 +109,103 @@ fn bench_status_code(c: &mut Criterion) {
     });
 }
 
+fn bench_head_response(c: &mut Criterion) {
+    c.bench_function("normalize_head_response", |b| {
+        b.iter(|| {
+            let resp = Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/plain")
+                .unwrap()
+                .body(ResponseBody::Bytes(b"hello world".to_vec()))
+                .unwrap();
+            let req = NormalizeRequest::new(true);
+            black_box(normalize_response(black_box(resp), &req).unwrap());
+        })
+    });
+}
+
+fn bench_duplicate_headers(c: &mut Criterion) {
+    c.bench_function("header_block_duplicate_names", |b| {
+        b.iter(|| {
+            let mut hb = HeaderBlock::new();
+            for i in 0..5 {
+                hb.push_str("set-cookie", format!("cookie{}=value{}", i, i))
+                    .unwrap();
+            }
+            black_box(&hb);
+        })
+    });
+    c.bench_function("header_block_get_first_duplicate", |b| {
+        let mut hb = HeaderBlock::new();
+        for i in 0..5 {
+            hb.push_str("set-cookie", format!("cookie{}=value{}", i, i))
+                .unwrap();
+        }
+        b.iter(|| black_box(hb.get_first(black_box("set-cookie"))))
+    });
+}
+
+fn bench_file_response(c: &mut Criterion) {
+    c.bench_function("response_small_file", |b| {
+        let body = vec![b'x'; 1024];
+        b.iter(|| {
+            let resp = Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/octet-stream")
+                .unwrap()
+                .body(ResponseBody::Bytes(black_box(&body).clone()))
+                .unwrap();
+            let req = NormalizeRequest::new(false);
+            black_box(normalize_response(resp, &req).unwrap());
+        })
+    });
+    c.bench_function("response_large_file", |b| {
+        let body = vec![b'x'; 1024 * 1024];
+        b.iter(|| {
+            let resp = Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "application/octet-stream")
+                .unwrap()
+                .body(ResponseBody::Bytes(black_box(&body).clone()))
+                .unwrap();
+            let req = NormalizeRequest::new(false);
+            black_box(normalize_response(resp, &req).unwrap());
+        })
+    });
+}
+
+fn bench_range_response(c: &mut Criterion) {
+    c.bench_function("response_206_range", |b| {
+        b.iter(|| {
+            let resp = Response::builder()
+                .status(StatusCode::new(206).unwrap())
+                .header("content-range", "bytes 0-4/100")
+                .unwrap()
+                .header("content-length", "5")
+                .unwrap()
+                .body(ResponseBody::Bytes(b"hello".to_vec()))
+                .unwrap();
+            let req = NormalizeRequest::new(false);
+            black_box(normalize_response(resp, &req).unwrap());
+        })
+    });
+}
+
+fn bench_connection_info(c: &mut Criterion) {
+    c.bench_function("connection_info_construction", |b| {
+        b.iter(|| {
+            let addr: SocketAddr = "127.0.0.1:8080".parse().unwrap();
+            let peer: SocketAddr = "192.168.1.1:12345".parse().unwrap();
+            black_box(ConnectionInfo {
+                local_addr: addr,
+                remote_addr: peer,
+                scheme: Scheme::Http,
+                tls: None,
+            });
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_method_construction,
@@ -113,5 +213,10 @@ criterion_group!(
     bench_request_head_construction,
     bench_response_normalization,
     bench_status_code,
+    bench_head_response,
+    bench_duplicate_headers,
+    bench_file_response,
+    bench_range_response,
+    bench_connection_info,
 );
 criterion_main!(benches);

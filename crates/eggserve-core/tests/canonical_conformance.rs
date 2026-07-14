@@ -811,16 +811,48 @@ proptest! {
         method_str in "[\\x00-\\x7f]{0,128}",
         target_str in "[\\x00-\\x7f]{0,128}",
     ) {
-        // Method::new should never panic
         let _ = Method::new(&method_str);
-
-        // RequestTarget::parse should never panic
         let _ = RequestTarget::parse(&target_str);
-
-        // HeaderName::new should never panic
         let _ = HeaderName::new(&method_str);
-
-        // HeaderValue::new should never panic
         let _ = HeaderValue::new(&target_str);
+    }
+
+    #[test]
+    fn malformed_input_never_reaches_handler(
+        method_str in "[\\x00-\\x7f]{0,128}",
+        target_str in "[\\x00-\\x7f]{0,128}",
+        header_name in "[\\x00-\\x7f]{0,128}",
+        header_value in "[\\x00-\\x7f]{0,128}",
+    ) {
+        let method_result = Method::new(&method_str);
+        let target_result = RequestTarget::parse(&target_str);
+        let name_result = HeaderName::new(&header_name);
+        let value_result = HeaderValue::new(&header_value);
+
+        let all_succeeded = method_result.is_ok()
+            && target_result.is_ok()
+            && name_result.is_ok()
+            && value_result.is_ok();
+
+        if all_succeeded {
+            let mut block = HeaderBlock::new();
+            block.push(name_result.unwrap(), value_result.unwrap());
+            let head = RequestHead::new(
+                method_result.unwrap(),
+                target_result.unwrap(),
+                HttpVersion::Http11,
+                block,
+            );
+            prop_assert!(head.method().as_str() == method_str);
+            prop_assert!(head.headers().iter().count() == 1);
+        } else {
+            prop_assert!(
+                method_result.is_err()
+                    || target_result.is_err()
+                    || name_result.is_err()
+                    || value_result.is_err(),
+                "at least one validation must reject malformed input"
+            );
+        }
     }
 }

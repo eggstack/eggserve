@@ -10,6 +10,10 @@ exercised only through indirect validation where available.
 
 import json
 import os
+import shutil
+import socket
+import tempfile
+import time
 import unittest
 
 from eggserve._native import (
@@ -26,6 +30,8 @@ from eggserve._native import (
     PathPolicyError,
     RequestTarget,
     RequestTargetError,
+    Response,
+    Server,
 )
 
 _WORKSPACE_ROOT = os.path.normpath(
@@ -773,6 +779,169 @@ class TestFileResponseBodyMetadata(unittest.TestCase):
         fx = next(f for f in _file_stream_body_metadata_fixtures() if f["id"] == "body-file-range")
         self.assertEqual(fx["expected"]["plan_variant"], "FileRange")
         self.assertEqual(fx["expected"]["range_len"], 100)
+
+
+class TestCallbackOverSockets(unittest.TestCase):
+    """Canonical type conformance at the callback boundary over real sockets."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        self._servers = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def _make_server(self, handler=None, **kwargs):
+        defaults = {"root": self._td, "port": 0}
+        defaults.update(kwargs)
+        if handler is not None:
+            defaults["handler"] = handler
+        s = Server(**defaults)
+        s.start()
+        self._servers.append(s)
+        return s
+
+    def _wait_for_tcp(self, addr, timeout=5.0):
+        host, port = addr.split(":")
+        port = int(port)
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            try:
+                with socket.create_connection((host, port), timeout=0.5):
+                    return True
+            except (ConnectionRefusedError, OSError):
+                time.sleep(0.05)
+        return False
+
+    def _send_request(self, addr, method="GET", path="/test"):
+        host, port_str = addr.split(":")
+        sock = socket.create_connection((host, int(port_str)), timeout=5)
+        req = (
+            f"{method} {path} HTTP/1.1\r\n"
+            f"Host: {addr}\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+        )
+        sock.sendall(req.encode())
+        return sock
+
+    def _read_response(self, sock):
+        sock.settimeout(5)
+        buf = b""
+        while b"\r\n\r\n" not in buf:
+            try:
+                chunk = sock.recv(4096)
+                if not chunk:
+                    break
+                buf += chunk
+            except socket.timeout:
+                break
+        if b"\r\n\r\n" not in buf:
+            return b"", b""
+        sep = buf.index(b"\r\n\r\n") + 4
+        header_data = buf[:sep]
+        body = buf[sep:]
+        content_length = None
+        for line in header_data.decode("latin-1").split("\r\n"):
+            if line.lower().startswith("content-length:"):
+                content_length = int(line.split(":", 1)[1].strip())
+                break
+        if content_length is not None:
+            while len(body) < content_length:
+                try:
+                    chunk = sock.recv(4096)
+                    if not chunk:
+                        break
+                    body += chunk
+                except socket.timeout:
+                    break
+        return header_data, body
+
+    def test_callback_status_code_wire(self):
+        def handler(req):
+            return Response.text(418, "I am a teapot")
+
+        s = self._make_server(handler=handler)
+        addr = s.addr
+        self.assertTrue(self._wait_for_tcp(addr))
+
+        sock = self._send_request(addr)
+        header_data, body = self._read_response(sock)
+        sock.close()
+
+        status_line = header_data.decode("latin-1").split("\r\n")[0]
+        self.assertIn("418", status_line)
+        self.assertEqual(body.decode("utf-8"), "I am a teapot")
+
+    def test_callback_ordered_headers_wire(self):
+        def handler(req):
+            return Response.text(
+                200,
+                "ok",
+                headers={
+                    "x-custom-a": "1",
+                    "x-custom-b": "2",
+                    "x-custom-c": "3",
+                },
+            )
+
+        s = self._make_server(handler=handler)
+        addr = s.addr
+        self.assertTrue(self._wait_for_tcp(addr))
+
+        sock = self._send_request(addr)
+        header_data, body = self._read_response(sock)
+        sock.close()
+
+        headers_str = header_data.decode("latin-1")
+        self.assertIn("x-custom-a: 1", headers_str)
+        self.assertIn("x-custom-b: 2", headers_str)
+        self.assertIn("x-custom-c: 3", headers_str)
+        self.assertIn("200", headers_str.split("\r\n")[0])
+
+    def test_callback_empty_body_204(self):
+        def handler(req):
+            return Response.empty(204)
+
+        s = self._make_server(handler=handler)
+        addr = s.addr
+        self.assertTrue(self._wait_for_tcp(addr))
+
+        sock = self._send_request(addr)
+        header_data, body = self._read_response(sock)
+        sock.close()
+
+        status_line = header_data.decode("latin-1").split("\r\n")[0]
+        self.assertIn("204", status_line)
+        self.assertEqual(len(body), 0)
+
+    def test_callback_head_suppresses_body(self):
+        def handler(req):
+            return Response.text(200, "hello world")
+
+        s = self._make_server(handler=handler)
+        addr = s.addr
+        self.assertTrue(self._wait_for_tcp(addr))
+
+        sock = self._send_request(addr, method="HEAD")
+        header_data, body = self._read_response(sock)
+        sock.close()
+
+        status_line = header_data.decode("latin-1").split("\r\n")[0]
+        self.assertIn("200", status_line)
+        headers_str = header_data.decode("latin-1")
+        self.assertIn("content-type:", headers_str)
+        self.assertEqual(len(body), 0)
+
+    def test_callback_duplicate_response_headers(self):
+        hb = HeaderBlock([("set-cookie", "a=1"), ("set-cookie", "b=2")])
+        self.assertEqual(hb.len, 2)
+        self.assertEqual(hb.get_all("set-cookie"), ["a=1", "b=2"])
 
 
 if __name__ == "__main__":
