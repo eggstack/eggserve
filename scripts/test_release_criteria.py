@@ -981,5 +981,180 @@ class TestCLIAggregate(unittest.TestCase):
         self.assertEqual(data["gates"]["g1"]["status"], "MALFORMED")
 
 
+class TestEndToEndAggregation(unittest.TestCase):
+    """End-to-end tests using multi-file evidence bundles."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tmpdir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(_RC_PATH)] + list(args),
+            capture_output=True,
+            text=True,
+        )
+
+    def _setup_bundle(self, gate_results: dict[str, str], *, sha: str = "abc123"):
+        criteria_gates = []
+        for gate_id, result in gate_results.items():
+            criteria_gates.append(_make_gate(gate_id))
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        for gate_id, result in gate_results.items():
+            ev = _valid_evidence(gate_id, result=result, commit_sha=sha)
+            (gates_dir / f"{gate_id}.json").write_text(json.dumps(ev), encoding="utf-8")
+        return criteria_path, evidence_dir
+
+    def test_all_passing_bundle(self):
+        criteria_path, evidence_dir = self._setup_bundle({
+            "g1": "passed", "g2": "passed", "g3": "passed",
+        })
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("RELEASE READY", result.stdout)
+
+    def test_partial_failure_blocks_release(self):
+        criteria_path, evidence_dir = self._setup_bundle({
+            "g1": "passed", "g2": "failed", "g3": "passed",
+        })
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NOT RELEASE READY", result.stderr)
+
+    def test_missing_gate_blocks_release(self):
+        criteria_path, evidence_dir = self._setup_bundle({
+            "g1": "passed",
+        })
+        criteria_path.write_text(
+            _criteria_toml([_make_gate("g1"), _make_gate("g2")]),
+            encoding="utf-8",
+        )
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_deterministic_output_ordering(self):
+        criteria_path, evidence_dir = self._setup_bundle({
+            "alpha.gate": "passed", "beta.gate": "passed", "gamma.gate": "passed",
+        })
+        results = []
+        for _ in range(3):
+            result = self._run(
+                "aggregate",
+                "--criteria", str(criteria_path),
+                "--evidence", str(evidence_dir),
+                "--sha", "abc123",
+                "--format", "json",
+            )
+            self.assertEqual(result.returncode, 0)
+            results.append(result.stdout)
+        for r in results[1:]:
+            self.assertEqual(r, results[0], "Aggregate output is not deterministic")
+
+    def test_sha_mismatch_detected(self):
+        criteria_gates = [_make_gate("g1", max_age_days=0)]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1", result="passed", commit_sha="wrong_sha")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        data = json.loads(result.stdout)
+        gate_status = data["gates"]["g1"]["status"]
+        self.assertEqual(gate_status, "STALE")
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        data = json.loads(result.stdout)
+        gate_status = data["gates"]["g1"]["status"]
+        self.assertIn(gate_status, ("STALE", "FAILED"))
+
+    def test_malformed_record_in_bundle(self):
+        criteria_gates = [_make_gate("g1"), _make_gate("g2")]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev1 = _valid_evidence("g1")
+        (gates_dir / "g1.json").write_text(json.dumps(ev1), encoding="utf-8")
+        (gates_dir / "g2.json").write_text(
+            json.dumps({"gate_id": "g2", "schema_version": "1.0.0"}),
+            encoding="utf-8",
+        )
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        self.assertEqual(result.returncode, 1)
+        data = json.loads(result.stdout)
+        self.assertEqual(data["gates"]["g2"]["status"], "MALFORMED")
+
+    def test_partial_evidence_not_release_ready(self):
+        criteria_gates = [_make_gate("g1"), _make_gate("g2"), _make_gate("g3")]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev1 = _valid_evidence("g1")
+        (gates_dir / "g1.json").write_text(json.dumps(ev1), encoding="utf-8")
+
+        result = self._run(
+            "aggregate",
+            "--criteria", str(criteria_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NOT RELEASE READY", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

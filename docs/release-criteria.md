@@ -53,6 +53,14 @@ A beta release requires all alpha criteria plus:
 - [ ] No known unsound `unsafe` code
 - Trigger policy is consistent across workflow, criteria, and inventory (`triggers` field in `release/criteria.toml`)
 
+### Trigger policy consistency
+
+The `triggers` field in each `[[gate]]` block of `release/criteria.toml` declares
+which CI events execute the gate. CI job `if:` conditions in `.github/workflows/ci.yml`
+must match these declarations. The `check_trigger_policy_consistency` function in
+`scripts/check-contract-consistency.py` cross-validates criteria trigger declarations
+against workflow job conditions. A mismatch is a release blocker.
+
 ## 1.0
 
 A 1.0 release requires all beta criteria plus:

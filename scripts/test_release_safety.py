@@ -326,5 +326,122 @@ class TestCargoPackageModesExist(unittest.TestCase):
         self.assertIn('"all"', script)
 
 
+class TestSkipScenarioCoverage(unittest.TestCase):
+    """Conditional gates must emit explicit not-applicable records when skipped."""
+
+    def test_supply_chain_not_run_on_pr(self):
+        """supply-chain gates must be push-only (not run on PRs)."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        gates_by_id = {g["id"]: g for g in data.get("gate", [])}
+        for gate_id in ("supply-chain.audit", "supply-chain.deny"):
+            triggers = gates_by_id[gate_id].get("triggers", [])
+            self.assertNotIn("pull_request", triggers,
+                f"{gate_id} should not run on pull_request")
+
+    def test_corpus_replay_has_skip_path(self):
+        """corpus-replay CI job must have a skip/not-applicable path for missing corpus."""
+        ci_text = _read(WORKFLOWS / "ci.yml")
+        self.assertIn("--skip", ci_text)
+
+    def test_all_gates_declare_triggers(self):
+        """Every gate in criteria.toml must declare a triggers field."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        for gate in data.get("gate", []):
+            self.assertIn("triggers", gate,
+                f"Gate {gate['id']} missing triggers field")
+
+    def test_manual_gates_are_deferred_not_missing(self):
+        """Release and human-approval gates must not be required on PR/push."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        manual_gates = ("release.dry-run", "release.artifacts", "release.provenance", "release.human-approval")
+        for gate in data.get("gate", []):
+            if gate["id"] in manual_gates:
+                triggers = gate.get("triggers", [])
+                self.assertNotIn("push", triggers,
+                    f"Manual gate {gate['id']} should not be triggered on push")
+                self.assertNotIn("pull_request", triggers,
+                    f"Manual gate {gate['id']} should not be triggered on pull_request")
+
+    def test_wheel_gates_are_push_only(self):
+        """Cross-platform wheel gates must be push-only."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        wheel_gates = ("python.wheel.linux", "python.wheel.macos", "python.wheel.windows")
+        for gate in data.get("gate", []):
+            if gate["id"] in wheel_gates:
+                triggers = gate.get("triggers", [])
+                self.assertNotIn("pull_request", triggers,
+                    f"Wheel gate {gate['id']} should not run on pull_request")
+
+
+class TestPackageGateIndependence(unittest.TestCase):
+    """Package.core and package.bin must be independently evaluable."""
+
+    def test_package_gates_are_distinct_in_criteria(self):
+        """package.core and package.bin must have separate gate definitions."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        gate_ids = [g["id"] for g in data.get("gate", [])]
+        self.assertIn("package.core", gate_ids)
+        self.assertIn("package.bin", gate_ids)
+        self.assertNotEqual(
+            gate_ids.index("package.core"),
+            gate_ids.index("package.bin"),
+        )
+
+    def test_package_gates_use_separate_evidence_commands(self):
+        """CI must invoke package.core and package.bin via separate ci-gate-evidence.sh calls."""
+        ci_text = _read(WORKFLOWS / "ci.yml")
+        self.assertIn("package.core", ci_text)
+        self.assertIn("package.bin", ci_text)
+        core_lines = [l for l in ci_text.splitlines() if "package.core" in l and "ci-gate-evidence" in l]
+        bin_lines = [l for l in ci_text.splitlines() if "package.bin" in l and "ci-gate-evidence" in l]
+        self.assertGreaterEqual(len(core_lines), 1, "package.core must have a ci-gate-evidence.sh invocation")
+        self.assertGreaterEqual(len(bin_lines), 1, "package.bin must have a ci-gate-evidence.sh invocation")
+
+    def test_package_gates_have_independent_triggers(self):
+        """package.core and package.bin must declare the same triggers (both push-only)."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        gates_by_id = {g["id"]: g for g in data.get("gate", [])}
+        core_triggers = gates_by_id["package.core"].get("triggers", [])
+        bin_triggers = gates_by_id["package.bin"].get("triggers", [])
+        self.assertEqual(core_triggers, bin_triggers)
+        self.assertIn("push", core_triggers)
+
+    def test_package_gates_are_both_required(self):
+        """Both package.core and package.bin must be required gates."""
+        import tomllib
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with open(criteria_path, "rb") as f:
+            data = tomllib.load(f)
+        gates_by_id = {g["id"]: g for g in data.get("gate", [])}
+        self.assertTrue(gates_by_id["package.core"].get("required", False))
+        self.assertTrue(gates_by_id["package.bin"].get("required", False))
+
+    def test_package_verify_script_modes_are_documented(self):
+        """verify-cargo-packages.sh must support core, bin, and all modes."""
+        script = _read(SCRIPTS_DIR / "verify-cargo-packages.sh")
+        self.assertIn("--mode", script)
+        self.assertIn('"core"', script)
+        self.assertIn('"bin"', script)
+        self.assertIn('"all"', script)
+
+
 if __name__ == "__main__":
     unittest.main()

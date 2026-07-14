@@ -19,8 +19,8 @@ authoritative inventory for Plan 045 Track A.
 | `cargo test -p eggserve-core --test http_primitives_integration` | ci.yml / gate/http-wire | linux | — | PR, main | ci-log, test-output | `http.primitives-integration` | |
 | `cargo test -p eggserve-bin --test production_path` | ci.yml / gate/production-path | linux | — | PR, main | ci-log, test-output | `http.production-path` | |
 | `cargo test -p eggserve-core --test corpus_replay && cargo test -p eggserve-core --test corpus_replay --features client` | ci.yml / gate/corpus-replay | linux | — | PR, main | ci-log, test-output | `filesystem.corpus-replay` | Skipped if no fuzz/corpus |
-| `bash scripts/install-cargo-tools.sh && cargo audit` | ci.yml / gate/supply-chain | linux | — | PR, main | ci-log, audit-output | `supply-chain.audit` | |
-| `cargo deny check` | ci.yml / gate/supply-chain | linux | — | PR, main | ci-log, deny-output | `supply-chain.deny` | |
+| `bash scripts/install-cargo-tools.sh && cargo audit` | ci.yml / gate/supply-chain | linux | — | main | ci-log, audit-output | `supply-chain.audit` | |
+| `cargo deny check` | ci.yml / gate/supply-chain | linux | — | main | ci-log, deny-output | `supply-chain.deny` | |
 | `bash scripts/verify-cargo-packages.sh --mode core` | ci.yml / gate/package | linux | — | main | ci-log, package-output | `package.core` | Core-only mode |
 | `bash scripts/verify-cargo-packages.sh --mode bin` | ci.yml / gate/package | linux | — | main | ci-log, package-output | `package.bin` | Bin-only mode (packages core first) |
 | `cd crates/eggserve-python && PYTHONPATH=python python -m unittest discover ...` | ci.yml / gate/python-unit-tests | linux | — | PR, main | ci-log, test-output | `python.unit-tests` | Source-only, no wheel needed |
