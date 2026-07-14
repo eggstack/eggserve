@@ -69,6 +69,25 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 
 Exceptions: `ServerRequestError` (method not allowed, target invalid, body not allowed).
 
+### Lifecycle methods (Plan 053)
+
+| Method | Behavior |
+|--------|----------|
+| `start()` | Creates tokio runtime, binds TcpListener, spawns accept loop. Blocks until ready. |
+| `stop()` | Sends shutdown signal, joins thread (blocking). Idempotent. |
+| `wait_ready()` | Returns `Ok(())` if Running; raises `LifecycleError` otherwise. |
+| `shutdown()` | Sends shutdown signal, returns immediately (non-blocking). |
+| `force_shutdown(timeout_secs)` | Graceful shutdown with deadline. Returns `"clean"` or `"timeout"`. |
+| `wait()` | Blocks until thread joins. Returns `"stopped"`. |
+| `state` (property) | Returns lifecycle state: `"created"`, `"running"`, `"stopped"`, `"failed"`. |
+
+### Callback model (Plan 053)
+
+- Handler timeout (`handler_timeout_secs`, default 30s): best-effort in Python; enforced at transport level by Rust server.
+- Coroutine rejection: handlers returning coroutine objects are rejected with a 500 response.
+- GIL released during network/file I/O via `py.allow_threads`.
+- Callback concurrency bounded by `max_python_callbacks` semaphore.
+
 ### Response Validation
 
 Every Python-produced `Response` passes through `validate_handler_response()` in Rust before being sent to the client:
@@ -147,7 +166,7 @@ Searches for the `eggserve` binary in:
 
 2. **Subprocess, not FFI** — The binary is spawned as a subprocess rather than linked as a shared library. This isolates the Python process from the server's memory and lifecycle.
 
-3. **Server primitives use Rust-owned I/O** — The `Server` type runs a tokio runtime in a background thread. When a handler callback is provided, Python code receives parsed `Request` objects and returns `Response` values. When no handler is provided, the server serves static files. Socket I/O, HTTP parsing, and file streaming are handled by Rust. Connection limits, header timeouts, write timeouts, and callback concurrency are enforced. The GIL is released during I/O.
+3. **Server primitives use Rust-owned I/O** — The `Server` type runs a tokio runtime in a background thread. When a handler callback is provided, Python code receives parsed `Request` objects and returns `Response` values. When no handler is provided, the server serves static files. Socket I/O, HTTP parsing, and file streaming are handled by Rust. Connection limits, header timeouts, write timeouts, and callback concurrency are enforced. The GIL is released during I/O. Lifecycle methods (`wait_ready()`, `shutdown()`, `force_shutdown()`, `wait()`, `state`) provide parity with the Rust `ServerHandle` API. Coroutine handlers are rejected with a 500 response.
 
 4. **Frozen immutability** — All PyO3 classes use `#[pyclass(frozen)]`. All Python dataclasses use `frozen=True`. This prevents mutation at both layers.
 

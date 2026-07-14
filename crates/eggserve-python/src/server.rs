@@ -28,6 +28,25 @@ use eggserve_core::primitives::{
     ResolveAndPlanError, SecureRoot, StaticPolicy,
 };
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ServerLifecycleState {
+    Created,
+    Running,
+    Stopped,
+    Failed,
+}
+
+impl std::fmt::Display for ServerLifecycleState {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Created => write!(f, "created"),
+            Self::Running => write!(f, "running"),
+            Self::Stopped => write!(f, "stopped"),
+            Self::Failed => write!(f, "failed"),
+        }
+    }
+}
+
 type BoxError = Box<dyn std::error::Error + Send + Sync>;
 type FileStream = StreamBody<
     Pin<
@@ -515,7 +534,7 @@ impl ServerBodySource {
     }
 }
 
-#[pyclass(frozen, name = "Server")]
+#[pyclass(name = "Server")]
 #[allow(dead_code)]
 pub struct PyServer {
     bind: String,
@@ -531,13 +550,16 @@ pub struct PyServer {
     max_python_callbacks: usize,
     header_timeout: Duration,
     write_timeout: Duration,
+    handler_timeout: Duration,
+    graceful_shutdown_timeout: Duration,
+    state: std::sync::Mutex<ServerLifecycleState>,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10))]
     fn new(
         root: String,
         bind: &str,
@@ -550,6 +572,8 @@ impl PyServer {
         max_python_callbacks: usize,
         header_timeout_secs: u64,
         write_timeout_secs: u64,
+        handler_timeout_secs: u64,
+        graceful_shutdown_timeout_secs: u64,
     ) -> PyResult<Self> {
         let bind_addr: SocketAddr = format!("{bind}:{port}")
             .parse()
@@ -584,6 +608,16 @@ impl PyServer {
                 "write_timeout_secs must be greater than zero",
             ));
         }
+        if handler_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "handler_timeout_secs must be greater than zero",
+            ));
+        }
+        if graceful_shutdown_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "graceful_shutdown_timeout_secs must be greater than zero",
+            ));
+        }
 
         let static_policy = policy
             .map(|p| p.inner)
@@ -607,6 +641,9 @@ impl PyServer {
             max_python_callbacks,
             header_timeout: Duration::from_secs(header_timeout_secs),
             write_timeout: Duration::from_secs(write_timeout_secs),
+            handler_timeout: Duration::from_secs(handler_timeout_secs),
+            graceful_shutdown_timeout: Duration::from_secs(graceful_shutdown_timeout_secs),
+            state: std::sync::Mutex::new(ServerLifecycleState::Created),
         })
     }
 
@@ -617,6 +654,15 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         Ok(guard.clone())
+    }
+
+    #[getter]
+    fn state(&self) -> PyResult<String> {
+        let guard = self
+            .state
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        Ok(guard.to_string())
     }
 
     fn start(&self, py: Python<'_>) -> PyResult<()> {
@@ -743,6 +789,12 @@ impl PyServer {
         })?;
 
         *self
+            .state
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
+            ServerLifecycleState::Running;
+
+        *self
             .handle
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
@@ -772,10 +824,121 @@ impl PyServer {
         drop(handle_guard);
 
         *self
+            .state
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
+            ServerLifecycleState::Stopped;
+
+        *self
             .addr
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? = None;
         Ok(())
+    }
+
+    fn wait_ready(&self, _py: Python<'_>) -> PyResult<()> {
+        let state = {
+            let guard = self
+                .state
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            *guard
+        };
+        match state {
+            ServerLifecycleState::Running => Ok(()),
+            ServerLifecycleState::Created => Err(crate::LifecycleError::new_err(
+                "server not started",
+            )),
+            ServerLifecycleState::Stopped | ServerLifecycleState::Failed => {
+                Err(crate::LifecycleError::new_err("server is not running"))
+            }
+        }
+    }
+
+    fn shutdown(&self, _py: Python<'_>) -> PyResult<()> {
+        let mut tx_guard = self
+            .shutdown_tx
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if let Some(tx) = tx_guard.take() {
+            let _ = tx.send(());
+        }
+        Ok(())
+    }
+
+    #[pyo3(signature = (timeout_secs=10.0))]
+    fn force_shutdown(&self, py: Python<'_>, timeout_secs: f64) -> PyResult<String> {
+        let mut tx_guard = self
+            .shutdown_tx
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if let Some(tx) = tx_guard.take() {
+            let _ = tx.send(());
+        }
+        drop(tx_guard);
+
+        let mut handle_guard = self
+            .handle
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if let Some(handle) = handle_guard.take() {
+            let timeout = Duration::from_secs_f64(timeout_secs);
+            let joined = py.allow_threads(|| {
+                let rt = tokio::runtime::Runtime::new().ok()?;
+                rt.block_on(async {
+                    let result = tokio::time::timeout(timeout, task::spawn_blocking(move || {
+                        handle.join().ok()
+                    }))
+                    .await;
+                    match result {
+                        Ok(join_result) => join_result.ok().flatten().map(|()| true),
+                        Err(_elapsed) => Some(false),
+                    }
+                })
+            });
+            if joined == Some(true) {
+                *self
+                    .state
+                    .lock()
+                    .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
+                    ServerLifecycleState::Stopped;
+                Ok("clean".to_string())
+            } else {
+                *self
+                    .state
+                    .lock()
+                    .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
+                    ServerLifecycleState::Failed;
+                Ok("timeout".to_string())
+            }
+        } else {
+            Ok("clean".to_string())
+        }
+    }
+
+    fn wait(&self, py: Python<'_>) -> PyResult<String> {
+        let mut handle_guard = self
+            .handle
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if let Some(handle) = handle_guard.take() {
+            py.allow_threads(|| {
+                let _ = handle.join();
+            });
+        }
+        drop(handle_guard);
+
+        *self
+            .state
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
+            ServerLifecycleState::Stopped;
+
+        *self
+            .addr
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? = None;
+        Ok("stopped".to_string())
     }
 
     fn __enter__(slf: Py<Self>) -> PyResult<Py<Self>> {
@@ -897,6 +1060,9 @@ impl Service<Request<hyper::body::Incoming>> for ServerService {
                     let py_req_obj = py_request.into_pyobject(py)?;
                     match handler_py.bind(py).call1((py_req_obj,)) {
                         Ok(obj) => {
+                            if obj.hasattr("__await__").unwrap_or(false) {
+                                return Err("handler returned a coroutine; async handlers are not supported".into());
+                            }
                             let status: u16 = obj
                                 .getattr("status")
                                 .and_then(|v| v.extract())
@@ -1275,7 +1441,7 @@ async fn convert_to_hyper_response(
     // Build canonical headers, filter body-specific headers, apply normalization.
     let mut canonical_headers = eggserve_core::primitives::header_block::HeaderBlock::new();
     for (name, value) in &resp.headers {
-        if let Some((is_range, _, _, _)) = file_body {
+    if let Some((is_range, _, _, _)) = file_body {
             let is_body_header = name.eq_ignore_ascii_case("content-length")
                 || name.eq_ignore_ascii_case("content-type")
                 || (is_range && name.eq_ignore_ascii_case("content-range"));
@@ -1304,7 +1470,7 @@ async fn convert_to_hyper_response(
                     ),
                 )
                 .unwrap();
-            let status = eggserve_core::primitives::canonical::StatusCode::PARTIAL_CONTENT;
+            let status = eggserve_core::primitives::canonical::StatusCode::new(206).unwrap();
             eggserve_core::primitives::canonical::normalize_metadata(
                 status,
                 &mut canonical_headers,
@@ -1326,11 +1492,11 @@ async fn convert_to_hyper_response(
     }
 
     let mut builder = Response::builder().status(resp.status);
-    if let Some((is_range, _, _, _)) = file_body {
+    if let Some((_is_range, _, _, _)) = file_body {
         for field in canonical_headers.iter() {
             builder = builder.header(field.name.as_str(), field.value.as_str());
         }
-        if let Some((range, total_len)) =
+        if let Some((_range, _total_len)) =
             file_body.and_then(|(_, _, _, r)| r)
         {
             builder = builder.status(206u16);

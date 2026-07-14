@@ -1,6 +1,6 @@
 """Type stubs for eggserve._native canonical request types."""
 
-from typing import List, Optional, Tuple
+from typing import Any, Callable, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
 # Base error types
@@ -175,3 +175,101 @@ class CanonicalRequest:
 
 def parse_method(value: str) -> Method: ...
 def parse_http_version(value: str) -> HttpVersion: ...
+
+# ---------------------------------------------------------------------------
+# Server types
+# ---------------------------------------------------------------------------
+
+class Request:
+    method: str
+    path: str
+    query: str
+    headers: dict[str, str]
+    remote_addr: str | None
+    http_version: str
+    has_body: bool
+
+class Response:
+    status: int
+    headers: dict[str, str]
+    @staticmethod
+    def empty(status: int) -> Response: ...
+    @staticmethod
+    def bytes(status: int, data: bytes, headers: dict[str, str] | None = None) -> Response: ...
+    @staticmethod
+    def text(status: int, text: str, headers: dict[str, str] | None = None) -> Response: ...
+
+class StaticPolicyWrapper:
+    directory_listing: bool
+    follow_symlinks: bool
+    allow_dotfiles: bool
+    def __init__(
+        self,
+        directory_listing: bool = False,
+        follow_symlinks: bool = False,
+        allow_dotfiles: bool = False,
+    ) -> None: ...
+
+class ServerSecureRoot:
+    root_path: str
+    def __init__(self, path: str, policy: StaticPolicyWrapper | None = None) -> None: ...
+
+class StaticResponder:
+    def __init__(self, root: ServerSecureRoot) -> None: ...
+    def respond(
+        self,
+        method: str,
+        target: str,
+        headers: dict[str, str] | None = None,
+        has_body: bool = False,
+        remote_addr: str | None = None,
+        http_version: str | None = None,
+    ) -> Response: ...
+
+class ServerBodySource:
+    kind: str
+    length: int | None
+    range: tuple[int, int] | None
+    def to_response(self, status: int = 200) -> Response: ...
+    def read_all(self) -> bytes: ...
+    def read_range(self, start: int, end_inclusive: int) -> bytes: ...
+
+class Server:
+    def __init__(
+        self,
+        root: str,
+        bind: str = "127.0.0.1",
+        port: int = 8000,
+        policy: StaticPolicyWrapper | None = None,
+        handler: Callable[[Request], Response] | None = None,
+        public: bool = False,
+        max_connections: int = 100,
+        max_file_streams: int = 64,
+        max_python_callbacks: int = 8,
+        header_timeout_secs: int = 10,
+        write_timeout_secs: int = 30,
+        handler_timeout_secs: int = 30,
+        graceful_shutdown_timeout_secs: int = 10,
+    ) -> None: ...
+
+    @property
+    def addr(self) -> str | None: ...
+
+    @property
+    def state(self) -> str: ...
+
+    def start(self) -> None: ...
+
+    def stop(self) -> None: ...
+
+    def wait_ready(self) -> None: ...
+
+    def shutdown(self) -> None: ...
+
+    def force_shutdown(self, timeout_secs: float = 10.0) -> str: ...
+
+    def wait(self) -> str: ...
+
+    def __enter__(self) -> Server: ...
+
+    def __exit__(self, *args: Any) -> bool: ...

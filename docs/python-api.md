@@ -19,8 +19,13 @@ For programmatic server control:
 from eggserve import Server, ServerSecureRoot
 
 root = ServerSecureRoot(".")
-with Server(root=root) as server:
-    print(f"Serving on {server.addr}")
+server = Server(root=root)
+server.start()
+server.wait_ready()
+print(f"Serving on {server.addr}, state={server.state}")
+# ... do work ...
+server.shutdown()
+server.wait()
 ```
 
 ## Native primitives
@@ -281,7 +286,7 @@ with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
-Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30)`
+Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10)`
 
 Parameters:
 - `root` — server root directory path (string)
@@ -295,16 +300,25 @@ Parameters:
 - `max_python_callbacks` — maximum concurrent handler callbacks (default: 8)
 - `header_timeout_secs` — header read timeout in seconds (default: 10)
 - `write_timeout_secs` — response write timeout in seconds (default: 30)
+- `handler_timeout_secs` — handler callback timeout in seconds (default: 30); best-effort in Python, enforced at transport level by Rust server
+- `graceful_shutdown_timeout_secs` — graceful shutdown drain deadline in seconds (default: 10)
 
 Properties:
 - `addr` — bound address string (e.g. "127.0.0.1:8000"), or `None` when stopped
+- `state` — lifecycle state string: `"created"`, `"running"`, `"stopped"`, or `"failed"`
 
 Methods:
 - `start()` — start the server in a background thread; blocks until the listener is ready
-- `stop()` — shut down the server and join the background thread
+- `stop()` — shut down the server and join the background thread (idempotent)
+- `wait_ready()` — returns `Ok(())` if Running; raises `LifecycleError` otherwise
+- `shutdown()` — sends shutdown signal, returns immediately (non-blocking)
+- `force_shutdown(timeout_secs)` — graceful shutdown with deadline; returns `"clean"` or `"timeout"`
+- `wait()` — blocks until thread joins; returns `"stopped"`
 - `__enter__` / `__exit__` — context manager support
 
-When `handler` is provided, the server calls `handler(request)` for each request and streams the returned `Response` back to the client. When `handler` is `None`, the server serves static files from the root directory. Handler exceptions map to generic 500 Internal Server Error responses without traceback leakage.
+When `handler` is provided, the server calls `handler(request)` for each request and streams the returned `Response` back to the client. When `handler` is `None`, the server serves static files from the root directory. Handler exceptions map to generic 500 Internal Server Error responses without traceback leakage. Coroutine handlers (functions returning a coroutine object) are rejected with a 500 response.
+
+Handler timeout (`handler_timeout_secs`) is best-effort in Python — enforced at the transport level by the Rust server, not by a Python-side timer. If the handler does not return within the deadline, the connection is closed.
 
 The server enforces connection limits, header read timeouts, and response write timeouts. Binding to 0.0.0.0 or :: requires `public=True`.
 

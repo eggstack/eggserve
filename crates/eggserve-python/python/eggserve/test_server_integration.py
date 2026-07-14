@@ -1391,5 +1391,96 @@ class TestServerPrimitives(unittest.TestCase):
         resp.close()
 
 
+# ---------------------------------------------------------------------------
+# Workstream G — Lifecycle parity
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleParity(unittest.TestCase):
+    """Lifecycle parity tests for Python Server."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "index.txt"), "w") as f:
+            f.write("content")
+        self._servers = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
+
+    def test_lifecycle_state_transitions(self):
+        """State transitions: created -> running -> stopped."""
+        s = Server(root=self._td, port=0)
+        self._servers.append(s)
+        self.assertEqual(s.state, "created")
+        s.start()
+        self.assertEqual(s.state, "running")
+        s.stop()
+        self._servers.remove(s)
+        self.assertEqual(s.state, "stopped")
+
+    def test_shutdown_and_wait(self):
+        """shutdown() followed by wait() completes cleanly."""
+        s = self._make_server()
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        s.shutdown()
+        result = s.wait()
+        self._servers.remove(s)
+        self.assertEqual(result, "stopped")
+
+    def test_force_shutdown_clean(self):
+        """force_shutdown returns 'clean' for idle server."""
+        s = self._make_server()
+        s.shutdown()
+        result = s.force_shutdown(timeout_secs=5.0)
+        self._servers.remove(s)
+        self.assertEqual(result, "clean")
+
+    def test_context_manager_with_wait(self):
+        """Context manager uses start/stop lifecycle."""
+        with Server(root=self._td, port=0) as s:
+            self.assertEqual(s.state, "running")
+        self.assertEqual(s.state, "stopped")
+
+    def test_double_start_after_stop_raises(self):
+        """Starting after stop is allowed (re-starts the server)."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        s.stop()
+        self._servers.append(s)
+
+    def test_handler_timeout_parameter(self):
+        """Server accepts handler_timeout_secs parameter."""
+        def handler(req):
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler, handler_timeout_secs=5)
+        addr = s.addr
+        url = f"http://{addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.read(), b"ok")
+        resp.close()
+
+
 if __name__ == "__main__":
     unittest.main()

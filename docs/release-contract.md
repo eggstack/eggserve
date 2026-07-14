@@ -157,13 +157,16 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 ### Callback Server (Python `Server` with handler)
 
 - Handler receives a `Request` object and must return a `Response` object.
+- Coroutine handlers (functions returning a coroutine object) are rejected with a 500 response.
 - Invalid return types produce a generic 500 Internal Server Error.
 - Invalid status codes (outside 100–999, non-three-digit) produce 500.
 - Invalid header names (empty) or values (containing NUL, CR, LF) produce 500.
 - Handler exceptions produce 500 without leaking tracebacks.
+- Handler timeout (`handler_timeout_secs`, default 30s): best-effort in Python; enforced at transport level by the Rust server.
 - Callback concurrency is bounded (default: 8 concurrent handler calls).
 - File-backed responses retain their Rust-owned file capability and stream without copying the file through Python memory.
 - HEAD requests still invoke the handler, but the runtime suppresses the body before acquiring file-stream resources.
+- Graceful shutdown deadline (`graceful_shutdown_timeout_secs`, default 10s) controls drain time.
 
 ### Buffered Client (feature-gated: `client`)
 

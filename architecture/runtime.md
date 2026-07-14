@@ -165,24 +165,23 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 
 ## Python lifecycle mapping
 
-The Python `Server` class (`crates/eggserve-python/src/server.rs`) wraps the
-Rust `Server`/`ServerHandle` lifecycle:
+The Python `Server` wraps the same tokio runtime and accept loop pattern as
+the Rust `Server`. Lifecycle methods are bridged:
 
-| Python                      | Rust                            |
-|-----------------------------|---------------------------------|
-| `Server(config)`           | `Server::builder().build()`     |
-| `server.start()`           | `server.start().await`          |
-| `handle.ready()`           | `handle.ready().await`          |
-| `handle.shutdown()`        | `handle.shutdown()`             |
-| `handle.force_shutdown(d)` | `handle.force_shutdown(d).await`|
-| `handle.wait()`            | `handle.wait().await`           |
+- `start()` → creates tokio runtime, binds TcpListener, spawns accept loop on `std::thread`
+- `stop()` → sends shutdown signal, joins thread
+- `shutdown()` → sends shutdown signal (non-blocking)
+- `force_shutdown(deadline)` → sends shutdown, waits with deadline
+- `wait()` → blocks on thread join
+- `state` → tracks Created → Running → Stopped transitions
 
 Lifecycle states map directly: Python's `ServerState` enum mirrors
 `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed).
 
-Signal handling (SIGTERM/SIGINT → graceful shutdown) is handled by the
-Python subprocess wrapper, not the Rust server. The Rust server receives
-a broadcast signal to initiate shutdown.
+Handler timeout (`handler_timeout_secs`, default 30s) is best-effort in
+Python; enforced at transport level by the Rust server. Coroutine handlers
+are rejected with a 500 response. Signal handling (SIGTERM/SIGINT → graceful
+shutdown) is handled by the Python subprocess wrapper, not the Rust server.
 
 ## Platform-specific signal limitations
 

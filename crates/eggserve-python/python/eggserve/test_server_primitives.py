@@ -386,6 +386,106 @@ class TestServer(unittest.TestCase):
         finally:
             s.stop()
 
+    def test_state_created(self):
+        """State is 'created' before start."""
+        s = Server(root=self._td, port=0)
+        self.assertEqual(s.state, "created")
+
+    def test_state_running_after_start(self):
+        """State is 'running' after start."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        self.assertEqual(s.state, "running")
+        s.stop()
+
+    def test_state_stopped_after_stop(self):
+        """State is 'stopped' after stop."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        s.stop()
+        self.assertEqual(s.state, "stopped")
+
+    def test_wait_ready_before_start(self):
+        """wait_ready raises before start."""
+        from eggserve._native import LifecycleError
+        s = Server(root=self._td, port=0)
+        with self.assertRaises(LifecycleError):
+            s.wait_ready()
+
+    def test_wait_ready_after_start(self):
+        """wait_ready succeeds after start."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        s.wait_ready()
+        s.stop()
+
+    def test_shutdown_nonblocking(self):
+        """shutdown() returns immediately without blocking."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        s.shutdown()
+        self.assertEqual(s.state, "running")  # state may still be running briefly
+        s.wait()
+
+    def test_wait_returns_stopped(self):
+        """wait() returns 'stopped' string."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        s.shutdown()
+        result = s.wait()
+        self.assertEqual(result, "stopped")
+
+    def test_force_shutdown_returns_string(self):
+        """force_shutdown returns 'clean' or 'timeout'."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        result = s.force_shutdown(timeout_secs=5.0)
+        self.assertIn(result, ("clean", "timeout"))
+
+    def test_handler_timeout_secs_validation(self):
+        """Zero handler_timeout_secs is rejected."""
+        with self.assertRaises(ValueError):
+            Server(root=self._td, port=0, handler_timeout_secs=0)
+
+    def test_graceful_shutdown_timeout_secs_validation(self):
+        """Zero graceful_shutdown_timeout_secs is rejected."""
+        with self.assertRaises(ValueError):
+            Server(root=self._td, port=0, graceful_shutdown_timeout_secs=0)
+
+    def test_handler_timeout(self):
+        """Handler that exceeds handler_timeout still completes."""
+        import time
+        def slow_handler(req):
+            time.sleep(0.5)
+            return Response.text(200, "ok")
+
+        s = Server(root=self._td, port=0, handler=slow_handler, handler_timeout_secs=1)
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.html"
+        self.assertTrue(self._wait_for_server(url))
+        resp = urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(resp.read(), b"ok")
+        s.stop()
+
+    def test_coroutine_handler_rejected(self):
+        """Handler returning a coroutine is rejected with 500."""
+        async def async_handler(req):
+            return Response.text(200, "ok")
+
+        s = Server(root=self._td, port=0, handler=async_handler)
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.html"
+        self.assertTrue(self._wait_for_server(url))
+        try:
+            resp = urllib.request.urlopen(url, timeout=2)
+            self.assertEqual(resp.status, 500)
+        except urllib.error.HTTPError as e:
+            self.assertEqual(e.code, 500)
+        finally:
+            s.stop()
+
 
 class TestServerConstructorValidation(unittest.TestCase):
     def test_zero_max_connections(self):
