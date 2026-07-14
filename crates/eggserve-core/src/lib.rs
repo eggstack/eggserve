@@ -36,4 +36,5 @@ pub(crate) mod path;
 pub mod policy;
 pub mod primitives;
 pub(crate) mod response;
+pub mod server;
 pub mod service;

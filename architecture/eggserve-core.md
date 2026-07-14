@@ -20,6 +20,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
 | `primitives/client/` | **pub** (feature-gated: `client`) | HTTP client primitives: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse` |
+| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
 
 ## Key Types
 
@@ -87,6 +88,80 @@ pub enum Error {
 }
 ```
 
+## Server Module (`server/`)
+
+**Experimental** — API is subject to change without notice.
+
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and HTTP/1 connection handling. Downstream projects provide a `Service` implementation; the runtime handles everything else.
+
+### `Server` and `ServerBuilder`
+
+```rust
+let handle = Server::builder()
+    .config(RuntimeConfig { bind: addr, ..Default::default() })
+    .service(StaticService::new(policy, root))
+    .start()
+    .await?;
+```
+
+`Server::builder()` returns a `ServerBuilder`. Configure with `.config()` and `.service()`, then `.start()` to begin listening. Returns a `ServerHandle`.
+
+### `RuntimeConfig`
+
+Transport-level configuration separate from service-level concerns (`ServeConfig`):
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `bind` | `127.0.0.1:8000` | Listen address |
+| `max_connections` | 64 | Concurrent TCP connections |
+| `max_file_streams` | 32 | Concurrent file streams |
+| `header_read_timeout` | 10s | Time to read request headers |
+| `response_write_timeout` | 60s | Time to write response body |
+| `handler_timeout` | None | Per-request handler timeout |
+| `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
+| `keep_alive` | true | TCP keep-alive |
+
+### `Service` Trait
+
+```rust
+pub trait Service: Send + Sync + 'static {
+    fn call(
+        &self,
+        request: RequestHead,
+    ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
+}
+```
+
+- Receives canonical `RequestHead` (no Hyper types)
+- Returns canonical `Response` or `ServiceError`
+- Must be `Send + Sync` for sharing across connections
+- Panics caught at tokio task boundary
+
+`service_fn` creates a `Service` from an `Fn(RequestHead) -> Future<Output = Result<Response, ServiceError>> + Send + Sync`.
+
+### `StaticService`
+
+Hardened static file service implementing `Service`:
+- Descriptor-relative path confinement (Unix)
+- Dotfile, symlink, and directory-listing policy enforcement
+- GET/HEAD-only semantics
+- Conditional and range request handling
+- ETag and Last-Modified generation
+- File-stream semaphore-gated concurrency
+
+### `ServerHandle`
+
+Control handle returned by `Server::start()`:
+- `local_addr()` — listening address
+- `shutdown()` — trigger graceful shutdown
+- `wait()` — wait for server to finish
+- `wait_timeout()` — wait with timeout
+
+### Error Types
+
+- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, Accept, ShutdownTimeout)
+- `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout)
+
 ## Dependencies
 
 | Dependency | Purpose |
@@ -113,5 +188,6 @@ pub enum Error {
 - [primitives-api.md](primitives-api.md) — Public API boundary
 - [response-planning.md](response-planning.md) — HTTP response planning
 - [client.md](client.md) — HTTP client primitives
+- [runtime.md](runtime.md) — Runtime service boundary (experimental)
 - [api-stability.md](../docs/api-stability.md) — API classification by stability tier
 - [release-contract.md](../docs/release-contract.md) — Product surface and compatibility commitments

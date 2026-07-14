@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–050 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plan 049 promotes all canonical HTTP types to stable and establishes the conformance corpus for Rust/Python parity testing. Plan 050 closes Milestone 2 by correcting StatusCode validation (100–999), unifying canonical response metadata across all response producers via `normalize_metadata()`, enforcing hop-by-hop header stripping, and completing the response architecture audit. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–051 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plan 049 promotes all canonical HTTP types to stable and establishes the conformance corpus for Rust/Python parity testing. Plan 050 closes Milestone 2 by correcting StatusCode validation (100–999), unifying canonical response metadata across all response producers via `normalize_metadata()`, enforcing hop-by-hop header stripping, and completing the response architecture audit. Plan 051 establishes the Milestone 3A runtime service boundary: `server::Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, and `StaticServiceBuilder` in `eggserve-core::server`. The `server` module is experimental and its API is subject to change. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
 
 ## Non-negotiables
 
@@ -39,6 +39,14 @@ eggserve/
 │   │       ├── response.rs # file streaming, directory listing HTML, error responses (413, 503)
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
+│   │       ├── server/     # runtime service boundary (experimental)
+│   │       │   ├── mod.rs          # Server, ServerBuilder, accept loops
+│   │       │   ├── service.rs      # Service trait, service_fn, ServiceError
+│   │       │   ├── config.rs       # RuntimeConfig, RuntimeConfigBuilder
+│   │       │   ├── static_service.rs # StaticService, StaticServiceBuilder
+│   │       │   ├── errors.rs       # ServerError
+│   │       │   ├── handle.rs       # ServerHandle
+│   │       │   └── connection.rs   # serve_connection, serve_connection_with_service
 │   │       ├── primitives/ # public API facade
 │   │       │   ├── mod.rs          # re-exports: ConfinedPath, PathPolicy, StaticPolicy, etc.
 │   │       │   ├── secure_root.rs  # SecureRoot, ResolvedResource, ResolvedFile, ResolvedDirectory
@@ -263,6 +271,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()` for response metadata and framing. `normalize_response()` applies HEAD suppression, body-forbidden enforcement, and hop-by-hop stripping for in-memory bodies. `normalize_metadata()` applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) for file-backed bodies without consuming the body. `to_hyper_response()` converts to Hyper after normalization.
 - **Two status code types**: `ResponseStatus` (stable, existing) and `StatusCode` (stable, canonical). `ResponseStatus` is a simple u16 newtype used by the planner. `StatusCode` has range validation (100–999, three-digit only) and classification helpers (is_informational, permits_payload_body). New code should prefer `StatusCode`.
 - **Two header map types**: `HeaderMapPlan` (stable, existing) and `HeaderBlock` (stable, canonical). `HeaderMapPlan` stores `ResponseHeader { name: String, value: String }`. `HeaderBlock` stores `HeaderField { name: HeaderName, value: HeaderValue }` with validation. The canonical response types use `HeaderBlock`.
+- **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary (`Server`, `Service` trait, `StaticService`, etc.) for embedding. Its API is subject to change without notice. Do not depend on it for stable integrations.
 
 ## Plan-driven development
 
@@ -323,3 +332,4 @@ Before implementing any feature, check:
 - [architecture/primitives-api.md](architecture/primitives-api.md) — public API boundary for embedding consumers
 - [architecture/response-planning.md](architecture/response-planning.md) — conditional/range/ETag response planning
 - [architecture/client.md](architecture/client.md) — HTTP client primitives, feature-gated substrate
+- [architecture/server.md](architecture/server.md) — runtime service boundary, Server, Service trait, StaticService

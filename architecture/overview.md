@@ -40,7 +40,10 @@ eggserve-python        → (standalone, owns Python packaging)
 | Policy system | `eggserve-core::policy` | [policy-system.md](policy-system.md) |
 | HTTP response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) |
 | Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) |
+| Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) |
 | Release criteria | `release/criteria.toml` | [../docs/release-process.md](../docs/release-process.md) |
+
+The `server` module provides a reusable, transport-owning HTTP runtime (Milestone 3A). It owns the TCP accept loop, connection management, optional TLS, and HTTP/1 connection handling. Downstream Rust projects embed a `Service` implementation (e.g. `StaticService`) without importing internal modules or depending directly on Hyper. The module is experimental.
 
 ## Key Architectural Decisions
 
@@ -75,21 +78,32 @@ HTTP Request
     │
     ▼
 ┌─────────────────────────────────────────────┐
-│ eggserve-bin: accept loop, connection mgmt  │
-│  • Semaphore for connection limiting        │
-│  • Per-connection timeouts                  │
-│  • TLS termination (optional)               │
+│ eggserve-core::server: accept loop          │
+│  • TCP accept with connection semaphore     │
+│  • Optional TLS handshake (feature-gated)   │
+│  • HTTP/1 connection via Hyper              │
+│  • Request → canonical RequestHead          │
 └─────────────────┬───────────────────────────┘
                   │
                   ▼
 ┌─────────────────────────────────────────────┐
-│ eggserve-core::service::handle_request()    │
+│ Service::call(RequestHead)                  │
+│  e.g. StaticService or user-provided impl  │
 │  1. Validate method (GET/HEAD only)         │
 │  2. Reject body (metadata only)             │
 │  3. Parse request target → ConfinedPath     │
 │  4. Resolve via SecureRoot → ResolvedResource│
 │  5. Plan response (conditional, range, ETag)│
 │  6. Stream file / list directory / error    │
+└─────────────────┬───────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────┐
+│ eggserve-core::server: response pipeline    │
+│  1. Canonical response normalization        │
+│  2. Transport-body conversion               │
+│  3. Write timeout enforcement               │
+│  4. Permit release + connection termination │
 └─────────────────────────────────────────────┘
                   │
                   ▼
@@ -102,7 +116,7 @@ HTTP Request
 |------|---------|-----------|
 | Stable | `primitives` (facade), `primitives::http`, `primitives::planner`, `primitives::response`, `primitives::canonical` (response types + normalization) | Intended public boundary for embedding consumers |
 | Stable-ish | `config`, `limits`, `policy` | Field shapes may evolve before 1.0 |
-| Experimental | `service` (`handle_request`) | Body type and async surface may change |
+| Experimental | `service` (`handle_request`), `server` (`Server`, `Service` trait, `StaticService`, etc.) | Body type, async surface, and server API may change |
 | Internal | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
 
 ## Non-Goals

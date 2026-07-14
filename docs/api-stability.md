@@ -62,12 +62,31 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `limits` | pub | stable | `Limits` resource-limit configuration |
 | `policy` | pub | stable | `StaticPolicy`, policy enums |
 | `service` | pub | experimental | `handle_request()` — HTTP handler |
+| `server` | pub | experimental | `Server`, `Service` trait, `StaticService`, etc. — runtime service boundary |
 | `primitives` | pub | stable | Public facade for embedding consumers |
 | `error` | pub(crate) | internal | Not externally visible |
 | `fs` | pub(crate) | internal | Not externally visible |
 | `mime` | pub(crate) | internal | Not externally visible |
 | `path` | pub(crate) | internal | Not externally visible |
 | `response` | pub(crate) | internal | Not externally visible |
+
+### `server` Module
+
+**All server module items are experimental.** API is subject to change without notice.
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `Server` | experimental | Main entry point; `Server::builder()` returns `ServerBuilder` |
+| `ServerBuilder` | experimental | Configured builder; `.config()`, `.service()`, `.start()` |
+| `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()` |
+| `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, keep-alive |
+| `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
+| `Service` trait | experimental | `call(RequestHead) -> Result<Response, ServiceError>` |
+| `service_fn` | experimental | Create a Service from a closure |
+| `StaticService` | experimental | Hardened static file service |
+| `StaticServiceBuilder` | experimental | Builder for StaticService |
+| `ServiceError` | experimental | Per-request errors: Internal, Rejected, Panic, Timeout |
+| `ServerError` | experimental | Startup/lifecycle errors |
 
 ### `config` Module
 

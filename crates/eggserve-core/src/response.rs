@@ -14,7 +14,7 @@ use crate::primitives::response::HeaderMapPlan;
 
 pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 
-fn canonical_error(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
+pub(crate) fn canonical_error(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
     let code = crate::primitives::canonical::StatusCode::new(status.as_u16())
         .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
     let mut headers = crate::primitives::header_block::HeaderBlock::new();

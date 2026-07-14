@@ -1,5 +1,7 @@
 # Phase 51 — Milestone 3A: Reusable Runtime and Service Boundary
 
+> **Status: COMPLETE** — All tracks (A–H) implemented, tested, and documented.
+
 ## Goal
 
 Refactor eggserve’s server-side library boundary into a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper.

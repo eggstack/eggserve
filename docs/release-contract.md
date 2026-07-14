@@ -25,6 +25,36 @@ platform-native CLI binary; PyPy and free-threaded CPython are not supported.
 | `client-tls` | No | Implies `client`; HTTPS via rustls + webpki-roots |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
 
+## Runtime Service Boundary (Experimental, Milestone 3)
+
+**Stability**: All `server` module types are **experimental**. The interface may change in any release.
+
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns.
+
+### Exposed Types
+
+| Type | Description |
+|------|-------------|
+| `Server` | Main entry point; creates via `Server::builder()` |
+| `ServerBuilder` | Configured builder for `Server` |
+| `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()` |
+| `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, keep-alive) |
+| `Service` trait | Receives `RequestHead`, returns `Result<Response, ServiceError>` |
+| `service_fn` | Create a `Service` from a closure |
+| `StaticService` | Hardened static file service implementing `Service` |
+| `ServiceError` | Per-request errors: Internal, Rejected, Panic, Timeout |
+| `ServerError` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout |
+
+### Guarantees
+
+- Canonical `RequestHead` (no Hyper types) is passed to services
+- Canonical `Response` is returned by services; the runtime normalizes and sends it
+- Hop-by-hop header stripping and content-length computation are runtime-owned
+- Handler panics are caught at the tokio task boundary and map to `ServiceError::Panic`
+- Handler timeouts map to `ServiceError::Timeout`
+- Filesystem policy (symlinks, dotfiles, listing) belongs to the service, not the runtime
+- `StaticService` provides all the security properties of the built-in static handler
+
 ## Supported Protocol
 
 - **HTTP/1.1 only** — no HTTP/2 or HTTP/3.
