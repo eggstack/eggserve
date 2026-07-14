@@ -252,4 +252,78 @@ mod tests {
         let err: &dyn std::error::Error = &RequestTargetError::Empty;
         assert!(!err.to_string().is_empty());
     }
+
+    #[test]
+    fn percent_encoded_path() {
+        let t = RequestTarget::parse("/foo%20bar").unwrap();
+        assert_eq!(t.raw(), "/foo%20bar");
+        assert_eq!(t.path(), "/foo%20bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn percent_encoded_slash() {
+        let t = RequestTarget::parse("/foo%2Fbar").unwrap();
+        assert_eq!(t.raw(), "/foo%2Fbar");
+        assert_eq!(t.path(), "/foo%2Fbar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn dot_segment_paths() {
+        let t = RequestTarget::parse("/./foo").unwrap();
+        assert_eq!(t.path(), "/./foo");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn dot_segment_parent() {
+        let t = RequestTarget::parse("/foo/../bar").unwrap();
+        assert_eq!(t.path(), "/foo/../bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn backslash_in_path() {
+        let t = RequestTarget::parse("/foo\\bar").unwrap();
+        assert_eq!(t.path(), "/foo\\bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn non_ascii_bytes() {
+        let t = RequestTarget::parse("/foo\u{00E9}\u{00FF}").unwrap();
+        assert_eq!(t.raw(), "/foo\u{00E9}\u{00FF}");
+        assert_eq!(t.path(), "/foo\u{00E9}\u{00FF}");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn origin_form_only_enforced() {
+        assert_eq!(
+            RequestTarget::parse("foo").unwrap_err(),
+            RequestTargetError::NotOriginForm
+        );
+    }
+
+    #[test]
+    fn query_with_equals() {
+        let t = RequestTarget::parse("/path?key=val=ue").unwrap();
+        assert_eq!(t.path(), "/path");
+        assert_eq!(t.query(), Some("key=val=ue"));
+    }
+
+    #[test]
+    fn query_with_encoded_chars() {
+        let t = RequestTarget::parse("/path?key=hello%20world").unwrap();
+        assert_eq!(t.path(), "/path");
+        assert_eq!(t.query(), Some("key=hello%20world"));
+    }
+
+    #[test]
+    fn multiple_question_marks() {
+        let t = RequestTarget::parse("/path?a=1?b=2").unwrap();
+        assert_eq!(t.path(), "/path");
+        assert_eq!(t.query(), Some("a=1?b=2"));
+    }
 }

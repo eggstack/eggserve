@@ -48,9 +48,9 @@ class TestEggserveInitAll(unittest.TestCase):
         """Sanity check: __all__ should not grow unbounded without review."""
         import eggserve
 
-        # As of the current release, __all__ has at most ~37 entries
-        # (6 always + ~31 when native is available).
-        self.assertLessEqual(len(eggserve.__all__), 50)
+        # As of the current release, __all__ has at most ~49 entries
+        # (6 always + ~43 when native is available).
+        self.assertLessEqual(len(eggserve.__all__), 55)
 
 
 class TestPublicNamesImportable(unittest.TestCase):
@@ -228,6 +228,71 @@ class TestExperimentalClientNames(unittest.TestCase):
         import eggserve
 
         self.assertIn("Method", eggserve.__all__)
+
+
+class TestCanonicalRequestTypesInAll(unittest.TestCase):
+    """Verify that canonical request types are in __all__ when native is available."""
+
+    def setUp(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+    def test_method_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("Method", eggserve.__all__)
+
+    def test_http_version_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("HttpVersion", eggserve.__all__)
+
+    def test_header_block_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("HeaderBlock", eggserve.__all__)
+
+    def test_connection_info_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("ConnectionInfo", eggserve.__all__)
+
+    def test_canonical_request_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("CanonicalRequest", eggserve.__all__)
+
+    def test_parse_method_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("parse_method", eggserve.__all__)
+
+    def test_parse_http_version_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("parse_http_version", eggserve.__all__)
+
+    def test_method_error_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("MethodError", eggserve.__all__)
+
+    def test_http_version_error_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("HttpVersionError", eggserve.__all__)
+
+    def test_header_error_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("HeaderError", eggserve.__all__)
+
+    def test_duplicate_header_error_in_all(self) -> None:
+        import eggserve
+
+        self.assertIn("DuplicateHeaderError", eggserve.__all__)
 
 
 class TestServerModuleAll(unittest.TestCase):

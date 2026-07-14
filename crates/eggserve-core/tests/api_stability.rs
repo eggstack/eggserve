@@ -160,6 +160,38 @@ fn stable_primitives_secure_root_types_accessible() {
     );
 }
 
+#[test]
+fn experimental_canonical_request_types_accessible() {
+    use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme, TlsInfo};
+    use eggserve_core::primitives::header_block::{
+        DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
+    };
+    use eggserve_core::primitives::method::{Method, MethodError};
+    use eggserve_core::primitives::request_head::{RequestHead, RequestHeadError};
+    use eggserve_core::primitives::request_target::{RequestTarget, RequestTargetError};
+    use eggserve_core::primitives::version::{HttpVersion, HttpVersionError};
+
+    let _ = (std::marker::PhantomData::<(
+        Method,
+        MethodError,
+        HttpVersion,
+        HttpVersionError,
+        HeaderBlock,
+        HeaderName,
+        HeaderValue,
+        HeaderField,
+        HeaderError,
+        DuplicateHeaderError,
+        RequestTarget,
+        RequestTargetError,
+        RequestHead,
+        RequestHeadError,
+        ConnectionInfo,
+        Scheme,
+        TlsInfo,
+    )>,);
+}
+
 // ── python-bindings-internal feature gate ────────────────────────────────────
 
 #[test]

@@ -166,21 +166,66 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Default `User-Agent: eggserve-client/0.1` (overridable)
 - Default `Host` header from URL (overridable)
 
-## Header Representation
+## Canonical HTTP Request Types
 
-### Rust Core (`HeaderMapPlan`)
+**Stability**: All canonical request types are **experimental** during implementation. They will be promoted to stable after conformance completion in Phase 49.
+
+The canonical request types provide transport-independent, Hyper-independent value types for inspecting HTTP requests. They are defined in `eggserve_core::primitives` and projected to Python through `eggserve._native`.
+
+### Rust Types
+
+| Type | Module | Description |
+|------|--------|-------------|
+| `Method` | `primitives::method` | Validated HTTP method (standard + extension). Case-sensitive. |
+| `HttpVersion` | `primitives::version` | HTTP/1.0 or HTTP/1.1. |
+| `HeaderBlock` | `primitives::header_block` | Ordered, duplicate-preserving header collection. |
+| `HeaderName` | `primitives::header_block` | Validated header name (RFC 9110 token). |
+| `HeaderValue` | `primitives::header_block` | Validated header value (no CR/LF/NUL). |
+| `RequestTarget` | `primitives::request_target` | Validated origin-form target (path + query). |
+| `RequestHead` | `primitives::request_head` | Canonical request head: method, target, version, headers. |
+| `ConnectionInfo` | `primitives::connection_info` | Transport metadata: local/remote addrs, scheme, TLS. |
+
+**Conversion**: `RequestHead::try_from_hyper()` converts a `hyper::Request<B>` into a canonical `RequestHead`. The conversion is fallible and typed — malformed or unsupported input is rejected before handlers. The resulting `RequestHead` contains no Hyper types.
+
+**Legacy**: `ReadOnlyMethod` (GET/HEAD only) remains stable for existing consumers. `Method` is the canonical type for new code.
+
+### Python Types
+
+| Type | Module | Description |
+|------|--------|-------------|
+| `Method` | `eggserve._native` | Canonical HTTP method. Frozen. |
+| `HttpVersion` | `eggserve._native` | Canonical HTTP version. Frozen. |
+| `HeaderBlock` | `eggserve._native` | Duplicate-preserving headers. Frozen. |
+| `ConnectionInfo` | `eggserve._native` | Transport metadata. Frozen. |
+| `CanonicalRequest` | `eggserve._native` | Canonical request head. Frozen. |
+
+**Functions**: `parse_method(value)`, `parse_http_version(value)` — standalone constructors with typed errors.
+
+**Exceptions**: `MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError` — child classes of `EggserveError`.
+
+### Header Representation
+
+#### Response Headers (`HeaderMapPlan`)
 
 - `Vec<ResponseHeader>` — ordered list of `(name, value)` pairs.
 - Duplicates are preserved. `get()` returns the first match (case-insensitive).
 - No code path currently generates duplicate headers internally.
 
-### Python Server (`Response.headers`)
+#### Canonical Request Headers (`HeaderBlock`)
+
+- `Vec<HeaderField>` — ordered list of `(HeaderName, HeaderValue)` pairs.
+- Duplicates are preserved. Original field-name casing is preserved.
+- Case-insensitive lookup by field name.
+- `get_first(name)` returns the first value. `get_all(name)` returns all values. `get_unique(name)` returns an error if duplicates exist.
+- Rejects empty names, names exceeding 256 bytes, and values containing CR, LF, or NUL bytes.
+
+#### Python Server (`Response.headers`)
 
 - `HashMap<String, String>` — keys are unique, case-sensitive.
 - Duplicate header names (e.g. multiple `Set-Cookie`) are **not representable** — only the last value for a given key survives.
 - Request headers are also `HashMap<String, String>` — same limitation on the inbound side.
 
-### Implication
+#### Implication
 
 Python handlers cannot emit duplicate response headers. If a handler needs multiple `Set-Cookie` headers, the handler must combine them into a single value or use the static-responder path which preserves duplicates through `HeaderMapPlan`.
 

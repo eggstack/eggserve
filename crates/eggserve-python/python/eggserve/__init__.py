@@ -51,6 +51,16 @@ try:
         ClientResponse,
         ClientError,
         Method,
+        HttpVersion,
+        HeaderBlock,
+        ConnectionInfo,
+        CanonicalRequest,
+        parse_method,
+        parse_http_version,
+        MethodError,
+        HttpVersionError,
+        HeaderError,
+        DuplicateHeaderError,
     )
 
     NATIVE_AVAILABLE = True
@@ -102,4 +112,14 @@ if NATIVE_AVAILABLE:
         "ClientResponse",
         "ClientError",
         "Method",
+        "HttpVersion",
+        "HeaderBlock",
+        "ConnectionInfo",
+        "CanonicalRequest",
+        "parse_method",
+        "parse_http_version",
+        "MethodError",
+        "HttpVersionError",
+        "HeaderError",
+        "DuplicateHeaderError",
     ]
