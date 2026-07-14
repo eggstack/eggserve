@@ -372,6 +372,25 @@ security_relevance = true
 release_stage = "qualification"
 
 [[gate]]
+id = "conformance.canonical-wire-interop"
+title = "Canonical HTTP wire interop tests"
+description = "Raw-TCP wire correctness tests for canonical response normalization, HEAD parity, conditional/range, and HTTP/1.0 behavior"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test canonical_wire_interop"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "crates/eggserve-core/tests/**"]
+depends_on = ["conformance.canonical-http-corpus-rust"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
 id = "conformance.generated-api-inventory"
 title = "Generated API inventory consistency"
 description = "Validates that api-stability.md and library-capability-matrix.md are consistent with exported types"

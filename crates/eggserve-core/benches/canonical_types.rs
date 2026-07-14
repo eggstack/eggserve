@@ -206,6 +206,85 @@ fn bench_connection_info(c: &mut Criterion) {
     });
 }
 
+fn bench_allocation_count(c: &mut Criterion) {
+    let mut group = c.benchmark_group("allocations_per_request");
+    group.bench_function("method_get", |b| {
+        b.iter(|| black_box(Method::new(black_box("GET")).unwrap()))
+    });
+    group.bench_function("header_block_10", |b| {
+        b.iter(|| {
+            let mut hb = HeaderBlock::new();
+            for i in 0..10 {
+                let name = HeaderName::new(format!("x-header-{}", i)).unwrap();
+                let value = HeaderValue::new("value").unwrap();
+                hb.push(name, value);
+            }
+            black_box(&hb);
+        })
+    });
+    group.bench_function("request_head_construction", |b| {
+        b.iter(|| {
+            let mut headers = HeaderBlock::new();
+            headers.push_str("host", "example.com").unwrap();
+            headers.push_str("accept", "text/html").unwrap();
+            RequestHead::new(
+                Method::get(),
+                RequestTarget::parse("/index.html").unwrap(),
+                HttpVersion::Http11,
+                headers,
+            )
+        })
+    });
+    group.bench_function("normalize_200", |b| {
+        b.iter(|| {
+            let resp = Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/plain")
+                .unwrap()
+                .body(ResponseBody::Bytes(b"hello world".to_vec()))
+                .unwrap();
+            let req = NormalizeRequest::new(false);
+            black_box(normalize_response(black_box(resp), &req).unwrap());
+        })
+    });
+    group.finish();
+}
+
+fn bench_callback_response_construction(c: &mut Criterion) {
+    c.bench_function("callback_response_build_and_normalize", |b| {
+        b.iter(|| {
+            let resp = Response::builder()
+                .status(StatusCode::OK)
+                .header("content-type", "text/html")
+                .unwrap()
+                .header("x-request-id", "abc-123")
+                .unwrap()
+                .body(ResponseBody::Bytes(
+                    b"<html><body>Hello</body></html>".to_vec(),
+                ))
+                .unwrap();
+            let req = NormalizeRequest::new(false);
+            black_box(normalize_response(black_box(resp), &req).unwrap());
+        })
+    });
+    c.bench_function("callback_response_large_headers", |b| {
+        b.iter(|| {
+            let mut builder = Response::builder().status(StatusCode::OK);
+            for i in 0..20 {
+                builder = builder.push_header(
+                    HeaderName::new(format!("x-custom-header-{}", i)).unwrap(),
+                    HeaderValue::new(format!("value-{}", i)).unwrap(),
+                );
+            }
+            let resp = builder
+                .body(ResponseBody::Bytes(b"response body".to_vec()))
+                .unwrap();
+            let req = NormalizeRequest::new(false);
+            black_box(normalize_response(black_box(resp), &req).unwrap());
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_method_construction,
@@ -218,5 +297,7 @@ criterion_group!(
     bench_file_response,
     bench_range_response,
     bench_connection_info,
+    bench_allocation_count,
+    bench_callback_response_construction,
 );
 criterion_main!(benches);

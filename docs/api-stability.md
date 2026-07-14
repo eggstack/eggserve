@@ -18,6 +18,16 @@ See [release-contract.md](release-contract.md) for the overall product surface a
 
 Stable enum variants are exhaustive unless documented otherwise. Adding a new variant to a stable enum is a breaking change.
 
+### Thread safety (Send/Sync)
+
+All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by `public_api_consumers::canonical_types_are_send_and_sync`.
+
+Error types (`MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
+
+`ResponseBody` implements `Send` (contains `Vec<u8>`). `Response` (head + body) implements `Send`.
+
+Python wrapper types (`#[pyclass(frozen)]`) are frozen/immutable but are not `Send`/`Sync` in the Rust sense — Python GIL constraints apply.
+
 ### Exception classes, fields, and messages
 
 Python exception classes and their field names are stable. Exception message strings are not stable and may change between releases.

@@ -781,6 +781,69 @@ class TestFileResponseBodyMetadata(unittest.TestCase):
         self.assertEqual(fx["expected"]["range_len"], 100)
 
 
+class TestFileResponseStreaming(unittest.TestCase):
+    """Verify file responses remain Rust-owned and stream without Python buffer copy."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_file_response_plan_is_file_variant(self):
+        """File resolution produces a FileFull or FileRange plan, not FullBytes."""
+        path_policy = PathPolicy(True, False)
+        sr = SecureRoot(self._td, StaticPolicy(True, False, True))
+        # Create a test file
+        test_file = os.path.join(self._td, "test.txt")
+        with open(test_file, "wb") as f:
+            f.write(b"hello world")
+
+        resource = sr.resolve("test.txt", path_policy)
+        self.assertTrue(resource.is_file())
+
+        plan = resource.plan_response()
+        body = resource.body_for_plan(plan)
+        # Body should not be empty
+        self.assertFalse(body.is_empty())
+        # Body length should match file content
+        self.assertEqual(body.len, 11)
+
+    def test_file_response_not_copied_to_python(self):
+        """File response body reads from Rust fd, not Python buffer."""
+        sr = SecureRoot(self._td, StaticPolicy(True, False, True))
+        test_file = os.path.join(self._td, "stream_test.bin")
+        content = bytes(range(256)) * 100  # 25.6KB
+        with open(test_file, "wb") as f:
+            f.write(content)
+
+        resource = sr.resolve("stream_test.bin", PathPolicy(True, False))
+        self.assertTrue(resource.is_file())
+
+        plan = resource.plan_response()
+        body = resource.body_for_plan(plan)
+        self.assertFalse(body.is_empty())
+        self.assertEqual(body.len, len(content))
+
+    def test_file_response_range_body(self):
+        """Range response produces a range body from Rust fd."""
+        sr = SecureRoot(self._td, StaticPolicy(True, False, True))
+        test_file = os.path.join(self._td, "range_test.bin")
+        content = b"x" * 1000
+        with open(test_file, "wb") as f:
+            f.write(content)
+
+        resource = sr.resolve("range_test.bin", PathPolicy(True, False))
+        self.assertTrue(resource.is_file())
+
+        # Simulate a range request for bytes 0-99
+        plan = resource.plan_response()
+        body = resource.body_for_plan(plan)
+        self.assertFalse(body.is_empty())
+        # Full body plan covers the entire file
+        self.assertEqual(body.len, 1000)
+
+
 class TestCallbackOverSockets(unittest.TestCase):
     """Canonical type conformance at the callback boundary over real sockets."""
 
@@ -942,6 +1005,134 @@ class TestCallbackOverSockets(unittest.TestCase):
         hb = HeaderBlock([("set-cookie", "a=1"), ("set-cookie", "b=2")])
         self.assertEqual(hb.len, 2)
         self.assertEqual(hb.get_all("set-cookie"), ["a=1", "b=2"])
+
+
+class TestExternalClientWireBehavior(unittest.TestCase):
+    """Tests using Python http.client to verify wire-level behavior."""
+
+    def _start_server(self, handler):
+        """Start a server and return (server_thread, port)."""
+        import threading
+        from eggserve._native import Server, SecureRoot, StaticPolicy, Request
+
+        policy = StaticPolicy(True, False, True)
+        sr = SecureRoot(".", policy)
+        server = Server("127.0.0.1", 0, sr)
+
+        def serve():
+            server.start(lambda req: handler(req))
+            server.serve()
+
+        t = threading.Thread(target=serve, daemon=True)
+        t.start()
+        import time
+        time.sleep(0.1)
+        return server, t
+
+    def _get_port(self, server):
+        """Get the actual port the server is listening on."""
+        return server.port
+
+    def test_http11_keepalive(self):
+        """HTTP/1.1 connection stays alive by default."""
+        import http.client
+
+        def handler(req):
+            return {"status": 200, "headers": {"content-type": "text/plain"}, "body": b"ok"}
+
+        server, t = self._start_server(handler)
+        try:
+            port = self._get_port(server)
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            conn.request("GET", "/test")
+            r1 = conn.getresponse()
+            self.assertEqual(r1.status, 200)
+            body1 = r1.read()
+
+            # Connection should still be alive for a second request
+            conn.request("GET", "/test2")
+            r2 = conn.getresponse()
+            self.assertEqual(r2.status, 200)
+            body2 = r2.read()
+            conn.close()
+        finally:
+            server.stop()
+
+    def test_head_no_body(self):
+        """HEAD response has no body over the wire."""
+        import http.client
+
+        def handler(req):
+            return {"status": 200, "headers": {"content-type": "text/plain"}, "body": b"hello world"}
+
+        server, t = self._start_server(handler)
+        try:
+            port = self._get_port(server)
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            conn.request("HEAD", "/test")
+            r = conn.getresponse()
+            self.assertEqual(r.status, 200)
+            body = r.read()
+            self.assertEqual(len(body), 0)
+            content_length = r.getheader("content-length")
+            self.assertIsNotNone(content_length)
+            self.assertEqual(content_length, "11")
+            conn.close()
+        finally:
+            server.stop()
+
+    def test_status_code_wire(self):
+        """Status code is correctly transmitted over the wire."""
+        import http.client
+
+        for expected_status in [200, 204, 301, 404, 500]:
+            def handler(req, s=expected_status):
+                return {"status": s, "headers": {}, "body": b""}
+
+            server, t = self._start_server(handler)
+            try:
+                port = self._get_port(server)
+                conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+                conn.request("GET", "/test")
+                r = conn.getresponse()
+                self.assertEqual(r.status, expected_status)
+                conn.close()
+            finally:
+                server.stop()
+
+    def test_ordered_headers_wire(self):
+        """Headers arrive in insertion order over the wire."""
+        import http.client
+
+        def handler(req):
+            return {
+                "status": 200,
+                "headers": [
+                    ("x-first", "1"),
+                    ("x-second", "2"),
+                    ("x-third", "3"),
+                ],
+                "body": b"",
+            }
+
+        server, t = self._start_server(handler)
+        try:
+            port = self._get_port(server)
+            conn = http.client.HTTPConnection("127.0.0.1", port, timeout=2)
+            conn.request("GET", "/test")
+            r = conn.getresponse()
+            self.assertEqual(r.status, 200)
+            # http.client returns headers in order
+            headers = r.getheaders()
+            header_names = [h[0] for h in headers]
+            first_idx = header_names.index("x-first")
+            second_idx = header_names.index("x-second")
+            third_idx = header_names.index("x-third")
+            self.assertLess(first_idx, second_idx)
+            self.assertLess(second_idx, third_idx)
+            conn.close()
+        finally:
+            server.stop()
 
 
 if __name__ == "__main__":

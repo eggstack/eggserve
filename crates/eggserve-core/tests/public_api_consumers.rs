@@ -683,3 +683,45 @@ fn all_canonical_types_importable_without_hyper() {
         RequestValidationError,
     )>;
 }
+
+fn _assert_send<T: Send>() {}
+fn _assert_sync<T: Send + Sync>() {}
+
+#[test]
+fn canonical_types_are_send_and_sync() {
+    _assert_send::<Method>();
+    _assert_send::<MethodError>();
+    _assert_send::<HttpVersion>();
+    _assert_send::<HttpVersionError>();
+    _assert_send::<HeaderBlock>();
+    _assert_send::<HeaderName>();
+    _assert_send::<HeaderValue>();
+    _assert_send::<HeaderField>();
+    _assert_send::<HeaderError>();
+    _assert_send::<DuplicateHeaderError>();
+    _assert_send::<RequestTarget>();
+    _assert_send::<RequestTargetError>();
+    _assert_send::<RequestHead>();
+    _assert_send::<ConnectionInfo>();
+    _assert_send::<Scheme>();
+    _assert_send::<TlsInfo>();
+    _assert_send::<StatusCode>();
+    _assert_send::<ResponseBody>();
+    _assert_send::<ResponseConstructionError>();
+    _assert_send::<ReadOnlyMethod>();
+    _assert_send::<RequestValidationError>();
+
+    _assert_sync::<Method>();
+    _assert_sync::<HttpVersion>();
+    _assert_sync::<HeaderBlock>();
+    _assert_sync::<HeaderName>();
+    _assert_sync::<HeaderValue>();
+    _assert_sync::<HeaderField>();
+    _assert_sync::<RequestTarget>();
+    _assert_sync::<RequestHead>();
+    _assert_sync::<ConnectionInfo>();
+    _assert_sync::<Scheme>();
+    _assert_sync::<TlsInfo>();
+    _assert_sync::<StatusCode>();
+    _assert_sync::<ReadOnlyMethod>();
+}

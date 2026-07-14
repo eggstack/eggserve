@@ -11,9 +11,10 @@ on:
 #   for which gates run on which events. This workflow implements:
 #
 #   pull_request — fast correctness gates: rust.*, http.*, filesystem.*,
-#                  python qualification (unit-tests, native-tests, server-primitives,
-#                  api-stability, boundary-hardening, client-primitives,
-#                  server-integration), check-generated.
+#                  conformance.*, python qualification (unit-tests, native-tests,
+#                  server-primitives, api-stability, boundary-hardening,
+#                  client-primitives, server-integration, canonical-conformance,
+#                  api-consumers), check-generated.
 #   push         — all PR gates + supply-chain.*, package.*, packaging-smoke,
 #                  wheel.smoke.* (these jobs have ``if: github.event_name == 'push'``).
 #   scheduled    — not configured; add cron trigger here if periodic fuzzing or re-audit is desired.
@@ -55,6 +56,10 @@ jobs:
       - run: bash scripts/ci-gate-evidence.sh rust.test.client test-output cargo test -p eggserve-core --features client
       - run: bash scripts/ci-gate-evidence.sh rust.test.client-tls test-output sh -c 'cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings && cargo test -p eggserve-core --features client-tls'
       - run: bash scripts/ci-gate-evidence.sh rust.test.server-tls test-output sh -c 'cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings && cargo test -p eggserve-bin --features tls'
+      - run: bash scripts/ci-gate-evidence.sh conformance.canonical-http-corpus-rust test-output cargo test -p eggserve-core --test canonical_conformance
+      - run: bash scripts/ci-gate-evidence.sh conformance.canonical-wire-interop test-output cargo test -p eggserve-core --test canonical_wire_interop
+      - run: bash scripts/ci-gate-evidence.sh conformance.public-rust-compile-fixtures test-output cargo test -p eggserve-core --test public_api_consumers
+      - run: bash scripts/ci-gate-evidence.sh conformance.perf-regression-report test-output cargo bench -p eggserve-core --bench canonical_types -- --test
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -209,6 +214,14 @@ jobs:
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_server_integration -v
+      - name: Test canonical HTTP conformance
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_canonical_conformance -v
+      - name: Test API consumers
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_api_consumers -v
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

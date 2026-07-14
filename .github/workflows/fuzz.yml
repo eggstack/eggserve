@@ -37,6 +37,15 @@ jobs:
           - platform_component
           - validate_request_target
           - validate_method
+          - fuzz_method
+          - fuzz_header_name
+          - fuzz_header_value
+          - fuzz_header_block
+          - fuzz_request_head
+          - fuzz_response_builder
+          - fuzz_normalize_response
+          - fuzz_content_length_reconciliation
+          - fuzz_status_code
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
