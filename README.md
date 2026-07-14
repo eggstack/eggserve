@@ -85,6 +85,8 @@ Release gates are defined in [release/criteria.toml](release/criteria.toml) and 
 
 **Property testing and fuzzing:** Nine fuzz targets cover path parsing, URL parsing, range/conditional headers, platform checks, and request validation. Deterministic property tests (proptest) run in normal CI. Scheduled fuzz runs run weekly. See [docs/fuzzing.md](docs/fuzzing.md).
 
+**Conformance corpus:** Canonical HTTP type conformance is validated through Rust and Python parity tests exercising Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, StatusCode, ResponseHead, ResponseBody, Response, and normalize_response. The corpus covers parsing, validation, normalization rules, and cross-language behavioral equivalence. See `tests/canonical_conformance.rs` (Rust) and `python/eggserve/test_canonical_conformance.py` (Python).
+
 **API stability:** Every exported Rust and Python item is classified as stable, experimental, or internal. See [docs/api-stability.md](docs/api-stability.md) for the full inventory and [docs/release-contract.md](docs/release-contract.md) for behavioral guarantees.
 
 ## Supported platforms

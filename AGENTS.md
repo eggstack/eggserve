@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–048 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–049 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plan 049 promotes all canonical HTTP types to stable and establishes the conformance corpus for Rust/Python parity testing. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
 
 ## Non-negotiables
 
@@ -107,11 +107,15 @@ cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
 cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
 cargo test -p eggserve-bin --test production_path          # production path tests
 cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+cargo test -p eggserve-core --test canonical_conformance  # canonical HTTP type conformance
 bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
 bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
 python3 scripts/check-contract-consistency.py              # contract consistency validation
+# Canonical HTTP type conformance:
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_canonical_conformance -v
 # Unified local validation:
 ./scripts/release-validate.sh fast                 # routine dev check
 ./scripts/release-validate.sh full                 # pre-release validation
@@ -139,6 +143,7 @@ cargo test -p eggserve-core --test http_wire_correctness
 cargo test -p eggserve-core --test http_primitives_integration
 cargo test -p eggserve-bin --test production_path
 cargo test -p eggserve-core --test corpus_replay
+cargo test -p eggserve-core --test canonical_conformance
 bash scripts/install-cargo-tools.sh
 cargo audit
 cargo deny check
@@ -199,6 +204,13 @@ cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
 ```
 
+Python canonical HTTP type conformance tests (requires built wheel):
+
+```sh
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_canonical_conformance -v
+```
+
 Release infrastructure tests:
 
 ```sh
@@ -247,9 +259,10 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Generated release checklist** — `docs/release-checklist.md` is the single canonical checklist file, generated from `release/criteria.toml`. Do not edit by hand; regenerate with `python scripts/release_criteria.py generate-checklist --criteria release/criteria.toml`.
 - **Contract consistency** — `scripts/check-contract-consistency.py` validates that documentation claims are consistent (TLS, Python version, package versions, platform classifications, stable API inventory, README links). Run via `./scripts/release-validate.sh metadata` or directly.
 - **Fail-closed aggregation** — `scripts/release_criteria.py aggregate` validates an evidence bundle against all criteria gates and fails closed: MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING. Waivers cannot hide malformed or conflicting evidence.
+- **Canonical HTTP types (stable)** — Plan 049 promotes all canonical HTTP types to stable after conformance completion. `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` (request types) and `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` (response types) are all stable. `ReadOnlyMethod` (GET/HEAD only) remains stable for existing consumers.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_response()`. The function applies HEAD suppression, body-forbidden enforcement (1xx/204/304), hop-by-hop stripping, and content-length computation. `to_hyper_response()` converts to Hyper after normalization. Python handler responses use this path for non-file bodies; file-backed responses use the existing streaming path.
-- **Two status code types**: `ResponseStatus` (stable, existing) and `StatusCode` (experimental, canonical). `ResponseStatus` is a simple u16 newtype used by the planner. `StatusCode` has range validation (1–999) and classification helpers (is_informational, permits_payload_body). New code should prefer `StatusCode`.
-- **Two header map types**: `HeaderMapPlan` (stable, existing) and `HeaderBlock` (experimental, canonical). `HeaderMapPlan` stores `ResponseHeader { name: String, value: String }`. `HeaderBlock` stores `HeaderField { name: HeaderName, value: HeaderValue }` with validation. The canonical response types use `HeaderBlock`.
+- **Two status code types**: `ResponseStatus` (stable, existing) and `StatusCode` (stable, canonical). `ResponseStatus` is a simple u16 newtype used by the planner. `StatusCode` has range validation (1–999) and classification helpers (is_informational, permits_payload_body). New code should prefer `StatusCode`.
+- **Two header map types**: `HeaderMapPlan` (stable, existing) and `HeaderBlock` (stable, canonical). `HeaderMapPlan` stores `ResponseHeader { name: String, value: String }`. `HeaderBlock` stores `HeaderField { name: HeaderName, value: HeaderValue }` with validation. The canonical response types use `HeaderBlock`.
 
 ## Plan-driven development
 

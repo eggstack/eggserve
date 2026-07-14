@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 31
+Total gates: 36
 
 ## Preflight
 
@@ -24,6 +24,11 @@ Total gates: 31
 
 | Gate ID | Title | Required | Evidence Class | Status | Evidence |
 |---------|-------|----------|----------------|--------|----------|
+| `conformance.canonical-http-corpus-python` | Python canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.canonical-http-corpus-rust` | Rust canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.fuzz-corpus-replay` | Milestone 2 fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.public-rust-compile-fixtures` | Public Rust compile fixtures | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.python-api-import-fixtures` | Python API/import fixtures | yes | ci-log, test-output | PENDING | TBD |
 | `filesystem.corpus-replay` | Fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
 | `http.primitives-integration` | HTTP primitives integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `http.production-path` | Production path tests | yes | ci-log, test-output | PENDING | TBD |
@@ -58,7 +63,7 @@ Total gates: 31
 
 ## Summary
 
-- PENDING: 31
+- PENDING: 36
 
 ## Platform Support
 

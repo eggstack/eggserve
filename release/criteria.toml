@@ -257,6 +257,101 @@ waiver_allowed = false
 security_relevance = true
 release_stage = "qualification"
 
+[[gate]]
+id = "conformance.canonical-http-corpus-rust"
+title = "Rust canonical HTTP conformance corpus"
+description = "Runs the normative HTTP conformance corpus against Rust canonical type entry points"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test canonical_conformance"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "crates/eggserve-core/tests/**", "fuzz/corpus/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "conformance.canonical-http-corpus-python"
+title = "Python canonical HTTP conformance corpus"
+description = "Runs the normative HTTP conformance corpus against the installed Python wheel"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_canonical_conformance -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "fuzz/corpus/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "conformance.public-rust-compile-fixtures"
+title = "Public Rust compile fixtures"
+description = "External-consumer Rust fixtures compile against public API without Hyper or internal dependencies"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test public_api_consumers"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "conformance.python-api-import-fixtures"
+title = "Python API/import fixtures"
+description = "Validates Python API surface: __all__, constructor signatures, exception hierarchy, ordered headers, and no internal exports"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "python -m unittest eggserve.test_api_consumers -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "conformance.fuzz-corpus-replay"
+title = "Milestone 2 fuzz corpus replay"
+description = "Replays expanded fuzz corpus seeds covering canonical types, normalization, and construction invariants"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test corpus_replay && cargo test -p eggserve-core --test corpus_replay --features client"
+workflow_job = "corpus-replay"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "fuzz/corpus/**"]
+depends_on = ["filesystem.corpus-replay"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
 # ---------------------------------------------------------------------------
 # Supply chain gates
 # ---------------------------------------------------------------------------

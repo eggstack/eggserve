@@ -218,12 +218,17 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 | `ClientResponse` | Rust, Python | Implemented, experimental | Status, headers, body (fully buffered with max-bytes enforcement) | Response consumption |
 | `ClientError` | Rust, Python | Implemented, experimental | 12-variant taxonomy: InvalidUrl, UnsupportedScheme, Timeout, TlsError, etc. | Structured error handling |
 | `Scheme` / `ParsedUrl` | Rust | Implemented, experimental | Hand-parsed URL validation, no new dependency | URL validation |
-| `Method` | Rust, Python | Implemented, experimental | Validated HTTP method; standard + extension; token validation | Canonical method identity |
-| `HttpVersion` | Rust, Python | Implemented, experimental | HTTP/1.0, HTTP/1.1 | Canonical version identity |
-| `HeaderBlock` | Rust, Python | Implemented, experimental | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation | Canonical header collection |
-| `RequestTarget` | Rust | Implemented, experimental | Validated origin-form target (path + query) | Canonical request target |
-| `RequestHead` | Rust | Implemented, experimental | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |
-| `ConnectionInfo` | Rust, Python | Implemented, experimental | Transport metadata (addrs, scheme, TLS); separate from headers | Connection-level metadata |
+| `Method` | Rust, Python | Implemented and stable | Validated HTTP method; standard + extension; token validation | Canonical method identity |
+| `HttpVersion` | Rust, Python | Implemented and stable | HTTP/1.0, HTTP/1.1 | Canonical version identity |
+| `HeaderBlock` | Rust, Python | Implemented and stable | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation | Canonical header collection |
+| `RequestTarget` | Rust, Python | Implemented and stable | Validated origin-form target (path + query) | Canonical request target |
+| `RequestHead` | Rust, Python | Implemented and stable | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |
+| `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (addrs, scheme, TLS); separate from headers | Connection-level metadata |
+| `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (1–999 range) with classification helpers | Canonical status code |
+| `ResponseHead` | Rust, Python | Implemented and stable | Status + HeaderBlock; transport-independent response metadata | Canonical response head |
+| `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes | Canonical response body |
+| `Response` | Rust, Python | Implemented and stable | Complete response with one-shot body consumption | Canonical complete response |
+| `normalize_response()` | Rust | Implemented and stable | Single normalization path: HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation | Response normalization |
 
 ## Invariant checklist
 

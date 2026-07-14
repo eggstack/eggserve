@@ -168,7 +168,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 ## Canonical HTTP Request Types
 
-**Stability**: All canonical request types are **experimental** during implementation. They will be promoted to stable after conformance completion in Phase 49.
+**Stability**: All canonical request types are **stable** after conformance completion in Plan 049.
 
 The canonical request types provide transport-independent, Hyper-independent value types for inspecting HTTP requests. They are defined in `eggserve_core::primitives` and projected to Python through `eggserve._native`.
 
@@ -205,7 +205,7 @@ The canonical request types provide transport-independent, Hyper-independent val
 
 ## Canonical Response Types
 
-**Stability**: All canonical response types are **experimental** during implementation.
+**Stability**: All canonical response types are **stable** after conformance completion in Plan 049.
 
 The canonical response types provide transport-independent, Hyper-independent value types for constructing HTTP responses. They are defined in `eggserve_core::primitives::canonical` and enforce response normalization rules at construction and before transport conversion.
 
@@ -271,6 +271,19 @@ The normalization algorithm is the single final path for all response producers.
 #### Implication
 
 Python handlers cannot emit duplicate response headers. If a handler needs multiple `Set-Cookie` headers, the handler must combine them into a single value or use the static-responder path which preserves duplicates through `HeaderMapPlan`.
+
+## Conformance Corpus
+
+Plan 049 establishes a conformance corpus for canonical HTTP type behavior. The corpus contains:
+
+- **Request type conformance**: Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, and ConnectionInfo parsing and validation rules.
+- **Response type conformance**: StatusCode, ResponseHead, ResponseBody, Response construction, and normalization rules.
+- **Rust/Python parity tests**: Tests exercising identical behavior across Rust and Python bindings.
+- **Normalization conformance**: normalize_response() rules (HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation).
+
+The corpus is run by:
+- `tests/canonical_conformance.rs` (Rust side)
+- `python/eggserve/test_canonical_conformance.py` (Python side)
 
 ## API Stability Tiers
 

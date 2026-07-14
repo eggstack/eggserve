@@ -13,7 +13,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 
 [dependencies.eggserve-core]
-path = ".."
+path = "../crates/eggserve-core"
 
 [[bin]]
 name = "request_target"
@@ -66,5 +66,29 @@ doc = false
 [[bin]]
 name = "validate_method"
 path = "fuzz_targets/validate_method.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_header_name"
+path = "fuzz_targets/fuzz_header_name.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_header_value"
+path = "fuzz_targets/fuzz_header_value.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_status_code"
+path = "fuzz_targets/fuzz_status_code.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_normalize_response"
+path = "fuzz_targets/fuzz_normalize_response.rs"
 test = false
 doc = false

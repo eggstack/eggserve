@@ -1,0 +1,579 @@
+{
+  "version": 1,
+  "description": "Normative conformance corpus for eggserve canonical HTTP types",
+  "groups": {
+    "methods": {
+      "description": "Method construction, validation, and classification",
+      "fixtures": [
+        {
+          "id": "method-get",
+          "description": "Standard GET method",
+          "input": "GET",
+          "expected": { "as_str": "GET", "is_safe": true, "is_idempotent": true, "permits_static": true }
+        },
+        {
+          "id": "method-head",
+          "description": "Standard HEAD method",
+          "input": "HEAD",
+          "expected": { "as_str": "HEAD", "is_safe": true, "is_idempotent": true, "permits_static": true }
+        },
+        {
+          "id": "method-post",
+          "description": "Standard POST method",
+          "input": "POST",
+          "expected": { "as_str": "POST", "is_safe": false, "is_idempotent": false, "permits_static": false }
+        },
+        {
+          "id": "method-put",
+          "description": "Standard PUT method",
+          "input": "PUT",
+          "expected": { "as_str": "PUT", "is_safe": false, "is_idempotent": true, "permits_static": false }
+        },
+        {
+          "id": "method-delete",
+          "description": "Standard DELETE method",
+          "input": "DELETE",
+          "expected": { "as_str": "DELETE", "is_safe": false, "is_idempotent": true, "permits_static": false }
+        },
+        {
+          "id": "method-patch",
+          "description": "Standard PATCH method",
+          "input": "PATCH",
+          "expected": { "as_str": "PATCH", "is_safe": false, "is_idempotent": false, "permits_static": false }
+        },
+        {
+          "id": "method-options",
+          "description": "Standard OPTIONS method",
+          "input": "OPTIONS",
+          "expected": { "as_str": "OPTIONS", "is_safe": true, "is_idempotent": true, "permits_static": false }
+        },
+        {
+          "id": "method-trace",
+          "description": "Standard TRACE method",
+          "input": "TRACE",
+          "expected": { "as_str": "TRACE", "is_safe": true, "is_idempotent": true, "permits_static": false }
+        },
+        {
+          "id": "method-connect",
+          "description": "Standard CONNECT method",
+          "input": "CONNECT",
+          "expected": { "as_str": "CONNECT", "is_safe": false, "is_idempotent": false, "permits_static": false }
+        },
+        {
+          "id": "method-extension-purge",
+          "description": "Extension method PURGE",
+          "input": "PURGE",
+          "expected": { "as_str": "PURGE", "is_safe": false, "is_idempotent": false, "permits_static": false }
+        },
+        {
+          "id": "method-case-preserved",
+          "description": "Lowercase method preserves casing",
+          "input": "get",
+          "expected": { "as_str": "get", "is_safe": false, "is_idempotent": false, "permits_static": false }
+        },
+        {
+          "id": "method-empty-rejected",
+          "description": "Empty method string rejected",
+          "input": "",
+          "expected_error": "MethodError::Empty"
+        },
+        {
+          "id": "method-space-rejected",
+          "description": "Method with space rejected",
+          "input": "GET POST",
+          "expected_error": "MethodError::InvalidToken"
+        },
+        {
+          "id": "method-tab-rejected",
+          "description": "Method with tab rejected",
+          "input": "GET\t",
+          "expected_error": "MethodError::InvalidToken"
+        }
+      ]
+    },
+    "versions": {
+      "description": "HTTP version parsing and representation",
+      "fixtures": [
+        {
+          "id": "version-10",
+          "description": "HTTP/1.0",
+          "input": "HTTP/1.0",
+          "expected": { "as_str": "HTTP/1.0", "major": 1, "minor": 0 }
+        },
+        {
+          "id": "version-11",
+          "description": "HTTP/1.1",
+          "input": "HTTP/1.1",
+          "expected": { "as_str": "HTTP/1.1", "major": 1, "minor": 1 }
+        },
+        {
+          "id": "version-20-rejected",
+          "description": "HTTP/2.0 rejected",
+          "input": "HTTP/2.0",
+          "expected_error": "HttpVersionError::Unsupported"
+        },
+        {
+          "id": "version-empty-rejected",
+          "description": "Empty version rejected",
+          "input": "",
+          "expected_error": "HttpVersionError::Unsupported"
+        }
+      ]
+    },
+    "headers": {
+      "description": "Header name/value validation and HeaderBlock behavior",
+      "fixtures": [
+        {
+          "id": "header-valid-name",
+          "description": "Valid header name",
+          "input": { "name": "Content-Type", "value": "text/html" },
+          "expected": { "valid": true }
+        },
+        {
+          "id": "header-empty-name-rejected",
+          "description": "Empty header name rejected",
+          "input": { "name": "", "value": "text/html" },
+          "expected_error": "HeaderError::InvalidName"
+        },
+        {
+          "id": "header-space-in-name-rejected",
+          "description": "Space in header name rejected",
+          "input": { "name": "foo bar", "value": "baz" },
+          "expected_error": "HeaderError::InvalidName"
+        },
+        {
+          "id": "header-name-too-long-rejected",
+          "description": "Header name over 256 bytes rejected",
+          "input": { "name": "x", "repeat": 257, "value": "v" },
+          "expected_error": "HeaderError::NameTooLong"
+        },
+        {
+          "id": "header-cr-in-value-rejected",
+          "description": "CR in header value rejected",
+          "input": { "name": "X-Test", "value": "foo\rbar" },
+          "expected_error": "HeaderError::InvalidValue"
+        },
+        {
+          "id": "header-lf-in-value-rejected",
+          "description": "LF in header value rejected",
+          "input": { "name": "X-Test", "value": "foo\nbar" },
+          "expected_error": "HeaderError::InvalidValue"
+        },
+        {
+          "id": "header-nul-in-value-rejected",
+          "description": "NUL in header value rejected",
+          "input": { "name": "X-Test", "value": "foo\u0000bar" },
+          "expected_error": "HeaderError::InvalidValue"
+        },
+        {
+          "id": "header-empty-value-valid",
+          "description": "Empty header value is valid",
+          "input": { "name": "X-Empty", "value": "" },
+          "expected": { "valid": true }
+        },
+        {
+          "id": "headerblock-duplicate-preserved",
+          "description": "Duplicate headers preserved in order",
+          "input": { "headers": [["set-cookie", "a=1"], ["set-cookie", "b=2"]] },
+          "expected": { "len": 2, "get_first": "a=1", "get_all": ["a=1", "b=2"] }
+        },
+        {
+          "id": "headerblock-case-insensitive-lookup",
+          "description": "Header lookup is case-insensitive",
+          "input": { "headers": [["Content-Type", "text/html"]] },
+          "expected": { "get_first_lowercase": "text/html", "contains_uppercase": true }
+        },
+        {
+          "id": "headerblock-get-unique-single",
+          "description": "get_unique returns value for single header",
+          "input": { "headers": [["content-type", "text/html"]] },
+          "expected": { "get_unique": "text/html" }
+        },
+        {
+          "id": "headerblock-get-unique-duplicate-error",
+          "description": "get_unique returns error for duplicates",
+          "input": { "headers": [["set-cookie", "a=1"], ["set-cookie", "b=2"]] },
+          "expected_error": "DuplicateHeaderError"
+        },
+        {
+          "id": "headerblock-get-unique-absent",
+          "description": "get_unique returns None for absent header",
+          "input": { "headers": [] },
+          "expected": { "get_unique_absent": true }
+        },
+        {
+          "id": "headerblock-iteration-order",
+          "description": "Iteration preserves insertion order",
+          "input": { "headers": [["a", "1"], ["b", "2"], ["c", "3"]] },
+          "expected": { "iteration_order": ["a", "b", "c"] }
+        }
+      ]
+    },
+    "request_targets": {
+      "description": "Request target parsing and validation",
+      "fixtures": [
+        {
+          "id": "target-root",
+          "description": "Root path",
+          "input": "/",
+          "expected": { "path": "/", "query": null }
+        },
+        {
+          "id": "target-simple-path",
+          "description": "Simple path",
+          "input": "/index.html",
+          "expected": { "path": "/index.html", "query": null }
+        },
+        {
+          "id": "target-with-query",
+          "description": "Path with query string",
+          "input": "/search?q=hello",
+          "expected": { "path": "/search", "query": "q=hello" }
+        },
+        {
+          "id": "target-empty-query",
+          "description": "Path with empty query",
+          "input": "/path?",
+          "expected": { "path": "/path", "query": null }
+        },
+        {
+          "id": "target-encoded-chars",
+          "description": "Percent-encoded characters",
+          "input": "/path%20with%20spaces",
+          "expected": { "path": "/path%20with%20spaces" }
+        },
+        {
+          "id": "target-empty-rejected",
+          "description": "Empty target rejected",
+          "input": "",
+          "expected_error": "RequestTargetError::Empty"
+        },
+        {
+          "id": "target-absolute-uri-rejected",
+          "description": "Absolute URI rejected",
+          "input": "http://example.com/path",
+          "expected_error": "RequestTargetError::AbsoluteUri"
+        },
+        {
+          "id": "target-authority-rejected",
+          "description": "Authority form rejected",
+          "input": "example.com:80",
+          "expected_error": "RequestTargetError::AuthorityForm"
+        },
+        {
+          "id": "target-asterisk-rejected",
+          "description": "Asterisk form rejected",
+          "input": "*",
+          "expected_error": "RequestTargetError::AsteriskForm"
+        },
+        {
+          "id": "target-whitespace-rejected",
+          "description": "Target with whitespace rejected",
+          "input": "/path with spaces",
+          "expected_error": "RequestTargetError::ContainsWhitespace"
+        }
+      ]
+    },
+    "request_heads": {
+      "description": "RequestHead construction from components",
+      "fixtures": [
+        {
+          "id": "head-simple-get",
+          "description": "Simple GET request head",
+          "input": {
+            "method": "GET",
+            "target": "/index.html",
+            "version": "HTTP/1.1",
+            "headers": [["host", "example.com"]]
+          },
+          "expected": { "method": "GET", "target_path": "/index.html", "version": "HTTP/1.1" }
+        },
+        {
+          "id": "head-http10",
+          "description": "HTTP/1.0 request head",
+          "input": {
+            "method": "GET",
+            "target": "/",
+            "version": "HTTP/1.0",
+            "headers": []
+          },
+          "expected": { "method": "GET", "version": "HTTP/1.0" }
+        },
+        {
+          "id": "head-duplicate-request-headers",
+          "description": "Request head preserves duplicate headers",
+          "input": {
+            "method": "GET",
+            "target": "/",
+            "version": "HTTP/1.1",
+            "headers": [["accept", "text/html"], ["accept", "application/json"]]
+          },
+          "expected": { "header_count": 2 }
+        }
+      ]
+    },
+    "status_codes": {
+      "description": "StatusCode construction and classification",
+      "fixtures": [
+        {
+          "id": "status-200",
+          "description": "200 OK",
+          "input": 200,
+          "expected": {
+            "as_u16": 200,
+            "is_informational": false,
+            "is_success": true,
+            "is_redirection": false,
+            "is_client_error": false,
+            "is_server_error": false,
+            "permits_payload_body": true
+          }
+        },
+        {
+          "id": "status-100",
+          "description": "100 Continue",
+          "input": 100,
+          "expected": {
+            "as_u16": 100,
+            "is_informational": true,
+            "permits_payload_body": false
+          }
+        },
+        {
+          "id": "status-204",
+          "description": "204 No Content",
+          "input": 204,
+          "expected": {
+            "as_u16": 204,
+            "is_success": true,
+            "permits_payload_body": false
+          }
+        },
+        {
+          "id": "status-304",
+          "description": "304 Not Modified",
+          "input": 304,
+          "expected": {
+            "as_u16": 304,
+            "is_redirection": true,
+            "permits_payload_body": false
+          }
+        },
+        {
+          "id": "status-404",
+          "description": "404 Not Found",
+          "input": 404,
+          "expected": {
+            "as_u16": 404,
+            "is_client_error": true,
+            "permits_payload_body": true
+          }
+        },
+        {
+          "id": "status-500",
+          "description": "500 Internal Server Error",
+          "input": 500,
+          "expected": {
+            "as_u16": 500,
+            "is_server_error": true,
+            "permits_payload_body": true
+          }
+        },
+        {
+          "id": "status-0-rejected",
+          "description": "Status code 0 rejected",
+          "input": 0,
+          "expected_error": "ResponseConstructionError::InvalidStatus"
+        },
+        {
+          "id": "status-1000-rejected",
+          "description": "Status code 1000 rejected",
+          "input": 1000,
+          "expected_error": "ResponseConstructionError::InvalidStatus"
+        },
+        {
+          "id": "status-1-valid",
+          "description": "Status code 1 is valid (range 1-999)",
+          "input": 1,
+          "expected": {
+            "as_u16": 1,
+            "is_informational": false,
+            "is_success": false,
+            "is_redirection": false,
+            "is_client_error": false,
+            "is_server_error": false,
+            "permits_payload_body": true
+          }
+        }
+      ]
+    },
+    "response_normalization": {
+      "description": "Response normalization rules (HEAD, body-forbidden, framing)",
+      "fixtures": [
+        {
+          "id": "norm-head-suppresses-body",
+          "description": "HEAD request suppresses body bytes",
+          "input": {
+            "status": 200,
+            "headers": [["content-type", "text/plain"]],
+            "body": "hello",
+            "is_head": true
+          },
+          "expected": {
+            "status": 200,
+            "body": "",
+            "headers_contain": {"content-type": "text/plain"}
+          }
+        },
+        {
+          "id": "norm-204-suppresses-body",
+          "description": "204 response suppresses body",
+          "input": {
+            "status": 204,
+            "headers": [],
+            "body": "unexpected",
+            "is_head": false
+          },
+          "expected": {
+            "status": 204,
+            "body": ""
+          }
+        },
+        {
+          "id": "norm-304-suppresses-body",
+          "description": "304 response suppresses body",
+          "input": {
+            "status": 304,
+            "headers": [["etag", "W/\"123\""]],
+            "body": "",
+            "is_head": false
+          },
+          "expected": {
+            "status": 304,
+            "body": "",
+            "headers_contain": {"etag": "W/\"123\""}
+          }
+        },
+        {
+          "id": "norm-1xx-suppresses-body",
+          "description": "1xx response suppresses body",
+          "input": {
+            "status": 100,
+            "headers": [],
+            "body": "data",
+            "is_head": false
+          },
+          "expected": {
+            "status": 100,
+            "body": ""
+          }
+        },
+        {
+          "id": "norm-strips-transfer-encoding",
+          "description": "Transfer-Encoding is stripped",
+          "input": {
+            "status": 200,
+            "headers": [["transfer-encoding", "chunked"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_not_contain": ["transfer-encoding"],
+            "headers_contain": {"content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-sets-content-length",
+          "description": "Content-Length is set to body length",
+          "input": {
+            "status": 200,
+            "headers": [],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_contain": {"content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-duplicate-headers-preserved",
+          "description": "Duplicate response headers preserved through normalization",
+          "input": {
+            "status": 200,
+            "headers": [["set-cookie", "a=1"], ["set-cookie", "b=2"]],
+            "body": "ok",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "set_cookie_count": 2,
+            "headers_contain": {"content-length": "2"}
+          }
+        },
+        {
+          "id": "norm-hop-by-hop-stripped",
+          "description": "Hop-by-hop Transfer-Encoding is stripped",
+          "input": {
+            "status": 200,
+            "headers": [["transfer-encoding", "chunked"], ["content-type", "text/plain"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_not_contain": ["transfer-encoding"],
+            "headers_contain": {"content-type": "text/plain", "content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-content-length-recomputed",
+          "description": "Content-Length is recomputed even if provided",
+          "input": {
+            "status": 200,
+            "headers": [["content-length", "999"]],
+            "body": "hello",
+            "is_head": false
+          },
+          "expected": {
+            "status": 200,
+            "headers_contain": {"content-length": "5"}
+          }
+        },
+        {
+          "id": "norm-head-no-content-length",
+          "description": "HEAD response does not set Content-Length for body",
+          "input": {
+            "status": 200,
+            "headers": [],
+            "body": "hello",
+            "is_head": true
+          },
+          "expected": {
+            "status": 200,
+            "body": "",
+            "headers_not_contain": ["content-length"]
+          }
+        }
+      ]
+    },
+    "connection_metadata": {
+      "description": "ConnectionInfo construction and inspection",
+      "fixtures": [
+        {
+          "id": "conn-http",
+          "description": "HTTP connection metadata",
+          "input": { "scheme": "Http", "tls": false },
+          "expected": { "scheme_is_http": true, "tls": false }
+        },
+        {
+          "id": "conn-https",
+          "description": "HTTPS connection metadata",
+          "input": { "scheme": "Https", "tls": true },
+          "expected": { "scheme_is_http": false, "tls": true }
+        }
+      ]
+    }
+  }
+}

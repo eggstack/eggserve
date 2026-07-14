@@ -40,10 +40,11 @@ constrained vocabulary.
 | GET/HEAD static serving | stable | stable | stable | stable | — | stable | — | — |
 | Request-target validation | stable | stable | stable | stable | — | stable | — | — |
 | Request-body rejection | stable | stable | stable | stable | — | stable | stable | — |
-| Canonical request types | — | — | experimental | — | experimental | — | — | — |
-| Canonical response types | — | — | experimental | — | experimental | — | — | — |
+| Canonical request types | — | stable | stable | stable | stable | — | — | — |
+| Canonical response types | — | stable | stable | stable | stable | — | — | — |
 | Duplicate-preserving headers | — | stable | stable | — | experimental | stable | stable | — |
-| Connection metadata | — | — | experimental | — | experimental | — | — | — |
+| Connection metadata | — | stable | stable | stable | stable | — | — | — |
+| Conformance corpus and parity testing | — | — | experimental | — | experimental | — | — | — |
 | Bounded request-body support | planned | planned | planned | planned | — | planned | planned | — |
 | Secure root resolution | stable | stable | stable | stable | — | stable | stable | — |
 | Symlink policy | stable | stable | stable | stable | — | stable | stable | — |
