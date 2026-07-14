@@ -44,7 +44,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `StaticService` | Hardened static file service implementing `Service` |
 | `ServiceError` | Per-request errors: Internal, Rejected, Panic, Timeout |
 | `ServerError` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal |
-| `LifecycleState` | Lifecycle state machine: Startup → Running → Draining → Stopped |
+| `LifecycleState` | Lifecycle state machine: Created → Starting → Running → Draining → Stopped/Failed |
 | `ShutdownResult` | Returned by shutdown operations, carries final `LifecycleState` |
 
 ### Guarantees
@@ -63,6 +63,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 ### Lifecycle guarantees
 
 - Lifecycle state transitions are race-safe (atomic CAS)
+- State transitions: `Created → Starting → Running → Draining → Stopped`, with `Created → Failed` and `Starting → Failed` on errors
 - Double-start returns `ServerError::AlreadyStarted`
 - Shutdown before start is a no-op
 - Multiple shutdown calls are idempotent
@@ -162,7 +163,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Invalid status codes (outside 100–999, non-three-digit) produce 500.
 - Invalid header names (empty) or values (containing NUL, CR, LF) produce 500.
 - Handler exceptions produce 500 without leaking tracebacks.
-- Handler timeout (`handler_timeout_secs`, default 30s): best-effort in Python; enforced at transport level by the Rust server.
+- Handler timeout (`handler_timeout_secs`, default 30s): Python callbacks use the actual Rust runtime's handler timeout mechanism. The timeout is enforced at the transport level by the Rust server, not by a Python-side timer.
 - Callback concurrency is bounded (default: 8 concurrent handler calls).
 - File-backed responses retain their Rust-owned file capability and stream without copying the file through Python memory.
 - HEAD requests still invoke the handler, but the runtime suppresses the body before acquiring file-stream resources.

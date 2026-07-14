@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 43
+Total gates: 54
 
 ## Preflight
 
@@ -39,14 +39,25 @@ Total gates: 43
 | `http.raw-wire` | Raw HTTP/1.x wire correctness tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.api-stability` | Python API stability tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.boundary-hardening` | Python boundary hardening tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.callback-timeout` | Python callback timeout | yes | ci-log, test-output | PENDING | TBD |
 | `python.client-primitives` | Python client primitives tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.contract-consistency` | Contract consistency validation | yes | ci-log, lint-output | PENDING | TBD |
+| `python.lifecycle-linux` | Python lifecycle qualification (Linux) | yes | ci-log, test-output | PENDING | TBD |
+| `python.lifecycle-macos` | Python lifecycle qualification (macOS) | yes | ci-log, test-output | PENDING | TBD |
 | `python.lifecycle-parity` | Python lifecycle parity tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.lifecycle-windows` | Python lifecycle qualification (Windows) | yes | ci-log, test-output | PENDING | TBD |
 | `python.native-tests` | Python native primitives tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.resource-qualification` | Python resource qualification soak tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.runtime-parity` | Python runtime parity | yes | ci-log, test-output | PENDING | TBD |
 | `python.server-integration` | Python server integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.server-primitives` | Python server primitives tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.unit-tests` | Python source-only unit tests | yes | ci-log, test-output | PENDING | TBD |
+| `runtime.forced-shutdown` | Runtime forced shutdown | yes | ci-log, test-output | PENDING | TBD |
+| `runtime.graceful-shutdown` | Runtime graceful shutdown | yes | ci-log, test-output | PENDING | TBD |
+| `runtime.listener-lifecycle` | Runtime listener lifecycle | yes | ci-log, test-output | PENDING | TBD |
+| `runtime.public-rust-consumer` | Rust runtime public consumer | yes | ci-log, test-output | PENDING | TBD |
+| `runtime.service-dispatch` | Runtime service dispatch | yes | ci-log, test-output | PENDING | TBD |
+| `runtime.tls-service-parity` | TLS and plaintext service parity | no | ci-log, test-output | PENDING | TBD |
 
 ## Artifact
 
@@ -70,7 +81,7 @@ Total gates: 43
 
 ## Summary
 
-- PENDING: 43
+- PENDING: 54
 
 ## Platform Support
 

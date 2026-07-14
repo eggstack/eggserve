@@ -54,7 +54,7 @@ pub mod config;
 pub mod connection;
 pub mod errors;
 pub mod handle;
-pub(crate) mod lifecycle;
+pub mod lifecycle;
 pub mod service;
 pub mod static_service;
 

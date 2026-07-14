@@ -40,7 +40,8 @@ Modules:
 
 | Module | Visibility | Responsibility |
 |--------|------------|----------------|
-| `primitives/` | `pub` | Public facade: re-exports `ConfinedPath`, `PathPolicy`, `PathRejection`, `PathDotfilePolicy` (path-level), `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` (response-level), plus `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, `ResourceDeniedReason` (secure root and resolution capabilities). Also contains `http.rs` (request validation: `ReadOnlyMethod`, `validate_method/body/target`), `response.rs` (planning types: `BodyPlan`, `HeaderMapPlan`, `StaticResponsePlan`), and `planner.rs` (conditional requests, range requests, ETag generation). Intended boundary for Rust/Python bindings. |
+| `primitives/` | `pub` | Public facade: re-exports `ConfinedPath`, `PathPolicy`, `PathRejection`, `PathDotfilePolicy` (path-level), `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` (response-level), plus `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, `ResourceDeniedReason` (secure root and resolution capabilities). Also contains `http.rs` (request validation: `ReadOnlyMethod`, `validate_method/body/target`), `response.rs` (planning types: `BodyPlan`, `HeaderMapPlan`, `StaticResponsePlan`), `planner.rs` (conditional requests, range requests, ETag generation), and `canonical.rs` (canonical HTTP types: `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()`). Intended boundary for Rust/Python bindings. |
+| `server/` | `pub` (experimental) | Runtime service boundary: Server, ServerBuilder, ServerHandle, RuntimeConfig, Service trait, StaticService, lifecycle state machine. Experimental. |
 | `config.rs` | `pub` | `ServeConfig` (bind, root, limits, static policy), `ServeState` (runtime state with file-stream semaphore), `StartupSummary` (logging-friendly summary used by the binary to print the startup banner) |
 | `policy.rs` | `pub` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
 | `limits.rs` | `pub` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
@@ -62,7 +63,7 @@ Modules:
 
 The core crate exposes a public API for path confinement, policy enforcement, and HTTP serving that can be used independently of the CLI. This is the foundation for safe HTTP/static-serving primitives.
 
-**Note:** `eggserve-core` is published to crates.io but is considered experimental/unstable for the alpha period. The public API surface is intentionally conservative and may change without notice before 1.0.
+**Note:** `eggserve-core` is published to crates.io but is considered experimental/unstable for the alpha period. The `primitives` module is stable. The public API surface outside `primitives` is intentionally conservative and may change without notice before 1.0.
 
 ### `eggserve-bin`
 

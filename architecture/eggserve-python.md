@@ -21,8 +21,13 @@ crates/eggserve-python/
     ├── test_server_primitives.py
     ├── test_server_integration.py
     ├── test_boundary_hardening.py
-    ├── test_server.py
-    └── test_api_stability.py
+    ├── test_parity_matrix.py
+    ├── test_canonical_conformance.py
+    ├── test_canonical_request_types.py
+    ├── test_client_primitives.py
+    ├── test_api_consumers.py
+    ├── test_api_stability.py
+    └── test_server.py
 └── packaging-tests/
     ├── run_all.sh              # installs wheel in fresh venv, runs all smoke tests
     ├── test_imports.py         # import validation, version metadata, no source-tree shadowing
@@ -65,7 +70,7 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 | `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(directory_listing, follow_symlinks, allow_dotfiles)`, getters |
 | `ServerSecureRoot` | `primitives::SecureRoot` | `new(path, policy)`, `root_path` getter |
 | `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response(status=200)` |
-| `Server` | tokio runtime + TcpListener | `start()`, `stop()`, `addr`, context manager, optional `handler` callback, `max_python_callbacks` concurrency limit |
+| `Server` | Rust `Server`/`ServerHandle` (`eggserve-core::server`) | `start()`, `stop()`, `addr`, context manager, optional `handler` callback, `max_python_callbacks` concurrency limit |
 
 Exceptions: `ServerRequestError` (method not allowed, target invalid, body not allowed).
 
@@ -73,13 +78,13 @@ Exceptions: `ServerRequestError` (method not allowed, target invalid, body not a
 
 | Method | Behavior |
 |--------|----------|
-| `start()` | Creates tokio runtime, binds TcpListener, spawns accept loop. Blocks until ready. |
-| `stop()` | Sends shutdown signal, joins thread (blocking). Idempotent. |
+| `start()` | Delegates to Rust `Server::builder().build().start()`. Blocks until ready. |
+| `stop()` | Calls `ServerHandle::wait()`, joins thread (blocking). Idempotent. |
 | `wait_ready()` | Returns `Ok(())` if Running; raises `LifecycleError` otherwise. |
-| `shutdown()` | Sends shutdown signal, returns immediately (non-blocking). |
-| `force_shutdown(timeout_secs)` | Graceful shutdown with deadline. Returns `"clean"` or `"timeout"`. |
+| `shutdown()` | Calls `ServerHandle::shutdown()`, returns immediately (non-blocking). |
+| `force_shutdown(timeout_secs)` | Calls `ServerHandle::force_shutdown()` with deadline. Returns `"clean"` or `"timeout"`. |
 | `wait()` | Blocks until thread joins. Returns `"stopped"`. |
-| `state` (property) | Returns lifecycle state: `"created"`, `"running"`, `"stopped"`, `"failed"`. |
+| `state` (property) | Reads `ServerHandle::state()`, maps `LifecycleState` to Python state string. |
 
 ### Callback model (Plan 053)
 
@@ -166,7 +171,7 @@ Searches for the `eggserve` binary in:
 
 2. **Subprocess, not FFI** — The binary is spawned as a subprocess rather than linked as a shared library. This isolates the Python process from the server's memory and lifecycle.
 
-3. **Server primitives use Rust-owned I/O** — The `Server` type runs a tokio runtime in a background thread. When a handler callback is provided, Python code receives parsed `Request` objects and returns `Response` values. When no handler is provided, the server serves static files. Socket I/O, HTTP parsing, and file streaming are handled by Rust. Connection limits, header timeouts, write timeouts, and callback concurrency are enforced. The GIL is released during I/O. Lifecycle methods (`wait_ready()`, `shutdown()`, `force_shutdown()`, `wait()`, `state`) provide parity with the Rust `ServerHandle` API. Coroutine handlers are rejected with a 500 response.
+3. **Server primitives use Rust-owned I/O** — The `Server` type delegates to the Rust `Server`/`ServerHandle` from `eggserve-core::server`. When a handler callback is provided, Python code receives parsed `Request` objects and returns `Response` values. When no handler is provided, the server serves static files. Socket I/O, HTTP parsing, and file streaming are handled by Rust. Connection limits, header timeouts, write timeouts, and callback concurrency are enforced. The GIL is released during I/O. Lifecycle methods (`wait_ready()`, `shutdown()`, `force_shutdown()`, `wait()`, `state`) are mapped to the Rust `ServerHandle` API. Coroutine handlers are rejected with a 500 response.
 
 4. **Frozen immutability** — All PyO3 classes use `#[pyclass(frozen)]`. All Python dataclasses use `frozen=True`. This prevents mutation at both layers.
 

@@ -66,7 +66,8 @@ constrained vocabulary.
 | Generic byte responses | — | stable | stable | — | stable | — | — | stable | — |
 | Duplicate headers | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Callback handlers | — | — | — | — | stable | — | — | stable | — |
-| Existing-listener support | planned | planned | planned | experimental | deferred | — | planned | planned | — |
+| Existing-listener support | planned | planned | implemented | experimental | Rust-only | — | planned | planned | — |
+| Lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) | — | — | — | experimental | stable | — | — | stable | — |
 | Graceful shutdown | stable | — | — | experimental | stable | — | stable | stable | — |
 | Observability hooks | minimal | minimal | planned | minimal | minimal | — | minimal | minimal | — |
 | Redirects | — | — | — | — | — | — | — | — | — |

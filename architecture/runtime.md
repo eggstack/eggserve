@@ -165,15 +165,16 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 
 ## Python lifecycle mapping
 
-The Python `Server` wraps the same tokio runtime and accept loop pattern as
-the Rust `Server`. Lifecycle methods are bridged:
+The Python `Server` delegates to the actual Rust `Server` and `ServerHandle`
+from `eggserve-core::server` rather than implementing its own accept loop.
+Lifecycle methods are mapped to the Rust `ServerHandle` API:
 
-- `start()` → creates tokio runtime, binds TcpListener, spawns accept loop on `std::thread`
-- `stop()` → sends shutdown signal, joins thread
-- `shutdown()` → sends shutdown signal (non-blocking)
-- `force_shutdown(deadline)` → sends shutdown, waits with deadline
+- `start()` → creates `ServerHandle` via `Server::builder()`, spawns accept loop on `std::thread`
+- `stop()` → calls `ServerHandle::wait()`, joins thread
+- `shutdown()` → calls `ServerHandle::shutdown()` (non-blocking)
+- `force_shutdown(deadline)` → calls `ServerHandle::force_shutdown()`, waits with deadline
 - `wait()` → blocks on thread join
-- `state` → tracks Created → Running → Stopped transitions
+- `state` → reads `ServerHandle::state()`, maps `LifecycleState` to Python `ServerState`
 
 Lifecycle states map directly: Python's `ServerState` enum mirrors
 `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed).

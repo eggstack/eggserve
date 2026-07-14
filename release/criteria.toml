@@ -783,6 +783,223 @@ security_relevance = false
 release_stage = "artifact"
 
 # ---------------------------------------------------------------------------
+# Runtime service boundary gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "runtime.public-rust-consumer"
+title = "Rust runtime public consumer"
+description = "eggserve-core::server provides Server, ServerBuilder, ServerHandle, RuntimeConfig, Service trait, service_fn, StaticService as public API"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test server_integration"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "runtime.service-dispatch"
+title = "Runtime service dispatch"
+description = "Custom Service implementations receive canonical RequestHead and return canonical Response through the runtime pipeline"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test server_integration"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/service.rs", "crates/eggserve-core/src/server/connection.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "runtime.listener-lifecycle"
+title = "Runtime listener lifecycle"
+description = "Lifecycle state machine (Created, Starting, Running, Draining, Stopped, Failed) transitions correctly"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test lifecycle_integration"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/lifecycle.rs", "crates/eggserve-core/src/server/handle.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "runtime.graceful-shutdown"
+title = "Runtime graceful shutdown"
+description = "Graceful shutdown drains in-flight connections within the configured deadline"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test lifecycle_integration"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/mod.rs", "crates/eggserve-core/src/server/handle.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "runtime.forced-shutdown"
+title = "Runtime forced shutdown"
+description = "Forced shutdown aborts remaining tasks after the configured deadline"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test lifecycle_integration"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/handle.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "runtime.tls-service-parity"
+title = "TLS and plaintext service parity"
+description = "Custom services work identically over plaintext and TLS transports"
+required = false
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-bin --features tls"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = ["tls"]
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/connection.rs", "crates/eggserve-core/src/server/mod.rs"]
+depends_on = ["rust.test.server-tls"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+# ---------------------------------------------------------------------------
+# Python runtime parity gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "python.runtime-parity"
+title = "Python runtime parity"
+description = "Python Server uses the actual Rust runtime (Server/ServerHandle from eggserve-core::server)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_parity_matrix -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.callback-timeout"
+title = "Python callback timeout"
+description = "Python handler timeout produces deterministic timeout responses and does not retain permits after timeout"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.lifecycle-linux"
+title = "Python lifecycle qualification (Linux)"
+description = "Python lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) work correctly on Linux"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.lifecycle-macos"
+title = "Python lifecycle qualification (macOS)"
+description = "Python lifecycle methods work correctly on macOS"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
+workflow_job = "python-unit-tests"
+platforms = ["macos"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.lifecycle-windows"
+title = "Python lifecycle qualification (Windows)"
+description = "Python lifecycle methods work correctly on Windows"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
+workflow_job = "python-unit-tests"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+# ---------------------------------------------------------------------------
 # Release gates
 # ---------------------------------------------------------------------------
 

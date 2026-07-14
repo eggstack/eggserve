@@ -89,11 +89,17 @@ impl std::fmt::Display for LifecycleState {
 
 /// Shared lifecycle state with atomic transitions and channel notifications.
 #[derive(Debug)]
-pub(crate) struct Lifecycle {
+pub struct Lifecycle {
     state: AtomicU8,
     ready_tx: watch::Sender<bool>,
     /// Notified when a terminal state (Stopped/Failed) is reached.
     terminal_tx: broadcast::Sender<()>,
+}
+
+impl Default for Lifecycle {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Lifecycle {

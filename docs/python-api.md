@@ -202,10 +202,12 @@ Exception
     ├── SecureRootError        # root initialization/resolution errors
     ├── RequestValidationError # request validation errors
     ├── BodySourceError        # body source conversion errors
+    ├── LifecycleError         # lifecycle violations (double start, stop before start)
+    ├── ResponseConstructionError # invalid handler Response object
     └── ServerRequestError     # server request handling errors (raises as ValueError)
 ```
 
-`BodySourceError` covers body-source conversion failures (e.g., invalid range, already consumed). `ServerRequestError` is a PyO3 enum that raises as `ValueError` with a string message, not a native exception with `(message, code)` tuple args.
+`BodySourceError` covers body-source conversion failures (e.g., invalid range, already consumed). `LifecycleError` is raised on lifecycle violations such as double start or stop before start. `ResponseConstructionError` is raised when a handler returns an invalid `Response` object (e.g., invalid status code, forbidden headers). `ServerRequestError` is a PyO3 enum that raises as `ValueError` with a string message, not a native exception with `(message, code)` tuple args.
 
 ## Server primitives
 
@@ -260,7 +262,7 @@ Factory methods:
 
 ### `Server`
 
-TCP server that accepts connections, parses HTTP requests, and dispatches to a responder or handler callback. Rust owns the accept loop, connection parsing, response serialization, and timeout enforcement.
+TCP server that accepts connections, parses HTTP requests, and dispatches to a responder or handler callback. The server uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. Rust owns the accept loop, connection parsing, response serialization, and timeout enforcement.
 
 ```python
 from eggserve import Server, ServerSecureRoot
@@ -311,7 +313,7 @@ Parameters:
 - `max_python_callbacks` — maximum concurrent handler callbacks (default: 8)
 - `header_timeout_secs` — header read timeout in seconds (default: 10)
 - `write_timeout_secs` — response write timeout in seconds (default: 30)
-- `handler_timeout_secs` — handler callback timeout in seconds (default: 30); best-effort in Python, enforced at transport level by Rust server
+- `handler_timeout_secs` — handler callback timeout in seconds (default: 30); uses the actual Rust runtime's handler timeout mechanism, enforced at transport level by the Rust server
 - `graceful_shutdown_timeout_secs` — graceful shutdown drain deadline in seconds (default: 10)
 
 Properties:
@@ -329,7 +331,7 @@ Methods:
 
 When `handler` is provided, the server calls `handler(request)` for each request and streams the returned `Response` back to the client. When `handler` is `None`, the server serves static files from the root directory. Handler exceptions map to generic 500 Internal Server Error responses without traceback leakage. Coroutine handlers (functions returning a coroutine object) are rejected with a 500 response.
 
-Handler timeout (`handler_timeout_secs`) is best-effort in Python — enforced at the transport level by the Rust server, not by a Python-side timer. If the handler does not return within the deadline, the connection is closed.
+Handler timeout (`handler_timeout_secs`) uses the actual Rust runtime's handler timeout mechanism — enforced at the transport level by the Rust server, not by a Python-side timer. If the handler does not return within the deadline, the connection is closed.
 
 The server enforces connection limits, header read timeouts, and response write timeouts. Binding to 0.0.0.0 or :: requires `public=True`.
 

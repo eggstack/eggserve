@@ -108,7 +108,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `StaticServiceBuilder` | experimental | Builder for StaticService |
 | `ServiceError` | experimental | Per-request errors: Internal, Rejected, Panic, Timeout |
 | `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal |
-| `LifecycleState` | experimental | Lifecycle state machine: Startup, Running, Draining, Stopped |
+| `LifecycleState` | experimental | Lifecycle state machine: Created, Starting, Running, Draining, Stopped, Failed |
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
 
 ### `config` Module

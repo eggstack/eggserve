@@ -27,6 +27,11 @@ authoritative inventory for Plan 045 Track A.
 | Python native tests, server primitives, API stability, boundary hardening, client primitives, server integration | ci.yml / gate/python-unit-tests | linux | — | PR, main | ci-log, test-output | `python.native-tests`, `python.server-primitives`, `python.api-stability`, `python.boundary-hardening`, `python.client-primitives`, `python.server-integration` | Requires built wheel |
 | `cd crates/eggserve-python/packaging-tests && bash run_all.sh ...` | ci.yml / gate/packaging-smoke | linux | — | main | ci-log, test-output | `python.packaging-smoke` | Requires built wheel |
 | `bash crates/eggserve-python/packaging-tests/run_all.sh ...` | ci.yml / gate/python-${{ matrix.os }} | linux, macos, windows | — | main | ci-log, test-output, wheel | `python.wheel.linux`, `python.wheel.macos`, `python.wheel.windows` | Cross-platform wheel matrix |
+| `cargo test -p eggserve-core --test server_integration` | ci.yml / gate/rust-full | linux, macos, windows | — | PR, main | ci-log, test-output | `runtime.public-rust-consumer`, `runtime.service-dispatch` | |
+| `cargo test -p eggserve-core --test lifecycle_integration` | ci.yml / gate/rust-full | linux, macos, windows | — | PR, main | ci-log, test-output | `runtime.listener-lifecycle`, `runtime.graceful-shutdown`, `runtime.forced-shutdown` | |
+| `cargo test -p eggserve-bin --features tls` | ci.yml / gate/rust-full | linux, macos, windows | tls | PR, main | ci-log, test-output | `runtime.tls-service-parity` | required_for_release = false |
+| `cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_parity_matrix -v` | ci.yml / gate/python-unit-tests | linux, macos, windows | — | PR, main | ci-log, test-output | `python.runtime-parity` | |
+| `cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v` | ci.yml / gate/python-unit-tests | linux, macos, windows | — | PR, main | ci-log, test-output | `python.callback-timeout`, `python.lifecycle-linux`, `python.lifecycle-macos`, `python.lifecycle-windows` | Platform-specific lifecycle gates |
 | Release workflow dry run | release.yml / validate | linux | — | manual dispatch | ci-log, release-output | `release.dry-run` | Defaults to dry_run=true |
 | `bash scripts/inspect-release-bundle.sh ...` | release.yml / stage-release | linux | — | tagged push | ci-log, checksum, provenance | `release.artifacts` | |
 | Provenance record | release.yml / stage-release | linux | — | tagged push | provenance | `release.provenance` | |
@@ -39,13 +44,13 @@ authoritative inventory for Plan 045 Track A.
 
 | CI job name | Criteria gates covered |
 |-------------|----------------------|
-| `gate/rust-full-${{ matrix.os }}` | `rust.format`, `rust.clippy`, `rust.test`, `rust.doctest`, `rust.test.client`, `rust.test.client-tls`, `rust.test.server-tls` |
+| `gate/rust-full-${{ matrix.os }}` | `rust.format`, `rust.clippy`, `rust.test`, `rust.doctest`, `rust.test.client`, `rust.test.client-tls`, `rust.test.server-tls`, `runtime.public-rust-consumer`, `runtime.service-dispatch`, `runtime.listener-lifecycle`, `runtime.graceful-shutdown`, `runtime.forced-shutdown`, `runtime.tls-service-parity` |
 | `gate/http-wire` | `http.raw-wire`, `http.primitives-integration` |
 | `gate/production-path` | `http.production-path` |
 | `gate/corpus-replay` | `filesystem.corpus-replay` |
 | `gate/supply-chain` | `supply-chain.audit`, `supply-chain.deny` |
 | `gate/package` | `package.core`, `package.bin` |
-| `gate/python-unit-tests` | `python.unit-tests`, `python.native-tests`, `python.server-primitives`, `python.api-stability`, `python.boundary-hardening`, `python.client-primitives`, `python.server-integration` |
+| `gate/python-unit-tests` | `python.unit-tests`, `python.native-tests`, `python.server-primitives`, `python.api-stability`, `python.boundary-hardening`, `python.client-primitives`, `python.server-integration`, `python.runtime-parity`, `python.callback-timeout`, `python.lifecycle-linux`, `python.lifecycle-macos`, `python.lifecycle-windows` |
 | `gate/packaging-smoke` | `python.packaging-smoke` |
 | `gate/python-${{ matrix.os }}` | `python.wheel.linux`, `python.wheel.macos`, `python.wheel.windows` |
 | `gate/evidence-aggregate` | `check-generated` (plus aggregation of all gate evidence) |
