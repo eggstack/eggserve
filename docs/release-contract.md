@@ -203,6 +203,49 @@ The canonical request types provide transport-independent, Hyper-independent val
 
 **Exceptions**: `MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError` — child classes of `EggserveError`.
 
+## Canonical Response Types
+
+**Stability**: All canonical response types are **experimental** during implementation.
+
+The canonical response types provide transport-independent, Hyper-independent value types for constructing HTTP responses. They are defined in `eggserve_core::primitives::canonical` and enforce response normalization rules at construction and before transport conversion.
+
+### Rust Types
+
+| Type | Module | Description |
+|------|--------|-------------|
+| `StatusCode` | `primitives::canonical` | Validated HTTP status code (1–999 range). |
+| `ResponseHead` | `primitives::canonical` | Status + validated `HeaderBlock`. |
+| `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`. |
+| `Response` | `primitives::canonical` | Complete response: head + body. One-shot consumption. |
+| `ResponseBuilder` | `primitives::canonical` | Validated builder for `Response`. |
+| `NormalizeRequest` | `primitives::canonical` | Context for response normalization. |
+| `ResponseConstructionError` | `primitives::canonical` | Error taxonomy for response construction. |
+
+**Normalization function**: `normalize_response(response, request)` applies the following rules before transport conversion:
+1. HEAD suppression — body discarded, representation headers preserved.
+2. Body-forbidden statuses — 1xx, 204, 304 bodies discarded.
+3. Hop-by-hop header stripping — `Transfer-Encoding` removed.
+4. Content-Length computation — set to actual body length.
+5. Duplicate end-to-end headers preserved.
+
+**Conversion**: `to_hyper_response(response)` converts a normalized canonical `Response` into a Hyper `Response<BoxBody>`. This is the final step before sending on the wire.
+
+### Response Normalization Algorithm
+
+The normalization algorithm is the single final path for all response producers. It is documented as normative behavior:
+
+**Inputs**: request method/version, response status, response headers, response body metadata, connection policy.
+
+**Rules** (applied in order):
+1. HEAD transmits no body bytes while preserving representation headers.
+2. 1xx, 204, and 304 transmit no payload body.
+3. `Transfer-Encoding` is runtime-owned; handler-supplied values are removed.
+4. `Content-Length` is computed by the runtime.
+5. Duplicate end-to-end headers are preserved.
+6. Error responses do not leak handler tracebacks or internals.
+
+**Fail-versus-strip policy**: The normalization function strips runtime-owned headers (`Transfer-Encoding`) rather than rejecting, because these headers are commonly set by frameworks and rejection would break compatibility. Handler-provided `Content-Length` is overwritten with the computed value.
+
 ### Header Representation
 
 #### Response Headers (`HeaderMapPlan`)

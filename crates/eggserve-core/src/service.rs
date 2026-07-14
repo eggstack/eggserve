@@ -12,6 +12,10 @@ use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
 use crate::primitives::body::BodySource;
+use crate::primitives::canonical::{
+    normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
+    StatusCode as CanonicalStatusCode,
+};
 use crate::primitives::http::ReadOnlyMethod;
 use crate::primitives::planner::plan_file_response;
 use crate::primitives::response::HeaderMapPlan;
@@ -340,6 +344,94 @@ pub(crate) async fn body_source_to_response(
             )
             .await
         }
+    }
+}
+
+/// Build a normalized error response through the canonical path.
+///
+/// This ensures all error responses go through the same normalization rules
+/// as handler responses: hop-by-hop stripping, content-length computation,
+/// and body-forbidden enforcement.
+#[allow(dead_code)]
+pub(crate) fn canonical_error_response(
+    status: u16,
+    body: &'static str,
+    is_head: bool,
+) -> Response<BoxBodyInner> {
+    let code = match CanonicalStatusCode::new(status) {
+        Ok(c) => c,
+        Err(_) => return internal_error(),
+    };
+    let body_bytes = body.as_bytes().to_vec();
+    let resp = CanonicalResponse::builder()
+        .status(code)
+        .header("content-type", "text/plain; charset=utf-8")
+        .ok()
+        .and_then(|b| b.body(ResponseBody::Bytes(body_bytes)).ok());
+    match resp {
+        Some(r) => {
+            let req = NormalizeRequest::new(is_head);
+            match normalize_response(r, &req) {
+                Ok(normalized) => match crate::primitives::canonical::to_hyper_response(normalized)
+                {
+                    Ok(hyper_resp) => hyper_resp,
+                    Err(_) => internal_error(),
+                },
+                Err(_) => internal_error(),
+            }
+        }
+        None => internal_error(),
+    }
+}
+
+/// Normalize a handler response through the canonical path and convert to Hyper.
+///
+/// This is the standard normalization entry point for Python callback handlers
+/// and any future Rust handler integration. It applies:
+///
+/// 1. HEAD suppression (body discarded, headers preserved)
+/// 2. Body-forbidden status enforcement (1xx, 204, 304)
+/// 3. Hop-by-hop header stripping
+/// 4. Content-Length computation
+///
+/// Returns a Hyper `Response<BoxBodyInner>` ready for transport.
+#[allow(dead_code)]
+pub(crate) fn normalize_handler_response(
+    status: u16,
+    headers: &HeaderMapPlan,
+    body_bytes: Vec<u8>,
+    is_head: bool,
+) -> Response<BoxBodyInner> {
+    let code = match CanonicalStatusCode::new(status) {
+        Ok(c) => c,
+        Err(_) => return internal_error(),
+    };
+
+    let mut canonical = match CanonicalResponse::builder()
+        .status(code)
+        .body(ResponseBody::Bytes(body_bytes))
+    {
+        Ok(r) => r,
+        Err(_) => return internal_error(),
+    };
+
+    // Copy headers from HeaderMapPlan into the canonical response.
+    for header in headers.iter() {
+        if let (Ok(name), Ok(value)) = (
+            crate::primitives::header_block::HeaderName::new(&header.name),
+            crate::primitives::header_block::HeaderValue::new(&header.value),
+        ) {
+            canonical.head_mut().headers_mut().push(name, value);
+        }
+    }
+
+    let req = NormalizeRequest::new(is_head);
+    match normalize_response(canonical, &req) {
+        Ok(normalized) => match crate::primitives::canonical::to_hyper_response(normalized) {
+            Ok(hyper_resp) => hyper_resp,
+            Err(_) => internal_error(),
+        },
+        Err(_) => internal_error(),
     }
 }
 

@@ -21,6 +21,9 @@ pub enum Error {
     #[error("request rejected: {0}")]
     RequestRejected(String),
 
+    #[error("response construction: {0}")]
+    ResponseConstruction(#[from] crate::primitives::canonical::ResponseConstructionError),
+
     #[error("I/O error: {0}")]
     Io(#[from] std::io::Error),
 

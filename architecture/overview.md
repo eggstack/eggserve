@@ -54,6 +54,8 @@ eggserve-python        → (standalone, owns Python packaging)
 
 5. **Framework-independent response planning** — `StaticResponsePlan`, `BodyPlan`, `HeaderMapPlan` are pure value objects with no Hyper dependency. The Python bindings consume these directly.
 
+6. **Canonical response normalization** — All response producers (static file serving, Python callbacks) converge on a single normalization path via `primitives::canonical::normalize_response()`. This enforces HEAD suppression, body-forbidden status handling, hop-by-hop header stripping, and content-length computation uniformly.
+
 6. **Two DotfilePolicy types** — `path::DotfilePolicy` (parsing level, controls whether dotfile paths are accepted) and `policy::DotfilePolicy` (serving level, controls whether dotfiles are served). Both must agree for dotfiles to be served.
 
 7. **File-stream semaphore** — A bounded semaphore limits concurrent file streams (default 32). When exhausted, the handler returns 503 Service Unavailable.
@@ -100,7 +102,7 @@ HTTP Request
 |------|---------|-----------|
 | Stable | `primitives` (facade), `primitives::http`, `primitives::planner`, `primitives::response` | Intended public boundary for embedding consumers |
 | Stable-ish | `config`, `limits`, `policy` | Field shapes may evolve before 1.0 |
-| Experimental | `service` (`handle_request`) | Body type and async surface may change |
+| Experimental | `service` (`handle_request`), `primitives::canonical` (response types + normalization) | Body type and async surface may change; canonical types are experimental |
 | Internal | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
 
 ## Non-Goals

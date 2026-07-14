@@ -41,6 +41,7 @@ constrained vocabulary.
 | Request-target validation | stable | stable | stable | stable | — | stable | — | — |
 | Request-body rejection | stable | stable | stable | stable | — | stable | stable | — |
 | Canonical request types | — | — | experimental | — | experimental | — | — | — |
+| Canonical response types | — | — | experimental | — | experimental | — | — | — |
 | Duplicate-preserving headers | — | stable | stable | — | experimental | stable | stable | — |
 | Connection metadata | — | — | experimental | — | experimental | — | — | — |
 | Bounded request-body support | planned | planned | planned | planned | — | planned | planned | — |

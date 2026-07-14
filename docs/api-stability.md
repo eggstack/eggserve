@@ -176,6 +176,22 @@ Deprecated stable items must remain functional for at least one minor release af
 | `ConditionalRequestOutcome` | stable | NotModified, FullResponse, Malformed |
 | `RangeRequestOutcome` | stable | Satisfiable, NotSatisfiable, MalformedOrUnsupported, MultipleRanges |
 
+### `primitives` Module — Canonical Response Types
+
+**All canonical response types are experimental** during implementation.
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `StatusCode` | experimental | Validated HTTP status code (1–999) |
+| `ResponseHead` | experimental | Status + `HeaderBlock`; transport-independent response metadata |
+| `ResponseBody` | experimental | Body representation: Empty, Bytes |
+| `Response` | experimental | Complete response: head + body; one-shot consumption |
+| `ResponseBuilder` | experimental | Validated builder for Response |
+| `NormalizeRequest` | experimental | Context for response normalization (is_head flag) |
+| `ResponseConstructionError` | experimental | InvalidStatus, InvalidHeader, ForbiddenFramingHeader, BodyAlreadyConsumed, ContentLengthMismatch |
+| `normalize_response()` | experimental | Applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation |
+| `to_hyper_response()` | experimental | Converts canonical Response to Hyper Response |
+
 ### `primitives` Module — Body Types
 
 | Item | Tier | Notes |

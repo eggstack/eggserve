@@ -1113,7 +1113,7 @@ fn stream_file(
 }
 
 fn valid_http_status(status: u16) -> bool {
-    (100..=999).contains(&status)
+    eggserve_core::primitives::canonical::StatusCode::new(status).is_ok()
 }
 
 fn is_hop_by_hop_header(name: &str) -> bool {
@@ -1179,6 +1179,66 @@ async fn convert_to_hyper_response(
         return fallback_500();
     }
 
+    // For non-file bodies, use the canonical normalization path.
+    let is_file_body = matches!(
+        &resp.body,
+        PyResponseBody::BodySource(BodySource::FileFull { .. } | BodySource::FileRange { .. })
+    );
+
+    if !is_file_body {
+        let body_bytes = match &resp.body {
+            PyResponseBody::Empty => Vec::new(),
+            PyResponseBody::Bytes(data) => data.clone(),
+            PyResponseBody::BodySource(BodySource::Empty) => Vec::new(),
+            PyResponseBody::BodySource(BodySource::Bytes(data)) => data.clone(),
+            _ => unreachable!(),
+        };
+
+        // Build canonical response with headers from the handler.
+        let code = eggserve_core::primitives::canonical::StatusCode::new(resp.status)
+            .map_err(|e| -> BoxError { e.into() })?;
+        let mut canonical = eggserve_core::primitives::canonical::Response::builder()
+            .status(code)
+            .body(eggserve_core::primitives::canonical::ResponseBody::Bytes(body_bytes))
+            .map_err(|e| -> BoxError { e.into() })?;
+
+        // Copy handler headers into canonical response.
+        for (name, value) in &resp.headers {
+            if let (Ok(n), Ok(v)) = (
+                eggserve_core::primitives::header_block::HeaderName::new(name.as_str()),
+                eggserve_core::primitives::header_block::HeaderValue::new(value.as_str()),
+            ) {
+                canonical.head_mut().headers_mut().push(n, v);
+            }
+        }
+
+        // Normalize: HEAD suppression, body-forbidden, hop-by-hop, content-length.
+        let norm_req = eggserve_core::primitives::canonical::NormalizeRequest::new(suppress_body);
+        let normalized =
+            eggserve_core::primitives::canonical::normalize_response(canonical, &norm_req)
+                .map_err(|e| -> BoxError { e.into() })?;
+
+        // Convert to Hyper response.
+        let hyper_status = hyper::StatusCode::from_u16(normalized.status().as_u16())
+            .map_err(|e| -> BoxError { e.into() })?;
+        let mut builder = Response::builder().status(hyper_status);
+        for field in normalized.headers().iter() {
+            builder = builder.header(field.name.as_str(), field.value.as_str());
+        }
+        let body = match normalized.body() {
+            Some(eggserve_core::primitives::canonical::ResponseBody::Bytes(b)) => {
+                Full::new(Bytes::from(b.clone()))
+                    .map_err(|e| -> BoxError { Box::new(e) })
+                    .boxed()
+            }
+            _ => Full::new(Bytes::new())
+                .map_err(|e| -> BoxError { Box::new(e) })
+                .boxed(),
+        };
+        return Ok(builder.body(body)?);
+    }
+
+    // File-backed body path (preserves streaming + semaphore).
     let file_body = match &resp.body {
         PyResponseBody::BodySource(BodySource::FileFull { len, mime, .. }) => {
             Some((false, *len, *mime, None))

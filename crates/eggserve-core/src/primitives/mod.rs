@@ -46,6 +46,7 @@ pub use secure_root::{
 };
 
 pub mod body;
+pub mod canonical;
 pub mod connection_info;
 pub mod header_block;
 pub mod http;
@@ -64,6 +65,10 @@ pub use crate::path::platform::{
     check_component, has_windows_drive_prefix, is_windows_reserved_name,
 };
 pub use body::{BodyKind, BodySource, BodySourceError};
+pub use canonical::{
+    normalize_response, to_hyper_response, NormalizeRequest, Response, ResponseBody,
+    ResponseBuilder, ResponseConstructionError, StatusCode,
+};
 pub use connection_info::{ConnectionInfo, Scheme, TlsInfo};
 pub use header_block::{
     DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,

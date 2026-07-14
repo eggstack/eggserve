@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (10 deep-dive docs), `docs/` (reference docs), `plans/` (000–047 plus roadmap and closure documents), `release/` (criteria.toml), `examples/`, `fuzz/`.
+Other directories: `architecture/` (10 deep-dive docs), `docs/` (reference docs), `plans/` (000–048 plus roadmap and closure documents), `release/` (criteria.toml), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -54,7 +54,7 @@ cargo deny check                                           # license/policy chec
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–047 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). CI gate names are normalized to match criteria gate IDs, and evidence aggregation runs after all gate jobs. Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
+- **Plan status** — Plans 000–048 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). CI gate names are normalized to match criteria gate IDs, and evidence aggregation runs after all gate jobs. Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
 
 ## Architecture docs
 
@@ -88,3 +88,4 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation.
 - **Contract consistency** — `scripts/check-contract-consistency.py` validates documentation claims (TLS, Python version, packages, platforms, API inventory, README links). Run via `./scripts/release-validate.sh metadata`.
 - **Canonical request types (experimental)** — Plan 047 introduces `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` in `primitives::`. These are experimental. `ReadOnlyMethod` (GET/HEAD only) remains stable for existing consumers. `Method` supports standard + extension methods. `HeaderBlock` preserves duplicates; `get_unique()` returns `DuplicateHeaderError` on duplicates. `RequestHead::try_from_hyper()` converts Hyper requests. Python equivalents: `Method`, `HttpVersion`, `HeaderBlock`, `ConnectionInfo`, `CanonicalRequest`.
+- **Canonical response types (experimental)** — Plan 048 introduces `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `to_hyper_response` in `primitives::canonical`. `StatusCode` has range validation (1–999) and classification helpers. `Response` uses `HeaderBlock` for headers. `normalize_response()` applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, and content-length computation. `to_hyper_response()` converts to Hyper. Python handler responses use this path for non-file bodies.

@@ -18,6 +18,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map |
 | `primitives/` | **pub** | Public facade for embedding consumers |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
+| `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response` — canonical response types |
 | `primitives/client/` | **pub** (feature-gated: `client`) | HTTP client primitives: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse` |
 
 ## Key Types

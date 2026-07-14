@@ -182,6 +182,45 @@ All types in the planner are pure value objects with no Hyper dependency. This e
 2. **Testing** — Plans can be asserted without starting an HTTP server
 3. **Embedding** — Other HTTP frameworks can consume the plan without Hyper coupling
 
+## Canonical Response Types
+
+The canonical response types (`primitives::canonical`) provide a transport-independent response model that all response producers converge on before transport conversion.
+
+### Key Types
+
+- `StatusCode` — validated HTTP status code (1–999 range) with classification helpers
+- `ResponseHead` — status + `HeaderBlock` (duplicate-preserving headers)
+- `ResponseBody` — `Empty` or `Bytes` body representation
+- `Response` — complete response with one-shot body consumption
+
+### Normalization Algorithm
+
+The `normalize_response()` function is the single final normalization path. It applies:
+
+1. **HEAD suppression** — body bytes discarded, representation headers preserved
+2. **Body-forbidden enforcement** — 1xx, 204, 304 bodies discarded
+3. **Hop-by-hop stripping** — `Transfer-Encoding` removed (runtime-owned)
+4. **Content-Length computation** — set to actual body length
+5. **Duplicate preservation** — end-to-end duplicate headers preserved
+
+### Conversion Flow
+
+```
+StaticResponsePlan / Python Response
+    │
+    ▼
+canonical::Response  (via From impls or builder)
+    │
+    ▼
+normalize_response(response, request)
+    │
+    ▼
+canonical::to_hyper_response(normalized)
+    │
+    ▼
+hyper::Response<BoxBody>
+```
+
 ## Body-Source Conversion
 
 After planning, the resolved file is converted to a `BodySource` that carries the opened file handle forward:
