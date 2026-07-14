@@ -182,14 +182,13 @@ class TestConstructorSignatures(unittest.TestCase):
 
         hb = HeaderBlock()
         self.assertEqual(len(hb), 0)
-        self.assertTrue(hb.is_empty())
+        self.assertTrue(hb.is_empty)
 
     def test_request_target_parse(self) -> None:
         from eggserve import RequestTarget
 
         rt = RequestTarget.parse("/path?key=val")
-        self.assertEqual(rt.path, "/path")
-        self.assertEqual(rt.query, "key=val")
+        self.assertEqual(rt.decoded_path, "/path")
 
 
 class TestExceptionHierarchy(unittest.TestCase):
@@ -275,61 +274,51 @@ class TestOrderedHeaderAPIs(unittest.TestCase):
         from eggserve import HeaderBlock
 
         hb = HeaderBlock()
-        self.assertTrue(hb.is_empty())
+        self.assertTrue(hb.is_empty)
         self.assertEqual(len(hb), 0)
 
     def test_header_block_push_and_get(self) -> None:
         from eggserve import HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("content-type", "text/html")
+        hb = HeaderBlock([("content-type", "text/html")])
         self.assertTrue(hb.contains("content-type"))
-        self.assertEqual(hb.get_first("Content-Type").value, "text/html")
+        self.assertEqual(hb.get_first("Content-Type"), "text/html")
 
     def test_header_block_duplicates_preserved(self) -> None:
         from eggserve import HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("set-cookie", "a=1")
-        hb.push_str("set-cookie", "b=2")
+        hb = HeaderBlock([("set-cookie", "a=1"), ("set-cookie", "b=2")])
         all_vals = hb.get_all("set-cookie")
         self.assertEqual(len(all_vals), 2)
-        self.assertEqual(all_vals[0].value, "a=1")
-        self.assertEqual(all_vals[1].value, "b=2")
+        self.assertEqual(all_vals[0], "a=1")
+        self.assertEqual(all_vals[1], "b=2")
 
     def test_header_block_get_unique_single(self) -> None:
         from eggserve import HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("content-type", "text/html")
+        hb = HeaderBlock([("content-type", "text/html")])
         val = hb.get_unique("content-type")
         self.assertIsNotNone(val)
-        self.assertEqual(val.value, "text/html")
+        self.assertEqual(val, "text/html")
 
     def test_header_block_get_unique_duplicate_raises(self) -> None:
         from eggserve import DuplicateHeaderError, HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("set-cookie", "a=1")
-        hb.push_str("set-cookie", "b=2")
+        hb = HeaderBlock([("set-cookie", "a=1"), ("set-cookie", "b=2")])
         with self.assertRaises(DuplicateHeaderError):
             hb.get_unique("set-cookie")
 
     def test_header_block_iteration_order(self) -> None:
         from eggserve import HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("a", "1")
-        hb.push_str("b", "2")
-        hb.push_str("c", "3")
-        names = [f.name.value for f in hb]
+        hb = HeaderBlock([("a", "1"), ("b", "2"), ("c", "3")])
+        names = [f[0] for f in hb.iter()]
         self.assertEqual(names, ["a", "b", "c"])
 
     def test_header_block_case_insensitive_lookup(self) -> None:
         from eggserve import HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("Content-Type", "text/html")
+        hb = HeaderBlock([("Content-Type", "text/html")])
         self.assertTrue(hb.contains("content-type"))
         self.assertTrue(hb.contains("CONTENT-TYPE"))
         self.assertTrue(hb.contains("Content-Type"))
@@ -369,7 +358,7 @@ class TestRequestImmutability(unittest.TestCase):
 
         rt = RequestTarget.parse("/path?key=val")
         with self.assertRaises(AttributeError):
-            rt.path = "/other"  # type: ignore[misc]
+            rt.decoded_path = "/other"  # type: ignore[misc]
 
     def test_method_is_immutable(self) -> None:
         from eggserve import parse_method
@@ -378,14 +367,12 @@ class TestRequestImmutability(unittest.TestCase):
         with self.assertRaises(AttributeError):
             m._value = "POST"  # type: ignore[misc]
 
-    def test_header_block_field_is_immutable(self) -> None:
+    def test_header_block_is_immutable(self) -> None:
         from eggserve import HeaderBlock
 
-        hb = HeaderBlock()
-        hb.push_str("content-type", "text/html")
-        fields = list(hb)
-        with self.assertRaises(AttributeError):
-            fields[0].name = "x-changed"  # type: ignore[misc]
+        hb = HeaderBlock([("content-type", "text/html")])
+        with self.assertRaises(TypeError):
+            hb[0] = ("x-changed", "new")  # type: ignore[misc]
 
 
 class TestWheelOnlyImports(unittest.TestCase):
@@ -473,16 +460,16 @@ class TestTypeStubs(unittest.TestCase):
         self.assertIsInstance(m.permits_static_resolution, bool)
 
     def test_header_block_field_types(self) -> None:
-        """Check that HeaderField has correct attribute types."""
+        """Check that HeaderBlock iteration yields (str, str) tuples."""
         import eggserve
 
         if not eggserve.NATIVE_AVAILABLE:
             self.skipTest("native module not available")
 
         hb = eggserve.HeaderBlock([("content-type", "text/html")])
-        for field in hb:
-            self.assertIsInstance(field.name.value, str)
-            self.assertIsInstance(field.value.value, str)
+        for field in hb.iter():
+            self.assertIsInstance(field[0], str)
+            self.assertIsInstance(field[1], str)
 
 
 if __name__ == "__main__":

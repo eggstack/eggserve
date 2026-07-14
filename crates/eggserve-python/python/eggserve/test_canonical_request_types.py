@@ -184,7 +184,7 @@ class TestHeaderBlock(unittest.TestCase):
 
     def test_iteration(self):
         hb = HeaderBlock([("a", "1"), ("b", "2")])
-        pairs = list(hb)
+        pairs = hb.iter()
         self.assertEqual(len(pairs), 2)
         self.assertEqual(pairs[0], ("a", "1"))
         self.assertEqual(pairs[1], ("b", "2"))

@@ -5,7 +5,7 @@ use eggserve_core::policy::{
     DirectoryListingPolicy, DotfilePolicy, StaticPolicy as RustStaticPolicy, SymlinkPolicy,
 };
 use eggserve_core::primitives::body::{BodyKind as RustBodyKind, BodySource as RustBodySource};
-use eggserve_core::primitives::header_block::{HeaderBlock as RustHeaderBlock};
+use eggserve_core::primitives::header_block::HeaderBlock as RustHeaderBlock;
 use eggserve_core::primitives::http::{self, ReadOnlyMethod};
 use eggserve_core::primitives::method::Method as RustMethod;
 use eggserve_core::primitives::planner;
@@ -79,12 +79,7 @@ pyo3::create_exception!(
     "Server lifecycle error (double start, stop before start, etc.)."
 );
 
-pyo3::create_exception!(
-    _native,
-    MethodError,
-    EggserveError,
-    "Invalid HTTP method."
-);
+pyo3::create_exception!(_native, MethodError, EggserveError, "Invalid HTTP method.");
 
 pyo3::create_exception!(
     _native,
@@ -1034,32 +1029,44 @@ impl PyMethod {
 
     #[staticmethod]
     fn get() -> Self {
-        Self { inner: RustMethod::get() }
+        Self {
+            inner: RustMethod::get(),
+        }
     }
 
     #[staticmethod]
     fn head() -> Self {
-        Self { inner: RustMethod::head() }
+        Self {
+            inner: RustMethod::head(),
+        }
     }
 
     #[staticmethod]
     fn post() -> Self {
-        Self { inner: RustMethod::post() }
+        Self {
+            inner: RustMethod::post(),
+        }
     }
 
     #[staticmethod]
     fn put() -> Self {
-        Self { inner: RustMethod::put() }
+        Self {
+            inner: RustMethod::put(),
+        }
     }
 
     #[staticmethod]
     fn delete() -> Self {
-        Self { inner: RustMethod::delete() }
+        Self {
+            inner: RustMethod::delete(),
+        }
     }
 
     #[staticmethod]
     fn patch() -> Self {
-        Self { inner: RustMethod::patch() }
+        Self {
+            inner: RustMethod::patch(),
+        }
     }
 
     #[getter]
@@ -1123,12 +1130,16 @@ impl PyHttpVersion {
 
     #[staticmethod]
     fn http10() -> Self {
-        Self { inner: RustHttpVersion::Http10 }
+        Self {
+            inner: RustHttpVersion::Http10,
+        }
     }
 
     #[staticmethod]
     fn http11() -> Self {
-        Self { inner: RustHttpVersion::Http11 }
+        Self {
+            inner: RustHttpVersion::Http11,
+        }
     }
 
     #[getter]
@@ -1179,7 +1190,8 @@ impl PyHeaderBlock {
         let mut inner = RustHeaderBlock::new();
         if let Some(fields) = fields {
             for (name, value) in fields {
-                inner.push_str(name, value)
+                inner
+                    .push_str(name, value)
                     .map_err(|e| HeaderError::new_err((e.to_string(), "invalid_header")))?;
             }
         }
@@ -1201,13 +1213,21 @@ impl PyHeaderBlock {
     }
 
     fn get_all(&self, name: &str) -> Vec<String> {
-        self.inner.get_all(name).into_iter().map(|v| v.as_str().to_string()).collect()
+        self.inner
+            .get_all(name)
+            .into_iter()
+            .map(|v| v.as_str().to_string())
+            .collect()
     }
 
     fn get_unique(&self, name: &str) -> PyResult<Option<String>> {
         match self.inner.get_unique(name) {
             Ok(opt) => Ok(opt.map(|v| v.as_str().to_string())),
-            Err(e) => Err(DuplicateHeaderError::new_err((e.to_string(), e.name().to_string(), e.count()))),
+            Err(e) => Err(DuplicateHeaderError::new_err((
+                e.to_string(),
+                e.name().to_string(),
+                e.count(),
+            ))),
         }
     }
 
@@ -1270,7 +1290,7 @@ impl PyConnectionInfo {
     ) -> PyResult<Self> {
         if scheme != "http" && scheme != "https" {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "scheme must be 'http' or 'https'"
+                "scheme must be 'http' or 'https'",
             ));
         }
         Ok(Self {
@@ -1315,7 +1335,10 @@ impl PyConnectionInfo {
     fn __repr__(&self) -> String {
         format!(
             "ConnectionInfo(local_addr={:?}, remote_addr={:?}, scheme={:?}, is_tls={})",
-            self.local_addr, self.remote_addr, self.scheme, self.is_tls()
+            self.local_addr,
+            self.remote_addr,
+            self.scheme,
+            self.is_tls()
         )
     }
 }
@@ -1360,7 +1383,7 @@ impl PyCanonicalRequest {
         // Validate path starts with /
         if !path.starts_with('/') {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "path must start with '/'"
+                "path must start with '/'",
             ));
         }
 
@@ -1429,7 +1452,8 @@ impl PyCanonicalRequest {
     fn header_block(&self) -> PyResult<PyHeaderBlock> {
         let mut inner = RustHeaderBlock::new();
         for (name, value) in &self.headers {
-            inner.push_str(name.as_str(), value.as_str())
+            inner
+                .push_str(name.as_str(), value.as_str())
                 .map_err(|e| HeaderError::new_err((e.to_string(), "invalid_header")))?;
         }
         Ok(PyHeaderBlock { inner })
@@ -1472,10 +1496,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "RequestValidationError",
         m.py().get_type::<RequestValidationError>(),
     )?;
-    m.add(
-        "BodySourceError",
-        m.py().get_type::<BodySourceError>(),
-    )?;
+    m.add("BodySourceError", m.py().get_type::<BodySourceError>())?;
     m.add(
         "ResponseConstructionError",
         m.py().get_type::<ResponseConstructionError>(),
@@ -1484,7 +1505,10 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("MethodError", m.py().get_type::<MethodError>())?;
     m.add("HttpVersionError", m.py().get_type::<HttpVersionError>())?;
     m.add("HeaderError", m.py().get_type::<HeaderError>())?;
-    m.add("DuplicateHeaderError", m.py().get_type::<DuplicateHeaderError>())?;
+    m.add(
+        "DuplicateHeaderError",
+        m.py().get_type::<DuplicateHeaderError>(),
+    )?;
 
     m.add_class::<PyPathPolicy>()?;
     m.add_class::<PyStaticPolicy>()?;

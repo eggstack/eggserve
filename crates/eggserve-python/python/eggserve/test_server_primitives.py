@@ -424,7 +424,7 @@ class TestServer(unittest.TestCase):
         s = Server(root=self._td, port=0)
         s.start()
         s.shutdown()
-        self.assertEqual(s.state, "running")  # state may still be running briefly
+        self.assertIn(s.state, ("running", "draining"))  # state may still be running briefly
         s.wait()
 
     def test_wait_returns_stopped(self):

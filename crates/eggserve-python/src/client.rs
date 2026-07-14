@@ -78,7 +78,7 @@ impl From<PyClientError> for PyErr {
     }
 }
 
-#[pyclass(frozen, name = "Method")]
+#[pyclass(frozen, name = "ClientMethod")]
 #[derive(Debug, Clone, Copy)]
 pub enum PyMethod {
     Get,

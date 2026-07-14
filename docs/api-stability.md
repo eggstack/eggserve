@@ -356,7 +356,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `ClientRequest` | experimental | Request value |
 | `ClientResponse` | experimental | Buffered response |
 | `ClientError` | experimental | Error enum |
-| `Method` | experimental | HTTP method enum |
+| `ClientMethod` | experimental | HTTP method enum |
 
 ### Internal Names (not in `__all__`)
 

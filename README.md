@@ -79,7 +79,7 @@ Key defaults:
 
 ## Project status
 
-**Plans 000–054 complete. Plan 054 closes Milestone 3.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. CI gate names are normalized to match `release/criteria.toml` gate IDs, and evidence aggregation runs after all gate jobs. See [plans/](plans/) for the full sequence and [docs/release-checklist.md](docs/release-checklist.md) for evidence-backed release status.
+**Plans 000–055 complete. Plan 055 verifies Milestone 3 final state.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. CI gate names are normalized to match `release/criteria.toml` gate IDs, and evidence aggregation runs after all gate jobs. See [plans/](plans/) for the full sequence and [docs/release-checklist.md](docs/release-checklist.md) for evidence-backed release status.
 
 Release gates are defined in [release/criteria.toml](release/criteria.toml) and validated by [scripts/release_criteria.py](scripts/release_criteria.py). See [docs/release-process.md](docs/release-process.md) for the release operator guide.
 
@@ -150,12 +150,11 @@ from eggserve import Server, ServerSecureRoot
 
 root = ServerSecureRoot(".")
 server = Server(root=root)
-server.start()
-server.wait_ready()  # blocks until Running
-print(server.state)  # "running"
-server.shutdown()     # non-blocking graceful shutdown
-server.wait()        # blocks until stopped
-print(server.state)  # "stopped"
+server.start()          # blocks until Running state
+print(server.state)     # "running"
+server.shutdown()       # non-blocking graceful shutdown
+server.wait()           # blocks until stopped
+print(server.state)     # "stopped"
 ```
 
 **Subprocess lifecycle** — full HTTP serving via the Rust binary:

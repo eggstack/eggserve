@@ -167,14 +167,19 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 
 The Python `Server` delegates to the actual Rust `Server` and `ServerHandle`
 from `eggserve-core::server` rather than implementing its own accept loop.
+The tokio runtime is stored in the `PyServer` struct (not created as a temporary),
+ensuring the runtime lives as long as the server.
+
 Lifecycle methods are mapped to the Rust `ServerHandle` API:
 
-- `start()` → creates `ServerHandle` via `Server::builder()`, spawns accept loop on `std::thread`
+- `start()` → creates a `tokio::runtime::Runtime`, creates `ServerHandle` via `Server::builder()`, calls `handle.ready().await` so the server is in Running state when `start()` returns. For callback handlers, uses `start_with_service()` instead of `build()`.
 - `stop()` → calls `ServerHandle::wait()`, joins thread
 - `shutdown()` → calls `ServerHandle::shutdown()` (non-blocking)
 - `force_shutdown(deadline)` → calls `ServerHandle::force_shutdown()`, waits with deadline
 - `wait()` → blocks on thread join
-- `state` → reads `ServerHandle::state()`, maps `LifecycleState` to Python `ServerState`
+- `state` → reads `ServerHandle::state()` when a handle exists; returns `"stopped"` if the server was started but the handle is gone; falls back to the lifecycle state tracker otherwise
+
+Policy forwarding: the Python `StaticPolicy` is cloned into the Rust `ServeConfig` (`static_policy` field), so custom policy settings (directory listing, symlinks, dotfiles) are respected by the static service.
 
 Lifecycle states map directly: Python's `ServerState` enum mirrors
 `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed).

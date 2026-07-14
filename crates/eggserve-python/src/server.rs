@@ -198,6 +198,7 @@ impl PyResponse {
 #[derive(Debug, Clone)]
 pub struct PyStaticResponder {
     root: SecureRoot,
+    policy: StaticPolicy,
 }
 
 #[pymethods]
@@ -206,6 +207,7 @@ impl PyStaticResponder {
     fn new(root: &ServerSecureRoot) -> Self {
         Self {
             root: root.inner.clone(),
+            policy: root.policy.clone(),
         }
     }
 
@@ -374,6 +376,7 @@ impl PyStaticPolicyWrapper {
 #[derive(Debug, Clone)]
 pub struct ServerSecureRoot {
     pub(crate) inner: SecureRoot,
+    policy: StaticPolicy,
 }
 
 #[pymethods]
@@ -384,10 +387,10 @@ impl ServerSecureRoot {
         let static_policy = policy
             .map(|p| p.inner)
             .unwrap_or_else(StaticPolicy::safe_default);
-        let root = SecureRoot::new(path, static_policy).map_err(|e| {
+        let root = SecureRoot::new(path, static_policy.clone()).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("failed to create secure root: {e}"))
         })?;
-        Ok(Self { inner: root })
+        Ok(Self { inner: root, policy: static_policy })
     }
 
     #[getter]
@@ -531,13 +534,10 @@ impl PythonCallbackService {
                 .into_pyobject(py)
                 .map_err(|e| ServiceError::internal(format!("failed to create request: {e}")))?;
 
-            let result = handler_py
-                .bind(py)
-                .call1((py_req_obj,))
-                .map_err(|e| {
-                    eprintln!("Handler error: {e}");
-                    ServiceError::internal("handler raised an exception")
-                })?;
+            let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|e| {
+                eprintln!("Handler error: {e}");
+                ServiceError::internal("handler raised an exception")
+            })?;
 
             if result.hasattr("__await__").unwrap_or(false) {
                 return Err(ServiceError::internal(
@@ -610,8 +610,10 @@ fn convert_python_response_to_canonical<'py>(
         .map_err(|e| ServiceError::internal(format!("failed to build response: {e}")))?;
 
     for (name, value) in &headers {
-        if let (Ok(n), Ok(v)) = (HeaderName::new(name.as_str()), HeaderValue::new(value.as_str()))
-        {
+        if let (Ok(n), Ok(v)) = (
+            HeaderName::new(name.as_str()),
+            HeaderValue::new(value.as_str()),
+        ) {
             response.head_mut().headers_mut().push(n, v);
         }
     }
@@ -625,8 +627,9 @@ impl Service for PythonCallbackService {
     fn call(
         &self,
         head: RequestHead,
-    ) -> Pin<Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>>
-    {
+    ) -> Pin<
+        Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
+    > {
         let handler = self.handler.clone();
         let callback_semaphore = self.callback_semaphore.clone();
 
@@ -676,6 +679,8 @@ pub struct PyServer {
     responder: PyStaticResponder,
     handler: Option<std::sync::Mutex<Option<Py<PyAny>>>>,
     handle: std::sync::Mutex<Option<ServerHandle>>,
+    runtime: std::sync::Mutex<Option<tokio::runtime::Runtime>>,
+    has_been_started: std::sync::atomic::AtomicBool,
     max_connections: usize,
     max_file_streams: usize,
     max_python_callbacks: usize,
@@ -753,10 +758,10 @@ impl PyServer {
         let static_policy = policy
             .map(|p| p.inner)
             .unwrap_or_else(StaticPolicy::safe_default);
-        let secure_root = SecureRoot::new(root, static_policy).map_err(|e| {
+        let secure_root = SecureRoot::new(root, static_policy.clone()).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("failed to create secure root: {e}"))
         })?;
-        let responder = PyStaticResponder { root: secure_root };
+        let responder = PyStaticResponder { root: secure_root, policy: static_policy };
 
         Ok(Self {
             bind: bind.to_string(),
@@ -766,6 +771,8 @@ impl PyServer {
             responder,
             handler: handler.map(|h| std::sync::Mutex::new(Some(h))),
             handle: std::sync::Mutex::new(None),
+            runtime: std::sync::Mutex::new(None),
+            has_been_started: std::sync::atomic::AtomicBool::new(false),
             max_connections,
             max_file_streams,
             max_python_callbacks,
@@ -788,7 +795,17 @@ impl PyServer {
 
     #[getter]
     fn state(&self) -> PyResult<String> {
-        Ok(self.lifecycle.state().to_string())
+        let handle_guard = self
+            .handle
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if let Some(handle) = handle_guard.as_ref() {
+            Ok(handle.state().to_string())
+        } else if self.has_been_started.load(std::sync::atomic::Ordering::Acquire) {
+            Ok("stopped".to_string())
+        } else {
+            Ok(self.lifecycle.state().to_string())
+        }
     }
 
     fn start(&self, py: Python<'_>) -> PyResult<()> {
@@ -797,9 +814,15 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if handle_guard.is_some() {
-            return Err(crate::LifecycleError::new_err(
-                "Server already started",
-            ));
+            return Err(crate::LifecycleError::new_err("Server already started"));
+        }
+
+        let mut runtime_guard = self
+            .runtime
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if runtime_guard.is_some() {
+            return Err(crate::LifecycleError::new_err("Server already started"));
         }
 
         let bind_addr: SocketAddr = format!("{}:{}", self.bind, self.port)
@@ -818,15 +841,14 @@ impl PyServer {
 
         let serve_config = Arc::new(eggserve_core::config::ServeConfig {
             root: self.responder.root.root_path().to_path_buf(),
+            static_policy: self.responder.policy.clone(),
             ..eggserve_core::config::ServeConfig::default()
         });
 
-        let _lifecycle = self.lifecycle.clone();
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
         let server_handle = py.allow_threads(|| -> PyResult<ServerHandle> {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
-
             rt.block_on(async {
                 if let Some(handler_arc) = &self.handler {
                     let cloned_handler = handler_arc
@@ -850,18 +872,24 @@ impl PyServer {
                         .runtime(runtime_config)
                         .serve_config(serve_config)
                         .bind(bind_addr)
-                        .build_with_service(service)
+                        .build()
                         .map_err(|e| {
                             pyo3::exceptions::PyRuntimeError::new_err(format!(
                                 "failed to build server: {e}"
                             ))
                         })?;
 
-                    server.start().await.map_err(|e| {
+                    let handle = server.start_with_service(service).await.map_err(|e| {
                         pyo3::exceptions::PyRuntimeError::new_err(format!(
                             "failed to start server: {e}"
                         ))
-                    })
+                    })?;
+                    handle.ready().await.map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "server failed during startup: {e}"
+                        ))
+                    })?;
+                    Ok(handle)
                 } else {
                     let server = Server::builder()
                         .runtime(runtime_config)
@@ -874,11 +902,17 @@ impl PyServer {
                             ))
                         })?;
 
-                    server.start().await.map_err(|e| {
+                    let handle = server.start().await.map_err(|e| {
                         pyo3::exceptions::PyRuntimeError::new_err(format!(
                             "failed to start server: {e}"
                         ))
-                    })
+                    })?;
+                    handle.ready().await.map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "server failed during startup: {e}"
+                        ))
+                    })?;
+                    Ok(handle)
                 }
             })
         })?;
@@ -891,7 +925,12 @@ impl PyServer {
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
             Some(local_addr.to_string());
 
+        *runtime_guard = Some(rt);
+        drop(runtime_guard);
+
         *handle_guard = Some(server_handle);
+        self.has_been_started
+            .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
 
@@ -902,23 +941,31 @@ impl PyServer {
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(handle) = handle_guard.take() {
             handle.shutdown();
-            py.allow_threads(|| {
-                let rt = tokio::runtime::Runtime::new().ok();
-                if let Some(rt) = rt {
+            let runtime_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            if let Some(rt) = runtime_guard.as_ref() {
+                py.allow_threads(|| {
                     rt.block_on(async {
                         let _ = tokio::time::timeout(
                             self.graceful_shutdown_timeout + Duration::from_secs(2),
-                            async {
-                                let mut terminal_rx = self.lifecycle.subscribe_terminal();
-                                let _ = terminal_rx.recv().await;
-                            },
+                            handle.wait(),
                         )
                         .await;
                     });
-                }
-            });
+                });
+            }
+            drop(runtime_guard);
         }
         drop(handle_guard);
+
+        let mut runtime_guard = self
+            .runtime
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        *runtime_guard = None;
+        drop(runtime_guard);
 
         *self
             .addr
@@ -928,32 +975,44 @@ impl PyServer {
     }
 
     fn wait_ready(&self, py: Python<'_>) -> PyResult<()> {
-        let state = self.lifecycle.state();
+        let handle_guard = self
+            .handle
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        let handle = handle_guard
+            .as_ref()
+            .ok_or_else(|| crate::LifecycleError::new_err("server not started"))?;
+
+        let state = handle.state();
         match state {
             LifecycleState::Running => Ok(()),
-            LifecycleState::Created => Err(crate::LifecycleError::new_err(
-                "server not started",
-            )),
+            LifecycleState::Created => Err(crate::LifecycleError::new_err("server not started")),
             LifecycleState::Starting => {
-                py.allow_threads(|| {
-                    let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+                let runtime_guard = self
+                    .runtime
+                    .lock()
+                    .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+                if let Some(rt) = runtime_guard.as_ref() {
+                    py.allow_threads(|| {
+                        rt.block_on(async {
+                            let _ = handle.ready().await;
+                        });
+                        Ok::<(), PyErr>(())
                     })?;
-                    rt.block_on(async {
-                        self.lifecycle.wait_ready().await;
-                    });
-                    Ok::<(), PyErr>(())
-                })?;
+                } else {
+                    return Err(crate::LifecycleError::new_err("server not started"));
+                }
+                drop(runtime_guard);
+                drop(handle_guard);
                 let state = self.lifecycle.state();
                 if state == LifecycleState::Running {
                     Ok(())
                 } else if state == LifecycleState::Failed {
-                    Err(crate::LifecycleError::new_err("server failed during startup"))
+                    Err(crate::LifecycleError::new_err(
+                        "server failed during startup",
+                    ))
                 } else {
-                    Err(crate::LifecycleError::new_err(format!(
-                        "unexpected state: {}",
-                        state
-                    )))
+                    Ok(())
                 }
             }
             LifecycleState::Stopped | LifecycleState::Failed | LifecycleState::Draining => {
@@ -983,21 +1042,28 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(handle) = handle_guard.take() {
-            let result = py.allow_threads(|| {
-                let rt = tokio::runtime::Runtime::new().ok()?;
-                rt.block_on(async {
-                    let result = tokio::time::timeout(timeout, handle.force_shutdown(timeout)).await;
-                    match result {
-                        Ok(Ok(shutdown_result)) => Some(shutdown_result),
-                        _ => None,
-                    }
+            let runtime_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            let result = if let Some(rt) = runtime_guard.as_ref() {
+                py.allow_threads(|| {
+                    rt.block_on(async {
+                        let result =
+                            tokio::time::timeout(timeout, handle.force_shutdown(timeout)).await;
+                        match result {
+                            Ok(Ok(shutdown_result)) => Some(shutdown_result),
+                            _ => None,
+                        }
+                    })
                 })
-            });
+            } else {
+                None
+            };
+            drop(runtime_guard);
 
             let deadline = std::time::Instant::now() + timeout;
-            while !self.lifecycle.state().is_terminal()
-                && std::time::Instant::now() < deadline
-            {
+            while !self.lifecycle.state().is_terminal() && std::time::Instant::now() < deadline {
                 std::thread::sleep(Duration::from_millis(10));
             }
 
@@ -1016,15 +1082,19 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(handle) = handle_guard.take() {
-            py.allow_threads(|| {
-                let rt = tokio::runtime::Runtime::new().map_err(|e| {
-                    pyo3::exceptions::PyRuntimeError::new_err(e.to_string())
+            let runtime_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            if let Some(rt) = runtime_guard.as_ref() {
+                py.allow_threads(|| {
+                    rt.block_on(async {
+                        let _ = handle.wait().await;
+                    });
+                    Ok::<(), PyErr>(())
                 })?;
-                rt.block_on(async {
-                    let _ = handle.wait().await;
-                });
-                Ok::<(), PyErr>(())
-            })?;
+            }
+            drop(runtime_guard);
             Ok("stopped".to_string())
         } else {
             Ok("stopped".to_string())
@@ -1043,9 +1113,9 @@ impl PyServer {
         _exc_type: Option<&Bound<'_, PyAny>>,
         _exc_value: Option<&Bound<'_, PyAny>>,
         _traceback: Option<&Bound<'_, PyAny>>,
-        _py: Python<'_>,
+        py: Python<'_>,
     ) -> PyResult<bool> {
-        self.shutdown()?;
+        self.stop(py)?;
         Ok(false)
     }
 
