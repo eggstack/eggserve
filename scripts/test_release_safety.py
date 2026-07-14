@@ -443,5 +443,128 @@ class TestPackageGateIndependence(unittest.TestCase):
         self.assertIn('"all"', script)
 
 
+class TestMissingRuntimeEvidenceFailsAggregation(unittest.TestCase):
+    """Missing runtime/lifecycle gate evidence must prevent release-ready status."""
+
+    def test_missing_runtime_gates_fail_aggregation(self):
+        """Aggregate with no evidence for required runtime gates returns exit code 1."""
+        import json
+        import subprocess
+        import sys as _sys
+        import tempfile
+
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evidence_dir = Path(tmpdir)
+            # Create a minimal valid evidence record for a non-runtime gate
+            # so the aggregate command has something to process
+            gates_dir = evidence_dir / "gates"
+            gates_dir.mkdir()
+            evidence = {
+                "schema_version": "1.0.0",
+                "gate_id": "rust.fmt",
+                "result": "pass",
+                "evidence_class": "ci-log",
+                "command": "cargo fmt --all -- --check",
+                "exit_code": 0,
+                "start_time": "2026-01-01T00:00:00Z",
+                "end_time": "2026-01-01T00:00:01Z",
+                "duration_secs": 1.0,
+                "commit_sha": "abc123def456",
+                "dirty_tree": False,
+            }
+            (gates_dir / "rust-fmt.json").write_text(json.dumps(evidence))
+
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(REPO_ROOT / "scripts" / "release_criteria.py"),
+                    "aggregate",
+                    "--criteria", str(criteria_path),
+                    "--evidence", str(evidence_dir),
+                    "--sha", "abc123def456",
+                    "--format", "json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            # Exit code 1 = not release ready (missing required gates)
+            self.assertEqual(
+                result.returncode, 1,
+                f"aggregate should return exit code 1 when runtime gates are missing.\n"
+                f"stdout: {result.stdout}\nstderr: {result.stderr}",
+            )
+
+            # Parse JSON output to verify runtime gates are MISSING
+            output = json.loads(result.stdout)
+            self.assertFalse(output.get("release_ready", True))
+            gates = output.get("gates", {})
+
+            # Check that at least one required runtime gate is MISSING
+            runtime_gates = [gid for gid in gates if gid.startswith("runtime.")]
+            self.assertGreater(len(runtime_gates), 0, "should have runtime gates in output")
+            for gid in runtime_gates:
+                status = gates[gid]["status"]
+                if gates.get(gid, {}).get("required", False):
+                    self.assertEqual(
+                        status, "MISSING",
+                        f"Required runtime gate {gid} should be MISSING, got {status}",
+                    )
+
+    def test_wrong_sha_marks_evidence_stale(self):
+        """Evidence with a wrong commit SHA must be marked STALE."""
+        import json
+        import subprocess
+        import sys as _sys
+        import tempfile
+
+        criteria_path = REPO_ROOT / "release" / "criteria.toml"
+        with tempfile.TemporaryDirectory() as tmpdir:
+            evidence_dir = Path(tmpdir)
+            gates_dir = evidence_dir / "gates"
+            gates_dir.mkdir()
+            evidence = {
+                "schema_version": "1.0.0",
+                "gate_id": "rust.fmt",
+                "result": "pass",
+                "evidence_class": "ci-log",
+                "command": "cargo fmt --all -- --check",
+                "exit_code": 0,
+                "start_time": "2026-01-01T00:00:00Z",
+                "end_time": "2026-01-01T00:00:01Z",
+                "duration_secs": 1.0,
+                "commit_sha": "wrong_sha_does_not_match",
+                "dirty_tree": False,
+            }
+            (gates_dir / "rust-fmt.json").write_text(json.dumps(evidence))
+
+            # Aggregate with a different SHA than the evidence
+            result = subprocess.run(
+                [
+                    _sys.executable,
+                    str(REPO_ROOT / "scripts" / "release_criteria.py"),
+                    "aggregate",
+                    "--criteria", str(criteria_path),
+                    "--evidence", str(evidence_dir),
+                    "--sha", "correct_commit_sha_987654",
+                    "--format", "json",
+                ],
+                capture_output=True,
+                text=True,
+            )
+
+            output = json.loads(result.stdout)
+            gates = output.get("gates", {})
+
+            # rust.fmt evidence should be STALE (wrong SHA)
+            if "rust.fmt" in gates:
+                status = gates["rust.fmt"]["status"]
+                self.assertEqual(
+                    status, "STALE",
+                    f"rust.fmt with wrong SHA should be STALE, got {status}",
+                )
+
+
 if __name__ == "__main__":
     unittest.main()
