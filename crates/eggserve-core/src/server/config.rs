@@ -49,6 +49,12 @@ pub struct RuntimeConfig {
     pub graceful_shutdown_timeout: Duration,
     /// Whether to enable HTTP keep-alive. Default: true.
     pub keep_alive: bool,
+    /// Maximum concurrent in-flight requests per connection (HTTP/1.1
+    /// pipelining limit). Default: `None` (no limit).
+    pub max_in_flight_requests: Option<usize>,
+    /// Server identification header value. If `Some`, added as `Server`
+    /// header on responses. Default: `None`.
+    pub server_header: Option<String>,
 }
 
 impl Default for RuntimeConfig {
@@ -62,6 +68,8 @@ impl Default for RuntimeConfig {
             handler_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: Duration::from_secs(10),
             keep_alive: true,
+            max_in_flight_requests: None,
+            server_header: None,
         }
     }
 }
@@ -78,6 +86,8 @@ impl RuntimeConfig {
             handler_timeout: None,
             graceful_shutdown_timeout: None,
             keep_alive: None,
+            max_in_flight_requests: None,
+            server_header: None,
         }
     }
 }
@@ -94,6 +104,8 @@ pub struct RuntimeConfigBuilder {
     handler_timeout: Option<Duration>,
     graceful_shutdown_timeout: Option<Duration>,
     keep_alive: Option<bool>,
+    max_in_flight_requests: Option<usize>,
+    server_header: Option<String>,
 }
 
 impl RuntimeConfigBuilder {
@@ -149,6 +161,22 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the maximum concurrent in-flight requests per connection.
+    ///
+    /// Controls HTTP/1.1 pipelining depth. `None` means no limit.
+    pub fn max_in_flight_requests(mut self, max: usize) -> Self {
+        self.max_in_flight_requests = Some(max);
+        self
+    }
+
+    /// Set the server identification header value.
+    ///
+    /// If set, added as `Server` header on all responses.
+    pub fn server_header(mut self, header: String) -> Self {
+        self.server_header = Some(header);
+        self
+    }
+
     /// Build the runtime configuration.
     ///
     /// # Panics
@@ -174,6 +202,8 @@ impl RuntimeConfigBuilder {
                 .graceful_shutdown_timeout
                 .unwrap_or(Duration::from_secs(10)),
             keep_alive: self.keep_alive.unwrap_or(true),
+            max_in_flight_requests: self.max_in_flight_requests,
+            server_header: self.server_header,
         }
     }
 }
@@ -194,6 +224,8 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             handler_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
             keep_alive: true,
+            max_in_flight_requests: None,
+            server_header: None,
         }
     }
 }
@@ -214,6 +246,8 @@ mod tests {
         assert_eq!(config.handler_timeout, Duration::from_secs(30));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(10));
         assert!(config.keep_alive);
+        assert_eq!(config.max_in_flight_requests, None);
+        assert_eq!(config.server_header, None);
     }
 
     #[test]
@@ -227,6 +261,8 @@ mod tests {
             .handler_timeout(Duration::from_secs(15))
             .graceful_shutdown_timeout(Duration::from_secs(5))
             .keep_alive(false)
+            .max_in_flight_requests(8)
+            .server_header("eggserve/0.1".into())
             .build();
         assert_eq!(config.bind.port(), 9000);
         assert_eq!(config.max_connections, 128);
@@ -236,6 +272,8 @@ mod tests {
         assert_eq!(config.handler_timeout, Duration::from_secs(15));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(5));
         assert!(!config.keep_alive);
+        assert_eq!(config.max_in_flight_requests, Some(8));
+        assert_eq!(config.server_header.as_deref(), Some("eggserve/0.1"));
     }
 
     #[test]

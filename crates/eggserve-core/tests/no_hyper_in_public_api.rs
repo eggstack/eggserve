@@ -4,12 +4,21 @@
 //! types without importing or depending on Hyper. The only exception is
 //! `RequestHead::try_from_hyper`, which is the intentional conversion
 //! boundary.
+//!
+//! Server module types are included to verify the runtime API is also
+//! Hyper-free for downstream consumers.
+
+#![allow(unused_imports)]
 
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
 use eggserve_core::primitives::method::Method;
 use eggserve_core::primitives::request_head::RequestHead;
 use eggserve_core::primitives::request_target::RequestTarget;
 use eggserve_core::primitives::version::HttpVersion;
+use eggserve_core::server::{
+    service_fn, RuntimeConfig, Server, ServerBuilder, ServerHandle, Service, ServiceError,
+    ServiceFn, StaticService, StaticServiceBuilder,
+};
 
 #[test]
 fn method_construct_and_inspect() {

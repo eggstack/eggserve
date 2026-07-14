@@ -1,13 +1,16 @@
 //! Public runtime error types.
 //!
-//! Errors are classified into three categories:
+//! Errors are classified into four categories:
 //!
-//! - **Startup errors** ([`ServerError::Bind`], [`ServerError::Config`]) —
-//!   returned to the caller before the listener is ready.
+//! - **Startup errors** ([`ServerError::Bind`], [`ServerError::Config`],
+//!   [`ServerError::TlsSetup`]) — returned to the caller before the listener
+//!   is ready.
 //! - **Lifecycle errors** ([`ServerError::AlreadyStarted`],
 //!   [`ServerError::NotStarted`]) — indicate misuse of the server handle.
 //! - **Runtime errors** ([`ServerError::Accept`], [`ServerError::ShutdownTimeout`])
 //!   — occur during serving and are logged, not returned to callers.
+//! - **Transport errors** ([`ServerError::Transport`]) — failures in response
+//!   normalization or body conversion.
 
 use std::fmt;
 
@@ -24,6 +27,10 @@ pub enum ServerError {
     NotStarted,
     /// An error occurred during connection acceptance.
     Accept(std::io::Error),
+    /// TLS certificate or configuration error.
+    TlsSetup(String),
+    /// Transport conversion failure (e.g., body conversion, response normalization).
+    Transport(String),
     /// The graceful shutdown timed out.
     ShutdownTimeout,
 }
@@ -36,6 +43,8 @@ impl fmt::Display for ServerError {
             Self::AlreadyStarted => write!(f, "server already started"),
             Self::NotStarted => write!(f, "server not started"),
             Self::Accept(e) => write!(f, "accept error: {}", e),
+            Self::TlsSetup(msg) => write!(f, "TLS setup error: {}", msg),
+            Self::Transport(msg) => write!(f, "transport error: {}", msg),
             Self::ShutdownTimeout => write!(f, "graceful shutdown timed out"),
         }
     }
@@ -71,6 +80,14 @@ mod tests {
 
         let err = ServerError::NotStarted;
         assert!(err.to_string().contains("not started"));
+
+        let err = ServerError::TlsSetup("invalid cert".into());
+        assert!(err.to_string().contains("TLS setup error"));
+        assert!(err.to_string().contains("invalid cert"));
+
+        let err = ServerError::Transport("body conversion failed".into());
+        assert!(err.to_string().contains("transport error"));
+        assert!(err.to_string().contains("body conversion failed"));
 
         let err = ServerError::ShutdownTimeout;
         assert!(err.to_string().contains("timed out"));

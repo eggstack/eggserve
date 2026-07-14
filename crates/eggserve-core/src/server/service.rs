@@ -227,27 +227,139 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::primitives::canonical::ResponseBody as CanonicalResponseBody;
     use crate::primitives::canonical::StatusCode;
     use crate::primitives::header_block::HeaderBlock;
+
+    fn make_test_request(path: &str) -> RequestHead {
+        RequestHead::new(
+            crate::primitives::method::Method::get(),
+            crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
+            crate::primitives::version::HttpVersion::Http11,
+            HeaderBlock::new(),
+        )
+    }
 
     #[tokio::test]
     async fn service_fn_calls_handler() {
         let svc = service_fn(|_req: RequestHead| async {
             Ok(Response::builder()
                 .status(StatusCode::OK)
-                .body(crate::primitives::canonical::ResponseBody::Bytes(
-                    b"ok".to_vec(),
-                ))
+                .body(CanonicalResponseBody::Bytes(b"ok".to_vec()))
                 .unwrap())
         });
-        let req = RequestHead::new(
-            crate::primitives::method::Method::get(),
-            crate::primitives::request_target::RequestTarget::parse("/test").unwrap(),
-            crate::primitives::version::HttpVersion::Http11,
-            HeaderBlock::new(),
-        );
+        let req = make_test_request("/test");
         let resp = svc.call(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn custom_service_returns_bytes() {
+        struct ByteService;
+        impl Service for ByteService {
+            fn call(
+                &self,
+                _req: RequestHead,
+            ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>
+            {
+                Box::pin(async {
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .body(CanonicalResponseBody::Bytes(b"custom bytes".to_vec()))
+                        .unwrap())
+                })
+            }
+        }
+        let svc = ByteService;
+        let req = make_test_request("/test");
+        let resp = svc.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn service_error_response_codes() {
+        // Internal → 500
+        let err = ServiceError::internal("oops");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        // Panic → 500
+        let err = ServiceError::panic("crashed");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        // Timeout → 504
+        let err = ServiceError::timeout("slow");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::GATEWAY_TIMEOUT
+        );
+
+        // Rejected(400) → 400
+        let err = ServiceError::rejected(400, "bad");
+        assert_eq!(err.to_response().status(), hyper::StatusCode::BAD_REQUEST);
+
+        // Rejected(403) → 403
+        let err = ServiceError::rejected(403, "no");
+        assert_eq!(err.to_response().status(), hyper::StatusCode::FORBIDDEN);
+
+        // Rejected(404) → 404
+        let err = ServiceError::rejected(404, "miss");
+        assert_eq!(err.to_response().status(), hyper::StatusCode::NOT_FOUND);
+
+        // Rejected(405) → 405
+        let err = ServiceError::rejected(405, "nope");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::METHOD_NOT_ALLOWED
+        );
+
+        // Rejected(503) → 503
+        let err = ServiceError::rejected(503, "busy");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::SERVICE_UNAVAILABLE
+        );
+
+        // Rejected(999) → 999 (valid status code, used as-is)
+        let err = ServiceError::rejected(999, "weird");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::from_u16(999).unwrap()
+        );
+    }
+
+    #[tokio::test]
+    async fn service_fn_with_captured_state() {
+        let greeting = "hello";
+        let svc = service_fn(move |_req: RequestHead| {
+            let greeting = greeting.to_string();
+            async move {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(CanonicalResponseBody::Bytes(greeting.into_bytes()))
+                    .unwrap())
+            }
+        });
+        let req = make_test_request("/test");
+        let resp = svc.call(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn service_fn_implements_service() {
+        let svc = service_fn(|_req: RequestHead| async {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(CanonicalResponseBody::Empty)
+                .unwrap())
+        });
+        fn assert_service<S: Service>(_svc: &S) {}
+        assert_service(&svc);
     }
 
     #[test]

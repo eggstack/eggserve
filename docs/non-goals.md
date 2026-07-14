@@ -21,5 +21,8 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No HTTP trailers** — Trailers are deferred; the canonical response model does not include trailer support
 - **No raw socket response writers** — All responses go through the canonical normalization path
 - **No request body streaming** — Request body streaming belongs to Milestone 4
+- **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
+- **No WebSocket or upgrade support** — The runtime does not support protocol upgrades.
+- **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.
 
 > These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally.

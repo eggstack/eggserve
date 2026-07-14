@@ -9,11 +9,12 @@
 //! 1. Optional TLS handshake (feature-gated)
 //! 2. HTTP/1 connection setup via Hyper
 //! 3. Request conversion to canonical types
-//! 4. Service invocation with panic containment
-//! 5. Canonical response normalization
-//! 6. Transport-body conversion
-//! 7. Write timeout enforcement
-//! 8. Permit release and connection termination
+//! 4. Request-policy validation (body rejection for body-forbidden methods)
+//! 5. Service invocation with panic containment
+//! 6. Canonical response normalization
+//! 7. Transport-body conversion
+//! 8. Write timeout enforcement
+//! 9. Permit release and connection termination
 
 use std::convert::Infallible;
 
@@ -109,6 +110,11 @@ pub async fn serve_connection_with_service<I, S>(
                 }
             };
 
+            // Runtime-level request policy validation.
+            if let Err(e) = validate_request_policy(&head) {
+                return Ok::<_, Infallible>(e.to_response());
+            }
+
             // Invoke the service with timeout.
             let result = tokio::time::timeout(handler_timeout, service.call(head)).await;
 
@@ -131,6 +137,49 @@ pub async fn serve_connection_with_service<I, S>(
     });
 
     serve_connection(io, hyper_service, config, shutdown_rx).await;
+}
+
+/// Validate request policy at the runtime level.
+///
+/// This checks for transport-level correctness that the service should
+/// never be responsible for:
+/// - Methods that must not have a request body (GET, HEAD, OPTIONS, TRACE, DELETE)
+///   must not carry Content-Length > 0 or Transfer-Encoding headers.
+///
+/// Returns `Ok(())` if the request passes validation, or `Err(ServiceError)`
+/// with an appropriate HTTP status code.
+fn validate_request_policy(
+    head: &crate::primitives::request_head::RequestHead,
+) -> Result<(), ServiceError> {
+    let method = head.method().as_str();
+
+    // These methods must not have a request body per RFC 9110 section 6.4.
+    let body_forbidden = matches!(method, "GET" | "HEAD" | "OPTIONS" | "TRACE" | "DELETE");
+
+    if body_forbidden {
+        // Reject Transfer-Encoding — chunked is not supported.
+        if head.headers().contains("transfer-encoding") {
+            return Err(ServiceError::rejected(
+                400,
+                "transfer-encoding not allowed for this method",
+            ));
+        }
+
+        // Reject Content-Length > 0.
+        if let Some(content_length) = head.headers().get_first("content-length") {
+            let len_str = content_length.as_str().trim();
+            if let Ok(len) = len_str.parse::<u64>() {
+                if len > 0 {
+                    return Err(ServiceError::rejected(
+                        400,
+                        "request body not allowed for this method",
+                    ));
+                }
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Convert a Hyper request to a canonical [`RequestHead`].
