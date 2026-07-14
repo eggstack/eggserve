@@ -75,6 +75,14 @@ def _connection_metadata_fixtures():
     return _groups["connection_metadata"]["fixtures"]
 
 
+def _file_stream_body_metadata_fixtures():
+    return _groups.get("file_stream_body_metadata", {}).get("fixtures", [])
+
+
+def _conditional_range_fixtures():
+    return _groups.get("conditional_range_responses", {}).get("fixtures", [])
+
+
 # ---------------------------------------------------------------------------
 # Method conformance
 # ---------------------------------------------------------------------------
@@ -738,6 +746,33 @@ class TestExceptionHierarchy(unittest.TestCase):
 
     def test_request_target_error_is_eggserve_error(self):
         self.assertTrue(issubclass(RequestTargetError, EggserveError))
+
+
+class TestFileResponseBodyMetadata(unittest.TestCase):
+    """Verify file response body metadata from corpus."""
+
+    def test_corpus_has_file_stream_fixtures(self):
+        fixtures = _file_stream_body_metadata_fixtures()
+        self.assertGreater(len(fixtures), 0)
+
+    def test_body_empty(self):
+        fx = next(f for f in _file_stream_body_metadata_fixtures() if f["id"] == "body-empty")
+        self.assertTrue(fx["expected"]["is_empty"])
+        self.assertEqual(fx["expected"]["len"], 0)
+
+    def test_body_bytes(self):
+        fx = next(f for f in _file_stream_body_metadata_fixtures() if f["id"] == "body-bytes")
+        self.assertFalse(fx["expected"]["is_empty"])
+        self.assertEqual(fx["expected"]["len"], 5)
+
+    def test_body_file_full(self):
+        fx = next(f for f in _file_stream_body_metadata_fixtures() if f["id"] == "body-file-full")
+        self.assertEqual(fx["expected"]["plan_variant"], "FileFull")
+
+    def test_body_file_range(self):
+        fx = next(f for f in _file_stream_body_metadata_fixtures() if f["id"] == "body-file-range")
+        self.assertEqual(fx["expected"]["plan_variant"], "FileRange")
+        self.assertEqual(fx["expected"]["range_len"], 100)
 
 
 if __name__ == "__main__":

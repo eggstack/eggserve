@@ -352,6 +352,63 @@ waiver_allowed = false
 security_relevance = true
 release_stage = "qualification"
 
+[[gate]]
+id = "conformance.raw-wire-normalization"
+title = "Raw-wire normalization verification"
+description = "Validates raw HTTP wire output confirms normalization semantics (HEAD suppression, body-forbidden, framing)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test canonical_conformance"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "crates/eggserve-core/tests/**"]
+depends_on = ["conformance.canonical-http-corpus-rust"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "conformance.generated-api-inventory"
+title = "Generated API inventory consistency"
+description = "Validates that api-stability.md and library-capability-matrix.md are consistent with exported types"
+required = true
+evidence_classes = ["ci-log", "lint-output"]
+command = "python3 scripts/check-contract-consistency.py"
+workflow_job = "validate"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["docs/api-stability.md", "docs/library-capability-matrix.md", "crates/eggserve-core/src/**"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "conformance.perf-regression-report"
+title = "Performance regression benchmark report"
+description = "Runs Criterion benchmarks to detect allocation or latency regressions in canonical type construction and normalization"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo bench -p eggserve-core --bench canonical_types -- --test"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "benches/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
 # ---------------------------------------------------------------------------
 # Supply chain gates
 # ---------------------------------------------------------------------------

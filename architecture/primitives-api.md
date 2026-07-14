@@ -181,6 +181,138 @@ match resource {
 
 The `primitives` module is the **stable** tier. Breaking changes bump the major version. Pre-1.0, minor versions may break. For the full API classification, see [api-stability.md](../docs/api-stability.md) and [release-contract.md](../docs/release-contract.md).
 
+## Examples
+
+### Duplicate request headers
+
+```rust
+use eggserve_core::primitives::header_block::HeaderBlock;
+
+let mut headers = HeaderBlock::new();
+headers.push_str("accept", "text/html").unwrap();
+headers.push_str("accept", "application/json").unwrap();
+
+// Get all values for a duplicate header
+let all_accept = headers.get_all("accept");
+assert_eq!(all_accept.len(), 2);
+
+// get_unique fails on duplicates
+assert!(headers.get_unique("accept").is_err());
+```
+
+### Safe unique-header access
+
+```rust
+use eggserve_core::primitives::header_block::HeaderBlock;
+
+let mut headers = HeaderBlock::new();
+headers.push_str("content-type", "text/html").unwrap();
+
+// get_unique returns Ok(Some(value)) for single headers
+let ct = headers.get_unique("content-type").unwrap().unwrap();
+assert_eq!(ct.as_str(), "text/html");
+
+// get_unique returns Ok(None) for absent headers
+let missing = headers.get_unique("x-missing").unwrap();
+assert!(missing.is_none());
+```
+
+### Connection metadata
+
+```rust
+use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
+
+let info = ConnectionInfo {
+    local_addr: "127.0.0.1:8000".parse().unwrap(),
+    remote_addr: "127.0.0.1:12345".parse().unwrap(),
+    scheme: Scheme::Https,
+    tls: None,
+};
+
+assert_eq!(info.scheme, Scheme::Https);
+assert_eq!(info.local_addr.port(), 8000);
+```
+
+### HEAD handling without handler special-casing
+
+```rust
+use eggserve_core::primitives::canonical::{
+    normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
+};
+
+// Build a response with a body
+let resp = Response::builder()
+    .status(StatusCode::OK)
+    .header("content-type", "text/plain").unwrap()
+    .body(ResponseBody::Bytes(b"hello".to_vec()))
+    .unwrap();
+
+// Normalize for HEAD — body is suppressed, headers preserved
+let req = NormalizeRequest::new(true);
+let head_resp = normalize_response(resp, &req).unwrap();
+
+assert!(head_resp.body().unwrap().is_empty());
+assert!(head_resp.headers().contains("content-type"));
+```
+
+### Duplicate response headers
+
+```rust
+use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
+
+let resp = Response::builder()
+    .status(StatusCode::OK)
+    .header("set-cookie", "a=1").unwrap()
+    .header("set-cookie", "b=2").unwrap()
+    .body(ResponseBody::Bytes(b"ok".to_vec()))
+    .unwrap();
+
+let all = resp.headers().get_all("set-cookie");
+assert_eq!(all.len(), 2);
+assert_eq!(all[0].as_str(), "a=1");
+assert_eq!(all[1].as_str(), "b=2");
+```
+
+### File-backed response (conceptual)
+
+```rust
+use eggserve_core::primitives::response::{BodyPlan, StaticResponsePlan};
+use eggserve_core::primitives::response::ResponseStatus;
+
+// Static response planning produces a BodyPlan::FileFull
+// that streams from disk without loading into memory.
+let plan = StaticResponsePlan {
+    status: ResponseStatus::OK,
+    headers: Default::default(),
+    body: BodyPlan::FileFull,
+};
+
+// The runtime resolves the file handle and streams it directly.
+// No Python memory copy is involved for file-backed responses.
+match &plan.body {
+    BodyPlan::FileFull => { /* full file streaming */ }
+    BodyPlan::FileRange { start, end_inclusive } => { /* range streaming */ }
+    BodyPlan::FullBytes(data) => { /* in-memory body */ }
+    BodyPlan::Empty => { /* no body */ }
+}
+```
+
+### Invalid framing rejection
+
+```rust
+use eggserve_core::primitives::canonical::{ResponseConstructionError, StatusCode};
+
+// Status code 0 is rejected
+assert!(StatusCode::new(0).is_err());
+
+// Status code 1000 is rejected
+assert!(StatusCode::new(1000).is_err());
+
+// Transfer-Encoding is forbidden in canonical responses
+let err = ResponseConstructionError::ForbiddenFramingHeader("transfer-encoding".into());
+assert!(err.to_string().contains("transfer-encoding"));
+```
+
 ## See Also
 
 - [response-planning.md](response-planning.md) — Response planner details

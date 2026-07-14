@@ -38,6 +38,10 @@ Rust `HeaderMapPlan` preserves insertion order and duplicate headers. This behav
 
 Deprecated stable items must remain functional for at least one minor release after deprecation is announced. Removal requires explicit release notes and migration guidance.
 
+As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
+`validate_method()`, `validate_request_target()`, `StaticResponsePlan`,
+`BodyPlan`, `HeaderMapPlan`, `ResponseStatus`) remain stable and functional.
+
 ## Rust API — `eggserve-core`
 
 ### Crate Root Modules

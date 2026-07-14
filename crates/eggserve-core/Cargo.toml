@@ -35,6 +35,7 @@ webpki-roots = { version = "0.26", optional = true }
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
 hyper = { version = "1", features = ["client"] }
 libc = "0.2"
 proptest = "1"
@@ -44,3 +45,7 @@ tempfile = "3"
 rcgen = "0.13"
 tokio-rustls = "0.26"
 rustls-pki-types = "1"
+
+[[bench]]
+name = "canonical_types"
+harness = false

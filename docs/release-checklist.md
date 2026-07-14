@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 36
+Total gates: 39
 
 ## Preflight
 
@@ -27,8 +27,11 @@ Total gates: 36
 | `conformance.canonical-http-corpus-python` | Python canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.canonical-http-corpus-rust` | Rust canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.fuzz-corpus-replay` | Milestone 2 fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.generated-api-inventory` | Generated API inventory consistency | yes | ci-log, lint-output | PENDING | TBD |
+| `conformance.perf-regression-report` | Performance regression benchmark report | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.public-rust-compile-fixtures` | Public Rust compile fixtures | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.python-api-import-fixtures` | Python API/import fixtures | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.raw-wire-normalization` | Raw-wire normalization verification | yes | ci-log, test-output | PENDING | TBD |
 | `filesystem.corpus-replay` | Fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
 | `http.primitives-integration` | HTTP primitives integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `http.production-path` | Production path tests | yes | ci-log, test-output | PENDING | TBD |
@@ -63,7 +66,7 @@ Total gates: 36
 
 ## Summary
 
-- PENDING: 36
+- PENDING: 39
 
 ## Platform Support
 

@@ -574,6 +574,88 @@
           "expected": { "scheme_is_http": false, "tls": true }
         }
       ]
+    },
+    "conditional_range_responses": {
+      "description": "Conditional and range response planning",
+      "fixtures": [
+        {
+          "id": "conditional-none-match-match",
+          "description": "If-None-Match matching ETag returns 304",
+          "input": { "etag": "\"abc\"", "if_none_match": "\"abc\"" },
+          "expected": { "outcome": "not_modified", "status": 304 }
+        },
+        {
+          "id": "conditional-none-match-no-match",
+          "description": "If-None-Match non-matching ETag returns full response",
+          "input": { "etag": "\"abc\"", "if_none_match": "\"xyz\"" },
+          "expected": { "outcome": "full_response", "status": 200 }
+        },
+        {
+          "id": "conditional-none-match-wildcard",
+          "description": "If-None-Match * always matches",
+          "input": { "etag": "\"abc\"", "if_none_match": "*" },
+          "expected": { "outcome": "not_modified", "status": 304 }
+        },
+        {
+          "id": "range-single-byte",
+          "description": "Single byte range returns 206",
+          "input": { "total_len": 100, "range": "bytes=0-0" },
+          "expected": { "status": 206, "content_range": "bytes 0-0/100", "body_len": 1 }
+        },
+        {
+          "id": "range-suffix",
+          "description": "Suffix range returns last N bytes",
+          "input": { "total_len": 100, "range": "bytes=-10" },
+          "expected": { "status": 206, "body_len": 10 }
+        },
+        {
+          "id": "range-not-satisfiable",
+          "description": "Range beyond file size returns 416",
+          "input": { "total_len": 100, "range": "bytes=200-300" },
+          "expected": { "status": 416 }
+        },
+        {
+          "id": "etag-generation",
+          "description": "ETag is generated from file metadata",
+          "input": { "mtime_epoch": 1700000000, "size": 12345 },
+          "expected": { "etag_format": "weak", "contains_size": true }
+        }
+      ]
+    },
+    "file_stream_body_metadata": {
+      "description": "File and stream body representation and metadata",
+      "fixtures": [
+        {
+          "id": "body-empty",
+          "description": "Empty body representation",
+          "input": { "kind": "empty" },
+          "expected": { "is_empty": true, "len": 0 }
+        },
+        {
+          "id": "body-bytes",
+          "description": "Bytes body representation",
+          "input": { "kind": "bytes", "data": "hello" },
+          "expected": { "is_empty": false, "len": 5 }
+        },
+        {
+          "id": "body-file-full",
+          "description": "FileFull body plan variant",
+          "input": { "kind": "file_full", "file_len": 1024 },
+          "expected": { "plan_variant": "FileFull" }
+        },
+        {
+          "id": "body-file-range",
+          "description": "FileRange body plan variant",
+          "input": { "kind": "file_range", "start": 100, "end_inclusive": 199 },
+          "expected": { "plan_variant": "FileRange", "range_len": 100 }
+        },
+        {
+          "id": "body-source-bytes-roundtrip",
+          "description": "BodySource bytes round-trip",
+          "input": { "kind": "source_bytes", "data": "test data" },
+          "expected": { "roundtrip": true }
+        }
+      ]
     }
   }
 }

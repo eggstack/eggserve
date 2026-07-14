@@ -619,6 +619,37 @@ fn response_normalization_rules() {
 }
 
 // ---------------------------------------------------------------------------
+// Raw wire output tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn response_normalization_raw_wire_output() {
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain")
+        .unwrap()
+        .header("transfer-encoding", "chunked")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"hello".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+
+    // Content-Length must be set
+    let cl = normalized.headers().get_first("content-length").unwrap();
+    assert_eq!(cl.as_str(), "5");
+
+    // Transfer-Encoding must be stripped
+    assert!(!normalized.headers().contains("transfer-encoding"));
+
+    // Body must be preserved
+    match normalized.body().unwrap() {
+        ResponseBody::Bytes(v) => assert_eq!(v, b"hello"),
+        _ => panic!("expected bytes body"),
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ConnectionInfo tests
 // ---------------------------------------------------------------------------
 
@@ -736,5 +767,60 @@ proptest! {
             .map(|f| f.name.as_str().to_string())
             .collect();
         prop_assert_eq!(all_names, names);
+    }
+
+    #[test]
+    fn normalized_responses_never_contain_conflicting_framing(
+        status in 200u16..600u16,
+        body in "[a-z]{0,200}",
+        has_te in proptest::bool::ANY,
+    ) {
+        if StatusCode::new(status).is_err() {
+            return Ok(());
+        }
+        let mut builder = Response::builder()
+            .status(StatusCode::new(status).unwrap());
+        if has_te {
+            builder = builder.header("transfer-encoding", "chunked").unwrap();
+        }
+        let resp = builder
+            .body(ResponseBody::Bytes(body.into_bytes()))
+            .unwrap();
+        let req = NormalizeRequest::new(false);
+        let normalized = normalize_response(resp, &req).unwrap();
+
+        // Transfer-Encoding must never survive normalization
+        prop_assert!(
+            !normalized.headers().contains("transfer-encoding"),
+            "transfer-encoding survived normalization"
+        );
+
+        // Content-Length must match actual body length
+        if let Some(cl) = normalized.headers().get_first("content-length") {
+            let actual_len = normalized.body().map_or(0, |b| b.len());
+            prop_assert_eq!(
+                cl.as_str(),
+                actual_len.to_string(),
+                "content-length mismatch"
+            );
+        }
+    }
+
+    #[test]
+    fn malformed_input_never_panics(
+        method_str in "[\\x00-\\x7f]{0,128}",
+        target_str in "[\\x00-\\x7f]{0,128}",
+    ) {
+        // Method::new should never panic
+        let _ = Method::new(&method_str);
+
+        // RequestTarget::parse should never panic
+        let _ = RequestTarget::parse(&target_str);
+
+        // HeaderName::new should never panic
+        let _ = HeaderName::new(&method_str);
+
+        // HeaderValue::new should never panic
+        let _ = HeaderValue::new(&target_str);
     }
 }

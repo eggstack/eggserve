@@ -456,5 +456,34 @@ class TestWheelOnlyImports(unittest.TestCase):
         self.assertIsInstance(eggserve.NATIVE_AVAILABLE, bool)
 
 
+class TestTypeStubs(unittest.TestCase):
+    """Verify type stubs are consistent with runtime API."""
+
+    def test_native_types_have_correct_types(self) -> None:
+        """Check that native types expose expected attribute types."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        m = eggserve.parse_method("GET")
+        self.assertIsInstance(m.as_str, str)
+        self.assertIsInstance(m.is_safe, bool)
+        self.assertIsInstance(m.is_idempotent, bool)
+        self.assertIsInstance(m.permits_static_resolution, bool)
+
+    def test_header_block_field_types(self) -> None:
+        """Check that HeaderField has correct attribute types."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        hb = eggserve.HeaderBlock([("content-type", "text/html")])
+        for field in hb:
+            self.assertIsInstance(field.name.value, str)
+            self.assertIsInstance(field.value.value, str)
+
+
 if __name__ == "__main__":
     unittest.main()

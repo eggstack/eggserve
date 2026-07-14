@@ -92,3 +92,33 @@ name = "fuzz_normalize_response"
 path = "fuzz_targets/fuzz_normalize_response.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_method"
+path = "fuzz_targets/fuzz_method.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_header_block"
+path = "fuzz_targets/fuzz_header_block.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_request_head"
+path = "fuzz_targets/fuzz_request_head.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_response_builder"
+path = "fuzz_targets/fuzz_response_builder.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_content_length_reconciliation"
+path = "fuzz_targets/fuzz_content_length_reconciliation.rs"
+test = false
+doc = false

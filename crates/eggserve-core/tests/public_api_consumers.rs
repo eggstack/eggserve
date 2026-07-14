@@ -1,7 +1,12 @@
 //! Compile/import fixture for plan 049 Track E.
 //!
 //! External-consumer tests that verify the public API can be used without
-//! importing Hyper. Every import goes through `eggserve_core::primitives`
+//! importing Hyper. cargo-semver-checks compatibility: this file serves as a
+//! compile-time API snapshot. All public items from `eggserve_core::primitives`
+//! are exercised here. If a public API is removed or changed, this file will
+//! fail to compile, providing an immediate signal of semver-incompatible changes.
+//!
+//! Every import goes through `eggserve_core::primitives`
 //! (the public facade). This file is an integration test outside the crate
 //! module tree, simulating a downstream consumer.
 
@@ -584,6 +589,70 @@ fn request_validation_error_is_std_error() {
 fn read_only_method_display() {
     assert_eq!(format!("{}", ReadOnlyMethod::Get), "GET");
     assert_eq!(format!("{}", ReadOnlyMethod::Head), "HEAD");
+}
+
+// ── File and stream response building ────────────────────────────────────────
+
+#[test]
+fn build_response_with_file_body_plan() {
+    use eggserve_core::primitives::response::{BodyPlan, ResponseStatus, StaticResponsePlan};
+    let plan = StaticResponsePlan {
+        status: ResponseStatus::OK,
+        headers: Default::default(),
+        body: BodyPlan::FileFull,
+    };
+    assert_eq!(plan.status.0, 200);
+    assert!(matches!(plan.body, BodyPlan::FileFull));
+}
+
+#[test]
+fn build_response_with_range_body_plan() {
+    use eggserve_core::primitives::response::{BodyPlan, ResponseStatus, StaticResponsePlan};
+    let plan = StaticResponsePlan {
+        status: ResponseStatus::PARTIAL_CONTENT,
+        headers: Default::default(),
+        body: BodyPlan::FileRange {
+            start: 0,
+            end_inclusive: 99,
+        },
+    };
+    assert_eq!(plan.status.0, 206);
+    match &plan.body {
+        BodyPlan::FileRange {
+            start,
+            end_inclusive,
+        } => {
+            assert_eq!(*start, 0);
+            assert_eq!(*end_inclusive, 99);
+        }
+        _ => panic!("expected FileRange"),
+    }
+}
+
+#[test]
+fn build_response_with_empty_body_plan() {
+    use eggserve_core::primitives::response::{BodyPlan, ResponseStatus, StaticResponsePlan};
+    let plan = StaticResponsePlan {
+        status: ResponseStatus(204),
+        headers: Default::default(),
+        body: BodyPlan::Empty,
+    };
+    assert_eq!(plan.status.0, 204);
+    assert!(matches!(plan.body, BodyPlan::Empty));
+}
+
+#[test]
+fn build_response_with_bytes_body_plan() {
+    use eggserve_core::primitives::response::{BodyPlan, ResponseStatus, StaticResponsePlan};
+    let plan = StaticResponsePlan {
+        status: ResponseStatus::OK,
+        headers: Default::default(),
+        body: BodyPlan::FullBytes(b"hello".to_vec()),
+    };
+    match &plan.body {
+        BodyPlan::FullBytes(v) => assert_eq!(v, b"hello"),
+        _ => panic!("expected FullBytes"),
+    }
 }
 
 // ── PhantomData compile check for all canonical types ───────────────────────
