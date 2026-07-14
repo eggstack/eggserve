@@ -121,11 +121,35 @@ Deprecated stable items must remain functional for at least one minor release af
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `ReadOnlyMethod` | stable | GET, HEAD only |
+| `ReadOnlyMethod` | stable | GET, HEAD only (legacy, prefer `Method`) |
 | `RequestValidationError` | stable | 6-variant HTTP validation error |
-| `validate_method()` | stable | Method string → ReadOnlyMethod |
+| `validate_method()` | stable | Method string → ReadOnlyMethod (legacy) |
 | `validate_request_body()` | stable | Body metadata validation |
-| `validate_request_target()` | stable | Target string validation |
+| `validate_request_target()` | stable | Target string validation (legacy) |
+
+### `primitives` Module — Canonical HTTP Request Types
+
+**All canonical request types are experimental** during implementation. They will be promoted to stable after conformance completion in Phase 49.
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `Method` | experimental | Validated HTTP method; standard + extension support |
+| `MethodError` | experimental | Empty, InvalidToken |
+| `HttpVersion` | experimental | HTTP/1.0, HTTP/1.1 |
+| `HttpVersionError` | experimental | Unsupported version |
+| `HeaderBlock` | experimental | Duplicate-preserving ordered header collection |
+| `HeaderName` | experimental | Validated header name (token) |
+| `HeaderValue` | experimental | Validated header value (no CR/LF/NUL) |
+| `HeaderError` | experimental | InvalidName, InvalidValue, NameTooLong |
+| `DuplicateHeaderError` | experimental | Returned by get_unique() on duplicates |
+| `HeaderField` | experimental | `pub name: HeaderName`, `pub value: HeaderValue` |
+| `RequestTarget` | experimental | Validated origin-form target (path + query) |
+| `RequestTargetError` | experimental | 6-variant target validation error |
+| `RequestHead` | experimental | Canonical request head: method, target, version, headers |
+| `RequestHeadError` | experimental | Conversion error from Hyper |
+| `ConnectionInfo` | experimental | Transport metadata: addrs, scheme, TLS |
+| `Scheme` | experimental | Http, Https |
+| `TlsInfo` | experimental | Protocol version, server name |
 
 ### `primitives` Module — Response Planning
 
@@ -211,6 +235,10 @@ Deprecated stable items must remain functional for at least one minor release af
 | `BodySourceError` | stable | Child of EggserveError |
 | `LifecycleError` | stable | Raised on lifecycle violations (double start, stop before start) |
 | `ResponseConstructionError` | stable | Raised when handler returns an invalid Response object |
+| `MethodError` | experimental | Invalid HTTP method |
+| `HttpVersionError` | experimental | Unsupported HTTP version |
+| `HeaderError` | experimental | Invalid header name or value |
+| `DuplicateHeaderError` | experimental | Duplicate header on unique access |
 | `PathPolicy` | stable | Frozen, mirrors Rust PathPolicy |
 | `StaticPolicy` | stable | Frozen, mirrors Rust StaticPolicy |
 | `RequestTarget` | stable | Frozen, mirrors ConfinedPath |
@@ -223,6 +251,13 @@ Deprecated stable items must remain functional for at least one minor release af
 | `validate_request_body()` | stable | Body validation |
 | `validate_request_target()` | stable | Target validation |
 | `generate_etag()` | stable | ETag generation |
+| `parse_method()` | experimental | Create validated Method |
+| `parse_http_version()` | experimental | Create validated HttpVersion |
+| `Method` | experimental | Canonical HTTP method |
+| `HttpVersion` | experimental | Canonical HTTP version |
+| `HeaderBlock` | experimental | Duplicate-preserving headers |
+| `ConnectionInfo` | experimental | Transport metadata |
+| `CanonicalRequest` | experimental | Canonical request head |
 
 ### `eggserve._native` — Server Types (when NATIVE_AVAILABLE)
 

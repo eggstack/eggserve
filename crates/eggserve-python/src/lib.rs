@@ -5,9 +5,12 @@ use eggserve_core::policy::{
     DirectoryListingPolicy, DotfilePolicy, StaticPolicy as RustStaticPolicy, SymlinkPolicy,
 };
 use eggserve_core::primitives::body::{BodyKind as RustBodyKind, BodySource as RustBodySource};
+use eggserve_core::primitives::header_block::{HeaderBlock as RustHeaderBlock};
 use eggserve_core::primitives::http::{self, ReadOnlyMethod};
+use eggserve_core::primitives::method::Method as RustMethod;
 use eggserve_core::primitives::planner;
 use eggserve_core::primitives::response::BodyPlan;
+use eggserve_core::primitives::version::HttpVersion as RustHttpVersion;
 use eggserve_core::primitives::{
     ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
     ResolvedResource as RustResolvedResource, ResourceDeniedReason, SecureRoot as RustSecureRoot,
@@ -74,6 +77,34 @@ pyo3::create_exception!(
     LifecycleError,
     EggserveError,
     "Server lifecycle error (double start, stop before start, etc.)."
+);
+
+pyo3::create_exception!(
+    _native,
+    MethodError,
+    EggserveError,
+    "Invalid HTTP method."
+);
+
+pyo3::create_exception!(
+    _native,
+    HttpVersionError,
+    EggserveError,
+    "Unsupported HTTP version."
+);
+
+pyo3::create_exception!(
+    _native,
+    HeaderError,
+    EggserveError,
+    "Invalid header name or value."
+);
+
+pyo3::create_exception!(
+    _native,
+    DuplicateHeaderError,
+    EggserveError,
+    "Duplicate header encountered on unique access."
 );
 
 // ---------------------------------------------------------------------------
@@ -982,6 +1013,452 @@ impl PyResponsePlan {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Method (canonical HTTP method)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "Method", frozen)]
+#[derive(Debug, Clone)]
+struct PyMethod {
+    inner: RustMethod,
+}
+
+#[pymethods]
+impl PyMethod {
+    #[new]
+    fn py_new(value: &str) -> PyResult<Self> {
+        let inner = RustMethod::new(value)
+            .map_err(|e| MethodError::new_err((e.to_string(), "invalid_method")))?;
+        Ok(Self { inner })
+    }
+
+    #[staticmethod]
+    fn get() -> Self {
+        Self { inner: RustMethod::get() }
+    }
+
+    #[staticmethod]
+    fn head() -> Self {
+        Self { inner: RustMethod::head() }
+    }
+
+    #[staticmethod]
+    fn post() -> Self {
+        Self { inner: RustMethod::post() }
+    }
+
+    #[staticmethod]
+    fn put() -> Self {
+        Self { inner: RustMethod::put() }
+    }
+
+    #[staticmethod]
+    fn delete() -> Self {
+        Self { inner: RustMethod::delete() }
+    }
+
+    #[staticmethod]
+    fn patch() -> Self {
+        Self { inner: RustMethod::patch() }
+    }
+
+    #[getter]
+    fn as_str(&self) -> &str {
+        self.inner.as_str()
+    }
+
+    #[getter]
+    fn is_safe(&self) -> bool {
+        self.inner.is_safe()
+    }
+
+    #[getter]
+    fn is_idempotent(&self) -> bool {
+        self.inner.is_idempotent()
+    }
+
+    #[getter]
+    fn permits_static_resolution(&self) -> bool {
+        self.inner.permits_static_resolution()
+    }
+
+    fn __str__(&self) -> &str {
+        self.inner.as_str()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("Method({:?})", self.inner.as_str())
+    }
+
+    fn __eq__(&self, other: &PyMethod) -> bool {
+        self.inner == other.inner
+    }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.inner.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HttpVersion (canonical HTTP version)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "HttpVersion", frozen)]
+#[derive(Debug, Clone, Copy)]
+struct PyHttpVersion {
+    inner: RustHttpVersion,
+}
+
+#[pymethods]
+impl PyHttpVersion {
+    #[new]
+    fn py_new(value: &str) -> PyResult<Self> {
+        let inner = RustHttpVersion::parse(value)
+            .map_err(|e| HttpVersionError::new_err((e.to_string(), "unsupported_version")))?;
+        Ok(Self { inner })
+    }
+
+    #[staticmethod]
+    fn http10() -> Self {
+        Self { inner: RustHttpVersion::Http10 }
+    }
+
+    #[staticmethod]
+    fn http11() -> Self {
+        Self { inner: RustHttpVersion::Http11 }
+    }
+
+    #[getter]
+    fn major(&self) -> u8 {
+        self.inner.major()
+    }
+
+    #[getter]
+    fn minor(&self) -> u8 {
+        self.inner.minor()
+    }
+
+    fn __str__(&self) -> &str {
+        self.inner.as_str()
+    }
+
+    fn __repr__(&self) -> String {
+        format!("HttpVersion({:?})", self.inner.as_str())
+    }
+
+    fn __eq__(&self, other: &PyHttpVersion) -> bool {
+        self.inner == other.inner
+    }
+
+    fn __hash__(&self) -> u64 {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        self.inner.hash(&mut hasher);
+        hasher.finish()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// HeaderBlock (duplicate-preserving headers)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "HeaderBlock", frozen)]
+#[derive(Debug, Clone)]
+struct PyHeaderBlock {
+    inner: RustHeaderBlock,
+}
+
+#[pymethods]
+impl PyHeaderBlock {
+    #[new]
+    #[pyo3(signature = (fields=None))]
+    fn py_new(fields: Option<Vec<(String, String)>>) -> PyResult<Self> {
+        let mut inner = RustHeaderBlock::new();
+        if let Some(fields) = fields {
+            for (name, value) in fields {
+                inner.push_str(name, value)
+                    .map_err(|e| HeaderError::new_err((e.to_string(), "invalid_header")))?;
+            }
+        }
+        Ok(Self { inner })
+    }
+
+    #[getter]
+    fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    #[getter]
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn get_first(&self, name: &str) -> Option<String> {
+        self.inner.get_first(name).map(|v| v.as_str().to_string())
+    }
+
+    fn get_all(&self, name: &str) -> Vec<String> {
+        self.inner.get_all(name).into_iter().map(|v| v.as_str().to_string()).collect()
+    }
+
+    fn get_unique(&self, name: &str) -> PyResult<Option<String>> {
+        match self.inner.get_unique(name) {
+            Ok(opt) => Ok(opt.map(|v| v.as_str().to_string())),
+            Err(e) => Err(DuplicateHeaderError::new_err((e.to_string(), e.name().to_string(), e.count()))),
+        }
+    }
+
+    fn contains(&self, name: &str) -> bool {
+        self.inner.contains(name)
+    }
+
+    fn iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+        let list = pyo3::types::PyList::empty(py);
+        for field in self.inner.iter() {
+            let tup = pyo3::types::PyTuple::new(py, [field.name.as_str(), field.value.as_str()])?;
+            list.append(tup)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    fn __len__(&self) -> usize {
+        self.inner.len()
+    }
+
+    fn __iter__<'py>(slf: Py<Self>, py: Python<'py>) -> PyResult<PyObject> {
+        let list = pyo3::types::PyList::empty(py);
+        let borrowed = slf.borrow(py);
+        for field in borrowed.inner.iter() {
+            let tup = pyo3::types::PyTuple::new(py, [field.name.as_str(), field.value.as_str()])?;
+            list.append(tup)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    fn __repr__(&self) -> String {
+        format!("HeaderBlock(len={})", self.inner.len())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ConnectionInfo (connection metadata)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "ConnectionInfo", frozen)]
+#[derive(Debug, Clone)]
+struct PyConnectionInfo {
+    local_addr: String,
+    remote_addr: String,
+    scheme: String,
+    tls_protocol_version: Option<String>,
+    tls_server_name: Option<String>,
+}
+
+#[pymethods]
+impl PyConnectionInfo {
+    #[new]
+    #[pyo3(signature = (local_addr, remote_addr, scheme="http", tls_protocol_version=None, tls_server_name=None))]
+    fn py_new(
+        local_addr: &str,
+        remote_addr: &str,
+        scheme: &str,
+        tls_protocol_version: Option<String>,
+        tls_server_name: Option<String>,
+    ) -> PyResult<Self> {
+        if scheme != "http" && scheme != "https" {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "scheme must be 'http' or 'https'"
+            ));
+        }
+        Ok(Self {
+            local_addr: local_addr.to_string(),
+            remote_addr: remote_addr.to_string(),
+            scheme: scheme.to_string(),
+            tls_protocol_version,
+            tls_server_name,
+        })
+    }
+
+    #[getter]
+    fn local_addr(&self) -> &str {
+        &self.local_addr
+    }
+
+    #[getter]
+    fn remote_addr(&self) -> &str {
+        &self.remote_addr
+    }
+
+    #[getter]
+    fn scheme(&self) -> &str {
+        &self.scheme
+    }
+
+    #[getter]
+    fn is_tls(&self) -> bool {
+        self.tls_protocol_version.is_some() || self.tls_server_name.is_some()
+    }
+
+    #[getter]
+    fn tls_protocol_version(&self) -> Option<&str> {
+        self.tls_protocol_version.as_deref()
+    }
+
+    #[getter]
+    fn tls_server_name(&self) -> Option<&str> {
+        self.tls_server_name.as_deref()
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "ConnectionInfo(local_addr={:?}, remote_addr={:?}, scheme={:?}, is_tls={})",
+            self.local_addr, self.remote_addr, self.scheme, self.is_tls()
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// CanonicalRequest (canonical HTTP request head for Python)
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "CanonicalRequest", frozen)]
+#[derive(Debug, Clone)]
+struct PyCanonicalRequest {
+    method: String,
+    path: String,
+    query: Option<String>,
+    version: String,
+    headers: Vec<(String, String)>,
+    remote_addr: Option<String>,
+    local_addr: Option<String>,
+    scheme: String,
+}
+
+#[pymethods]
+impl PyCanonicalRequest {
+    #[new]
+    #[pyo3(signature = (method, path, version="HTTP/1.1", headers=None, query=None, remote_addr=None, local_addr=None, scheme="http"))]
+    fn py_new(
+        method: &str,
+        path: &str,
+        version: &str,
+        headers: Option<Vec<(String, String)>>,
+        query: Option<String>,
+        remote_addr: Option<String>,
+        local_addr: Option<String>,
+        scheme: &str,
+    ) -> PyResult<Self> {
+        // Validate method
+        let _ = RustMethod::new(method)
+            .map_err(|e| MethodError::new_err((e.to_string(), "invalid_method")))?;
+        // Validate version
+        let _ = RustHttpVersion::parse(version)
+            .map_err(|e| HttpVersionError::new_err((e.to_string(), "unsupported_version")))?;
+        // Validate path starts with /
+        if !path.starts_with('/') {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "path must start with '/'"
+            ));
+        }
+
+        Ok(Self {
+            method: method.to_string(),
+            path: path.to_string(),
+            query,
+            version: version.to_string(),
+            headers: headers.unwrap_or_default(),
+            remote_addr,
+            local_addr,
+            scheme: scheme.to_string(),
+        })
+    }
+
+    #[getter]
+    fn method(&self) -> &str {
+        &self.method
+    }
+
+    #[getter]
+    fn path(&self) -> &str {
+        &self.path
+    }
+
+    #[getter]
+    fn query(&self) -> Option<&str> {
+        self.query.as_deref()
+    }
+
+    #[getter]
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    #[getter]
+    fn headers(&self) -> Vec<(String, String)> {
+        self.headers.clone()
+    }
+
+    #[getter]
+    fn remote_addr(&self) -> Option<&str> {
+        self.remote_addr.as_deref()
+    }
+
+    #[getter]
+    fn local_addr(&self) -> Option<&str> {
+        self.local_addr.as_deref()
+    }
+
+    #[getter]
+    fn scheme(&self) -> &str {
+        &self.scheme
+    }
+
+    #[getter]
+    fn is_head(&self) -> bool {
+        self.method == "HEAD"
+    }
+
+    #[getter]
+    fn is_get(&self) -> bool {
+        self.method == "GET"
+    }
+
+    fn header_block(&self) -> PyResult<PyHeaderBlock> {
+        let mut inner = RustHeaderBlock::new();
+        for (name, value) in &self.headers {
+            inner.push_str(name.as_str(), value.as_str())
+                .map_err(|e| HeaderError::new_err((e.to_string(), "invalid_header")))?;
+        }
+        Ok(PyHeaderBlock { inner })
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "CanonicalRequest(method={:?}, path={:?}, version={:?})",
+            self.method, self.path, self.version
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Standalone functions (continued)
+// ---------------------------------------------------------------------------
+
+#[pyfunction]
+#[pyo3(name = "parse_method")]
+fn parse_method_fn(value: &str) -> PyResult<PyMethod> {
+    PyMethod::py_new(value)
+}
+
+#[pyfunction]
+#[pyo3(name = "parse_http_version")]
+fn parse_http_version_fn(value: &str) -> PyResult<PyHttpVersion> {
+    PyHttpVersion::py_new(value)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EggserveError", m.py().get_type::<EggserveError>())?;
@@ -1003,10 +1480,11 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "ResponseConstructionError",
         m.py().get_type::<ResponseConstructionError>(),
     )?;
-    m.add(
-        "LifecycleError",
-        m.py().get_type::<LifecycleError>(),
-    )?;
+    m.add("LifecycleError", m.py().get_type::<LifecycleError>())?;
+    m.add("MethodError", m.py().get_type::<MethodError>())?;
+    m.add("HttpVersionError", m.py().get_type::<HttpVersionError>())?;
+    m.add("HeaderError", m.py().get_type::<HeaderError>())?;
+    m.add("DuplicateHeaderError", m.py().get_type::<DuplicateHeaderError>())?;
 
     m.add_class::<PyPathPolicy>()?;
     m.add_class::<PyStaticPolicy>()?;
@@ -1018,10 +1496,18 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyResponsePlan>()?;
     m.add_class::<PyBodySource>()?;
 
+    m.add_class::<PyMethod>()?;
+    m.add_class::<PyHttpVersion>()?;
+    m.add_class::<PyHeaderBlock>()?;
+    m.add_class::<PyConnectionInfo>()?;
+    m.add_class::<PyCanonicalRequest>()?;
+
     m.add_function(wrap_pyfunction!(validate_method_fn, m)?)?;
     m.add_function(wrap_pyfunction!(validate_request_body_fn, m)?)?;
     m.add_function(wrap_pyfunction!(validate_request_target_fn, m)?)?;
     m.add_function(wrap_pyfunction!(generate_etag_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_method_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(parse_http_version_fn, m)?)?;
 
     m.add_class::<server::PyRequest>()?;
     m.add_class::<server::PyResponse>()?;

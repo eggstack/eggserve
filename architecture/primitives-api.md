@@ -12,7 +12,13 @@ The `primitives` module is the intended public boundary for embedding consumers.
 |--------|------|---------|
 | `mod.rs` | `primitives/mod.rs` | Re-exports all public types |
 | `secure_root.rs` | `primitives/secure_root.rs` | `SecureRoot`, `ResolvedFile`, `ResolvedDirectory`, `ResolvedResource` |
-| `http.rs` | `primitives/http.rs` | `ReadOnlyMethod`, request validation functions |
+| `http.rs` | `primitives/http.rs` | `ReadOnlyMethod`, request validation functions (legacy) |
+| `method.rs` | `primitives/method.rs` | `Method`: validated HTTP method (standard + extension) |
+| `version.rs` | `primitives/version.rs` | `HttpVersion`: HTTP/1.0, HTTP/1.1 |
+| `header_block.rs` | `primitives/header_block.rs` | `HeaderBlock`: duplicate-preserving ordered headers |
+| `request_target.rs` | `primitives/request_target.rs` | `RequestTarget`: validated origin-form target |
+| `request_head.rs` | `primitives/request_head.rs` | `RequestHead`: canonical request head with Hyper conversion |
+| `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`: transport metadata |
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
@@ -212,6 +218,12 @@ The `primitives` module is the **stable** tier. Breaking changes bump the major 
 | `ClientResponse` | Rust, Python | Implemented, experimental | Status, headers, body (fully buffered with max-bytes enforcement) | Response consumption |
 | `ClientError` | Rust, Python | Implemented, experimental | 12-variant taxonomy: InvalidUrl, UnsupportedScheme, Timeout, TlsError, etc. | Structured error handling |
 | `Scheme` / `ParsedUrl` | Rust | Implemented, experimental | Hand-parsed URL validation, no new dependency | URL validation |
+| `Method` | Rust, Python | Implemented, experimental | Validated HTTP method; standard + extension; token validation | Canonical method identity |
+| `HttpVersion` | Rust, Python | Implemented, experimental | HTTP/1.0, HTTP/1.1 | Canonical version identity |
+| `HeaderBlock` | Rust, Python | Implemented, experimental | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation | Canonical header collection |
+| `RequestTarget` | Rust | Implemented, experimental | Validated origin-form target (path + query) | Canonical request target |
+| `RequestHead` | Rust | Implemented, experimental | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |
+| `ConnectionInfo` | Rust, Python | Implemented, experimental | Transport metadata (addrs, scheme, TLS); separate from headers | Connection-level metadata |
 
 ## Invariant checklist
 

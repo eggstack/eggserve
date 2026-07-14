@@ -46,9 +46,15 @@ pub use secure_root::{
 };
 
 pub mod body;
+pub mod connection_info;
+pub mod header_block;
 pub mod http;
+pub mod method;
 pub mod planner;
+pub mod request_head;
+pub mod request_target;
 pub mod response;
+pub mod version;
 
 #[cfg(feature = "client")]
 pub mod client;
@@ -58,18 +64,26 @@ pub use crate::path::platform::{
     check_component, has_windows_drive_prefix, is_windows_reserved_name,
 };
 pub use body::{BodyKind, BodySource, BodySourceError};
+pub use connection_info::{ConnectionInfo, Scheme, TlsInfo};
+pub use header_block::{
+    DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
+};
 pub use http::{
     validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,
     RequestValidationError,
 };
+pub use method::{Method, MethodError};
 pub use planner::{
     evaluate_conditional_headers, evaluate_if_none_match, evaluate_if_range, evaluate_range_header,
     generate_etag, plan_directory_listing, plan_file_response,
 };
+pub use request_head::RequestHead;
+pub use request_target::{RequestTarget, RequestTargetError};
 pub use response::{
     BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,
     ResponseHeader, ResponseStatus, StaticResponsePlan,
 };
+pub use version::{HttpVersion, HttpVersionError};
 
 #[cfg(test)]
 mod tests {

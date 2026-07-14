@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–046 are complete. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–047 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
 
 ## Non-negotiables
 
@@ -43,6 +43,12 @@ eggserve/
 │   │       │   ├── mod.rs          # re-exports: ConfinedPath, PathPolicy, StaticPolicy, etc.
 │   │       │   ├── secure_root.rs  # SecureRoot, ResolvedResource, ResolvedFile, ResolvedDirectory
 │   │       │   ├── http.rs         # request validation: ReadOnlyMethod, validate_method/body/target
+│   │       │   ├── method.rs       # Method: validated HTTP method (standard + extension)
+│   │       │   ├── version.rs      # HttpVersion: HTTP/1.0, HTTP/1.1
+│   │       │   ├── header_block.rs # HeaderBlock: duplicate-preserving ordered headers
+│   │       │   ├── request_target.rs # RequestTarget: validated origin-form target
+│   │       │   ├── request_head.rs # RequestHead: canonical request (method, target, version, headers)
+│   │       │   ├── connection_info.rs # ConnectionInfo: transport metadata (addrs, scheme, TLS)
 │   │       │   ├── response.rs     # response planning types: BodyPlan, HeaderMapPlan, StaticResponsePlan
 │   │       │   ├── planner.rs      # response planner: conditional requests, range requests, ETag generation
 │   │       │   └── client/         # HTTP client primitives (behind `client` feature gate)
@@ -232,6 +238,8 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Windows**: functional but reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
+- **Two Method types**: `ReadOnlyMethod` (GET/HEAD only, stable) and `Method` (standard + extension, experimental). `ReadOnlyMethod` is used by the response planner. `Method` is the canonical type for new code.
+- **HeaderBlock is a list, not a map**: `HeaderBlock` stores headers as an ordered `Vec<HeaderField>`, preserving duplicates. `get_unique()` returns `DuplicateHeaderError` on duplicates. Python `HeaderBlock` is frozen/immutable.
 - **Response validation boundary**: Python handler-returned `Response` objects are validated in Rust via `validate_handler_response()` — status 200–999, no hop-by-hop headers, 204/304 empty bodies, no NUL/CR/LF in header values. Invalid responses fall back to 500.
 - **Typed lifecycle/response exceptions**: `LifecycleError` (double start, stop before start) and `ResponseConstructionError` (response validation failure) are typed exceptions, not generic `PyValueError`.
 - **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. Each gate declares a `triggers` field specifying which CI triggers (pull_request, push, manual_dispatch, tagged_push) apply. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation. Dirty-tree runs are refused (cannot serve as release evidence).
