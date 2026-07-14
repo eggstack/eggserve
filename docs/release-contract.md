@@ -36,14 +36,16 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | Type | Description |
 |------|-------------|
 | `Server` | Main entry point; creates via `Server::builder()` |
-| `ServerBuilder` | Configured builder for `Server` |
-| `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()` |
+| `ServerBuilder` | Configured builder for `Server`; supports `.bind()` and `.from_listener()` for existing listeners |
+| `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, keep-alive) |
 | `Service` trait | Receives `RequestHead`, returns `Result<Response, ServiceError>` |
 | `service_fn` | Create a `Service` from a closure |
 | `StaticService` | Hardened static file service implementing `Service` |
 | `ServiceError` | Per-request errors: Internal, Rejected, Panic, Timeout |
-| `ServerError` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout |
+| `ServerError` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal |
+| `LifecycleState` | Lifecycle state machine: Startup → Running → Draining → Stopped |
+| `ShutdownResult` | Returned by shutdown operations, carries final `LifecycleState` |
 
 ### Guarantees
 
@@ -54,6 +56,9 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 - Handler timeouts map to `ServiceError::Timeout`
 - Filesystem policy (symlinks, dotfiles, listing) belongs to the service, not the runtime
 - `StaticService` provides all the security properties of the built-in static handler
+- Lifecycle state transitions are race-safe: `shutdown()` and `force_shutdown()` are idempotent
+- No permit leakage: all connection semaphore permits are released on connection drop or shutdown
+- `ready()` resolves once the server is accepting connections (no false positives)
 
 ## Supported Protocol
 

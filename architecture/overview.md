@@ -78,10 +78,11 @@ HTTP Request
     │
     ▼
 ┌─────────────────────────────────────────────┐
-│ eggserve-core::server: accept loop          │
+│ eggserve-core::server: accept loop + lifecycle │
 │  • TCP accept with connection semaphore     │
 │  • Optional TLS handshake (feature-gated)   │
 │  • HTTP/1 connection via Hyper              │
+│  • Lifecycle state machine (Startup→Running→Draining→Stopped) │
 │  • Request → canonical RequestHead          │
 └─────────────────┬───────────────────────────┘
                   │
@@ -116,7 +117,7 @@ HTTP Request
 |------|---------|-----------|
 | Stable | `primitives` (facade), `primitives::http`, `primitives::planner`, `primitives::response`, `primitives::canonical` (response types + normalization) | Intended public boundary for embedding consumers |
 | Stable-ish | `config`, `limits`, `policy` | Field shapes may evolve before 1.0 |
-| Experimental | `service` (`handle_request`), `server` (`Server`, `Service` trait, `StaticService`, etc.) | Body type, async surface, and server API may change |
+| Experimental | `service` (`handle_request`), `server` (`Server`, `Service` trait, `StaticService`, `LifecycleState`, lifecycle state machine, connection tracking, etc.) | Body type, async surface, and server API may change |
 | Internal | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
 
 ## Non-Goals

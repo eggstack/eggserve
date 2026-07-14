@@ -62,7 +62,8 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `limits` | pub | stable | `Limits` resource-limit configuration |
 | `policy` | pub | stable | `StaticPolicy`, policy enums |
 | `service` | pub | experimental | `handle_request()` — HTTP handler |
-| `server` | pub | experimental | `Server`, `Service` trait, `StaticService`, etc. — runtime service boundary |
+| `server` | pub | experimental | `Server`, `Service` trait, `StaticService`, lifecycle state machine, connection tracking |
+| `server/lifecycle` | pub | experimental | `LifecycleState` — lifecycle state machine |
 | `primitives` | pub | stable | Public facade for embedding consumers |
 | `error` | pub(crate) | internal | Not externally visible |
 | `fs` | pub(crate) | internal | Not externally visible |
@@ -77,8 +78,8 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | Item | Tier | Notes |
 |------|------|-------|
 | `Server` | experimental | Main entry point; `Server::builder()` returns `ServerBuilder` |
-| `ServerBuilder` | experimental | Configured builder; `.config()`, `.service()`, `.start()` |
-| `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()` |
+| `ServerBuilder` | experimental | Configured builder; `.config()`, `.service()`, `.start()`, `.bind()`, `.from_listener()` |
+| `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, keep-alive |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
 | `Service` trait | experimental | `call(RequestHead) -> Result<Response, ServiceError>` |
@@ -86,7 +87,9 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `StaticService` | experimental | Hardened static file service |
 | `StaticServiceBuilder` | experimental | Builder for StaticService |
 | `ServiceError` | experimental | Per-request errors: Internal, Rejected, Panic, Timeout |
-| `ServerError` | experimental | Startup/lifecycle errors |
+| `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal |
+| `LifecycleState` | experimental | Lifecycle state machine: Startup, Running, Draining, Stopped |
+| `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
 
 ### `config` Module
 

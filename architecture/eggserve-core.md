@@ -21,6 +21,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
 | `primitives/client/` | **pub** (feature-gated: `client`) | HTTP client primitives: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse` |
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
+| `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Startup → Running → Draining → Stopped) |
 
 ## Key Types
 
@@ -106,6 +107,8 @@ let handle = Server::builder()
 
 `Server::builder()` returns a `ServerBuilder`. Configure with `.config()` and `.service()`, then `.start()` to begin listening. Returns a `ServerHandle`.
 
+`ServerBuilder` also supports `.bind()` for passing a pre-bound `TcpListener` or `UnixListener` directly, and `.from_listener()` for constructing from an existing listener with additional configuration.
+
 ### `RuntimeConfig`
 
 Transport-level configuration separate from service-level concerns (`ServeConfig`):
@@ -156,11 +159,15 @@ Control handle returned by `Server::start()`:
 - `shutdown()` — trigger graceful shutdown
 - `wait()` — wait for server to finish
 - `wait_timeout()` — wait with timeout
+- `ready()` — wait for server to be ready to accept connections
+- `force_shutdown()` — immediately terminate without draining
+- `state()` — query current `LifecycleState`
 
 ### Error Types
 
-- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, Accept, ShutdownTimeout)
+- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal)
 - `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout)
+- `ShutdownResult` — returned by shutdown operations, carries final `LifecycleState`
 
 ## Dependencies
 

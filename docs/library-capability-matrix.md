@@ -66,7 +66,7 @@ constrained vocabulary.
 | Generic byte responses | — | stable | stable | — | stable | — | — | stable | — |
 | Duplicate headers | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Callback handlers | — | — | — | — | stable | — | — | stable | — |
-| Existing-listener support | planned | planned | planned | planned | planned | — | planned | planned | — |
+| Existing-listener support | planned | planned | planned | experimental | planned | — | planned | planned | — |
 | Graceful shutdown | stable | — | — | experimental | stable | — | stable | stable | — |
 | Observability hooks | planned | planned | planned | planned | planned | — | planned | planned | — |
 | Redirects | — | — | — | — | — | — | — | — | — |

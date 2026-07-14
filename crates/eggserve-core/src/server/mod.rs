@@ -13,6 +13,12 @@
 //!     .build()?
 //!     .start()
 //!     .await?;
+//!
+//! handle.ready().await?;
+//! // server is accepting connections
+//!
+//! handle.shutdown().await?;
+//! // server drains and stops
 //! ```
 //!
 //! The runtime owns:
@@ -22,7 +28,9 @@
 //! - Response normalization
 //! - Timeout enforcement
 //! - Connection and file-stream permits
-//! - Graceful shutdown
+//! - Connection/task tracking
+//! - Graceful shutdown with drain deadline
+//! - Forced shutdown with task cancellation
 //!
 //! Services own:
 //! - Request handling logic
@@ -39,17 +47,21 @@
 //! - [`StaticService`] — hardened static file service
 //! - [`ServerError`] — startup and lifecycle errors
 //! - [`ServiceError`] — per-request service errors
+//! - [`ShutdownResult`] — outcome of a shutdown operation
+//! - [`LifecycleState`] — server lifecycle state
 
 pub mod config;
 pub mod connection;
 pub mod errors;
 pub mod handle;
+pub(crate) mod lifecycle;
 pub mod service;
 pub mod static_service;
 
 pub use config::{RuntimeConfig, RuntimeConfigBuilder};
-pub use errors::ServerError;
+pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
+pub use lifecycle::LifecycleState;
 pub use service::{service_fn, Service, ServiceError, ServiceFn};
 pub use static_service::{StaticService, StaticServiceBuilder};
 
@@ -60,12 +72,13 @@ use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
 use crate::config::{ServeConfig, ServeState};
+use crate::server::lifecycle::Lifecycle;
 
 /// A reusable HTTP runtime server.
 ///
 /// The server binds a TCP listener, accepts connections, and dispatches them
 /// to a [`Service`] implementation. It owns the full connection lifecycle:
-/// parsing, normalization, timeouts, and graceful shutdown.
+/// parsing, normalization, timeouts, connection tracking, and graceful shutdown.
 ///
 /// # Example
 ///
@@ -88,7 +101,12 @@ use crate::config::{ServeConfig, ServeState};
 ///     .build()?;
 ///
 /// let handle = server.start().await?;
+/// handle.ready().await?;
 /// println!("listening on {}", handle.local_addr());
+///
+/// // ... serve requests ...
+///
+/// handle.shutdown().await?;
 /// handle.wait().await?;
 /// # Ok(())
 /// # }
@@ -96,6 +114,17 @@ use crate::config::{ServeConfig, ServeState};
 pub struct Server {
     config: RuntimeConfig,
     serve_config: Arc<ServeConfig>,
+    lifecycle: Arc<Lifecycle>,
+    listener_source: Option<ListenerSource>,
+}
+
+/// Source for the TCP listener.
+#[derive(Debug)]
+enum ListenerSource {
+    /// Bind to this address on start.
+    Bind(std::net::SocketAddr),
+    /// Use this pre-bound listener.
+    Listener(TcpListener),
 }
 
 impl Server {
@@ -104,6 +133,7 @@ impl Server {
         ServerBuilder {
             runtime_config: None,
             serve_config: None,
+            listener_source: None,
         }
     }
 }
@@ -125,6 +155,7 @@ impl Server {
 pub struct ServerBuilder {
     runtime_config: Option<RuntimeConfig>,
     serve_config: Option<Arc<ServeConfig>>,
+    listener_source: Option<ListenerSource>,
 }
 
 impl ServerBuilder {
@@ -140,6 +171,35 @@ impl ServerBuilder {
     /// is derived from the serve config's limits and bind address.
     pub fn serve_config(mut self, config: Arc<ServeConfig>) -> Self {
         self.serve_config = Some(config);
+        self
+    }
+
+    /// Set the bind address for the listener.
+    ///
+    /// This overrides the bind address from `RuntimeConfig`. The server will
+    /// bind to this address when `start()` is called.
+    pub fn bind(mut self, addr: std::net::SocketAddr) -> Self {
+        self.listener_source = Some(ListenerSource::Bind(addr));
+        self
+    }
+
+    /// Use a pre-bound TCP listener instead of binding on start.
+    ///
+    /// The listener must already be bound to an address. The runtime will
+    /// take ownership of the listener after a successful `start()`.
+    ///
+    /// # Blocking/nonblocking
+    ///
+    /// The listener should be in nonblocking mode (as returned by
+    /// [`TcpListener::bind`] and [`TcpListener::from_std`]).
+    /// The runtime will normalize to nonblocking if needed.
+    ///
+    /// # Ownership
+    ///
+    /// After `start()`, the runtime owns the listener. The caller must not
+    /// use the listener after passing it to the builder.
+    pub fn from_listener(mut self, listener: TcpListener) -> Self {
+        self.listener_source = Some(ListenerSource::Listener(listener));
         self
     }
 
@@ -163,6 +223,8 @@ impl ServerBuilder {
         Ok(Server {
             config,
             serve_config,
+            lifecycle: Arc::new(Lifecycle::new()),
+            listener_source: self.listener_source,
         })
     }
 
@@ -180,6 +242,8 @@ impl ServerBuilder {
         Ok(Server {
             config,
             serve_config,
+            lifecycle: Arc::new(Lifecycle::new()),
+            listener_source: self.listener_source,
         })
     }
 
@@ -197,6 +261,8 @@ impl ServerBuilder {
         Ok(Server {
             config,
             serve_config,
+            lifecycle: Arc::new(Lifecycle::new()),
+            listener_source: self.listener_source,
         })
     }
 }
@@ -204,12 +270,22 @@ impl ServerBuilder {
 impl Server {
     /// Start the server with the built-in static file service.
     ///
-    /// Binds the TCP listener and begins accepting connections. Returns
-    /// a [`ServerHandle`] for controlling the running server.
+    /// Binds the TCP listener (or uses the provided pre-bound listener) and
+    /// begins accepting connections. Returns a [`ServerHandle`] for
+    /// controlling the running server.
     pub async fn start(self) -> Result<ServerHandle, ServerError> {
-        let listener = TcpListener::bind(self.config.bind)
-            .await
-            .map_err(ServerError::Bind)?;
+        self.lifecycle.start()?;
+
+        let listener = match self.listener_source {
+            Some(ListenerSource::Listener(l)) => l,
+            Some(ListenerSource::Bind(addr)) => {
+                TcpListener::bind(addr).await.map_err(ServerError::Bind)?
+            }
+            None => TcpListener::bind(self.config.bind)
+                .await
+                .map_err(ServerError::Bind)?,
+        };
+
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
         let state = Arc::new(ServeState::new(self.serve_config));
@@ -218,12 +294,29 @@ impl Server {
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let shutdown_tx_clone = shutdown_tx.clone();
+        let lifecycle = self.lifecycle.clone();
 
-        let join = tokio::spawn(async move {
-            accept_loop(listener, config, state, connection_semaphore, shutdown_rx).await;
+        let join = tokio::spawn({
+            let lifecycle = lifecycle.clone();
+            async move {
+                accept_loop(
+                    listener,
+                    config,
+                    state,
+                    connection_semaphore,
+                    shutdown_rx,
+                    lifecycle,
+                )
+                .await
+            }
         });
 
-        Ok(ServerHandle::new(local_addr, shutdown_tx_clone, join))
+        Ok(ServerHandle::new(
+            local_addr,
+            shutdown_tx_clone,
+            join,
+            lifecycle,
+        ))
     }
 
     /// Start the server with a custom service.
@@ -231,9 +324,18 @@ impl Server {
         self,
         service: S,
     ) -> Result<ServerHandle, ServerError> {
-        let listener = TcpListener::bind(self.config.bind)
-            .await
-            .map_err(ServerError::Bind)?;
+        self.lifecycle.start()?;
+
+        let listener = match self.listener_source {
+            Some(ListenerSource::Listener(l)) => l,
+            Some(ListenerSource::Bind(addr)) => {
+                TcpListener::bind(addr).await.map_err(ServerError::Bind)?
+            }
+            None => TcpListener::bind(self.config.bind)
+                .await
+                .map_err(ServerError::Bind)?,
+        };
+
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
         let state = Arc::new(ServeState::new(self.serve_config));
@@ -242,31 +344,52 @@ impl Server {
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let shutdown_tx_clone = shutdown_tx.clone();
+        let lifecycle = self.lifecycle.clone();
 
-        let join = tokio::spawn(async move {
-            accept_loop_with_service(
-                listener,
-                config,
-                state,
-                connection_semaphore,
-                service,
-                shutdown_rx,
-            )
-            .await;
+        let join = tokio::spawn({
+            let lifecycle = lifecycle.clone();
+            async move {
+                accept_loop_with_service(
+                    listener,
+                    config,
+                    state,
+                    connection_semaphore,
+                    service,
+                    shutdown_rx,
+                    lifecycle,
+                )
+                .await
+            }
         });
 
-        Ok(ServerHandle::new(local_addr, shutdown_tx_clone, join))
+        Ok(ServerHandle::new(
+            local_addr,
+            shutdown_tx_clone,
+            join,
+            lifecycle,
+        ))
     }
 }
 
 /// Accept loop for the built-in static file service.
+///
+/// Tracks spawned connection tasks for graceful drain and cleanup.
 async fn accept_loop(
     listener: TcpListener,
     config: Arc<RuntimeConfig>,
     state: Arc<ServeState>,
     connection_semaphore: Arc<tokio::sync::Semaphore>,
     mut shutdown_rx: broadcast::Receiver<()>,
-) {
+    lifecycle: Arc<Lifecycle>,
+) -> ShutdownResult {
+    // Signal that we're running (listener bound, accept loop about to poll).
+    if lifecycle.mark_running().is_err() {
+        return ShutdownResult::Clean;
+    }
+
+    // Track spawned connection tasks for graceful drain.
+    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+
     loop {
         tokio::select! {
             result = listener.accept() => {
@@ -284,7 +407,7 @@ async fn accept_loop(
                         let state = state.clone();
                         let config = config.clone();
 
-                        tokio::spawn(async move {
+                        let join = tokio::spawn(async move {
                             let _permit = permit;
                             let io = TokioIo::new(stream);
                             let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
@@ -297,6 +420,7 @@ async fn accept_loop(
                             });
                             connection::serve_connection(io, svc, &config, &mut shutdown_rx).await;
                         });
+                        tasks.push(join);
                     }
                     Err(_e) => {}
                 }
@@ -305,6 +429,32 @@ async fn accept_loop(
                 break;
             }
         }
+    }
+
+    // Transition to Draining.
+    let _ = lifecycle.drain();
+
+    // Wait for in-flight connections to drain.
+    let drain_timeout = config.graceful_shutdown_timeout;
+    let deadline = tokio::time::Instant::now() + drain_timeout;
+
+    for task in tasks.drain(..) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let _ = tokio::time::timeout(remaining, task).await;
+    }
+
+    // Any remaining tasks are aborted by being dropped here.
+    let timed_out = !tasks.is_empty();
+
+    let _ = lifecycle.mark_stopped();
+
+    if timed_out {
+        ShutdownResult::Timeout
+    } else {
+        ShutdownResult::Clean
     }
 }
 
@@ -316,8 +466,17 @@ async fn accept_loop_with_service<S: Service>(
     connection_semaphore: Arc<tokio::sync::Semaphore>,
     service: S,
     mut shutdown_rx: broadcast::Receiver<()>,
-) {
+    lifecycle: Arc<Lifecycle>,
+) -> ShutdownResult {
     let service = Arc::new(service);
+
+    // Signal that we're running.
+    if lifecycle.mark_running().is_err() {
+        return ShutdownResult::Clean;
+    }
+
+    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+
     loop {
         tokio::select! {
             result = listener.accept() => {
@@ -336,7 +495,7 @@ async fn accept_loop_with_service<S: Service>(
                         let config = config.clone();
                         let service = service.clone();
 
-                        tokio::spawn(async move {
+                        let join = tokio::spawn(async move {
                             let _permit = permit;
                             let io = TokioIo::new(stream);
                             connection::serve_connection_with_service(
@@ -347,6 +506,7 @@ async fn accept_loop_with_service<S: Service>(
                                 &mut shutdown_rx,
                             ).await;
                         });
+                        tasks.push(join);
                     }
                     Err(_e) => {}
                 }
@@ -355,6 +515,29 @@ async fn accept_loop_with_service<S: Service>(
                 break;
             }
         }
+    }
+
+    let _ = lifecycle.drain();
+
+    let drain_timeout = config.graceful_shutdown_timeout;
+    let deadline = tokio::time::Instant::now() + drain_timeout;
+
+    for task in tasks.drain(..) {
+        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining.is_zero() {
+            break;
+        }
+        let _ = tokio::time::timeout(remaining, task).await;
+    }
+
+    let timed_out = !tasks.is_empty();
+
+    let _ = lifecycle.mark_stopped();
+
+    if timed_out {
+        ShutdownResult::Timeout
+    } else {
+        ShutdownResult::Clean
     }
 }
 

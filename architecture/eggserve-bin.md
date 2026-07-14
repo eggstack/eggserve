@@ -30,18 +30,44 @@ pub fn run() -> Result<(), Box<dyn std::error::Error>>
 
 ## Accept Loop Architecture
 
+The non-TLS path delegates to `ServerBuilder`/`ServerHandle` from `eggserve-core::server`, which manages the accept loop, connection semaphore, lifecycle state machine, and graceful shutdown internally. The TLS path retains its own accept loop with per-connection TLS handshake via rustls.
+
+### Non-TLS path (uses core server)
+
 ```
 ┌─────────────────────────────────────────────┐
-│ accept_loop()                               │
+│ ServerBuilder::start() → ServerHandle       │
+│  • TCP accept with connection semaphore     │
+│  • Lifecycle state machine                  │
+│  • Spawn Tokio task per connection          │
+│  • On shutdown signal: drain and stop       │
+└─────────────────┬───────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────┐
+│ serve_connection()                          │
+│  • Read headers with header_read_timeout    │
+│  • Call handle_request() from eggserve-core │
+│  • Write response with response_write_timeout│
+│  • Drop semaphore permit on completion      │
+└─────────────────────────────────────────────┘
+```
+
+### TLS path (own accept loop)
+
+```
+┌─────────────────────────────────────────────┐
+│ accept_loop() with TLS                      │
 │  • Accept TCP connections                   │
 │  • Acquire semaphore permit (connection limit)│
+│  • TLS handshake per connection             │
 │  • Spawn Tokio task per connection          │
 │  • On shutdown signal: break loop           │
 └─────────────────┬───────────────────────────┘
                   │
                   ▼
 ┌─────────────────────────────────────────────┐
-│ serve_connection()                          │
+│ serve_connection_tls()                      │
 │  • Read headers with header_read_timeout    │
 │  • Call handle_request() from eggserve-core │
 │  • Write response with response_write_timeout│
