@@ -86,6 +86,15 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 
 **All server module items are experimental.** API is subject to change without notice.
 
+**Milestone 3 promotion decision:** The `server` module remains experimental for the initial release. While the lifecycle state machine, `Service` trait, and `StaticService` are implemented and tested, the following factors justify keeping the module experimental:
+
+1. No production-path consumer fixtures exist yet (only test consumers)
+2. The `Service` trait signature may evolve to support request bodies or HTTP/2
+3. `RuntimeConfig` field set may change as more transport options are added
+4. The Python `Server` projects onto this API but uses its own transport layer, not the Rust `Server` directly
+
+Promotion to stable requires: production-path consumer fixtures, real-socket parity matrix passing, installed-wheel matrix passing, and lifecycle stress tests showing no leaks.
+
 | Item | Tier | Notes |
 |------|------|-------|
 | `Server` | experimental | Main entry point; `Server::builder()` returns `ServerBuilder` |

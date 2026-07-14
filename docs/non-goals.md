@@ -24,5 +24,6 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
 - **No WebSocket or upgrade support** — The runtime does not support protocol upgrades.
 - **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.
+- **No Python existing-socket support** — Passing an already-bound Python socket to the native `Server` is deferred. Rust supports `from_listener()` for existing `TcpListener` ownership, but the Python bindings do not yet expose this. Ownership transfer semantics differ across platforms and would require careful descriptor/handle duplication. This capability may be added in a future milestone if cross-platform safety can be ensured.
 
 > These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally.

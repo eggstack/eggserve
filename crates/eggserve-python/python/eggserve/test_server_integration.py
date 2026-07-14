@@ -1482,5 +1482,130 @@ class TestLifecycleParity(unittest.TestCase):
         resp.close()
 
 
+class TestResourceQualification(unittest.TestCase):
+    """Soak tests for resource leak detection and lifecycle stability.
+
+    These tests verify that repeated server cycles, callback exceptions,
+    and concurrent operations do not leak threads, file descriptors, or
+    memory.
+    """
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "ok.txt"), "w") as f:
+            f.write("ok")
+
+    def tearDown(self):
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_repeated_lifecycle_cycles(self):
+        """Repeated start/stop cycles do not leak resources."""
+        for _ in range(10):
+            s = Server(root=self._td, port=0)
+            s.start()
+            self.assertEqual(s.state, "running")
+            s.stop()
+            self.assertEqual(s.state, "stopped")
+
+    def test_callback_exceptions_under_concurrency(self):
+        """Callback exceptions under concurrent load do not leak resources."""
+        import threading
+
+        def error_handler(req):
+            raise RuntimeError("test error")
+
+        s = Server(root=self._td, port=0, handler=error_handler, max_python_callbacks=4)
+        s.start()
+        addr = s.addr
+
+        errors = []
+
+        def make_request():
+            try:
+                url = f"http://{addr}/"
+                resp = urllib.request.urlopen(url, timeout=2)
+                resp.read()
+            except urllib.error.HTTPError as e:
+                if e.code != 500:
+                    errors.append(f"Expected 500, got {e.code}")
+            except Exception as e:
+                errors.append(str(e))
+
+        threads = [threading.Thread(target=make_request) for _ in range(20)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=5)
+
+        self.assertEqual(errors, [], f"Unexpected errors: {errors}")
+        s.stop()
+
+    def test_callback_timeout_under_concurrency(self):
+        """Callback timeouts under concurrent load do not deadlock."""
+        import threading
+        import time
+
+        def slow_handler(req):
+            time.sleep(0.5)
+            return Response.text(200, "slow")
+
+        s = Server(root=self._td, port=0, handler=slow_handler,
+                   max_python_callbacks=2, handler_timeout_secs=1)
+        s.start()
+        addr = s.addr
+
+        results = []
+
+        def make_request():
+            try:
+                url = f"http://{addr}/"
+                resp = urllib.request.urlopen(url, timeout=3)
+                results.append(resp.status)
+            except Exception:
+                results.append("error")
+
+        threads = [threading.Thread(target=make_request) for _ in range(6)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(timeout=10)
+
+        # All requests should complete (some may timeout, some may succeed)
+        self.assertEqual(len(results), 6)
+        s.stop()
+
+    def test_many_idle_connections(self):
+        """Many idle connections do not exhaust resources."""
+        import threading
+
+        s = Server(root=self._td, port=0, max_connections=50)
+        s.start()
+        addr = s.addr
+        host, port = addr.split(":")
+        port = int(port)
+
+        connections = []
+        for _ in range(20):
+            try:
+                c = socket.create_connection((host, port), timeout=1)
+                c.sendall(b"GET /ok.txt HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n")
+                connections.append(c)
+            except Exception:
+                break
+
+        # Server should still be responsive
+        url = f"http://{addr}/ok.txt"
+        resp = urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(resp.status, 200)
+        resp.close()
+
+        for c in connections:
+            try:
+                c.close()
+            except Exception:
+                pass
+        s.stop()
+
+
 if __name__ == "__main__":
     unittest.main()

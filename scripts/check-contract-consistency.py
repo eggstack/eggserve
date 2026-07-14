@@ -582,6 +582,88 @@ def check_trigger_policy_consistency(repo_root: Path) -> list[str]:
     return errors
 
 
+def check_python_server_defaults(repo_root: Path) -> list[str]:
+    """Validate that Python Server constructor defaults are documented and consistent.
+
+    Checks that:
+    - docs/python-api.md documents the Python Server constructor defaults
+    - Documented defaults match the actual code defaults in server.rs
+    - Any differences from Rust/CLI defaults are documented as intentional
+    """
+    errors: list[str] = []
+
+    # Read the Python API docs
+    docs_text = _read(repo_root, "docs/python-api.md")
+    if docs_text is None:
+        errors.append("docs/python-api.md not found")
+        return errors
+
+    # Check that the defaults table exists
+    if "Default parity with Rust/CLI" not in docs_text:
+        errors.append(
+            "docs/python-api.md: missing 'Default parity with Rust/CLI' section "
+            "documenting Python vs Rust default differences"
+        )
+
+    # Read the Rust server.rs to extract Python Server constructor defaults
+    server_rs = _read(repo_root, "crates/eggserve-python/src/server.rs")
+    if server_rs is None:
+        errors.append("crates/eggserve-python/src/server.rs not found")
+        return errors
+
+    # Extract default values from the #[pyo3(signature)] attribute
+    import re
+    # Find the PyServer constructor signature line
+    sig_text = None
+    for line in server_rs.split('\n'):
+        if 'pyo3(signature' in line and 'max_connections' in line:
+            m = re.search(r'#\[pyo3\(signature\s*=\s*\((.+)\)\)\]', line)
+            if m:
+                sig_text = m.group(1)
+            break
+
+    if sig_text is None:
+        errors.append("server.rs: PyServer #[pyo3(signature)] attribute not found")
+        return errors
+
+    # Parse parameter defaults from the signature
+    defaults: dict[str, str] = {}
+    for param in sig_text.split(','):
+        param = param.strip()
+        if '=' in param:
+            name, value = param.split('=', 1)
+            defaults[name.strip()] = value.strip()
+
+    # Validate that documented defaults match code defaults
+    expected_defaults = {
+        "bind": '"127.0.0.1"',
+        "port": "8000",
+        "public": "false",
+        "max_connections": "100",
+        "max_file_streams": "64",
+        "max_python_callbacks": "8",
+        "header_timeout_secs": "10",
+        "write_timeout_secs": "30",
+        "handler_timeout_secs": "30",
+        "graceful_shutdown_timeout_secs": "10",
+    }
+
+    for param, expected_value in expected_defaults.items():
+        if param in defaults:
+            actual_value = defaults[param]
+            if actual_value != expected_value:
+                errors.append(
+                    f"server.rs default mismatch: {param}={actual_value} "
+                    f"but expected {expected_value}"
+                )
+        else:
+            # Optional params like policy and handler don't have defaults
+            if param not in ("policy", "handler"):
+                errors.append(f"server.rs: parameter '{param}' not found in signature")
+
+    return errors
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
@@ -596,6 +678,7 @@ def main() -> int:
         ("No stale deferred claims", check_no_stale_deferred_claims),
         ("Workflow/criteria cross-validation", check_workflow_criteria_cross_validation),
         ("Trigger policy consistency", check_trigger_policy_consistency),
+        ("Python server defaults", check_python_server_defaults),
     ]
 
     total_errors = 0

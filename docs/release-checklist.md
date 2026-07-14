@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 39
+Total gates: 43
 
 ## Preflight
 
@@ -26,6 +26,7 @@ Total gates: 39
 |---------|-------|----------|----------------|--------|----------|
 | `conformance.canonical-http-corpus-python` | Python canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.canonical-http-corpus-rust` | Rust canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
+| `conformance.canonical-wire-interop` | Canonical HTTP wire interop tests | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.fuzz-corpus-replay` | Milestone 2 fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.generated-api-inventory` | Generated API inventory consistency | yes | ci-log, lint-output | PENDING | TBD |
 | `conformance.perf-regression-report` | Performance regression benchmark report | yes | ci-log, test-output | PENDING | TBD |
@@ -39,7 +40,10 @@ Total gates: 39
 | `python.api-stability` | Python API stability tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.boundary-hardening` | Python boundary hardening tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.client-primitives` | Python client primitives tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.contract-consistency` | Contract consistency validation | yes | ci-log, lint-output | PENDING | TBD |
+| `python.lifecycle-parity` | Python lifecycle parity tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.native-tests` | Python native primitives tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.resource-qualification` | Python resource qualification soak tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.server-integration` | Python server integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.server-primitives` | Python server primitives tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.unit-tests` | Python source-only unit tests | yes | ci-log, test-output | PENDING | TBD |
@@ -66,7 +70,7 @@ Total gates: 39
 
 ## Summary
 
-- PENDING: 39
+- PENDING: 43
 
 ## Platform Support
 

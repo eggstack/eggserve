@@ -58,6 +58,7 @@ cp "$SCRIPT_DIR"/test_imports.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/test_server_smoke.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/test_client_smoke.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/test_cli_smoke.py "$WORK_DIR/"
+cp "$SCRIPT_DIR"/test_lifecycle_smoke.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/../python/eggserve/test_api_stability.py "$WORK_DIR/"
 cp "$SCRIPT_DIR"/../python/eggserve/test_boundary_hardening.py "$WORK_DIR/"
 
@@ -66,7 +67,7 @@ echo ""
 echo "--- Running smoke tests ---"
 echo ""
 
-TESTS=("test_imports.py" "test_server_smoke.py" "test_client_smoke.py" "test_cli_smoke.py" "test_api_stability.py" "test_boundary_hardening.py")
+TESTS=("test_imports.py" "test_server_smoke.py" "test_client_smoke.py" "test_cli_smoke.py" "test_lifecycle_smoke.py" "test_api_stability.py" "test_boundary_hardening.py")
 PASSED=0
 FAILED=0
 FAILURES=()

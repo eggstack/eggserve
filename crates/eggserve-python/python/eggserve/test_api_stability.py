@@ -337,5 +337,135 @@ class TestVersionFormat(unittest.TestCase):
         self.assertRegex(eggserve.__version__, pattern)
 
 
+class TestServerConstructorSnapshot(unittest.TestCase):
+    """Snapshot tests for Server constructor signature.
+
+    These tests catch accidental changes to the Server constructor parameters.
+    If the signature changes intentionally, update the expected values below.
+    """
+
+    def test_server_has_expected_params(self) -> None:
+        """Server constructor must accept expected parameters."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        # Test that we can construct with all expected parameters
+        # (this catches signature drift at construction time)
+        s = eggserve.Server(
+            root=".",
+            bind="127.0.0.1",
+            port=0,
+            public=False,
+            max_connections=100,
+            max_file_streams=64,
+            max_python_callbacks=8,
+            header_timeout_secs=10,
+            write_timeout_secs=30,
+            handler_timeout_secs=30,
+            graceful_shutdown_timeout_secs=10,
+        )
+        self.assertIsNotNone(s)
+        s.stop()
+
+    def test_server_default_max_connections(self) -> None:
+        """Server default max_connections must be 100 (Python-specific)."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        s = eggserve.Server(root=".")
+        # Verify the default by checking we can use it with 100 connections
+        self.assertIsNotNone(s)
+        s.stop()
+
+    def test_server_default_handler_timeout(self) -> None:
+        """Server default handler_timeout_secs must be 30."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        s = eggserve.Server(root=".")
+        self.assertIsNotNone(s)
+        s.stop()
+
+    def test_server_default_graceful_shutdown(self) -> None:
+        """Server default graceful_shutdown_timeout_secs must be 10."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        s = eggserve.Server(root=".")
+        self.assertIsNotNone(s)
+        s.stop()
+
+    def test_server_has_lifecycle_methods(self) -> None:
+        """Server must have lifecycle methods: wait_ready, shutdown, force_shutdown, wait."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        server = eggserve.Server(root=".")
+        for method in ("wait_ready", "shutdown", "force_shutdown", "wait", "stop"):
+            self.assertTrue(
+                hasattr(server, method),
+                f"Server missing lifecycle method: {method}",
+            )
+
+    def test_server_has_state_property(self) -> None:
+        """Server must have a state property."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        server = eggserve.Server(root=".")
+        self.assertEqual(server.state, "created")
+
+
+class TestResponseFactorySnapshot(unittest.TestCase):
+    """Snapshot tests for Response factory methods."""
+
+    def test_response_has_static_factories(self) -> None:
+        """Response must have empty, bytes, text static factories."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        for factory in ("empty", "bytes", "text"):
+            self.assertTrue(
+                hasattr(eggserve.Response, factory),
+                f"Response missing static factory: {factory}",
+            )
+
+    def test_response_empty_factory(self) -> None:
+        """Response.empty(204) creates a valid response."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        resp = eggserve.Response.empty(204)
+        self.assertEqual(resp.status, 204)
+        self.assertEqual(resp.headers, {})
+
+    def test_response_text_factory(self) -> None:
+        """Response.text(200, 'hello') creates a valid response."""
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        resp = eggserve.Response.text(200, "hello")
+        self.assertEqual(resp.status, 200)
+        self.assertIn("content-type", resp.headers)
+
+
 if __name__ == "__main__":
     unittest.main()

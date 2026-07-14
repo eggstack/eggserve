@@ -288,6 +288,17 @@ with Server(root=root, handler=handler) as server:
 
 Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10)`
 
+**Default parity with Rust/CLI:** Python defaults intentionally differ from Rust `RuntimeConfig` defaults for Python-specific workloads:
+
+| Parameter | Python default | Rust/CLI default | Reason |
+|-----------|---------------|------------------|--------|
+| `max_connections` | 100 | 64 | Higher concurrency for callback-heavy workloads |
+| `max_file_streams` | 64 | 32 | Higher file-stream concurrency for mixed static/callback serving |
+| `write_timeout_secs` | 30 | 60 | Lower write timeout for more responsive Python callbacks |
+| `header_timeout_secs` | 10 | 10 | Same |
+| `handler_timeout_secs` | 30 | 30 | Same |
+| `graceful_shutdown_timeout_secs` | 10 | 10 | Same |
+
 Parameters:
 - `root` — server root directory path (string)
 - `bind` — bind address (default: "127.0.0.1")
@@ -321,6 +332,8 @@ When `handler` is provided, the server calls `handler(request)` for each request
 Handler timeout (`handler_timeout_secs`) is best-effort in Python — enforced at the transport level by the Rust server, not by a Python-side timer. If the handler does not return within the deadline, the connection is closed.
 
 The server enforces connection limits, header read timeouts, and response write timeouts. Binding to 0.0.0.0 or :: requires `public=True`.
+
+**Observability hooks:** The `Server` provides minimal observability via `state` and `addr` properties. Active connection/stream counters are not exposed as public API — they are internal to the Rust runtime and may be added as test-only instrumentation in a future milestone if needed for lifecycle verification.
 
 ### `ServerSecureRoot`
 

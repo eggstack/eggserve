@@ -174,6 +174,13 @@ Searches for the `eggserve` binary in:
 
 6. **File streaming bypasses Python** — File bodies are streamed directly from Rust to the socket. The handler boundary clones the file capability when necessary but does not read the file into Python memory, keeping memory usage low and avoiding GIL contention.
 
+7. **Flat constructor API (Track A decision)** — The Python `Server` uses a flat constructor signature (`root`, `bind`, `port`, `policy`, `handler`, `public`, `max_connections`, ...) rather than a `ServerConfig` + `StaticService` composition pattern. This was a deliberate decision for Plan 053:
+   - **Simpler API surface** — one class with explicit parameters is more Pythonic than nested config objects
+   - **No naming confusion** — `ServerSecureRoot`, `StaticResponder`, and `Response` are retained rather than renamed to `SecureRoot`/`StaticService`
+   - **Backward compatible** — existing code continues to work without migration
+   - **Validation at construction** — all parameter validation happens in `__init__`, not deferred to `start()`
+   - **Defaults match Rust/CLI** — every default value corresponds to the Rust `RuntimeConfig` default
+
 ## Build & Test
 
 ```sh

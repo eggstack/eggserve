@@ -222,6 +222,18 @@ jobs:
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_api_consumers -v
+      - name: Test lifecycle parity
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_parity_matrix -v
+      - name: Test resource qualification
+        env:
+          PYTHONPATH: ""
+        run: python -m unittest eggserve.test_server_integration.TestResourceQualification -v
+      - name: Test contract consistency
+        env:
+          PYTHONPATH: ""
+        run: python3 scripts/check-contract-consistency.py
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

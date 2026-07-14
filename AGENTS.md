@@ -88,8 +88,11 @@ eggserve/
 │           ├── _bin.py     # locates and executes packaged binary
 │           ├── server.py   # Python API: ServeConfig, StaticPolicy, serve_directory, ServerProcess
 │           ├── test_primitives.py # native primitives tests (143 tests)
-│           ├── test_server_primitives.py # server primitives tests (56 tests)
-│           ├── test_server_integration.py # live concurrency/timeout/shutdown tests (47 tests)
+│           ├── test_server_primitives.py # server primitives tests (64 tests)
+│           ├── test_server_integration.py # live concurrency/timeout/shutdown tests (51 tests)
+│           ├── test_parity_matrix.py # real-socket parity matrix tests (28 tests)
+│           ├── test_canonical_conformance.py # canonical HTTP type conformance tests
+│           ├── test_api_stability.py # API stability/snapshot tests (61 tests)
 │           └── test_server.py     # subprocess API tests (43 tests)
 ├── architecture/           # deep-dive docs for each subsystem
 ├── docs/                   # project documentation
