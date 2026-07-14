@@ -163,6 +163,48 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 8. Write timeout enforcement
 9. Permit release and connection termination
 
+## Python lifecycle mapping
+
+The Python `Server` class (`crates/eggserve-python/src/server.rs`) wraps the
+Rust `Server`/`ServerHandle` lifecycle:
+
+| Python                      | Rust                            |
+|-----------------------------|---------------------------------|
+| `Server(config)`           | `Server::builder().build()`     |
+| `server.start()`           | `server.start().await`          |
+| `handle.ready()`           | `handle.ready().await`          |
+| `handle.shutdown()`        | `handle.shutdown()`             |
+| `handle.force_shutdown(d)` | `handle.force_shutdown(d).await`|
+| `handle.wait()`            | `handle.wait().await`           |
+
+Lifecycle states map directly: Python's `ServerState` enum mirrors
+`LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed).
+
+Signal handling (SIGTERM/SIGINT → graceful shutdown) is handled by the
+Python subprocess wrapper, not the Rust server. The Rust server receives
+a broadcast signal to initiate shutdown.
+
+## Platform-specific signal limitations
+
+### Unix (Linux, macOS, BSD)
+
+- SIGTERM triggers graceful shutdown (same as Ctrl+C)
+- SIGINT (Ctrl+C) triggers graceful shutdown
+- Both signals are handled via `tokio::signal::unix`
+- Signal handlers are installed once at startup
+
+### Windows
+
+- Ctrl+C (SIGINT) triggers graceful shutdown
+- SIGTERM is not supported on Windows
+- Service control events (for Windows services) are not handled
+
+### Limitations
+
+- Only one shutdown signal is handled; repeated signals do not escalate to forced shutdown
+- Signal handlers cannot be reconfigured after startup
+- Python subprocess wrappers handle signal forwarding to the Rust process
+
 ## Security Properties
 
 - Response normalization (hop-by-hop stripping, content-length computation) is runtime-owned

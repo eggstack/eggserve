@@ -69,11 +69,13 @@ pub async fn serve_connection<I, S>(
                 Ok(Err(_e)) => {}
                 Err(_elapsed) => {
                     conn.as_mut().graceful_shutdown();
+                    let _ = conn.await;
                 }
             }
         }
         _ = shutdown_rx.recv() => {
             conn.as_mut().graceful_shutdown();
+            let _ = conn.await;
         }
     }
 }

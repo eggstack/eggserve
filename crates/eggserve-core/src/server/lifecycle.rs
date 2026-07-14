@@ -34,6 +34,8 @@ use tokio::sync::{broadcast, watch};
 
 /// Server lifecycle states.
 ///
+/// This type is experimental and its API may change without notice.
+///
 /// Each state is represented as a `u8` for atomic storage.
 #[repr(u8)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

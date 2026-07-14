@@ -1,10 +1,8 @@
 use std::sync::Arc;
 
 use eggserve_core::config::ServeConfig;
-use tokio::sync::broadcast;
-
-#[cfg(not(feature = "tls"))]
 use eggserve_core::server::{RuntimeConfig, Server};
+use tokio::sync::broadcast;
 
 pub mod args;
 mod shutdown;
@@ -124,97 +122,60 @@ pub fn run() {
 
     #[cfg(feature = "tls")]
     {
+        let mut runtime_config = RuntimeConfig::from(&*serve_config);
+        runtime_config.tls_config = tls_config;
+
+        let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
+
         rt.block_on(async {
-            use std::time::Duration;
-            use hyper_util::rt::TokioIo;
-            use tokio::net::TcpListener;
-            use tokio::sync::Semaphore;
+            let server = Server::builder()
+                .runtime(runtime_config)
+                .serve_config(serve_config)
+                .build()
+                .unwrap();
 
-            use eggserve_core::config::ServeState;
-
-            let listener = TcpListener::bind(serve_config.bind).await.unwrap_or_else(|e| {
-                eprintln!("error: failed to bind to {}: {}", serve_config.bind, e);
-                std::process::exit(1);
-            });
-
-            let state = Arc::new(ServeState::new(serve_config.clone()));
-            let connection_semaphore = Arc::new(Semaphore::new(serve_config.limits.max_connections));
-
-            let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
+            let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
             tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
 
-            loop {
-                tokio::select! {
-                    result = listener.accept() => {
-                        match result {
-                            Ok((stream, _addr)) => {
-                                let permit = match connection_semaphore.clone().try_acquire_owned() {
-                                    Ok(p) => p,
-                                    Err(_) => {
-                                        drop(stream);
-                                        continue;
-                                    }
-                                };
+            match server.start().await {
+                Ok(handle) => {
+                    if !quiet {
+                        println!("Listening: https://{}", handle.local_addr());
+                    }
 
-                                let mut conn_shutdown_rx = shutdown_rx.resubscribe();
-                                let state = state.clone();
-                                let header_timeout = serve_config.limits.header_read_timeout;
-                                let write_timeout = serve_config.limits.response_write_timeout;
-                                let tls_config = tls_config.clone();
+                    let mut signal_rx = shutdown_rx;
+                    let _ = signal_rx.recv().await;
 
-                                tokio::spawn(async move {
-                                    let _permit = permit;
+                    println!(
+                        "shutting down (grace period: {}s)",
+                        shutdown_timeout.as_secs()
+                    );
+                    handle.shutdown();
 
-                                    match tls_config {
-                                        Some(tls_config) => {
-                                            let tls_accept = tokio_rustls::TlsAcceptor::from(tls_config);
-                                            match tokio::time::timeout(
-                                                header_timeout,
-                                                tls_accept.accept(stream),
-                                            )
-                                            .await
-                                            {
-                                                Ok(Ok(tls_stream)) => {
-                                                    let io = TokioIo::new(tls_stream);
-                                                    serve_connection(io, state, header_timeout, write_timeout, &mut conn_shutdown_rx).await;
-                                                }
-                                                Ok(Err(_)) => {}
-                                                Err(_) => {}
-                                            }
-                                        }
-                                        None => {
-                                            let io = TokioIo::new(stream);
-                                            serve_connection(io, state, header_timeout, write_timeout, &mut conn_shutdown_rx).await;
-                                        }
-                                    }
-                                });
-                            }
-                            Err(e) => {
-                                eprintln!("accept error: {}", e);
+                    match tokio::time::timeout(shutdown_timeout, handle.wait()).await {
+                        Ok(Ok(result)) => {
+                            if !quiet {
+                                println!("{}", result);
                             }
                         }
-                    }
-                    _ = shutdown_rx.recv() => {
-                        break;
+                        Ok(Err(e)) => {
+                            eprintln!("shutdown error: {}", e);
+                        }
+                        Err(_) => {
+                            eprintln!("shutdown timed out, forcing");
+                        }
                     }
                 }
+                Err(e) => {
+                    eprintln!("error: {}", e);
+                    std::process::exit(1);
+                }
             }
-
-            let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
-            println!(
-                "shutting down (grace period: {}s)",
-                shutdown_timeout.as_secs()
-            );
-            tokio::time::timeout(shutdown_timeout, async {
-                tokio::time::sleep(Duration::from_millis(100)).await;
-            })
-            .await
-            .ok();
         });
     }
 }
 
-#[cfg(any(feature = "tls", test))]
+#[cfg(test)]
 async fn serve_connection<I>(
     io: hyper_util::rt::TokioIo<I>,
     state: Arc<eggserve_core::config::ServeState>,

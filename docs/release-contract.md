@@ -60,6 +60,17 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 - No permit leakage: all connection semaphore permits are released on connection drop or shutdown
 - `ready()` resolves once the server is accepting connections (no false positives)
 
+### Lifecycle guarantees
+
+- Lifecycle state transitions are race-safe (atomic CAS)
+- Double-start returns `ServerError::AlreadyStarted`
+- Shutdown before start is a no-op
+- Multiple shutdown calls are idempotent
+- Dropping `ServerHandle` triggers graceful shutdown
+- `ready().await` returns immediately if already running
+- `ready().await` returns error if server failed during startup
+- `force_shutdown(deadline)` returns `ShutdownResult::Forced` on deadline exceeded
+
 ## Supported Protocol
 
 - **HTTP/1.1 only** — no HTTP/2 or HTTP/3.

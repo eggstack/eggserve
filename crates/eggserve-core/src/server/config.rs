@@ -15,6 +15,9 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+#[cfg(feature = "tls")]
+use std::sync::Arc;
+
 /// Transport-level runtime configuration.
 ///
 /// All fields have safe defaults that match or strengthen the CLI defaults.
@@ -55,6 +58,10 @@ pub struct RuntimeConfig {
     /// Server identification header value. If `Some`, added as `Server`
     /// header on responses. Default: `None`.
     pub server_header: Option<String>,
+    /// TLS server configuration. If `Some`, connections are upgraded to TLS.
+    /// Only available with the `tls` feature. Default: `None`.
+    #[cfg(feature = "tls")]
+    pub tls_config: Option<Arc<rustls::ServerConfig>>,
 }
 
 impl Default for RuntimeConfig {
@@ -70,6 +77,8 @@ impl Default for RuntimeConfig {
             keep_alive: true,
             max_in_flight_requests: None,
             server_header: None,
+            #[cfg(feature = "tls")]
+            tls_config: None,
         }
     }
 }
@@ -88,6 +97,8 @@ impl RuntimeConfig {
             keep_alive: None,
             max_in_flight_requests: None,
             server_header: None,
+            #[cfg(feature = "tls")]
+            tls_config: None,
         }
     }
 }
@@ -106,6 +117,8 @@ pub struct RuntimeConfigBuilder {
     keep_alive: Option<bool>,
     max_in_flight_requests: Option<usize>,
     server_header: Option<String>,
+    #[cfg(feature = "tls")]
+    tls_config: Option<Arc<rustls::ServerConfig>>,
 }
 
 impl RuntimeConfigBuilder {
@@ -177,6 +190,13 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the TLS server configuration.
+    #[cfg(feature = "tls")]
+    pub fn tls_config(mut self, config: Arc<rustls::ServerConfig>) -> Self {
+        self.tls_config = Some(config);
+        self
+    }
+
     /// Build the runtime configuration.
     ///
     /// # Panics
@@ -204,6 +224,8 @@ impl RuntimeConfigBuilder {
             keep_alive: self.keep_alive.unwrap_or(true),
             max_in_flight_requests: self.max_in_flight_requests,
             server_header: self.server_header,
+            #[cfg(feature = "tls")]
+            tls_config: self.tls_config,
         }
     }
 }
@@ -226,6 +248,8 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             keep_alive: true,
             max_in_flight_requests: None,
             server_header: None,
+            #[cfg(feature = "tls")]
+            tls_config: None,
         }
     }
 }

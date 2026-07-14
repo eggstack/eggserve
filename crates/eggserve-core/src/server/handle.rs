@@ -33,6 +33,8 @@ use crate::server::lifecycle::Lifecycle;
 
 /// Handle to a running server instance.
 ///
+/// This type is experimental and its API may change without notice.
+///
 /// The handle allows the caller to:
 /// - Wait for readiness (via [`ServerHandle::ready`])
 /// - Trigger graceful shutdown (via [`ServerHandle::shutdown`])

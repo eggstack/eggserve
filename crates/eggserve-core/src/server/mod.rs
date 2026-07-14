@@ -76,6 +76,8 @@ use crate::server::lifecycle::Lifecycle;
 
 /// A reusable HTTP runtime server.
 ///
+/// This type is experimental and its API may change without notice.
+///
 /// The server binds a TCP listener, accepts connections, and dispatches them
 /// to a [`Service`] implementation. It owns the full connection lifecycle:
 /// parsing, normalization, timeouts, connection tracking, and graceful shutdown.
@@ -139,6 +141,8 @@ impl Server {
 }
 
 /// Builder for constructing a [`Server`].
+///
+/// This type is experimental and its API may change without notice.
 ///
 /// # Example
 ///
@@ -409,6 +413,30 @@ async fn accept_loop(
 
                         let join = tokio::spawn(async move {
                             let _permit = permit;
+
+                            #[cfg(feature = "tls")]
+                            {
+                                if let Some(tls_config) = &config.tls_config {
+                                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
+                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout).await {
+                                        Some(tls_stream) => {
+                                            let io = TokioIo::new(tls_stream);
+                                            let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
+                                                let state = state.clone();
+                                                async move {
+                                                    Ok::<_, std::convert::Infallible>(
+                                                        crate::service::handle_request(req, &state).await,
+                                                    )
+                                                }
+                                            });
+                                            connection::serve_connection(io, svc, &config, &mut shutdown_rx).await;
+                                            return;
+                                        }
+                                        None => return,
+                                    }
+                                }
+                            }
+
                             let io = TokioIo::new(stream);
                             let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                                 let state = state.clone();
@@ -420,6 +448,7 @@ async fn accept_loop(
                             });
                             connection::serve_connection(io, svc, &config, &mut shutdown_rx).await;
                         });
+                        tasks.retain(|t| !t.is_finished());
                         tasks.push(join);
                     }
                     Err(_e) => {}
@@ -437,17 +466,20 @@ async fn accept_loop(
     // Wait for in-flight connections to drain.
     let drain_timeout = config.graceful_shutdown_timeout;
     let deadline = tokio::time::Instant::now() + drain_timeout;
+    let mut timed_out = false;
 
-    for task in tasks.drain(..) {
+    while !tasks.is_empty() {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
+            timed_out = true;
             break;
         }
-        let _ = tokio::time::timeout(remaining, task).await;
+        let mut task = tasks.pop().unwrap();
+        if tokio::time::timeout(remaining, &mut task).await.is_err() {
+            timed_out = true;
+            task.abort();
+        }
     }
-
-    // Any remaining tasks are aborted by being dropped here.
-    let timed_out = !tasks.is_empty();
 
     let _ = lifecycle.mark_stopped();
 
@@ -497,6 +529,28 @@ async fn accept_loop_with_service<S: Service>(
 
                         let join = tokio::spawn(async move {
                             let _permit = permit;
+
+                            #[cfg(feature = "tls")]
+                            {
+                                if let Some(tls_config) = &config.tls_config {
+                                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
+                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout).await {
+                                        Some(tls_stream) => {
+                                            let io = TokioIo::new(tls_stream);
+                                            connection::serve_connection_with_service(
+                                                io,
+                                                ArcService(service),
+                                                &config,
+                                                &state,
+                                                &mut shutdown_rx,
+                                            ).await;
+                                            return;
+                                        }
+                                        None => return,
+                                    }
+                                }
+                            }
+
                             let io = TokioIo::new(stream);
                             connection::serve_connection_with_service(
                                 io,
@@ -506,6 +560,7 @@ async fn accept_loop_with_service<S: Service>(
                                 &mut shutdown_rx,
                             ).await;
                         });
+                        tasks.retain(|t| !t.is_finished());
                         tasks.push(join);
                     }
                     Err(_e) => {}
@@ -521,16 +576,20 @@ async fn accept_loop_with_service<S: Service>(
 
     let drain_timeout = config.graceful_shutdown_timeout;
     let deadline = tokio::time::Instant::now() + drain_timeout;
+    let mut timed_out = false;
 
-    for task in tasks.drain(..) {
+    while !tasks.is_empty() {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
+            timed_out = true;
             break;
         }
-        let _ = tokio::time::timeout(remaining, task).await;
+        let mut task = tasks.pop().unwrap();
+        if tokio::time::timeout(remaining, &mut task).await.is_err() {
+            timed_out = true;
+            task.abort();
+        }
     }
-
-    let timed_out = !tasks.is_empty();
 
     let _ = lifecycle.mark_stopped();
 
@@ -538,6 +597,21 @@ async fn accept_loop_with_service<S: Service>(
         ShutdownResult::Timeout
     } else {
         ShutdownResult::Clean
+    }
+}
+
+/// Accept a TLS connection with timeout.
+///
+/// Returns the TLS stream on success, or `None` if the handshake failed or timed out.
+#[cfg(feature = "tls")]
+async fn accept_tls(
+    stream: tokio::net::TcpStream,
+    tls_acceptor: &tokio_rustls::TlsAcceptor,
+    timeout: std::time::Duration,
+) -> Option<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
+    match tokio::time::timeout(timeout, tls_acceptor.accept(stream)).await {
+        Ok(Ok(tls_stream)) => Some(tls_stream),
+        Ok(Err(_)) | Err(_) => None,
     }
 }
 

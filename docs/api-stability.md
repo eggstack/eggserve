@@ -71,6 +71,17 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `path` | pub(crate) | internal | Not externally visible |
 | `response` | pub(crate) | internal | Not externally visible |
 
+### Experimental (eggserve-core::server)
+
+- `LifecycleState` — lifecycle state enum
+- `Server` — runtime server
+- `ServerBuilder` — server builder
+- `ServerHandle` — control handle
+- `ShutdownResult` — shutdown outcome
+- `Service` trait — custom service abstraction
+- `service_fn` — closure-based service
+- `StaticService` / `StaticServiceBuilder` — static file service
+
 ### `server` Module
 
 **All server module items are experimental.** API is subject to change without notice.
