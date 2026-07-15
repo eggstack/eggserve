@@ -38,6 +38,7 @@ jobs:
   rust-check:
     name: gate/rust-full-${{ matrix.os }}
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -74,6 +75,7 @@ jobs:
     name: gate/supply-chain
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -98,6 +100,7 @@ jobs:
   wire-tests:
     name: gate/http-wire
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -119,6 +122,7 @@ jobs:
   production-path:
     name: gate/production-path
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -139,6 +143,7 @@ jobs:
   corpus-replay:
     name: gate/corpus-replay
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -166,6 +171,7 @@ jobs:
     name: gate/python-unit-tests
     needs: [rust-check]
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     env:
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
@@ -203,6 +209,7 @@ jobs:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_api_stability -v
       - name: Test boundary hardening
+        timeout-minutes: 5
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_boundary_hardening -v
@@ -211,6 +218,7 @@ jobs:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_client_primitives -v
       - name: Test server integration
+        timeout-minutes: 10
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_server_integration -v
@@ -227,6 +235,7 @@ jobs:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_parity_matrix -v
       - name: Test resource qualification
+        timeout-minutes: 10
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_server_integration.TestResourceQualification -v
@@ -249,6 +258,7 @@ jobs:
     if: github.event_name == 'push'
     needs: [python-unit-tests]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
@@ -292,6 +302,7 @@ jobs:
     if: github.event_name == 'push'
     needs: [rust-check]
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -317,6 +328,7 @@ jobs:
     if: github.event_name == 'push'
     needs: [rust-check]
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -371,6 +383,7 @@ jobs:
   evidence-aggregate:
     name: gate/evidence-aggregate
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     if: always()
     needs: [rust-check, supply-chain, wire-tests, production-path, corpus-replay, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
     permissions:
