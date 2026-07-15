@@ -11,6 +11,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+tokio = { version = "1", features = ["rt", "macros"] }
 
 [dependencies.eggserve-core]
 path = "../crates/eggserve-core"
@@ -120,5 +121,11 @@ doc = false
 [[bin]]
 name = "fuzz_content_length_reconciliation"
 path = "fuzz_targets/fuzz_content_length_reconciliation.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_request_body"
+path = "fuzz_targets/fuzz_request_body.rs"
 test = false
 doc = false

@@ -20,6 +20,8 @@
 use bytes::Bytes;
 use futures_util::Stream;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use super::request_body_error::RequestBodyError;
@@ -67,6 +69,10 @@ pub struct RequestBody {
     bytes_received: u64,
     state: BodyState,
     max_bytes: u64,
+    /// Shared flag indicating whether the body stream was fully consumed.
+    /// Set when the stream ends and all declared bytes (if any) have been
+    /// received. Used by the connection pipeline for incomplete-body policy.
+    consumed: Arc<AtomicBool>,
 }
 
 /// Internal body stream, hidden from public API.
@@ -109,6 +115,7 @@ impl RequestBody {
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes: u64::MAX,
+            consumed: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -124,6 +131,7 @@ impl RequestBody {
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes,
+            consumed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -145,6 +153,7 @@ impl RequestBody {
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes,
+            consumed: Arc::new(AtomicBool::new(false)),
         }
     }
 
@@ -173,6 +182,26 @@ impl RequestBody {
         self.max_bytes
     }
 
+    /// Returns a clone of the shared consumption flag.
+    ///
+    /// The flag is set when the body stream ends and all declared bytes
+    /// have been received. Used by the connection pipeline for
+    /// incomplete-body policy decisions.
+    pub fn consumed_flag(&self) -> Arc<AtomicBool> {
+        self.consumed.clone()
+    }
+
+    /// Returns `true` if the body was fully consumed (stream ended and
+    /// all declared bytes received).
+    pub fn was_fully_consumed(&self) -> bool {
+        self.consumed.load(Ordering::Acquire)
+    }
+
+    /// Mark the body as fully consumed.
+    fn mark_consumed(&self) {
+        self.consumed.store(true, Ordering::Release);
+    }
+
     /// Consume the entire body into a single `Bytes` value.
     ///
     /// This is the simplest way to consume a body. After this call,
@@ -195,6 +224,7 @@ impl RequestBody {
         match inner {
             BodyInner::Empty => {
                 self.state = BodyState::Complete;
+                self.mark_consumed();
                 Ok(Bytes::new())
             }
             BodyInner::Fixed { data, offset } => {
@@ -209,6 +239,7 @@ impl RequestBody {
                 }
                 self.bytes_received = total;
                 self.state = BodyState::Complete;
+                self.mark_consumed();
                 Ok(Bytes::copy_from_slice(remaining))
             }
             BodyInner::Incoming { mut stream } => {
@@ -228,6 +259,14 @@ impl RequestBody {
                     buf.extend_from_slice(&chunk);
                 }
                 self.state = BodyState::Complete;
+                // Mark consumed if declared length is satisfied (or absent).
+                let declared_ok = match self.declared_length {
+                    Some(declared) => self.bytes_received >= declared,
+                    None => true,
+                };
+                if declared_ok {
+                    self.mark_consumed();
+                }
                 Ok(Bytes::from(buf))
             }
         }
@@ -267,11 +306,13 @@ impl RequestBody {
         match inner {
             BodyInner::Empty => {
                 self.state = BodyState::Complete;
+                self.mark_consumed();
                 Ok(None)
             }
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
+                    self.mark_consumed();
                     return Ok(None);
                 }
                 let remaining = &data[*offset..];
@@ -313,6 +354,13 @@ impl RequestBody {
                     }
                     None => {
                         self.state = BodyState::Complete;
+                        let declared_ok = match self.declared_length {
+                            Some(declared) => self.bytes_received >= declared,
+                            None => true,
+                        };
+                        if declared_ok {
+                            self.mark_consumed();
+                        }
                         Ok(None)
                     }
                 }
@@ -328,6 +376,7 @@ impl std::fmt::Debug for RequestBody {
             .field("bytes_received", &self.bytes_received)
             .field("state", &self.state)
             .field("max_bytes", &self.max_bytes)
+            .field("consumed", &self.was_fully_consumed())
             .finish()
     }
 }
@@ -361,11 +410,13 @@ impl Stream for RequestBody {
         match inner {
             BodyInner::Empty => {
                 self.state = BodyState::Complete;
+                self.mark_consumed();
                 Poll::Ready(None)
             }
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
+                    self.mark_consumed();
                     Poll::Ready(None)
                 } else {
                     let remaining = &data[*offset..];
@@ -410,6 +461,13 @@ impl Stream for RequestBody {
                 }
                 Poll::Ready(None) => {
                     self.state = BodyState::Complete;
+                    let declared_ok = match self.declared_length {
+                        Some(declared) => self.bytes_received >= declared,
+                        None => true,
+                    };
+                    if declared_ok {
+                        self.mark_consumed();
+                    }
                     Poll::Ready(None)
                 }
                 Poll::Pending => Poll::Pending,

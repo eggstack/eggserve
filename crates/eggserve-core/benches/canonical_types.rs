@@ -7,6 +7,7 @@ use eggserve_core::primitives::canonical::{
 use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
 use eggserve_core::primitives::method::Method;
+use eggserve_core::primitives::request_body::RequestBody;
 use eggserve_core::primitives::request_head::RequestHead;
 use eggserve_core::primitives::request_target::RequestTarget;
 use eggserve_core::primitives::version::HttpVersion;
@@ -285,6 +286,63 @@ fn bench_callback_response_construction(c: &mut Criterion) {
     });
 }
 
+fn bench_body_operations(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+
+    c.bench_function("body_empty_read_all", |b| {
+        b.iter(|| {
+            let body = RequestBody::empty();
+            black_box(rt.block_on(body.read_all()).unwrap());
+        })
+    });
+
+    c.bench_function("body_small_read_all", |b| {
+        let data = b"hello world".to_vec();
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            black_box(rt.block_on(body.read_all()).unwrap());
+        })
+    });
+
+    c.bench_function("body_medium_read_all", |b| {
+        let data = vec![0u8; 8192];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            black_box(rt.block_on(body.read_all()).unwrap());
+        })
+    });
+
+    c.bench_function("body_large_read_all", |b| {
+        let data = vec![0u8; 1024 * 1024];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            black_box(rt.block_on(body.read_all()).unwrap());
+        })
+    });
+
+    c.bench_function("body_streaming_chunks", |b| {
+        let data = vec![0u8; 1024 * 1024];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let mut stream = body;
+            let mut total = 0u64;
+            while let Ok(Some(chunk)) = rt.block_on(stream.next_chunk()) {
+                total += chunk.len() as u64;
+            }
+            black_box(total);
+        })
+    });
+
+    c.bench_function("body_consumption_flag", |b| {
+        let data = b"hello".to_vec();
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let _consumed = body.consumed_flag();
+            black_box(body.was_fully_consumed());
+        })
+    });
+}
+
 criterion_group!(
     benches,
     bench_method_construction,
@@ -299,5 +357,6 @@ criterion_group!(
     bench_connection_info,
     bench_allocation_count,
     bench_callback_response_construction,
+    bench_body_operations,
 );
 criterion_main!(benches);

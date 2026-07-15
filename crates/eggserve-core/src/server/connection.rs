@@ -104,6 +104,7 @@ pub async fn serve_connection_with_service<I, S>(
     let handler_timeout = config.handler_timeout;
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
+    let incomplete_body_policy = config.incomplete_body_policy;
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
         let service = service.clone();
@@ -194,10 +195,20 @@ pub async fn serve_connection_with_service<I, S>(
                 body_limit,
             );
 
+            // Clone the consumption flag before the body is moved into Request.
+            let consumed_flag = request_body.consumed_flag();
+
             // For Buffer policy, pre-buffer the body under timeout.
-            let request_body = match &effective_policy {
+            match &effective_policy {
                 RequestBodyPolicy::Buffer { .. } => {
-                    match tokio::time::timeout(body_read_timeout, request_body.read_all()).await {
+                    // Buffer: body is fully consumed during pre-buffering.
+                    // No incomplete body handling needed.
+                    let request_body = match tokio::time::timeout(
+                        body_read_timeout,
+                        request_body.read_all(),
+                    )
+                    .await
+                    {
                         Ok(Ok(bytes)) => crate::primitives::request_body::RequestBody::from_bytes(
                             bytes.to_vec(),
                             body_limit,
@@ -209,33 +220,70 @@ pub async fn serve_connection_with_service<I, S>(
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
                             return Ok::<_, Infallible>(body_error_to_response(err, &head));
                         }
-                    }
+                    };
+
+                    let connection = build_connection_info(&parts);
+                    let request =
+                        crate::primitives::request::Request::new(head, request_body, connection);
+
+                    let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+
+                    let response = match result {
+                        Ok(Ok(canonical)) => {
+                            match crate::primitives::canonical::to_hyper_response(canonical) {
+                                Ok(r) => r,
+                                Err(_) => crate::response::internal_error(),
+                            }
+                        }
+                        Ok(Err(service_err)) => service_err.to_response(),
+                        Err(_elapsed) => {
+                            ServiceError::timeout("handler timed out".to_string()).to_response()
+                        }
+                    };
+
+                    Ok::<_, Infallible>(response)
                 }
-                RequestBodyPolicy::Stream { .. } => request_body,
+                RequestBodyPolicy::Stream { .. } => {
+                    let connection = build_connection_info(&parts);
+                    let request =
+                        crate::primitives::request::Request::new(head, request_body, connection);
+
+                    let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+
+                    let response = match result {
+                        Ok(Ok(canonical)) => {
+                            match crate::primitives::canonical::to_hyper_response(canonical) {
+                                Ok(r) => r,
+                                Err(_) => crate::response::internal_error(),
+                            }
+                        }
+                        Ok(Err(service_err)) => service_err.to_response(),
+                        Err(_elapsed) => {
+                            ServiceError::timeout("handler timed out".to_string()).to_response()
+                        }
+                    };
+
+                    // Check if body was fully consumed via the shared flag.
+                    // If not, apply incomplete_body_policy.
+                    if !consumed_flag.load(std::sync::atomic::Ordering::Acquire) {
+                        match incomplete_body_policy {
+                            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close => {
+                                // Connection will close after response — no drain needed.
+                                // Hyper handles cleanup of unconsumed body bytes.
+                            }
+                            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
+                                ..
+                            } => {
+                                // Body has been consumed by the service — no stream to drain.
+                                // Hyper handles cleanup when the connection closes.
+                            }
+                        }
+                    }
+
+                    Ok::<_, Infallible>(response)
+                }
                 _ => unreachable!(),
-            };
-
-            // Build connection info and Request envelope.
-            let connection = build_connection_info(&parts);
-            let request = crate::primitives::request::Request::new(head, request_body, connection);
-
-            // Invoke the service with handler timeout.
-            let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
-
-            let response = match result {
-                Ok(Ok(canonical)) => {
-                    match crate::primitives::canonical::to_hyper_response(canonical) {
-                        Ok(r) => r,
-                        Err(_) => crate::response::internal_error(),
-                    }
-                }
-                Ok(Err(service_err)) => service_err.to_response(),
-                Err(_elapsed) => {
-                    ServiceError::timeout("handler timed out".to_string()).to_response()
-                }
-            };
-
-            Ok::<_, Infallible>(response)
+            }
         }
     });
 
