@@ -688,7 +688,6 @@ pub struct PyServer {
     write_timeout: Duration,
     handler_timeout: Duration,
     graceful_shutdown_timeout: Duration,
-    lifecycle: Arc<eggserve_core::server::lifecycle::Lifecycle>,
 }
 
 #[pymethods]
@@ -780,7 +779,6 @@ impl PyServer {
             write_timeout: Duration::from_secs(write_timeout_secs),
             handler_timeout: Duration::from_secs(handler_timeout_secs),
             graceful_shutdown_timeout: Duration::from_secs(graceful_shutdown_timeout_secs),
-            lifecycle: Arc::new(eggserve_core::server::lifecycle::Lifecycle::new()),
         })
     }
 
@@ -804,7 +802,7 @@ impl PyServer {
         } else if self.has_been_started.load(std::sync::atomic::Ordering::Acquire) {
             Ok("stopped".to_string())
         } else {
-            Ok(self.lifecycle.state().to_string())
+            Ok("created".to_string())
         }
     }
 
@@ -1002,8 +1000,7 @@ impl PyServer {
                     return Err(crate::LifecycleError::new_err("server not started"));
                 }
                 drop(runtime_guard);
-                drop(handle_guard);
-                let state = self.lifecycle.state();
+                let state = handle.state();
                 if state == LifecycleState::Running {
                     Ok(())
                 } else if state == LifecycleState::Failed {
@@ -1021,7 +1018,6 @@ impl PyServer {
     }
 
     fn shutdown(&self) -> PyResult<()> {
-        self.lifecycle.drain().ok();
         let handle_guard = self
             .handle
             .lock()
@@ -1060,11 +1056,6 @@ impl PyServer {
                 None
             };
             drop(runtime_guard);
-
-            let deadline = std::time::Instant::now() + timeout;
-            while !self.lifecycle.state().is_terminal() && std::time::Instant::now() < deadline {
-                std::thread::sleep(Duration::from_millis(10));
-            }
 
             match result {
                 Some(ShutdownResult::Clean) => Ok("clean".to_string()),
