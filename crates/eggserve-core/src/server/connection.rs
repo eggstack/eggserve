@@ -26,6 +26,7 @@ use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::broadcast;
 
 use crate::config::ServeState;
+use crate::primitives::request_body_policy::RequestBodyPolicy;
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 use crate::server::service::{Service, ServiceError};
@@ -101,6 +102,9 @@ pub async fn serve_connection_with_service<I, S>(
 {
     let service = std::sync::Arc::new(service);
     let handler_timeout = config.handler_timeout;
+    let body_read_timeout = config.body_read_timeout;
+    let max_body_bytes = config.max_request_body_bytes;
+
     let hyper_service = service_fn(move |req: Request<Incoming>| {
         let service = service.clone();
         async move {
@@ -117,7 +121,11 @@ pub async fn serve_connection_with_service<I, S>(
                 return Ok::<_, Infallible>(e.to_response());
             }
 
-            // Extract body from the Hyper request.
+            // Select effective body policy.
+            let service_policy = service.request_body_policy(&head);
+            let effective_policy = select_body_policy(service_policy, max_body_bytes);
+
+            // Extract body from Hyper request.
             let (parts, body) = req.into_parts();
             let declared_length = parts
                 .headers
@@ -125,29 +133,97 @@ pub async fn serve_connection_with_service<I, S>(
                 .and_then(|v| v.to_str().ok())
                 .and_then(|s| s.parse::<u64>().ok());
 
-            let body_limit = 0;
+            // Validate Content-Length against effective limit.
+            if let Some(len) = declared_length {
+                if let Some(limit) = effective_policy.max_bytes() {
+                    if len > limit {
+                        let err = crate::primitives::request_body_error::RequestBodyError::DeclaredLengthTooLarge {
+                            declared: len,
+                            limit,
+                        };
+                        return Ok::<_, Infallible>(body_error_to_response(err, &head));
+                    }
+                }
+            }
+
+            // Handle Reject policy — consume and discard body if non-empty.
+            if effective_policy.is_reject() {
+                let body_limit = 0u64;
+                let request_body = crate::primitives::request_body::RequestBody::from_incoming(
+                    wrap_incoming_body(body),
+                    declared_length,
+                    body_limit,
+                );
+
+                let connection = build_connection_info(&parts);
+                let request = crate::primitives::request::Request::new(
+                    head.clone(),
+                    crate::primitives::request_body::RequestBody::empty(),
+                    connection,
+                );
+
+                let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+                let response = match result {
+                    Ok(Ok(canonical)) => {
+                        match crate::primitives::canonical::to_hyper_response(canonical) {
+                            Ok(r) => r,
+                            Err(_) => crate::response::internal_error(),
+                        }
+                    }
+                    Ok(Err(service_err)) => service_err.to_response(),
+                    Err(_elapsed) => {
+                        ServiceError::timeout("handler timed out".to_string()).to_response()
+                    }
+                };
+
+                // Drain the rejected body to clean up the connection.
+                let _ = tokio::time::timeout(
+                    std::time::Duration::from_millis(100),
+                    drain_body(request_body),
+                )
+                .await;
+
+                return Ok::<_, Infallible>(response);
+            }
+
+            // For Buffer/Stream policies, create RequestBody with proper limits.
+            let body_limit = effective_policy.max_bytes().unwrap_or(u64::MAX);
             let request_body = crate::primitives::request_body::RequestBody::from_incoming(
                 wrap_incoming_body(body),
                 declared_length,
                 body_limit,
             );
 
-            // Build connection info from the Hyper request.
-            let connection = crate::primitives::connection_info::ConnectionInfo {
-                local_addr: "127.0.0.1:0".parse().unwrap(),
-                remote_addr: "127.0.0.1:0".parse().unwrap(),
-                scheme: crate::primitives::connection_info::Scheme::Http,
-                tls: None,
+            // For Buffer policy, pre-buffer the body under timeout.
+            let request_body = match &effective_policy {
+                RequestBodyPolicy::Buffer { .. } => {
+                    match tokio::time::timeout(body_read_timeout, request_body.read_all()).await {
+                        Ok(Ok(bytes)) => crate::primitives::request_body::RequestBody::from_bytes(
+                            bytes.to_vec(),
+                            body_limit,
+                        ),
+                        Ok(Err(err)) => {
+                            return Ok::<_, Infallible>(body_error_to_response(err, &head));
+                        }
+                        Err(_elapsed) => {
+                            let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
+                            return Ok::<_, Infallible>(body_error_to_response(err, &head));
+                        }
+                    }
+                }
+                RequestBodyPolicy::Stream { .. } => request_body,
+                _ => unreachable!(),
             };
 
+            // Build connection info and Request envelope.
+            let connection = build_connection_info(&parts);
             let request = crate::primitives::request::Request::new(head, request_body, connection);
 
-            // Invoke the service with timeout.
+            // Invoke the service with handler timeout.
             let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
 
             let response = match result {
                 Ok(Ok(canonical)) => {
-                    // Normal response — convert to hyper.
                     match crate::primitives::canonical::to_hyper_response(canonical) {
                         Ok(r) => r,
                         Err(_) => crate::response::internal_error(),
@@ -164,6 +240,86 @@ pub async fn serve_connection_with_service<I, S>(
     });
 
     serve_connection(io, hyper_service, config, shutdown_rx).await;
+}
+
+/// Select the effective body policy from service preference and runtime ceiling.
+fn select_body_policy(service_policy: RequestBodyPolicy, max_body_bytes: u64) -> RequestBodyPolicy {
+    match service_policy {
+        RequestBodyPolicy::Reject => RequestBodyPolicy::Reject,
+        RequestBodyPolicy::Buffer { max_bytes } => {
+            let effective = max_bytes.min(max_body_bytes);
+            if effective == 0 {
+                RequestBodyPolicy::Reject
+            } else {
+                RequestBodyPolicy::Buffer {
+                    max_bytes: effective,
+                }
+            }
+        }
+        RequestBodyPolicy::Stream { max_bytes } => {
+            let effective = max_bytes.min(max_body_bytes);
+            if effective == 0 {
+                RequestBodyPolicy::Reject
+            } else {
+                RequestBodyPolicy::Stream {
+                    max_bytes: effective,
+                }
+            }
+        }
+    }
+}
+
+/// Convert a RequestBodyError to an HTTP response.
+fn body_error_to_response(
+    err: crate::primitives::request_body_error::RequestBodyError,
+    _head: &crate::primitives::request_head::RequestHead,
+) -> hyper::Response<BoxBodyInner> {
+    let status = err.to_status_code();
+    let status =
+        hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
+    let should_close = matches!(
+        status,
+        hyper::StatusCode::BAD_REQUEST
+            | hyper::StatusCode::REQUEST_TIMEOUT
+            | hyper::StatusCode::PAYLOAD_TOO_LARGE
+            | hyper::StatusCode::HTTP_VERSION_NOT_SUPPORTED
+    );
+    let body_text = match status.as_u16() {
+        400 => "400 Bad Request\n",
+        408 => "408 Request Timeout\n",
+        413 => "413 Payload Too Large\n",
+        501 => "501 Not Implemented\n",
+        _ => "500 Internal Server Error\n",
+    };
+    let mut resp = crate::response::canonical_error(status, body_text);
+    if should_close {
+        resp.headers_mut().insert(
+            hyper::header::CONNECTION,
+            hyper::header::HeaderValue::from_static("close"),
+        );
+    }
+    resp
+}
+
+/// Build ConnectionInfo from Hyper request parts.
+fn build_connection_info(
+    _parts: &hyper::http::request::Parts,
+) -> crate::primitives::connection_info::ConnectionInfo {
+    crate::primitives::connection_info::ConnectionInfo {
+        local_addr: "127.0.0.1:0".parse().unwrap(),
+        remote_addr: "127.0.0.1:0".parse().unwrap(),
+        scheme: crate::primitives::connection_info::Scheme::Http,
+        tls: None,
+    }
+}
+
+/// Drain a request body, discarding all bytes.
+async fn drain_body(mut body: crate::primitives::request_body::RequestBody) {
+    while let Some(chunk) = body.next_chunk().await.transpose() {
+        if chunk.is_err() {
+            break;
+        }
+    }
 }
 
 /// Validate request policy at the runtime level.

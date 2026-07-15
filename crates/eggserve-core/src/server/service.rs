@@ -22,6 +22,8 @@ use std::pin::Pin;
 
 use crate::primitives::canonical::Response;
 use crate::primitives::request::Request;
+use crate::primitives::request_body_error::RequestBodyError;
+use crate::primitives::request_body_policy::RequestBodyPolicy;
 
 /// Errors produced by a service implementation.
 ///
@@ -139,6 +141,13 @@ impl std::fmt::Display for ServiceError {
 
 impl std::error::Error for ServiceError {}
 
+impl From<RequestBodyError> for ServiceError {
+    fn from(err: RequestBodyError) -> Self {
+        let status = err.to_status_code();
+        ServiceError::rejected(status, err.to_string())
+    }
+}
+
 /// A transport-independent service that handles HTTP requests.
 ///
 /// Services are invoked by the runtime after request parsing and validation.
@@ -157,6 +166,22 @@ impl std::error::Error for ServiceError {}
 ///
 /// Services must be `Send + Sync` to be shared across connection tasks.
 pub trait Service: Send + Sync + 'static {
+    /// Returns the service's preferred request body policy.
+    ///
+    /// The runtime uses this to select the effective body policy before
+    /// service invocation. The runtime enforces a hard global ceiling
+    /// (`max_request_body_bytes`) that no service can exceed. Services
+    /// may only lower the ceiling, not raise it.
+    ///
+    /// The default implementation returns `Reject` (no body accepted),
+    /// which is the safe default for static file services.
+    fn request_body_policy(
+        &self,
+        _head: &crate::primitives::request_head::RequestHead,
+    ) -> RequestBodyPolicy {
+        RequestBodyPolicy::Reject
+    }
+
     /// Handle an HTTP request.
     ///
     /// Returns a future that resolves to a response or a service error.
@@ -185,12 +210,44 @@ where
     F: Fn(Request) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
 {
-    ServiceFn { f }
+    ServiceFn {
+        f,
+        body_policy: None,
+    }
+}
+
+/// Create a service from a closure that only receives the request head,
+/// discarding the body. The service uses `Reject` body policy.
+pub fn service_fn_head<F, Fut>(f: F) -> ServiceFn<impl Fn(Request) -> Fut + Send + Sync + 'static>
+where
+    F: Fn(crate::primitives::request_head::RequestHead) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
+{
+    ServiceFn {
+        f: move |req: Request| {
+            let (head, _body) = req.into_head_and_body();
+            f(head)
+        },
+        body_policy: Some(RequestBodyPolicy::Reject),
+    }
+}
+
+/// Create a service from a closure with an explicit body policy.
+pub fn service_fn_with_policy<F, Fut>(f: F, policy: RequestBodyPolicy) -> ServiceFn<F>
+where
+    F: Fn(Request) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
+{
+    ServiceFn {
+        f,
+        body_policy: Some(policy),
+    }
 }
 
 /// A service created from a closure via [`service_fn`].
 pub struct ServiceFn<F> {
     f: F,
+    body_policy: Option<RequestBodyPolicy>,
 }
 
 impl<F, Fut> Service for ServiceFn<F>
@@ -198,6 +255,13 @@ where
     F: Fn(Request) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
 {
+    fn request_body_policy(
+        &self,
+        _head: &crate::primitives::request_head::RequestHead,
+    ) -> RequestBodyPolicy {
+        self.body_policy.unwrap_or(RequestBodyPolicy::Reject)
+    }
+
     fn call(
         &self,
         request: Request,

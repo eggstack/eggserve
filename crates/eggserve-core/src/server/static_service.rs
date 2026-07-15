@@ -136,6 +136,13 @@ impl StaticService {
 }
 
 impl Service for StaticService {
+    fn request_body_policy(
+        &self,
+        _head: &RequestHead,
+    ) -> crate::primitives::request_body_policy::RequestBodyPolicy {
+        crate::primitives::request_body_policy::RequestBodyPolicy::Reject
+    }
+
     fn call(
         &self,
         req: Request,

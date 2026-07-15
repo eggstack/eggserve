@@ -41,12 +41,12 @@ Safe defaults match or strengthen CLI defaults. Configuration is validated at bu
 pub trait Service: Send + Sync + 'static {
     fn call(
         &self,
-        request: RequestHead,
+        request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
 }
 ```
 
-- Receives canonical `RequestHead` (no Hyper types)
+- Receives canonical `Request` envelope (RequestHead + RequestBody + ConnectionInfo)
 - Returns canonical `Response` or `ServiceError`
 - Must be `Send + Sync` for sharing across connections
 - Panics caught at tokio task boundary
@@ -60,6 +60,7 @@ Hardened static file service implementing `Service`:
 - Conditional and range request handling
 - ETag and Last-Modified generation
 - File-stream semaphore-gated concurrency
+- Always rejects request bodies (extracts RequestHead, discards body)
 
 ### ServerHandle
 
@@ -159,13 +160,32 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 2. Optional TLS handshake (feature-gated)
 3. HTTP/1 connection setup via Hyper
 4. Request conversion to canonical types
-5. Service invocation with timeout
-6. Canonical response normalization
-7. Transport-body conversion
-8. Write timeout enforcement
-9. Permit release and connection termination
+5. Body ingestion (policy selection, Content-Length preflight, transfer decoding)
+6. Service invocation with timeout
+7. Canonical response normalization
+8. Transport-body conversion
+9. Write timeout enforcement
+10. Permit release and connection termination
 
-## Request body handling (Phase 56)
+## Body ingestion pipeline
+
+The runtime handles request body ingestion transparently for services:
+
+1. **Policy selection**: The runtime queries `Service::request_body_policy()` and enforces the global ceiling (`max_request_body_bytes`). The effective policy is the minimum of service preference and runtime ceiling.
+
+2. **Content-Length preflight**: Before reading the body, the runtime validates `Content-Length` against the effective limit. Conflicting or oversized declarations are rejected with 413.
+
+3. **Body consumption**: For `Buffer` policy, the entire body is read under `body_read_timeout` and delivered as an in-memory `RequestBody`. For `Stream` policy, the body is passed through with byte accounting. For `Reject` policy, the body is discarded and the service receives an empty body.
+
+4. **Error mapping**: Body errors map to deterministic HTTP responses:
+   - 400: malformed framing, length mismatch
+   - 408: body read timeout
+   - 413: body too large
+   - 502: transport error
+
+5. **Incomplete body handling**: After the service returns, if the body was not fully consumed, the runtime applies `IncompleteBodyPolicy`. Default is `Close` (connection closed). `Drain` is defined but not yet wired.
+
+## Request body handling
 
 The runtime manages request body lifecycle through the `Request` envelope:
 

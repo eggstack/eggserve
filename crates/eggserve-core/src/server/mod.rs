@@ -63,7 +63,9 @@ pub use config::{RuntimeConfig, RuntimeConfigBuilder};
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
 pub use lifecycle::LifecycleState;
-pub use service::{service_fn, Service, ServiceError, ServiceFn};
+pub use service::{
+    service_fn, service_fn_head, service_fn_with_policy, Service, ServiceError, ServiceFn,
+};
 pub use static_service::{StaticService, StaticServiceBuilder};
 
 use std::sync::Arc;
@@ -619,6 +621,13 @@ async fn accept_tls(
 struct ArcService<S>(Arc<S>);
 
 impl<S: Service> Service for ArcService<S> {
+    fn request_body_policy(
+        &self,
+        head: &crate::primitives::request_head::RequestHead,
+    ) -> crate::primitives::request_body_policy::RequestBodyPolicy {
+        self.0.request_body_policy(head)
+    }
+
     fn call(
         &self,
         request: crate::primitives::request::Request,

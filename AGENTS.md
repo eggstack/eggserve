@@ -123,6 +123,8 @@ cargo test -p eggserve-bin --test production_path          # production path tes
 cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
 cargo test -p eggserve-core --test canonical_conformance  # canonical HTTP type conformance
 cargo test -p eggserve-core --test canonical_wire_interop  # canonical wire interop
+cargo test -p eggserve-core --test request_body_integration  # request body ingestion integration
+cargo test -p eggserve-core --test request_body_wire  # request body wire tests
 bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
@@ -160,6 +162,8 @@ cargo test -p eggserve-bin --test production_path
 cargo test -p eggserve-core --test corpus_replay
 cargo test -p eggserve-core --test canonical_conformance
 cargo test -p eggserve-core --test canonical_wire_interop
+cargo test -p eggserve-core --test request_body_integration
+cargo test -p eggserve-core --test request_body_wire
 bash scripts/install-cargo-tools.sh
 cargo audit
 cargo deny check
@@ -281,15 +285,20 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Two status code types**: `ResponseStatus` (stable, existing) and `StatusCode` (stable, canonical). `ResponseStatus` is a simple u16 newtype used by the planner. `StatusCode` has range validation (100–999, three-digit only) and classification helpers (is_informational, permits_payload_body). New code should prefer `StatusCode`.
 - **Two header map types**: `HeaderMapPlan` (stable, existing) and `HeaderBlock` (stable, canonical). `HeaderMapPlan` stores `ResponseHeader { name: String, value: String }`. `HeaderBlock` stores `HeaderField { name: HeaderName, value: HeaderValue }` with validation. The canonical response types use `HeaderBlock`.
 - **Python Server runtime parity** — Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. The tokio runtime is stored in `PyServer` (not created as a temporary). `start()` calls `handle.ready().await` so the server is in Running state when `start()` returns; for callback handlers, `start_with_service()` is used. Lifecycle methods (`wait_ready()`, `shutdown()`, `force_shutdown(timeout_secs)`, `wait()`, `state`) are mapped to the Rust `ServerHandle` API. Constructor accepts `handler_timeout_secs` and `graceful_shutdown_timeout_secs`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Coroutine handlers are rejected with a 500 response. Handler timeout is enforced at the transport level: `handler_timeout` wraps the service call in `tokio::time::timeout`. Python callbacks execute via `spawn_blocking`, so the GIL is acquired within the blocking task. If the callback exceeds the timeout, the runtime returns **504 Gateway Timeout**, but the Python callback **continues executing in the background** — it cannot be safely cancelled. The callback semaphore permit is held until the Python function returns, meaning timed-out callbacks still count against the concurrency limit until they complete. The `server` module remains experimental.
-- **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Static service always rejects bodies. Body policy defaults to `Reject`. Actual body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Phase 57.
+- **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Static service always rejects bodies. Body policy defaults to `Reject`. Body ingestion plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `Service::request_body_policy()` selecting the effective policy.
 - **Service trait takes Request** — The `Service` trait's `call` method now accepts a `Request` envelope (containing `RequestHead`, `RequestBody`, `ConnectionInfo`) instead of `RequestHead` directly. `service_fn` updated accordingly. All existing implementations (StaticService, PythonCallbackService) updated.
 - **RuntimeConfig body fields** — `RuntimeConfig` now has `max_request_body_bytes` (default 0, hard ceiling), `request_body_policy` (default `Reject`), and `incomplete_body_policy` (default `Close`). Services declare their preferred policy, but the runtime enforces the ceiling.
+- **Service body policy** — `Service::request_body_policy()` declares the preferred body policy (Reject/Buffer/Stream). The runtime enforces the global ceiling (`max_request_body_bytes`) and service-specific limits may only lower it. Default is `Reject`.
+- **Body read timeout** — `RuntimeConfig::body_read_timeout` (default 30s) is a total deadline for body consumption in Buffer mode. Stream mode passes through without pre-buffering.
+- **Incomplete body policy** — `RuntimeConfig::incomplete_body_policy` (default `Close`) determines connection behavior after the service returns without fully consuming the body. `Close` closes the connection. `Drain` is not yet wired up.
+- **Body error mapping** — `RequestBodyError` maps to HTTP status codes: 400 (malformed), 408 (timeout), 413 (too large), 502 (transport error). Terminal errors include `Connection: close`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary (`Server`, `Service` trait, `StaticService`, etc.) for embedding. Includes lifecycle state machine (`LifecycleState`), listener abstraction, readiness signaling, and graceful/forced shutdown with drain deadline. Python `Server` now stores the tokio runtime in `PyServer` (not as a temporary), `start()` blocks until Running state, and callback handlers use `start_with_service()` instead of `build_with_service()`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Its API is subject to change without notice. Do not depend on it for stable integrations. Verified by Plan 055.
 
 ## Plan status
 
 - Plan 055 verifies Milestone 3 final state: runtime storage in PyServer, `start()` waiting for Running state, `start_with_service()` for callback handlers, `ClientMethod` client-specific type, and policy forwarding.
 - Plan 056 establishes Milestone 4A: bounded request-body primitives (`RequestBodyPolicy`, `RequestBody`, `RequestBodyError`, `IncompleteBodyPolicy`), canonical request envelope (`Request`), `Service` trait update to accept `Request`, and body policy in `RuntimeConfig`. The `server` module remains experimental.
+- Plan 057 establishes Milestone 4B: runtime body ingestion, body policy selection (`Service::request_body_policy()`), Hyper incoming-body adapter, fixed-length and chunked transfer decoding, body timeout, cancellation, incomplete body drain/close, error response mapping, and static service body rejection preservation. The `server` module remains experimental.
 
 ## Plan-driven development
 

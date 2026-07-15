@@ -22,6 +22,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `primitives/client/` | **pub** (feature-gated: `client`) | HTTP client primitives: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse` |
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
+| `server/connection.rs` | **pub** (experimental) | Body ingestion pipeline, Hyper incoming-body adapter, transfer decoding, error mapping |
 
 ## Key Types
 
@@ -123,6 +124,10 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `handler_timeout` | None | Per-request handler timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
 | `keep_alive` | true | TCP keep-alive |
+| `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
+| `request_body_policy` | `Reject` | Global body policy (Reject/Buffer/Stream) |
+| `body_read_timeout` | 30s | Total deadline for body consumption in Buffer mode |
+| `incomplete_body_policy` | `Close` | Connection behavior when handler doesn't consume body |
 
 ### `Service` Trait
 
@@ -130,17 +135,17 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 pub trait Service: Send + Sync + 'static {
     fn call(
         &self,
-        request: RequestHead,
+        request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
 }
 ```
 
-- Receives canonical `RequestHead` (no Hyper types)
+- Receives canonical `Request` envelope (RequestHead + RequestBody + ConnectionInfo)
 - Returns canonical `Response` or `ServiceError`
 - Must be `Send + Sync` for sharing across connections
 - Panics caught at tokio task boundary
 
-`service_fn` creates a `Service` from an `Fn(RequestHead) -> Future<Output = Result<Response, ServiceError>> + Send + Sync`.
+`service_fn` creates a `Service` from an `Fn(Request) -> Future<Output = Result<Response, ServiceError>> + Send + Sync`.
 
 ### `StaticService`
 
@@ -151,6 +156,16 @@ Hardened static file service implementing `Service`:
 - Conditional and range request handling
 - ETag and Last-Modified generation
 - File-stream semaphore-gated concurrency
+
+### Body ingestion
+
+The `server::connection` module implements the body ingestion pipeline:
+- Selects effective body policy from service preference and runtime ceiling
+- Validates Content-Length against limits before body consumption
+- Buffers or streams request bodies through public `RequestBody` primitives
+- Enforces body read timeout
+- Maps body errors to deterministic HTTP responses
+- Handles incomplete body drain/close after service completion
 
 ### `ServerHandle`
 

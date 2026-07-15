@@ -50,6 +50,9 @@ pub struct RuntimeConfig {
     pub response_write_timeout: Duration,
     /// Timeout for a single handler invocation. Default: 30s.
     pub handler_timeout: Duration,
+    /// Timeout for reading the request body. Default: 30s.
+    /// This is a total deadline for body consumption, not an idle timeout.
+    pub body_read_timeout: Duration,
     /// Graceful shutdown grace period. Default: 10s.
     pub graceful_shutdown_timeout: Duration,
     /// Whether to enable HTTP keep-alive. Default: true.
@@ -87,6 +90,7 @@ impl Default for RuntimeConfig {
             header_read_timeout: Duration::from_secs(10),
             response_write_timeout: Duration::from_secs(60),
             handler_timeout: Duration::from_secs(30),
+            body_read_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: Duration::from_secs(10),
             keep_alive: true,
             max_in_flight_requests: None,
@@ -111,6 +115,7 @@ impl RuntimeConfig {
             header_read_timeout: None,
             response_write_timeout: None,
             handler_timeout: None,
+            body_read_timeout: None,
             graceful_shutdown_timeout: None,
             keep_alive: None,
             max_in_flight_requests: None,
@@ -134,6 +139,7 @@ pub struct RuntimeConfigBuilder {
     header_read_timeout: Option<Duration>,
     response_write_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
+    body_read_timeout: Option<Duration>,
     graceful_shutdown_timeout: Option<Duration>,
     keep_alive: Option<bool>,
     max_in_flight_requests: Option<usize>,
@@ -183,6 +189,14 @@ impl RuntimeConfigBuilder {
     /// Set the handler invocation timeout.
     pub fn handler_timeout(mut self, timeout: Duration) -> Self {
         self.handler_timeout = Some(timeout);
+        self
+    }
+
+    /// Set the body read timeout.
+    ///
+    /// This is a total deadline for body consumption, not an idle timeout.
+    pub fn body_read_timeout(mut self, timeout: Duration) -> Self {
+        self.body_read_timeout = Some(timeout);
         self
     }
 
@@ -272,6 +286,7 @@ impl RuntimeConfigBuilder {
                 .response_write_timeout
                 .unwrap_or(Duration::from_secs(60)),
             handler_timeout: self.handler_timeout.unwrap_or(Duration::from_secs(30)),
+            body_read_timeout: self.body_read_timeout.unwrap_or(Duration::from_secs(30)),
             graceful_shutdown_timeout: self
                 .graceful_shutdown_timeout
                 .unwrap_or(Duration::from_secs(10)),
@@ -305,6 +320,7 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             header_read_timeout: config.limits.header_read_timeout,
             response_write_timeout: config.limits.response_write_timeout,
             handler_timeout: Duration::from_secs(30),
+            body_read_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
             keep_alive: true,
             max_in_flight_requests: None,
@@ -333,6 +349,7 @@ mod tests {
         assert_eq!(config.header_read_timeout, Duration::from_secs(10));
         assert_eq!(config.response_write_timeout, Duration::from_secs(60));
         assert_eq!(config.handler_timeout, Duration::from_secs(30));
+        assert_eq!(config.body_read_timeout, Duration::from_secs(30));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(10));
         assert!(config.keep_alive);
         assert_eq!(config.max_in_flight_requests, None);
@@ -354,6 +371,7 @@ mod tests {
             .header_read_timeout(Duration::from_secs(5))
             .response_write_timeout(Duration::from_secs(30))
             .handler_timeout(Duration::from_secs(15))
+            .body_read_timeout(Duration::from_secs(20))
             .graceful_shutdown_timeout(Duration::from_secs(5))
             .keep_alive(false)
             .max_in_flight_requests(8)
@@ -373,6 +391,7 @@ mod tests {
         assert_eq!(config.header_read_timeout, Duration::from_secs(5));
         assert_eq!(config.response_write_timeout, Duration::from_secs(30));
         assert_eq!(config.handler_timeout, Duration::from_secs(15));
+        assert_eq!(config.body_read_timeout, Duration::from_secs(20));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(5));
         assert!(!config.keep_alive);
         assert_eq!(config.max_in_flight_requests, Some(8));

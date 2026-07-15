@@ -624,6 +624,13 @@ fn convert_python_response_to_canonical<'py>(
 }
 
 impl Service for PythonCallbackService {
+    fn request_body_policy(
+        &self,
+        _head: &eggserve_core::primitives::request_head::RequestHead,
+    ) -> eggserve_core::primitives::request_body_policy::RequestBodyPolicy {
+        eggserve_core::primitives::request_body_policy::RequestBodyPolicy::Reject
+    }
+
     fn call(
         &self,
         request: eggserve_core::primitives::request::Request,
