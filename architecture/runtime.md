@@ -2,6 +2,8 @@
 
 ## Overview
 
+> **Status: Experimental.** The `server` module API is subject to change without notice.
+
 The `server` module provides a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper. It includes a lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed), readiness signaling, graceful and forced shutdown with configurable drain deadlines, and connection/task tracking.
 
 ## Components

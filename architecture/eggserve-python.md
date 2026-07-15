@@ -79,7 +79,7 @@ Exceptions: `ServerRequestError` (method not allowed, target invalid, body not a
 | Method | Behavior |
 |--------|----------|
 | `start()` | Creates a `tokio::runtime::Runtime`, builds and starts the Rust server, calls `handle.ready().await` so the server is in Running state when `start()` returns. For callback handlers, uses `start_with_service()`. |
-| `stop()` | Calls `ServerHandle::wait()`, joins thread (blocking). Idempotent. |
+| `stop()` | Calls `ServerHandle::shutdown()`, then waits with a deadline. Idempotent. |
 | `wait_ready()` | Returns `Ok(())` if Running; raises `LifecycleError` otherwise. |
 | `shutdown()` | Calls `ServerHandle::shutdown()`, returns immediately (non-blocking). |
 | `force_shutdown(timeout_secs)` | Calls `ServerHandle::force_shutdown()` with deadline. Returns `"clean"` or `"timeout"`. |
