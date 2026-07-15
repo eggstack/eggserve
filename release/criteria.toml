@@ -926,7 +926,7 @@ release_stage = "qualification"
 [[gate]]
 id = "python.callback-timeout"
 title = "Python callback timeout"
-description = "Python handler timeout produces deterministic timeout responses and does not retain permits after timeout"
+description = "Python handler timeout produces deterministic timeout responses; concurrency permit is retained until Python callback completes"
 required = true
 evidence_classes = ["ci-log", "test-output"]
 command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"

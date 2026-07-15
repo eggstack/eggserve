@@ -654,7 +654,7 @@ impl Service for PythonCallbackService {
                     .map(|f| (f.name.to_string(), f.value.to_string()))
                     .collect(),
                 remote_addr: None,
-                http_version: format!("{:?}", head.version()),
+                http_version: head.version().to_string(),
                 has_body,
             };
 
@@ -946,13 +946,10 @@ impl PyServer {
                 .lock()
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             if let Some(rt) = runtime_guard.as_ref() {
+                let deadline = self.graceful_shutdown_timeout + Duration::from_secs(2);
                 py.allow_threads(|| {
                     rt.block_on(async {
-                        let _ = tokio::time::timeout(
-                            self.graceful_shutdown_timeout + Duration::from_secs(2),
-                            handle.wait(),
-                        )
-                        .await;
+                        let _ = tokio::time::timeout(deadline, handle.wait()).await;
                     });
                 });
             }
@@ -964,7 +961,9 @@ impl PyServer {
             .runtime
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        *runtime_guard = None;
+        if let Some(rt) = runtime_guard.take() {
+            rt.shutdown_background();
+        }
         drop(runtime_guard);
 
         *self

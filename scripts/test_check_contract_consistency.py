@@ -332,5 +332,168 @@ class TestCheckTriggerPolicyConsistency(unittest.TestCase):
             self.assertEqual(errors, [])
 
 
+class TestContractConsistency(unittest.TestCase):
+    """Tests that fail if Plan 055 Track B invariants are violated."""
+
+    @staticmethod
+    def _load_criteria():
+        import tomllib
+        path = REPO_ROOT / "release" / "criteria.toml"
+        with open(path, "rb") as f:
+            return tomllib.load(f)
+
+    @staticmethod
+    def _load_ci_jobs():
+        ci_text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        try:
+            import yaml
+            data = yaml.safe_load(ci_text)
+        except ImportError:
+            data = cc._yaml_load_string(ci_text)
+        jobs = {}
+        for job_key, job_val in data.get("jobs", {}).items():
+            display = job_val.get("name", job_key)
+            jobs[job_key] = {"name": display, "if": job_val.get("if", "")}
+        return jobs
+
+    @staticmethod
+    def _load_platforms(criteria):
+        return criteria.get("platforms", {})
+
+    def test_no_duplicate_evidence_filenames(self):
+        criteria = self._load_criteria()
+        seen: dict[str, str] = {}
+        for gate in criteria.get("gate", []):
+            gate_id = gate["id"]
+            evidence_filename = gate_id.replace(".", "-") + ".json"
+            self.assertIn(
+                evidence_filename, seen,
+                f"Evidence filename collision: gates '{seen[evidence_filename]}' and "
+                f"'{gate_id}' both produce '{evidence_filename}'",
+            ) if False else None
+            if evidence_filename in seen:
+                self.fail(
+                    f"Evidence filename collision: gates '{seen[evidence_filename]}' and "
+                    f"'{gate_id}' both produce '{evidence_filename}'"
+                )
+            seen[evidence_filename] = gate_id
+
+    def test_platform_gates_mapped_to_correct_runner(self):
+        criteria = self._load_criteria()
+        ci_jobs = self._load_ci_jobs()
+        platforms = self._load_platforms(criteria)
+
+        runner_map = {p: p_val.get("runner", "") for p, p_val in platforms.items()}
+
+        ci_full = self._load_ci_full()
+
+        matrix_jobs: dict[str, list[str]] = {}
+        static_jobs: dict[str, str] = {}
+        for job_key, job_val in ci_full.get("jobs", {}).items():
+            runs_on = job_val.get("runs-on", "")
+            if isinstance(runs_on, str) and "${{" in runs_on:
+                matrix = job_val.get("strategy", {}).get("matrix", {})
+                os_list = matrix.get("os", [])
+                matrix_jobs[job_key] = os_list
+            elif isinstance(runs_on, str):
+                static_jobs[job_key] = runs_on
+
+        for gate in criteria.get("gate", []):
+            gate_id = gate["id"]
+            gate_platforms = gate.get("platforms", [])
+            workflow_job = gate.get("workflow_job", "")
+            if not gate_platforms or not workflow_job:
+                continue
+
+            release_only = {"validate", "stage-release", "publish", "build-artifacts", "build-python"}
+            if workflow_job in release_only:
+                continue
+
+            if workflow_job in matrix_jobs:
+                matrix_runners = matrix_jobs[workflow_job]
+                for platform in gate_platforms:
+                    expected_runner = runner_map.get(platform, "")
+                    if expected_runner and expected_runner not in matrix_runners:
+                        self.fail(
+                            f"Gate '{gate_id}' has platform '{platform}' (runner={expected_runner}) "
+                            f"but CI job '{workflow_job}' matrix only includes {matrix_runners}"
+                        )
+            elif workflow_job in static_jobs:
+                actual_runner = static_jobs[workflow_job]
+                for platform in gate_platforms:
+                    expected_runner = runner_map.get(platform, "")
+                    if expected_runner and expected_runner != actual_runner:
+                        self.fail(
+                            f"Gate '{gate_id}' has platform '{platform}' (expected runner={expected_runner}) "
+                            f"but CI job '{workflow_job}' runs on {actual_runner}"
+                        )
+            else:
+                self.fail(
+                    f"Gate '{gate_id}' references workflow_job '{workflow_job}' "
+                    f"which is not found in CI job definitions"
+                )
+
+    @staticmethod
+    def _load_ci_full():
+        ci_text = (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()
+        try:
+            import yaml
+            return yaml.safe_load(ci_text)
+        except ImportError:
+            return cc._yaml_load_string(ci_text)
+
+    def test_required_gates_have_commands(self):
+        criteria = self._load_criteria()
+        for gate in criteria.get("gate", []):
+            if gate.get("required", False):
+                command = gate.get("command", "")
+                self.assertTrue(
+                    bool(command and command.strip()),
+                    f"Required gate '{gate['id']}' has empty or missing command",
+                )
+
+    def test_gate_ids_follow_naming_convention(self):
+        import re
+        criteria = self._load_criteria()
+        segment = r"[a-z][a-z0-9]*(-[a-z0-9]+)*"
+        pattern = re.compile(
+            rf"^{segment}(\.{segment}){{1,2}}$"
+        )
+        allowed_exceptions = {"check-generated"}
+        for gate in criteria.get("gate", []):
+            gate_id = gate["id"]
+            if gate_id in allowed_exceptions:
+                continue
+            self.assertRegex(
+                gate_id, pattern,
+                f"Gate ID '{gate_id}' does not match convention: "
+                f"must be category.specific or category.sub.specific "
+                f"(1-2 dots, lowercase alphanumeric and hyphens)",
+            )
+
+    def test_no_gate_references_nonexistent_workflow(self):
+        criteria = self._load_criteria()
+        ci_jobs = self._load_ci_jobs()
+        release_only = {"validate", "stage-release", "publish", "build-artifacts", "build-python"}
+
+        all_ci_names: set[str] = set()
+        for job_key, job_val in ci_jobs.items():
+            all_ci_names.add(job_key)
+            all_ci_names.add(job_val["name"])
+
+        for gate in criteria.get("gate", []):
+            workflow_job = gate.get("workflow_job", "")
+            if not workflow_job:
+                continue
+            if workflow_job in release_only:
+                continue
+            self.assertIn(
+                workflow_job, all_ci_names,
+                f"Gate '{gate['id']}' references workflow_job '{workflow_job}' "
+                f"which does not exist in .github/workflows/ci.yml. "
+                f"Available jobs: {sorted(all_ci_names)}",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

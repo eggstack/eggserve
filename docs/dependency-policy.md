@@ -26,9 +26,9 @@ The following dependency categories are approved for initial development:
 | CLI parsing | manual (no clap) | Manual argument parsing in `eggserve-bin` |
 | Error derive | `thiserror` | Derive macro for Error types |
 | Python bindings | `pyo3` (optional, eggserve-python only) | PyO3 bindings for Python wheel |
-| TLS | `rustls` (optional, deferred) | TLS termination |
-| TLS | `tokio-rustls` (optional, deferred) | Async TLS stream wrapping |
-| TLS | `rustls-pemfile` (optional, deferred) | PEM certificate and key parsing |
+| TLS | `rustls` (optional, feature-gated) | TLS termination |
+| TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
+| TLS | `rustls-pemfile` (optional, feature-gated) | PEM certificate and key parsing |
 | HTTP client TLS | `webpki-roots` (optional, behind `client-tls`) | Mozilla CA root certificates for TLS verification |
 
 ## Notes

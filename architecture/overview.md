@@ -82,7 +82,7 @@ HTTP Request
 │  • TCP accept with connection semaphore     │
 │  • Optional TLS handshake (feature-gated)   │
 │  • HTTP/1 connection via Hyper              │
-│  • Lifecycle state machine (Startup→Running→Draining→Stopped) │
+│  • Lifecycle state machine (Created→Starting→Running→Draining→Stopped/Failed) │
 │  • Request → canonical RequestHead          │
 └─────────────────┬───────────────────────────┘
                   │
