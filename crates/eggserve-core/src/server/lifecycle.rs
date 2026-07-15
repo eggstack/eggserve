@@ -89,7 +89,7 @@ impl std::fmt::Display for LifecycleState {
 
 /// Shared lifecycle state with atomic transitions and channel notifications.
 #[derive(Debug)]
-pub struct Lifecycle {
+pub(crate) struct Lifecycle {
     state: AtomicU8,
     ready_tx: watch::Sender<bool>,
     /// Notified when a terminal state (Stopped/Failed) is reached.
@@ -104,7 +104,7 @@ impl Default for Lifecycle {
 
 impl Lifecycle {
     /// Create a new lifecycle in the `Created` state.
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let (ready_tx, _) = watch::channel(false);
         let (terminal_tx, _) = broadcast::channel(1);
         Self {
@@ -115,12 +115,12 @@ impl Lifecycle {
     }
 
     /// Get the current state.
-    pub fn state(&self) -> LifecycleState {
+    pub(crate) fn state(&self) -> LifecycleState {
         LifecycleState::from_u8(self.state.load(Ordering::Acquire))
     }
 
     /// Transition to `Starting`. Fails if not in `Created`.
-    pub fn start(&self) -> Result<(), crate::server::errors::ServerError> {
+    pub(crate) fn start(&self) -> Result<(), crate::server::errors::ServerError> {
         let prev = self.state.compare_exchange(
             LifecycleState::Created as u8,
             LifecycleState::Starting as u8,
@@ -144,7 +144,7 @@ impl Lifecycle {
     }
 
     /// Transition to `Running`. Fails if not in `Starting`.
-    pub fn mark_running(&self) -> Result<(), crate::server::errors::ServerError> {
+    pub(crate) fn mark_running(&self) -> Result<(), crate::server::errors::ServerError> {
         let prev = self.state.compare_exchange(
             LifecycleState::Starting as u8,
             LifecycleState::Running as u8,
@@ -164,7 +164,7 @@ impl Lifecycle {
     }
 
     /// Transition to `Draining`. Fails if not in `Running`.
-    pub fn drain(&self) -> Result<(), crate::server::errors::ServerError> {
+    pub(crate) fn drain(&self) -> Result<(), crate::server::errors::ServerError> {
         let prev = self.state.compare_exchange(
             LifecycleState::Running as u8,
             LifecycleState::Draining as u8,
@@ -191,7 +191,7 @@ impl Lifecycle {
     }
 
     /// Transition to `Stopped`. Fails if not in `Draining`.
-    pub fn mark_stopped(&self) -> Result<(), crate::server::errors::ServerError> {
+    pub(crate) fn mark_stopped(&self) -> Result<(), crate::server::errors::ServerError> {
         let prev = self.state.compare_exchange(
             LifecycleState::Draining as u8,
             LifecycleState::Stopped as u8,
@@ -219,7 +219,7 @@ impl Lifecycle {
 
     /// Transition to `Failed` from any non-terminal state.
     #[allow(dead_code)]
-    pub fn mark_failed(&self) -> Result<(), crate::server::errors::ServerError> {
+    pub(crate) fn mark_failed(&self) -> Result<(), crate::server::errors::ServerError> {
         let current = self.state.load(Ordering::Acquire);
         let current_state = LifecycleState::from_u8(current);
         if current_state.is_terminal() {
@@ -232,7 +232,7 @@ impl Lifecycle {
     }
 
     /// Wait for readiness (transition to `Running`).
-    pub async fn wait_ready(&self) {
+    pub(crate) async fn wait_ready(&self) {
         let mut rx = self.ready_tx.subscribe();
         // If already ready, return immediately.
         if *rx.borrow() {
@@ -242,13 +242,13 @@ impl Lifecycle {
     }
 
     /// Subscribe to terminal state notifications.
-    pub fn subscribe_terminal(&self) -> broadcast::Receiver<()> {
+    pub(crate) fn subscribe_terminal(&self) -> broadcast::Receiver<()> {
         self.terminal_tx.subscribe()
     }
 
     /// Check if the state matches the expected state.
     #[allow(dead_code)]
-    pub fn is(&self, expected: LifecycleState) -> bool {
+    pub(crate) fn is(&self, expected: LifecycleState) -> bool {
         self.state() == expected
     }
 }

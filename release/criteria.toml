@@ -968,11 +968,11 @@ description = "Python lifecycle methods work correctly on macOS"
 required = true
 evidence_classes = ["ci-log", "test-output"]
 command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
-workflow_job = "python-unit-tests"
+workflow_job = "wheel-smoke"
 platforms = ["macos"]
 features = []
 artifacts = []
-triggers = ["pull_request", "push"]
+triggers = ["push"]
 max_age_days = 1
 invalidated_by = ["crates/eggserve-python/src/server.rs"]
 depends_on = ["python.native-tests"]
@@ -987,11 +987,11 @@ description = "Python lifecycle methods work correctly on Windows"
 required = true
 evidence_classes = ["ci-log", "test-output"]
 command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
-workflow_job = "python-unit-tests"
+workflow_job = "wheel-smoke"
 platforms = ["windows"]
 features = []
 artifacts = []
-triggers = ["pull_request", "push"]
+triggers = ["push"]
 max_age_days = 1
 invalidated_by = ["crates/eggserve-python/src/server.rs"]
 depends_on = ["python.native-tests"]

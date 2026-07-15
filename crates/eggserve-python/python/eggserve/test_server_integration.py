@@ -1115,6 +1115,226 @@ class TestTimeoutBoundaries(unittest.TestCase):
 
 
 # ---------------------------------------------------------------------------
+# Workstream E — Callback containment (timeout + forced shutdown)
+# ---------------------------------------------------------------------------
+
+
+class TestCallbackContainment(unittest.TestCase):
+    """E: Verify blocked callback containment under timeout and forced shutdown."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "ok.txt"), "w") as f:
+            f.write("ok")
+        self._servers = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.stop()
+            except Exception:
+                pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def _make_server(self, **kwargs):
+        defaults = {
+            "root": self._td,
+            "port": 0,
+            "header_timeout_secs": 10,
+            "write_timeout_secs": 10,
+        }
+        defaults.update(kwargs)
+        s = _start_server(**defaults)
+        self._servers.append(s)
+        return s
+
+    def test_callback_permit_released_after_timeout(self):
+        """After a timed-out callback returns, the permit is released.
+
+        The callback holds the permit for its entire duration. Once the
+        Python function returns (after the timeout), the permit must be
+        released so a new request can proceed.
+        """
+        call_count = _AtomicCounter()
+        handler_entered = threading.Event()
+        handler_release = threading.Event()
+        max_cb = 1
+
+        def slow_handler(req):
+            n = call_count.increment()
+            if n == 1:
+                handler_entered.set()
+                handler_release.wait(timeout=10)
+                return Response.text(200, "done")
+            return Response.text(200, "second")
+
+        s = self._make_server(
+            handler=slow_handler,
+            max_python_callbacks=max_cb,
+            handler_timeout_secs=1,
+        )
+        addr = s.addr
+        url = f"http://{addr}/ok.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # First request — will time out on the server side
+        def fire_request():
+            try:
+                urllib.request.urlopen(url, timeout=5)
+            except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+                pass
+
+        t1 = threading.Thread(target=fire_request)
+        t1.start()
+        handler_entered.wait(timeout=5)
+        # Wait for timeout to fire on server side
+        time.sleep(2.0)
+
+        # Release the handler so the callback permit is freed
+        handler_release.set()
+        t1.join(timeout=10)
+
+        # Second request — should succeed now that the permit is released
+        resp = urllib.request.urlopen(url, timeout=5)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.read(), b"second")
+        resp.close()
+
+    def test_force_shutdown_terminates_runtime(self):
+        """force_shutdown terminates tasks even with a blocked handler.
+
+        After force_shutdown returns, the server is in a terminal state
+        and stop() can cleanly release the listener.
+        """
+        handler_entered = threading.Event()
+        handler_release = threading.Event()
+
+        def blocking_handler(req):
+            handler_entered.set()
+            handler_release.wait(timeout=30)
+            return Response.text(200, "done")
+
+        s = self._make_server(handler=blocking_handler, handler_timeout_secs=30)
+        addr = s.addr
+        url = f"http://{addr}/ok.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # Fire a request that blocks in the handler
+        def fire():
+            try:
+                urllib.request.urlopen(url, timeout=5)
+            except Exception:
+                pass
+
+        t = threading.Thread(target=fire)
+        t.start()
+        handler_entered.wait(timeout=5)
+
+        # Force shutdown — should terminate tasks within the deadline
+        start = time.monotonic()
+        result = s.force_shutdown(timeout_secs=2.0)
+        elapsed = time.monotonic() - start
+        self.assertIn(result, ("clean", "timeout"))
+        self.assertLess(elapsed, 5.0, "force_shutdown should not block long")
+        self._servers.remove(s)
+
+        # Server should be in a terminal state
+        self.assertIn(s.state, ("stopped", "failed"))
+
+        handler_release.set()
+        t.join(timeout=5)
+
+    def test_repeated_timeouts_do_not_create_unbounded_threads(self):
+        """Repeated handler timeouts do not leak threads.
+
+        After many requests that all time out, the Python thread count
+        must remain bounded (not grow linearly with request count).
+        """
+        def blocking_handler(req):
+            time.sleep(30)
+            return Response.text(200, "done")
+
+        s = self._make_server(
+            handler=blocking_handler,
+            handler_timeout_secs=1,
+            max_python_callbacks=2,
+        )
+        addr = s.addr
+        url = f"http://{addr}/ok.txt"
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # Record baseline thread count
+        baseline_threads = threading.active_count()
+
+        # Fire multiple requests that will time out
+        for _ in range(6):
+            def fire():
+                try:
+                    urllib.request.urlopen(url, timeout=3)
+                except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+                    pass
+            t = threading.Thread(target=fire)
+            t.start()
+            t.join(timeout=10)
+
+        # Wait for timed-out handlers to complete their Python execution
+        time.sleep(5.0)
+
+        # Thread count should not have grown unboundedly
+        final_threads = threading.active_count()
+        # Allow some margin for background threads, but not 6 new ones
+        self.assertLessEqual(
+            final_threads,
+            baseline_threads + 3,
+            f"Thread count grew from {baseline_threads} to {final_threads} "
+            f"after 6 timed-out requests — possible thread leak",
+        )
+
+    def test_shutdown_respects_deadline_with_blocked_handler(self):
+        """Graceful shutdown waits within its deadline even with a blocked handler.
+
+        shutdown() should return quickly without waiting for a long-running
+        handler to complete.
+        """
+        handler_entered = threading.Event()
+        handler_release = threading.Event()
+
+        def blocking_handler(req):
+            handler_entered.set()
+            handler_release.wait(timeout=60)
+            return Response.text(200, "done")
+
+        s = self._make_server(handler=blocking_handler, handler_timeout_secs=60)
+        addr = s.addr
+        self.assertTrue(_wait_for_tcp(addr))
+
+        # Fire a request that blocks
+        def fire():
+            try:
+                urllib.request.urlopen(
+                    f"http://{addr}/ok.txt", timeout=5
+                )
+            except Exception:
+                pass
+
+        t = threading.Thread(target=fire)
+        t.start()
+        handler_entered.wait(timeout=5)
+
+        # Shutdown should not block for the full handler duration
+        start = time.monotonic()
+        s.shutdown()
+        elapsed = time.monotonic() - start
+        self.assertLess(elapsed, 5.0, "shutdown() blocked too long")
+
+        s.wait()
+        self._servers.remove(s)
+
+        handler_release.set()
+        t.join(timeout=5)
+
+
+# ---------------------------------------------------------------------------
 # Workstream E — Graceful shutdown
 # ---------------------------------------------------------------------------
 
