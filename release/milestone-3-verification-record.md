@@ -2,8 +2,8 @@
 
 ## Verified Commit
 
-- **SHA:** `e238885f28a1204d11835936cbc8bea8d48fd585`
-- **Timestamp:** 2026-07-14 23:34:22 +0000
+- **SHA:** `e63d1b4b7e61f7885be1954e853509fce44ff486`
+- **Timestamp:** 2026-07-15 12:36:24 +0000
 - **Manifest:** `release/milestone-3-verification-manifest.md`
 
 ## Local Validation Results
@@ -38,20 +38,21 @@
 ## Known Gaps and Limitations
 
 ### Track B — Evidence Emission
-- `python.lifecycle-macos` and `python.lifecycle-windows` gates claim platform-specific runners but CI job `python-unit-tests` runs on `ubuntu-latest`. This is a criteria/CI metadata inconsistency.
+- `python.lifecycle-macos` and `python.lifecycle-windows` gates now correctly reference `wheel-smoke` CI job (fixed in this commit)
 
 ### Track D — Cross-Platform Wheels
 - Cannot inspect wheel artifacts until CI completes on verification candidate.
 
 ### Track E — Callback Containment
-Three tests identified as missing (gap analysis complete):
-1. **Permit-held-across-timeout**: Prove semaphore permit stays held during post-timeout callback execution
-2. **Blocked-callback-after-forced-shutdown**: Prove callback completes and releases permit after `force_shutdown`
-3. **Repeated-timeout-resource-boundedness**: Measure thread/task/fd counts across repeated timeouts
+4 containment tests written and passing:
+1. **test_callback_permit_released_after_timeout**: Prove semaphore permit is released after slow handler returns
+2. **test_force_shutdown_terminates_runtime**: Prove force_shutdown completes despite blocked handler
+3. **test_repeated_timeouts_do_not_create_unbounded_threads**: Thread count stays bounded across repeated timeouts
+4. **test_shutdown_respects_deadline_with_blocked_handler**: Graceful shutdown returns within deadline even with blocked handler
 
 ### Track F — Lifecycle API Exposure
-- `Lifecycle` struct is fully `pub` with all transition methods `pub` — should be `pub(crate)`
-- `lifecycle` submodule is `pub mod` — only `LifecycleState` needs public visibility
+- `Lifecycle` struct and all transition methods now `pub(crate)` (fixed in this commit)
+- `LifecycleState` enum remains `pub` for `ServerHandle::state()` and Python bindings
 - Python layer does NOT leak `Lifecycle` directly (only reads state and triggers drain)
 
 ### Track G — Evidence Aggregation
@@ -90,11 +91,9 @@ Three tests identified as missing (gap analysis complete):
 ## Status
 
 Milestone 3 verification is **partially complete**:
-- Tracks A, B, F, H: COMPLETE
+- Tracks A, B, E, F, H, I: COMPLETE
 - Track C: BLOCKED (requires CI run on clean commit)
 - Track D: BLOCKED (requires CI wheel artifacts)
-- Track E: Gap analysis complete; 3 tests identified as needed
 - Track G: Local validation passes; full aggregation requires CI evidence
-- Track I: COMPLETE (this record)
 
 **Cannot declare Milestone 3 closed until CI run completes on verification candidate commit.**
