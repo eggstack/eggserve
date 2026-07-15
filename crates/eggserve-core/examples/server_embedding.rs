@@ -3,7 +3,7 @@
 //! Run with: cargo run --example server_embedding -p eggserve-core
 
 use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
-use eggserve_core::primitives::request_head::RequestHead;
+use eggserve_core::primitives::request::Request;
 use eggserve_core::server::{service_fn, RuntimeConfig, Server};
 
 #[tokio::main]
@@ -14,11 +14,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .bind("127.0.0.1:3000".parse().unwrap())
                 .build(),
         )
-        .build_with_service(service_fn(|req: RequestHead| async move {
+        .build_with_service(service_fn(|req: Request| async move {
+            let head = req.head();
             let body = format!(
                 "Hello from custom service!\nRequest: {} {}",
-                req.method(),
-                req.target().path()
+                head.method(),
+                head.target().path()
             );
             Ok(Response::builder()
                 .status(StatusCode::OK)

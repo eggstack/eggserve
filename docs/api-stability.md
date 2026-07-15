@@ -82,6 +82,21 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 - `service_fn` — closure-based service
 - `StaticService` / `StaticServiceBuilder` — static file service
 
+### Request body primitives (experimental)
+
+| Type | Status | Notes |
+|------|--------|-------|
+| `RequestBodyPolicy` | Experimental | Body acceptance policy (Reject/Buffer/Stream) |
+| `RequestBody` | Experimental | One-shot, bounded request body |
+| `BodyState` | Experimental | Body consumption state machine |
+| `RequestBodyError` | Experimental | Typed body error taxonomy |
+| `IncompleteBodyPolicy` | Experimental | Drain-or-close for incomplete bodies |
+| `Request` | Experimental | Canonical request envelope |
+| `Service::call(Request)` | Experimental | Updated to accept Request envelope |
+| `RuntimeConfig::max_request_body_bytes` | Experimental | Hard body size ceiling |
+| `RuntimeConfig::request_body_policy` | Experimental | Global body policy |
+| `RuntimeConfig::incomplete_body_policy` | Experimental | Incomplete body handling |
+
 ### `server` Module
 
 **All server module items are experimental.** API is subject to change without notice.
@@ -102,7 +117,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, keep-alive |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
-| `Service` trait | experimental | `call(RequestHead) -> Result<Response, ServiceError>` |
+| `Service` trait | experimental | `call(Request) -> Result<Response, ServiceError>` (updated from `RequestHead`) |
 | `service_fn` | experimental | Create a Service from a closure |
 | `StaticService` | experimental | Hardened static file service |
 | `StaticServiceBuilder` | experimental | Builder for StaticService |

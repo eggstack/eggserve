@@ -21,7 +21,7 @@ use std::future::Future;
 use std::pin::Pin;
 
 use crate::primitives::canonical::Response;
-use crate::primitives::request_head::RequestHead;
+use crate::primitives::request::Request;
 
 /// Errors produced by a service implementation.
 ///
@@ -142,8 +142,8 @@ impl std::error::Error for ServiceError {}
 /// A transport-independent service that handles HTTP requests.
 ///
 /// Services are invoked by the runtime after request parsing and validation.
-/// They receive a canonical [`RequestHead`] (no body) and must return a
-/// canonical [`Response`].
+/// They receive a canonical [`Request`] (head, body, and connection metadata)
+/// and must return a canonical [`Response`].
 ///
 /// # Contract
 ///
@@ -162,7 +162,7 @@ pub trait Service: Send + Sync + 'static {
     /// Returns a future that resolves to a response or a service error.
     fn call(
         &self,
-        request: RequestHead,
+        request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
 }
 
@@ -171,9 +171,9 @@ pub trait Service: Send + Sync + 'static {
 /// # Example
 ///
 /// ```ignore
-/// use eggserve_core::server::{service_fn, RequestHead, Response, StatusCode, ResponseBody};
+/// use eggserve_core::server::{service_fn, Request, Response, StatusCode, ResponseBody};
 ///
-/// let service = service_fn(|_req: RequestHead| async {
+/// let service = service_fn(|_req: Request| async {
 ///     Ok(Response::builder()
 ///         .status(StatusCode::OK)
 ///         .body(ResponseBody::Bytes(b"hello".to_vec()))
@@ -182,7 +182,7 @@ pub trait Service: Send + Sync + 'static {
 /// ```
 pub fn service_fn<F, Fut>(f: F) -> ServiceFn<F>
 where
-    F: Fn(RequestHead) -> Fut + Send + Sync + 'static,
+    F: Fn(Request) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
 {
     ServiceFn { f }
@@ -195,12 +195,12 @@ pub struct ServiceFn<F> {
 
 impl<F, Fut> Service for ServiceFn<F>
 where
-    F: Fn(RequestHead) -> Fut + Send + Sync + 'static,
+    F: Fn(Request) -> Fut + Send + Sync + 'static,
     Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
 {
     fn call(
         &self,
-        request: RequestHead,
+        request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>> {
         Box::pin((self.f)(request))
     }
@@ -229,20 +229,32 @@ mod tests {
     use super::*;
     use crate::primitives::canonical::ResponseBody as CanonicalResponseBody;
     use crate::primitives::canonical::StatusCode;
+    use crate::primitives::connection_info::{ConnectionInfo, Scheme};
     use crate::primitives::header_block::HeaderBlock;
+    use crate::primitives::request_body::RequestBody;
+    use std::net::SocketAddr;
 
-    fn make_test_request(path: &str) -> RequestHead {
-        RequestHead::new(
-            crate::primitives::method::Method::get(),
-            crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
-            crate::primitives::version::HttpVersion::Http11,
-            HeaderBlock::new(),
+    fn make_test_request(path: &str) -> Request {
+        Request::new(
+            crate::primitives::request_head::RequestHead::new(
+                crate::primitives::method::Method::get(),
+                crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
+                crate::primitives::version::HttpVersion::Http11,
+                HeaderBlock::new(),
+            ),
+            RequestBody::empty(),
+            ConnectionInfo {
+                local_addr: "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
+                remote_addr: "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+                scheme: Scheme::Http,
+                tls: None,
+            },
         )
     }
 
     #[tokio::test]
     async fn service_fn_calls_handler() {
-        let svc = service_fn(|_req: RequestHead| async {
+        let svc = service_fn(|_req: Request| async {
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .body(CanonicalResponseBody::Bytes(b"ok".to_vec()))
@@ -259,7 +271,7 @@ mod tests {
         impl Service for ByteService {
             fn call(
                 &self,
-                _req: RequestHead,
+                _req: Request,
             ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>
             {
                 Box::pin(async {
@@ -336,7 +348,7 @@ mod tests {
     #[tokio::test]
     async fn service_fn_with_captured_state() {
         let greeting = "hello";
-        let svc = service_fn(move |_req: RequestHead| {
+        let svc = service_fn(move |_req: Request| {
             let greeting = greeting.to_string();
             async move {
                 Ok(Response::builder()
@@ -352,7 +364,7 @@ mod tests {
 
     #[test]
     fn service_fn_implements_service() {
-        let svc = service_fn(|_req: RequestHead| async {
+        let svc = service_fn(|_req: Request| async {
             Ok(Response::builder()
                 .status(StatusCode::OK)
                 .body(CanonicalResponseBody::Empty)

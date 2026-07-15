@@ -165,6 +165,45 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 8. Write timeout enforcement
 9. Permit release and connection termination
 
+## Request body handling (Phase 56)
+
+The runtime manages request body lifecycle through the `Request` envelope:
+
+### Body policy
+
+- `RuntimeConfig::request_body_policy` — global policy (Reject/Buffer/Stream)
+- `RuntimeConfig::max_request_body_bytes` — hard ceiling no service can exceed
+- `RuntimeConfig::incomplete_body_policy` — drain-or-close when handler doesn't consume
+
+### Request envelope
+
+```rust
+pub struct Request {
+    head: RequestHead,      // immutable request metadata
+    body: RequestBody,       // one-shot, bounded body stream
+    connection: ConnectionInfo, // transport metadata
+}
+```
+
+### Service trait
+
+```rust
+pub trait Service: Send + Sync + 'static {
+    fn call(&self, request: Request) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
+}
+```
+
+### One-shot consumption
+
+- `RequestBody::read_all(self)` — buffer entire body
+- `RequestBody::next_chunk(&mut self)` — stream chunks
+- `Stream` trait implementation for async iteration
+- State machine: Unread → Streaming → Complete | Error
+
+### Static service
+
+The built-in `StaticService` always rejects request bodies. It extracts the `RequestHead` from the `Request` envelope and discards the body.
+
 ## Python lifecycle mapping
 
 The Python `Server` delegates to the actual Rust `Server` and `ServerHandle`

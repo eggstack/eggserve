@@ -72,6 +72,25 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 - `ready().await` returns error if server failed during startup
 - `force_shutdown(deadline)` returns `ShutdownResult::Forced` on deadline exceeded
 
+### Request Body Primitives (Experimental, Phase 56)
+
+**Stability**: All request body types are **experimental**. The interface may change in any release.
+
+| Type | Description |
+|------|-------------|
+| `RequestBodyPolicy` | Body acceptance policy: `Reject`, `Buffer { max_bytes }`, `Stream { max_bytes }` |
+| `RequestBody` | One-shot, bounded request body with `read_all` and streaming |
+| `BodyState` | Body consumption state machine: Unread, Streaming, Complete, Error |
+| `RequestBodyError` | Typed body error taxonomy (policy, limit, timeout, disconnect, consumption state) |
+| `IncompleteBodyPolicy` | Drain-or-close for incomplete bodies: `Drain { max_bytes, timeout }` or `Close` |
+| `Request` | Canonical request envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` |
+| `Service::call(Request)` | Service trait now accepts `Request` instead of `RequestHead` |
+| `RuntimeConfig::max_request_body_bytes` | Hard body size ceiling (default 0) |
+| `RuntimeConfig::request_body_policy` | Global body policy (default `Reject`) |
+| `RuntimeConfig::incomplete_body_policy` | Incomplete body handling (default `Close`) |
+
+Body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Phase 57.
+
 ## Supported Protocol
 
 - **HTTP/1.1 only** — no HTTP/2 or HTTP/3.

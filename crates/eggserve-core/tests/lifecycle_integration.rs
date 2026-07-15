@@ -4,7 +4,7 @@ use std::time::Duration;
 
 use eggserve_core::config::ServeConfig;
 use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
-use eggserve_core::primitives::request_head::RequestHead;
+use eggserve_core::primitives::request::Request;
 use eggserve_core::server::config::RuntimeConfig;
 use eggserve_core::server::{service_fn, Server, Service, ShutdownResult};
 use tempfile::TempDir;
@@ -18,7 +18,7 @@ fn make_serve_config(tmp: &TempDir) -> Arc<ServeConfig> {
 }
 
 fn simple_service() -> impl Service {
-    service_fn(|_req: RequestHead| {
+    service_fn(|_req: Request| {
         Box::pin(async {
             Ok(Response::builder()
                 .status(StatusCode::OK)
@@ -29,7 +29,7 @@ fn simple_service() -> impl Service {
 }
 
 fn slow_service(delay: Duration) -> impl Service {
-    service_fn(move |_req: RequestHead| {
+    service_fn(move |_req: Request| {
         Box::pin(async move {
             tokio::time::sleep(delay).await;
             Ok(Response::builder()
@@ -252,7 +252,7 @@ async fn no_connections_accepted_before_ready() {
         .build()
         .unwrap();
     let handle = server
-        .start_with_service(service_fn(move |_req: RequestHead| {
+        .start_with_service(service_fn(move |_req: Request| {
             let called = called_clone.clone();
             Box::pin(async move {
                 called.store(true, Ordering::SeqCst);
@@ -290,7 +290,7 @@ async fn graceful_shutdown_drains_inflight() {
         .build()
         .unwrap();
     let handle = server
-        .start_with_service(service_fn(move |_req: RequestHead| {
+        .start_with_service(service_fn(move |_req: Request| {
             let rr = response_received_clone.clone();
             Box::pin(async move {
                 tokio::time::sleep(Duration::from_millis(200)).await;
@@ -504,7 +504,7 @@ async fn force_shutdown_abandons_slow_handlers() {
         .build()
         .unwrap();
     let handle = server
-        .start_with_service(service_fn(move |_req: RequestHead| {
+        .start_with_service(service_fn(move |_req: Request| {
             let hs = handler_started_clone.clone();
             Box::pin(async move {
                 hs.store(true, Ordering::SeqCst);

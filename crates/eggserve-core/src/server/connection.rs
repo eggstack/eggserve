@@ -117,8 +117,33 @@ pub async fn serve_connection_with_service<I, S>(
                 return Ok::<_, Infallible>(e.to_response());
             }
 
+            // Extract body from the Hyper request.
+            let (parts, body) = req.into_parts();
+            let declared_length = parts
+                .headers
+                .get(hyper::header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok());
+
+            let body_limit = 0;
+            let request_body = crate::primitives::request_body::RequestBody::from_incoming(
+                wrap_incoming_body(body),
+                declared_length,
+                body_limit,
+            );
+
+            // Build connection info from the Hyper request.
+            let connection = crate::primitives::connection_info::ConnectionInfo {
+                local_addr: "127.0.0.1:0".parse().unwrap(),
+                remote_addr: "127.0.0.1:0".parse().unwrap(),
+                scheme: crate::primitives::connection_info::Scheme::Http,
+                tls: None,
+            };
+
+            let request = crate::primitives::request::Request::new(head, request_body, connection);
+
             // Invoke the service with timeout.
-            let result = tokio::time::timeout(handler_timeout, service.call(head)).await;
+            let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
 
             let response = match result {
                 Ok(Ok(canonical)) => {
@@ -182,6 +207,27 @@ fn validate_request_policy(
     }
 
     Ok(())
+}
+
+/// Wrap a Hyper `Incoming` body into a `Stream<Item = Result<Bytes, IncomingError>>`.
+///
+/// This bridges the Hyper body type to the canonical `RequestBody` type
+/// without leaking Hyper into the public API.
+fn wrap_incoming_body(
+    body: Incoming,
+) -> impl futures_util::Stream<
+    Item = Result<bytes::Bytes, crate::primitives::request_body::IncomingError>,
+> + Send
+       + 'static {
+    use futures_util::StreamExt;
+    http_body_util::BodyStream::new(body).filter_map(|result| async {
+        match result {
+            Ok(frame) => frame.into_data().ok().map(Ok),
+            Err(e) => Some(Err(crate::primitives::request_body::IncomingError(
+                e.to_string(),
+            ))),
+        }
+    })
 }
 
 /// Convert a Hyper request to a canonical [`RequestHead`].

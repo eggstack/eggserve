@@ -18,6 +18,8 @@ use std::time::Duration;
 #[cfg(feature = "tls")]
 use std::sync::Arc;
 
+use crate::primitives::request_body_policy::RequestBodyPolicy;
+
 /// Transport-level runtime configuration.
 ///
 /// All fields have safe defaults that match or strengthen the CLI defaults.
@@ -62,6 +64,18 @@ pub struct RuntimeConfig {
     /// Only available with the `tls` feature. Default: `None`.
     #[cfg(feature = "tls")]
     pub tls_config: Option<Arc<rustls::ServerConfig>>,
+    /// Maximum allowed request body size in bytes. This is the hard ceiling
+    /// that no service can exceed. Default: 0 (bodies rejected).
+    pub max_request_body_bytes: u64,
+    /// Request body acceptance policy. Default: `Reject`.
+    ///
+    /// Services declare their preferred policy (Reject, Buffer, or Stream),
+    /// but the runtime enforces `max_request_body_bytes` as the absolute
+    /// ceiling. A service cannot request a limit above this value.
+    pub request_body_policy: RequestBodyPolicy,
+    /// Policy for handling incomplete request bodies when a handler returns
+    /// without fully consuming the body. Default: `Close`.
+    pub incomplete_body_policy: crate::primitives::incomplete_body_policy::IncompleteBodyPolicy,
 }
 
 impl Default for RuntimeConfig {
@@ -79,6 +93,10 @@ impl Default for RuntimeConfig {
             server_header: None,
             #[cfg(feature = "tls")]
             tls_config: None,
+            max_request_body_bytes: 0,
+            request_body_policy: RequestBodyPolicy::Reject,
+            incomplete_body_policy:
+                crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         }
     }
 }
@@ -99,6 +117,9 @@ impl RuntimeConfig {
             server_header: None,
             #[cfg(feature = "tls")]
             tls_config: None,
+            max_request_body_bytes: None,
+            request_body_policy: None,
+            incomplete_body_policy: None,
         }
     }
 }
@@ -119,6 +140,9 @@ pub struct RuntimeConfigBuilder {
     server_header: Option<String>,
     #[cfg(feature = "tls")]
     tls_config: Option<Arc<rustls::ServerConfig>>,
+    max_request_body_bytes: Option<u64>,
+    request_body_policy: Option<RequestBodyPolicy>,
+    incomplete_body_policy: Option<crate::primitives::incomplete_body_policy::IncompleteBodyPolicy>,
 }
 
 impl RuntimeConfigBuilder {
@@ -197,6 +221,36 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the maximum request body size in bytes.
+    ///
+    /// This is the hard ceiling that no service can exceed. Default: 0
+    /// (bodies rejected). Set to a positive value to allow request bodies.
+    pub fn max_request_body_bytes(mut self, max: u64) -> Self {
+        self.max_request_body_bytes = Some(max);
+        self
+    }
+
+    /// Set the request body acceptance policy.
+    ///
+    /// Services declare their preferred policy, but the runtime enforces
+    /// `max_request_body_bytes` as the absolute ceiling. Default: `Reject`.
+    pub fn request_body_policy(mut self, policy: RequestBodyPolicy) -> Self {
+        self.request_body_policy = Some(policy);
+        self
+    }
+
+    /// Set the policy for handling incomplete request bodies.
+    ///
+    /// When a handler returns without fully consuming the body, the runtime
+    /// applies this policy. Default: `Close`.
+    pub fn incomplete_body_policy(
+        mut self,
+        policy: crate::primitives::incomplete_body_policy::IncompleteBodyPolicy,
+    ) -> Self {
+        self.incomplete_body_policy = Some(policy);
+        self
+    }
+
     /// Build the runtime configuration.
     ///
     /// # Panics
@@ -226,6 +280,13 @@ impl RuntimeConfigBuilder {
             server_header: self.server_header,
             #[cfg(feature = "tls")]
             tls_config: self.tls_config,
+            max_request_body_bytes: self.max_request_body_bytes.unwrap_or(0),
+            request_body_policy: self
+                .request_body_policy
+                .unwrap_or(RequestBodyPolicy::Reject),
+            incomplete_body_policy: self
+                .incomplete_body_policy
+                .unwrap_or(crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close),
         }
     }
 }
@@ -250,6 +311,10 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             server_header: None,
             #[cfg(feature = "tls")]
             tls_config: None,
+            max_request_body_bytes: config.limits.max_request_body_bytes,
+            request_body_policy: RequestBodyPolicy::Reject,
+            incomplete_body_policy:
+                crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         }
     }
 }
@@ -272,6 +337,12 @@ mod tests {
         assert!(config.keep_alive);
         assert_eq!(config.max_in_flight_requests, None);
         assert_eq!(config.server_header, None);
+        assert_eq!(config.max_request_body_bytes, 0);
+        assert_eq!(config.request_body_policy, RequestBodyPolicy::Reject);
+        assert_eq!(
+            config.incomplete_body_policy,
+            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close
+        );
     }
 
     #[test]
@@ -287,6 +358,14 @@ mod tests {
             .keep_alive(false)
             .max_in_flight_requests(8)
             .server_header("eggserve/0.1".into())
+            .max_request_body_bytes(1024 * 1024)
+            .request_body_policy(RequestBodyPolicy::Buffer { max_bytes: 512 })
+            .incomplete_body_policy(
+                crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
+                    max_bytes: 4096,
+                    timeout: Duration::from_secs(2),
+                },
+            )
             .build();
         assert_eq!(config.bind.port(), 9000);
         assert_eq!(config.max_connections, 128);
@@ -298,6 +377,12 @@ mod tests {
         assert!(!config.keep_alive);
         assert_eq!(config.max_in_flight_requests, Some(8));
         assert_eq!(config.server_header.as_deref(), Some("eggserve/0.1"));
+        assert_eq!(config.max_request_body_bytes, 1024 * 1024);
+        assert_eq!(
+            config.request_body_policy,
+            RequestBodyPolicy::Buffer { max_bytes: 512 }
+        );
+        assert!(config.incomplete_body_policy.is_drain());
     }
 
     #[test]
@@ -310,6 +395,11 @@ mod tests {
             runtime.max_file_streams,
             serve_config.limits.max_file_streams
         );
+        assert_eq!(
+            runtime.max_request_body_bytes,
+            serve_config.limits.max_request_body_bytes
+        );
+        assert_eq!(runtime.request_body_policy, RequestBodyPolicy::Reject);
     }
 
     #[test]

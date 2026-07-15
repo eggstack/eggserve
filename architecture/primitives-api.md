@@ -313,6 +313,32 @@ let err = ResponseConstructionError::ForbiddenFramingHeader("transfer-encoding".
 assert!(err.to_string().contains("transfer-encoding"));
 ```
 
+## Request body primitives (Phase 56)
+
+### Body policy
+
+- `RequestBodyPolicy` — Reject, Buffer { max_bytes }, Stream { max_bytes }
+- Enforced by the runtime before service invocation
+
+### Request body
+
+- `RequestBody` — transport-independent, one-shot body
+- `BodyState` — Unread, Streaming, Complete, Error
+- Methods: `read_all`, `next_chunk`, `declared_length`, `bytes_received`, `is_complete`
+- Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
+- No Hyper types in public API
+
+### Error taxonomy
+
+- `RequestBodyError` — 12 variants covering policy, limit, timeout, disconnect, consumption state
+- Classification helpers: `is_policy_rejection`, `is_limit_exceeded`, `is_timeout`, `is_disconnect`, `is_consumption_state`
+- HTTP status code mapping: `to_status_code()`
+
+### Incomplete body policy
+
+- `IncompleteBodyPolicy` — Drain { max_bytes, timeout } or Close
+- Applied when handler returns without fully consuming the body
+
 ## See Also
 
 - [response-planning.md](response-planning.md) — Response planner details

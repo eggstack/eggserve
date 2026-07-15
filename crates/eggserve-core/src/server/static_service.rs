@@ -40,6 +40,7 @@ use crate::primitives::canonical::{
 use crate::primitives::header_block::HeaderBlock;
 use crate::primitives::http::ReadOnlyMethod;
 use crate::primitives::planner::plan_file_response;
+use crate::primitives::request::Request;
 use crate::primitives::request_head::RequestHead;
 use crate::primitives::response::HeaderMapPlan;
 use crate::response::{
@@ -127,22 +128,24 @@ impl StaticService {
     /// Handle a single request against the static root.
     pub async fn handle(
         &self,
-        req: RequestHead,
+        req: Request,
     ) -> Result<hyper::Response<BoxBodyInner>, ServiceError> {
-        Ok(handle_static_request(req, &self.state).await)
+        let (head, _body) = req.into_head_and_body();
+        Ok(handle_static_request(head, &self.state).await)
     }
 }
 
 impl Service for StaticService {
     fn call(
         &self,
-        req: RequestHead,
+        req: Request,
     ) -> Pin<
         Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
     > {
         let state = self.state.clone();
+        let (head, _body) = req.into_head_and_body();
         Box::pin(async move {
-            let hyper_resp = handle_static_request(req, &state).await;
+            let hyper_resp = handle_static_request(head, &state).await;
             // Convert hyper response to canonical response for the public boundary.
             // This is a lossy conversion — the canonical response carries only
             // in-memory bodies. For file-backed responses, the runtime intercepts
@@ -448,21 +451,39 @@ mod tests {
         (tmp, service)
     }
 
-    fn make_head(path: &str) -> RequestHead {
-        RequestHead::new(
-            crate::primitives::method::Method::head(),
-            crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
-            crate::primitives::version::HttpVersion::Http11,
-            HeaderBlock::new(),
+    fn make_head(path: &str) -> Request {
+        Request::new(
+            RequestHead::new(
+                crate::primitives::method::Method::head(),
+                crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
+                crate::primitives::version::HttpVersion::Http11,
+                HeaderBlock::new(),
+            ),
+            crate::primitives::request_body::RequestBody::empty(),
+            crate::primitives::connection_info::ConnectionInfo {
+                local_addr: "127.0.0.1:8000".parse().unwrap(),
+                remote_addr: "127.0.0.1:12345".parse().unwrap(),
+                scheme: crate::primitives::connection_info::Scheme::Http,
+                tls: None,
+            },
         )
     }
 
-    fn make_get(path: &str) -> RequestHead {
-        RequestHead::new(
-            crate::primitives::method::Method::get(),
-            crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
-            crate::primitives::version::HttpVersion::Http11,
-            HeaderBlock::new(),
+    fn make_get(path: &str) -> Request {
+        Request::new(
+            RequestHead::new(
+                crate::primitives::method::Method::get(),
+                crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
+                crate::primitives::version::HttpVersion::Http11,
+                HeaderBlock::new(),
+            ),
+            crate::primitives::request_body::RequestBody::empty(),
+            crate::primitives::connection_info::ConnectionInfo {
+                local_addr: "127.0.0.1:8000".parse().unwrap(),
+                remote_addr: "127.0.0.1:12345".parse().unwrap(),
+                scheme: crate::primitives::connection_info::Scheme::Http,
+                tls: None,
+            },
         )
     }
 
@@ -497,11 +518,20 @@ mod tests {
     #[tokio::test]
     async fn static_service_post_forbidden() {
         let (_tmp, service) = setup_static_service();
-        let req = RequestHead::new(
-            crate::primitives::method::Method::post(),
-            crate::primitives::request_target::RequestTarget::parse("/hello.txt").unwrap(),
-            crate::primitives::version::HttpVersion::Http11,
-            HeaderBlock::new(),
+        let req = Request::new(
+            RequestHead::new(
+                crate::primitives::method::Method::post(),
+                crate::primitives::request_target::RequestTarget::parse("/hello.txt").unwrap(),
+                crate::primitives::version::HttpVersion::Http11,
+                HeaderBlock::new(),
+            ),
+            crate::primitives::request_body::RequestBody::empty(),
+            crate::primitives::connection_info::ConnectionInfo {
+                local_addr: "127.0.0.1:8000".parse().unwrap(),
+                remote_addr: "127.0.0.1:12345".parse().unwrap(),
+                scheme: crate::primitives::connection_info::Scheme::Http,
+                tls: None,
+            },
         );
         let resp = service.handle(req).await.unwrap();
         assert_eq!(resp.status(), hyper::StatusCode::METHOD_NOT_ALLOWED);

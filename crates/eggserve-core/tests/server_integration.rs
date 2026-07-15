@@ -6,6 +6,7 @@ use eggserve_core::config::{ServeConfig, ServeState};
 use eggserve_core::primitives::canonical::{
     normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
 };
+use eggserve_core::primitives::request::Request;
 use eggserve_core::server::config::RuntimeConfig;
 use eggserve_core::server::connection::serve_connection_with_service;
 use eggserve_core::server::{service_fn, Server};
@@ -37,11 +38,9 @@ async fn panic_in_service_returns_500() {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
         let mut shutdown_rx = tx.subscribe();
-        let svc = service_fn(
-            |_req: eggserve_core::primitives::request_head::RequestHead| async {
-                panic!("intentional panic");
-            },
-        );
+        let svc = service_fn(|_req: Request| async {
+            panic!("intentional panic");
+        });
         serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
     });
 
@@ -81,15 +80,13 @@ async fn slow_handler_returns_504() {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
         let mut shutdown_rx = tx.subscribe();
-        let svc = service_fn(
-            |_req: eggserve_core::primitives::request_head::RequestHead| async {
-                tokio::time::sleep(Duration::from_secs(60)).await;
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .body(ResponseBody::Empty)
-                    .unwrap())
-            },
-        );
+        let svc = service_fn(|_req: Request| async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Empty)
+                .unwrap())
+        });
         serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
     });
 
@@ -127,18 +124,16 @@ async fn malformed_request_rejected_before_service() {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
         let mut shutdown_rx = tx.subscribe();
-        let svc = service_fn(
-            move |_req: eggserve_core::primitives::request_head::RequestHead| {
-                let called = called_clone.clone();
-                async move {
-                    called.store(true, Ordering::SeqCst);
-                    Ok(Response::builder()
-                        .status(StatusCode::OK)
-                        .body(ResponseBody::Empty)
-                        .unwrap())
-                }
-            },
-        );
+        let svc = service_fn(move |_req: Request| {
+            let called = called_clone.clone();
+            async move {
+                called.store(true, Ordering::SeqCst);
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Empty)
+                    .unwrap())
+            }
+        });
         serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
     });
 
@@ -171,14 +166,12 @@ async fn custom_service_bytes_through_pipeline() {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
         let mut shutdown_rx = tx.subscribe();
-        let svc = service_fn(
-            |_req: eggserve_core::primitives::request_head::RequestHead| async {
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .body(ResponseBody::Bytes(b"hello".to_vec()))
-                    .unwrap())
-            },
-        );
+        let svc = service_fn(|_req: Request| async {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(b"hello".to_vec()))
+                .unwrap())
+        });
         serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
     });
 
@@ -222,15 +215,13 @@ async fn connection_permits_released() {
         .unwrap();
 
     let handle = server
-        .start_with_service(service_fn(
-            |_req: eggserve_core::primitives::request_head::RequestHead| async {
-                tokio::time::sleep(Duration::from_millis(200)).await;
-                Ok(Response::builder()
-                    .status(StatusCode::OK)
-                    .body(ResponseBody::Bytes(b"done".to_vec()))
-                    .unwrap())
-            },
-        ))
+        .start_with_service(service_fn(|_req: Request| async {
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(b"done".to_vec()))
+                .unwrap())
+        }))
         .await
         .unwrap();
 

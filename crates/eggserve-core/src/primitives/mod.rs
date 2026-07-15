@@ -50,8 +50,13 @@ pub mod canonical;
 pub mod connection_info;
 pub mod header_block;
 pub mod http;
+pub mod incomplete_body_policy;
 pub mod method;
 pub mod planner;
+pub mod request;
+pub mod request_body;
+pub mod request_body_error;
+pub mod request_body_policy;
 pub mod request_head;
 pub mod request_target;
 pub mod response;
@@ -78,11 +83,16 @@ pub use http::{
     validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,
     RequestValidationError,
 };
+pub use incomplete_body_policy::IncompleteBodyPolicy;
 pub use method::{Method, MethodError};
 pub use planner::{
     evaluate_conditional_headers, evaluate_if_none_match, evaluate_if_range, evaluate_range_header,
     generate_etag, plan_directory_listing, plan_file_response,
 };
+pub use request::Request;
+pub use request_body::{BodyState, RequestBody};
+pub use request_body_error::RequestBodyError;
+pub use request_body_policy::RequestBodyPolicy;
 pub use request_head::RequestHead;
 pub use request_target::{RequestTarget, RequestTargetError};
 pub use response::{

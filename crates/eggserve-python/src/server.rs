@@ -626,7 +626,7 @@ fn convert_python_response_to_canonical<'py>(
 impl Service for PythonCallbackService {
     fn call(
         &self,
-        head: RequestHead,
+        request: eggserve_core::primitives::request::Request,
     ) -> Pin<
         Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
     > {
@@ -639,6 +639,7 @@ impl Service for PythonCallbackService {
                 .await
                 .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
 
+            let (head, _body) = request.into_head_and_body();
             let method_str = head.method().as_str().to_string();
             let target = head.target().path().to_string();
             let query = head.target().query().unwrap_or("").to_string();

@@ -58,6 +58,7 @@ pub mod lifecycle;
 pub mod service;
 pub mod static_service;
 
+pub use crate::primitives::request::Request;
 pub use config::{RuntimeConfig, RuntimeConfigBuilder};
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
@@ -85,16 +86,15 @@ use crate::server::lifecycle::Lifecycle;
 /// # Example
 ///
 /// ```ignore
-/// use eggserve_core::server::{Server, RuntimeConfig, service_fn};
+/// use eggserve_core::server::{Server, RuntimeConfig, service_fn, Request};
 /// use eggserve_core::primitives::canonical::{Response, StatusCode, ResponseBody};
-/// use eggserve_core::primitives::request_head::RequestHead;
 ///
 /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
 /// let server = Server::builder()
 ///     .runtime(RuntimeConfig::builder()
 ///         .bind("127.0.0.1:8000".parse().unwrap())
 ///         .build())
-///     .service(service_fn(|_req: RequestHead| async {
+///     .service(service_fn(|_req: Request| async {
 ///         Ok(Response::builder()
 ///             .status(StatusCode::OK)
 ///             .body(ResponseBody::Bytes(b"hello".to_vec()))
@@ -621,7 +621,7 @@ struct ArcService<S>(Arc<S>);
 impl<S: Service> Service for ArcService<S> {
     fn call(
         &self,
-        request: crate::primitives::request_head::RequestHead,
+        request: crate::primitives::request::Request,
     ) -> std::pin::Pin<
         Box<
             dyn std::future::Future<
