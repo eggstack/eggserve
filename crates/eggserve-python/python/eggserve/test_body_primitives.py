@@ -951,5 +951,152 @@ class TestRequestBodyRejectionMode(unittest.TestCase):
         self.assertEqual(status, 413)
 
 
+# ---------------------------------------------------------------------------
+# Iterator drop and cancellation (Track H)
+# ---------------------------------------------------------------------------
+
+
+@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+class TestIteratorDrop(unittest.TestCase):
+    """Iterator can be dropped without resource leaks."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "index.txt"), "w") as f:
+            f.write("ok")
+        self._captured = {}
+
+        def handler(req):
+            if req.method == "POST" and req.has_body:
+                it = req.body.iter_chunks()
+                # Drop immediately without consuming
+                self._captured["iterator_created"] = True
+                del it
+            return Response.text(200, "ok")
+
+        self._server = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            request_body_mode="buffer",
+            max_request_body_bytes=1024,
+        )
+        self._server.start()
+        self._addr = self._server.addr
+        _wait_for_tcp(self._addr)
+
+    def tearDown(self):
+        try:
+            self._server.force_shutdown(2.0)
+        except Exception:
+            pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_iterator_drop_before_first_chunk(self):
+        _send_post(self._addr, "/index.txt", b"data")
+        time.sleep(0.3)
+        self.assertTrue(self._captured.get("iterator_created"))
+
+
+@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+class TestIteratorDropAfterOneChunk(unittest.TestCase):
+    """Iterator can be dropped after partial consumption."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "index.txt"), "w") as f:
+            f.write("ok")
+        self._captured = {}
+
+        def handler(req):
+            if req.method == "POST" and req.has_body:
+                it = req.body.iter_chunks()
+                first = next(it)
+                self._captured["first_chunk"] = first
+                # Drop after consuming one chunk
+                del it
+                self._captured["dropped_after_one"] = True
+            return Response.text(200, "ok")
+
+        self._server = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            request_body_mode="buffer",
+            max_request_body_bytes=1024,
+        )
+        self._server.start()
+        self._addr = self._server.addr
+        _wait_for_tcp(self._addr)
+
+    def tearDown(self):
+        try:
+            self._server.force_shutdown(2.0)
+        except Exception:
+            pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_consume_one_chunk_then_drop(self):
+        _send_post(self._addr, "/index.txt", b"data")
+        time.sleep(0.3)
+        self.assertEqual(self._captured.get("first_chunk"), b"data")
+        self.assertTrue(self._captured.get("dropped_after_one"))
+
+
+@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+class TestIteratorRepeatedAbandon(unittest.TestCase):
+    """Repeated iterator abandonment does not leak threads."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+        with open(os.path.join(self._td, "index.txt"), "w") as f:
+            f.write("ok")
+        self._call_count = 0
+        self._initial_threads = threading.active_count()
+
+        def handler(req):
+            if req.method == "POST" and req.has_body:
+                self._call_count += 1
+                it = req.body.iter_chunks()
+                # Consume first chunk then drop
+                try:
+                    next(it)
+                except StopIteration:
+                    pass
+                del it
+            return Response.text(200, "ok")
+
+        self._server = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            request_body_mode="buffer",
+            max_request_body_bytes=1024,
+        )
+        self._server.start()
+        self._addr = self._server.addr
+        _wait_for_tcp(self._addr)
+
+    def tearDown(self):
+        try:
+            self._server.force_shutdown(2.0)
+        except Exception:
+            pass
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_repeated_abandon_no_thread_growth(self):
+        for _ in range(5):
+            _send_post(self._addr, "/index.txt", b"data")
+            time.sleep(0.1)
+        time.sleep(0.5)
+        final_threads = threading.active_count()
+        # Allow some tolerance but no unbounded growth
+        self.assertLessEqual(
+            final_threads,
+            self._initial_threads + 10,
+            f"thread count grew from {self._initial_threads} to {final_threads}",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -141,3 +141,57 @@ fn streaming_completes_all_chunks() {
         prop_assert_eq!(total, data.len() as u64);
     });
 }
+
+#[test]
+fn dropping_body_releases_resources() {
+    proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+        let mut body = body;
+        // Read one chunk then drop
+        let first = rt.block_on(body.next_chunk());
+        prop_assert!(first.is_ok());
+        drop(body);
+        // No resources leaked — verified by Miri/ASAN if enabled
+    });
+}
+
+#[test]
+fn mixed_consumption_mode_returns_error() {
+    let rt = tokio::runtime::Runtime::new().unwrap();
+    // Use a body larger than one chunk (8192 bytes) so state stays Streaming
+    // after the first next_chunk() call.
+    let data = vec![0u8; 16384];
+    let body = RequestBody::from_bytes(data, u64::MAX);
+    let mut body = body;
+    // Start streaming — first chunk returns 8192 bytes, state stays Streaming
+    let first = rt.block_on(body.next_chunk());
+    assert!(first.is_ok());
+    assert!(first.unwrap().is_some());
+    // Try read_all after streaming started — should fail with MixedConsumptionMode
+    let result = rt.block_on(body.read_all());
+    assert!(result.is_err());
+    match result.unwrap_err() {
+        RequestBodyError::MixedConsumptionMode => {}
+        other => panic!("expected MixedConsumptionMode, got: {:?}", other),
+    }
+}
+
+#[test]
+fn exact_limit_one_over_fails() {
+    proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 1..500))| {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let limit = data.len() as u64;
+        // Exact limit should succeed
+        let body = RequestBody::from_bytes(data.clone(), limit);
+        let result = rt.block_on(body.read_all());
+        prop_assert!(result.is_ok(), "exact limit should succeed");
+
+        // One byte over should fail
+        let mut over_data = data;
+        over_data.push(0);
+        let body = RequestBody::from_bytes(over_data, limit);
+        let result = rt.block_on(body.read_all());
+        prop_assert!(result.is_err(), "one over limit should fail");
+    });
+}

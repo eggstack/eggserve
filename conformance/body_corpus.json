@@ -621,11 +621,11 @@
       ]
     },
     "mixed_read_iteration": {
-      "description": "Body consumption mode consistency (read vs iteration)",
+      "description": "Body consumption mode consistency — typed failure expected for mixed consumption",
       "fixtures": [
         {
           "id": "read-then-iterate-fails",
-          "description": "After read_all, iteration returns no more data",
+          "description": "After read_all, iteration returns typed error (not silent empty data)",
           "input": {
             "method": "POST",
             "body": "data",
@@ -641,7 +641,7 @@
         },
         {
           "id": "iterate-then-read-fails",
-          "description": "After full iteration, read returns empty",
+          "description": "After full iteration, read returns typed error (not silent empty data)",
           "input": {
             "method": "POST",
             "body": "data",
@@ -674,6 +674,223 @@
           "expected": {
             "status": 200,
             "handler_called": true
+          }
+        }
+      ]
+    },
+    "partial_consumption_stream": {
+      "description": "Stream-specific partial consumption scenarios (object consumption vs transport consumption)",
+      "fixtures": [
+        {
+          "id": "stream-partial-close",
+          "description": "Stream mode: partial consumption with Close policy, connection closes after response",
+          "input": {
+            "method": "POST",
+            "body": "stream partial data",
+            "encoding": "chunked",
+            "chunk_size": 6,
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "handler_action": "partial_read"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        },
+        {
+          "id": "stream-full-consumption-keepalive",
+          "description": "Stream mode: full consumption preserves keep-alive",
+          "input": {
+            "method": "POST",
+            "body": "full stream data",
+            "encoding": "chunked",
+            "chunk_size": 5,
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "handler_action": "stream_collect"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "full stream data"
+          }
+        },
+        {
+          "id": "stream-drop-body-early",
+          "description": "Stream mode: handler returns without reading body, connection closes",
+          "input": {
+            "method": "POST",
+            "body": "unread data",
+            "encoding": "chunked",
+            "chunk_size": 6,
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "handler_action": "drop_body"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "content_length_edge_cases": {
+      "description": "Content-Length header edge cases (Hyper normalizes most malformed values at wire level)",
+      "fixtures": [
+        {
+          "id": "cl-leading-zeros",
+          "description": "Content-Length with leading zeros is normalized by Hyper",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "005" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "hello"
+          }
+        },
+        {
+          "id": "cl-with-ows",
+          "description": "Content-Length with optional whitespace is normalized by Hyper",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "  5  " },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "hello"
+          }
+        },
+        {
+          "id": "cl-zero-length",
+          "description": "Content-Length: 0 is valid and produces empty body",
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": { "Content-Length": "0" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "malformed_content_length": {
+      "description": "Content-Length values rejected at HTTP/1 wire level by Hyper (documented for completeness)",
+      "note": "These cases are rejected by Hyper before eggserve processes them. They cannot be tested through the normal HTTP pipeline. This group documents the expected wire-level behavior.",
+      "fixtures": [
+        {
+          "id": "cl-empty-value",
+          "description": "Content-Length: '' — Hyper rejects at wire level → 400",
+          "impossible_through_pipeline": true,
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: \r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "cl-negative-value",
+          "description": "Content-Length: -1 — Hyper rejects at wire level → 400",
+          "impossible_through_pipeline": true,
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: -1\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "cl-hex-value",
+          "description": "Content-Length: 0x0A — Hyper rejects non-decimal at wire level → 400",
+          "impossible_through_pipeline": true,
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: 0x0A\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "cl-signed-plus",
+          "description": "Content-Length: +5 — Hyper rejects signed value at wire level → 400",
+          "impossible_through_pipeline": true,
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: +5\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "cl-overflow",
+          "description": "Content-Length: 18446744073709551616 — Hyper rejects overflow at wire level → 400",
+          "impossible_through_pipeline": true,
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: 18446744073709551616\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "cl-non-numeric",
+          "description": "Content-Length: abc — Hyper rejects non-numeric at wire level → 400",
+          "impossible_through_pipeline": true,
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: abc\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
           }
         }
       ]

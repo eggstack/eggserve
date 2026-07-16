@@ -103,6 +103,16 @@ of constructor settings. POST/PUT/DELETE/PATCH return 405.
 - **Body exceeds limit**: 413 returned, connection closed
 - **Body timeout**: 408 returned or connection closed
 
+## Framing Strictness
+
+eggserve enforces hardened HTTP/1 framing before any handler invocation:
+
+- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 before the service is called. This applies to all methods, not just body-forbidden ones.
+- **Duplicate Content-Length rejection**: Requests with more than one `Content-Length` field are rejected with 400, even when values are identical. Conflicting values are rejected at the HTTP/1 wire level by Hyper.
+- **Malformed Content-Length**: Non-numeric, negative, signed, overflowing, or non-decimal `Content-Length` values are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
+
+These checks ensure no ambiguous or conflicting framing signals reach the body ingestion pipeline.
+
 ## Backward Compatibility
 
 Existing handlers that don't inspect `req.body` continue working unchanged.

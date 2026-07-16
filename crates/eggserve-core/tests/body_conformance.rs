@@ -504,11 +504,19 @@ async fn body_conformance_policy_selection() {
                                             .unwrap());
                                     }
                                     "partial_read" => {
-                                        // Read only part of the body
+                                        // Read only part of the body, then return
                                         let _ = body.next_chunk().await;
                                         return Ok(Response::builder()
                                             .status(StatusCode::OK)
                                             .body(ResponseBody::Bytes(b"partial".to_vec()))
+                                            .unwrap());
+                                    }
+                                    "drop_body" => {
+                                        // Return without reading body — transport cleanup handles remainder
+                                        drop(body);
+                                        return Ok(Response::builder()
+                                            .status(StatusCode::OK)
+                                            .body(ResponseBody::Bytes(b"dropped".to_vec()))
                                             .unwrap());
                                     }
                                     _ => {}

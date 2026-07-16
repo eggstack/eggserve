@@ -53,6 +53,7 @@ constrained vocabulary.
 | RuntimeConfig | — | — | — | experimental | — | — | — | — | — |
 | Conformance corpus and parity testing | — | — | experimental | — | — | experimental | — | — | — |
 | Bounded request-body support | planned | experimental | experimental | experimental | experimental | — | planned | planned | — |
+| Request-body framing strictness | planned | experimental | experimental | experimental | experimental | — | planned | planned | — |
 | `normalize_metadata()` | — | stable | stable | experimental | — | — | stable | stable | — |
 | StatusCode range (100–999) | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Secure root resolution | stable | stable | stable | experimental | stable | — | stable | stable | — |

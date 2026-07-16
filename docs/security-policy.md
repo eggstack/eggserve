@@ -59,6 +59,14 @@ For read-only methods (`GET`, `HEAD`), eggserve rejects any request that signals
 
 This closes the previous behavior where malformed `Content-Length` values were silently ignored and `Transfer-Encoding` was not checked at all.
 
+For methods that accept bodies (`POST`, `PUT`, `DELETE`, `PATCH`), eggserve enforces the following framing rules before body ingestion:
+
+- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 Bad Request before the service is invoked. No body is constructed.
+- **Duplicate Content-Length rejection**: Requests with more than one `Content-Length` field are rejected with 400 Bad Request, even when values are identical. This minimizes intermediary disagreement and simplifies auditability.
+- **Wire-level validation**: Malformed `Content-Length` values (non-numeric, negative, signed, overflowing, non-decimal) are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
+
+These framing checks are applied in `validate_body_framing()` in the connection pipeline, after `(parts, body)` extraction and before service invocation. The security rationale is that ambiguous framing signals can be exploited by HTTP request smuggling attacks, where front-end and back-end servers disagree on message boundaries.
+
 The in-process Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. It applies the same framing checks before invoking a handler or static responder. Its `Request.has_body` field reflects a positive `Content-Length` or non-empty `Transfer-Encoding` signal for methods that are allowed to carry bodies.
 
 ## Implementation status and limitations

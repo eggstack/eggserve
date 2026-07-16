@@ -94,6 +94,16 @@ Extracting paths from `safe_relative_components()` and reopening them manually b
 
 eggserve rejects non-empty request bodies on GET/HEAD. Downstream adapters must enforce the same policy or explicitly document the difference.
 
+## Request-body framing risk
+
+eggserve enforces hardened HTTP/1 framing before body ingestion:
+
+- **TE+CL conflict**: Requests containing both `Transfer-Encoding` and `Content-Length` are rejected with 400 before the service is invoked. This prevents HTTP request smuggling attacks where front-end and back-end servers disagree on message boundaries.
+- **Duplicate Content-Length**: Requests with more than one `Content-Length` field are rejected with 400, even when values are identical. This eliminates ambiguity about which length value to trust.
+- **Malformed Content-Length**: Non-numeric, negative, signed, overflowing, or non-decimal `Content-Length` values are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
+
+Downstream adapters must apply the same framing checks before invoking their handlers. If an adapter bypasses the runtime's framing validation, it must implement equivalent checks to prevent smuggling attacks.
+
 ## Header spoofing/normalization risk
 
 Downstream adapters must be careful about header normalization and spoofing. eggserve's primitives validate method and body framing but do not normalize arbitrary headers.
