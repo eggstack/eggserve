@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (10 deep-dive docs), `docs/` (reference docs), `plans/` (000–055 plus roadmap and closure documents), `release/` (criteria.toml), `examples/`, `fuzz/`.
+Other directories: `architecture/` (14 deep-dive docs), `docs/` (reference docs), `plans/` (000–059 plus roadmap and closure documents), `release/` (criteria.toml), `conformance/` (shared corpora), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -42,8 +42,14 @@ cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
 cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
 cargo test -p eggserve-bin --test production_path          # production path tests
 cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+cargo test -p eggserve-core --test canonical_conformance  # canonical HTTP type conformance
+cargo test -p eggserve-core --test canonical_wire_interop  # canonical wire interop
+cargo test -p eggserve-core --test request_body_integration  # request body ingestion integration
+cargo test -p eggserve-core --test request_body_wire  # request body wire tests
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
+bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
+python3 scripts/check-contract-consistency.py              # contract consistency validation
 ```
 
 ## Key conventions
@@ -54,7 +60,12 @@ cargo deny check                                           # license/policy chec
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–055 are complete. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plan 049 promotes all canonical HTTP types to stable and establishes the conformance corpus for Rust/Python parity testing. Plan 050 closes Milestone 2 by correcting StatusCode validation (100–999), unifying canonical response metadata across all response producers via `normalize_metadata()`, enforcing hop-by-hop header stripping, and completing the response architecture audit. Plan 051 establishes the Milestone 3A runtime service boundary: `server::Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, and `StaticServiceBuilder` in `eggserve-core::server`. Plan 052 establishes the Milestone 3B lifecycle: lifecycle state machine (Created→Starting→Running→Draining→Stopped/Failed), listener abstraction (bind/from_listener), readiness signaling, graceful/forced shutdown with drain deadline, and connection/task registry in `eggserve-core::server`. The `server` module is experimental and its API is subject to change. Plan 053 establishes Milestone 3C: Python runtime parity, lifecycle methods (`wait_ready()`, `shutdown()`, `force_shutdown()`, `wait()`, `state`), handler timeout, coroutine rejection, and conformance tests. Plan 054 closes Milestone 3 by consolidating Python server bindings onto the reusable Rust runtime, eliminating lifecycle and transport duplication, and wiring runtime guarantees into cross-platform release evidence. Plan 055 verifies Milestone 3 final state: runtime storage in PyServer, `start()` waiting for Running state, `start_with_service()` for callback handlers, `ClientMethod` client-specific type, and policy forwarding. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), and a unified local validation script (`scripts/release-validate.sh`). CI gate names are normalized to match criteria gate IDs, and evidence aggregation runs after all gate jobs. Verify release status from `docs/release-checklist.md`, not workflow YAML alone.
+- **Plan status** — Plans 000–059 are complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
+- **Canonical HTTP types (stable)** — Plan 049 promotes all canonical HTTP types to stable. `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` (request types) and `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` (response types) are all stable.
+- **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()` for response metadata and framing.
+- **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `StaticServiceBuilder`. Lifecycle types: `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed). The module is experimental; API may change.
+- **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`.
+- **Python RequestBody** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive. `iter_chunks()` bridges async Rust body to synchronous Python via bounded channel with backpressure.
 
 ## Architecture docs
 
@@ -69,6 +80,10 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `primitives-api.md` — public API boundary for embedding consumers
 - `response-planning.md` — conditional/range/ETag response planning
 - `runtime.md` — runtime service boundary, Server, Service trait, StaticService
+- `client.md` — HTTP client primitives, feature-gated substrate
+- `security-model.md` — trust boundaries, defensive layers, attacker model
+- `release-infrastructure.md` — release criteria, evidence aggregation, CI gates
+- `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
 
 ## Common pitfalls
 
@@ -82,13 +97,10 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
-- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction. External consumers should use `SecureRoot` resolution.
-- **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback, callback concurrency limit. Parameters: `handler`, `public`, `max_connections`, `max_file_streams`, `max_python_callbacks`, `header_timeout_secs`, `write_timeout_secs`.
-- **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix. Builds require `PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1` with PyO3 0.24.2 and stage `eggserve-bin` under `python/eggserve/bin/` before maturin.
-- **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`, and `bash scripts/verify-cargo-packages.sh` for both Rust package gates. The release workflow's manual `dry_run=true` path must be executed and recorded before RC approval.
-- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates. `scripts/release_criteria.py` validates the criteria file and generates the release checklist. `scripts/release-validate.sh` provides unified local validation.
-- **Contract consistency** — `scripts/check-contract-consistency.py` validates documentation claims (TLS, Python version, packages, platforms, API inventory, README links). Run via `./scripts/release-validate.sh metadata`.
-- **Canonical HTTP types (stable)** — Plan 049 promotes all canonical HTTP types to stable after conformance completion. `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` (request types) and `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` (response types) are all stable. `ReadOnlyMethod` (GET/HEAD only) remains stable for existing consumers. `Method` supports standard + extension methods. `HeaderBlock` preserves duplicates; `get_unique()` returns `DuplicateHeaderError` on duplicates. `RequestHead::try_from_hyper()` converts Hyper requests. Python equivalents: `Method`, `HttpVersion`, `HeaderBlock`, `ConnectionInfo`, `CanonicalRequest`.
-- **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()` for response metadata and framing. `normalize_response()` applies HEAD suppression, body-forbidden enforcement, and hop-by-hop stripping for in-memory bodies. `normalize_metadata()` applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) for file-backed bodies without consuming the body. `to_hyper_response()` converts to Hyper after normalization. Python handler responses use this path for non-file bodies.
-- **Unified response architecture** — All response producers converge on `normalize_metadata()` for metadata normalization. In-memory bodies use `normalize_response()` → `to_hyper_response()`. File-backed bodies use `normalize_metadata(headers, body_len)` → streaming transport.
-- **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding: `Server` (entry point), `ServerBuilder` (configured builder, `bind(addr)`, `from_listener(listener)`), `ServerHandle` (control handle, `ready().await`, `force_shutdown(deadline)`, `state()`), `RuntimeConfig` (transport config, separate from `ServeConfig`), `Service` trait (transport-independent service abstraction), `service_fn` (create service from closure), `ServiceError` (per-request errors), `ServerError` (lifecycle errors), `StaticService` (hardened static file service), `StaticServiceBuilder`. Lifecycle types: `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed), `ShutdownResult` (Clean, Timeout, Forced). The module is experimental; API may change.
+- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
+- **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
+- **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix.
+- **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
+- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates.
+- **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
+- **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.

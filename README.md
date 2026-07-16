@@ -222,6 +222,10 @@ cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
 cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
 cargo test -p eggserve-bin --test production_path          # production path tests
 cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
+cargo test -p eggserve-core --test canonical_conformance  # canonical HTTP type conformance
+cargo test -p eggserve-core --test canonical_wire_interop  # canonical wire interop
+cargo test -p eggserve-core --test request_body_integration  # request body ingestion integration
+cargo test -p eggserve-core --test request_body_wire  # request body wire tests
 bash scripts/install-cargo-tools.sh                        # install and verify pinned tools
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check

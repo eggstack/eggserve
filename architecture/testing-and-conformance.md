@@ -26,7 +26,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 19 targets |
 | Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
 
-**Total: ~845+ Python tests, ~200+ Rust tests, 19 fuzz targets, 2 conformance corpora.**
+**Total: ~824 Python tests, ~200+ Rust tests, 19 fuzz targets, 2 conformance corpora.**
 
 ## Rust Integration Test Files
 
@@ -149,8 +149,14 @@ PYTHONPATH=python python -m unittest eggserve.test_server_primitives -v
 PYTHONPATH=python python -m unittest eggserve.test_server -v
 PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
 PYTHONPATH=python python -m unittest eggserve.test_canonical_conformance -v
+PYTHONPATH=python python -m unittest eggserve.test_canonical_request_types -v
 PYTHONPATH=python python -m unittest eggserve.test_body_primitives -v
+PYTHONPATH=python python -m unittest eggserve.test_body_conformance -v
+PYTHONPATH=python python -m unittest eggserve.test_body_wire -v
 PYTHONPATH=python python -m unittest eggserve.test_boundary_hardening -v
+PYTHONPATH=python python -m unittest eggserve.test_client_primitives -v
+PYTHONPATH=python python -m unittest eggserve.test_api_consumers -v
+PYTHONPATH=python python -m unittest eggserve.test_api_stability -v
 PYTHONPATH=python python -m unittest eggserve.test_parity_matrix -v
 ```
 

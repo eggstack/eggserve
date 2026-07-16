@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–055 are complete. Plan 055 closes Milestone 3 verification. Plan 053 establishes Milestone 3C: Python runtime parity, lifecycle methods (`wait_ready()`, `shutdown()`, `force_shutdown()`, `wait()`, `state`), handler timeout, coroutine rejection, and conformance tests. Plan 047 establishes canonical HTTP request types (`Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`) in `primitives::`. Plan 048 establishes canonical response types (`StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`) in `primitives::canonical` and a single normalization path for all response producers. Plan 049 promotes all canonical HTTP types to stable and establishes the conformance corpus for Rust/Python parity testing. Plan 050 closes Milestone 2 by correcting StatusCode validation (100–999), unifying canonical response metadata across all response producers via `normalize_metadata()`, enforcing hop-by-hop header stripping, and completing the response architecture audit. Plan 051 establishes the Milestone 3A runtime service boundary: `server::Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, and `StaticServiceBuilder` in `eggserve-core::server`. Plan 052 establishes the Milestone 3B lifecycle: lifecycle state machine (Created→Starting→Running→Draining→Stopped/Failed), listener abstraction (bind/from_listener), readiness signaling, graceful/forced shutdown with drain deadline, and connection/task registry in `eggserve-core::server`. The `server` module is experimental and its API is subject to change. Plans 042–045 establish the release evidence infrastructure: a capability matrix (`docs/library-capability-matrix.md`), machine-readable release criteria (`release/criteria.toml`), a criteria validator (`scripts/release_criteria.py`), a unified local validation script (`scripts/release-validate.sh`), and normalized CI gate names with evidence aggregation. Plan 046 closes integration gaps: trigger policy reconciliation, separate package evidence, explicit skip semantics, fail-closed aggregation, and canonical checklist authority.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–059 are complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
 
 ## Non-negotiables
 
@@ -151,28 +151,6 @@ python3 scripts/release_criteria.py aggregate --criteria release/criteria.toml -
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
-
-Full validation sequence (from README):
-
-```sh
-cargo fmt --all -- --check
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
-cargo test -p eggserve-bin --features tls
-cargo test -p eggserve-core --features client
-cargo test -p eggserve-core --test http_wire_correctness
-cargo test -p eggserve-core --test http_primitives_integration
-cargo test -p eggserve-bin --test production_path
-cargo test -p eggserve-core --test corpus_replay
-cargo test -p eggserve-core --test canonical_conformance
-cargo test -p eggserve-core --test canonical_wire_interop
-cargo test -p eggserve-core --test request_body_integration
-cargo test -p eggserve-core --test request_body_wire
-bash scripts/install-cargo-tools.sh
-cargo audit
-cargo deny check
-```
 
 Python packaging smoke test:
 
@@ -373,4 +351,7 @@ Before implementing any feature, check:
 - [architecture/primitives-api.md](architecture/primitives-api.md) — public API boundary for embedding consumers
 - [architecture/response-planning.md](architecture/response-planning.md) — conditional/range/ETag response planning
 - [architecture/client.md](architecture/client.md) — HTTP client primitives, feature-gated substrate
+- [architecture/security-model.md](architecture/security-model.md) — trust boundaries, defensive layers, attacker model
+- [architecture/release-infrastructure.md](architecture/release-infrastructure.md) — release criteria, evidence aggregation, CI gates
+- [architecture/testing-and-conformance.md](architecture/testing-and-conformance.md) — test layers, conformance corpora, fuzzing
 - [architecture/runtime.md](architecture/runtime.md) — runtime service boundary, Server, Service trait, StaticService

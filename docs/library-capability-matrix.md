@@ -52,8 +52,8 @@ constrained vocabulary.
 | service_fn | — | — | — | experimental | — | — | — | — | — |
 | RuntimeConfig | — | — | — | experimental | — | — | — | — | — |
 | Conformance corpus and parity testing | — | — | experimental | — | — | experimental | — | — | — |
-| Bounded request-body support | planned | experimental | experimental | experimental | experimental | — | planned | planned | — |
-| Request-body framing strictness | planned | experimental | experimental | experimental | experimental | — | planned | planned | — |
+| Bounded request-body support | — | experimental | experimental | experimental | experimental | — | planned | experimental | — |
+| Request-body framing strictness | — | experimental | experimental | experimental | experimental | — | planned | experimental | — |
 | `normalize_metadata()` | — | stable | stable | experimental | — | — | stable | stable | — |
 | StatusCode range (100–999) | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Secure root resolution | stable | stable | stable | experimental | stable | — | stable | stable | — |
@@ -67,7 +67,7 @@ constrained vocabulary.
 | Generic byte responses | — | stable | stable | — | stable | — | — | stable | — |
 | Duplicate headers | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Callback handlers | — | — | — | — | stable | — | — | stable | — |
-| Existing-listener support | planned | planned | implemented | experimental | Rust-only | — | planned | planned | — |
+| Existing-listener support | — | implemented | implemented | experimental | Rust-only | — | — | — | — |
 | Lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) | — | — | — | experimental | stable | — | — | stable | — |
 | Graceful shutdown | stable | — | — | experimental | stable | — | stable | stable | — |
 | Observability hooks | minimal | minimal | planned | minimal | minimal | — | minimal | minimal | — |

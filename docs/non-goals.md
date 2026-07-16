@@ -20,7 +20,6 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No Windows reparse-point/NTFS junction hardening** — Windows is supported functionally with parser-level checks only (reserved names, ADS, drive prefixes, backslash). Filesystem-level hardening against reparse points and NTFS junctions is deferred. Windows is explicitly a trusted/local-use platform, not hardened for untrusted mutable public roots. See [security-policy.md](security-policy.md) for the full statement.
 - **No HTTP trailers** — Trailers are deferred; the canonical response model does not include trailer support
 - **No raw socket response writers** — All responses go through the canonical normalization path
-- **No request body streaming** — Request body streaming belongs to Milestone 4
 - **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
 - **No WebSocket or upgrade support** — The runtime does not support protocol upgrades.
 - **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.

@@ -6,11 +6,12 @@ Python wheel packaging via maturin. Provides three API layers: native Rust primi
 
 ```
 crates/eggserve-python/
-├── Cargo.toml          # cdylib, depends on eggserve-core + pyo3 + tokio + hyper
+├── Cargo.toml          # cdylib, depends on eggserve-core + pyo3 + tokio + hyper + futures-util
 ├── pyproject.toml      # maturin build backend, module-name = "eggserve._native"
 ├── src/
 │   ├── lib.rs          # PyO3 native module (_native): primitives bindings
-│   └── server.rs       # Server primitives: PyRequest, PyResponse, StaticResponder, Server
+│   ├── server.rs       # Server primitives: PyRequest, PyResponse, StaticResponder, Server
+│   └── client.rs       # HTTP client primitives: PyHttpClient, PyClientConfig, PyClientRequest, PyClientResponse
 └── python/eggserve/
     ├── __init__.py     # exports all public symbols
     ├── __main__.py     # python -m eggserve
@@ -33,7 +34,9 @@ crates/eggserve-python/
     ├── test_imports.py         # import validation, version metadata, no source-tree shadowing
     ├── test_server_smoke.py    # server lifecycle, callback, HEAD, range, public-bind
     ├── test_client_smoke.py    # HTTP client local request
-    └── test_cli_smoke.py       # CLI help, binary discovery, version consistency
+    ├── test_cli_smoke.py       # CLI help, binary discovery, version consistency
+    ├── test_lifecycle_smoke.py # lifecycle methods: start, shutdown, force_shutdown, wait, state
+    └── test_body_smoke.py      # request body: buffer/stream modes, chunked reading, error taxonomy
 ```
 
 **Important:** `eggserve-python` is excluded from the workspace and has its own `Cargo.lock`. It is built independently via `maturin`. Release wheels support CPython 3.14 only (`>=3.14,<3.15`) and bundle the platform-native CLI binary.
@@ -277,6 +280,8 @@ Standalone tests in `packaging-tests/` validate the wheel works independently of
 - `test_server_smoke.py` — server lifecycle, callback handler, HEAD/range responses, public-bind guard
 - `test_client_smoke.py` — HTTP client local request against a running server
 - `test_cli_smoke.py` — `python -m eggserve --help`, binary discovery, version consistency
+- `test_lifecycle_smoke.py` — lifecycle methods: start, shutdown, force_shutdown, wait, state transitions
+- `test_body_smoke.py` — request body modes: buffer/stream, chunked reading, error taxonomy, one-shot enforcement
 - `run_all.sh` — creates fresh venv, installs wheel, copies scripts to temp dir, runs all tests
 
 These tests run from a temporary directory with `PYTHONPATH` unset to ensure no source-tree contamination.
