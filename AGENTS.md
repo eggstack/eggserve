@@ -93,6 +93,11 @@ eggserve/
 │           ├── test_parity_matrix.py # real-socket parity matrix tests (28 tests)
 │           ├── test_canonical_conformance.py # canonical HTTP type conformance tests
 │           ├── test_canonical_request_types.py # canonical request type tests
+│           ├── test_body_primitives.py # request body primitives tests
+│           ├── test_body_conformance.py # request body conformance tests
+│           ├── test_body_wire.py # request body wire tests
+│           ├── test_boundary_hardening.py # boundary hardening tests
+│           ├── test_client_primitives.py # HTTP client primitives tests
 │           ├── test_api_consumers.py # API consumer tests
 │           ├── test_api_stability.py # API stability/snapshot tests (61 tests)
 │           └── test_server.py     # subprocess API tests (43 tests)
@@ -348,6 +353,13 @@ Before implementing any feature, check:
 - [docs/toolchain-support.md](docs/toolchain-support.md) — language, toolchain, and platform support policy
 - [release/criteria.toml](release/criteria.toml) — machine-readable release gate definitions (source of truth)
 - [docs/ci-gate-inventory.md](docs/ci-gate-inventory.md) — CI job-to-gate mapping, execution policy, evidence classes
+- [docs/body-migration.md](docs/body-migration.md) — request body migration guide
+- [docs/cli.md](docs/cli.md) — CLI usage reference
+- [docs/http-response-planning.md](docs/http-response-planning.md) — HTTP response planning details
+- [docs/migration-guide.md](docs/migration-guide.md) — migration guide
+- [docs/public-api-boundary.md](docs/public-api-boundary.md) — public API boundary definition
+- [docs/python-api.md](docs/python-api.md) — Python API reference
+- [docs/python-packaging.md](docs/python-packaging.md) — Python packaging details
 
 ## Architecture deep dives
 
