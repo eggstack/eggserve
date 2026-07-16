@@ -291,7 +291,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Service body policy** — `Service::request_body_policy()` declares the preferred body policy (Reject/Buffer/Stream). The runtime enforces the global ceiling (`max_request_body_bytes`) and service-specific limits may only lower it. Default is `Reject`.
 - **Body read timeout** — `RuntimeConfig::body_read_timeout` (default 30s) is a total deadline for body consumption in Buffer mode. Stream mode passes through without pre-buffering.
 - **Incomplete body policy** — `RuntimeConfig::incomplete_body_policy` (default `Close`) determines connection behavior after the service returns without fully consuming the body. `Close` closes the connection. `Drain` is not yet wired up.
-- **Body error mapping** — `RequestBodyError` maps to HTTP status codes: 400 (malformed), 408 (timeout), 413 (too large), 502 (transport error). Terminal errors include `Connection: close`.
+- **Body error mapping** — `RequestBodyError` maps to HTTP status codes: 400 (malformed), 408 (timeout), 413 (too large), 500 (transport error). Terminal errors include `Connection: close`.
 - **Python RequestBody is one-shot** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive and consume the body. Second use raises `RequestBodyConsumedError`. `iter_chunks()` bridges async Rust body to synchronous Python via a bounded channel with backpressure. Body objects are only present when `has_body` is True (non-empty bodies with allowed policy). Empty bodies and rejected bodies produce `body=None`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary (`Server`, `Service` trait, `StaticService`, etc.) for embedding. Includes lifecycle state machine (`LifecycleState`), listener abstraction, readiness signaling, and graceful/forced shutdown with drain deadline. Python `Server` now stores the tokio runtime in `PyServer` (not as a temporary), `start()` blocks until Running state, and callback handlers use `start_with_service()` instead of `build_with_service()`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Its API is subject to change without notice. Do not depend on it for stable integrations. Verified by Plan 055.
 
@@ -300,6 +300,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 055 verifies Milestone 3 final state: runtime storage in PyServer, `start()` waiting for Running state, `start_with_service()` for callback handlers, `ClientMethod` client-specific type, and policy forwarding.
 - Plan 056 (Milestone 4A) and Plan 057 (Milestone 4B) are complete. Their outputs form the Rust foundation for Plan 058.
 - Plan 058 establishes Milestone 4C: Python body parity and conformance. Adds `RequestBody` (Python), `BodyChunkIterator` (streaming bridge), `RequestBodyError` hierarchy (8 exception types), body policy configuration in `Server` constructor (`request_body_mode`, `max_request_body_bytes`, `body_timeout_secs`, `incomplete_body_policy`), request body projection (`has_body`, `body`), and `test_body_primitives.py` test suite. The `server` module remains experimental.
+- Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
 
 ## Plan-driven development
 

@@ -321,7 +321,7 @@
       ]
     },
     "one_shot_consumption": {
-      "description": "Body can only be consumed once (Python-level enforcement)",
+      "description": "Body can only be consumed once",
       "fixtures": [
         {
           "id": "double-read-ok-at-rust-level",
@@ -362,11 +362,11 @@
       ]
     },
     "conflicting_content_length": {
-      "description": "Multiple Content-Length values with different lengths are rejected",
+      "description": "Conflicting Content-Length values are rejected at the HTTP/1 wire level",
       "fixtures": [
         {
           "id": "two-different-content-lengths",
-          "description": "Two Content-Length headers with different values → 400",
+          "description": "Two Content-Length headers with different values → 400 (Hyper rejects at wire level)",
           "input": {
             "method": "POST",
             "body": "hello",
@@ -380,12 +380,13 @@
           },
           "expected": {
             "status": 400,
-            "handler_called": false
+            "handler_called": false,
+            "connection_closed": true
           }
         },
         {
           "id": "two-identical-content-lengths",
-          "description": "Two Content-Length headers with same value → accepted (permissive)",
+          "description": "Two Content-Length headers with same value → 200 (Hyper normalizes identical duplicates at wire level)",
           "input": {
             "method": "POST",
             "body": "hello",
@@ -393,7 +394,8 @@
               "Content-Length": "5"
             },
             "policy": "buffer",
-            "max_body_bytes": 1024
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: 5\r\n"
           },
           "expected": {
             "status": 200,
@@ -404,21 +406,81 @@
       ]
     },
     "te_plus_content_length_conflict": {
-      "description": "Transfer-Encoding takes precedence when both TE and Content-Length are present",
+      "description": "Requests with both Transfer-Encoding and Content-Length are rejected",
       "fixtures": [
         {
           "id": "te-and-cl-both-present",
-          "description": "Transfer-Encoding: chunked + Content-Length → TE wins, body is chunked",
+          "description": "Transfer-Encoding: chunked + Content-Length → 400 Bad Request",
           "input": {
             "method": "POST",
             "body": "chunked-wins",
             "encoding": "chunked",
+            "headers": { "Content-Length": "12" },
             "policy": "stream",
             "max_body_bytes": 1024
           },
           "expected": {
-            "status": 200,
-            "echo_body": "chunked-wins"
+            "status": 400,
+            "handler_called": false,
+            "connection_closed": true
+          }
+        }
+      ]
+    },
+    "te_plus_cl_variants": {
+      "description": "Additional TE+CL rejection edge cases",
+      "fixtures": [
+        {
+          "id": "te-chunked-plus-single-cl",
+          "description": "Transfer-Encoding: chunked + single Content-Length → 400",
+          "input": {
+            "method": "POST",
+            "body": "data",
+            "encoding": "chunked",
+            "headers": { "Content-Length": "4" },
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false,
+            "connection_closed": true
+          }
+        },
+        {
+          "id": "te-chunked-plus-duplicate-identical-cl",
+          "description": "Transfer-Encoding: chunked + two identical Content-Length → 400",
+          "input": {
+            "method": "POST",
+            "body": "data",
+            "encoding": "chunked",
+            "headers": { "Content-Length": "4" },
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: 4\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false,
+            "connection_closed": true
+          }
+        },
+        {
+          "id": "te-chunked-plus-conflicting-cl",
+          "description": "Transfer-Encoding: chunked + two different Content-Length → 400",
+          "input": {
+            "method": "POST",
+            "body": "data",
+            "encoding": "chunked",
+            "headers": { "Content-Length": "4" },
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: 99\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false,
+            "connection_closed": true
           }
         }
       ]
@@ -596,11 +658,11 @@
       ]
     },
     "partial_consumption_close": {
-      "description": "Partial body consumption with close policy closes connection",
+      "description": "Partial body consumption with Close policy closes connection",
       "fixtures": [
         {
           "id": "partial-read-close",
-          "description": "Reading partial body then returning closes connection",
+          "description": "Buffer mode: partial application read leaves no unread transport bytes; connection remains reusable",
           "input": {
             "method": "POST",
             "body": "partial data here",

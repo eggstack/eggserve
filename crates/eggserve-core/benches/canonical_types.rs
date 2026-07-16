@@ -352,8 +352,7 @@ fn bench_body_operations(c: &mut Criterion) {
         let data = b"hello".to_vec();
         b.iter(|| {
             let body = RequestBody::from_bytes(data.clone(), u64::MAX);
-            let _consumed = body.consumed_flag();
-            black_box(body.was_fully_consumed());
+            black_box(body.is_complete());
         })
     });
 

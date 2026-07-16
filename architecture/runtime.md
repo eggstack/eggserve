@@ -173,17 +173,19 @@ The runtime handles request body ingestion transparently for services:
 
 1. **Policy selection**: The runtime queries `Service::request_body_policy()` and enforces the global ceiling (`max_request_body_bytes`). The effective policy is the minimum of service preference and runtime ceiling.
 
-2. **Content-Length preflight**: Before reading the body, the runtime validates `Content-Length` against the effective limit. Conflicting or oversized declarations are rejected with 413.
+2. **Framing validation**: The runtime rejects requests containing both Transfer-Encoding and Content-Length before body construction. Duplicate Content-Length headers with conflicting values are also rejected at the HTTP/1 wire level. Identical duplicate Content-Length values are normalized by Hyper.
 
-3. **Body consumption**: For `Buffer` policy, the entire body is read under `body_read_timeout` and delivered as an in-memory `RequestBody`. For `Stream` policy, the body is passed through with byte accounting. For `Reject` policy, the body is discarded and the service receives an empty body.
+3. **Content-Length preflight**: Before reading the body, the runtime validates `Content-Length` against the effective limit. Conflicting or oversized declarations are rejected with 413.
 
-4. **Error mapping**: Body errors map to deterministic HTTP responses:
+4. **Body consumption**: For `Buffer` policy, the entire body is read under `body_read_timeout` and delivered as an in-memory `RequestBody`. For `Stream` policy, the body is passed through with byte accounting. For `Reject` policy, the body is discarded and the service receives an empty body.
+
+5. **Error mapping**: Body errors map to deterministic HTTP responses:
    - 400: malformed framing, length mismatch
    - 408: body read timeout
    - 413: body too large
-   - 502: transport error
+   - 500: transport error
 
-5. **Incomplete body handling**: After the service returns, if the body was not fully consumed, the runtime applies `IncompleteBodyPolicy`. Default is `Close` (connection closed). `Drain` is defined but not yet wired.
+6. **Incomplete body handling**: After the service returns, if the body was not fully consumed, the runtime applies `IncompleteBodyPolicy`. Default is `Close` (connection closed). `Drain` is defined but not yet wired.
 
 ## Request body handling
 

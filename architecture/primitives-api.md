@@ -324,7 +324,8 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 - `RequestBody` — transport-independent, one-shot body
 - `BodyState` — Unread, Streaming, Complete, Error
-- Methods: `read_all`, `next_chunk`, `declared_length`, `bytes_received`, `is_complete`
+- Public methods: `read_all`, `next_chunk`, `declared_length`, `bytes_received`, `is_complete`
+- Internal methods (`pub(crate)`): `from_incoming()`, `consumed_flag()`, `was_fully_consumed()`
 - Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
 - No Hyper types in public API
 

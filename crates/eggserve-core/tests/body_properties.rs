@@ -1,7 +1,6 @@
 //! Property tests for request body state machine and edge cases.
 
-use bytes::Bytes;
-use eggserve_core::primitives::request_body::{BodyState, IncomingError, RequestBody};
+use eggserve_core::primitives::request_body::{BodyState, RequestBody};
 use eggserve_core::primitives::request_body_error::RequestBodyError;
 use proptest::prelude::*;
 
@@ -98,20 +97,6 @@ fn exact_limit_body_succeeds() {
 }
 
 #[test]
-fn state_transitions_unread_to_complete_on_read() {
-    proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let body = RequestBody::from_bytes(data, u64::MAX);
-        prop_assert_eq!(body.state(), BodyState::Unread);
-        // read_all takes self, so we check state before
-        // and verify consumed flag after
-        let flag = body.consumed_flag();
-        let _ = rt.block_on(body.read_all());
-        prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
-    });
-}
-
-#[test]
 fn state_transitions_unread_to_streaming_on_chunk() {
     proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 2..500))| {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -140,18 +125,6 @@ fn empty_body_completes_immediately() {
 }
 
 #[test]
-fn consumed_flag_set_after_read() {
-    proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let body = RequestBody::from_bytes(data, u64::MAX);
-        let flag = body.consumed_flag();
-        prop_assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
-        let _ = rt.block_on(body.read_all());
-        prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
-    });
-}
-
-#[test]
 fn streaming_completes_all_chunks() {
     proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
         let rt = tokio::runtime::Runtime::new().unwrap();
@@ -166,47 +139,5 @@ fn streaming_completes_all_chunks() {
             }
         }
         prop_assert_eq!(total, data.len() as u64);
-    });
-}
-
-#[test]
-fn chunked_body_via_stream_succeeds() {
-    proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..1000))| {
-        use futures_util::stream;
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let chunk_size = if data.is_empty() { 1 } else { (data[0] as usize % 64) + 1 };
-        let chunks: Vec<Result<Bytes, IncomingError>> = data.chunks(chunk_size)
-            .map(|c| Ok(Bytes::copy_from_slice(c)))
-            .collect();
-        let body_stream = stream::iter(chunks);
-        let body = RequestBody::from_incoming(body_stream, Some(data.len() as u64), u64::MAX);
-        let result = rt.block_on(body.read_all());
-        if let Ok(val) = result {
-            prop_assert_eq!(val.len(), data.len());
-        }
-    });
-}
-
-#[test]
-fn premature_eof_detected() {
-    proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..100))| {
-        use futures_util::stream;
-
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let declared = (data.len() as u64) + 100;
-        let data_owned = data.clone();
-        let body_stream = stream::once(async move {
-            Ok::<_, IncomingError>(Bytes::from(data_owned))
-        });
-        let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
-        let result = rt.block_on(body.read_all());
-        if let Err(e) = result {
-            prop_assert!(
-                matches!(e, RequestBodyError::PrematureEof { .. }),
-                "expected PrematureEof, got: {:?}",
-                e
-            );
-        }
     });
 }

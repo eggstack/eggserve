@@ -151,9 +151,9 @@ async fn malformed_chunking_returns_400() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 400")
-            || response.starts_with("HTTP/1.1 502")
+            || response.starts_with("HTTP/1.1 500")
             || response.is_empty(),
-        "expected 400/502 or connection close for malformed chunking, got: {}",
+        "expected 400/500 or connection close for malformed chunking, got: {}",
         response
     );
     handle.shutdown();

@@ -38,7 +38,7 @@ pub enum RequestBodyError {
     AlreadyConsumed,
     /// Mixed consumption modes (e.g. read_all after next_chunk).
     MixedConsumptionMode,
-    /// A transport-level error occurred.
+    /// A transport-level error occurred (mapped to 500 since eggserve is an origin server).
     Transport(String),
 }
 
@@ -134,7 +134,7 @@ impl RequestBodyError {
             Self::Disconnected => 499,
             Self::AlreadyConsumed => 500,
             Self::MixedConsumptionMode => 500,
-            Self::Transport(_) => 502,
+            Self::Transport(_) => 500,
         }
     }
 }
@@ -201,7 +201,7 @@ mod tests {
         );
         assert_eq!(
             RequestBodyError::Transport("oops".into()).to_status_code(),
-            502
+            500
         );
     }
 }

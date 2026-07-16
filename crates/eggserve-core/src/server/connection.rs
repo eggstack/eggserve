@@ -128,6 +128,12 @@ pub async fn serve_connection_with_service<I, S>(
 
             // Extract body from Hyper request.
             let (parts, body) = req.into_parts();
+
+            // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
+            if let Err(e) = validate_body_framing(&parts.headers) {
+                return Ok::<_, Infallible>(e.to_response());
+            }
+
             let declared_length = parts
                 .headers
                 .get(hyper::header::CONTENT_LENGTH)
@@ -424,6 +430,37 @@ fn validate_request_policy(
                 }
             }
         }
+    }
+
+    Ok(())
+}
+
+/// Validate body framing for ALL methods.
+///
+/// Rejects requests with both Transfer-Encoding and Content-Length present,
+/// and requests with duplicate Content-Length fields. This is a hardened
+/// framing policy applied before body construction.
+fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
+    let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
+    let cl_values: Vec<_> = headers
+        .get_all(hyper::header::CONTENT_LENGTH)
+        .iter()
+        .collect();
+    let has_cl = !cl_values.is_empty();
+    let duplicate_cl = cl_values.len() > 1;
+
+    if has_te && has_cl {
+        return Err(ServiceError::rejected(
+            400,
+            "conflicting Transfer-Encoding and Content-Length",
+        ));
+    }
+
+    if duplicate_cl {
+        return Err(ServiceError::rejected(
+            400,
+            "duplicate Content-Length headers",
+        ));
     }
 
     Ok(())

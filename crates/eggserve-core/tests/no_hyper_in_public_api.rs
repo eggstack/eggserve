@@ -11,7 +11,11 @@
 #![allow(unused_imports)]
 
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+use eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy;
 use eggserve_core::primitives::method::Method;
+use eggserve_core::primitives::request_body::RequestBody;
+use eggserve_core::primitives::request_body_error::RequestBodyError;
+use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
 use eggserve_core::primitives::request_head::RequestHead;
 use eggserve_core::primitives::request_target::RequestTarget;
 use eggserve_core::primitives::version::HttpVersion;
@@ -76,4 +80,20 @@ fn request_head_from_hyper_is_fallible() {
     assert_eq!(head.method().as_str(), "GET");
     assert_eq!(head.target().path(), "/test");
     assert_eq!(head.target().query(), Some("q=1"));
+}
+
+#[test]
+fn body_primitives_no_hyper() {
+    let body = RequestBody::empty();
+    assert_eq!(body.declared_length(), None);
+    assert_eq!(body.bytes_received(), 0);
+    assert!(!body.is_complete());
+    assert_eq!(body.max_bytes(), u64::MAX);
+
+    let body2 = RequestBody::from_bytes(b"test".to_vec(), 1024);
+    assert_eq!(body2.declared_length(), Some(4));
+
+    let _err = RequestBodyError::AlreadyConsumed;
+    let _policy = RequestBodyPolicy::Reject;
+    let _incomplete = IncompleteBodyPolicy::Close;
 }

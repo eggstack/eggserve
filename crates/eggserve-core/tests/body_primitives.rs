@@ -306,7 +306,7 @@ fn error_status_codes() {
     );
     assert_eq!(
         RequestBodyError::Transport("err".into()).to_status_code(),
-        502
+        500
     );
     assert_eq!(RequestBodyError::AlreadyConsumed.to_status_code(), 500);
 }

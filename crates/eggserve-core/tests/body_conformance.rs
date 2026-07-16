@@ -579,6 +579,58 @@ async fn body_conformance_policy_selection() {
 }
 
 #[tokio::test]
+async fn body_conformance_te_plus_cl_variants() {
+    for fixture in group("te_plus_cl_variants") {
+        let config = RuntimeConfig::builder()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .max_request_body_bytes(fixture.input.max_body_bytes)
+            .body_read_timeout(Duration::from_secs(5))
+            .build();
+
+        let policy = parse_policy(&fixture.input);
+        let tmp = TempDir::new().unwrap();
+        let serve_config = Arc::new(ServeConfig {
+            root: tmp.path().to_path_buf(),
+            ..ServeConfig::default()
+        });
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(serve_config)
+            .build()
+            .unwrap();
+
+        let handle = server
+            .start_with_service(service_fn_with_policy(
+                |req: Request| async move {
+                    let (_head, mut body) = req.into_head_and_body();
+                    let mut all = Vec::new();
+                    while let Some(chunk) = body.next_chunk().await.unwrap() {
+                        all.extend_from_slice(&chunk);
+                    }
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .body(ResponseBody::Bytes(all))
+                        .unwrap())
+                },
+                policy,
+            ))
+            .await
+            .unwrap();
+        handle.ready().await.unwrap();
+        let addr = handle.local_addr();
+
+        let req_bytes = build_request_bytes(&fixture.input, addr.to_string().as_str());
+        let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+        conn.write_all(&req_bytes).await.unwrap();
+        let buf = read_response(&mut conn).await;
+        let status = parse_response_status(&buf).unwrap_or(0);
+
+        assert_eq!(status, fixture.expected.status, "{}: status", fixture.id);
+        handle.shutdown();
+    }
+}
+
+#[tokio::test]
 async fn body_conformance_empty_body() {
     for fixture in group("empty_body") {
         let config = RuntimeConfig::builder()

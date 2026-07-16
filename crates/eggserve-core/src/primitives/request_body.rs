@@ -141,7 +141,7 @@ impl RequestBody {
     /// External consumers (e.g. fuzz targets) may also use it to test
     /// stream-based body ingestion.
     #[allow(dead_code)]
-    pub fn from_incoming(
+    pub(crate) fn from_incoming(
         stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
         declared_length: Option<u64>,
         max_bytes: u64,
@@ -188,13 +188,13 @@ impl RequestBody {
     /// The flag is set when the body stream ends and all declared bytes
     /// have been received. Used by the connection pipeline for
     /// incomplete-body policy decisions.
-    pub fn consumed_flag(&self) -> Arc<AtomicBool> {
+    pub(crate) fn consumed_flag(&self) -> Arc<AtomicBool> {
         self.consumed.clone()
     }
 
     /// Returns `true` if the body was fully consumed (stream ended and
     /// all declared bytes received).
-    pub fn was_fully_consumed(&self) -> bool {
+    pub(crate) fn was_fully_consumed(&self) -> bool {
         self.consumed.load(Ordering::Acquire)
     }
 
@@ -532,6 +532,7 @@ impl Stream for RequestBody {
 mod tests {
     use super::*;
     use futures_util::StreamExt;
+    use proptest::prelude::*;
 
     #[tokio::test]
     async fn empty_body_read_all() {
@@ -694,5 +695,71 @@ mod tests {
         let result = body.read_all().await;
         assert!(result.is_err());
         assert!(result.unwrap_err().is_limit_exceeded());
+    }
+
+    #[test]
+    fn state_transitions_unread_to_complete_on_read() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let body = RequestBody::from_bytes(data, u64::MAX);
+            prop_assert_eq!(body.state(), BodyState::Unread);
+            let flag = body.consumed_flag();
+            let _ = rt.block_on(body.read_all());
+            prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
+        });
+    }
+
+    #[test]
+    fn consumed_flag_set_after_read() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let body = RequestBody::from_bytes(data, u64::MAX);
+            let flag = body.consumed_flag();
+            prop_assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
+            let _ = rt.block_on(body.read_all());
+            prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
+        });
+    }
+
+    #[test]
+    fn chunked_body_via_stream_succeeds() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..1000))| {
+            use futures_util::stream;
+
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let chunk_size = if data.is_empty() { 1 } else { (data[0] as usize % 64) + 1 };
+            let chunks: Vec<Result<Bytes, IncomingError>> = data.chunks(chunk_size)
+                .map(|c| Ok(Bytes::copy_from_slice(c)))
+                .collect();
+            let body_stream = stream::iter(chunks);
+            let body = RequestBody::from_incoming(body_stream, Some(data.len() as u64), u64::MAX);
+            let result = rt.block_on(body.read_all());
+            if let Ok(val) = result {
+                prop_assert_eq!(val.len(), data.len());
+            }
+        });
+    }
+
+    #[test]
+    fn premature_eof_detected() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..100))| {
+            use futures_util::stream;
+
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let declared = (data.len() as u64) + 100;
+            let data_owned = data.clone();
+            let body_stream = stream::once(async move {
+                Ok::<_, IncomingError>(Bytes::from(data_owned))
+            });
+            let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+            let result = rt.block_on(body.read_all());
+            if let Err(e) = result {
+                prop_assert!(
+                    matches!(e, RequestBodyError::PrematureEof { .. }),
+                    "expected PrematureEof, got: {:?}",
+                    e
+                );
+            }
+        });
     }
 }

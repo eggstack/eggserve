@@ -88,6 +88,9 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 |------|--------|-------|
 | `RequestBodyPolicy` | Experimental | Body acceptance policy (Reject/Buffer/Stream) |
 | `RequestBody` | Experimental | One-shot, bounded request body |
+| `RequestBody::from_incoming()` | Internal | `pub(crate)` — not public API |
+| `RequestBody::consumed_flag()` | Internal | `pub(crate)` — not public API |
+| `RequestBody::was_fully_consumed()` | Internal | `pub(crate)` — not public API |
 | `BodyState` | Experimental | Body consumption state machine |
 | `RequestBodyError` | Experimental | Typed body error taxonomy |
 | `IncompleteBodyPolicy` | Experimental | Drain-or-close for incomplete bodies |
