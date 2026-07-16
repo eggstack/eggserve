@@ -333,12 +333,96 @@ fn bench_body_operations(c: &mut Criterion) {
         })
     });
 
+    c.bench_function("body_many_small_chunks", |b| {
+        // Simulate many tiny chunks (1 byte each, 1024 total).
+        let data = vec![0u8; 1024];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let mut stream = body;
+            let mut count = 0u64;
+            while let Ok(Some(chunk)) = rt.block_on(stream.next_chunk()) {
+                count += 1;
+                black_box(&chunk);
+            }
+            black_box(count);
+        })
+    });
+
     c.bench_function("body_consumption_flag", |b| {
         let data = b"hello".to_vec();
         b.iter(|| {
             let body = RequestBody::from_bytes(data.clone(), u64::MAX);
             let _consumed = body.consumed_flag();
             black_box(body.was_fully_consumed());
+        })
+    });
+
+    c.bench_function("body_limit_check_overhead", |b| {
+        // Measure overhead of limit checking on every chunk.
+        let data = vec![0u8; 1024];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), 2048);
+            let mut stream = body;
+            let mut total = 0u64;
+            while let Ok(Some(chunk)) = rt.block_on(stream.next_chunk()) {
+                total += chunk.len() as u64;
+            }
+            black_box(total);
+        })
+    });
+
+    c.bench_function("body_cancellation_cleanup", |b| {
+        // Measure cost of creating a body and dropping it mid-stream.
+        let data = vec![0u8; 1024];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let mut stream = body;
+            // Read one chunk, then drop — simulates cancellation.
+            let _ = rt.block_on(stream.next_chunk());
+            black_box(stream);
+        })
+    });
+
+    c.bench_function("body_partial_consumption", |b| {
+        // Measure cost of reading half the body, then dropping.
+        let data = vec![0u8; 1024];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let mut stream = body;
+            let mut total = 0u64;
+            // Read half the chunks.
+            while let Ok(Some(chunk)) = rt.block_on(stream.next_chunk()) {
+                total += chunk.len() as u64;
+                if total >= 512 {
+                    break;
+                }
+            }
+            black_box(stream);
+        })
+    });
+
+    c.bench_function("body_buffer_allocation_count", |b| {
+        // Measure allocation overhead for buffer mode (read_all).
+        let data = vec![0u8; 4096];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let result = rt.block_on(body.read_all()).unwrap();
+            black_box(result);
+        })
+    });
+
+    c.bench_function("body_stream_chunk_count", |b| {
+        // Measure overhead of many small chunks.
+        let data = vec![0u8; 256];
+        b.iter(|| {
+            let body = RequestBody::from_bytes(data.clone(), u64::MAX);
+            let mut stream = body;
+            let mut count = 0u32;
+            while let Ok(Some(chunk)) = rt.block_on(stream.next_chunk()) {
+                count += 1;
+                black_box(&chunk);
+            }
+            black_box(count);
         })
     });
 }

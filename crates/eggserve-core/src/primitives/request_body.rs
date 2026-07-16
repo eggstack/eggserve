@@ -137,10 +137,11 @@ impl RequestBody {
 
     /// Create a body from a Hyper `Incoming` stream.
     ///
-    /// This is a crate-internal constructor. External consumers should
-    /// not call this directly.
+    /// This is primarily used by the runtime to wrap Hyper incoming bodies.
+    /// External consumers (e.g. fuzz targets) may also use it to test
+    /// stream-based body ingestion.
     #[allow(dead_code)]
-    pub(crate) fn from_incoming(
+    pub fn from_incoming(
         stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
         declared_length: Option<u64>,
         max_bytes: u64,
@@ -229,7 +230,13 @@ impl RequestBody {
             }
             BodyInner::Fixed { data, offset } => {
                 let remaining = &data[offset..];
-                let total = self.bytes_received + remaining.len() as u64;
+                let total = self
+                    .bytes_received
+                    .checked_add(remaining.len() as u64)
+                    .ok_or(RequestBodyError::LimitExceeded {
+                        limit: self.max_bytes,
+                        received: u64::MAX,
+                    })?;
                 if total > self.max_bytes {
                     self.state = BodyState::Error;
                     return Err(RequestBodyError::LimitExceeded {
@@ -247,7 +254,12 @@ impl RequestBody {
                 use futures_util::StreamExt;
                 while let Some(item) = stream.next().await {
                     let chunk = item.map_err(|e| RequestBodyError::Transport(e.0))?;
-                    let new_total = self.bytes_received + chunk.len() as u64;
+                    let new_total = self.bytes_received.checked_add(chunk.len() as u64).ok_or(
+                        RequestBodyError::LimitExceeded {
+                            limit: self.max_bytes,
+                            received: u64::MAX,
+                        },
+                    )?;
                     if new_total > self.max_bytes {
                         self.state = BodyState::Error;
                         return Err(RequestBodyError::LimitExceeded {
@@ -259,14 +271,17 @@ impl RequestBody {
                     buf.extend_from_slice(&chunk);
                 }
                 self.state = BodyState::Complete;
-                // Mark consumed if declared length is satisfied (or absent).
-                let declared_ok = match self.declared_length {
-                    Some(declared) => self.bytes_received >= declared,
-                    None => true,
-                };
-                if declared_ok {
-                    self.mark_consumed();
+                // Check for premature EOF: stream ended before declared length.
+                if let Some(declared) = self.declared_length {
+                    if self.bytes_received < declared {
+                        let received = self.bytes_received;
+                        return Err(RequestBodyError::PrematureEof {
+                            received,
+                            expected: Some(declared),
+                        });
+                    }
                 }
+                self.mark_consumed();
                 Ok(Bytes::from(buf))
             }
         }
@@ -316,8 +331,13 @@ impl RequestBody {
                     return Ok(None);
                 }
                 let remaining = &data[*offset..];
-                let chunk_size = remaining.len().min(8192); // chunk size for streaming
-                let new_total = self.bytes_received + chunk_size as u64;
+                let chunk_size = remaining.len().min(8192);
+                let new_total = self.bytes_received.checked_add(chunk_size as u64).ok_or(
+                    RequestBodyError::LimitExceeded {
+                        limit: self.max_bytes,
+                        received: u64::MAX,
+                    },
+                )?;
                 if new_total > self.max_bytes {
                     self.state = BodyState::Error;
                     return Err(RequestBodyError::LimitExceeded {
@@ -337,7 +357,12 @@ impl RequestBody {
                 use futures_util::StreamExt;
                 match stream.next().await {
                     Some(Ok(chunk)) => {
-                        let new_total = self.bytes_received + chunk.len() as u64;
+                        let new_total = self.bytes_received.checked_add(chunk.len() as u64).ok_or(
+                            RequestBodyError::LimitExceeded {
+                                limit: self.max_bytes,
+                                received: u64::MAX,
+                            },
+                        )?;
                         if new_total > self.max_bytes {
                             self.state = BodyState::Error;
                             return Err(RequestBodyError::LimitExceeded {
@@ -354,13 +379,17 @@ impl RequestBody {
                     }
                     None => {
                         self.state = BodyState::Complete;
-                        let declared_ok = match self.declared_length {
-                            Some(declared) => self.bytes_received >= declared,
-                            None => true,
-                        };
-                        if declared_ok {
-                            self.mark_consumed();
+                        // Check for premature EOF.
+                        if let Some(declared) = self.declared_length {
+                            if self.bytes_received < declared {
+                                let received = self.bytes_received;
+                                return Err(RequestBodyError::PrematureEof {
+                                    received,
+                                    expected: Some(declared),
+                                });
+                            }
                         }
+                        self.mark_consumed();
                         Ok(None)
                     }
                 }
@@ -421,7 +450,16 @@ impl Stream for RequestBody {
                 } else {
                     let remaining = &data[*offset..];
                     let chunk_size = remaining.len().min(8192);
-                    let new_total = bytes_received + chunk_size as u64;
+                    let new_total = match bytes_received.checked_add(chunk_size as u64) {
+                        Some(v) => v,
+                        None => {
+                            self.state = BodyState::Error;
+                            return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
+                                limit: max_bytes,
+                                received: u64::MAX,
+                            })));
+                        }
+                    };
                     if new_total > max_bytes {
                         self.state = BodyState::Error;
                         return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
@@ -440,7 +478,16 @@ impl Stream for RequestBody {
             }
             BodyInner::Incoming { stream } => match stream.as_mut().poll_next(cx) {
                 Poll::Ready(Some(Ok(chunk))) => {
-                    let new_total = bytes_received + chunk.len() as u64;
+                    let new_total = match bytes_received.checked_add(chunk.len() as u64) {
+                        Some(v) => v,
+                        None => {
+                            self.state = BodyState::Error;
+                            return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
+                                limit: max_bytes,
+                                received: u64::MAX,
+                            })));
+                        }
+                    };
                     if new_total > max_bytes {
                         self.state = BodyState::Error;
                         Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
@@ -461,13 +508,18 @@ impl Stream for RequestBody {
                 }
                 Poll::Ready(None) => {
                     self.state = BodyState::Complete;
-                    let declared_ok = match self.declared_length {
-                        Some(declared) => self.bytes_received >= declared,
-                        None => true,
-                    };
-                    if declared_ok {
-                        self.mark_consumed();
+                    // Check for premature EOF.
+                    if let Some(declared) = self.declared_length {
+                        if self.bytes_received < declared {
+                            let received = self.bytes_received;
+                            self.state = BodyState::Error;
+                            return Poll::Ready(Some(Err(RequestBodyError::PrematureEof {
+                                received,
+                                expected: Some(declared),
+                            })));
+                        }
                     }
+                    self.mark_consumed();
                     Poll::Ready(None)
                 }
                 Poll::Pending => Poll::Pending,
@@ -573,5 +625,74 @@ mod tests {
         let dbg = format!("{:?}", body);
         assert!(dbg.contains("RequestBody"));
         assert!(dbg.contains("Unread"));
+    }
+
+    #[tokio::test]
+    async fn premature_eof_returns_error() {
+        use futures_util::stream;
+        // Create a stream that provides fewer bytes than declared.
+        let short_data = b"hi";
+        let declared = 10u64;
+        let body_stream =
+            stream::once(async move { Ok::<_, IncomingError>(Bytes::copy_from_slice(short_data)) });
+        let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+        let result = body.read_all().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RequestBodyError::PrematureEof { received, expected } => {
+                assert_eq!(received, 2);
+                assert_eq!(expected, Some(10));
+            }
+            other => panic!("expected PrematureEof, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn premature_eof_streaming_returns_error() {
+        use futures_util::stream;
+        // Stream that provides fewer bytes than declared.
+        let short_data = b"hi";
+        let declared = 10u64;
+        let body_stream =
+            stream::once(async move { Ok::<_, IncomingError>(Bytes::copy_from_slice(short_data)) });
+        let mut body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+        // Read the one available chunk.
+        let chunk = body.next_chunk().await.unwrap();
+        assert!(chunk.is_some());
+        // Next read: stream ended, premature EOF should be reported.
+        let result = body.next_chunk().await;
+        match result {
+            Err(RequestBodyError::PrematureEof { received, expected }) => {
+                assert_eq!(received, 2);
+                assert_eq!(expected, Some(10));
+            }
+            Ok(None) => {
+                panic!("expected PrematureEof, got Ok(None)");
+            }
+            other => panic!("expected PrematureEof, got: {:?}", other),
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_declared_length_succeeds() {
+        use futures_util::stream;
+        let data = b"hello";
+        let declared = 5u64;
+        let body_stream =
+            stream::once(
+                async move { Ok::<_, IncomingError>(Bytes::copy_from_slice(data.as_slice())) },
+            );
+        let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+        let result = body.read_all().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().as_ref(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn checked_add_overflow_returns_error() {
+        let body = RequestBody::from_bytes(vec![0u8; 200], 100);
+        let result = body.read_all().await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_limit_exceeded());
     }
 }

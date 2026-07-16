@@ -64,7 +64,9 @@ dependencies = [
 name = "eggserve-fuzz"
 version = "0.0.0"
 dependencies = [
+ "bytes",
  "eggserve-core",
+ "futures-util",
  "libfuzzer-sys",
  "tokio",
 ]

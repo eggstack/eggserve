@@ -244,11 +244,15 @@ pub async fn serve_connection_with_service<I, S>(
                     Ok::<_, Infallible>(response)
                 }
                 RequestBodyPolicy::Stream { .. } => {
+                    // For Stream mode, enforce body_read_timeout as a total deadline
+                    // on the service call (which includes body consumption).
+                    let effective_timeout = body_read_timeout.min(handler_timeout);
                     let connection = build_connection_info(&parts);
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
-                    let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+                    let result =
+                        tokio::time::timeout(effective_timeout, service.call(request)).await;
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
@@ -272,10 +276,22 @@ pub async fn serve_connection_with_service<I, S>(
                                 // Hyper handles cleanup of unconsumed body bytes.
                             }
                             crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                                ..
+                                max_bytes,
+                                timeout,
                             } => {
-                                // Body has been consumed by the service — no stream to drain.
-                                // Hyper handles cleanup when the connection closes.
+                                // Architectural note: in Stream mode, the body stream is
+                                // consumed into the Request envelope and passed to
+                                // Service::call by value. After the service returns, the
+                                // body stream is no longer accessible from this pipeline.
+                                // Hyper handles cleanup of remaining bytes: if the body
+                                // was not fully consumed, Hyper encounters leftover bytes
+                                // when attempting to parse the next request, which causes
+                                // a parse error and connection close. This is safe
+                                // (request smuggling is prevented) but does not preserve
+                                // keep-alive. The drain parameters (max_bytes, timeout)
+                                // are recorded for future active-drain implementations
+                                // that intercept the body before service invocation.
+                                let _ = (max_bytes, timeout);
                             }
                         }
                     }
