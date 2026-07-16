@@ -39,7 +39,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `ServerBuilder` | Configured builder for `Server`; supports `.bind()` and `.from_listener()` for existing listeners |
 | `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, keep-alive) |
-| `Service` trait | Receives `RequestHead`, returns `Result<Response, ServiceError>` |
+| `Service` trait | Receives `Request` (envelope: `RequestHead` + `RequestBody` + `ConnectionInfo`), returns `Result<Response, ServiceError>` |
 | `service_fn` | Create a `Service` from a closure |
 | `StaticService` | Hardened static file service implementing `Service` |
 | `ServiceError` | Per-request errors: Internal, Rejected, Panic, Timeout |
@@ -49,7 +49,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 
 ### Guarantees
 
-- Canonical `RequestHead` (no Hyper types) is passed to services
+- Canonical `Request` envelope (containing `RequestHead`, `RequestBody`, `ConnectionInfo`) is passed to services
 - Canonical `Response` is returned by services; the runtime normalizes and sends it
 - Hop-by-hop header stripping and content-length computation are runtime-owned
 - Handler panics are caught at the tokio task boundary and map to `ServiceError::Panic`

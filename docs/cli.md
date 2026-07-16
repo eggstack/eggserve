@@ -15,13 +15,13 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--directory DIR` | Root directory to serve | `.` (current directory) |
-| `--addr HOST:PORT` | Bind address (sets both host and port) | `127.0.0.1:8000` |
-| `--bind HOST[:PORT]` | Bind host or host:port (alias for `--addr`) | `127.0.0.1:8000` |
-| `--port PORT` | Port to listen on (overrides `--addr` port) | `8000` |
-| `PORT` | Positional port argument (overrides all port sources) | `8000` |
+| `--addr HOST:PORT` | Bind address (sets both host and port; blocks positional port override) | `127.0.0.1:8000` |
+| `--bind HOST[:PORT]` | Bind host or host:port (positional port can override the port portion) | `127.0.0.1:8000` |
+| `--port PORT` | Port to listen on (blocks positional port override) | `8000` |
+| `PORT` | Positional port argument (overrides `--bind` port when neither `--port` nor `--addr` is given) | `8000` |
 | `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
 
-Port resolution order: `PORT` positional > `--port` > `--addr`/`--bind` > default `8000`.
+Port resolution: `--port`/`--addr` take highest precedence and block positional override. The `PORT` positional overrides `--bind` when neither `--port` nor `--addr` is given. Default is `127.0.0.1:8000`.
 
 Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 

@@ -1,20 +1,10 @@
 # eggserve
 
-> eggserve is a hardened, Rust-backed replacement for the common `python -m http.server` static-serving workflow and a small foundation library for safe HTTP/static-serving primitives.
+> A hardened, Rust-backed static file server with safe-by-default behavior. Drop-in replacement for `python -m http.server`.
 
 **eggserve is not a general web server, framework, ASGI/WSGI runtime, or Granian replacement.** It serves static files from a directory with secure-by-default behavior. That is all.
 
-## What is eggserve?
-
-eggserve provides two layers:
-
-1. **CLI static server** — a hardened replacement for `python -m http.server` that serves static files with secure-by-default behavior. Bind to loopback, deny symlinks, reject dotfiles, disable directory listing — all unless explicitly opted in.
-
-2. **Primitive library** — hardened Rust/Python building blocks for request-target parsing, path confinement, secure static resolution, and response planning. Use these to build custom serving logic without launching the binary.
-
-Both layers share the same security policy and path confinement engine. The CLI is the simplest path; the primitives are for integration.
-
-## Why not Python http.server?
+## Why not `python -m http.server`?
 
 `python -m http.server` is convenient but unsafe by default:
 
@@ -26,86 +16,83 @@ Both layers share the same security policy and path confinement engine. The CLI 
 
 eggserve fixes these by making the safe choice the only default. Every unsafe behavior is available but requires explicit opt-in.
 
-## Scope and non-goals
-
-eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-goals.md](docs/non-goals.md).
-
-**This is not:** an ASGI/WSGI runtime, a reverse proxy, a web framework, a template engine, a plugin host, a dynamic request execution environment, or a replacement for nginx/Caddy.
-
-**This is:** a hardened static file server with safe defaults, a small reusable library for path confinement and policy enforcement, and a Python-packaged tool that feels like `python -m http.server`.
-
-## Expected CLI shape
+## Installation
 
 ```sh
-eggserve [OPTIONS] [PORT] [--directory DIR]
+# Via Python wheel (CPython 3.14 on Linux, macOS, or Windows)
+pip install eggserve
 
-# Options:
-#   --directory DIR          Root directory to serve (default: .)
-#   --addr HOST:PORT         Bind address (default: 127.0.0.1:8000)
-#   --bind HOST              Bind host (host:port or bare host)
-#   --port PORT              Port to listen on
-#   --public                 Bind to all interfaces (required for 0.0.0.0)
-#   --directory-listing      Enable directory listing
-#   --follow-symlinks        Follow symlinks
-#   --allow-dotfiles         Serve dotfiles
-#   --log-format FORMAT      text, json, or none (default: text)
-#   --quiet                  Suppress startup banner
-#   --max-connections N      Max concurrent connections (default: 64)
-#   --max-file-streams N     Max concurrent file streams (default: 32)
-#   --header-timeout SECS    Header read timeout, also bounds TLS handshake (default: 10)
-#   --write-timeout SECS     Response write timeout (default: 60)
+# Or run directly with pipx
+pipx run eggserve
 
-# TLS options (requires tls feature):
-#   --tls-cert PATH          PEM certificate chain (requires --tls-key)
-#   --tls-key PATH           PEM private key (requires --tls-cert)
+# From source (requires Rust toolchain)
+cargo install --path crates/eggserve-bin
 ```
 
-## Security defaults
+## Quick start
 
-eggserve ships with secure defaults. Every option that weakens security requires explicit CLI flags. The full security policy is documented in [docs/security-policy.md](docs/security-policy.md).
+**Serve the current directory:**
 
-Key defaults:
+```sh
+eggserve
+# Serves on http://127.0.0.1:8000 with safe defaults
+```
 
-- **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
-- **GET and HEAD only** — all other methods are rejected
-- **No request bodies** — `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding` on GET/HEAD are rejected (413 for body-size limits, 400 for malformed framing)
-- **No symlink following** — final and intermediate symlinks are denied unless `--follow-symlinks` is passed. On Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)` to prevent symlink detection bypass and to refuse to follow a symlink swapped into the path between the two calls. Even with `--follow-symlinks`, symlinks whose final canonical target escapes the root are denied. **Follow-symlinks mode is weaker and is not covered by the descriptor-relative hardening guarantee.**
-- **No dotfiles served** — hidden files are excluded
-- **No directory listing** — unless `--directory-listing` is passed
-- **Unknown MIME as application/octet-stream** — safe fallback
-- **Malformed request targets rejected** — invalid paths are not resolved
-- **Logs sanitized** — paths/headers are sanitized before logging
-- **Resource limits enabled** — connection and request limits are active
+**Serve a specific directory on a custom port:**
 
-## Project status
+```sh
+eggserve --directory public --port 9000
+```
 
-**Plans 000–059 complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.** eggserve ships as a hardened CLI static server, a primitive library, and Python server primitives. The primitive library exposes path parsing, policy enforcement, secure root resolution, and response planning to both Rust and Python. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, file streaming, and timeout enforcement. Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. CI gate names are normalized to match `release/criteria.toml` gate IDs, and evidence aggregation runs after all gate jobs. See [plans/](plans/) for the full sequence and [docs/release-checklist.md](docs/release-checklist.md) for evidence-backed release status.
+**Enable directory listing and follow symlinks:**
 
-Release gates are defined in [release/criteria.toml](release/criteria.toml) and validated by [scripts/release_criteria.py](scripts/release_criteria.py). See [docs/release-process.md](docs/release-process.md) for the release operator guide.
+```sh
+eggserve --directory-listing --follow-symlinks
+```
 
-**Property testing and fuzzing:** Nine fuzz targets cover path parsing, URL parsing, range/conditional headers, platform checks, and request validation. Deterministic property tests (proptest) run in normal CI. Scheduled fuzz runs run weekly. See [docs/fuzzing.md](docs/fuzzing.md).
+**Bind to all interfaces (requires --public):**
 
-**Conformance corpus:** Canonical HTTP type conformance is validated through Rust and Python parity tests exercising Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, StatusCode, ResponseHead, ResponseBody, Response, and normalize_response. The corpus covers parsing, validation, normalization rules, and cross-language behavioral equivalence. See `tests/canonical_conformance.rs` (Rust) and `python/eggserve/test_canonical_conformance.py` (Python).
+```sh
+eggserve --public --port 8080
+```
 
-**API stability:** Every exported Rust and Python item is classified as stable, experimental, or internal. See [docs/api-stability.md](docs/api-stability.md) for the full inventory and [docs/release-contract.md](docs/release-contract.md) for behavioral guarantees.
+## CLI reference
 
-## Supported platforms
+```
+eggserve [OPTIONS] [PORT] [--directory DIR]
 
-| Platform | Status |
-|----------|--------|
-| Linux x86_64 | Supported; hardened (`openat(O_NOFOLLOW)`), validated by the release matrix |
-| Linux aarch64 | Release target; hardened (`openat(O_NOFOLLOW)`), release evidence required |
-| macOS arm64 (Apple Silicon) | Supported; hardened (`openat(O_NOFOLLOW)`), validated by the release matrix |
-| macOS x86_64 | Release target; hardened (`openat(O_NOFOLLOW)`), release evidence required |
-| Windows x86_64 | Functional wheel/binary support; parser-level checks only, reparse-point hardening deferred |
+Options:
+  --directory DIR          Root directory to serve (default: .)
+  --addr HOST:PORT         Bind address (default: 127.0.0.1:8000)
+  --bind HOST              Bind host (host:port or bare host)
+  --port PORT              Port to listen on
+  --public                 Bind to all interfaces (required for 0.0.0.0)
+  --directory-listing      Enable directory listing
+  --follow-symlinks        Follow symlinks
+  --allow-dotfiles         Serve dotfiles
+  --log-format FORMAT      text, json, or none (default: text)
+  --quiet                  Suppress startup banner
+  --max-connections N      Max concurrent connections (default: 64)
+  --max-file-streams N     Max concurrent file streams (default: 32)
+  --header-timeout SECS    Header read timeout (default: 10)
+  --write-timeout SECS     Response write timeout (default: 60)
 
-Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.
+TLS options (requires tls feature):
+  --tls-cert PATH          PEM certificate chain (requires --tls-key)
+  --tls-key PATH           PEM private key (requires --tls-cert)
+```
+
+See [docs/cli.md](docs/cli.md) for full details.
 
 ## Python API
 
-eggserve provides a Python API with two layers:
+eggserve provides a Python API with two layers: a native primitives library (PyO3-backed Rust bindings) and a server API for building HTTP servers with Rust-owned I/O.
 
-**Native primitives** (PyO3-backed Rust bindings) — path parsing, policy enforcement, secure root resolution, and response planning without launching the binary:
+**This is NOT an ASGI/WSGI server or a web framework.** It is a hardened static-serving primitive.
+
+### Native primitives
+
+Use these for path confinement, policy enforcement, and response planning without launching the server binary:
 
 ```python
 from eggserve import SecureRoot, StaticPolicy
@@ -117,7 +104,9 @@ if resource.is_file:
     print(plan.status, plan.body_kind)  # 200 file_full
 ```
 
-**Server primitives** — build HTTP servers with Rust-owned I/O:
+### Server primitives
+
+Build HTTP servers with Rust-owned I/O. Rust handles socket accept, HTTP parsing, file streaming, and timeout enforcement:
 
 ```python
 from eggserve import Server, ServerSecureRoot
@@ -127,7 +116,9 @@ with Server(root=root) as server:
     print(f"Serving on {server.addr}")
 ```
 
-**Handler callback** — intercept requests with a Python handler:
+### Handler callbacks
+
+Intercept requests with a Python handler:
 
 ```python
 from eggserve import Server, ServerSecureRoot, Request, Response
@@ -143,7 +134,11 @@ with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
-**Lifecycle methods** — programmatic control over the server lifecycle:
+Handler callbacks support bounded request body consumption (`buffer` or `stream` mode) via constructor parameters. See [docs/body-migration.md](docs/body-migration.md) for details.
+
+### Lifecycle control
+
+Programmatic server lifecycle for tests and embedding:
 
 ```python
 from eggserve import Server, ServerSecureRoot
@@ -157,7 +152,9 @@ server.wait()           # blocks until stopped
 print(server.state)     # "stopped"
 ```
 
-**Subprocess lifecycle** — full HTTP serving via the Rust binary:
+### Subprocess API
+
+Full HTTP serving via the Rust binary:
 
 ```python
 from eggserve import serve_directory
@@ -180,22 +177,34 @@ proc.stop()
 
 Full API reference: [docs/python-api.md](docs/python-api.md)
 
-**Request body support** — Python callback handlers can opt into bounded request body consumption (`buffer` or `stream` mode) via constructor parameters. Bodies are ingested by the Rust runtime with byte limits, timeouts, and one-shot enforcement. The built-in static service remains bodyless. Body APIs are experimental.
+## Security defaults
 
-**This is NOT an ASGI/WSGI server or a web framework.** It is a hardened static-serving primitive.
+eggserve ships with secure defaults. Every option that weakens security requires explicit CLI flags.
 
-### Installation
+- **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
+- **GET and HEAD only** — all other methods are rejected
+- **No request bodies** — bodies on GET/HEAD are rejected (413 for size limits, 400 for malformed framing)
+- **No symlink following** — denied unless `--follow-symlinks` is passed. On Unix, descriptor-relative traversal (`statat` + `openat`) prevents symlink swap attacks
+- **No dotfiles served** — hidden files are excluded
+- **No directory listing** — unless `--directory-listing` is passed
+- **Unknown MIME as application/octet-stream** — safe fallback
+- **Malformed request targets rejected** — invalid paths are not resolved
+- **Logs sanitized** — paths/headers are sanitized before logging
+- **Resource limits enabled** — connection and file stream limits are active
 
-```sh
-# From source (requires Rust toolchain)
-cargo install --path crates/eggserve-bin
+See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
 
-# Via Python wheel (CPython 3.14 on Linux, macOS, or Windows)
-pip install eggserve
+## Supported platforms
 
-# Or run directly with pipx
-pipx run eggserve
-```
+| Platform | Status |
+|----------|--------|
+| Linux x86_64 | Supported; hardened |
+| Linux aarch64 | Supported; hardened |
+| macOS arm64 (Apple Silicon) | Supported; hardened |
+| macOS x86_64 | Supported; hardened |
+| Windows x86_64 | Functional; parser-level checks only, reparse-point hardening deferred |
+
+Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.
 
 ## Examples
 
@@ -205,78 +214,30 @@ See the [examples/](examples/) directory:
 - `examples/python_dynamic_static.py` — dynamic health endpoint + static assets using primitives
 - `examples/python_safe_download.py` — safe file download handler with user-provided names
 
-Rust example: `crates/eggserve-core/examples/rust_primitives.rs` (run with `cargo run --example rust_primitives -p eggserve-core`)
-
-## Local validation
-
-Before pushing, run the full validation sequence:
+Rust examples in `crates/eggserve-core/examples/`:
 
 ```sh
-cargo fmt --all -- --check                                 # format check
-cargo clippy --workspace --all-targets -- -D warnings      # lint
-cargo test --workspace                                     # tests
-cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
-cargo test -p eggserve-bin --features tls                  # TLS tests
-cargo test -p eggserve-core --features client              # client feature tests
-cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
-cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
-cargo test -p eggserve-bin --test production_path          # production path tests
-cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
-cargo test -p eggserve-core --test canonical_conformance  # canonical HTTP type conformance
-cargo test -p eggserve-core --test canonical_wire_interop  # canonical wire interop
-cargo test -p eggserve-core --test request_body_integration  # request body ingestion integration
-cargo test -p eggserve-core --test request_body_wire  # request body wire tests
-bash scripts/install-cargo-tools.sh                        # install and verify pinned tools
-cargo audit                                                # vulnerability check
-cargo deny check                                           # license/policy check
-bash scripts/verify-cargo-packages.sh                      # crates.io/local-registry package gates
+cargo run --example rust_primitives -p eggserve-core
+cargo run --example server_embedding -p eggserve-core
 ```
 
-Or use the unified validation entry point:
+## Scope
 
-```sh
-./scripts/release-validate.sh fast                 # routine development
-./scripts/release-validate.sh full                 # pre-release validation
-./scripts/release-validate.sh gate http.raw-wire   # run a single gate
-./scripts/release-validate.sh evidence --output ./ev  # copy evidence to output path
-# Aggregate and validate evidence bundle:
-python3 scripts/release_criteria.py aggregate --criteria release/criteria.toml --evidence <evidence-dir> --sha <commit-sha>
-```
+eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-goals.md](docs/non-goals.md).
 
-Python tests and packaging smoke:
+**This is not:** an ASGI/WSGI runtime, a reverse proxy, a web framework, a template engine, a plugin host, a dynamic request execution environment, or a replacement for nginx/Caddy.
 
-```sh
-# Native primitives tests (requires built wheel or maturin develop)
-PYTHONPATH=crates/eggserve-python/python \
-  python -m unittest eggserve.test_primitives -v
+**This is:** a hardened static file server with safe defaults, a small reusable library for path confinement and policy enforcement, and a Python-packaged tool that feels like `python -m http.server`.
 
-# Server primitives tests (requires built wheel)
-PYTHONPATH=crates/eggserve-python/python \
-  python -m unittest eggserve.test_server_primitives -v
+## Documentation
 
-# Python API unit tests (no wheel build needed)
-PYTHONPATH=crates/eggserve-python/python \
-  python -m unittest eggserve.test_server -v
-
-# Python packaging smoke test (stage the CLI binary into the wheel first)
-cargo build --release --locked -p eggserve-bin
-mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
-cd crates/eggserve-python
-maturin build --release --interpreter python3.14 -o dist
-python -m pip install --force-reinstall dist/*.whl
-python -m eggserve --help
-python - <<'PY'
-from eggserve import ServeConfig, StaticPolicy, ServerProcess, serve_directory, Server, ServerSecureRoot
-print(ServeConfig())
-PY
-
-# Installed-wheel validation (no source-tree imports)
-cd crates/eggserve-python/packaging-tests
-bash run_all.sh ../dist/*.whl python3.14
-```
-
-## Development
-
-Development is plan-driven. All changes must be backed by a plan in the [plans/](plans/) directory. See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution guidelines.
+- [docs/python-api.md](docs/python-api.md) — full Python API reference
+- [docs/cli.md](docs/cli.md) — CLI usage reference
+- [docs/http-primitives.md](docs/http-primitives.md) — HTTP primitive contract
+- [docs/secure-root.md](docs/secure-root.md) — SecureRoot API
+- [docs/body-migration.md](docs/body-migration.md) — request body support guide
+- [docs/deployment.md](docs/deployment.md) — deployment patterns
+- [docs/tls.md](docs/tls.md) — TLS configuration
+- [docs/security-policy.md](docs/security-policy.md) — security defaults and opt-in behaviors
+- [docs/threat-model.md](docs/threat-model.md) — threat model
+- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines

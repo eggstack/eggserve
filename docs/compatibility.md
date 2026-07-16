@@ -25,7 +25,7 @@ The goal is that a user familiar with `python -m http.server` can switch to `egg
 | CGI | separate module | unsupported | unsupported |
 | Dotfiles | served | denied | `--allow-dotfiles` |
 | Percent encoding | single-pass decode | conservative single-pass decode | — |
-| `python -m` invocation | `python -m http.server` | `python -m eggserve` | (deferred to plan 005) |
+| `python -m` invocation | `python -m http.server` | `python -m eggserve` | supported |
 
 ### Percent encoding behavior
 
@@ -36,7 +36,7 @@ eggserve performs single-pass percent decoding. Double-encoded paths (`%252e%252
 ```
 python -m http.server [PORT] [DIRECTORY]           # Python stdlib
 eggserve [DIRECTORY] [--bind HOST:PORT]            # eggserve
-python -m eggserve [DIRECTORY] [--bind HOST:PORT]  # eggserve via Python (deferred)
+python -m eggserve [DIRECTORY] [--bind HOST:PORT]  # eggserve via Python
 ```
 
 ## Current limitations vs python -m http.server
@@ -46,7 +46,7 @@ eggserve currently does not support:
 - **HTTP/2** — HTTP/1.1 only
 - **CGI** — not supported (deferred as a non-goal)
 - **PUT/POST/DELETE** — read-only by design
-- **IPv6** — IPv4 only in alpha (127.0.0.1, not ::1)
+- **IPv6** — supported via `--bind`/`--addr` flags; default bind is IPv4 loopback (127.0.0.1)
 - **Multiple directory roots** — single root directory only
 
 These are documented limitations, not bugs. See [non-goals.md](non-goals.md) for the full list.

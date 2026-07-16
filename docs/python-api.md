@@ -499,13 +499,11 @@ The native primitives provide response **planning**, not response **writing**. T
 
 ## Adapter-building posture
 
-Python primitives are intended to allow downstream projects to build app servers and adapters. eggserve does not implement ASGI or WSGI. The safe design is to let Rust own socket I/O and let Python return explicit response values.
+Python primitives allow downstream projects to build app servers and adapters. The safe design is to let Rust own socket I/O and let Python return explicit response values.
 
-The `StaticResponder` and `Server` primitives provide the building blocks for custom servers: Python handles request logic, Rust handles connection management, file streaming, and timeouts. Reopening paths in Python is outside the security guarantee.
+The `StaticResponder` and `Server` primitives provide the building blocks: Python handles request logic, Rust handles connection management, file streaming, and timeouts. For production file serving, prefer `StaticResponder` which streams file bodies directly through Rust without passing through Python memory.
 
-Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
-
-For production file serving, prefer `StaticResponder` which streams file bodies directly through Rust without passing through Python memory.
+**Security note:** Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
 
 ## Installation
 
@@ -517,7 +515,7 @@ The wheel includes the native extension (PyO3) and the Rust binary. If the nativ
 
 ## Examples
 
-See [examples/python_basic.py](../examples/python_basic.py) and [examples/python_dynamic_static.py](../examples/python_dynamic_static.py).
+See [examples/python_basic.py](../examples/python_basic.py), [examples/python_dynamic_static.py](../examples/python_dynamic_static.py), and [examples/python_safe_download.py](../examples/python_safe_download.py).
 
 ## Testing
 
