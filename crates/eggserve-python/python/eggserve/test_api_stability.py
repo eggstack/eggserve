@@ -48,9 +48,9 @@ class TestEggserveInitAll(unittest.TestCase):
         """Sanity check: __all__ should not grow unbounded without review."""
         import eggserve
 
-        # As of the current release, __all__ has at most ~49 entries
-        # (6 always + ~43 when native is available).
-        self.assertLessEqual(len(eggserve.__all__), 55)
+        # As of the current release, __all__ has at most ~61 entries
+        # (6 always + ~55 when native is available).
+        self.assertLessEqual(len(eggserve.__all__), 70)
 
 
 class TestPublicNamesImportable(unittest.TestCase):

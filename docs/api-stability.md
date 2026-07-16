@@ -360,6 +360,23 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `ServerRequestError` | stable | Raised as ValueError |
 | `Server` | stable | Rust-owned HTTP server |
 
+### `eggserve._native` — Request Body Types (when NATIVE_AVAILABLE)
+
+**All request body types are experimental.** The interface may change in any release.
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `RequestBody` | experimental | One-shot, bounded request body; `read()`, `iter_chunks()` |
+| `BodyChunkIterator` | experimental | Synchronous iterator over body chunks |
+| `RequestBodyError` | experimental | Base body error (child of `EggserveError`) |
+| `RequestBodyRejectedError` | experimental | Body rejected by policy (child of `RequestBodyError`) |
+| `RequestBodyTooLargeError` | experimental | Body exceeds byte limit (child of `RequestBodyError`) |
+| `RequestBodyTimeoutError` | experimental | Body read timed out (child of `RequestBodyError`) |
+| `RequestBodyDisconnectedError` | experimental | Client disconnected (child of `RequestBodyError`) |
+| `RequestBodyIncompleteError` | experimental | Body incomplete (child of `RequestBodyError`) |
+| `RequestBodyConsumedError` | experimental | Body already consumed (child of `RequestBodyError`) |
+| `RequestBodyCancelledError` | experimental | Body consumption cancelled (child of `RequestBodyError`) |
+
 ### `eggserve._native` — Client Types (when NATIVE_AVAILABLE, feature-gated: `client`)
 
 **All client types are experimental.**
@@ -372,6 +389,21 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `ClientResponse` | experimental | Buffered response |
 | `ClientError` | experimental | Error enum |
 | `ClientMethod` | experimental | HTTP method enum |
+
+### `eggserve.__init__` — Body Type Re-exports
+
+| Item | Tier | Notes |
+|------|------|-------|
+| `RequestBody` | experimental | Re-exported from `_native` |
+| `BodyChunkIterator` | experimental | Re-exported from `_native` |
+| `RequestBodyError` | experimental | Re-exported from `_native` |
+| `RequestBodyRejectedError` | experimental | Re-exported from `_native` |
+| `RequestBodyTooLargeError` | experimental | Re-exported from `_native` |
+| `RequestBodyTimeoutError` | experimental | Re-exported from `_native` |
+| `RequestBodyDisconnectedError` | experimental | Re-exported from `_native` |
+| `RequestBodyIncompleteError` | experimental | Re-exported from `_native` |
+| `RequestBodyConsumedError` | experimental | Re-exported from `_native` |
+| `RequestBodyCancelledError` | experimental | Re-exported from `_native` |
 
 ### Internal Names (not in `__all__`)
 

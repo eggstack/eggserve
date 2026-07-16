@@ -180,6 +180,8 @@ proc.stop()
 
 Full API reference: [docs/python-api.md](docs/python-api.md)
 
+**Request body support** — Python callback handlers can opt into bounded request body consumption (`buffer` or `stream` mode) via constructor parameters. Bodies are ingested by the Rust runtime with byte limits, timeouts, and one-shot enforcement. The built-in static service remains bodyless. Body APIs are experimental.
+
 **This is NOT an ASGI/WSGI server or a web framework.** It is a hardened static-serving primitive.
 
 ### Installation

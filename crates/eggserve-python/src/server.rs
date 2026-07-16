@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::prelude::*;
 use pyo3::types::PyBytes;
+use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use eggserve_core::policy;
@@ -16,6 +18,10 @@ use eggserve_core::primitives::canonical::{
 };
 use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
 use eggserve_core::primitives::http::ReadOnlyMethod;
+use eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy;
+use eggserve_core::primitives::request_body::RequestBody;
+use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
 use eggserve_core::primitives::request_head::RequestHead;
 use eggserve_core::primitives::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
@@ -55,6 +61,287 @@ impl ServerRequestError {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Raw body error for channel communication (no Python objects)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug)]
+enum RawBodyError {
+    RejectedByPolicy,
+    DeclaredLengthTooLarge {
+        declared: u64,
+        limit: u64,
+    },
+    LimitExceeded {
+        limit: u64,
+        received: u64,
+    },
+    ReadTimeout,
+    PrematureEof {
+        received: u64,
+        expected: Option<u64>,
+    },
+    LengthMismatch {
+        declared: u64,
+        actual: u64,
+    },
+    InvalidChunkFraming(String),
+    Cancelled,
+    Disconnected,
+    AlreadyConsumed,
+    MixedConsumptionMode,
+    Transport(String),
+}
+
+impl From<RustBodyError> for RawBodyError {
+    fn from(err: RustBodyError) -> Self {
+        match err {
+            RustBodyError::RejectedByPolicy => Self::RejectedByPolicy,
+            RustBodyError::DeclaredLengthTooLarge { declared, limit } => {
+                Self::DeclaredLengthTooLarge { declared, limit }
+            }
+            RustBodyError::LimitExceeded { limit, received } => {
+                Self::LimitExceeded { limit, received }
+            }
+            RustBodyError::ReadTimeout => Self::ReadTimeout,
+            RustBodyError::PrematureEof { received, expected } => {
+                Self::PrematureEof { received, expected }
+            }
+            RustBodyError::LengthMismatch { declared, actual } => {
+                Self::LengthMismatch { declared, actual }
+            }
+            RustBodyError::InvalidChunkFraming(msg) => Self::InvalidChunkFraming(msg),
+            RustBodyError::Cancelled => Self::Cancelled,
+            RustBodyError::Disconnected => Self::Disconnected,
+            RustBodyError::AlreadyConsumed => Self::AlreadyConsumed,
+            RustBodyError::MixedConsumptionMode => Self::MixedConsumptionMode,
+            RustBodyError::Transport(msg) => Self::Transport(msg),
+        }
+    }
+}
+
+fn raw_body_error_to_pyerr(err: RawBodyError) -> PyErr {
+    match err {
+        RawBodyError::RejectedByPolicy => {
+            crate::RequestBodyRejectedError::new_err("request body rejected by policy")
+        }
+        RawBodyError::DeclaredLengthTooLarge { declared, limit } => {
+            crate::RequestBodyTooLargeError::new_err(format!(
+                "declared content-length {declared} exceeds limit {limit}"
+            ))
+        }
+        RawBodyError::LimitExceeded { limit, received } => {
+            crate::RequestBodyTooLargeError::new_err(format!(
+                "body exceeded limit: received {received} bytes, limit is {limit}"
+            ))
+        }
+        RawBodyError::ReadTimeout => crate::RequestBodyTimeoutError::new_err("body read timed out"),
+        RawBodyError::PrematureEof { received, expected } => {
+            let msg = match expected {
+                Some(exp) => {
+                    format!("premature EOF: received {received} of {exp} expected bytes")
+                }
+                None => format!("premature EOF after {received} bytes"),
+            };
+            crate::RequestBodyDisconnectedError::new_err(msg)
+        }
+        RawBodyError::Disconnected => {
+            crate::RequestBodyDisconnectedError::new_err("client disconnected")
+        }
+        RawBodyError::AlreadyConsumed => {
+            crate::RequestBodyConsumedError::new_err("body already consumed")
+        }
+        RawBodyError::MixedConsumptionMode => crate::RequestBodyConsumedError::new_err(
+            "mixed consumption mode: cannot switch between read_all and streaming",
+        ),
+        RawBodyError::Cancelled => {
+            crate::RequestBodyCancelledError::new_err("body consumption cancelled")
+        }
+        RawBodyError::LengthMismatch { declared, actual } => crate::RequestBodyError::new_err(
+            format!("body length mismatch: declared {declared}, actual {actual}"),
+        ),
+        RawBodyError::InvalidChunkFraming(msg) => {
+            crate::RequestBodyError::new_err(format!("invalid chunk framing: {msg}"))
+        }
+        RawBodyError::Transport(msg) => {
+            crate::RequestBodyDisconnectedError::new_err(format!("transport error: {msg}"))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Python RequestBody — wraps Rust RequestBody
+// ---------------------------------------------------------------------------
+
+#[pyclass(frozen, name = "RequestBody")]
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct PyRequestBody {
+    inner: Arc<std::sync::Mutex<Option<RequestBody>>>,
+    handle: tokio::runtime::Handle,
+    declared_length: Option<u64>,
+    final_bytes_received: Arc<AtomicU64>,
+    final_complete: Arc<AtomicBool>,
+}
+
+#[pymethods]
+impl PyRequestBody {
+    #[getter]
+    fn declared_length(&self) -> Option<u64> {
+        self.declared_length
+    }
+
+    #[getter]
+    fn bytes_received(&self) -> u64 {
+        if let Ok(guard) = self.inner.lock() {
+            if let Some(body) = guard.as_ref() {
+                return body.bytes_received();
+            }
+        }
+        self.final_bytes_received.load(Ordering::Acquire)
+    }
+
+    #[getter]
+    fn complete(&self) -> bool {
+        if let Ok(guard) = self.inner.lock() {
+            if let Some(body) = guard.as_ref() {
+                return body.is_complete();
+            }
+        }
+        self.final_complete.load(Ordering::Acquire)
+    }
+
+    fn read<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {
+        let body = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            guard
+                .take()
+                .ok_or_else(|| crate::RequestBodyConsumedError::new_err("body already consumed"))?
+        };
+
+        let handle = self.handle.clone();
+        let data = py.allow_threads(|| handle.block_on(async { body.read_all().await }));
+
+        match data {
+            Ok(bytes) => {
+                let len = bytes.len() as u64;
+                self.final_bytes_received.store(len, Ordering::Release);
+                self.final_complete.store(true, Ordering::Release);
+                Ok(PyBytes::new(py, &bytes))
+            }
+            Err(e) => Err(raw_body_error_to_pyerr(e.into())),
+        }
+    }
+
+    #[pyo3(signature = (chunk_size=None))]
+    fn iter_chunks(
+        &self,
+        _py: Python<'_>,
+        chunk_size: Option<usize>,
+    ) -> PyResult<PyBodyChunkIterator> {
+        let _ = chunk_size;
+        let body = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            guard
+                .take()
+                .ok_or_else(|| crate::RequestBodyConsumedError::new_err("body already consumed"))?
+        };
+
+        let (sender, receiver) = mpsc::channel::<Result<Vec<u8>, RawBodyError>>(16);
+        let handle = self.handle.clone();
+        let final_bytes = Arc::clone(&self.final_bytes_received);
+        let final_complete = Arc::clone(&self.final_complete);
+
+        handle.spawn(async move {
+            let mut body = body;
+            loop {
+                match body.next_chunk().await {
+                    Ok(Some(chunk)) => {
+                        let data = chunk.to_vec();
+                        if sender.send(Ok(data)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(None) => {
+                        final_complete.store(true, Ordering::Release);
+                        break;
+                    }
+                    Err(e) => {
+                        let bytes = body.bytes_received();
+                        final_bytes.store(bytes, Ordering::Release);
+                        let _ = sender.send(Err(e.into())).await;
+                        break;
+                    }
+                }
+            }
+        });
+
+        Ok(PyBodyChunkIterator {
+            receiver,
+            final_bytes_received: Arc::clone(&self.final_bytes_received),
+        })
+    }
+
+    fn __repr__(&self) -> String {
+        match self.inner.lock() {
+            Ok(guard) => match guard.as_ref() {
+                Some(body) => format!(
+                    "<RequestBody declared_length={:?} bytes_received={}>",
+                    body.declared_length(),
+                    body.bytes_received()
+                ),
+                None => "<RequestBody consumed>".to_string(),
+            },
+            Err(_) => "<RequestBody lock error>".to_string(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Python BodyChunkIterator — synchronous iterator over body chunks
+// ---------------------------------------------------------------------------
+
+#[pyclass(name = "BodyChunkIterator")]
+#[allow(dead_code)]
+pub struct PyBodyChunkIterator {
+    receiver: mpsc::Receiver<Result<Vec<u8>, RawBodyError>>,
+    final_bytes_received: Arc<AtomicU64>,
+}
+
+#[pymethods]
+impl PyBodyChunkIterator {
+    fn __iter__(slf: Py<Self>) -> Py<Self> {
+        slf
+    }
+
+    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<PyObject> {
+        let result = py.allow_threads(|| self.receiver.blocking_recv());
+        match result {
+            Some(Ok(data)) => {
+                let len = data.len() as u64;
+                self.final_bytes_received.fetch_add(len, Ordering::AcqRel);
+                Ok(PyBytes::new(py, &data).into_any().unbind())
+            }
+            Some(Err(e)) => Err(raw_body_error_to_pyerr(e)),
+            None => Err(pyo3::exceptions::PyStopIteration::new_err(())),
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        "<BodyChunkIterator>".to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Python Request — request envelope for handler callbacks
+// ---------------------------------------------------------------------------
+
 #[pyclass(frozen, name = "Request")]
 #[derive(Debug, Clone)]
 pub struct PyRequest {
@@ -71,11 +358,16 @@ pub struct PyRequest {
     #[pyo3(get)]
     http_version: String,
     #[pyo3(get)]
-    has_body: bool,
+    body: Option<PyRequestBody>,
 }
 
 #[pymethods]
 impl PyRequest {
+    #[getter]
+    fn has_body(&self) -> bool {
+        self.body.is_some()
+    }
+
     fn __repr__(&self) -> String {
         format!("<Request {} {}>", self.method, self.path)
     }
@@ -390,7 +682,10 @@ impl ServerSecureRoot {
         let root = SecureRoot::new(path, static_policy.clone()).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("failed to create secure root: {e}"))
         })?;
-        Ok(Self { inner: root, policy: static_policy })
+        Ok(Self {
+            inner: root,
+            policy: static_policy,
+        })
     }
 
     #[getter]
@@ -513,6 +808,7 @@ impl ServerBodySource {
 struct PythonCallbackService {
     handler: Arc<std::sync::Mutex<Option<Py<PyAny>>>>,
     callback_semaphore: Arc<Semaphore>,
+    body_policy: RequestBodyPolicy,
 }
 
 impl PythonCallbackService {
@@ -547,6 +843,58 @@ impl PythonCallbackService {
 
             convert_python_response_to_canonical(py, &result)
         })
+    }
+
+    fn build_py_request(
+        head: RequestHead,
+        body: RequestBody,
+        body_policy: RequestBodyPolicy,
+    ) -> PyRequest {
+        let method_str = head.method().as_str().to_string();
+        let target = head.target().path().to_string();
+        let query = head.target().query().unwrap_or("").to_string();
+        let headers: HashMap<String, String> = head
+            .headers()
+            .iter()
+            .map(|f| (f.name.to_string(), f.value.to_string()))
+            .collect();
+        let http_version = head.version().to_string();
+
+        let (py_body, has_body) = if body_policy.is_reject() {
+            (None, false)
+        } else {
+            // Expose the body only when there is actual content to read.
+            // Empty bodies (Content-Length: 0 or no Content-Length with no
+            // Transfer-Encoding) are treated as bodyless for the Python
+            // handler, regardless of method.
+            let has_content = body
+                .declared_length()
+                .map_or(false, |len| len > 0)
+                || body.bytes_received() > 0;
+            if has_content {
+                let declared_length = body.declared_length();
+                let py_body = PyRequestBody {
+                    inner: Arc::new(std::sync::Mutex::new(Some(body))),
+                    handle: tokio::runtime::Handle::current(),
+                    declared_length,
+                    final_bytes_received: Arc::new(AtomicU64::new(0)),
+                    final_complete: Arc::new(AtomicBool::new(false)),
+                };
+                (Some(py_body), true)
+            } else {
+                (None, false)
+            }
+        };
+
+        PyRequest {
+            method: method_str,
+            path: target,
+            query,
+            headers,
+            remote_addr: None,
+            http_version,
+            body: if has_body { py_body } else { None },
+        }
     }
 }
 
@@ -627,8 +975,8 @@ impl Service for PythonCallbackService {
     fn request_body_policy(
         &self,
         _head: &eggserve_core::primitives::request_head::RequestHead,
-    ) -> eggserve_core::primitives::request_body_policy::RequestBodyPolicy {
-        eggserve_core::primitives::request_body_policy::RequestBodyPolicy::Reject
+    ) -> RequestBodyPolicy {
+        self.body_policy
     }
 
     fn call(
@@ -639,6 +987,7 @@ impl Service for PythonCallbackService {
     > {
         let handler = self.handler.clone();
         let callback_semaphore = self.callback_semaphore.clone();
+        let body_policy = self.body_policy;
 
         Box::pin(async move {
             let _callback_permit = callback_semaphore
@@ -646,25 +995,8 @@ impl Service for PythonCallbackService {
                 .await
                 .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
 
-            let (head, _body) = request.into_head_and_body();
-            let method_str = head.method().as_str().to_string();
-            let target = head.target().path().to_string();
-            let query = head.target().query().unwrap_or("").to_string();
-            let has_body = false;
-
-            let py_request = PyRequest {
-                method: method_str,
-                path: target,
-                query,
-                headers: head
-                    .headers()
-                    .iter()
-                    .map(|f| (f.name.to_string(), f.value.to_string()))
-                    .collect(),
-                remote_addr: None,
-                http_version: head.version().to_string(),
-                has_body,
-            };
+            let (head, body) = request.into_head_and_body();
+            let py_request = Self::build_py_request(head, body, body_policy);
 
             tokio::task::spawn_blocking(move || Self::call_python_callback(&handler, py_request))
                 .await
@@ -696,13 +1028,17 @@ pub struct PyServer {
     write_timeout: Duration,
     handler_timeout: Duration,
     graceful_shutdown_timeout: Duration,
+    body_policy: RequestBodyPolicy,
+    max_request_body_bytes: u64,
+    body_read_timeout: Duration,
+    incomplete_body_policy: IncompleteBodyPolicy,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close"))]
     fn new(
         root: String,
         bind: &str,
@@ -717,6 +1053,10 @@ impl PyServer {
         write_timeout_secs: u64,
         handler_timeout_secs: u64,
         graceful_shutdown_timeout_secs: u64,
+        request_body_mode: &str,
+        max_request_body_bytes: u64,
+        body_timeout_secs: u64,
+        incomplete_body_policy: &str,
     ) -> PyResult<Self> {
         let bind_addr: SocketAddr = format!("{bind}:{port}")
             .parse()
@@ -761,6 +1101,55 @@ impl PyServer {
                 "graceful_shutdown_timeout_secs must be greater than zero",
             ));
         }
+        if body_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "body_timeout_secs must be greater than zero",
+            ));
+        }
+
+        // Parse body policy
+        let body_policy = match request_body_mode {
+            "reject" => RequestBodyPolicy::Reject,
+            "buffer" => {
+                if max_request_body_bytes == 0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "buffer mode requires max_request_body_bytes > 0",
+                    ));
+                }
+                RequestBodyPolicy::Buffer {
+                    max_bytes: max_request_body_bytes,
+                }
+            }
+            "stream" => {
+                if max_request_body_bytes == 0 {
+                    return Err(pyo3::exceptions::PyValueError::new_err(
+                        "stream mode requires max_request_body_bytes > 0",
+                    ));
+                }
+                RequestBodyPolicy::Stream {
+                    max_bytes: max_request_body_bytes,
+                }
+            }
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "request_body_mode must be 'reject', 'buffer', or 'stream'",
+                ));
+            }
+        };
+
+        // Parse incomplete body policy
+        let inc_policy = match incomplete_body_policy {
+            "close" => IncompleteBodyPolicy::Close,
+            "drain" => IncompleteBodyPolicy::Drain {
+                max_bytes: u64::MAX,
+                timeout: Duration::from_secs(body_timeout_secs),
+            },
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "incomplete_body_policy must be 'close' or 'drain'",
+                ));
+            }
+        };
 
         let static_policy = policy
             .map(|p| p.inner)
@@ -768,7 +1157,10 @@ impl PyServer {
         let secure_root = SecureRoot::new(root, static_policy.clone()).map_err(|e| {
             pyo3::exceptions::PyValueError::new_err(format!("failed to create secure root: {e}"))
         })?;
-        let responder = PyStaticResponder { root: secure_root, policy: static_policy };
+        let responder = PyStaticResponder {
+            root: secure_root,
+            policy: static_policy,
+        };
 
         Ok(Self {
             bind: bind.to_string(),
@@ -787,6 +1179,10 @@ impl PyServer {
             write_timeout: Duration::from_secs(write_timeout_secs),
             handler_timeout: Duration::from_secs(handler_timeout_secs),
             graceful_shutdown_timeout: Duration::from_secs(graceful_shutdown_timeout_secs),
+            body_policy,
+            max_request_body_bytes,
+            body_read_timeout: Duration::from_secs(body_timeout_secs),
+            incomplete_body_policy: inc_policy,
         })
     }
 
@@ -807,7 +1203,10 @@ impl PyServer {
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(handle) = handle_guard.as_ref() {
             Ok(handle.state().to_string())
-        } else if self.has_been_started.load(std::sync::atomic::Ordering::Acquire) {
+        } else if self
+            .has_been_started
+            .load(std::sync::atomic::Ordering::Acquire)
+        {
             Ok("stopped".to_string())
         } else {
             Ok("created".to_string())
@@ -843,6 +1242,10 @@ impl PyServer {
             .response_write_timeout(self.write_timeout)
             .handler_timeout(self.handler_timeout)
             .graceful_shutdown_timeout(self.graceful_shutdown_timeout)
+            .max_request_body_bytes(self.max_request_body_bytes)
+            .request_body_policy(self.body_policy)
+            .body_read_timeout(self.body_read_timeout)
+            .incomplete_body_policy(self.incomplete_body_policy)
             .build();
 
         let serve_config = Arc::new(eggserve_core::config::ServeConfig {
@@ -872,6 +1275,7 @@ impl PyServer {
                     let service = PythonCallbackService {
                         handler: shared_handler,
                         callback_semaphore: Arc::new(Semaphore::new(self.max_python_callbacks)),
+                        body_policy: self.body_policy,
                     };
 
                     let server = Server::builder()

@@ -222,7 +222,22 @@ pub trait Service: Send + Sync + 'static {
 
 ### Static service
 
-The built-in `StaticService` always rejects request bodies. It extracts the `RequestHead` from the `Request` envelope and discards the body.
+The built-in `StaticService` always rejects request bodies. It extracts the `RequestHead` from the `Request` envelope and discards the body. It declares `RequestBodyPolicy::Reject` via `request_body_policy()`.
+
+### Python body policy mapping
+
+Python `Server` constructor parameters map to Rust `RuntimeConfig` fields:
+
+| Python parameter | Rust field | Default |
+|------------------|-----------|---------|
+| `request_body_mode="reject"` | `request_body_policy: Reject` | Yes |
+| `request_body_mode="buffer"` | `request_body_policy: Buffer { max_bytes }` | — |
+| `request_body_mode="stream"` | `request_body_policy: Stream { max_bytes }` | — |
+| `max_request_body_bytes` | `max_request_body_bytes` | 0 |
+| `body_read_timeout_secs` | `body_read_timeout` | 30s |
+| `incomplete_body_policy="close"` | `incomplete_body_policy: Close` | Yes |
+
+The runtime enforces `max_request_body_bytes` as a hard ceiling. Service-specific limits may only lower it.
 
 ## Python lifecycle mapping
 

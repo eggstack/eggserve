@@ -168,6 +168,56 @@ Searches for the `eggserve` binary in:
 
 `python -m eggserve` forwards all args to the located binary.
 
+## Body Support Architecture (Plan 058)
+
+The Python body surface projects the Rust `RequestBody` contract through PyO3, without introducing Python-owned socket I/O or unbounded buffering.
+
+### Request Body (`src/server.rs`)
+
+| Python Class | Wraps | Key Methods |
+|---|---|---|
+| `RequestBody` | `Arc<Mutex<Option<RequestBody>>>` | `read()`, `iter_chunks(chunk_size)`, `declared_length`, `bytes_received`, `complete` |
+| `BodyChunkIterator` | bounded channel consumer | `__next__()` yields `bytes` chunks; `__iter__()` returns self |
+
+- **One-shot consumption**: `read()` and `iter_chunks()` are mutually exclusive. Mixing raises `RequestBodyConsumedError`.
+- **GIL release**: Both `read()` and `iter_chunks()` release the GIL while awaiting Rust-owned I/O via `py.allow_threads`.
+- **Backpressure**: `iter_chunks()` uses a bounded channel between the async producer and the synchronous Python consumer. Slow Python iteration stops socket reads.
+- **Empty bodies**: `read()` returns `b""` and `iter_chunks()` yields no chunks.
+
+### Error Hierarchy
+
+```
+EggserveError
+└── RequestBodyError          # base body error
+    ├── RequestBodyRejectedError      # policy rejection
+    ├── RequestBodyTooLargeError      # byte limit exceeded
+    ├── RequestBodyTimeoutError       # body read timeout
+    ├── RequestBodyDisconnectedError  # client disconnected
+    ├── RequestBodyIncompleteError    # body incomplete
+    ├── RequestBodyConsumedError      # one-shot violation
+    └── RequestBodyCancelledError     # consumption cancelled
+```
+
+All error messages are sanitized — no internal parser or Hyper details are exposed.
+
+### Body Policy Configuration
+
+The Python `Server` constructor accepts body policy parameters:
+
+- `request_body_mode`: `"reject"` (default), `"buffer"`, or `"stream"`
+- `max_request_body_bytes`: hard byte ceiling (default 0)
+- `body_read_timeout_secs`: total body read deadline (default 30)
+- `incomplete_body_policy`: `"close"` (default) or `"drain"`
+
+Static mode always rejects bodies regardless of callback defaults. Buffer/stream require explicit finite limits.
+
+### Interaction with Callback Model
+
+- Body rejection occurs before Python callback invocation when policy is `Reject`.
+- For `Buffer`/`Stream` modes, the body is ingested by the Rust runtime before the callback receives the `Request`.
+- Handler timeout wraps the entire callback including body reads. A timed-out callback continues executing in the background and still counts against the concurrency limit until it returns.
+- Partial body consumption triggers `IncompleteBodyPolicy` (default: close connection).
+
 ## Key Design Decisions
 
 1. **No serving logic in Python** — The Python layer is purely a lifecycle manager and config translator. All serving happens in the Rust binary or via Rust-owned I/O in the server primitives.

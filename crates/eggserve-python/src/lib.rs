@@ -79,6 +79,62 @@ pyo3::create_exception!(
     "Server lifecycle error (double start, stop before start, etc.)."
 );
 
+pyo3::create_exception!(
+    _native,
+    RequestBodyError,
+    EggserveError,
+    "Request body consumption error."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyRejectedError,
+    RequestBodyError,
+    "Request body rejected by policy."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyTooLargeError,
+    RequestBodyError,
+    "Request body too large."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyTimeoutError,
+    RequestBodyError,
+    "Request body read timed out."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyDisconnectedError,
+    RequestBodyError,
+    "Client disconnected during body read."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyIncompleteError,
+    RequestBodyError,
+    "Request body incomplete."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyConsumedError,
+    RequestBodyError,
+    "Request body already consumed."
+);
+
+pyo3::create_exception!(
+    _native,
+    RequestBodyCancelledError,
+    RequestBodyError,
+    "Request body consumption cancelled."
+);
+
 pyo3::create_exception!(_native, MethodError, EggserveError, "Invalid HTTP method.");
 
 pyo3::create_exception!(
@@ -1502,6 +1558,35 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<ResponseConstructionError>(),
     )?;
     m.add("LifecycleError", m.py().get_type::<LifecycleError>())?;
+    m.add("RequestBodyError", m.py().get_type::<RequestBodyError>())?;
+    m.add(
+        "RequestBodyRejectedError",
+        m.py().get_type::<RequestBodyRejectedError>(),
+    )?;
+    m.add(
+        "RequestBodyTooLargeError",
+        m.py().get_type::<RequestBodyTooLargeError>(),
+    )?;
+    m.add(
+        "RequestBodyTimeoutError",
+        m.py().get_type::<RequestBodyTimeoutError>(),
+    )?;
+    m.add(
+        "RequestBodyDisconnectedError",
+        m.py().get_type::<RequestBodyDisconnectedError>(),
+    )?;
+    m.add(
+        "RequestBodyIncompleteError",
+        m.py().get_type::<RequestBodyIncompleteError>(),
+    )?;
+    m.add(
+        "RequestBodyConsumedError",
+        m.py().get_type::<RequestBodyConsumedError>(),
+    )?;
+    m.add(
+        "RequestBodyCancelledError",
+        m.py().get_type::<RequestBodyCancelledError>(),
+    )?;
     m.add("MethodError", m.py().get_type::<MethodError>())?;
     m.add("HttpVersionError", m.py().get_type::<HttpVersionError>())?;
     m.add("HeaderError", m.py().get_type::<HeaderError>())?;
@@ -1533,6 +1618,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(parse_method_fn, m)?)?;
     m.add_function(wrap_pyfunction!(parse_http_version_fn, m)?)?;
 
+    m.add_class::<server::PyRequestBody>()?;
+    m.add_class::<server::PyBodyChunkIterator>()?;
     m.add_class::<server::PyRequest>()?;
     m.add_class::<server::PyResponse>()?;
     m.add_class::<server::PyStaticResponder>()?;

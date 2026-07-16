@@ -91,6 +91,33 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 
 Body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Phase 57.
 
+### Python Body Parity (Milestone 4C)
+
+**Stability**: All Python request body types are **experimental**. The interface may change in any release.
+
+The Python body surface projects the Rust `RequestBody` contract through PyO3:
+
+| Python Type | Description |
+|-------------|-------------|
+| `RequestBody` | One-shot, bounded request body; `read()` returns `bytes`, `iter_chunks()` yields `bytes` chunks |
+| `BodyChunkIterator` | Synchronous iterator over body chunks |
+| `RequestBodyError` | Base body error (child of `EggserveError`) |
+| `RequestBodyRejectedError` | Body rejected by policy |
+| `RequestBodyTooLargeError` | Body exceeds byte limit |
+| `RequestBodyTimeoutError` | Body read timed out |
+| `RequestBodyDisconnectedError` | Client disconnected during body read |
+| `RequestBodyIncompleteError` | Body incomplete |
+| `RequestBodyConsumedError` | Body already consumed (one-shot enforcement) |
+| `RequestBodyCancelledError` | Body consumption cancelled |
+
+Key properties:
+- Default body policy is `reject` (backward-compatible with Milestone 3).
+- `read()` and `iter_chunks()` are mutually exclusive; mixing raises `RequestBodyConsumedError`.
+- All byte limits and timeouts are enforced by the Rust runtime, not Python.
+- Python methods release the GIL during Rust-owned I/O waits.
+- Static service remains bodyless (`RequestBodyPolicy::Reject`).
+- Callback timeout does not cancel arbitrary Python code; timed-out callbacks still count against concurrency until they return.
+
 ## Supported Protocol
 
 - **HTTP/1.1 only** — no HTTP/2 or HTTP/3.
