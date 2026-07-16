@@ -14,10 +14,13 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 async fn start_server(
     config: RuntimeConfig,
     policy: RequestBodyPolicy,
-    handler: impl Fn(Request) -> std::pin::Pin<
+    handler: impl Fn(
+            Request,
+        ) -> std::pin::Pin<
             Box<
-                dyn std::future::Future<Output = Result<Response, eggserve_core::server::ServiceError>>
-                    + Send
+                dyn std::future::Future<
+                        Output = Result<Response, eggserve_core::server::ServiceError>,
+                    > + Send
                     + 'static,
             >,
         > + Send
@@ -113,9 +116,7 @@ async fn body_timeout_before_handler_timeout() {
         config,
         RequestBodyPolicy::Buffer { max_bytes: 1024 },
         |_req: Request| {
-            Box::pin(async move {
-                unreachable!("handler should not be called on body timeout")
-            })
+            Box::pin(async move { unreachable!("handler should not be called on body timeout") })
         },
     )
     .await;
@@ -181,7 +182,11 @@ async fn graceful_shutdown_waits_for_body_completion() {
     let mut buf = Vec::new();
     conn.read_to_end(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf);
-    assert!(response.starts_with("HTTP/1.1 200"), "expected 200, got: {}", response);
+    assert!(
+        response.starts_with("HTTP/1.1 200"),
+        "expected 200, got: {}",
+        response
+    );
 
     // Body should have been consumed
     assert!(
@@ -258,8 +263,6 @@ async fn partial_body_read_then_shutdown() {
         .body_read_timeout(Duration::from_secs(5))
         .build();
 
-    use futures_util::StreamExt;
-
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Buffer { max_bytes: 1024 },
@@ -296,11 +299,10 @@ async fn partial_body_read_then_shutdown() {
 
     // Server should still be responsive after partial consumption
     let mut conn2 = tokio::net::TcpStream::connect(addr).await.unwrap();
-    conn2.write_all(
-        b"GET /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-    )
-    .await
-    .unwrap();
+    conn2
+        .write_all(b"GET /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
     let mut buf2 = Vec::new();
     conn2.read_to_end(&mut buf2).await.unwrap();
     let response2 = String::from_utf8_lossy(&buf2);
@@ -383,7 +385,11 @@ async fn repeated_requests_after_body_timeout() {
         response3
     );
 
-    assert_eq!(request_count.load(Ordering::Relaxed), 2, "handler should be called twice (not for timeout)");
+    assert_eq!(
+        request_count.load(Ordering::Relaxed),
+        2,
+        "handler should be called twice (not for timeout)"
+    );
 
     handle.shutdown();
 }

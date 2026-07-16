@@ -125,6 +125,7 @@ def _build_request(fixture, addr):
     headers = dict(inp.get("headers", {}))
     encoding = inp.get("encoding")
     chunk_size = inp.get("chunk_size")
+    extra_raw = inp.get("extra_raw_headers")
 
     if "Host" not in headers and "host" not in {k.lower() for k in headers}:
         headers["Host"] = addr
@@ -137,7 +138,9 @@ def _build_request(fixture, addr):
     elif inp.get("body_partial"):
         body_data = inp["body_partial"].encode("utf-8")
 
-    if encoding == "chunked":
+    is_chunked = encoding in ("chunked", "chunked_malformed", "chunked_no_trailer", "chunked_no_terminator")
+
+    if is_chunked:
         headers["Transfer-Encoding"] = "chunked"
     elif "Content-Length" not in headers and "content-length" not in {k.lower() for k in headers}:
         if body_data or inp.get("body") is not None:
@@ -146,16 +149,43 @@ def _build_request(fixture, addr):
     headers["Connection"] = "close"
 
     header_lines = "".join(f"{k}: {v}\r\n" for k, v in headers.items())
-    request = f"{method} /test HTTP/1.1\r\n{header_lines}\r\n".encode()
+    request = f"{method} /test HTTP/1.1\r\n{header_lines}".encode()
 
-    if encoding == "chunked":
-        cs = chunk_size if chunk_size else len(body_data)
-        chunked_body = b""
-        for i in range(0, len(body_data), cs):
-            chunk = body_data[i : i + cs]
-            chunked_body += f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n"
-        chunked_body += b"0\r\n\r\n"
-        request += chunked_body
+    # Insert extra raw headers (for conflicting Content-Length tests)
+    if extra_raw:
+        for line in extra_raw.split("\n"):
+            line = line.strip()
+            if line:
+                request += line.encode() + b"\r\n"
+
+    request += b"\r\n"
+
+    if is_chunked:
+        if encoding == "chunked_malformed":
+            request += b"ZZ\r\n"
+            request += body_data
+            request += b"\r\n"
+            request += b"0\r\n\r\n"
+        elif encoding == "chunked_no_trailer":
+            cs = chunk_size if chunk_size else len(body_data)
+            for i in range(0, len(body_data), cs):
+                chunk = body_data[i : i + cs]
+                request += f"{len(chunk):x}\r\n".encode() + chunk
+            request += b"0\r\n\r\n"
+        elif encoding == "chunked_no_terminator":
+            cs = chunk_size if chunk_size else len(body_data)
+            for i in range(0, len(body_data), cs):
+                chunk = body_data[i : i + cs]
+                request += f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n"
+            # Missing 0-length terminator
+        else:
+            cs = chunk_size if chunk_size else len(body_data)
+            chunked_body = b""
+            for i in range(0, len(body_data), cs):
+                chunk = body_data[i : i + cs]
+                chunked_body += f"{len(chunk):x}\r\n".encode() + chunk + b"\r\n"
+            chunked_body += b"0\r\n\r\n"
+            request += chunked_body
     else:
         request += body_data
 
@@ -603,6 +633,176 @@ class TestBodyConformanceGetWithBody(unittest.TestCase):
 
             def handler(req, _c=captured):
                 _c["called"] = True
+                return Response.text(200, "ok")
+
+            s = Server(
+                root=td,
+                port=0,
+                handler=handler,
+                request_body_mode=inp["policy"],
+                max_request_body_bytes=inp["max_body_bytes"],
+            )
+            s.start()
+            self._servers.append(s)
+            _wait_for_tcp(s.addr)
+
+            req_bytes = _build_request(fixture, s.addr)
+            resp = _send_raw_request(s.addr, req_bytes)
+            status = _parse_status(resp)
+            self.assertEqual(status, exp["status"], fixture["id"])
+
+            if "handler_called" in exp:
+                self.assertEqual(
+                    captured["called"],
+                    exp["handler_called"],
+                    f"{fixture['id']}: handler_called",
+                )
+
+
+@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+class TestBodyConformanceConflictingContentLength(unittest.TestCase):
+    """Conflicting Content-Length handling."""
+
+    def setUp(self):
+        self._servers = []
+        self._tds = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.force_shutdown(2.0)
+            except Exception:
+                pass
+        for td in self._tds:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_conflicting_content_length_from_corpus(self):
+        for fixture in _group("conflicting_content_length"):
+            inp = fixture["input"]
+            exp = fixture["expected"]
+
+            td = tempfile.mkdtemp()
+            self._tds.append(td)
+            captured = {"called": False}
+
+            def handler(req, _c=captured):
+                _c["called"] = True
+                if req.has_body:
+                    req.body.read()
+                return Response.text(200, "ok")
+
+            s = Server(
+                root=td,
+                port=0,
+                handler=handler,
+                request_body_mode=inp["policy"],
+                max_request_body_bytes=inp["max_body_bytes"],
+            )
+            s.start()
+            self._servers.append(s)
+            _wait_for_tcp(s.addr)
+
+            req_bytes = _build_request(fixture, s.addr)
+            resp = _send_raw_request(s.addr, req_bytes)
+            status = _parse_status(resp)
+            self.assertEqual(status, exp["status"], fixture["id"])
+
+            if "handler_called" in exp:
+                self.assertEqual(
+                    captured["called"],
+                    exp["handler_called"],
+                    f"{fixture['id']}: handler_called",
+                )
+
+
+@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+class TestBodyConformanceChunkedMalformed(unittest.TestCase):
+    """Malformed chunked transfer-encoding handling."""
+
+    def setUp(self):
+        self._servers = []
+        self._tds = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.force_shutdown(2.0)
+            except Exception:
+                pass
+        for td in self._tds:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_chunked_malformed_from_corpus(self):
+        for fixture in _group("chunked_malformed"):
+            inp = fixture["input"]
+            exp = fixture["expected"]
+
+            td = tempfile.mkdtemp()
+            self._tds.append(td)
+            captured = {"called": False}
+
+            def handler(req, _c=captured):
+                _c["called"] = True
+                if req.has_body:
+                    req.body.read()
+                return Response.text(200, "ok")
+
+            s = Server(
+                root=td,
+                port=0,
+                handler=handler,
+                request_body_mode=inp["policy"],
+                max_request_body_bytes=inp["max_body_bytes"],
+            )
+            s.start()
+            self._servers.append(s)
+            _wait_for_tcp(s.addr)
+
+            req_bytes = _build_request(fixture, s.addr)
+            resp = _send_raw_request(s.addr, req_bytes)
+            status = _parse_status(resp)
+            self.assertEqual(status, exp["status"], fixture["id"])
+
+            if "handler_called" in exp:
+                self.assertEqual(
+                    captured["called"],
+                    exp["handler_called"],
+                    f"{fixture['id']}: handler_called",
+                )
+
+
+@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+class TestBodyConformanceChunkedExactLimit(unittest.TestCase):
+    """Chunked body at exact limit and one byte over."""
+
+    def setUp(self):
+        self._servers = []
+        self._tds = []
+
+    def tearDown(self):
+        for s in self._servers:
+            try:
+                s.force_shutdown(2.0)
+            except Exception:
+                pass
+        for td in self._tds:
+            shutil.rmtree(td, ignore_errors=True)
+
+    def test_chunked_exact_limit_from_corpus(self):
+        for fixture in _group("chunked_exact_limit"):
+            inp = fixture["input"]
+            exp = fixture["expected"]
+
+            td = tempfile.mkdtemp()
+            self._tds.append(td)
+            captured = {"called": False}
+
+            def handler(req, _c=captured):
+                _c["called"] = True
+                if req.has_body:
+                    it = req.body.iter_chunks()
+                    for chunk in it:
+                        pass
                 return Response.text(200, "ok")
 
             s = Server(

@@ -360,6 +360,261 @@
           }
         }
       ]
+    },
+    "conflicting_content_length": {
+      "description": "Multiple Content-Length values with different lengths are rejected",
+      "fixtures": [
+        {
+          "id": "two-different-content-lengths",
+          "description": "Two Content-Length headers with different values → 400",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": {
+              "Content-Length": "5",
+              "X-Extra-Content-Length": "10"
+            },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "extra_raw_headers": "Content-Length: 10\r\n"
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "two-identical-content-lengths",
+          "description": "Two Content-Length headers with same value → accepted (permissive)",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": {
+              "Content-Length": "5"
+            },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "hello"
+          }
+        }
+      ]
+    },
+    "te_plus_content_length_conflict": {
+      "description": "Transfer-Encoding takes precedence when both TE and Content-Length are present",
+      "fixtures": [
+        {
+          "id": "te-and-cl-both-present",
+          "description": "Transfer-Encoding: chunked + Content-Length → TE wins, body is chunked",
+          "input": {
+            "method": "POST",
+            "body": "chunked-wins",
+            "encoding": "chunked",
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "chunked-wins"
+          }
+        }
+      ]
+    },
+    "chunked_malformed": {
+      "description": "Malformed chunked transfer-encoding is rejected",
+      "fixtures": [
+        {
+          "id": "missing-chunk-terminator",
+          "description": "Chunk missing final 0-length terminator → body timeout (408 or 504)",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "encoding": "chunked_no_terminator",
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 504,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "chunked_exact_limit": {
+      "description": "Chunked body at exact limit and one byte over",
+      "fixtures": [
+        {
+          "id": "chunked-exact-limit",
+          "description": "Chunked body total equals max_bytes → 200",
+          "input": {
+            "method": "POST",
+            "body": "12345",
+            "encoding": "chunked",
+            "chunk_size": 5,
+            "policy": "stream",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "12345"
+          }
+        },
+        {
+          "id": "chunked-one-over-limit",
+          "description": "Chunked body total is one byte over max_bytes → 413",
+          "input": {
+            "method": "POST",
+            "body": "123456",
+            "encoding": "chunked",
+            "chunk_size": 6,
+            "policy": "stream",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 413,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "buffer_mode": {
+      "description": "Buffer mode reads entire body into memory before handler invocation",
+      "fixtures": [
+        {
+          "id": "buffer-read-all",
+          "description": "Buffer mode provides full body via read()",
+          "input": {
+            "method": "POST",
+            "body": "buffered data",
+            "headers": { "Content-Length": "12" },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "handler_action": "read_all"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "buffered data"
+          }
+        },
+        {
+          "id": "buffer-empty",
+          "description": "Buffer mode with empty body returns empty bytes",
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": { "Content-Length": "0" },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "handler_action": "read_all"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "stream_mode": {
+      "description": "Stream mode delivers body in chunks via next_chunk",
+      "fixtures": [
+        {
+          "id": "stream-chunked-delivery",
+          "description": "Stream mode delivers chunked body via iteration",
+          "input": {
+            "method": "POST",
+            "body": "streamed data",
+            "encoding": "chunked",
+            "chunk_size": 6,
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "handler_action": "stream_collect"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "streamed data"
+          }
+        },
+        {
+          "id": "stream-fixed-length",
+          "description": "Stream mode also works with fixed-length body",
+          "input": {
+            "method": "POST",
+            "body": "fixed via stream",
+            "headers": { "Content-Length": "15" },
+            "policy": "stream",
+            "max_body_bytes": 1024,
+            "handler_action": "stream_collect"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "fixed via stream"
+          }
+        }
+      ]
+    },
+    "mixed_read_iteration": {
+      "description": "Body consumption mode consistency (read vs iteration)",
+      "fixtures": [
+        {
+          "id": "read-then-iterate-fails",
+          "description": "After read_all, iteration returns no more data",
+          "input": {
+            "method": "POST",
+            "body": "data",
+            "headers": { "Content-Length": "4" },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "handler_action": "read_then_iter"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        },
+        {
+          "id": "iterate-then-read-fails",
+          "description": "After full iteration, read returns empty",
+          "input": {
+            "method": "POST",
+            "body": "data",
+            "headers": { "Content-Length": "4" },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "handler_action": "double_iter"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "partial_consumption_close": {
+      "description": "Partial body consumption with close policy closes connection",
+      "fixtures": [
+        {
+          "id": "partial-read-close",
+          "description": "Reading partial body then returning closes connection",
+          "input": {
+            "method": "POST",
+            "body": "partial data here",
+            "headers": { "Content-Length": "17" },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "handler_action": "partial_read"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        }
+      ]
     }
   }
 }

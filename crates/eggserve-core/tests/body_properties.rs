@@ -3,7 +3,6 @@
 use bytes::Bytes;
 use eggserve_core::primitives::request_body::{BodyState, IncomingError, RequestBody};
 use eggserve_core::primitives::request_body_error::RequestBodyError;
-use futures_util::StreamExt;
 use proptest::prelude::*;
 
 #[test]
@@ -183,8 +182,8 @@ fn chunked_body_via_stream_succeeds() {
         let body_stream = stream::iter(chunks);
         let body = RequestBody::from_incoming(body_stream, Some(data.len() as u64), u64::MAX);
         let result = rt.block_on(body.read_all());
-        if result.is_ok() {
-            prop_assert_eq!(result.unwrap().len(), data.len());
+        if let Ok(val) = result {
+            prop_assert_eq!(val.len(), data.len());
         }
     });
 }

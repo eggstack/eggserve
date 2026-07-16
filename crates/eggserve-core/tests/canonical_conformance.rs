@@ -877,7 +877,12 @@ fn body_policy_classification() {
             other => panic!("{}: unknown policy kind {other}", f.id),
         };
 
-        assert_eq!(policy.is_reject(), expected.is_reject, "{}: is_reject", f.id);
+        assert_eq!(
+            policy.is_reject(),
+            expected.is_reject,
+            "{}: is_reject",
+            f.id
+        );
         assert_eq!(
             policy.allows_buffer(),
             expected.allows_buffer,

@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 69
+Total gates: 73
 
 ## Preflight
 
@@ -27,11 +27,13 @@ Total gates: 69
 | `body.chunked-accounting` | Chunked body accounting | yes | ci-log, test-output | PENDING | TBD |
 | `body.corpus-replay` | Body conformance corpus replay | yes | ci-log, test-output | PENDING | TBD |
 | `body.fixed-length-accounting` | Fixed-length body accounting | yes | ci-log, test-output | PENDING | TBD |
+| `body.fuzz-smoke` | Body fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
 | `body.limit-enforcement` | Body limit enforcement | yes | ci-log, test-output | PENDING | TBD |
 | `body.partial-consumption` | Partial body consumption | yes | ci-log, test-output | PENDING | TBD |
 | `body.public-rust-consumer` | Rust request body public API | yes | ci-log, test-output | PENDING | TBD |
 | `body.static-rejection` | Static service body rejection | yes | ci-log, test-output | PENDING | TBD |
 | `body.timeout-cancellation` | Body timeout and cancellation | yes | ci-log, test-output | PENDING | TBD |
+| `body.tls-parity` | Body handling TLS/plaintext parity | yes | ci-log, test-output | PENDING | TBD |
 | `body.wire-tests` | Body real-wire tests | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.canonical-http-corpus-python` | Python canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.canonical-http-corpus-rust` | Rust canonical HTTP conformance corpus | yes | ci-log, test-output | PENDING | TBD |
@@ -51,7 +53,9 @@ Total gates: 69
 | `python.body-lifecycle-linux` | Python body lifecycle qualification (Linux) | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-lifecycle-macos` | Python body lifecycle qualification (macOS) | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-lifecycle-windows` | Python body lifecycle qualification (Windows) | yes | ci-log, test-output | PENDING | TBD |
+| `python.body-parity` | Python body Rust/Python parity | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-primitives` | Python body primitives tests | yes | ci-log, test-output | PENDING | TBD |
+| `python.body-timeout` | Python body timeout interaction | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-wire` | Python body real-wire tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.boundary-hardening` | Python boundary hardening tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.callback-timeout` | Python callback timeout | yes | ci-log, test-output | PENDING | TBD |
@@ -96,7 +100,7 @@ Total gates: 69
 
 ## Summary
 
-- PENDING: 69
+- PENDING: 73
 
 ## Platform Support
 

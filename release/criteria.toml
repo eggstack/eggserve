@@ -1288,6 +1288,82 @@ waiver_allowed = false
 security_relevance = false
 release_stage = "qualification"
 
+[[gate]]
+id = "body.tls-parity"
+title = "Body handling TLS/plaintext parity"
+description = "Body rejection, buffering, streaming, and limit enforcement work identically over TLS and plaintext transports"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_tls"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = ["tls"]
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/connection.rs", "crates/eggserve-core/src/primitives/request_body.rs"]
+depends_on = ["body.public-rust-consumer", "rust.test.server-tls"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-parity"
+title = "Python body Rust/Python parity"
+description = "Python body conformance corpus runner agrees with Rust corpus runner on policy, data, errors, and connection outcomes"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_conformance -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "conformance/body_corpus.json"]
+depends_on = ["python.body-conformance"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-timeout"
+title = "Python body timeout interaction"
+description = "Python handler timeout and body timeout interact correctly; timed-out callbacks retain concurrency permits"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.fuzz-smoke"
+title = "Body fuzz corpus replay"
+description = "Replays body-related fuzz corpus seeds to catch regressions against known inputs"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test corpus_replay"
+workflow_job = "corpus-replay"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "fuzz/corpus/**"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
 # ---------------------------------------------------------------------------
 # Release gates
 # ---------------------------------------------------------------------------
