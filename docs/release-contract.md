@@ -434,10 +434,31 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 | Linux aarch64 | Supported, CI-tested | Full (descriptor-relative) |
 | macOS arm64 | Supported, CI-tested | Full (descriptor-relative) |
 | macOS x86_64 | Supported, CI-tested | Full (descriptor-relative) |
-| Windows x86_64 | Supported, CI-tested | Partial (parser-level only) |
+| Windows x86_64 | Supported, CI-tested | Partial (parser-level only; reparse-point hardening roadmap Plans 062–065) |
+
+## Production Profiles
+
+eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Every production claim must name a profile. The machine-readable profile definitions are in `release/support-profiles.toml`.
+
+| Profile | Status | Description |
+|---------|--------|-------------|
+| unix-reverse-proxy | supported-hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment) |
+| unix-direct-https | candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform) |
+| windows-reverse-proxy | candidate | Windows behind reverse proxy (functional until reparse hardening) |
+| windows-direct-https | functional | Windows with native rustls (parser-level security only) |
+| local-development | supported-hardened | Any platform, loopback, safe defaults |
+| windows-functional | functional | Windows SMB/non-NTFS/cloud filesystems |
+| link-following-compat | functional | Any platform with --follow-symlinks (weaker guarantee) |
+
+Production profile promotion requires passing all required CI gates defined in `release/criteria.toml`. No profile is promoted in this release contract version. This release contract only defines promotion criteria.
+
+- Reverse-proxy origin (Caddy, nginx, Traefik) is the preferred public deployment.
+- Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge parity.
+- Windows hardening is an active roadmap item, not a permanent non-goal.
+- Public plaintext HTTP without TLS termination is an unsupported production configuration.
 
 ## What This Document Does NOT Cover
 
-- Framework abstractions, routing, middleware, ASGI/WSGI adapters — these are non-goals.
+- Framework abstractions, routing, middleware, ASGI/WSGI adapters — these are in-tree non-goals. Downstream projects may build them on eggserve primitives, but they are not release deliverables.
 - Compatibility with `python -m http.server` beyond practical equivalence — see [compatibility.md](compatibility.md).
 - Version freeze — this is a pre-release contract. The API surface may change before 1.0.

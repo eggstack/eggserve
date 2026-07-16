@@ -277,6 +277,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Body error mapping** — `RequestBodyError` maps to HTTP status codes: 400 (malformed), 408 (timeout), 413 (too large), 500 (transport error). Terminal errors include `Connection: close`.
 - **Python RequestBody is one-shot** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive and consume the body. Second use raises `RequestBodyConsumedError`. `iter_chunks()` bridges async Rust body to synchronous Python via a bounded channel with backpressure. Body objects are only present when `has_body` is True (non-empty bodies with allowed policy). Empty bodies and rejected bodies produce `body=None`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary (`Server`, `Service` trait, `StaticService`, etc.) for embedding. Includes lifecycle state machine (`LifecycleState`), listener abstraction, readiness signaling, and graceful/forced shutdown with drain deadline. Python `Server` now stores the tokio runtime in `PyServer` (not as a temporary), `start()` blocks until Running state, and callback handlers use `start_with_service()` instead of `build_with_service()`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Its API is subject to change without notice. Do not depend on it for stable integrations. Verified by Plan 055.
+- **Production profiles** — `release/support-profiles.toml` is the single source of truth for production deployment profiles. Every production claim must name a profile. Profiles are: unix-reverse-proxy (hardened), unix-direct-https (candidate), windows-reverse-proxy (candidate), windows-direct-https (functional), local-development (hardened), windows-functional (functional), link-following-compat (functional).
 
 ## Plan status
 
@@ -284,6 +285,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 056 (Milestone 4A) and Plan 057 (Milestone 4B) are complete. Their outputs form the Rust foundation for Plan 058.
 - Plan 058 establishes Milestone 4C: Python body parity and conformance. Adds `RequestBody` (Python), `BodyChunkIterator` (streaming bridge), `RequestBodyError` hierarchy (8 exception types), body policy configuration in `Server` constructor (`request_body_mode`, `max_request_body_bytes`, `body_timeout_secs`, `incomplete_body_policy`), request body projection (`has_body`, `body`), and `test_body_primitives.py` test suite. The `server` module remains experimental.
 - Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
+- Plan 060 defines production support profiles (7 profiles with machine-readable definitions in `release/support-profiles.toml`), aligns all documentation with the production scope firewall, adds contract consistency tests for profile validation and non-goal retention, reinforces API stability tier classifications, and expands the threat model with a central invariant and profile-specific security notes.
 
 ## Plan-driven development
 

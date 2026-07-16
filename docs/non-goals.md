@@ -15,14 +15,15 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No framework routing** — eggserve maps URLs to files, not to application handlers
 - **No middleware stack** — request processing is a fixed pipeline, not composable layers
 - **No session, cookie, or auth framework** — except possible later basic-auth opt-in; no auth by default
-- **No attempt to compete with nginx/Caddy as a full edge server** — eggserve is a development/utility tool
+- **No attempt to compete with nginx/Caddy as a full edge server** — eggserve is a hardened static file server, not an edge platform
 - **No attempt to compete with Granian/Uvicorn as app servers** — eggserve does not run Python application code
-- **No Windows reparse-point/NTFS junction hardening** — Windows is supported functionally with parser-level checks only (reserved names, ADS, drive prefixes, backslash). Filesystem-level hardening against reparse points and NTFS junctions is deferred. Windows is explicitly a trusted/local-use platform, not hardened for untrusted mutable public roots. See [security-policy.md](security-policy.md) for the full statement.
+- **No Windows reparse-point/NTFS junction hardening** — Windows reparse-point/NTFS junction hardening is an active roadmap item — Windows is supported functionally with parser-level checks only (reserved names, ADS, drive prefixes, backslash). Filesystem-level hardening against reparse points and NTFS junctions is being developed (Plans 062–065). Windows is explicitly a trusted/local-use platform, not hardened for untrusted mutable public roots. See [security-policy.md](security-policy.md) for the full statement.
 - **No HTTP trailers** — Trailers are deferred; the canonical response model does not include trailer support
 - **No raw socket response writers** — All responses go through the canonical normalization path
 - **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
 - **No WebSocket or upgrade support** — The runtime does not support protocol upgrades.
 - **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.
 - **No Python existing-socket support** — Passing an already-bound Python socket to the native `Server` is deferred. Rust supports `from_listener()` for existing `TcpListener` ownership, but the Python bindings do not yet expose this. Ownership transfer semantics differ across platforms and would require careful descriptor/handle duplication. This capability may be added in a future milestone if cross-platform safety can be ensured.
+- **No production profile promotion without evidence** — Production profiles are defined in `release/support-profiles.toml` and require passing all required CI gates before promotion to hardened status
 
-> These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally.
+> These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build ASGI/WSGI adapters, application servers, and HTTP clients externally. Those downstream projects are not release deliverables or supported application-serving modes of eggserve.

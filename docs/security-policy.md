@@ -47,6 +47,22 @@ Enables following symbolic links. When enabled, both final and intermediate syml
 
 **This mode falls back to canonicalize-based resolution and is weaker than the safe-default descriptor-relative path.** It is **not** covered by the same TOCTOU-hardening guarantee that applies to safe-default symlink-denied mode on Unix. Avoid `--follow-symlinks` for untrusted mutable roots.
 
+## Production Profiles
+
+eggserve defines production readiness through explicit profiles. Each profile specifies a security posture, supported platform, and required configuration. The full profile definitions are in `release/support-profiles.toml`.
+
+| Profile | Status | Hardened |
+|---------|--------|----------|
+| unix-reverse-proxy | supported-hardened | Yes (once CI gates pass) |
+| unix-direct-https | candidate | Partial (native TLS, limited) |
+| windows-reverse-proxy | candidate | No (functional until reparse hardening) |
+| windows-direct-https | functional | No |
+| local-development | supported-hardened | Yes |
+| windows-functional | functional | No |
+| link-following-compat | functional | No |
+
+No document should claim production support without naming a profile. Windows hardening is an active roadmap item, not a permanent non-goal.
+
 ## Request body metadata handling
 
 For read-only methods (`GET`, `HEAD`), eggserve rejects any request that signals a body:
@@ -77,7 +93,7 @@ On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementatio
 
 The configured root is canonicalized and opened as a directory descriptor during request resolution (per request), not once at server startup. Caching the root descriptor across requests is a future optimization; current behavior is correct and tested.
 
-Windows reparse-point detection beyond what the parser already denies is deferred. Do not use eggserve on Windows for untrusted mutable public roots. Directory listings hide symlink entries when symlink policy is denied.
+Windows reparse-point hardening is an active roadmap item (Plans 062–065), not a permanent non-goal. Windows remains functional-only until evidence supports promotion.
 
 ### `--directory-listing`
 

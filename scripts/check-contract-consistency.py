@@ -664,6 +664,168 @@ def check_python_server_defaults(repo_root: Path) -> list[str]:
     return errors
 
 
+def check_production_profiles(repo_root: Path) -> list[str]:
+    """Validate production profile definitions and cross-document consistency."""
+    errors: list[str] = []
+
+    if tomllib is None:
+        return ["Python 3.11+ required for TOML parsing"]
+
+    # Load support-profiles.toml
+    profiles_text = _read(repo_root, "release/support-profiles.toml")
+    if profiles_text is None:
+        errors.append("release/support-profiles.toml not found")
+        return errors
+
+    try:
+        profiles_data = tomllib.loads(profiles_text)
+    except Exception:
+        errors.append("release/support-profiles.toml: failed to parse TOML")
+        return errors
+
+    profiles = profiles_data.get("profile", [])
+    if not profiles:
+        errors.append("release/support-profiles.toml: no profiles defined")
+        return errors
+
+    valid_statuses = {"unsupported", "functional", "candidate", "supported-hardened"}
+    profile_ids = set()
+    for p in profiles:
+        pid = p.get("profile", "")
+        status = p.get("status", "")
+        if not pid:
+            errors.append("support-profiles.toml: profile missing 'profile' field")
+            continue
+        if pid in profile_ids:
+            errors.append(f"support-profiles.toml: duplicate profile '{pid}'")
+        profile_ids.add(pid)
+        if status not in valid_statuses:
+            errors.append(f"support-profiles.toml: profile '{pid}' has invalid status '{status}'")
+        # Validate required fields
+        for field in ["platform", "filesystem", "network_binding", "tls_termination",
+                       "http_version", "security_defaults", "required_gates",
+                       "excluded_flags", "notes"]:
+            if field not in p:
+                errors.append(f"support-profiles.toml: profile '{pid}' missing '{field}'")
+
+    # Validate that hardened profiles don't allow symlink following
+    for p in profiles:
+        pid = p.get("profile", "")
+        status = p.get("status", "")
+        symlinks = p.get("symlink_following_allowed", False)
+        if status == "supported-hardened" and symlinks:
+            errors.append(
+                f"support-profiles.toml: hardened profile '{pid}' must not allow symlink following"
+            )
+
+    # Validate that no profile permits plaintext by default
+    for p in profiles:
+        pid = p.get("profile", "")
+        tls = p.get("tls_termination", "")
+        binding = p.get("network_binding", "")
+        # Local development on loopback with no TLS is acceptable
+        if tls == "none" and binding not in ("loopback", "loopback-127.0.0.1"):
+            errors.append(
+                f"support-profiles.toml: profile '{pid}' has no TLS on non-loopback binding"
+            )
+
+    # Validate that required_gates reference existing gate IDs in criteria.toml
+    criteria_text = _read(repo_root, "release/criteria.toml")
+    if criteria_text is not None:
+        try:
+            criteria_data = tomllib.loads(criteria_text)
+            gate_ids = {g.get("id", "") for g in criteria_data.get("gate", [])}
+            for p in profiles:
+                pid = p.get("profile", "")
+                for gate_id in p.get("required_gates", []):
+                    if gate_id not in gate_ids:
+                        errors.append(
+                            f"support-profiles.toml: profile '{pid}' references "
+                            f"nonexistent gate '{gate_id}'"
+                        )
+        except Exception:
+            pass
+
+    # Check that docs reference profiles
+    readme = _read(repo_root, "README.md")
+    if readme is not None:
+        if "support-profiles.toml" not in readme and "production profile" not in readme.lower():
+            errors.append("README.md: does not reference production profiles")
+
+    threat = _read(repo_root, "docs/threat-model.md")
+    if threat is not None:
+        if "production profile" not in threat.lower() and "support-profiles" not in threat:
+            errors.append("docs/threat-model.md: does not reference production profiles")
+
+    return errors
+
+
+def check_non_goal_retention(repo_root: Path) -> list[str]:
+    """Validate that explicit non-goals are retained in docs/non-goals.md."""
+    errors: list[str] = []
+
+    non_goals = _read(repo_root, "docs/non-goals.md")
+    if non_goals is None:
+        errors.append("docs/non-goals.md not found")
+        return errors
+
+    lower = non_goals.lower()
+
+    required_non_goals = [
+        ("asgi", "ASGI adapter"),
+        ("wsgi", "WSGI adapter"),
+        ("reverse proxy", "reverse proxying"),
+        ("middleware", "middleware stack"),
+        ("routing", "framework routing"),
+        ("acme", "ACME/certificate automation"),
+        ("http/2", "HTTP/2"),
+        ("upload", "upload/write support"),
+    ]
+
+    for keyword, description in required_non_goals:
+        if keyword not in lower:
+            errors.append(
+                f"docs/non-goals.md: missing required non-goal keyword '{keyword}' "
+                f"({description})"
+            )
+
+    # Check that downstream extension language is present
+    if "downstream" not in lower:
+        errors.append(
+            "docs/non-goals.md: missing downstream extension language"
+        )
+
+    return errors
+
+
+def check_no_asgi_vocabulary_in_stable_api(repo_root: Path) -> list[str]:
+    """Validate that no ASGI/WSGI vocabulary appears in stable API documentation."""
+    errors: list[str] = []
+
+    api_stability = _read(repo_root, "docs/api-stability.md")
+    if api_stability is None:
+        errors.append("docs/api-stability.md not found")
+        return errors
+
+    asgi_terms = ["asgi", "wsgi", "scope", "receive", "send", "app"]
+    lower = api_stability.lower()
+
+    for term in asgi_terms:
+        if term in lower:
+            # Check if it's in a non-goals or scope-boundary context, which is fine
+            for line in api_stability.splitlines():
+                if term in line.lower() and ("non-goal" in line.lower() or "scope" in line.lower()
+                                              or "not" in line.lower() or "downstream" in line.lower()):
+                    break
+            else:
+                errors.append(
+                    f"docs/api-stability.md: contains ASGI/WSGI vocabulary '{term}' "
+                    f"in a potentially stable API context"
+                )
+
+    return errors
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent
     verbose = "--verbose" in sys.argv or "-v" in sys.argv
@@ -679,6 +841,9 @@ def main() -> int:
         ("Workflow/criteria cross-validation", check_workflow_criteria_cross_validation),
         ("Trigger policy consistency", check_trigger_policy_consistency),
         ("Python server defaults", check_python_server_defaults),
+        ("Production profile validation", check_production_profiles),
+        ("Non-goal retention", check_non_goal_retention),
+        ("No ASGI vocabulary in stable API", check_no_asgi_vocabulary_in_stable_api),
     ]
 
     total_errors = 0

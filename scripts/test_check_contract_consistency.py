@@ -193,6 +193,9 @@ class TestAllChecksPassOnCurrentRepo(unittest.TestCase):
             ("platform", cc.check_platform_claims),
             ("stable_api", cc.check_stable_api_inventory),
             ("readme_links", cc.check_readme_links),
+            ("production_profiles", cc.check_production_profiles),
+            ("non_goal_retention", cc.check_non_goal_retention),
+            ("no_asgi_vocabulary", cc.check_no_asgi_vocabulary_in_stable_api),
         ]:
             errors = fn(root)
             for e in errors:
@@ -493,6 +496,155 @@ class TestContractConsistency(unittest.TestCase):
                 f"which does not exist in .github/workflows/ci.yml. "
                 f"Available jobs: {sorted(all_ci_names)}",
             )
+
+
+class TestCheckProductionProfiles(unittest.TestCase):
+    def test_pass_valid_profiles(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "release").mkdir()
+            (root / "release" / "criteria.toml").write_text(
+                '[meta]\nschema_version = "1.0"\n\n'
+                '[[gate]]\nid = "rust.test"\ntitle = "test"\n'
+                'description = "test"\nrequired = true\n'
+                'evidence_classes = ["ci-log"]\ncommand = "echo ok"\n'
+                'workflow_job = "rust"\nplatforms = ["linux"]\n'
+                'max_age_days = 1\ninvalidated_by = []\ndepends_on = []\n'
+                'waiver_allowed = false\nrelease_stage = "preflight"\n'
+            )
+            (root / "release" / "support-profiles.toml").write_text(
+                '[[profile]]\nprofile = "test-profile"\n'
+                'status = "candidate"\nplatform = ["linux-x86_64"]\n'
+                'filesystem = ["ext4"]\nnetwork_binding = "loopback"\n'
+                'tls_termination = "none"\nhttp_version = "1.1"\n'
+                'security_defaults = ["loopback-bind"]\n'
+                'symlink_following_allowed = false\n'
+                'directory_listing_hardened = false\n'
+                'python_callbacks_in_profile = true\n'
+                'required_gates = ["rust.test"]\n'
+                'excluded_flags = []\nevidence_max_age = "30d"\n'
+                'invalidated_by = []\nwaivers_allowed = true\n'
+                'notes = "test"\n'
+            )
+            (root / "README.md").write_text(
+                "# eggserve\n\nProduction profiles in release/support-profiles.toml\n"
+            )
+            (root / "docs").mkdir()
+            (root / "docs" / "threat-model.md").write_text(
+                "# Threat Model\n\nProduction profiles defined.\n"
+            )
+            errors = cc.check_production_profiles(root)
+            self.assertEqual(errors, [])
+
+    def test_fail_hardened_allows_symlinks(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "release").mkdir()
+            (root / "release" / "criteria.toml").write_text(
+                '[meta]\nschema_version = "1.0"\n'
+            )
+            (root / "release" / "support-profiles.toml").write_text(
+                '[[profile]]\nprofile = "bad"\n'
+                'status = "supported-hardened"\nplatform = ["linux-x86_64"]\n'
+                'filesystem = ["ext4"]\nnetwork_binding = "loopback"\n'
+                'tls_termination = "none"\nhttp_version = "1.1"\n'
+                'security_defaults = []\n'
+                'symlink_following_allowed = true\n'
+                'directory_listing_hardened = false\n'
+                'python_callbacks_in_profile = false\n'
+                'required_gates = []\nexcluded_flags = []\n'
+                'evidence_max_age = "30d"\ninvalidated_by = []\n'
+                'waivers_allowed = false\nnotes = "test"\n'
+            )
+            errors = cc.check_production_profiles(root)
+            self.assertTrue(any("symlink" in e for e in errors))
+
+    def test_fail_nonexistent_gate_reference(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "release").mkdir()
+            (root / "release" / "criteria.toml").write_text(
+                '[meta]\nschema_version = "1.0"\n\n'
+                '[[gate]]\nid = "rust.test"\ntitle = "test"\n'
+                'description = "test"\nrequired = true\n'
+                'evidence_classes = ["ci-log"]\ncommand = "echo ok"\n'
+                'workflow_job = "rust"\nplatforms = ["linux"]\n'
+                'max_age_days = 1\ninvalidated_by = []\ndepends_on = []\n'
+                'waiver_allowed = false\nrelease_stage = "preflight"\n'
+            )
+            (root / "release" / "support-profiles.toml").write_text(
+                '[[profile]]\nprofile = "test"\n'
+                'status = "candidate"\nplatform = ["linux-x86_64"]\n'
+                'filesystem = ["ext4"]\nnetwork_binding = "loopback"\n'
+                'tls_termination = "none"\nhttp_version = "1.1"\n'
+                'security_defaults = []\n'
+                'symlink_following_allowed = false\n'
+                'directory_listing_hardened = false\n'
+                'python_callbacks_in_profile = false\n'
+                'required_gates = ["nonexistent.gate"]\n'
+                'excluded_flags = []\nevidence_max_age = "30d"\n'
+                'invalidated_by = []\nwaivers_allowed = false\n'
+                'notes = "test"\n'
+            )
+            errors = cc.check_production_profiles(root)
+            self.assertTrue(any("nonexistent" in e for e in errors))
+
+
+class TestCheckNonGoalRetention(unittest.TestCase):
+    def test_pass_all_present(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "non-goals.md").write_text(
+                "# Non-goals\n\n"
+                "- No in-tree ASGI or WSGI adapter\n"
+                "- No reverse proxying\n"
+                "- No middleware stack\n"
+                "- No framework routing\n"
+                "- No automatic ACME\n"
+                "- No HTTP/2\n"
+                "- No upload/write support\n"
+                "- Downstream projects may build these\n"
+            )
+            errors = cc.check_non_goal_retention(root)
+            self.assertEqual(errors, [])
+
+    def test_fail_missing_asgi(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "non-goals.md").write_text(
+                "# Non-goals\n\nSome text.\n"
+            )
+            errors = cc.check_non_goal_retention(root)
+            self.assertTrue(any("asgi" in e for e in errors))
+
+
+class TestCheckNoAsgiVocabularyInStableApi(unittest.TestCase):
+    def test_pass_clean(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "api-stability.md").write_text(
+                "# API Stability\n\n"
+                "ASGI/WSGI adapters are not included in stable API.\n"
+                "Downstream projects may build them.\n"
+            )
+            errors = cc.check_no_asgi_vocabulary_in_stable_api(root)
+            self.assertEqual(errors, [])
+
+    def test_fail_asgi_in_stable(self):
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td)
+            (root / "docs").mkdir()
+            (root / "docs" / "api-stability.md").write_text(
+                "# API Stability\n\n"
+                "### `eggserve.server`\n\n"
+                "| Item | Tier |\n| --- | --- |\n"
+                "| `AsgiHandler` | stable |\n"
+            )
+            errors = cc.check_no_asgi_vocabulary_in_stable_api(root)
+            self.assertTrue(any("asgi" in e for e in errors))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ This document is the authoritative contract for downstream consumers of eggserve
 
 ## Overview
 
-eggserve is a library, not a framework. It provides hardened path validation, policy enforcement, secure root resolution, and response planning as composable primitives. Downstream projects may build on these primitives for dynamic sites, test harnesses, or protocol adapters — but they must respect the security boundaries that make eggserve's guarantees meaningful.
+eggserve is a library, not a framework. It provides hardened path validation, policy enforcement, secure root resolution, and response planning as composable primitives. Downstream projects may build on these primitives for dynamic sites, test harnesses, or protocol adapters — including ASGI/WSGI adapters, application servers, and HTTP clients — but they must respect the security boundaries that make eggserve's guarantees meaningful.
 
 ## What eggserve guarantees
 
@@ -27,7 +27,7 @@ eggserve does not provide:
 - Plugin systems or extensible architectures
 - HTTP/2, HTTP/3, WebSocket, or CONNECT semantics
 
-These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally. See [non-goals.md](non-goals.md) for the full list.
+These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally. See [non-goals.md](non-goals.md) for the full list. Downstream use of primitives for clients or application servers is explicitly allowed but not owned by eggserve. Those projects are not release deliverables or supported application-serving modes.
 
 ## Allowed integration patterns
 
@@ -231,7 +231,7 @@ eggserve does not provide ASGI/WSGI interfaces directly (see [non-goals.md](non-
 
 ## Downstream adapter boundary
 
-> eggserve may expose primitives sufficient for an external ASGI, WSGI, or framework adapter. eggserve does not provide those adapters in-tree. Any new API added for adapter authors must remain protocol- and framework-neutral.
+> eggserve may expose primitives sufficient for an external ASGI, WSGI, or application server adapter. eggserve does not provide those adapters in-tree. Those downstream projects are not release deliverables. Any new API added for adapter authors must remain protocol- and framework-neutral.
 
 ## Security boundary rules
 

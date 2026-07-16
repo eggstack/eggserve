@@ -1,6 +1,6 @@
 # Deployment Guide
 
-eggserve is a hardened static file server intended for local development, internal tools, and controlled environments. This guide covers common deployment patterns.
+eggserve is a hardened static file server intended for local development, internal tools, and controlled environments. Production deployment is defined through explicit profiles — see `release/support-profiles.toml`. This guide covers common deployment patterns.
 
 ## Pattern 1: Local-only HTTP
 
@@ -48,6 +48,14 @@ eggserve --directory public
 
 This is the recommended pattern for production deployments. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement.
 
+### Production profile: unix-reverse-proxy
+
+The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. This profile is hardened once all required CI gates pass. See `release/support-profiles.toml` for the full specification.
+
+### Production profile: unix-direct-https
+
+Native TLS is a candidate production profile for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing.
+
 ## Pattern 3: Native TLS
 
 eggserve can terminate TLS directly when built with the `tls` feature:
@@ -57,6 +65,12 @@ eggserve --tls-cert cert.pem --tls-key key.pem --directory public
 ```
 
 See [tls.md](tls.md) for details on the TLS feature, certificate requirements, and limitations.
+
+## Windows deployment
+
+Windows is functional-only. Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Filesystem-level reparse-point hardening is an active roadmap item (Plans 062–065). Do not use with untrusted mutable public content on Windows.
+
+See `release/support-profiles.toml` for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
 
 ## Binding to all interfaces
 
@@ -82,3 +96,4 @@ A common setup for small deployments:
 - eggserve does **not** implement ACME. Use certbot, Caddy's built-in ACME, or your hosting provider's certificate management.
 - For production, always prefer a mature TLS terminator unless eggserve's native TLS is sufficient for your threat model.
 - Never expose eggserve directly to the public internet without proper TLS and access control.
+- Every production deployment must name a profile from `release/support-profiles.toml`. No document should claim production support without naming the profile.

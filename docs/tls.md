@@ -12,6 +12,12 @@ Native TLS is suitable for:
 
 For public-facing production deployments, a mature TLS terminator (Caddy, nginx, Traefik, cloud load balancer) is usually preferred. See [deployment.md](deployment.md) for deployment patterns.
 
+## Production profile
+
+Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited HTTP/1.1 static-server deployment, not an edge platform. It does not imply ACME, virtual hosting, HTTP/2, or edge parity.
+
+For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefik termination) is preferred. See `release/support-profiles.toml` for the full profile definitions and `docs/deployment.md` for deployment patterns.
+
 ## Building with TLS
 
 ```sh

@@ -1,6 +1,6 @@
 # eggserve
 
-> A hardened, Rust-backed static file server with safe-by-default behavior. Drop-in replacement for `python -m http.server`.
+> A hardened, Rust-backed static file server with safe-by-default behavior.
 
 **eggserve is not a general web server, framework, ASGI/WSGI runtime, or Granian replacement.** It serves static files from a directory with secure-by-default behavior. That is all.
 
@@ -206,6 +206,24 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 
 Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.
 
+## Production profiles
+
+eggserve defines explicit production deployment profiles. Every production claim names a profile.
+
+| Profile | Status | Description |
+|---------|--------|-------------|
+| unix-reverse-proxy | Hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment) |
+| unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform) |
+| windows-reverse-proxy | Candidate | Windows behind reverse proxy (functional until reparse-point hardening passes) |
+| windows-direct-https | Functional | Windows with native rustls (parser-level security only) |
+| local-development | Hardened | Any platform, loopback, safe defaults |
+| windows-functional | Functional | Windows SMB/non-NTFS/cloud filesystems |
+| link-following-compat | Functional | Any platform with --follow-symlinks (weaker guarantee) |
+
+See `release/support-profiles.toml` for the machine-readable definitions and `docs/threat-model.md` for profile-specific security notes.
+
+**Production deployment recommendation:** Use a reverse proxy (Caddy, nginx, Traefik) for TLS termination. Native TLS is limited — no ACME, virtual hosting, HTTP/2, or edge platform features. See [docs/deployment.md](docs/deployment.md) and [docs/tls.md](docs/tls.md).
+
 ## Examples
 
 See the [examples/](examples/) directory:
@@ -225,9 +243,11 @@ cargo run --example server_embedding -p eggserve-core
 
 eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-goals.md](docs/non-goals.md).
 
-**This is not:** an ASGI/WSGI runtime, a reverse proxy, a web framework, a template engine, a plugin host, a dynamic request execution environment, or a replacement for nginx/Caddy.
+**This is not:** an ASGI/WSGI runtime, a reverse proxy, a web framework, a template engine, a plugin host, a dynamic request execution environment, a production edge platform, or a replacement for nginx/Caddy.
 
-**This is:** a hardened static file server with safe defaults, a small reusable library for path confinement and policy enforcement, and a Python-packaged tool that feels like `python -m http.server`.
+**This is:** a hardened static file server with safe defaults, a hardened static file server for controlled environments and reverse-proxy origins, a small reusable library for path confinement and policy enforcement, and a Python-packaged tool that feels like `python -m http.server`.
+
+Downstream projects may build ASGI/WSGI adapters, application servers, or HTTP clients on eggserve primitives, but those projects are not release deliverables or supported application-serving modes of eggserve.
 
 ## Documentation
 

@@ -18,9 +18,15 @@ eggserve protects the following assets:
 - **The CLI interface:** flags passed by the operator are trusted. The operator is assumed to be non-adversarial.
 - **The process boundary:** the server process runs under the operator's user. Privilege escalation is out of scope.
 
-## Attacker capabilities
+## Central invariant
 
-An attacker can:
+> **No remotely supplied request may cause eggserve to read or serve an object outside the pinned root, and malformed or ambiguous HTTP input must not cause cross-request or frontend/backend message-boundary confusion.**
+
+## Attacker model
+
+### Remote unauthenticated network attacker
+
+An attacker with unrestricted network access to the server. The attacker can:
 
 - Send arbitrary HTTP requests to the server
 - Send malformed request targets (e.g., path traversal, invalid percent-encoding)
@@ -30,22 +36,150 @@ An attacker can:
 - Attempt log injection through paths or headers
 - Attempt symlink/reparse-point escape to serve files outside the root
 - Attempt platform-specific path bypasses (Windows `\\?\`, UNC paths, etc.)
+- Send requests with ambiguous or conflicting framing (TE+CL, duplicate Content-Length) to confuse front-end/back-end message boundaries
+- Send oversized headers, targets, or bodies to exhaust memory or file descriptors
 
-**Windows note:** Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. However, filesystem-level reparse-point/NTFS junction hardening is deferred (documented non-goal). Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows.
+### Slowloris and connection-hoarding attacker
 
-## Out-of-scope attacker capabilities (initial version)
+An attacker who opens many connections simultaneously and holds them open with slow or incomplete requests, consuming the connection budget and preventing legitimate clients from connecting. The server enforces connection count limits (64 max), header read timeouts (10s), and response write timeouts (60s) to bound this behavior.
 
-The following are explicitly out of scope for the initial version:
+### Malformed HTTP/framing attacker
 
-- Local privileged attacker modifying served files concurrently
-- Kernel or filesystem compromise
-- Malicious operator-provided root directory that intentionally contains sensitive files
-- Full reverse-proxy threat model
-- TLS certificate lifecycle automation
+An attacker who sends HTTP requests that violate the HTTP/1.1 grammar or framing rules. This includes malformed percent-encoding, missing delimiters, invalid header syntax, and ambiguous content-length or transfer-encoding signals. eggserve rejects malformed input at the parser level before any filesystem access. Requests with TE+CL conflicts or duplicate Content-Length fields are rejected with 400 before the service is invoked.
 
-## Central invariant
+### Request-smuggling attacker operating through a reverse proxy
 
-> **Under safe defaults, no remotely supplied request path may resolve to content outside the configured root, and no denied filesystem object class may be served.**
+An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud load balancer) with the intent that the proxy and eggserve disagree on request boundaries. eggserve's hardened framing checks (TE+CL rejection, duplicate Content-Length rejection, wire-level validation) ensure that ambiguous requests are rejected at the origin, preventing desynchronization. This attacker is in scope because reverse-proxy deployment is the preferred production profile.
+
+### Filesystem namespace attacker able to mutate content within or adjacent to the root
+
+An attacker with the ability to create, rename, delete, or modify files within the serving root or in directories adjacent to it. The attacker may attempt:
+
+- Swapping symlinks to redirect resolution outside the root
+- Placing files with special names (dotfiles, reserved names) to influence behavior
+- Replacing files during a TOCTOU window between validation and open
+
+On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` with `O_NOFOLLOW`) eliminates the TOCTOU window for symlink swaps. On non-Unix or follow-symlinks modes, this attacker is only partially mitigated.
+
+### Windows reparse and namespace attacker
+
+An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the hardened Windows profile, all reparse-point components are denied. Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. However, filesystem-level reparse-point hardening is deferred until Plans 062–065 complete. Windows is currently functional-only, not hardened.
+
+### Resource-exhaustion attacker
+
+An attacker who sends requests designed to consume excessive server resources (memory, CPU, file descriptors, file streams). The server enforces resource limits including: connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), request target size limits, header count/size limits, and directory listing entry/byte limits. Request bodies are rejected by default on GET/HEAD.
+
+### Log-injection attacker
+
+An attacker who crafts request paths or header values containing newline characters, control characters, or log-format metacharacters to forge log entries or disrupt log analysis. All logged paths and headers are sanitized before writing.
+
+### Malicious or stalled Python callback
+
+A Python callback registered through the `Server` primitive that is slow, unresponsive, or consumes excessive resources. This is treated as a resource and lifecycle concern, not as a sandboxed adversary. Rust enforces connection and I/O policy around callbacks: timeout limits, connection caps, and file-stream quotas are not affected by callback behavior. Callback timeout does not cancel Python execution — the request task stops waiting at the configured deadline and returns 504, but the Python callback continues executing in the background. The callback semaphore permit is held until the Python function returns, meaning timed-out callbacks still count against the concurrency limit until they complete. Forced shutdown closes the Rust runtime and listener but cannot safely terminate Python code.
+
+## Out-of-scope attacker capabilities
+
+The following are explicitly out of scope:
+
+- **Compromised reverse proxy** — if the edge/origin proxy is compromised, the attacker can inject arbitrary requests and no origin-level defense is meaningful
+- **Kernel or filesystem compromise** — if the kernel or filesystem layer is compromised, path confinement and file-open guarantees are moot
+- **Privileged local attacker** — a local attacker with root or equivalent privileges can bypass all process-level controls
+- **Malicious operator root directory** — an operator who intentionally places sensitive files in the serving root and then serves it is responsible for the outcome
+- **TLS certificate lifecycle automation** — ACME, renewal, and multi-certificate routing are out of scope
+
+## Production profiles
+
+eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Each profile specifies a security posture, supported platform, and required configuration. The production profiles are defined in `plans/060-073-production-grade-internet-and-windows-roadmap.md` and tracked in `release/criteria.toml`.
+
+### unix-reverse-proxy
+
+**Status:** candidate (primary production profile)
+
+- Linux or macOS;
+- eggserve bound to loopback or a private interface;
+- Caddy, nginx, HAProxy, a cloud load balancer, or equivalent terminates public TLS;
+- the edge may provide HTTP/2 or HTTP/3, while the origin remains HTTP/1.1;
+- the serving root is operator-controlled and mounted read-only where practical;
+- safe defaults remain enabled;
+- symlink-following mode is outside the hardened guarantee.
+
+This is the preferred public deployment profile. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement.
+
+### unix-direct-https
+
+**Status:** candidate (secondary production profile)
+
+- Linux or macOS;
+- eggserve terminates TLS using rustls;
+- one certificate chain and one key configuration;
+- restart-required certificate rotation;
+- HTTP/1.1 only;
+- no ACME, virtual hosting, OCSP stapling, client certificates, or multi-certificate routing.
+
+Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge parity.
+
+### windows-reverse-proxy
+
+**Status:** functional-only (production only after Plans 062–065 complete)
+
+- supported Windows release on a local NTFS volume;
+- pinned root directory handle;
+- component-by-component handle-relative traversal;
+- all reparse points denied under the hardened profile;
+- final files and directories served from already validated handles;
+- loopback or private-interface origin behind a mature edge.
+
+Windows reparse-point hardening is an active roadmap item. Windows remains functional-only until evidence supports promotion.
+
+### windows-direct-https
+
+**Status:** unsupported (production only after both Windows confinement and native TLS qualification complete)
+
+Windows direct HTTPS requires both Windows handle-relative filesystem hardening and native TLS qualification. Neither is complete.
+
+### local-development
+
+**Status:** supported (non-production)
+
+- Any platform;
+- loopback binding only;
+- safe defaults enforced;
+- used for local development and testing.
+
+### functional-only-windows
+
+**Status:** functional-only
+
+- Windows SMB/network-share roots;
+- Windows non-NTFS filesystems;
+- Windows cloud-placeholder or third-party filesystem roots;
+- `--follow-symlinks` or any Windows reparse-following mode.
+
+These configurations are functional but fall outside the hardened production claim.
+
+### explicitly-weaker-compatibility
+
+**Status:** functional-only
+
+- `--follow-symlinks` on any platform;
+- `--directory-listing` without a trusted origin;
+- public plaintext HTTP without TLS termination.
+
+These configurations are weaker than the hardened profile and are not production candidates.
+
+## Profile-specific security notes
+
+### Unix reverse-proxy profile
+
+The origin communicates with the edge over HTTP/1.1 on loopback. The edge terminates TLS, handles client identity, and enforces connection policy. eggserve does not acquire edge-server responsibilities — it must not implicitly trust forwarding headers, provide certificate automation, or implement public client-identity policy. The edge should use its own logs for client attribution. eggserve logs sanitized request paths and headers, but these are not suitable for client attribution behind a proxy.
+
+### Unix direct-HTTPS profile
+
+eggserve terminates TLS directly. Certificate management is manual — the operator must provide certificate and key files and rotate them through a restart. There is no ACME, no SNI-based routing, and no OCSP stapling. The server is HTTP/1.1 only; the edge cannot negotiate HTTP/2 or HTTP/3. This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
+
+### Windows profiles
+
+Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. However, filesystem-level reparse-point/NTFS junction hardening is deferred (documented non-goal until Plans 062–065 complete). Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows. The hardened Windows profile is not yet promoted.
 
 ## Defensive layers
 
@@ -55,6 +189,7 @@ The following are explicitly out of scope for the initial version:
 4. **Filesystem checks** — when symlink policy denies symlinks, on Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat(..., O_NOFOLLOW)` to detect symlinks at each path component and to refuse to follow them at open time. Intermediate components are opened with `O_DIRECTORY|O_NOFOLLOW`, final components with `O_RDONLY|O_NOFOLLOW`. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical path is verified against the root; this fallback is **weaker** than the descriptor-relative path and is explicitly outside the hardened guarantee. Files are opened during resolution — never re-opened later by absolute path. Canonical root escape is rejected with `PathRejection::RootEscapeDenied`. Dotfile policy checks components at both the path-validation and filesystem-resolution layers. Directory listings also respect symlink policy and hide symlink entries when denied.
 5. **Resource limits** — connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), and request body metadata rejection (`Content-Length > 0`, invalid `Content-Length`, or any `Transfer-Encoding` on GET/HEAD) are enforced to prevent resource exhaustion.
 6. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.
+7. **Framing enforcement** — TE+CL conflict, duplicate Content-Length, and malformed Content-Length are rejected before the service is invoked. This prevents request smuggling where front-end and back-end servers disagree on message boundaries.
 
 ## Primitive consumer trust boundaries
 

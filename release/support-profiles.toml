@@ -1,0 +1,406 @@
+# eggserve production support profiles — machine-readable source of truth
+# Defines the supported deployment configurations and their security claims.
+# Each profile maps to required CI gates, evidence requirements, and exclusions.
+
+[metadata]
+schema_version = "1"
+description = "eggserve production support profiles — single source of truth for production claims"
+last_updated = "2026-07-16"
+
+# ---------------------------------------------------------------------------
+# unix-reverse-proxy: Linux/macOS behind Caddy/nginx/Traefik
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "unix-reverse-proxy"
+status = "supported-hardened"
+platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64"]
+filesystem = ["ext4", "apfs", "hfs+"]
+network_binding = "loopback"
+tls_termination = "reverse-proxy"
+http_version = "1.1"
+security_defaults = [
+    "loopback-bind",
+    "no-symlinks",
+    "no-dotfiles",
+    "no-directory-listing",
+]
+symlink_following_allowed = false
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+    "rust.doctest",
+    "rust.test.client",
+    "rust.test.client-tls",
+    "rust.test.server-tls",
+    "supply-chain.audit",
+    "supply-chain.deny",
+    "check-generated",
+    "http.raw-wire",
+    "http.production-path",
+    "http.primitives-integration",
+    "filesystem.corpus-replay",
+    "conformance.canonical-http-corpus-rust",
+    "conformance.canonical-http-corpus-python",
+    "conformance.public-rust-compile-fixtures",
+    "conformance.python-api-import-fixtures",
+    "conformance.fuzz-corpus-replay",
+    "conformance.raw-wire-normalization",
+    "conformance.canonical-wire-interop",
+    "conformance.generated-api-inventory",
+    "conformance.perf-regression-report",
+    "python.unit-tests",
+    "python.native-tests",
+    "python.server-primitives",
+    "python.api-stability",
+    "python.boundary-hardening",
+    "python.client-primitives",
+    "python.server-integration",
+    "python.lifecycle-parity",
+    "python.resource-qualification",
+    "python.contract-consistency",
+    "python.wheel.linux",
+    "python.wheel.macos",
+    "python.runtime-parity",
+    "python.callback-timeout",
+    "python.lifecycle-linux",
+    "python.lifecycle-macos",
+    "python.boundary-hardening",
+    "python.api-stability",
+    "python.contract-consistency",
+    "body.public-rust-consumer",
+    "body.fixed-length-accounting",
+    "body.chunked-accounting",
+    "body.limit-enforcement",
+    "body.timeout-cancellation",
+    "body.partial-consumption",
+    "body.static-rejection",
+    "body.corpus-replay",
+    "body.wire-tests",
+    "python.body-primitives",
+    "python.body-conformance",
+    "python.body-wire",
+    "python.body-lifecycle-linux",
+    "python.body-lifecycle-macos",
+    "python.body-parity",
+    "python.body-timeout",
+    "body.fuzz-smoke",
+]
+excluded_flags = [
+    "follow-symlinks",
+    "dotfiles",
+    "directory-listing",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/eggserve-python/**",
+]
+waivers_allowed = true
+notes = "Preferred public deployment. Reverse proxy handles TLS termination and public binding."
+
+# ---------------------------------------------------------------------------
+# unix-direct-https: Linux/macOS with native rustls
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "unix-direct-https"
+status = "candidate"
+platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64"]
+filesystem = ["ext4", "apfs", "hfs+"]
+network_binding = "configurable"
+tls_termination = "native-rustls"
+http_version = "1.1"
+security_defaults = [
+    "loopback-bind",
+    "no-symlinks",
+    "no-dotfiles",
+    "no-directory-listing",
+]
+symlink_following_allowed = false
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+    "rust.doctest",
+    "rust.test.client",
+    "rust.test.client-tls",
+    "rust.test.server-tls",
+    "supply-chain.audit",
+    "supply-chain.deny",
+    "check-generated",
+    "http.raw-wire",
+    "http.production-path",
+    "http.primitives-integration",
+    "filesystem.corpus-replay",
+    "conformance.canonical-http-corpus-rust",
+    "conformance.canonical-http-corpus-python",
+    "conformance.public-rust-compile-fixtures",
+    "conformance.python-api-import-fixtures",
+    "conformance.fuzz-corpus-replay",
+    "conformance.raw-wire-normalization",
+    "conformance.canonical-wire-interop",
+    "conformance.generated-api-inventory",
+    "conformance.perf-regression-report",
+    "python.unit-tests",
+    "python.native-tests",
+    "python.server-primitives",
+    "python.api-stability",
+    "python.boundary-hardening",
+    "python.client-primitives",
+    "python.server-integration",
+    "python.lifecycle-parity",
+    "python.resource-qualification",
+    "python.contract-consistency",
+    "python.wheel.linux",
+    "python.wheel.macos",
+    "python.runtime-parity",
+    "python.callback-timeout",
+    "python.lifecycle-linux",
+    "python.lifecycle-macos",
+    "body.public-rust-consumer",
+    "body.fixed-length-accounting",
+    "body.chunked-accounting",
+    "body.limit-enforcement",
+    "body.timeout-cancellation",
+    "body.partial-consumption",
+    "body.static-rejection",
+    "body.corpus-replay",
+    "body.wire-tests",
+    "python.body-primitives",
+    "python.body-conformance",
+    "python.body-wire",
+    "python.body-lifecycle-linux",
+    "python.body-lifecycle-macos",
+    "python.body-parity",
+    "python.body-timeout",
+    "body.fuzz-smoke",
+    "body.tls-parity",
+    "runtime.tls-service-parity",
+]
+excluded_flags = [
+    "follow-symlinks",
+    "dotfiles",
+    "directory-listing",
+    "acme",
+    "virtual-hosting",
+    "http2",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+    "Cargo.lock",
+    "crates/eggserve-python/**",
+]
+waivers_allowed = true
+notes = "Limited HTTP/1.1 static server with native TLS. Not an edge platform; no ACME, virtual hosting, or HTTP/2."
+
+# ---------------------------------------------------------------------------
+# windows-reverse-proxy: Windows behind reverse proxy
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "windows-reverse-proxy"
+status = "candidate"
+platform = ["windows-x86_64"]
+filesystem = ["ntfs"]
+network_binding = "loopback"
+tls_termination = "reverse-proxy"
+http_version = "1.1"
+security_defaults = [
+    "loopback-bind",
+    "no-symlinks",
+    "no-dotfiles",
+    "no-directory-listing",
+]
+symlink_following_allowed = false
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+    "rust.doctest",
+    "supply-chain.audit",
+    "supply-chain.deny",
+    "check-generated",
+    "python.wheel.windows",
+    "python.lifecycle-windows",
+]
+excluded_flags = [
+    "reparse-point-following",
+    "smb",
+    "non-ntfs",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+    "Cargo.lock",
+]
+waivers_allowed = true
+notes = "Functional-only until Plans 062-065 and Windows evidence pass. Reparse-point hardening is deferred."
+
+# ---------------------------------------------------------------------------
+# windows-direct-https: Windows with native rustls
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "windows-direct-https"
+status = "functional"
+platform = ["windows-x86_64"]
+filesystem = ["ntfs"]
+network_binding = "configurable"
+tls_termination = "native-rustls"
+http_version = "1.1"
+security_defaults = [
+    "parser-level-only",
+]
+symlink_following_allowed = false
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+    "rust.doctest",
+    "rust.test.server-tls",
+    "supply-chain.audit",
+    "supply-chain.deny",
+    "check-generated",
+    "python.wheel.windows",
+    "python.lifecycle-windows",
+]
+excluded_flags = [
+    "reparse-point-following",
+    "smb",
+    "non-ntfs",
+    "acme",
+    "http2",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+    "Cargo.lock",
+]
+waivers_allowed = true
+notes = "Functional until Windows hardening evidence passes. Parser-level security defaults only."
+
+# ---------------------------------------------------------------------------
+# local-development: Any platform, loopback, safe defaults
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "local-development"
+status = "supported-hardened"
+platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64", "windows-x86_64"]
+filesystem = ["local"]
+network_binding = "loopback-127.0.0.1"
+tls_termination = "none"
+http_version = "1.1"
+security_defaults = [
+    "loopback-bind",
+    "no-symlinks",
+    "no-dotfiles",
+    "no-directory-listing",
+]
+symlink_following_allowed = false
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+    "rust.doctest",
+    "check-generated",
+]
+excluded_flags = [
+    "public-binding",
+    "follow-symlinks",
+    "dotfiles",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+]
+waivers_allowed = true
+notes = "Development and testing use case. Loopback-only, safe defaults, no hardened production claim required."
+
+# ---------------------------------------------------------------------------
+# windows-functional: Windows SMB, non-NTFS, cloud-placeholder
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "windows-functional"
+status = "functional"
+platform = ["windows-x86_64"]
+filesystem = ["smb", "non-ntfs", "cloud-placeholder"]
+network_binding = "configurable"
+tls_termination = "configurable"
+http_version = "1.1"
+security_defaults = [
+    "parser-level-only",
+]
+symlink_following_allowed = false
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+]
+excluded_flags = [
+    "hardened-security-claims",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+]
+waivers_allowed = true
+notes = "Functional-only, no hardened security guarantee. SMB, non-NTFS, and cloud filesystems are outside the hardened claim."
+
+# ---------------------------------------------------------------------------
+# link-following-compat: Any platform with follow-symlinks
+# ---------------------------------------------------------------------------
+
+[[profile]]
+profile = "link-following-compat"
+status = "functional"
+platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64", "windows-x86_64"]
+filesystem = ["local-with-symlinks"]
+network_binding = "configurable"
+tls_termination = "configurable"
+http_version = "1.1"
+security_defaults = [
+    "relaxed",
+]
+symlink_following_allowed = true
+directory_listing_hardened = false
+python_callbacks_in_profile = true
+required_gates = [
+    "rust.format",
+    "rust.clippy",
+    "rust.test",
+]
+excluded_flags = [
+    "hardened-security-claims",
+    "descriptor-relative-guarantee",
+]
+evidence_max_age = "30d"
+invalidation_paths = [
+    "crates/**/src/**",
+    "Cargo.toml",
+]
+waivers_allowed = true
+notes = "Outside the hardened production profile. Symlink following weakens the confinement guarantee."

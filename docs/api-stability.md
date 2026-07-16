@@ -435,6 +435,32 @@ These methods:
 - Do not appear in default Rust docs or package examples
 - Are unavailable under `default` or `client` feature builds
 
+## Production Profile API Classification
+
+Every production claim must name a profile. The production profiles are defined in `release/support-profiles.toml` and validated by contract consistency tests.
+
+### Scope boundary
+
+- eggserve is a hardened, read-only HTTP/1.1 static file server and a low-level primitive library.
+- Downstream clients, ASGI/WSGI adapters, and application servers may be built outside the repository.
+- Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
+- No public API promises application-server cancellation semantics beyond documented generic server behavior.
+- No ASGI/WSGI vocabulary enters public types. No routing or middleware abstractions are added.
+- Hyper, Tokio channel, PyO3, and platform FFI implementation types remain absent from stable public signatures.
+
+### API tier summary
+
+| Category | Tier | Description |
+|----------|------|-------------|
+| Path confinement/primitives | stable | SecureRoot, ConfinedPath, StaticPolicy, PathPolicy, etc. |
+| Canonical HTTP value types | stable | Method, HttpVersion, HeaderBlock, RequestTarget, StatusCode, Response, etc. |
+| Response planning | stable | plan_file_response, evaluate_conditional_headers, generate_etag, etc. |
+| Static server config | stable | ServeConfig, Limits, StaticPolicy |
+| Static server lifecycle | experimental | Server, ServerBuilder, ServerHandle, Service trait, LifecycleState |
+| Request body primitives | experimental | RequestBody, RequestBodyPolicy, RequestBodyError |
+| HTTP client substrate | experimental | HttpClient, ClientConfig, ClientRequest, ClientResponse |
+| Internal transport | internal | fs, path, response, mime, error modules |
+
 ## Key Design Decisions
 
 ### Header Representation
