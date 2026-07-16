@@ -719,6 +719,47 @@
         }
       ]
     },
+    "body_policy": {
+      "description": "RequestBodyPolicy construction and classification",
+      "fixtures": [
+        {
+          "id": "policy-default-is-reject",
+          "description": "Default policy is Reject",
+          "input": { "kind": "default" },
+          "expected": { "is_reject": true, "allows_buffer": false, "allows_stream": false, "max_bytes": null }
+        },
+        {
+          "id": "policy-reject",
+          "description": "Explicit Reject policy",
+          "input": { "kind": "reject" },
+          "expected": { "is_reject": true, "allows_buffer": false, "allows_stream": false, "max_bytes": null }
+        },
+        {
+          "id": "policy-buffer-1024",
+          "description": "Buffer policy with 1024 limit",
+          "input": { "kind": "buffer", "max_bytes": 1024 },
+          "expected": { "is_reject": false, "allows_buffer": true, "allows_stream": false, "max_bytes": 1024 }
+        },
+        {
+          "id": "policy-buffer-65536",
+          "description": "Buffer policy with 65536 limit",
+          "input": { "kind": "buffer", "max_bytes": 65536 },
+          "expected": { "is_reject": false, "allows_buffer": true, "allows_stream": false, "max_bytes": 65536 }
+        },
+        {
+          "id": "policy-stream-1024",
+          "description": "Stream policy with 1024 limit",
+          "input": { "kind": "stream", "max_bytes": 1024 },
+          "expected": { "is_reject": false, "allows_buffer": false, "allows_stream": true, "max_bytes": 1024 }
+        },
+        {
+          "id": "policy-stream-1048576",
+          "description": "Stream policy with 1MB limit",
+          "input": { "kind": "stream", "max_bytes": 1048576 },
+          "expected": { "is_reject": false, "allows_buffer": false, "allows_stream": true, "max_bytes": 1048576 }
+        }
+      ]
+    },
     "file_stream_body_metadata": {
       "description": "File and stream body representation and metadata",
       "fixtures": [

@@ -838,6 +838,68 @@ fn connection_info_construction() {
 }
 
 // ---------------------------------------------------------------------------
+// Body policy tests
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct BodyPolicyInput {
+    kind: String,
+    #[serde(default)]
+    max_bytes: Option<u64>,
+}
+
+#[derive(Deserialize)]
+struct BodyPolicyExpected {
+    is_reject: bool,
+    allows_buffer: bool,
+    allows_stream: bool,
+    max_bytes: Option<u64>,
+}
+
+#[test]
+fn body_policy_classification() {
+    use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
+
+    for f in group("body_policy") {
+        let input: BodyPolicyInput = serde_json::from_value(f.input.clone()).unwrap();
+        let expected: BodyPolicyExpected =
+            serde_json::from_value(f.expected.clone().unwrap()).unwrap();
+
+        let policy = match input.kind.as_str() {
+            "default" => RequestBodyPolicy::default(),
+            "reject" => RequestBodyPolicy::Reject,
+            "buffer" => RequestBodyPolicy::Buffer {
+                max_bytes: input.max_bytes.unwrap(),
+            },
+            "stream" => RequestBodyPolicy::Stream {
+                max_bytes: input.max_bytes.unwrap(),
+            },
+            other => panic!("{}: unknown policy kind {other}", f.id),
+        };
+
+        assert_eq!(policy.is_reject(), expected.is_reject, "{}: is_reject", f.id);
+        assert_eq!(
+            policy.allows_buffer(),
+            expected.allows_buffer,
+            "{}: allows_buffer",
+            f.id
+        );
+        assert_eq!(
+            policy.allows_stream(),
+            expected.allows_stream,
+            "{}: allows_stream",
+            f.id
+        );
+        assert_eq!(
+            policy.max_bytes(),
+            expected.max_bytes,
+            "{}: max_bytes",
+            f.id
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Property tests
 // ---------------------------------------------------------------------------
 

@@ -1,0 +1,365 @@
+{
+  "version": 1,
+  "description": "Shared Rust/Python conformance corpus for request body integration behavior",
+  "groups": {
+    "body_policy_selection": {
+      "description": "Body acceptance/rejection based on policy configuration",
+      "fixtures": [
+        {
+          "id": "reject-policy-blocks-body",
+          "description": "Reject policy silently drops body, handler still called",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "5" },
+            "policy": "reject",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        },
+        {
+          "id": "buffer-policy-accepts-body",
+          "description": "Buffer policy accepts POST with body",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "5" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "hello"
+          }
+        },
+        {
+          "id": "stream-policy-accepts-body",
+          "description": "Stream policy accepts POST with body",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "5" },
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "hello"
+          }
+        },
+        {
+          "id": "static-service-rejects-post",
+          "description": "Static service returns 405 for POST",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "5" },
+            "policy": "static",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 405,
+            "handler_called": false
+          }
+        }
+      ]
+    },
+    "empty_body": {
+      "description": "Empty and zero-length body handling",
+      "fixtures": [
+        {
+          "id": "get-no-body",
+          "description": "GET request has no body",
+          "input": {
+            "method": "GET",
+            "body": null,
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "has_body": false,
+            "body_data": ""
+          }
+        },
+        {
+          "id": "post-content-length-zero",
+          "description": "POST with Content-Length: 0 has empty body",
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": { "Content-Length": "0" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "has_body": true,
+            "body_data": ""
+          }
+        },
+        {
+          "id": "post-empty-body",
+          "description": "POST with no body data",
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": {},
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "has_body": true,
+            "body_data": ""
+          }
+        }
+      ]
+    },
+    "fixed_length_exact": {
+      "description": "Fixed-length body within limit",
+      "fixtures": [
+        {
+          "id": "fixed-small",
+          "description": "Small fixed-length body within limit",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": { "Content-Length": "5" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "hello"
+          }
+        },
+        {
+          "id": "fixed-unicode",
+          "description": "Unicode fixed-length body",
+          "input": {
+            "method": "POST",
+            "body": "hello \u00e9\u00e8\u00ea",
+            "headers": { "Content-Length": "12" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "hello \u00e9\u00e8\u00ea"
+          }
+        },
+        {
+          "id": "fixed-binary",
+          "description": "Binary fixed-length body",
+          "input": {
+            "method": "POST",
+            "body_hex": "00010203040506070809",
+            "headers": { "Content-Length": "10" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_len": 10
+          }
+        },
+        {
+          "id": "fixed-exact-limit",
+          "description": "Body exactly at the limit",
+          "input": {
+            "method": "POST",
+            "body": "12345",
+            "headers": { "Content-Length": "5" },
+            "policy": "buffer",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "12345"
+          }
+        }
+      ]
+    },
+    "fixed_length_premature_eof": {
+      "description": "Fixed-length body with premature connection close",
+      "fixtures": [
+        {
+          "id": "premature-eof-missing-bytes",
+          "description": "Connection closes before declared Content-Length is fully sent",
+          "input": {
+            "method": "POST",
+            "body_partial": "hel",
+            "headers": { "Content-Length": "5" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        }
+      ]
+    },
+    "fixed_length_over_limit": {
+      "description": "Fixed-length body exceeding configured limit",
+      "fixtures": [
+        {
+          "id": "over-limit-fixed",
+          "description": "Body exceeds max_request_body_bytes",
+          "input": {
+            "method": "POST",
+            "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "headers": { "Content-Length": "100" },
+            "policy": "buffer",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 413,
+            "handler_called": false
+          }
+        },
+        {
+          "id": "declared-length-over-limit",
+          "description": "Declared Content-Length exceeds limit before body is sent",
+          "input": {
+            "method": "POST",
+            "body": "",
+            "headers": { "Content-Length": "100000" },
+            "policy": "buffer",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 413,
+            "handler_called": false
+          }
+        }
+      ]
+    },
+    "chunked_exact": {
+      "description": "Chunked transfer-encoding body within limit",
+      "fixtures": [
+        {
+          "id": "chunked-single-chunk",
+          "description": "Single chunk within limit",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "encoding": "chunked",
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "hello"
+          }
+        },
+        {
+          "id": "chunked-multi-chunk",
+          "description": "Multiple chunks reassembled",
+          "input": {
+            "method": "POST",
+            "body": "hello world",
+            "encoding": "chunked",
+            "chunk_size": 5,
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "hello world"
+          }
+        }
+      ]
+    },
+    "chunked_many_small_chunks": {
+      "description": "Chunked body with many small chunks",
+      "fixtures": [
+        {
+          "id": "chunked-single-byte-chunks",
+          "description": "Many single-byte chunks",
+          "input": {
+            "method": "POST",
+            "body": "abcdef",
+            "encoding": "chunked",
+            "chunk_size": 1,
+            "policy": "stream",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "abcdef"
+          }
+        }
+      ]
+    },
+    "chunked_over_limit": {
+      "description": "Chunked body exceeding the decoded-size limit",
+      "fixtures": [
+        {
+          "id": "chunked-over-limit",
+          "description": "Chunked body total exceeds max_bytes (handler reads body, hits limit)",
+          "input": {
+            "method": "POST",
+            "body": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+            "encoding": "chunked",
+            "chunk_size": 10,
+            "policy": "stream",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 413,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "one_shot_consumption": {
+      "description": "Body can only be consumed once (Python-level enforcement)",
+      "fixtures": [
+        {
+          "id": "double-read-ok-at-rust-level",
+          "description": "Rust next_chunk can be called multiple times (one-shot is Python-level)",
+          "input": {
+            "method": "POST",
+            "body": "data",
+            "headers": { "Content-Length": "4" },
+            "policy": "buffer",
+            "max_body_bytes": 1024,
+            "handler_action": "double_read"
+          },
+          "expected": {
+            "status": 200,
+            "handler_called": true
+          }
+        }
+      ]
+    },
+    "get_with_body_rejected": {
+      "description": "GET requests with body are rejected at HTTP level",
+      "fixtures": [
+        {
+          "id": "get-with-content-length",
+          "description": "GET with Content-Length header and body",
+          "input": {
+            "method": "GET",
+            "body": "hello",
+            "headers": { "Content-Length": "5" },
+            "policy": "buffer",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 400,
+            "handler_called": false
+          }
+        }
+      ]
+    }
+  }
+}

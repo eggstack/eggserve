@@ -1000,6 +1000,295 @@ security_relevance = false
 release_stage = "qualification"
 
 # ---------------------------------------------------------------------------
+# Request body gates
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "body.public-rust-consumer"
+title = "Rust request body public API"
+description = "RequestBody, RequestBodyPolicy, RequestBodyError are public API in eggserve-core::primitives"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test body_primitives"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/primitives/request_body.rs", "crates/eggserve-core/src/primitives/request_body_policy.rs", "crates/eggserve-core/src/primitives/request_body_error.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.fixed-length-accounting"
+title = "Fixed-length body accounting"
+description = "Fixed-length bodies enforce decoded-byte ceiling and return 413 on limit exceeded"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_integration -- fixed_length"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/primitives/request_body.rs", "crates/eggserve-core/tests/request_body_integration.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.chunked-accounting"
+title = "Chunked body accounting"
+description = "Chunked transfer-encoded bodies enforce decoded-byte ceiling and return 413 on limit exceeded"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_integration -- chunked"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/primitives/request_body.rs", "crates/eggserve-core/tests/request_body_integration.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.limit-enforcement"
+title = "Body limit enforcement"
+description = "Body limit is enforced before handler invocation for fixed-length and during ingestion for chunked"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_integration"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/primitives/request_body.rs", "crates/eggserve-core/src/server/connection.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.timeout-cancellation"
+title = "Body timeout and cancellation"
+description = "Body timeout returns 408 or connection close; cancellation wakes blocked iterators"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_integration -- body_timeout && cargo test -p eggserve-core --test request_body_timeout_interaction"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/primitives/request_body.rs", "crates/eggserve-core/src/server/connection.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.partial-consumption"
+title = "Partial body consumption"
+description = "Partial consumption determines connection reuse; close policy closes connection after partial read"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_wire -- partial"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/primitives/request_body.rs", "crates/eggserve-core/src/server/connection.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.static-rejection"
+title = "Static service body rejection"
+description = "Static service returns 405 for POST/PUT/DELETE/PATCH requests"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_integration -- static_service"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/static_service.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.corpus-replay"
+title = "Body conformance corpus replay"
+description = "Shared Rust/Python body conformance corpus validates policy selection, empty body, fixed-length, chunked, one-shot, and GET-with-body rejection"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test body_conformance"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/tests/body_conformance.rs", "conformance/body_corpus.json"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "body.wire-tests"
+title = "Body real-wire tests"
+description = "Raw-TCP and http.client tests for fixed-length, chunked, limit, GET-with-body, static rejection, disconnect, and partial consumption"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test request_body_wire"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/tests/request_body_wire.rs"]
+depends_on = ["body.public-rust-consumer"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-primitives"
+title = "Python body primitives tests"
+description = "Tests for Python RequestBody, BodyChunkIterator, and body error hierarchy"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_primitives -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-conformance"
+title = "Python body conformance corpus"
+description = "Python runner for shared body conformance corpus validates policy, empty body, fixed-length, chunked, one-shot, and GET-with-body"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_conformance -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "conformance/body_corpus.json"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-wire"
+title = "Python body real-wire tests"
+description = "Python real-socket and http.client body tests for fixed-length, chunked, limit, GET-with-body, static rejection, disconnect, and partial consumption"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_wire -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-lifecycle-linux"
+title = "Python body lifecycle qualification (Linux)"
+description = "Python body support works correctly with server lifecycle on Linux"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_primitives eggserve.test_body_conformance eggserve.test_body_wire -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-lifecycle-macos"
+title = "Python body lifecycle qualification (macOS)"
+description = "Python body support works correctly with server lifecycle on macOS"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_primitives eggserve.test_body_conformance eggserve.test_body_wire -v"
+workflow_job = "wheel-smoke"
+platforms = ["macos"]
+features = []
+artifacts = []
+triggers = ["push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "python.body-lifecycle-windows"
+title = "Python body lifecycle qualification (Windows)"
+description = "Python body support works correctly with server lifecycle on Windows"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_body_primitives eggserve.test_body_conformance eggserve.test_body_wire -v"
+workflow_job = "wheel-smoke"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+# ---------------------------------------------------------------------------
 # Release gates
 # ---------------------------------------------------------------------------
 
