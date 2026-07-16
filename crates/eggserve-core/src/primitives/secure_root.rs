@@ -212,16 +212,13 @@ impl ResolvedDirectory {
 
     #[allow(dead_code)]
     pub fn resolve_child(&self, child: &str, root: &SecureRoot) -> ResolvedResource {
-        let guard = match RootGuard::new(&root.root) {
-            Ok(g) => g,
-            Err(_) => return ResolvedResource::NotFound,
-        };
+        let guard = RootGuard::new(&root.pinned);
         guard.resolve_child(&self.inner, child, &root.policy).into()
     }
 
     #[allow(dead_code)]
     pub fn list(&self, root: &SecureRoot) -> Result<Vec<(String, bool)>, std::io::Error> {
-        let guard = RootGuard::new(&root.root)?;
+        let guard = RootGuard::new(&root.pinned);
         guard.list_directory(&self.inner, &root.policy)
     }
 }
@@ -305,23 +302,14 @@ impl From<crate::fs::ResolvedResource> for ResolvedResource {
 
 #[derive(Debug, Clone)]
 pub struct SecureRoot {
-    root: PathBuf,
+    pinned: crate::fs::PinnedRoot,
     policy: StaticPolicy,
 }
 
 impl SecureRoot {
     pub fn new(root: impl AsRef<Path>, policy: StaticPolicy) -> Result<Self, std::io::Error> {
-        let canonical = std::fs::canonicalize(root.as_ref())?;
-        if !canonical.is_dir() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotADirectory,
-                "root path is not a directory",
-            ));
-        }
-        Ok(Self {
-            root: canonical,
-            policy,
-        })
+        let pinned = crate::fs::PinnedRoot::new(root.as_ref())?;
+        Ok(Self { pinned, policy })
     }
 
     #[allow(dead_code)]
@@ -331,15 +319,12 @@ impl SecureRoot {
 
     #[allow(dead_code)]
     pub fn root_path(&self) -> &Path {
-        &self.root
+        self.pinned.canonical_root()
     }
 
     #[allow(dead_code)]
     pub fn resolve(&self, path: &ConfinedPath) -> ResolvedResource {
-        let guard = match RootGuard::new(&self.root) {
-            Ok(g) => g,
-            Err(_) => return ResolvedResource::NotFound,
-        };
+        let guard = RootGuard::new(&self.pinned);
         guard.resolve(path, &self.policy).into()
     }
 

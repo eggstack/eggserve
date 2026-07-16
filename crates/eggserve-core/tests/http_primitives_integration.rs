@@ -20,7 +20,7 @@ async fn start_server(tmp: &TempDir, policy: StaticPolicy) -> SocketAddr {
         static_policy: policy,
         ..ServeConfig::default()
     });
-    let state = Arc::new(ServeState::new(config));
+    let state = Arc::new(ServeState::new(config).unwrap());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 

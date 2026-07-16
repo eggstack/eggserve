@@ -6,6 +6,8 @@ eggserve is designed as a hardened replacement for `python -m http.server`. Secu
 
 > **Under safe defaults, no remotely supplied request path may resolve to content outside the configured root, and no denied filesystem object class may be served.**
 
+Root identity is pinned at startup: the serving root is opened once and the resulting file descriptor is retained for the server lifetime. Renaming or replacing the configured pathname does not redirect the running server to a different tree. This prevents an attacker who can mutate the filesystem from steering the server to alternate content after startup.
+
 ## Safe Defaults
 
 Every security default is enforced at the library level unless the user explicitly passes a CLI flag:
@@ -114,6 +116,7 @@ Key properties:
 - **Kernel-enforced** — symlink rejection is enforced by the kernel, not userspace
 - **Pre-opened handles** — `ResolvedFile` carries a `File` handle; the file is never re-opened by path
 - **Per-request isolation** — each request gets its own `RootGuard` and directory descriptor
+- **Root identity** — the root directory is opened once at startup; subsequent renames or replacements of the original path do not redirect the server
 
 See [filesystem-confinement.md](filesystem-confinement.md) for the full traversal algorithm.
 

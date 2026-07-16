@@ -93,7 +93,9 @@ impl StaticServiceBuilder {
             static_policy: self.policy,
             ..Default::default()
         });
-        let state = Arc::new(ServeState::new(config));
+        let state = Arc::new(ServeState::new(config).map_err(|e| {
+            ServiceError::internal(format!("failed to initialize serve state: {e}"))
+        })?);
         Ok(StaticService { state })
     }
 }
@@ -215,10 +217,7 @@ async fn handle_static_request(
         Err(rejection) => return map_rejection(rejection),
     };
 
-    let guard = match RootGuard::new(&config.root) {
-        Ok(g) => g,
-        Err(_) => return internal_error(),
-    };
+    let guard = RootGuard::new(state.pinned_root());
 
     match guard.resolve(&confined, &config.static_policy) {
         ResolvedResource::File(file) => {
@@ -289,10 +288,7 @@ async fn handle_directory(
     state: &crate::config::ServeState,
     is_head: bool,
 ) -> hyper::Response<BoxBodyInner> {
-    let guard = match RootGuard::new(&config.root) {
-        Ok(g) => g,
-        Err(_) => return internal_error(),
-    };
+    let guard = RootGuard::new(state.pinned_root());
 
     match guard.resolve_child(dir, "index.html", &config.static_policy) {
         ResolvedResource::File(file) => {

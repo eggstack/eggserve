@@ -10,9 +10,9 @@ All types are exported from `eggserve_core::primitives`.
 
 ### `SecureRoot`
 
-Constructed from a root directory path and a `StaticPolicy`. The root is canonicalized at construction time.
+Constructed from a root directory path and a `StaticPolicy`. The root is opened and pinned at construction time via an internal `PinnedRoot`, which retains the open root directory for the lifetime of the `SecureRoot`.
 
-Creates a fresh `RootGuard` per resolution call — matching the current request-handling behavior in the HTTP service layer.
+Creates a `RootGuard` that borrows from the pinned root for each resolution call — matching the current request-handling behavior in the HTTP service layer.
 
 **Methods:**
 
@@ -73,7 +73,7 @@ Wraps a resolved directory with an open directory descriptor on Unix. Child reso
 | `resolve_child(&self, &str, &SecureRoot)` | `ResolvedResource` | Resolves a child entry within this directory |
 | `list(&self, &SecureRoot)` | `Result<Vec<(String, bool)>, io::Error>` | Lists directory entries as `(name, is_dir)` |
 
-Both `resolve_child` and `list` create a fresh `RootGuard` from the provided `SecureRoot` (no descriptor caching across calls).
+Both `resolve_child` and `list` create a `RootGuard` that borrows from the pinned root via the provided `SecureRoot` (no descriptor caching across calls).
 
 ### `ResourceDeniedReason`
 
@@ -174,11 +174,14 @@ The file handle from `ResolvedFile` was opened under policy enforcement (descrip
 - A symlink could be swapped in during the gap.
 - The service layer would lose the property that every open was governed by `O_NOFOLLOW`.
 
+A running server pins root identity. Renaming or replacing the configured pathname does not redirect the server to a different tree.
+
 `safe_relative_components()` provides extension information for MIME detection without exposing the absolute path. Callers should use the returned `std::fs::File` handle directly, not re-derive a path for opening.
 
 ## Limitations
 
-- **No descriptor caching.** `RootGuard` is created per resolution call. The root directory is opened fresh on every `resolve` / `resolve_child` / `list` call. This is correct but has overhead; caching the root descriptor across requests is a future optimization.
-- **Directory child resolution creates a fresh `RootGuard`.** `resolve_child` does not reuse the parent directory's descriptor. The new guard reopens the root and resolves from there.
+- **No descriptor caching.** `RootGuard` is created per resolution call, borrowing from the pinned root rather than opening it fresh. This is correct but has overhead; caching the root descriptor across requests is a future optimization.
+- **Directory child resolution borrows from the pinned root.** `resolve_child` does not reuse the parent directory's descriptor. The guard borrows the pinned root and resolves from there.
 - **Response planning and body conversion available.** Callers can use `plan_file_response()` to generate `StaticResponsePlan` from a `ResolvedFile` + method + request headers, covering conditional requests (If-None-Match, If-Modified-Since), range requests, and ETag generation. Use `into_body(&plan)` or `into_range_body(start, end_inclusive)` to convert a resolved file into a `BodySource` that carries the opened file handle forward without path reopening. See the planner and body modules for details.
+- **Root lifetime is bound to `SecureRoot`.** `SecureRoot` retains the open root directory for its entire lifetime. To serve a different or replacement root tree, a new `SecureRoot` must be constructed. The previous instance (and all guards derived from it) continues to serve the original tree.
 - **Python bindings available.** `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, and `StaticPolicy` are exposed via PyO3 in the `eggserve` package. See [python-api.md](python-api.md) for the full API reference.

@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–059 are complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–061 are complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
 
 ## Non-negotiables
 
@@ -286,6 +286,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 058 establishes Milestone 4C: Python body parity and conformance. Adds `RequestBody` (Python), `BodyChunkIterator` (streaming bridge), `RequestBodyError` hierarchy (8 exception types), body policy configuration in `Server` constructor (`request_body_mode`, `max_request_body_bytes`, `body_timeout_secs`, `incomplete_body_policy`), request body projection (`has_body`, `body`), and `test_body_primitives.py` test suite. The `server` module remains experimental.
 - Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
 - Plan 060 defines production support profiles (7 profiles with machine-readable definitions in `release/support-profiles.toml`), aligns all documentation with the production scope firewall, adds contract consistency tests for profile validation and non-goal retention, reinforces API stability tier classifications, and expands the threat model with a central invariant and profile-specific security notes.
+- Plan 061 establishes pinned root identity and opened-resource ownership. `PinnedRoot` is opened once at server startup and retained for the server lifetime. `RootGuard` borrows from the pinned root for request-scoped traversal. Renaming or replacing the configured pathname does not redirect a running server.
 
 ## Plan-driven development
 

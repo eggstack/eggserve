@@ -6,6 +6,7 @@ use std::sync::Arc;
 
 use tokio::sync::Semaphore;
 
+use crate::fs::PinnedRoot;
 use crate::limits::Limits;
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
 
@@ -62,20 +63,27 @@ impl ServeConfig {
 
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
+    pub(crate) pinned_root: Arc<PinnedRoot>,
     pub(crate) file_stream_semaphore: Arc<Semaphore>,
 }
 
 impl ServeState {
-    pub fn new(config: Arc<ServeConfig>) -> Self {
+    pub fn new(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
+        let pinned_root = Arc::new(PinnedRoot::new(&config.root)?);
         let file_stream_semaphore = Arc::new(Semaphore::new(config.limits.max_file_streams));
-        Self {
+        Ok(Self {
             config,
+            pinned_root,
             file_stream_semaphore,
-        }
+        })
     }
 
     pub fn config(&self) -> &Arc<ServeConfig> {
         &self.config
+    }
+
+    pub(crate) fn pinned_root(&self) -> &Arc<PinnedRoot> {
+        &self.pinned_root
     }
 
     pub fn file_stream_semaphore(&self) -> &Arc<Semaphore> {

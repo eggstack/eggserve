@@ -7,9 +7,9 @@
 //! rather than following it. Under follow-symlinks mode, a canonicalize-based
 //! fallback is used.
 //!
-//! The `RootGuard` is constructed per request. The configured root is
-//! canonicalized and opened as a directory descriptor during request
-//! resolution.
+//! The [`PinnedRoot`] is opened once at server startup and retained for the
+//! server lifetime. [`RootGuard`] borrows the pinned root for request-scoped
+//! traversal, never re-opening the root by pathname.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -119,15 +119,44 @@ fn validate_child_component(child: &str) -> Result<(), PathRejection> {
     Ok(())
 }
 
-pub(crate) struct RootGuard {
+/// A pinned root directory opened once at server startup.
+///
+/// The root is opened during server/static-service construction and retained
+/// for the server's lifetime. Requests resolve relative to this persistent
+/// root, ensuring that renaming or replacing the configured pathname does not
+/// redirect the running server to a different tree.
+///
+/// Cloning a `PinnedRoot` duplicates the underlying file descriptor (Unix)
+/// or shares the canonical path (non-Unix), preserving the same root identity.
+#[derive(Debug)]
+pub(crate) struct PinnedRoot {
     canonical_root: PathBuf,
     #[cfg(unix)]
     root_fd: fs::File,
 }
 
-impl RootGuard {
+impl Clone for PinnedRoot {
+    fn clone(&self) -> Self {
+        Self {
+            canonical_root: self.canonical_root.clone(),
+            #[cfg(unix)]
+            root_fd: self.root_fd.try_clone().expect("failed to clone root fd"),
+        }
+    }
+}
+
+impl PinnedRoot {
+    /// Open the root directory and pin it for the server lifetime.
+    ///
+    /// Fails if the path does not exist, is not a directory, or is inaccessible.
     pub(crate) fn new(root: &Path) -> Result<Self, std::io::Error> {
         let canonical_root = fs::canonicalize(root)?;
+        if !canonical_root.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotADirectory,
+                "root path is not a directory",
+            ));
+        }
         #[cfg(unix)]
         let root_fd = fs::File::open(&canonical_root)?;
         Ok(Self {
@@ -135,6 +164,31 @@ impl RootGuard {
             #[cfg(unix)]
             root_fd,
         })
+    }
+
+    /// The canonicalized root path, used for diagnostics and fallback resolution.
+    pub(crate) fn canonical_root(&self) -> &Path {
+        &self.canonical_root
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn root_fd(&self) -> &fs::File {
+        &self.root_fd
+    }
+}
+
+/// A request-scoped root guard for path resolution.
+///
+/// Borrows a [`PinnedRoot`] rather than opening the root independently.
+/// Each request creates a new `RootGuard` which clones the root fd on Unix,
+/// performs traversal, and drops the cloned fd when the guard goes out of scope.
+pub(crate) struct RootGuard<'a> {
+    pinned: &'a PinnedRoot,
+}
+
+impl<'a> RootGuard<'a> {
+    pub(crate) fn new(pinned: &'a PinnedRoot) -> Self {
+        Self { pinned }
     }
 
     pub(crate) fn resolve(
@@ -145,8 +199,8 @@ impl RootGuard {
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return unix::resolve_fd_relative(
-                &self.root_fd,
-                &self.canonical_root,
+                self.pinned.root_fd(),
+                self.pinned.canonical_root(),
                 confined.components(),
                 policy,
             );
@@ -185,7 +239,7 @@ impl RootGuard {
     }
 
     fn resolve_fallback(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
-        let mut candidate = self.canonical_root.clone();
+        let mut candidate = self.pinned.canonical_root().to_path_buf();
 
         for component in components {
             if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
@@ -221,7 +275,7 @@ impl RootGuard {
             }
         };
 
-        if !canonical.starts_with(&self.canonical_root) {
+        if !canonical.starts_with(self.pinned.canonical_root()) {
             return ResolvedResource::Denied(PathRejection::RootEscapeDenied);
         }
 
@@ -300,14 +354,14 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    fn setup_root() -> (TempDir, RootGuard) {
+    fn setup_root() -> (TempDir, PinnedRoot) {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
         fs::create_dir(tmp.path().join("subdir")).unwrap();
         fs::write(tmp.path().join("subdir").join("file.txt"), "file").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
-        (tmp, guard)
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        (tmp, pinned)
     }
 
     fn parse_path(raw: &str) -> ConfinedPath {
@@ -320,7 +374,8 @@ mod tests {
 
     #[test]
     fn resolve_normal_file() {
-        let (_tmp, guard) = setup_root();
+        let (_tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/hello.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -329,7 +384,8 @@ mod tests {
 
     #[test]
     fn resolve_normal_directory() {
-        let (_tmp, guard) = setup_root();
+        let (_tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/subdir");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -338,7 +394,8 @@ mod tests {
 
     #[test]
     fn resolve_missing_path() {
-        let (_tmp, guard) = setup_root();
+        let (_tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/nonexistent.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -353,7 +410,8 @@ mod tests {
         std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt"))
             .unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/link.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -371,7 +429,8 @@ mod tests {
         std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt"))
             .unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/link.txt");
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
@@ -388,7 +447,8 @@ mod tests {
         std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir"))
             .unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/link_dir/file.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -407,7 +467,8 @@ mod tests {
         std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir"))
             .unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/link_dir/file.txt");
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
@@ -432,7 +493,8 @@ mod tests {
         )
         .unwrap();
 
-        let guard = RootGuard::new(tmp_root.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp_root.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/link_dir/file.txt");
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
@@ -455,7 +517,8 @@ mod tests {
         )
         .unwrap();
 
-        let guard = RootGuard::new(tmp_root.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp_root.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/escape.txt");
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
@@ -476,7 +539,8 @@ mod tests {
         std::os::unix::fs::symlink(tmp.path().join("b"), tmp.path().join("a").join("link_b"))
             .unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/a/link_b/file.txt");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -489,7 +553,7 @@ mod tests {
     #[test]
     fn resolve_path_escape_denied() {
         let tmp = TempDir::new().unwrap();
-        let _guard = RootGuard::new(tmp.path()).unwrap();
+        let _pinned = PinnedRoot::new(tmp.path()).unwrap();
 
         let path_policy = PathPolicy {
             reject_backslash: true,
@@ -504,7 +568,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".env"), "secret").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path_policy = PathPolicy {
             dotfiles: crate::path::DotfilePolicy::Allow,
             ..PathPolicy::default()
@@ -523,7 +588,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::write(tmp.path().join(".env"), "secret").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path_policy = PathPolicy {
             dotfiles: crate::path::DotfilePolicy::Allow,
             ..PathPolicy::default()
@@ -537,7 +603,8 @@ mod tests {
 
     #[test]
     fn resolve_root_path() {
-        let (_tmp, guard) = setup_root();
+        let (_tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -649,7 +716,8 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         fs::write(tmp.path().join("dir").join("file.txt"), "legitimate").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let path = parse_path("/dir/file.txt");
@@ -684,7 +752,8 @@ mod tests {
         )
         .unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let path = parse_path("/dir/subdir/file.txt");
@@ -715,7 +784,8 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         fs::write(tmp.path().join("dir").join("file.txt"), "content").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let path = parse_path("/dir/file.txt");
@@ -742,7 +812,8 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         fs::write(tmp.path().join("dir").join("file.txt"), "content").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let path = parse_path("/dir/file.txt");
@@ -774,7 +845,8 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         fs::write(tmp.path().join("dir").join("file.txt"), "hello world").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let path = parse_path("/dir/file.txt");
@@ -808,7 +880,8 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         fs::write(tmp.path().join("dir").join("file.txt"), "content").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let dir_path = parse_path("/dir");
@@ -836,7 +909,8 @@ mod tests {
         fs::create_dir(tmp.path().join("dir")).unwrap();
         fs::write(tmp.path().join("dir").join("index.html"), "<html>ok</html>").unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let policy = StaticPolicy::safe_default();
 
         let dir_path = parse_path("/dir");
@@ -912,7 +986,8 @@ mod tests {
             let _ = std::fs::OpenOptions::new().write(true).open(&fifo_clone);
         });
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/pipe.fifo");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -932,7 +1007,8 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&sock_path).unwrap();
         drop(listener);
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/sock.sock");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -953,7 +1029,8 @@ mod tests {
 
         std::os::unix::fs::symlink("pipe.fifo", tmp.path().join("link.fifo")).unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/link.fifo");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -972,7 +1049,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         fs::create_dir(tmp.path().join("mydir")).unwrap();
 
-        let guard = RootGuard::new(tmp.path()).unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
         let path = parse_path("/mydir");
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
@@ -985,6 +1063,149 @@ mod tests {
         assert!(
             !meta.is_file(),
             "is_file() must return false for a directory"
+        );
+    }
+
+    // ── Root identity tests ──────────────────────────────────────
+
+    #[test]
+    fn pinned_root_identity_survives_path_rename() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("myroot");
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("hello.txt"), "hello").unwrap();
+        let pinned = PinnedRoot::new(&root_dir).unwrap();
+
+        let renamed = tmp.path().join("renamed_root");
+        fs::rename(&root_dir, &renamed).unwrap();
+
+        let guard = RootGuard::new(&pinned);
+        let path = parse_path("/hello.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::File(_)),
+            "pinned root should still serve content after path rename, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn pinned_root_not_redirected_by_new_directory_at_old_path() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("myroot");
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("hello.txt"), "original").unwrap();
+        let pinned = PinnedRoot::new(&root_dir).unwrap();
+
+        let renamed = tmp.path().join("renamed_root");
+        fs::rename(&root_dir, &renamed).unwrap();
+
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("hello.txt"), "replacement").unwrap();
+
+        let guard = RootGuard::new(&pinned);
+        let path = parse_path("/hello.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        let file = match result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File, got {other:?}"),
+        };
+        let data = {
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut std::io::BufReader::new(file.file), &mut s).unwrap();
+            s
+        };
+        assert_eq!(
+            data, "original",
+            "should serve original content, not replacement"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn pinned_root_survives_unlink_and_recreate() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("myroot");
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("hello.txt"), "hello").unwrap();
+        let pinned = PinnedRoot::new(&root_dir).unwrap();
+
+        let backup = tmp.path().join("backup_root");
+        fs::rename(&root_dir, &backup).unwrap();
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("hello.txt"), "new content").unwrap();
+
+        let guard = RootGuard::new(&pinned);
+        let path = parse_path("/hello.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        let file = match result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File, got {other:?}"),
+        };
+        let data = {
+            let mut s = String::new();
+            std::io::Read::read_to_string(&mut std::io::BufReader::new(file.file), &mut s).unwrap();
+            s
+        };
+        assert_eq!(data, "hello", "pinned root should serve original content");
+    }
+
+    #[test]
+    fn multiple_pinned_roots_are_isolated() {
+        let tmp1 = TempDir::new().unwrap();
+        let tmp2 = TempDir::new().unwrap();
+        fs::write(tmp1.path().join("file1.txt"), "from root 1").unwrap();
+        fs::write(tmp2.path().join("file2.txt"), "from root 2").unwrap();
+
+        let pinned1 = PinnedRoot::new(tmp1.path()).unwrap();
+        let pinned2 = PinnedRoot::new(tmp2.path()).unwrap();
+
+        let guard1 = RootGuard::new(&pinned1);
+        let guard2 = RootGuard::new(&pinned2);
+
+        let r1 = guard1.resolve(&parse_path("/file1.txt"), &StaticPolicy::safe_default());
+        assert!(matches!(r1, ResolvedResource::File(_)));
+        let r1_miss = guard1.resolve(&parse_path("/file2.txt"), &StaticPolicy::safe_default());
+        assert!(matches!(r1_miss, ResolvedResource::NotFound));
+
+        let r2 = guard2.resolve(&parse_path("/file2.txt"), &StaticPolicy::safe_default());
+        assert!(matches!(r2, ResolvedResource::File(_)));
+        let r2_miss = guard2.resolve(&parse_path("/file1.txt"), &StaticPolicy::safe_default());
+        assert!(matches!(r2_miss, ResolvedResource::NotFound));
+    }
+
+    // ── Resource identity tests ──────────────────────────────────
+
+    #[cfg(unix)]
+    #[test]
+    fn resolved_file_serves_original_after_path_replacement() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("target.txt"), "original content").unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+
+        let path = parse_path("/target.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        let file = match result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File, got {other:?}"),
+        };
+
+        fs::remove_file(tmp.path().join("target.txt")).unwrap();
+        fs::write(tmp.path().join("target.txt"), "replaced content").unwrap();
+
+        let mut body = crate::primitives::body::BodySource::FileFull {
+            file: file.file,
+            len: file.metadata.len(),
+            mime: "text/plain",
+        };
+        let data = body.read_all().unwrap();
+        assert_eq!(
+            data, b"original content",
+            "should stream the originally opened file, not the replacement"
         );
     }
 }

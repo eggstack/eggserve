@@ -1,28 +1,41 @@
 # Filesystem Confinement — Deep Dive
 
-After path validation, filesystem confinement resolves the validated path against the configured root directory. This layer prevents path traversal and symlink escape, even under concurrent modification.
+After path validation, filesystem confinement resolves the validated path against the configured root directory. This layer prevents path traversal and symlink escape, even under concurrent modification. Root identity is pinned at startup via `PinnedRoot`, ensuring the running server is never retargeted by pathname changes.
 
 ## Module Map
 
 | Module | File | Purpose |
 |--------|------|---------|
-| `mod.rs` | `fs/mod.rs` | `RootGuard`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory` |
+| `mod.rs` | `fs/mod.rs` | `PinnedRoot` (pinned root identity), `RootGuard`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory` |
 | `unix.rs` | `fs/unix.rs` | Descriptor-relative traversal (statat + openat) |
 
 ## Core Types
 
-### `RootGuard`
+### `PinnedRoot`
 
-Per-request guard that canonicalizes the configured root and opens it as a directory descriptor. On Unix, this holds an `fs::File` for the root directory.
+Opened once at server startup and retained for the server lifetime. Requests resolve relative to this persistent root, ensuring that renaming or replacing the configured pathname does not redirect the running server to a different tree.
 
 ```rust
-pub(crate) struct RootGuard {
+pub(crate) struct PinnedRoot {
     canonical_root: PathBuf,     // canonicalized root path
+    #[cfg(unix)]
     root_fd: fs::File,           // Unix: open directory descriptor
 }
 ```
 
-Created once per request. Ensures the root is a valid directory before any traversal begins.
+On Unix, holds an open directory fd that is cloned per-request via `try_clone()`. Cloning duplicates the underlying file descriptor, preserving the same root identity across concurrent requests.
+
+### `RootGuard`
+
+Per-request guard that borrows a `PinnedRoot` rather than opening the root independently. On Unix, cloning the `PinnedRoot` fd gives each request its own directory descriptor without reopening the root.
+
+```rust
+pub(crate) struct RootGuard<'a> {
+    pinned: &'a PinnedRoot,
+}
+```
+
+Created once per request. Borrowing the pinned root ensures the request resolves against the same root identity that was opened at startup.
 
 ### `ResolvedResource`
 
@@ -112,21 +125,21 @@ This is explicitly documented as outside the descriptor-relative hardening guara
 
 ## `RootGuard` Lifecycle
 
-1. Created at the start of `handle_request()`
-2. Canonicalizes the configured root path
-3. Opens the root as a directory descriptor (Unix)
-4. Passed to `resolve()` for path resolution
-5. Dropped at the end of the request (closes directory fd)
+1. Created at the start of `handle_request()`, borrowing the `PinnedRoot`
+2. Clones the pinned root fd on Unix (no reopen)
+3. Passed to `resolve()` for path resolution
+4. Dropped at the end of the request (closes cloned fd)
 
-The guard ensures the root is valid and holds the directory open for the duration of the request, preventing the root from being replaced between requests.
+The guard borrows the pinned root identity established at startup. No root reopening or re-canonicalization occurs per request.
 
 ## Security Properties
 
-1. **Descriptor-relative** — On Unix with safe defaults, all traversal is relative to the root directory descriptor. No absolute paths are used after the initial root open.
-2. **No TOCTOU** — `statat` + `openat` with `O_NOFOLLOW` prevents symlink-swap attacks.
-3. **Kernel-enforced** — Symlink rejection is enforced by the kernel via `O_NOFOLLOW`, not by userspace checks.
-4. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
-5. **Per-request isolation** — Each request gets its own `RootGuard` and directory descriptor.
+1. **Pinned root identity** — `PinnedRoot` is opened once at startup and retained for the server lifetime. Changing the root pathname does not retarget the running server; restart/reconstruction is required to serve a replacement root.
+2. **Descriptor-relative** — On Unix with safe defaults, all traversal is relative to the root directory descriptor. No absolute paths are used after the initial root open.
+3. **No TOCTOU** — `statat` + `openat` with `O_NOFOLLOW` prevents symlink-swap attacks.
+4. **Kernel-enforced** — Symlink rejection is enforced by the kernel via `O_NOFOLLOW`, not by userspace checks.
+5. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
+6. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root) and a cloned directory descriptor.
 
 ## Resolution-Path Audit (Plan 034 Workstream A)
 
@@ -138,7 +151,7 @@ This section traces every path from HTTP request target to response body, provin
 |------|------|-------------|-----------------|
 | 1. Parse | `path/mod.rs: ConfinedPath::parse` | Length check → origin-form parse → single-pass percent decode → normalize slashes → split components → validate each (NUL, `/`, `.`, `..`, backslash, dotfile, double-encoded traversal, platform checks) | No handles |
 | 2. Validate | `service.rs: handle_request` | Validates GET/HEAD, rejects bodies, builds `PathPolicy` from `StaticPolicy` | No handles |
-| 3. Root guard | `fs/mod.rs: RootGuard::new` | `fs::canonicalize(root)` + `fs::File::open(&canonical_root)` | `root_fd` opened |
+| 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`, clones its fd on Unix | Cloned `root_fd` for traversal |
 | 4. Resolve | `fs/mod.rs: RootGuard::resolve` | Dispatches to `unix::resolve_fd_relative` (safe defaults) or `resolve_fallback` (follow-symlinks) | `root_fd` used for traversal |
 | 5. fd-relative traversal | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
@@ -147,6 +160,8 @@ This section traces every path from HTTP request target to response body, provin
 | 9. Streaming | `service.rs: body_source_to_response` → `response.rs: file_response` / `file_response_range` | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires semaphore permit, streams via `AsyncReadExt::read` in 8KB chunks | `tokio::fs::File` + semaphore permit owned by stream closure |
 
 ### Key invariant
+
+**A running server pins root identity. Changing the root pathname does not retarget the server. Restart/reconstruction is required to serve a replacement root.**
 
 **After resolution, no code path reopens a file by path.** The `File` handle opened during resolution is carried through `ResolvedFile` → `BodySource` → `tokio::fs::File` → streaming body without any intermediate path reconstruction or reopening.
 
@@ -159,7 +174,7 @@ Evidence:
 
 | Stage | Handle opened? | Where | Consumed/transferred? |
 |-------|---------------|-------|----------------------|
-| `RootGuard::new` | `root_fd` | `fs/mod.rs:132` | Lives until request ends |
+| `RootGuard::new` | Cloned `root_fd` (borrows from `PinnedRoot`) | `fs/mod.rs:190` | Lives until request ends |
 | `unix::resolve_fd_relative` | Per-component `openat` fd | `fs/unix.rs:72` | Previous fd dropped; final fd → `ResolvedFile.file` |
 | `ResolvedFile::into_body` | No new open | `fs/mod.rs:40-76` | Moves `self.file` into `BodySource` |
 | `body_source_to_response` | No new open | `service.rs:317,330` | `file` → `tokio::fs::File::from_std()` |

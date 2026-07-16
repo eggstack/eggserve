@@ -294,7 +294,9 @@ impl Server {
 
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
-        let state = Arc::new(ServeState::new(self.serve_config));
+        let state = Arc::new(
+            ServeState::new(self.serve_config).map_err(|e| ServerError::Config(e.to_string()))?,
+        );
         let config = Arc::new(self.config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
 
@@ -344,7 +346,9 @@ impl Server {
 
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
-        let state = Arc::new(ServeState::new(self.serve_config));
+        let state = Arc::new(
+            ServeState::new(self.serve_config).map_err(|e| ServerError::Config(e.to_string()))?,
+        );
         let config = Arc::new(self.config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
 

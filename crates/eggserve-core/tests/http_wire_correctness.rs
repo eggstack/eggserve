@@ -35,7 +35,7 @@ async fn start_server(opts: Option<StaticPolicy>) -> TestServer {
         static_policy: opts.unwrap_or_else(StaticPolicy::safe_default),
         ..ServeConfig::default()
     });
-    let state = Arc::new(ServeState::new(config));
+    let state = Arc::new(ServeState::new(config).unwrap());
     let state_clone = state.clone();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

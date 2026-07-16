@@ -89,11 +89,11 @@ The following are explicitly out of scope:
 
 ## Production profiles
 
-eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Each profile specifies a security posture, supported platform, and required configuration. The production profiles are defined in `plans/060-073-production-grade-internet-and-windows-roadmap.md` and tracked in `release/criteria.toml`.
+eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Each profile specifies a security posture, supported platform, and required configuration. The production profiles are defined in `release/support-profiles.toml` and validated by contract consistency tests.
 
 ### unix-reverse-proxy
 
-**Status:** candidate (primary production profile)
+**Status:** supported-hardened (primary production profile)
 
 - Linux or macOS;
 - eggserve bound to loopback or a private interface;
@@ -120,7 +120,7 @@ Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge 
 
 ### windows-reverse-proxy
 
-**Status:** functional-only (production only after Plans 062–065 complete)
+**Status:** candidate (functional-only until Plans 062–065 complete)
 
 - supported Windows release on a local NTFS volume;
 - pinned root directory handle;
@@ -133,20 +133,20 @@ Windows reparse-point hardening is an active roadmap item. Windows remains funct
 
 ### windows-direct-https
 
-**Status:** unsupported (production only after both Windows confinement and native TLS qualification complete)
+**Status:** functional (production only after both Windows confinement and native TLS qualification complete)
 
 Windows direct HTTPS requires both Windows handle-relative filesystem hardening and native TLS qualification. Neither is complete.
 
 ### local-development
 
-**Status:** supported (non-production)
+**Status:** supported-hardened (non-production)
 
 - Any platform;
 - loopback binding only;
 - safe defaults enforced;
 - used for local development and testing.
 
-### functional-only-windows
+### windows-functional
 
 **Status:** functional-only
 
@@ -157,7 +157,7 @@ Windows direct HTTPS requires both Windows handle-relative filesystem hardening 
 
 These configurations are functional but fall outside the hardened production claim.
 
-### explicitly-weaker-compatibility
+### link-following-compat
 
 **Status:** functional-only
 

@@ -36,7 +36,7 @@ async fn start_production_server(limits: eggserve_core::limits::Limits) -> ProdS
         limits,
         ..ServeConfig::default()
     });
-    let state = Arc::new(ServeState::new(config.clone()));
+    let state = Arc::new(ServeState::new(config.clone()).unwrap());
     let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
 
     let listener = TcpListener::bind(config.bind).await.unwrap();

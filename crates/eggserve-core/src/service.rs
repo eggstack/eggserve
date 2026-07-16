@@ -119,10 +119,7 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                 }
             };
 
-            let guard = match RootGuard::new(&config.root) {
-                Ok(g) => g,
-                Err(_) => return internal_error(),
-            };
+            let guard = RootGuard::new(state.pinned_root());
 
             match guard.resolve(&confined, &config.static_policy) {
                 ResolvedResource::File(file) => {
@@ -210,10 +207,7 @@ async fn handle_directory(
     state: &crate::config::ServeState,
     is_head: bool,
 ) -> Response<BoxBodyInner> {
-    let guard = match RootGuard::new(&config.root) {
-        Ok(g) => g,
-        Err(_) => return internal_error(),
-    };
+    let guard = RootGuard::new(state.pinned_root());
 
     match guard.resolve_child(dir, "index.html", &config.static_policy) {
         ResolvedResource::File(file) => {
@@ -478,7 +472,7 @@ mod tests {
             root: tmp.path().to_path_buf(),
             ..ServeConfig::default()
         });
-        let state = ServeState::new(config);
+        let state = ServeState::new(config).unwrap();
         (tmp, state)
     }
 
@@ -632,7 +626,7 @@ mod tests {
             root: tmp.path().to_path_buf(),
             ..ServeConfig::default()
         });
-        let state = ServeState::new(config);
+        let state = ServeState::new(config).unwrap();
         let max = state.config.limits.max_file_streams;
         let mut permits = Vec::with_capacity(max);
         for _ in 0..max {
@@ -771,7 +765,7 @@ mod tests {
             },
             ..ServeConfig::default()
         });
-        let state = ServeState::new(config);
+        let state = ServeState::new(config).unwrap();
 
         let resp = handle_request(req_with_path(Method::GET, "/"), &state).await;
         assert_eq!(resp.status(), StatusCode::OK);
@@ -810,7 +804,7 @@ mod tests {
             },
             ..ServeConfig::default()
         });
-        let state = ServeState::new(config);
+        let state = ServeState::new(config).unwrap();
 
         let resp = handle_request(req_with_path(Method::GET, "/"), &state).await;
         let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -836,7 +830,7 @@ mod tests {
             },
             ..ServeConfig::default()
         });
-        let state = ServeState::new(config);
+        let state = ServeState::new(config).unwrap();
 
         let resp = handle_request(req_with_path(Method::GET, "/"), &state).await;
         let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -856,7 +850,7 @@ mod tests {
             root: tmp.path().to_path_buf(),
             ..ServeConfig::default()
         });
-        let state = ServeState::new(config);
+        let state = ServeState::new(config).unwrap();
 
         let req = Request::builder()
             .method(Method::GET)

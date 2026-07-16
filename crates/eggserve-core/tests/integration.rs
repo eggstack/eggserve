@@ -16,7 +16,7 @@ fn make_state(tmp: &TempDir, policy: StaticPolicy) -> ServeState {
         static_policy: policy,
         ..ServeConfig::default()
     });
-    ServeState::new(config)
+    ServeState::new(config).unwrap()
 }
 
 fn get(path: &str) -> Request<http_body_util::Empty<Bytes>> {

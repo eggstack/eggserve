@@ -21,7 +21,7 @@ fn build_state(tmp: &TempDir) -> Arc<ServeState> {
         root: tmp.path().to_path_buf(),
         ..ServeConfig::default()
     });
-    Arc::new(ServeState::new(config))
+    Arc::new(ServeState::new(config).unwrap())
 }
 
 #[tokio::test]
