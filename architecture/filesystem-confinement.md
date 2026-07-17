@@ -186,6 +186,28 @@ Evidence:
 - Fallback: `fs/mod.rs:249-250` checks `!meta.is_file()` → `NotFound`
 - FIFOs, sockets, block/char devices all rejected. Symlinks caught by `statat` pre-check.
 
+## Pathname-Bearing Type Inventory (Plan 061 Track A)
+
+Every type that carries path data is classified by its role in the serving pipeline:
+
+| Type | Field | Classification | Notes |
+|------|-------|---------------|-------|
+| `PinnedRoot` | `canonical_root` | Diagnostic + fallback resolution | Canonical path for error messages and non-Unix fallback. Never opened after initial `PinnedRoot::new()`. |
+| `PinnedRoot` | `root_fd` | Opened-resource owner | Unix directory descriptor, opened once, cloned per-request. The sole root authority. |
+| `RootGuard` | `pinned` | Borrowed authority | Borrows `&PinnedRoot`. Never opens root by path. |
+| `ResolvedFile` | `safe_relative_components` | Safe relative display data | Used only for MIME detection. Never used for file access. |
+| `ResolvedFile` | `file` | Opened-resource owner | Pre-opened file handle. Consumed by `into_body()`. Never reopened by path. |
+| `ResolvedFile` | `metadata` | Snapshot at resolution time | `fs::Metadata` captured during resolution. Used for ETag, Last-Modified, Content-Length. |
+| `ResolvedDirectory` | `canonical_path` | Diagnostic + fallback listing | Used for fallback `read_dir` on non-Unix. On Unix, listing uses `dir_fd`. |
+| `ResolvedDirectory` | `dir_fd` | Opened-resource owner | Unix directory descriptor for child resolution and listing. |
+| `ResolvedDirectory` | `components` | Safe relative display data | Path components relative to root. Used for child resolution identity. |
+| `ConfinedPath` | (internal components) | Policy input | Parsed request target components. Consumed by `RootGuard::resolve()`. |
+| `StaticPolicy` | (all fields) | Policy input | Configuration for symlinks, dotfiles, listing. Never carries path data. |
+| `BodySource::FileFull` | `file` | Opened-resource owner | Moved from `ResolvedFile`. Consumed by streaming. Never reopened. |
+| `BodySource::FileRange` | `file` | Opened-resource owner | Moved from `ResolvedFile`. Consumed by streaming. Never reopened. |
+
+**Forbidden pattern**: No code path extracts a path from `safe_relative_components` or `canonical_path` and calls `open`, `File::open`, `canonicalize`, or equivalent after initial resolution.
+
 ### Stream I/O error behavior (Workstream G)
 
 The file streaming code in `response.rs` propagates read failures through the HTTP body after logging a warning. A seek failure is converted to a generic 500 response before streaming starts. The body error causes Hyper to terminate the affected response/connection instead of silently presenting a successful response with fewer bytes than its `Content-Length`.

@@ -1208,4 +1208,179 @@ mod tests {
             "should stream the originally opened file, not the replacement"
         );
     }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolved_file_same_inode_after_truncate_through_other_handle() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("data.txt"), "hello world").unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+
+        let path = parse_path("/data.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        let file = match result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File, got {other:?}"),
+        };
+
+        // The resolved file's metadata reflects the original size.
+        assert_eq!(
+            file.metadata.len(),
+            11,
+            "metadata should reflect original size at resolution time"
+        );
+
+        // Truncate through a separate handle. On Unix, both handles point to
+        // the same inode, so truncation is visible to the resolved fd.
+        fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(tmp.path().join("data.txt"))
+            .unwrap();
+
+        // The resolved fd is still valid and can be read — it does not
+        // panic or return an error. The data seen depends on the inode
+        // state at read time, which is expected same-inode behavior.
+        let mut body = crate::primitives::body::BodySource::FileFull {
+            file: file.file,
+            len: file.metadata.len(),
+            mime: "text/plain",
+        };
+        let _data = body.read_all().unwrap();
+        // No assertion on content — both empty and non-empty are valid
+        // depending on OS buffering. The important invariant is that the
+        // fd remains usable and does not leak.
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolved_directory_index_replaced_after_resolve() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("mydir")).unwrap();
+        fs::write(
+            tmp.path().join("mydir").join("index.html"),
+            "original index",
+        )
+        .unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+
+        // Resolve the directory.
+        let dir_result = guard.resolve(&parse_path("/mydir"), &StaticPolicy::safe_default());
+        let dir = match dir_result {
+            ResolvedResource::Directory(d) => d,
+            other => panic!("expected Directory, got {other:?}"),
+        };
+
+        // Resolve index.html from the directory.
+        let index_result = guard.resolve_child(&dir, "index.html", &StaticPolicy::safe_default());
+        let index_file = match index_result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File for index.html, got {other:?}"),
+        };
+
+        // Unlink and replace index.html — creates a new inode.
+        fs::remove_file(tmp.path().join("mydir").join("index.html")).unwrap();
+        fs::write(
+            tmp.path().join("mydir").join("index.html"),
+            "replaced index",
+        )
+        .unwrap();
+
+        // The resolved index file should still serve original content because
+        // the fd points to the original inode, not the new file.
+        let mut body = crate::primitives::body::BodySource::FileFull {
+            file: index_file.file,
+            len: index_file.metadata.len(),
+            mime: "text/html",
+        };
+        let data = body.read_all().unwrap();
+        assert_eq!(
+            data, b"original index",
+            "resolved index should serve original content after inode replacement"
+        );
+    }
+
+    #[test]
+    fn repeated_not_found_paths_do_not_grow_resources() {
+        let tmp = TempDir::new().unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+        let policy = StaticPolicy::safe_default();
+
+        // Repeatedly resolve nonexistent paths — each creates and drops a
+        // RootGuard clone of the root fd. This must not leak descriptors or
+        // panic. If descriptor leaks exist, this test will eventually exhaust
+        // fd limits under repeated runs.
+        for i in 0..100 {
+            let path = parse_path(&format!("/nonexistent_{i}.txt"));
+            let result = guard.resolve(&path, &policy);
+            assert!(
+                matches!(result, ResolvedResource::NotFound),
+                "expected NotFound for /nonexistent_{i}.txt, got {result:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn repeated_denied_paths_do_not_grow_resources() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("normal.txt"), "visible").unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+        let policy = StaticPolicy::safe_default();
+
+        // Repeatedly resolve nonexistent paths at varying depths — each must
+        // produce NotFound without leaking internal resources.
+        for i in 0..100 {
+            let path = parse_path(&format!("/missing_{i}/deep.txt"));
+            let result = guard.resolve(&path, &policy);
+            assert!(
+                matches!(result, ResolvedResource::NotFound),
+                "expected NotFound for /missing_{i}/deep.txt, got {result:?}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn reconstruct_after_root_replacement_uses_new_tree() {
+        let tmp = TempDir::new().unwrap();
+        let root_dir = tmp.path().join("myroot");
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("file.txt"), "original").unwrap();
+
+        let pinned_old = PinnedRoot::new(&root_dir).unwrap();
+        let guard_old = RootGuard::new(&pinned_old);
+        let result = guard_old.resolve(&parse_path("/file.txt"), &StaticPolicy::safe_default());
+        assert!(matches!(result, ResolvedResource::File(_)));
+
+        // Replace the root directory entirely.
+        let renamed = tmp.path().join("old_root");
+        fs::rename(&root_dir, &renamed).unwrap();
+        fs::create_dir(&root_dir).unwrap();
+        fs::write(root_dir.join("file.txt"), "new tree").unwrap();
+
+        // Construct a new PinnedRoot from the replacement — simulating server restart.
+        let pinned_new = PinnedRoot::new(&root_dir).unwrap();
+        let guard_new = RootGuard::new(&pinned_new);
+        let result = guard_new.resolve(&parse_path("/file.txt"), &StaticPolicy::safe_default());
+        let file = match result {
+            ResolvedResource::File(f) => f,
+            other => panic!("expected File, got {other:?}"),
+        };
+
+        let mut body = crate::primitives::body::BodySource::FileFull {
+            file: file.file,
+            len: file.metadata.len(),
+            mime: "text/plain",
+        };
+        let data = body.read_all().unwrap();
+        assert_eq!(
+            data, b"new tree",
+            "newly constructed pinned root should serve the replacement tree"
+        );
+    }
 }

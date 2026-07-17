@@ -1444,6 +1444,86 @@ waiver_allowed = false
 security_relevance = true
 release_stage = "approval"
 
+# ---------------------------------------------------------------------------
+# Plan 061 — Pinned root identity and opened-resource ownership
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "pinned-root.identity"
+title = "Pinned root identity behavior"
+description = "Tests that a pinned root survives path rename, replacement, and unlink; new construction serves replacement tree"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --lib -- fs::tests::pinned_root"
+workflow_job = "rust-check"
+platforms = ["linux", "macos"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/**", "crates/eggserve-core/src/config.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "pinned-root.no-reopen-pipeline"
+title = "No-reopen static pipeline"
+description = "Verifies that static file streaming uses only opened file handles, never reopens by path after resolution"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --lib -- fs::tests::resolved_file_serves_original_after_path_replacement fs::tests::resolved_file_same_inode fs::tests::resolved_directory_index_replaced"
+workflow_job = "rust-check"
+platforms = ["linux", "macos"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/**", "crates/eggserve-core/src/service.rs", "crates/eggserve-core/src/response.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "pinned-root.descriptor-leak-resistance"
+title = "Descriptor leak resistance"
+description = "Repeated 404/403 path resolutions do not grow descriptor count or leak resources"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --lib -- fs::tests::repeated_not_found_paths_do_not_grow_resources fs::tests::repeated_denied_paths_do_not_grow_resources"
+workflow_job = "rust-check"
+platforms = ["linux", "macos"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/**"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "pinned-root.root-replacement-regression"
+title = "Root replacement regression"
+description = "Reconstructing a PinnedRoot after root replacement serves the new tree; old pinned root continues serving original"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --lib -- fs::tests::reconstruct_after_root_replacement_uses_new_tree fs::tests::pinned_root_not_redirected fs::tests::multiple_pinned_roots_are_isolated"
+workflow_job = "rust-check"
+platforms = ["linux", "macos"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/**", "crates/eggserve-core/src/config.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
 [[gate]]
 id = "check-generated"
 title = "Generated file cleanliness"

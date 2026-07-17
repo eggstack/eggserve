@@ -223,7 +223,7 @@ Parser-level protections reject Windows reserved names, ADS syntax, drive prefix
 
 ## Unsafe path reconstruction risk
 
-Extracting paths from `safe_relative_components()` and reopening them manually bypasses descriptor-relative TOCTOU hardening. This is safe for read-only metadata inspection but not for reopening files for serving.
+Extracting paths from `safe_relative_components()` and reopening them manually bypasses descriptor-relative TOCTOU hardening. This is safe for read-only metadata inspection but not for reopening files for serving. The root is pinned at startup via `PinnedRoot`; once a file is resolved, it must be accessed through the opened handle, never by reconstructing and reopening a path.
 
 ## Request-body policy risk
 

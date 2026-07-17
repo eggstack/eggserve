@@ -503,7 +503,7 @@ Python primitives allow downstream projects to build app servers and adapters. T
 
 The `StaticResponder` and `Server` primitives provide the building blocks: Python handles request logic, Rust handles connection management, file streaming, and timeouts. For production file serving, prefer `StaticResponder` which streams file bodies directly through Rust without passing through Python memory.
 
-**Security note:** Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
+**Security note:** The serving root is pinned at startup. Reopening paths in Python is outside the security guarantee. A resolved resource's file handle was opened under policy enforcement during resolution; reconstructing a path and reopening it bypasses symlink and confinement checks.
 
 ## Installation
 

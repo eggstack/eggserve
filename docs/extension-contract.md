@@ -12,6 +12,7 @@ eggserve is a library, not a framework. It provides hardened path validation, po
 - **Policy enforcement.** `StaticPolicy` defaults deny all optional behaviors: directory listing, symlinks, and dotfiles. Callers must explicitly opt in to any weaker behavior. Policies are enforced before resolution; violations produce 403, not 404.
 - **Safe defaults.** The server binds to loopback, accepts only GET and HEAD, rejects request bodies, denies symlinks, denies dotfiles, denies directory listing, and sanitizes logs. These are not advisory — the code rejects non-conforming requests before any filesystem access.
 - **Descriptor-relative hardening on Unix.** Under safe defaults, symlink denial is descriptor-relative. Each path component is checked with `statat(AT_SYMLINK_NOFOLLOW)` and opened with `openat(O_NOFOLLOW)`. This prevents TOCTOU symlink-swap attacks during resolution. A symlink swapped into place between the stat and the open is refused rather than followed.
+- **Pinned root identity.** The serving root is opened once at server startup and retained for the server lifetime via `PinnedRoot`. Renaming or replacing the configured pathname does not redirect the running server to a different tree. Every static response streams from an already-validated opened file — no file is reopened by path after resolution.
 
 ## What eggserve intentionally does not implement
 
@@ -194,6 +195,8 @@ Use resolved resources and body sources, not reconstructed paths.
 
 `ResolvedFile` is a capability object. It holds the open file handle, metadata, content type, and ETag. It has no public constructor — it is obtained only through `SecureRoot::resolve()`.
 
+The root itself is a capability object. `PinnedRoot` is opened once at startup and retained for the server lifetime. Requests resolve relative to this persistent root. Renaming or replacing the configured pathname does not redirect the running server.
+
 Downstream code must:
 
 - Use the `File` handle returned by `ResolvedFile` (Rust) or the `file` attribute on the resolved resource (Python) directly.
@@ -240,10 +243,11 @@ eggserve does not provide ASGI/WSGI interfaces directly (see [non-goals.md](non-
 - Route all request paths through eggserve's resolution layer (`SecureRoot`, `ConfinedPath`).
 - Preserve safe defaults unless the user explicitly opts in via `StaticPolicy` fields.
 - Use the file handle returned by `ResolvedFile::into_std_file()` (Rust) or `resource.file` (Python) directly — do not reconstruct paths for reopening.
+- Respect root pinning: the root is opened once at startup and retained for the server lifetime. To serve a different root tree, construct a new `SecureRoot` or restart the server.
 
 ### What downstream must not do
 
-- **Must not claim descriptor-relative hardening** if it extracts paths from `safe_relative_components()` and reopens them manually. Descriptor-relative TOCTOU hardening applies only when files are opened during resolution via `openat(O_NOFOLLOW)`. Reopening by path — even a relative path reconstructed from components — bypasses the guarantee.
+- **Must not claim descriptor-relative hardening** if it extracts paths from `safe_relative_components()` and reopens them manually. Descriptor-relative TOCTOU hardening applies only when files are opened during resolution via `openat(O_NOFOLLOW)`. Reopening by path — even a relative path reconstructed from components — bypasses the guarantee. The root is pinned at startup; once resolved, files must be accessed through their opened handles.
 - **Must not join user input to filesystem paths** and serve the result directly. This defeats path confinement.
 - **Must not cache resolved file handles across requests** without understanding that `RootGuard` is created per resolution call. Caching introduces staleness and potential TOCTOU issues.
 - **Must not modify the `StaticPolicy` defaults silently.** If downstream enables directory listing, symlinks, or dotfiles, the user must explicitly request it.

@@ -71,16 +71,16 @@ The wheel bundles the platform-native `eggserve` CLI binary in the `bin/` packag
 
 | Platform | Classification | Hardening |
 |----------|---------------|-----------|
-| Linux x86_64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile/reparse hardening. |
+| Linux x86_64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile/reparse hardening. Pinned root identity. |
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
-| macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. |
+| macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. Pinned root identity. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Parser-level checks only (reserved names, ADS, drive prefixes, backslash). Reparse-point hardening is deferred. Windows is a trusted/local-use platform, not hardened for untrusted mutable public roots. |
+| Windows x86_64 | supported-functional | Parser-level checks only (reserved names, ADS, drive prefixes, backslash). Reparse-point hardening is deferred. No descriptor-relative root pinning. Windows is a trusted/local-use platform, not hardened for untrusted mutable public roots. |
 
 ### Classification Definitions
 
-- **supported-hardened**: Full security hardening is active. Descriptor-relative traversal on Unix provides TOCTOU-resistant symlink denial. These platforms are suitable for serving untrusted content with safe defaults.
-- **supported-functional**: The server is functional and tested in CI, but filesystem-level hardening is incomplete. Windows lacks reparse-point and NTFS junction hardening. These platforms are suitable only for trusted local content.
+- **supported-hardened**: Full security hardening is active. Descriptor-relative traversal on Unix provides TOCTOU-resistant symlink denial. The serving root is pinned at startup (`PinnedRoot`), so renaming or replacing the configured pathname does not redirect the running server. These platforms are suitable for serving untrusted content with safe defaults.
+- **supported-functional**: The server is functional and tested in CI, but filesystem-level hardening is incomplete. Windows lacks reparse-point and NTFS junction hardening and does not use descriptor-relative root pinning. These platforms are suitable only for trusted local content.
 
 See [security-policy.md](security-policy.md) and [non-goals.md](non-goals.md) for the full Windows hardening statement and deferred scope.
 

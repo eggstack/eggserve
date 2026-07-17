@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 73
+Total gates: 77
 
 ## Preflight
 
@@ -48,6 +48,10 @@ Total gates: 73
 | `http.primitives-integration` | HTTP primitives integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `http.production-path` | Production path tests | yes | ci-log, test-output | PENDING | TBD |
 | `http.raw-wire` | Raw HTTP/1.x wire correctness tests | yes | ci-log, test-output | PENDING | TBD |
+| `pinned-root.descriptor-leak-resistance` | Descriptor leak resistance | yes | ci-log, test-output | PENDING | TBD |
+| `pinned-root.identity` | Pinned root identity behavior | yes | ci-log, test-output | PENDING | TBD |
+| `pinned-root.no-reopen-pipeline` | No-reopen static pipeline | yes | ci-log, test-output | PENDING | TBD |
+| `pinned-root.root-replacement-regression` | Root replacement regression | yes | ci-log, test-output | PENDING | TBD |
 | `python.api-stability` | Python API stability tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-conformance` | Python body conformance corpus | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-lifecycle-linux` | Python body lifecycle qualification (Linux) | yes | ci-log, test-output | PENDING | TBD |
@@ -100,7 +104,7 @@ Total gates: 73
 
 ## Summary
 
-- PENDING: 73
+- PENDING: 77
 
 ## Platform Support
 
