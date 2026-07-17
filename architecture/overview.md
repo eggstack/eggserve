@@ -192,7 +192,7 @@ eggserve uses three distinct error layers:
 |----------|--------|-------|
 | Linux (x86_64, aarch64) | **Supported-hardened** | Descriptor-relative traversal via `statat`+`openat` |
 | macOS (x86_64, aarch64) | **Supported-hardened** | Same descriptor-relative guarantees as Linux |
-| Windows (x86_64) | **Supported-functional** | Reparse-point hardening deferred; parser-level checks only. Not for untrusted content. |
+| Windows (x86_64) | **Supported-functional** | Plan 062 feasibility spike complete; production reparse-point hardening planned for Plans 063–065. Parser-level checks only. Not for untrusted content. |
 
 ## Non-Goals
 

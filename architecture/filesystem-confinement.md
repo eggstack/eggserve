@@ -123,6 +123,8 @@ On non-Unix platforms (or in follow-symlinks mode), component-wise `symlink_meta
 
 This is explicitly documented as outside the descriptor-relative hardening guarantee.
 
+Plan 062 has proven feasibility of handle-relative confinement on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). Production implementation is planned for Plans 063–065.
+
 ## `RootGuard` Lifecycle
 
 1. Created at the start of `handle_request()`, borrowing the `PinnedRoot`

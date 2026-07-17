@@ -22,6 +22,9 @@ use crate::primitives::response::{BodyPlan, FileRange, StaticResponsePlan};
 #[cfg(unix)]
 pub(crate) mod unix;
 
+#[cfg(windows)]
+pub(crate) mod windows;
+
 /// A resolved file with a pre-opened handle.
 ///
 /// The file is opened during resolution via `openat` with `O_NOFOLLOW` on

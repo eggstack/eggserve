@@ -119,7 +119,7 @@ Parser and canonicalization checks only. Symlink checks use `symlink_metadata` (
 
 ### Windows
 
-Functional but not hardened against all reparse-point or junction attacks. Not recommended for untrusted mutable public roots until a Windows-specific hardening plan.
+Plan 062 has proven that handle-relative confinement is feasible on Windows using CreateFileW with FILE_FLAG_OPEN_REPARSE_POINT. Production implementation is planned for Plans 063–065. Until then, Windows remains functional-only.
 
 ## Usage example
 

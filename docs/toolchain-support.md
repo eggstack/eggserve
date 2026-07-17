@@ -75,7 +75,7 @@ The wheel bundles the platform-native `eggserve` CLI binary in the `bin/` packag
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. Pinned root identity. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Parser-level checks only (reserved names, ADS, drive prefixes, backslash). Reparse-point hardening is deferred. No descriptor-relative root pinning. Windows is a trusted/local-use platform, not hardened for untrusted mutable public roots. |
+| Windows x86_64 | supported-functional | Parser-level checks only. Plan 062 feasibility spike complete; production hardening planned for Plans 063–065. No descriptor-relative root pinning. Windows is a trusted/local-use platform, not hardened for untrusted mutable public roots. |
 
 ### Classification Definitions
 

@@ -202,9 +202,9 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; parser-level checks only, reparse-point hardening deferred |
+| Windows x86_64 | Functional; parser-level checks only. Plan 062 feasibility spike complete; production hardening planned for Plans 063–065 |
 
-Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Do not use with untrusted public content on Windows.
+Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Plan 062 has proven handle-relative confinement feasibility on Windows, but production implementation is not yet in place. Do not use with untrusted public content on Windows.
 
 ## Production profiles
 

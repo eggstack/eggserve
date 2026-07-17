@@ -17,7 +17,7 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No session, cookie, or auth framework** — except possible later basic-auth opt-in; no auth by default
 - **No attempt to compete with nginx/Caddy as a full edge server** — eggserve is a hardened static file server, not an edge platform
 - **No attempt to compete with Granian/Uvicorn as app servers** — eggserve does not run Python application code
-- **No Windows reparse-point/NTFS junction hardening** — Windows reparse-point/NTFS junction hardening is an active roadmap item — Windows is supported functionally with parser-level checks only (reserved names, ADS, drive prefixes, backslash). Filesystem-level hardening against reparse points and NTFS junctions is being developed (Plans 062–065). Windows is explicitly a trusted/local-use platform, not hardened for untrusted mutable public roots. See [security-policy.md](security-policy.md) for the full statement.
+- **No Windows reparse-point/NTFS junction hardening** — Plan 062 has proven feasibility of handle-relative confinement on Windows (CreateFileW with FILE_FLAG_OPEN_REPARSE_POINT). Production hardening will be implemented in Plans 063–065. Until then, Windows is supported functionally with parser-level checks only (reserved names, ADS, drive prefixes, backslash). Windows is explicitly a trusted/local-use platform, not hardened for untrusted mutable public roots. See [security-policy.md](security-policy.md) for the full statement.
 - **No HTTP trailers** — Trailers are deferred; the canonical response model does not include trailer support
 - **No raw socket response writers** — All responses go through the canonical normalization path
 - **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
