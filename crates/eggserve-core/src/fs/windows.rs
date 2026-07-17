@@ -42,15 +42,20 @@
 
 use std::ffi::c_void;
 use std::os::windows::io::{FromRawHandle, RawHandle};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::ptr;
 
 // ── Windows FFI types ───────────────────────────────────────────────────────
 
+#[allow(clippy::upper_case_acronyms)]
 type HANDLE = *mut c_void;
+#[allow(clippy::upper_case_acronyms)]
 type DWORD = u32;
+#[allow(clippy::upper_case_acronyms)]
 type BOOL = i32;
+#[allow(clippy::upper_case_acronyms)]
 type PCWSTR = *const u16;
+#[allow(clippy::upper_case_acronyms)]
 type PWSTR = *mut u16;
 
 const INVALID_HANDLE_VALUE: HANDLE = -1isize as HANDLE;
@@ -916,6 +921,7 @@ pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>,
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
     fn temp_dir() -> PathBuf {
         std::env::temp_dir().join(format!("eggserve_windows_test_{}", std::process::id()))
