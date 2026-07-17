@@ -1,4 +1,5 @@
 #![cfg(windows)]
+#![allow(dead_code)]
 
 //! Windows handle-relative filesystem confinement prototype (Plan 062).
 //!
@@ -41,7 +42,7 @@
 
 use std::ffi::c_void;
 use std::os::windows::io::{FromRawHandle, RawHandle};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::ptr;
 
 // ── Windows FFI types ───────────────────────────────────────────────────────
@@ -111,14 +112,14 @@ const DUPLICATE_SAME_ACCESS: DWORD = 0x00000002;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-struct FILE_ATTRIBUTE_TAG_INFO {
+pub(crate) struct FILE_ATTRIBUTE_TAG_INFO {
     file_attributes: DWORD,
     reparse_tag: u32,
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-struct FILE_STANDARD_INFO {
+pub(crate) struct FILE_STANDARD_INFO {
     allocation_size: i64,
     end_of_file: i64,
     number_of_links: DWORD,
@@ -240,7 +241,7 @@ extern "system" {
 /// - `0` and `INVALID_HANDLE_VALUE` are treated as invalid and are not closed.
 /// - `Clone` panics if `DuplicateHandle` fails, which indicates a system-level
 ///   error (e.g., out of memory or handle quota exhaustion).
-struct OwnedHandle(HANDLE);
+pub(crate) struct OwnedHandle(HANDLE);
 
 impl std::fmt::Debug for OwnedHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
