@@ -14,6 +14,13 @@
 //! All tests use temp directories and clean up after themselves.
 
 #![cfg(windows)]
+#![allow(
+    dead_code,
+    clippy::upper_case_acronyms,
+    clippy::io_other_error,
+    clippy::unnecessary_map_or,
+    clippy::single_match
+)]
 
 use std::ffi::{c_void, OsStr};
 use std::fs;
