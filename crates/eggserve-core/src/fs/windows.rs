@@ -40,8 +40,8 @@
 //! enumeration to avoid the path reconstruction step.
 
 use std::ffi::c_void;
-use std::os::windows::io::{AsRawHandle, BorrowedHandle, RawHandle};
-use std::path::{Path, PathBuf};
+use std::os::windows::io::{FromRawHandle, RawHandle};
+use std::path::PathBuf;
 use std::ptr;
 
 // ── Windows FFI types ───────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ struct FILE_STANDARD_INFO {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy)]
 #[allow(dead_code)]
 struct WIN32_FIND_DATAW {
     dw_file_attributes: DWORD,
@@ -140,6 +140,23 @@ struct WIN32_FIND_DATAW {
     dw_reserved1: DWORD,
     c_file_name: [u16; 260],
     c_alternate_file_name: [u16; 14],
+}
+
+impl Default for WIN32_FIND_DATAW {
+    fn default() -> Self {
+        Self {
+            dw_file_attributes: 0,
+            ft_creation_time: 0,
+            ft_last_access_time: 0,
+            ft_last_write_time: 0,
+            n_file_size_high: 0,
+            n_file_size_low: 0,
+            dw_reserved0: 0,
+            dw_reserved1: 0,
+            c_file_name: [0; 260],
+            c_alternate_file_name: [0; 14],
+        }
+    }
 }
 
 #[repr(C)]
@@ -224,6 +241,12 @@ extern "system" {
 /// - `Clone` panics if `DuplicateHandle` fails, which indicates a system-level
 ///   error (e.g., out of memory or handle quota exhaustion).
 struct OwnedHandle(HANDLE);
+
+impl std::fmt::Debug for OwnedHandle {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("OwnedHandle").field(&self.0).finish()
+    }
+}
 
 impl OwnedHandle {
     /// Returns `true` if the handle is not null and not `INVALID_HANDLE_VALUE`.
@@ -358,7 +381,7 @@ fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
 /// `WindowsFsError::AccessDenied` if the handle lacks permission, or
 /// `WindowsFsError::IoError` for other failures.
 pub(crate) fn open_directory_relative(
-    parent: HANDLE,
+    _parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
     let name_utf16 = to_utf16_null(name);
@@ -403,7 +426,7 @@ pub(crate) fn open_directory_relative(
 /// `WindowsFsError::NotADirectory` if the target is a directory, or
 /// `WindowsFsError::IoError` for other failures.
 pub(crate) fn open_file_relative(
-    parent: HANDLE,
+    _parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
     let name_utf16 = to_utf16_null(name);
