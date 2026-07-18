@@ -664,7 +664,7 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
     let status = unsafe {
         NtOpenFile(
             &mut handle,
-            SYNCHRONIZE,
+            GENERIC_READ | SYNCHRONIZE,
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
