@@ -303,15 +303,21 @@ impl std::fmt::Debug for OwnedHandle {
 
 impl OwnedHandle {
     /// Returns `true` if the handle is not null and not `INVALID_HANDLE_VALUE`.
-    fn is_valid(&self) -> bool {
+    pub(crate) fn is_valid(&self) -> bool {
         !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE
     }
 
     /// Returns the raw `HANDLE` value.
-    fn raw(&self) -> HANDLE {
+    pub(crate) fn raw(&self) -> HANDLE {
         self.0
     }
 }
+
+// SAFETY: Windows HANDLEs are process-global integers. They are safe to
+// transfer between threads (Send) and share across threads (Sync). The
+// underlying OS ensures thread-safe access to handle operations.
+unsafe impl Send for OwnedHandle {}
+unsafe impl Sync for OwnedHandle {}
 
 impl Drop for OwnedHandle {
     fn drop(&mut self) {
@@ -850,6 +856,42 @@ pub(crate) fn deny_all_reparse_check(handle: HANDLE) -> Result<(), WindowsFsErro
         return Err(WindowsFsError::ReparsePointDenied);
     }
     Ok(())
+}
+
+// ── Root handle construction ────────────────────────────────────────────────
+
+/// Opens a directory handle for use as a pinned root.
+///
+/// Uses `CreateFileW` with `FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT`
+/// to open the directory without following reparse points. This is called
+/// once at server startup from `PinnedRoot::new()`.
+pub(crate) fn open_root_handle(path: &std::path::Path) -> Result<OwnedHandle, std::io::Error> {
+    use std::os::windows::ffi::OsStrExt;
+    let path_str = path.to_str().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "root path is not valid UTF-8",
+        )
+    })?;
+    let path_utf16: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
+    // SAFETY: path_utf16 is a valid null-terminated UTF-16 string derived from
+    // a canonicalized path. The output handle is wrapped in OwnedHandle which
+    // guarantees cleanup. All flags are compile-time constants.
+    unsafe {
+        let h = CreateFileW(
+            path_utf16.as_ptr(),
+            FILE_LIST_DIRECTORY,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            ptr::null_mut(),
+            OPEN_EXISTING,
+            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+            ptr::null_mut(),
+        );
+        if h == INVALID_HANDLE_VALUE || h.is_null() {
+            return Err(std::io::Error::last_os_error());
+        }
+        Ok(OwnedHandle(h))
+    }
 }
 
 // ── Track D: File identity ──────────────────────────────────────────────────

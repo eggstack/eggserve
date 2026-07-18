@@ -167,32 +167,7 @@ impl PinnedRoot {
         #[cfg(unix)]
         let root_fd = fs::File::open(&canonical_root)?;
         #[cfg(windows)]
-        let root_handle = {
-            use std::os::windows::ffi::OsStrExt;
-            let path_str = canonical_root.to_str().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::InvalidInput,
-                    "root path is not valid UTF-8",
-                )
-            })?;
-            let path_utf16: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
-            unsafe {
-                use windows::*;
-                let h = CreateFileW(
-                    path_utf16.as_ptr(),
-                    FILE_LIST_DIRECTORY,
-                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                    std::ptr::null_mut(),
-                    OPEN_EXISTING,
-                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-                    std::ptr::null_mut(),
-                );
-                if h == INVALID_HANDLE_VALUE || h.is_null() {
-                    return Err(std::io::Error::last_os_error());
-                }
-                OwnedHandle(h)
-            }
-        };
+        let root_handle = windows::open_root_handle(&canonical_root)?;
         Ok(Self {
             canonical_root,
             #[cfg(unix)]
