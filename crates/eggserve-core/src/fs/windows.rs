@@ -48,7 +48,7 @@ use std::ptr;
 // ── Windows FFI types ───────────────────────────────────────────────────────
 
 #[allow(clippy::upper_case_acronyms)]
-type HANDLE = *mut c_void;
+pub(crate) type HANDLE = *mut c_void;
 #[allow(clippy::upper_case_acronyms)]
 type DWORD = u32;
 #[allow(clippy::upper_case_acronyms)]
@@ -104,12 +104,6 @@ const ERROR_TOO_MANY_LINKS: DWORD = 1142;
 
 const FILE_ATTRIBUTE_TAG_INFO_CLASS: u32 = 9;
 const FILE_STANDARD_INFO_CLASS: u32 = 5;
-
-// ── GetFinalPathNameByHandleW flags ────────────────────────────────────────
-
-const VOLUME_NAME_GUID: DWORD = 0x00000001;
-
-// ── DuplicateHandle options ─────────────────────────────────────────────────
 
 const DUPLICATE_SAME_ACCESS: DWORD = 0x00000002;
 
@@ -184,6 +178,50 @@ struct FILE_ID_BOTH_DIR_INFO {
     file_name: [u16; 1], // variable length
 }
 
+// ── NT API types (for handle-relative opens) ─────────────────────────────────
+
+type NTSTATUS = i32;
+
+#[repr(C)]
+struct NtUnicodeString {
+    length: u16,
+    maximum_length: u16,
+    buffer: PWSTR,
+}
+
+#[repr(C)]
+struct ObjectAttributes {
+    length: u32,
+    root_directory: HANDLE,
+    object_name: *const NtUnicodeString,
+    attributes: u32,
+    security_descriptor: *mut c_void,
+    security_quality_of_service: *mut c_void,
+}
+
+#[repr(C)]
+#[allow(dead_code)]
+struct IoStatusBlock {
+    status: NTSTATUS,
+    information: usize,
+}
+
+const OBJ_CASE_INSENSITIVE: u32 = 0x00000040;
+
+const FILE_OPEN: u32 = 0x00000001;
+const FILE_DIRECTORY_FILE: u32 = 0x00000020;
+const FILE_NON_DIRECTORY_FILE: u32 = 0x00000040;
+const FILE_OPEN_FOR_BACKUP_INTENT: u32 = 0x00004000;
+
+const SYNCHRONIZE: u32 = 0x00100000;
+
+// NT status codes for error mapping
+const STATUS_NO_SUCH_FILE: u32 = 0xC000000F;
+const STATUS_OBJECT_NAME_NOT_FOUND: u32 = 0xC0000034;
+const STATUS_NOT_A_DIRECTORY: u32 = 0xC0000103;
+const STATUS_FILE_IS_A_DIRECTORY: u32 = 0xC00000BA;
+const STATUS_ACCESS_DENIED: u32 = 0xC0000022;
+
 // ── External FFI declarations ───────────────────────────────────────────────
 
 extern "system" {
@@ -232,6 +270,15 @@ extern "system" {
     ) -> BOOL;
 
     fn GetCurrentProcess() -> HANDLE;
+
+    fn NtOpenFile(
+        file_handle: *mut HANDLE,
+        desired_access: u32,
+        object_attributes: *mut ObjectAttributes,
+        io_status_block: *mut IoStatusBlock,
+        share_access: u32,
+        open_options: u32,
+    ) -> NTSTATUS;
 }
 
 // ── OwnedHandle RAII wrapper ────────────────────────────────────────────────
@@ -351,6 +398,16 @@ fn last_error_to_fs_error() -> WindowsFsError {
     }
 }
 
+/// Maps an NTSTATUS code to a `WindowsFsError`.
+fn ntstatus_to_error(status: NTSTATUS) -> WindowsFsError {
+    match status as u32 {
+        STATUS_NO_SUCH_FILE | STATUS_OBJECT_NAME_NOT_FOUND => WindowsFsError::NotFound,
+        STATUS_NOT_A_DIRECTORY | STATUS_FILE_IS_A_DIRECTORY => WindowsFsError::NotADirectory,
+        STATUS_ACCESS_DENIED => WindowsFsError::AccessDenied,
+        other => WindowsFsError::IoError(other),
+    }
+}
+
 // ── UTF-16 conversion helper ────────────────────────────────────────────────
 
 /// Converts a `&str` to a null-terminated UTF-16 vector suitable for
@@ -369,10 +426,10 @@ fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
 
 /// Opens a directory relative to a parent directory handle.
 ///
-/// Uses `FILE_LIST_DIRECTORY` access and `FILE_FLAG_BACKUP_SEMANTICS` to open
-/// a directory. `FILE_FLAG_OPEN_REPARSE_POINT` suppresses reparse-point
-/// traversal, so a junction or symlink is opened as a reparse point rather
-/// than following it.
+/// Uses `NtOpenFile` with `ObjectAttributes.RootDirectory` set to the parent
+/// handle for true handle-relative traversal. The `FILE_DIRECTORY_FILE` flag
+/// ensures the target must be a directory. `FILE_OPEN_FOR_BACKUP_INTENT`
+/// enables backup semantics.
 ///
 /// # Arguments
 ///
@@ -387,29 +444,46 @@ fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
 /// `WindowsFsError::AccessDenied` if the handle lacks permission, or
 /// `WindowsFsError::IoError` for other failures.
 pub(crate) fn open_directory_relative(
-    _parent: HANDLE,
+    parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
     let name_utf16 = to_utf16_null(name);
+    let mut obj_name = NtUnicodeString {
+        length: (name.len() * 2) as u16,
+        maximum_length: (name.len() * 2 + 2) as u16,
+        buffer: name_utf16.as_ptr() as *mut u16,
+    };
+    let mut obj_attr = ObjectAttributes {
+        length: std::mem::size_of::<ObjectAttributes>() as u32,
+        root_directory: parent,
+        object_name: &mut obj_name,
+        attributes: OBJ_CASE_INSENSITIVE,
+        security_descriptor: ptr::null_mut(),
+        security_quality_of_service: ptr::null_mut(),
+    };
+    let mut handle = INVALID_HANDLE_VALUE;
+    let mut iosb = IoStatusBlock {
+        status: 0,
+        information: 0,
+    };
 
-    // SAFETY: `name_utf16` is a valid null-terminated UTF-16 string. The output
-    // handle is stored in the returned OwnedHandle which guarantees cleanup.
-    // All flags are compile-time constants. `h_template_file` is null (no
-    // template). Share mode allows concurrent access for directory enumeration.
-    let handle = unsafe {
-        CreateFileW(
-            name_utf16.as_ptr(),
-            FILE_LIST_DIRECTORY,
+    // SAFETY: obj_name points to a valid UTF-16 buffer that lives for the
+    // duration of this call. obj_attr is stack-allocated. handle and iosb are
+    // stack-allocated output parameters. NtOpenFile is always present in
+    // ntdll.dll (loaded in every Windows process).
+    let status = unsafe {
+        NtOpenFile(
+            &mut handle,
+            FILE_LIST_DIRECTORY | SYNCHRONIZE,
+            &mut obj_attr,
+            &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            ptr::null_mut(),
-            OPEN_EXISTING,
-            FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-            ptr::null_mut(),
+            FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT,
         )
     };
 
-    if handle == INVALID_HANDLE_VALUE || handle.is_null() {
-        return Err(last_error_to_fs_error());
+    if status < 0 {
+        return Err(ntstatus_to_error(status));
     }
 
     Ok(OwnedHandle(handle))
@@ -417,9 +491,9 @@ pub(crate) fn open_directory_relative(
 
 /// Opens a file relative to a parent directory handle.
 ///
-/// Uses `GENERIC_READ` access without `FILE_FLAG_BACKUP_SEMANTICS`, so this
-/// fails if the target is a directory. `FILE_FLAG_OPEN_REPARSE_POINT`
-/// suppresses reparse-point traversal.
+/// Uses `NtOpenFile` with `FILE_NON_DIRECTORY_FILE` to ensure the target is
+/// a regular file (not a directory). The parent handle is passed via
+/// `ObjectAttributes.RootDirectory` for true handle-relative traversal.
 ///
 /// # Arguments
 ///
@@ -432,28 +506,45 @@ pub(crate) fn open_directory_relative(
 /// `WindowsFsError::NotADirectory` if the target is a directory, or
 /// `WindowsFsError::IoError` for other failures.
 pub(crate) fn open_file_relative(
-    _parent: HANDLE,
+    parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
     let name_utf16 = to_utf16_null(name);
+    let mut obj_name = NtUnicodeString {
+        length: (name.len() * 2) as u16,
+        maximum_length: (name.len() * 2 + 2) as u16,
+        buffer: name_utf16.as_ptr() as *mut u16,
+    };
+    let mut obj_attr = ObjectAttributes {
+        length: std::mem::size_of::<ObjectAttributes>() as u32,
+        root_directory: parent,
+        object_name: &mut obj_name,
+        attributes: OBJ_CASE_INSENSITIVE,
+        security_descriptor: ptr::null_mut(),
+        security_quality_of_service: ptr::null_mut(),
+    };
+    let mut handle = INVALID_HANDLE_VALUE;
+    let mut iosb = IoStatusBlock {
+        status: 0,
+        information: 0,
+    };
 
-    // SAFETY: same safety requirements as `open_directory_relative`. The key
-    // difference is GENERIC_READ (no FILE_FLAG_BACKUP_SEMANTICS), so opening a
-    // directory will fail with ERROR_NOT_A_DIRECTORY.
-    let handle = unsafe {
-        CreateFileW(
-            name_utf16.as_ptr(),
-            GENERIC_READ,
+    // SAFETY: same safety requirements as open_directory_relative. The key
+    // difference is FILE_NON_DIRECTORY_FILE, which causes NtOpenFile to fail
+    // with STATUS_FILE_IS_A_DIRECTORY if the target is a directory.
+    let status = unsafe {
+        NtOpenFile(
+            &mut handle,
+            SYNCHRONIZE,
+            &mut obj_attr,
+            &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            ptr::null_mut(),
-            OPEN_EXISTING,
-            FILE_FLAG_OPEN_REPARSE_POINT,
-            ptr::null_mut(),
+            FILE_NON_DIRECTORY_FILE,
         )
     };
 
-    if handle == INVALID_HANDLE_VALUE || handle.is_null() {
-        return Err(last_error_to_fs_error());
+    if status < 0 {
+        return Err(ntstatus_to_error(status));
     }
 
     Ok(OwnedHandle(handle))
@@ -531,6 +622,162 @@ pub(crate) fn resolve_components_relative(
     }
 
     Ok(current)
+}
+
+/// Opens a file or directory relative to a parent directory handle.
+///
+/// Unlike `open_file_relative`, this does not use `FILE_NON_DIRECTORY_FILE`,
+/// so it succeeds for both files and directories. Unlike
+/// `open_directory_relative`, this does not use `FILE_DIRECTORY_FILE`, so it
+/// succeeds for both files and directories.
+///
+/// This is used by `RootGuard::resolve` when the final component type is
+/// unknown (could be a file or directory).
+pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandle, WindowsFsError> {
+    let name_utf16 = to_utf16_null(name);
+    let mut obj_name = NtUnicodeString {
+        length: (name.len() * 2) as u16,
+        maximum_length: (name.len() * 2 + 2) as u16,
+        buffer: name_utf16.as_ptr() as *mut u16,
+    };
+    let mut obj_attr = ObjectAttributes {
+        length: std::mem::size_of::<ObjectAttributes>() as u32,
+        root_directory: parent,
+        object_name: &mut obj_name,
+        attributes: OBJ_CASE_INSENSITIVE,
+        security_descriptor: ptr::null_mut(),
+        security_quality_of_service: ptr::null_mut(),
+    };
+    let mut handle = INVALID_HANDLE_VALUE;
+    let mut iosb = IoStatusBlock {
+        status: 0,
+        information: 0,
+    };
+
+    let status = unsafe {
+        NtOpenFile(
+            &mut handle,
+            SYNCHRONIZE,
+            &mut obj_attr,
+            &mut iosb,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_OPEN_FOR_BACKUP_INTENT,
+        )
+    };
+
+    if status < 0 {
+        return Err(ntstatus_to_error(status));
+    }
+
+    Ok(OwnedHandle(handle))
+}
+
+/// Resolves a sequence of path components relative to a root handle,
+/// returning a `ResolvedResource` (file or directory).
+///
+/// This is the Windows equivalent of Unix `resolve_fd_relative`. It opens
+/// each component relative to the previous handle, checking for reparse
+/// points when `deny_reparse` is true. The final component is opened as
+/// either a file or directory and the type is determined from metadata.
+pub(crate) fn resolve_to_resource(
+    root: HANDLE,
+    canonical_root: &std::path::Path,
+    components: &[String],
+    deny_reparse: bool,
+) -> super::ResolvedResource {
+    use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
+
+    if components.is_empty() {
+        return ResolvedResource::NotFound;
+    }
+
+    // Track ownership separately: `current_raw` is the live handle for the
+    // current directory level. `current_owned` holds ownership of the handle
+    // from `open_directory_relative` and must stay alive until the next
+    // iteration. We never create an OwnedHandle from the root handle to
+    // avoid closing it when the function returns.
+    let mut current_raw = root;
+    let mut current_owned: Option<OwnedHandle> = None;
+    let total = components.len();
+
+    for (i, component) in components.iter().enumerate() {
+        let is_final = i == total - 1;
+
+        let child = if is_final {
+            open_any_relative(current_raw, component)
+        } else {
+            open_directory_relative(current_raw, component)
+        };
+
+        let child = match child {
+            Ok(h) => h,
+            Err(_) => return ResolvedResource::NotFound,
+        };
+
+        // Validate intermediate components are directories.
+        if !is_final {
+            match get_file_standard_info(child.raw()) {
+                Ok(info) if info.directory == FALSE => {
+                    return ResolvedResource::NotFound;
+                }
+                Err(_) => return ResolvedResource::NotFound,
+                _ => {}
+            }
+        }
+
+        // Check for reparse points if policy requires denial.
+        if deny_reparse {
+            match deny_all_reparse_check(child.raw()) {
+                Ok(()) => {}
+                Err(WindowsFsError::ReparsePointDenied) => {
+                    return ResolvedResource::Denied(crate::path::PathRejection::SymlinkDenied);
+                }
+                Err(_) => return ResolvedResource::NotFound,
+            }
+        }
+
+        if is_final {
+            // Determine if this is a file or directory.
+            let is_dir = match get_file_standard_info(child.raw()) {
+                Ok(info) => info.directory != FALSE,
+                Err(_) => false,
+            };
+
+            let canonical_path = match get_final_path(child.raw()) {
+                Ok(p) => p,
+                Err(_) => canonical_root.join(component),
+            };
+
+            let std_file = handle_to_std_file(child);
+            let safe_components = components.to_vec();
+
+            if is_dir {
+                return ResolvedResource::Directory(ResolvedDirectory {
+                    canonical_path,
+                    components: safe_components,
+                });
+            } else {
+                let metadata = match std_file.metadata() {
+                    Ok(m) => m,
+                    Err(_) => return ResolvedResource::NotFound,
+                };
+                return ResolvedResource::File(ResolvedFile {
+                    file: std_file,
+                    metadata,
+                    safe_relative_components: safe_components,
+                });
+            }
+        }
+
+        // Intermediate component: update raw handle and keep ownership.
+        current_raw = child.raw();
+        // Prevent child from being dropped (which would close the handle).
+        // We take ownership via ManuallyDrop-like semantics by leaking the
+        // previous owned handle and replacing it.
+        current_owned = Some(child);
+    }
+
+    ResolvedResource::NotFound
 }
 
 // ── Track C: Reparse detection ──────────────────────────────────────────────
@@ -689,9 +936,9 @@ pub(crate) fn get_file_id(handle: HANDLE) -> Result<u64, WindowsFsError> {
 
 /// Returns the final normalized path for the given handle.
 ///
-/// Uses `GetFinalPathNameByHandleW` with `VOLUME_NAME_GUID` to retrieve the
-/// path as `\\?\Volume{guid}\path\to\file`. The volume GUID prefix is
-/// stripped to return a clean `PathBuf`.
+/// Uses `GetFinalPathNameByHandleW` with `VOLUME_NAME_DOS` (0) to retrieve
+/// the path in DOS device format (e.g., `C:\path\to\file`). This format is
+/// directly usable with filesystem APIs and `Path::exists`.
 ///
 /// # Errors
 ///
@@ -707,9 +954,10 @@ pub(crate) fn get_final_path(handle: HANDLE) -> Result<PathBuf, WindowsFsError> 
         // returns the number of characters written (not including null
         // terminator). If the buffer is too small, it returns 0 and sets
         // ERROR_INSUFFICIENT_BUFFER.
-        let len = unsafe {
-            GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buf_size, VOLUME_NAME_GUID)
-        };
+        //
+        // VOLUME_NAME_DOS (0) returns the DOS device path (e.g., C:\path),
+        // which is directly usable with FindFirstFileW and filesystem APIs.
+        let len = unsafe { GetFinalPathNameByHandleW(handle, buffer.as_mut_ptr(), buf_size, 0) };
 
         if len == 0 {
             return Err(last_error_to_fs_error());
@@ -719,15 +967,7 @@ pub(crate) fn get_final_path(handle: HANDLE) -> Result<PathBuf, WindowsFsError> 
         // path. Otherwise, double the buffer and retry.
         if len < buf_size {
             let path_slice = &buffer[..len as usize];
-            let path = utf16_slice_to_pathbuf(path_slice);
-
-            // Strip the `\\?\Volume{guid}\` prefix if present, leaving a
-            // clean path like `C:\path\to\file`.
-            let path_str = path.to_string_lossy();
-            if let Some(stripped) = path_str.strip_prefix(r"\\?\") {
-                return Ok(PathBuf::from(stripped));
-            }
-            return Ok(path);
+            return Ok(utf16_slice_to_pathbuf(path_slice));
         }
 
         buf_size = len + 1;

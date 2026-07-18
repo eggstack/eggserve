@@ -136,6 +136,8 @@ pub(crate) struct PinnedRoot {
     canonical_root: PathBuf,
     #[cfg(unix)]
     root_fd: fs::File,
+    #[cfg(windows)]
+    root_handle: windows::OwnedHandle,
 }
 
 impl Clone for PinnedRoot {
@@ -144,6 +146,8 @@ impl Clone for PinnedRoot {
             canonical_root: self.canonical_root.clone(),
             #[cfg(unix)]
             root_fd: self.root_fd.try_clone().expect("failed to clone root fd"),
+            #[cfg(windows)]
+            root_handle: self.root_handle.clone(),
         }
     }
 }
@@ -162,10 +166,39 @@ impl PinnedRoot {
         }
         #[cfg(unix)]
         let root_fd = fs::File::open(&canonical_root)?;
+        #[cfg(windows)]
+        let root_handle = {
+            use std::os::windows::ffi::OsStrExt;
+            let path_str = canonical_root.to_str().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    "root path is not valid UTF-8",
+                )
+            })?;
+            let path_utf16: Vec<u16> = path_str.encode_utf16().chain(std::iter::once(0)).collect();
+            unsafe {
+                use windows::*;
+                let h = CreateFileW(
+                    path_utf16.as_ptr(),
+                    FILE_LIST_DIRECTORY,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    std::ptr::null_mut(),
+                    OPEN_EXISTING,
+                    FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                    std::ptr::null_mut(),
+                );
+                if h == INVALID_HANDLE_VALUE || h.is_null() {
+                    return Err(std::io::Error::last_os_error());
+                }
+                OwnedHandle(h)
+            }
+        };
         Ok(Self {
             canonical_root,
             #[cfg(unix)]
             root_fd,
+            #[cfg(windows)]
+            root_handle,
         })
     }
 
@@ -177,6 +210,11 @@ impl PinnedRoot {
     #[cfg(unix)]
     pub(crate) fn root_fd(&self) -> &fs::File {
         &self.root_fd
+    }
+
+    #[cfg(windows)]
+    pub(crate) fn root_handle(&self) -> windows::HANDLE {
+        self.root_handle.raw()
     }
 }
 
@@ -206,6 +244,15 @@ impl<'a> RootGuard<'a> {
                 self.pinned.canonical_root(),
                 confined.components(),
                 policy,
+            );
+        }
+        #[cfg(windows)]
+        if policy.symlinks == SymlinkPolicy::Denied {
+            return windows::resolve_to_resource(
+                self.pinned.root_handle(),
+                self.pinned.canonical_root(),
+                confined.components(),
+                true,
             );
         }
         self.resolve_fallback(confined.components(), policy)
