@@ -228,6 +228,7 @@ impl<'a> RootGuard<'a> {
                 self.pinned.canonical_root(),
                 confined.components(),
                 true,
+                policy.dotfiles == DotfilePolicy::Denied,
             );
         }
         self.resolve_fallback(confined.components(), policy)

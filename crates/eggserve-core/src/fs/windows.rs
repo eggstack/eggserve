@@ -430,8 +430,12 @@ fn to_utf16_null(s: &str) -> Vec<u16> {
 }
 
 /// Converts a `&[u16]` slice (not necessarily null-terminated) to a `PathBuf`.
+///
+/// Trims trailing NUL bytes that are padding in fixed-size Windows arrays
+/// like `WIN32_FIND_DATAW.c_file_name`.
 fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
-    String::from_utf16_lossy(slice).into()
+    let end = slice.iter().rposition(|&c| c != 0).map_or(0, |i| i + 1);
+    String::from_utf16_lossy(&slice[..end]).into()
 }
 
 // ── Track B: Root-relative open functions ────────────────────────────────────
@@ -486,7 +490,7 @@ pub(crate) fn open_directory_relative(
     let status = unsafe {
         NtOpenFile(
             &mut handle,
-            FILE_LIST_DIRECTORY | SYNCHRONIZE,
+            FILE_LIST_DIRECTORY | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -547,7 +551,7 @@ pub(crate) fn open_file_relative(
     let status = unsafe {
         NtOpenFile(
             &mut handle,
-            SYNCHRONIZE,
+            FILE_READ_DATA | FILE_READ_ATTRIBUTES | SYNCHRONIZE,
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -669,7 +673,7 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
     let status = unsafe {
         NtOpenFile(
             &mut handle,
-            FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | READ_CONTROL,
+            FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | READ_CONTROL | SYNCHRONIZE,
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
@@ -691,16 +695,24 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
 /// each component relative to the previous handle, checking for reparse
 /// points when `deny_reparse` is true. The final component is opened as
 /// either a file or directory and the type is determined from metadata.
+///
+/// When `dotfiles_denied` is true, components starting with `.` are rejected
+/// with `DotfileDenied`, matching the Unix behavior.
 pub(crate) fn resolve_to_resource(
     root: HANDLE,
     canonical_root: &std::path::Path,
     components: &[String],
     deny_reparse: bool,
+    dotfiles_denied: bool,
 ) -> super::ResolvedResource {
     use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
 
     if components.is_empty() {
-        return ResolvedResource::NotFound;
+        // Root path — return the root directory itself.
+        return ResolvedResource::Directory(ResolvedDirectory {
+            canonical_path: canonical_root.to_path_buf(),
+            components: Vec::new(),
+        });
     }
 
     // Track ownership: `current` holds the OwnedHandle for the current
@@ -713,6 +725,11 @@ pub(crate) fn resolve_to_resource(
     for (i, component) in components.iter().enumerate() {
         let is_final = i == total - 1;
         let parent_raw = current.as_ref().map_or(root, |h| h.raw());
+
+        // Check dotfile policy before opening the component.
+        if dotfiles_denied && component.starts_with('.') {
+            return ResolvedResource::Denied(crate::path::PathRejection::DotfileDenied);
+        }
 
         let child = if is_final {
             open_any_relative(parent_raw, component)
@@ -883,7 +900,7 @@ pub(crate) fn open_root_handle(path: &std::path::Path) -> Result<OwnedHandle, st
     unsafe {
         let h = CreateFileW(
             path_utf16.as_ptr(),
-            FILE_LIST_DIRECTORY,
+            FILE_LIST_DIRECTORY | SYNCHRONIZE,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             ptr::null_mut(),
             OPEN_EXISTING,
@@ -1224,7 +1241,7 @@ mod tests {
         let handle = unsafe {
             CreateFileW(
                 root_path_utf16.as_ptr(),
-                FILE_LIST_DIRECTORY,
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
                 ptr::null_mut(),
                 OPEN_EXISTING,
