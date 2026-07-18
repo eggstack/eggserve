@@ -65,6 +65,7 @@ const FALSE: BOOL = 0;
 // ── Access rights ───────────────────────────────────────────────────────────
 
 const GENERIC_READ: DWORD = 0x80000000;
+const FILE_GENERIC_READ: DWORD = 0x00120089;
 const FILE_LIST_DIRECTORY: DWORD = 0x00000001;
 
 // ── Share mode ──────────────────────────────────────────────────────────────
@@ -664,7 +665,7 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
     let status = unsafe {
         NtOpenFile(
             &mut handle,
-            GENERIC_READ | SYNCHRONIZE,
+            FILE_GENERIC_READ | SYNCHRONIZE,
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
