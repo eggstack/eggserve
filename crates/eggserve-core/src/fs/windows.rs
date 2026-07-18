@@ -180,6 +180,7 @@ struct FILE_ID_BOTH_DIR_INFO {
 
 // ── NT API types (for handle-relative opens) ─────────────────────────────────
 
+#[allow(clippy::upper_case_acronyms)]
 type NTSTATUS = i32;
 
 #[repr(C)]
@@ -697,22 +698,21 @@ pub(crate) fn resolve_to_resource(
         return ResolvedResource::NotFound;
     }
 
-    // Track ownership separately: `current_raw` is the live handle for the
-    // current directory level. `current_owned` holds ownership of the handle
-    // from `open_directory_relative` and must stay alive until the next
-    // iteration. We never create an OwnedHandle from the root handle to
+    // Track ownership: `current` holds the OwnedHandle for the current
+    // directory level. We extract the raw pointer via `raw()` for the next
+    // open call. We never create an OwnedHandle from the root handle to
     // avoid closing it when the function returns.
-    let mut current_raw = root;
-    let mut current_owned: Option<OwnedHandle> = None;
+    let mut current: Option<OwnedHandle> = None;
     let total = components.len();
 
     for (i, component) in components.iter().enumerate() {
         let is_final = i == total - 1;
+        let parent_raw = current.as_ref().map_or(root, |h| h.raw());
 
         let child = if is_final {
-            open_any_relative(current_raw, component)
+            open_any_relative(parent_raw, component)
         } else {
-            open_directory_relative(current_raw, component)
+            open_directory_relative(parent_raw, component)
         };
 
         let child = match child {
@@ -775,12 +775,11 @@ pub(crate) fn resolve_to_resource(
             }
         }
 
-        // Intermediate component: update raw handle and keep ownership.
-        current_raw = child.raw();
-        // Prevent child from being dropped (which would close the handle).
-        // We take ownership via ManuallyDrop-like semantics by leaking the
-        // previous owned handle and replacing it.
-        current_owned = Some(child);
+        // Intermediate component: transfer ownership to `current`.
+        // The previous OwnedHandle (if any) is dropped here, closing the
+        // previous directory handle. The new child handle is kept alive
+        // for the next iteration.
+        current = Some(child);
     }
 
     ResolvedResource::NotFound
@@ -866,7 +865,6 @@ pub(crate) fn deny_all_reparse_check(handle: HANDLE) -> Result<(), WindowsFsErro
 /// to open the directory without following reparse points. This is called
 /// once at server startup from `PinnedRoot::new()`.
 pub(crate) fn open_root_handle(path: &std::path::Path) -> Result<OwnedHandle, std::io::Error> {
-    use std::os::windows::ffi::OsStrExt;
     let path_str = path.to_str().ok_or_else(|| {
         std::io::Error::new(
             std::io::ErrorKind::InvalidInput,
