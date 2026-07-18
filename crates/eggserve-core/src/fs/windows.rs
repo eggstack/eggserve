@@ -214,6 +214,7 @@ const FILE_OPEN: u32 = 0x00000001;
 const FILE_DIRECTORY_FILE: u32 = 0x00000020;
 const FILE_NON_DIRECTORY_FILE: u32 = 0x00000040;
 const FILE_OPEN_FOR_BACKUP_INTENT: u32 = 0x00004000;
+const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x00000020;
 
 const SYNCHRONIZE: u32 = 0x00100000;
 
@@ -486,7 +487,7 @@ pub(crate) fn open_directory_relative(
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT,
+            FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT | FILE_SYNCHRONOUS_IO_NONALERT,
         )
     };
 
@@ -547,7 +548,7 @@ pub(crate) fn open_file_relative(
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_NON_DIRECTORY_FILE,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
         )
     };
 
@@ -669,7 +670,7 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            0,
+            FILE_SYNCHRONOUS_IO_NONALERT,
         )
     };
 
