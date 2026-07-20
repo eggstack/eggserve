@@ -127,8 +127,8 @@ pub(crate) struct FILE_STANDARD_INFO {
     allocation_size: i64,
     end_of_file: i64,
     number_of_links: DWORD,
-    delete_pending: BOOL,
-    directory: BOOL,
+    delete_pending: u8,
+    directory: u8,
 }
 
 #[repr(C)]
@@ -625,7 +625,7 @@ pub(crate) fn resolve_components_relative(
         // Validate intermediate components are directories.
         if !is_final {
             let info = get_file_standard_info(child.raw())?;
-            if info.directory == FALSE {
+            if info.directory == 0 {
                 return Err(WindowsFsError::NotADirectory);
             }
         }
@@ -678,7 +678,7 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_SYNCHRONOUS_IO_NONALERT,
+            FILE_OPEN_FOR_BACKUP_INTENT,
         )
     };
 
@@ -746,7 +746,7 @@ pub(crate) fn resolve_to_resource(
         // Validate intermediate components are directories.
         if !is_final {
             match get_file_standard_info(child.raw()) {
-                Ok(info) if info.directory == FALSE => {
+                Ok(info) if info.directory == 0 => {
                     return ResolvedResource::NotFound;
                 }
                 Err(_) => return ResolvedResource::NotFound,
@@ -768,7 +768,7 @@ pub(crate) fn resolve_to_resource(
         if is_final {
             // Determine if this is a file or directory.
             let is_dir = match get_file_standard_info(child.raw()) {
-                Ok(info) => info.directory != FALSE,
+                Ok(info) => info.directory != 0,
                 Err(_) => false,
             };
 
@@ -1225,14 +1225,11 @@ pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>,
 mod tests {
     use super::*;
     use std::path::Path;
+    use tempfile::TempDir;
 
-    fn temp_dir() -> PathBuf {
-        std::env::temp_dir().join(format!("eggserve_windows_test_{}", std::process::id()))
-    }
-
-    fn setup_test_root() -> (PathBuf, OwnedHandle) {
-        let root = temp_dir();
-        let _ = std::fs::remove_dir_all(&root);
+    fn setup_test_root() -> (TempDir, OwnedHandle) {
+        let tmp = TempDir::new().unwrap();
+        let root = tmp.path().to_path_buf();
         std::fs::create_dir_all(root.join("subdir")).unwrap();
         std::fs::write(root.join("hello.txt"), "hello").unwrap();
         std::fs::write(root.join("subdir").join("file.txt"), "nested").unwrap();
@@ -1251,64 +1248,52 @@ mod tests {
             )
         };
         assert_ne!(handle, INVALID_HANDLE_VALUE);
-        (root, OwnedHandle(handle))
-    }
-
-    fn cleanup_test_root(root: &Path) {
-        let _ = std::fs::remove_dir_all(root);
+        (tmp, OwnedHandle(handle))
     }
 
     #[test]
     fn open_directory_relative_succeeds() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let result = open_directory_relative(root_handle.raw(), "subdir");
         assert!(
             result.is_ok(),
             "open_directory_relative failed: {:?}",
             result.err()
         );
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn open_file_relative_succeeds() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let result = open_file_relative(root_handle.raw(), "hello.txt");
         assert!(
             result.is_ok(),
             "open_file_relative failed: {:?}",
             result.err()
         );
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn open_relative_not_found() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let result = open_file_relative(root_handle.raw(), "nonexistent.txt");
         assert!(matches!(result, Err(WindowsFsError::NotFound)));
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn open_directory_as_file_fails() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let result = open_file_relative(root_handle.raw(), "subdir");
         assert!(
             matches!(result, Err(WindowsFsError::NotADirectory)),
             "opening a directory without BACKUP_SEMANTICS should fail with NotADirectory, got {:?}",
             result
         );
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn resolve_nested_components() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let components: Vec<String> = vec!["subdir".into(), "file.txt".into()];
         let result = resolve_components_relative(root_handle.raw(), &components, true);
         assert!(
@@ -1316,13 +1301,11 @@ mod tests {
             "resolve_components_relative failed: {:?}",
             result.err()
         );
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn resolve_intermediate_not_directory_fails() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let components: Vec<String> = vec!["hello.txt".into(), "impossible".into()];
         let result = resolve_components_relative(root_handle.raw(), &components, true);
         assert!(
@@ -1330,71 +1313,57 @@ mod tests {
             "intermediate file should fail with NotADirectory, got {:?}",
             result
         );
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn get_file_standard_info_directory() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let dir_handle = open_directory_relative(root_handle.raw(), "subdir").unwrap();
         let info = get_file_standard_info(dir_handle.raw());
         assert!(info.is_ok());
         let info = info.unwrap();
-        assert_ne!(info.directory, FALSE);
-        drop(dir_handle);
-        drop(root_handle);
-        cleanup_test_root(&root);
+        assert_ne!(info.directory, 0);
     }
 
     #[test]
     fn get_file_standard_info_file() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let file_handle = open_file_relative(root_handle.raw(), "hello.txt").unwrap();
         let info = get_file_standard_info(file_handle.raw());
         assert!(info.is_ok());
         let info = info.unwrap();
-        assert_eq!(info.directory, FALSE);
+        assert_eq!(info.directory, 0);
         assert_eq!(info.end_of_file, 5); // "hello" is 5 bytes
-        drop(file_handle);
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn get_final_path_succeeds() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let path = get_final_path(root_handle.raw());
         assert!(path.is_ok(), "get_final_path failed: {:?}", path.err());
         let path = path.unwrap();
         assert!(path.exists(), "final path should exist on disk: {:?}", path);
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn get_file_id_succeeds() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let id = get_file_id(root_handle.raw());
         assert!(id.is_ok(), "get_file_id failed: {:?}", id.err());
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn owned_handle_clone_and_drop() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let cloned = root_handle.clone();
         assert!(cloned.is_valid());
         drop(cloned);
         assert!(root_handle.is_valid());
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn enumerate_directory_entries() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let entries = enumerate_directory(root_handle.raw());
         assert!(
             entries.is_ok(),
@@ -1416,13 +1385,11 @@ mod tests {
         // `.` and `..` should be filtered out.
         assert!(!names.contains(&"."), ". should be filtered");
         assert!(!names.contains(&".."), ".. should be filtered");
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn enumerate_directory_subdir() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let dir_handle = open_directory_relative(root_handle.raw(), "subdir").unwrap();
         let entries = enumerate_directory(dir_handle.raw());
         assert!(entries.is_ok());
@@ -1430,55 +1397,43 @@ mod tests {
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "file.txt");
         assert!(!entries[0].is_directory);
-        drop(dir_handle);
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn no_reparse_on_regular_files() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let file_handle = open_file_relative(root_handle.raw(), "hello.txt").unwrap();
         assert!(!is_reparse_point(file_handle.raw()));
         let tag = get_reparse_tag(file_handle.raw()).unwrap();
         assert_eq!(tag, 0);
         assert!(deny_all_reparse_check(file_handle.raw()).is_ok());
-        drop(file_handle);
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn deny_all_reparse_check_on_regular_dir() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let dir_handle = open_directory_relative(root_handle.raw(), "subdir").unwrap();
         assert!(deny_all_reparse_check(dir_handle.raw()).is_ok());
-        drop(dir_handle);
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn handle_to_std_file_read() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let file_handle = open_file_relative(root_handle.raw(), "hello.txt").unwrap();
         let std_file = handle_to_std_file(file_handle);
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();
         assert_eq!(contents, "hello");
-        cleanup_test_root(&root);
     }
 
     #[test]
     fn resolve_components_relative_empty() {
-        let (root, root_handle) = setup_test_root();
+        let (_tmp, root_handle) = setup_test_root();
         let result = resolve_components_relative(root_handle.raw(), &[], true);
         assert!(result.is_ok());
         let handle = result.unwrap();
         assert!(handle.is_valid());
-        drop(root_handle);
-        cleanup_test_root(&root);
     }
 
     #[test]
