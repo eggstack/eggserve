@@ -677,7 +677,7 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            0,
+            FILE_OPEN,
         )
     };
 
