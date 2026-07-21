@@ -1224,7 +1224,6 @@ pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>,
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::Path;
     use tempfile::TempDir;
 
     fn setup_test_root() -> (TempDir, OwnedHandle) {
