@@ -108,7 +108,7 @@ const ERROR_TOO_MANY_LINKS: DWORD = 1142;
 // ── File information classes ────────────────────────────────────────────────
 
 const FILE_ATTRIBUTE_TAG_INFO_CLASS: u32 = 9;
-const FILE_STANDARD_INFO_CLASS: u32 = 5;
+const FILE_STANDARD_INFO_CLASS: u32 = 1;
 
 const DUPLICATE_SAME_ACCESS: DWORD = 0x00000002;
 
@@ -136,9 +136,9 @@ pub(crate) struct FILE_STANDARD_INFO {
 #[allow(dead_code)]
 struct WIN32_FIND_DATAW {
     dw_file_attributes: DWORD,
-    ft_creation_time: u64,
-    ft_last_access_time: u64,
-    ft_last_write_time: u64,
+    ft_creation_time: [u32; 2],
+    ft_last_access_time: [u32; 2],
+    ft_last_write_time: [u32; 2],
     n_file_size_high: DWORD,
     n_file_size_low: DWORD,
     dw_reserved0: DWORD,
@@ -151,9 +151,9 @@ impl Default for WIN32_FIND_DATAW {
     fn default() -> Self {
         Self {
             dw_file_attributes: 0,
-            ft_creation_time: 0,
-            ft_last_access_time: 0,
-            ft_last_write_time: 0,
+            ft_creation_time: [0; 2],
+            ft_last_access_time: [0; 2],
+            ft_last_write_time: [0; 2],
             n_file_size_high: 0,
             n_file_size_low: 0,
             dw_reserved0: 0,
@@ -215,7 +215,7 @@ struct IoStatusBlock {
 const OBJ_CASE_INSENSITIVE: u32 = 0x00000040;
 
 const FILE_OPEN: u32 = 0x00000001;
-const FILE_DIRECTORY_FILE: u32 = 0x00000020;
+const FILE_DIRECTORY_FILE: u32 = 0x00000001;
 const FILE_NON_DIRECTORY_FILE: u32 = 0x00000040;
 const FILE_OPEN_FOR_BACKUP_INTENT: u32 = 0x00004000;
 const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x00000020;
