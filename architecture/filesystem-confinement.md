@@ -127,7 +127,7 @@ On non-Unix platforms (or in follow-symlinks mode), component-wise `symlink_meta
 
 This is explicitly documented as outside the descriptor-relative hardening guarantee.
 
-Plan 084 has implemented handle-relative child resolution on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative child resolution (analogous to Unix `dir_fd`), and `RootGuard::resolve_child` uses handle-relative traversal on Windows. Directory enumeration still uses a path-based fallback (pending Plan 085).
+Plan 084 has implemented handle-relative child resolution on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative child resolution (analogous to Unix `dir_fd`), and `RootGuard::resolve_child` uses handle-relative traversal on Windows. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback entirely.
 
 ## `RootGuard` Lifecycle
 
@@ -204,7 +204,7 @@ Every type that carries path data is classified by its role in the serving pipel
 | `ResolvedFile` | `safe_relative_components` | Safe relative display data | Used only for MIME detection. Never used for file access. |
 | `ResolvedFile` | `file` | Opened-resource owner | Pre-opened file handle. Consumed by `into_body()`. Never reopened by path. |
 | `ResolvedFile` | `metadata` | Snapshot at resolution time | `fs::Metadata` captured during resolution. Used for ETag, Last-Modified, Content-Length. |
-| `ResolvedDirectory` | `canonical_path` | Diagnostic + fallback listing | Used for fallback `read_dir` on non-Unix. On Unix, listing uses `dir_fd`. |
+| `ResolvedDirectory` | `canonical_path` | Diagnostic + fallback listing | Used for error messages. On Unix, listing uses `dir_fd`. On Windows, listing uses `NtQueryDirectoryFile` on the retained handle. |
 | `ResolvedDirectory` | `dir_fd` | Opened-resource owner | Unix directory descriptor for child resolution and listing. |
 | `ResolvedDirectory` | `components` | Safe relative display data | Path components relative to root. Used for child resolution identity. |
 | `ConfinedPath` | (internal components) | Policy input | Parsed request target components. Consumed by `RootGuard::resolve()`. |

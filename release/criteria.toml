@@ -1642,6 +1642,124 @@ waiver_allowed = false
 security_relevance = true
 release_stage = "preflight"
 
+# ---------------------------------------------------------------------------
+# Plan 085 — Windows handle-relative directory enumeration
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "windows.directory-enumeration-handle-relative"
+title = "Windows handle-relative directory enumeration"
+description = "Directory enumeration on Windows uses NtQueryDirectoryFile on the retained directory handle, not path-based fallback"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_enumeration"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = ["windows.handle-retained-directory"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.directory-buffer-parser"
+title = "Windows directory buffer parser"
+description = "NtQueryDirectoryFile buffer is parsed correctly: FILE_DIRECTORY_INFORMATION entries are walked, names extracted, and results returned without path reconstruction"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_enumeration"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.directory-listing-policy"
+title = "Windows directory listing policy enforcement"
+description = "Directory listing respects StaticPolicy: listing is denied when DirectoryListingPolicy is Deny, and permitted when Serve"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_directory_listing"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/response.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.directory-listing-head-parity"
+title = "Windows directory listing HEAD parity"
+description = "HEAD request for a directory returns identical headers (Content-Length, Content-Type) to GET without a body"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_directory_listing"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/response.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.directory-listing-resource-stability"
+title = "Windows directory listing resource stability"
+description = "Directory listing does not leak file descriptors or grow resource counts across repeated requests"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_directory_listing"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.directory-listing-installed-artifact"
+title = "Windows directory listing installed artifact"
+description = "Installed Python wheel on Windows serves directory listings correctly via the handle-based enumeration path"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_integration -v"
+workflow_job = "wheel-smoke"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "crates/eggserve-core/src/fs/windows.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
 [[gate]]
 id = "check-generated"
 title = "Generated file cleanliness"

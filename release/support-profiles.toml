@@ -247,7 +247,7 @@ invalidation_paths = [
     "Cargo.lock",
 ]
 waivers_allowed = true
-notes = "Functional-only. Handle-relative child resolution implemented (Plan 084). Reparse-point hardening pending Plans 085–086; enumeration still uses path-based fallback. Profiles remain unpromoted."
+notes = "Functional-only. Handle-relative child resolution (Plan 084) and directory enumeration (Plan 085) implemented. Reparse-point hardening qualification pending Plan 086. Profiles remain unpromoted."
 
 # ---------------------------------------------------------------------------
 # windows-direct-https: Windows with native rustls

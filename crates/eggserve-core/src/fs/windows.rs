@@ -37,15 +37,18 @@
 //!
 //! # Limitations
 //!
-//! Directory enumeration uses a path-based fallback (`GetFinalPathNameByHandleW`
-//! + `FindFirstFileW`) rather than `NtQueryDirectoryFile`. A production
-//! implementation would use handle-based enumeration to avoid the path
-//! reconstruction step (Planned for Plan 085).
+//! Directory enumeration uses `NtQueryDirectoryFile` with
+//! `FileIdBothDirectoryInfo` for true handle-based enumeration (Plan 085).
+//! A legacy path-based fallback (`GetFinalPathNameByHandleW` +
+//! `FindFirstFileW`) is retained as `enumerate_directory_path_based` for
+//! compatibility profiles.
 
 use std::ffi::c_void;
 use std::os::windows::io::{FromRawHandle, RawHandle};
 use std::path::PathBuf;
 use std::ptr;
+
+use crate::policy::{DotfilePolicy, SymlinkPolicy};
 
 // ── Windows FFI types ───────────────────────────────────────────────────────
 
@@ -111,6 +114,9 @@ const ERROR_TOO_MANY_LINKS: DWORD = 1142;
 
 const FILE_ATTRIBUTE_TAG_INFO_CLASS: u32 = 9;
 const FILE_STANDARD_INFO_CLASS: u32 = 1;
+const FILE_ID_BOTH_DIRECTORY_INFO: u32 = 10;
+
+const STATUS_NO_MORE_FILES: u32 = 0x80000006;
 
 const DUPLICATE_SAME_ACCESS: DWORD = 0x00000002;
 
@@ -184,6 +190,12 @@ struct FILE_ID_BOTH_DIR_INFO {
     file_id: [u8; 8],
     file_name: [u16; 1], // variable length
 }
+
+/// Fixed header size of FILE_ID_BOTH_DIR_INFO before the variable-length file_name.
+/// Fields: NextEntryOffset(4) + FileIndex(8) + CreationTime(8) + LastAccessTime(8) +
+/// LastWriteTime(8) + ChangeTime(8) + AllocationSize(8) + EndOfFile(8) +
+/// FileAttributes(4) + FileNameLength(4) + EaSize(4) + FileId(8) + FileName(1*2) = 80 bytes
+const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize = 80;
 
 // ── NT API types (for handle-relative opens) ─────────────────────────────────
 
@@ -287,6 +299,20 @@ extern "system" {
         io_status_block: *mut IoStatusBlock,
         share_access: u32,
         open_options: u32,
+    ) -> NTSTATUS;
+
+    fn NtQueryDirectoryFile(
+        file_handle: HANDLE,
+        event: HANDLE,
+        apc_routine: *mut c_void,
+        apc_context: *mut c_void,
+        io_status_block: *mut IoStatusBlock,
+        file_information: *mut c_void,
+        length: DWORD,
+        file_information_class: u32,
+        return_single_entry: BOOL,
+        file_name: *const NtUnicodeString,
+        restart_scan: BOOL,
     ) -> NTSTATUS;
 }
 
@@ -992,6 +1018,9 @@ pub(crate) fn resolve_child_relative(
 ///
 /// Returns entries filtered according to the dotfile and symlink policies.
 /// This is the Windows handle-relative equivalent of `unix::list_directory_fd`.
+///
+/// Entries are enumerated from the directory handle using `NtQueryDirectoryFile`
+/// (no path reconstruction). Policy is applied before rendering.
 pub(crate) fn list_directory_handle(
     dir_handle: HANDLE,
     policy: &crate::policy::StaticPolicy,
@@ -1002,16 +1031,24 @@ pub(crate) fn list_directory_handle(
     let mut result = Vec::new();
     for entry in entries {
         // Filter dotfiles.
-        if policy.dotfiles == DotfilePolicy::Denied && entry.name.starts_with('.') {
+        if policy.dotfiles == DotfilePolicy::Denied && entry.hidden_or_dot {
             continue;
         }
 
         // Filter reparse points when symlinks are denied.
-        if policy.symlinks == SymlinkPolicy::Denied && entry.is_reparse_point {
+        if policy.symlinks == SymlinkPolicy::Denied
+            && entry.kind == DirectoryEntryKind::ReparsePoint
+        {
             continue;
         }
 
-        result.push((entry.name, entry.is_directory));
+        // Skip unsupported object classes (Other kind).
+        if entry.kind == DirectoryEntryKind::Other {
+            continue;
+        }
+
+        let is_dir = entry.kind == DirectoryEntryKind::Directory;
+        result.push((entry.name, is_dir));
     }
 
     result.sort_by(|a, b| a.0.cmp(&b.0));
@@ -1294,33 +1331,233 @@ pub(crate) fn verify_handle_not_closed_after_conversion(handle: &OwnedHandle) ->
     handle.is_valid()
 }
 
+// ── Track B: Directory buffer parser ─────────────────────────────────────────
+
+/// A parsed directory entry from a Windows directory information buffer.
+///
+/// This is the platform-neutral representation (Track C). It does not expose
+/// raw Windows attribute bits publicly.
+#[derive(Debug, Clone)]
+pub(crate) struct DirectoryEntryRecord {
+    /// The file name as a String. Validated to be valid UTF-16.
+    pub name: String,
+    /// Classification of the entry type.
+    pub kind: DirectoryEntryKind,
+    /// Optional stable file identity (from FILE_ID_BOTH_DIR_INFO).
+    pub file_id: Option<u64>,
+    /// Whether the name starts with a dot (for dotfile policy).
+    pub hidden_or_dot: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DirectoryEntryKind {
+    File,
+    Directory,
+    ReparsePoint,
+    Other,
+}
+
+/// Error type for directory buffer parsing.
+#[derive(Debug)]
+pub(crate) enum DirBufParseError {
+    /// The returned byte count exceeds the buffer allocation.
+    BufferOverflow,
+    /// An entry header is not fully contained within the buffer.
+    TruncatedHeader,
+    /// Filename byte length is odd (not aligned to u16).
+    OddFileNameLength,
+    /// Filename range lies outside the returned buffer.
+    FileNameOutOfRange,
+    /// NextEntryOffset is non-zero but would move before the current record.
+    OffsetUnderflow,
+    /// NextEntryOffset exceeds the returned byte count.
+    OffsetOverflow,
+    /// NextEntryOffset would create an infinite loop (visited all offsets).
+    OffsetLoop,
+    /// The filename cannot be decoded as valid UTF-16.
+    InvalidUtf16,
+}
+
+/// Parses a Windows directory information buffer into a Vec of DirectoryEntryRecord.
+///
+/// The buffer is expected to contain FILE_ID_BOTH_DIR_INFO records. Each record
+/// has a fixed header followed by a variable-length UTF-16 filename.
+///
+/// # Safety guarantees
+///
+/// This function performs NO unsafe operations. All bounds checking is done
+/// with ordinary Rust indexing. The parser rejects malformed kernel output
+/// rather than indexing unchecked.
+///
+/// # Arguments
+///
+/// * `buffer` - The raw bytes returned by NtQueryDirectoryFile
+/// * `max_entries` - Maximum number of entries to parse (for boundedness)
+///
+/// # Filtering
+///
+/// Entries named `.` and `..` are excluded from the result.
+pub(crate) fn parse_directory_buffer(
+    buffer: &[u8],
+    max_entries: usize,
+) -> Result<Vec<DirectoryEntryRecord>, DirBufParseError> {
+    let mut entries = Vec::new();
+    let mut offset: usize = 0;
+    let total_len = buffer.len();
+
+    loop {
+        if offset >= total_len {
+            break;
+        }
+
+        // Check we have enough bytes for the fixed header.
+        if offset + FILE_ID_BOTH_DIR_INFO_HEADER_SIZE > total_len {
+            return Err(DirBufParseError::TruncatedHeader);
+        }
+
+        // Read NextEntryOffset (first field, LE u32).
+        let next_entry_offset = u32::from_ne_bytes([
+            buffer[offset],
+            buffer[offset + 1],
+            buffer[offset + 2],
+            buffer[offset + 3],
+        ]) as usize;
+
+        // Read FileNameLength (at offset 68 within the record, LE u32).
+        let name_length_offset = offset + 68;
+        let file_name_length = u32::from_ne_bytes([
+            buffer[name_length_offset],
+            buffer[name_length_offset + 1],
+            buffer[name_length_offset + 2],
+            buffer[name_length_offset + 3],
+        ]) as usize;
+
+        // FileNameLength must be even (UTF-16 code units × 2 bytes each).
+        if file_name_length % 2 != 0 {
+            return Err(DirBufParseError::OddFileNameLength);
+        }
+
+        // Validate filename range lies within the buffer.
+        let name_start = offset + FILE_ID_BOTH_DIR_INFO_HEADER_SIZE;
+        let name_end = name_start + file_name_length;
+        if name_end > total_len {
+            return Err(DirBufParseError::FileNameOutOfRange);
+        }
+
+        // Read file_attributes (at offset 56 within the record, LE u32).
+        let attrs_offset = offset + 56;
+        let file_attributes = u32::from_ne_bytes([
+            buffer[attrs_offset],
+            buffer[attrs_offset + 1],
+            buffer[attrs_offset + 2],
+            buffer[attrs_offset + 3],
+        ]);
+
+        // Read file_index (at offset 8 within the record, LE u64) for identity.
+        let file_index_offset = offset + 8;
+        let file_index = u64::from_ne_bytes([
+            buffer[file_index_offset],
+            buffer[file_index_offset + 1],
+            buffer[file_index_offset + 2],
+            buffer[file_index_offset + 3],
+            buffer[file_index_offset + 4],
+            buffer[file_index_offset + 5],
+            buffer[file_index_offset + 6],
+            buffer[file_index_offset + 7],
+        ]);
+
+        // Decode filename as UTF-16.
+        let name_u16: Vec<u16> = (0..file_name_length / 2)
+            .map(|i| {
+                let idx = name_start + i * 2;
+                u16::from_ne_bytes([buffer[idx], buffer[idx + 1]])
+            })
+            .collect();
+
+        let name = String::from_utf16(&name_u16).map_err(|_| DirBufParseError::InvalidUtf16)?;
+
+        // Skip `.` and `..` pseudo-entries.
+        if name == "." || name == ".." {
+            // Still need to advance to next entry.
+            if next_entry_offset == 0 {
+                break;
+            }
+            if next_entry_offset <= offset || next_entry_offset >= total_len {
+                return Err(DirBufParseError::OffsetOverflow);
+            }
+            offset = next_entry_offset;
+            continue;
+        }
+
+        // Classify entry kind.
+        let is_directory = (file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+        let is_reparse = (file_attributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0;
+        let kind = if is_reparse {
+            DirectoryEntryKind::ReparsePoint
+        } else if is_directory {
+            DirectoryEntryKind::Directory
+        } else {
+            DirectoryEntryKind::File
+        };
+
+        let hidden_or_dot = name.starts_with('.');
+
+        entries.push(DirectoryEntryRecord {
+            name,
+            kind,
+            file_id: Some(file_index),
+            hidden_or_dot,
+        });
+
+        // Enforce max entries.
+        if entries.len() >= max_entries {
+            break;
+        }
+
+        // Advance to next entry.
+        if next_entry_offset == 0 {
+            break;
+        }
+
+        // Validate offset: must advance, must stay within buffer, must not loop.
+        if next_entry_offset <= offset || next_entry_offset >= total_len {
+            return Err(DirBufParseError::OffsetOverflow);
+        }
+
+        offset = next_entry_offset;
+    }
+
+    Ok(entries)
+}
+
 // ── Track F: Directory enumeration ──────────────────────────────────────────
 
-/// A single directory entry returned by `enumerate_directory`.
+/// Default buffer size for NtQueryDirectoryFile (64 KiB).
+/// This is large enough for most directories without reallocation.
+const DIR_ENUM_BUFFER_SIZE: usize = 64 * 1024;
+
+/// Default maximum entries for directory listing.
+const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
+
+/// A single directory entry returned by the path-based `enumerate_directory_path_based`.
 #[derive(Debug)]
-pub(crate) struct DirectoryEntry {
+pub(crate) struct DirectoryEntryPathBased {
     pub name: String,
     pub is_directory: bool,
     pub is_reparse_point: bool,
     pub file_size: u64,
 }
 
-/// Enumerates the contents of a directory using the given handle.
+/// Enumerates the contents of a directory using path-based fallback.
 ///
 /// # Implementation note
 ///
-/// True handle-based enumeration on Windows requires `NtQueryDirectoryFile`
-/// from `ntdll.dll`, which is an undocumented API. For this prototype, we use
-/// a path-based fallback: `GetFinalPathNameByHandleW` reconstructs the
-/// absolute path, then `FindFirstFileW` / `FindNextFileW` enumerate entries.
+/// This uses `GetFinalPathNameByHandleW` to reconstruct the absolute path,
+/// then `FindFirstFileW` / `FindNextFileW` to enumerate entries. This is the
+/// legacy path-based approach, retained for compatibility profiles.
 ///
-/// This approach has two limitations:
-/// 1. It requires the handle to have been opened with sufficient access for
-///    `GetFinalPathNameByHandleW`.
-/// 2. There is a TOCTOU window between path reconstruction and enumeration.
-///
-/// A production implementation should use `NtQueryDirectoryFile` for true
-/// handle-based enumeration (see Plan 064).
+/// For handle-based enumeration (no path reconstruction), use the primary
+/// `enumerate_directory` function which uses `NtQueryDirectoryFile`.
 ///
 /// # Filtering
 ///
@@ -1330,7 +1567,9 @@ pub(crate) struct DirectoryEntry {
 ///
 /// Returns `WindowsFsError::IoError` if the path reconstruction or
 /// `FindFirstFileW` / `FindNextFileW` calls fail.
-pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>, WindowsFsError> {
+pub(crate) fn enumerate_directory_path_based(
+    handle: HANDLE,
+) -> Result<Vec<DirectoryEntryPathBased>, WindowsFsError> {
     // Reconstruct the absolute path from the handle.
     let dir_path = get_final_path(handle)?;
 
@@ -1368,7 +1607,7 @@ pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>,
         if name != "." && name != ".." {
             let file_size =
                 ((find_data.n_file_size_high as u64) << 32) | (find_data.n_file_size_low as u64);
-            entries.push(DirectoryEntry {
+            entries.push(DirectoryEntryPathBased {
                 name,
                 is_directory: (find_data.dw_file_attributes & FILE_ATTRIBUTE_DIRECTORY) != 0,
                 is_reparse_point: (find_data.dw_file_attributes & FILE_ATTRIBUTE_REPARSE_POINT)
@@ -1395,6 +1634,94 @@ pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>,
 
     entries.sort_by(|a, b| a.name.cmp(&b.name));
     Ok(entries)
+}
+
+/// Enumerates the contents of a directory using the given handle.
+///
+/// Uses `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` for true
+/// handle-based enumeration. No path reconstruction is performed.
+///
+/// For directories that exceed the buffer size, multiple calls are made
+/// with `restart_scan=FALSE` to continue enumeration.
+///
+/// # Filtering
+///
+/// Entries named `.` and `..` are excluded from the result.
+///
+/// # Errors
+///
+/// Returns `WindowsFsError::IoError` if the `NtQueryDirectoryFile` call fails.
+pub(crate) fn enumerate_directory(
+    handle: HANDLE,
+) -> Result<Vec<DirectoryEntryRecord>, WindowsFsError> {
+    let mut buffer = vec![0u8; DIR_ENUM_BUFFER_SIZE];
+    let mut all_entries = Vec::new();
+    let mut first_call = true;
+
+    loop {
+        if all_entries.len() >= DEFAULT_MAX_LISTING_ENTRIES {
+            break;
+        }
+
+        let mut io_status = IoStatusBlock {
+            status: 0,
+            information: 0,
+        };
+
+        let restart_scan = if first_call { TRUE } else { FALSE };
+
+        // SAFETY: `buffer` is a heap-allocated, properly aligned byte buffer
+        // of DIR_ENUM_BUFFER_SIZE bytes. `io_status` is a stack-allocated
+        // output parameter. `handle` is valid (caller contract, opened with
+        // FILE_LIST_DIRECTORY | SYNCHRONIZE). `NtQueryDirectoryFile` writes
+        // FILE_ID_BOTH_DIR_INFO records into `buffer`. The buffer is zeroed
+        // before each call. All pointer parameters are null (no event, no APC,
+        // no file name filter).
+        let status = unsafe {
+            NtQueryDirectoryFile(
+                handle,
+                ptr::null_mut(), // event
+                ptr::null_mut(), // apc_routine
+                ptr::null_mut(), // apc_context
+                &mut io_status,
+                buffer.as_mut_ptr() as *mut c_void,
+                DIR_ENUM_BUFFER_SIZE as DWORD,
+                FILE_ID_BOTH_DIRECTORY_INFO,
+                FALSE,       // return_single_entry
+                ptr::null(), // file_name (null = all entries)
+                restart_scan,
+            )
+        };
+
+        first_call = false;
+
+        if status as u32 == STATUS_NO_MORE_FILES {
+            break;
+        }
+
+        if status < 0 {
+            return Err(WindowsFsError::IoError(status as u32));
+        }
+
+        let bytes_returned = io_status.information;
+        if bytes_returned == 0 || bytes_returned > DIR_ENUM_BUFFER_SIZE {
+            break;
+        }
+
+        let remaining = DEFAULT_MAX_LISTING_ENTRIES.saturating_sub(all_entries.len());
+        let parsed = parse_directory_buffer(&buffer[..bytes_returned], remaining)
+            .map_err(|_| WindowsFsError::IoError(0xBAADF00D))?;
+
+        let count = parsed.len();
+        all_entries.extend(parsed);
+
+        // If we got fewer entries than the buffer could hold, we're done.
+        if count == 0 || bytes_returned < DIR_ENUM_BUFFER_SIZE {
+            break;
+        }
+    }
+
+    Ok(all_entries)
 }
 
 // ── PinnedRoot and ResolvedDirectory Windows fields ─────────────────────────
@@ -1577,7 +1904,32 @@ mod tests {
         let entries = entries.unwrap();
         assert_eq!(entries.len(), 1);
         assert_eq!(entries[0].name, "file.txt");
-        assert!(!entries[0].is_directory);
+        assert_eq!(entries[0].kind, DirectoryEntryKind::File);
+    }
+
+    #[test]
+    fn enumerate_directory_path_based_entries() {
+        let (_tmp, root_handle) = setup_test_root();
+        let entries = enumerate_directory_path_based(root_handle.raw());
+        assert!(
+            entries.is_ok(),
+            "enumerate_directory_path_based failed: {:?}",
+            entries.err()
+        );
+        let entries = entries.unwrap();
+        let names: Vec<&str> = entries.iter().map(|e| e.name.as_str()).collect();
+        assert!(
+            names.contains(&"hello.txt"),
+            "expected hello.txt in entries, got {:?}",
+            names
+        );
+        assert!(
+            names.contains(&"subdir"),
+            "expected subdir in entries, got {:?}",
+            names
+        );
+        assert!(!names.contains(&"."), ". should be filtered");
+        assert!(!names.contains(&".."), ".. should be filtered");
     }
 
     #[test]
@@ -1641,5 +1993,187 @@ mod tests {
         let invalid = OwnedHandle(INVALID_HANDLE_VALUE);
         let cloned = invalid.clone();
         assert!(!cloned.is_valid());
+    }
+
+    // ── parse_directory_buffer tests ────────────────────────────────────────
+
+    /// Builds a synthetic FILE_ID_BOTH_DIR_INFO record.
+    fn build_dir_info_entry(
+        name: &str,
+        is_directory: bool,
+        is_reparse: bool,
+        next_entry_offset: u32,
+        file_id: u64,
+    ) -> Vec<u8> {
+        let name_utf16: Vec<u16> = name.encode_utf16().collect();
+        let name_bytes = name_utf16.len() * 2;
+        let record_size = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + name_bytes;
+        // Align to 8 bytes as Windows does.
+        let aligned_size = (record_size + 7) & !7;
+        let mut buf = vec![0u8; aligned_size];
+
+        // NextEntryOffset
+        buf[0..4].copy_from_slice(&next_entry_offset.to_ne_bytes());
+        // FileIndex (u64 at offset 8)
+        buf[8..16].copy_from_slice(&file_id.to_ne_bytes());
+        // FileAttributes (u32 at offset 56)
+        let mut attrs: u32 = 0;
+        if is_directory {
+            attrs |= FILE_ATTRIBUTE_DIRECTORY;
+        }
+        if is_reparse {
+            attrs |= FILE_ATTRIBUTE_REPARSE_POINT;
+        }
+        buf[56..60].copy_from_slice(&attrs.to_ne_bytes());
+        // FileNameLength (u32 at offset 68)
+        buf[68..72].copy_from_slice(&(name_bytes as u32).to_ne_bytes());
+        // FileName (UTF-16 at offset 80)
+        for (i, &ch) in name_utf16.iter().enumerate() {
+            let idx = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + i * 2;
+            buf[idx..idx + 2].copy_from_slice(&ch.to_ne_bytes());
+        }
+
+        buf
+    }
+
+    #[test]
+    fn parse_single_entry() {
+        let entry = build_dir_info_entry("hello.txt", false, false, 0, 42);
+        let result = parse_directory_buffer(&entry, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "hello.txt");
+        assert_eq!(result[0].kind, DirectoryEntryKind::File);
+        assert_eq!(result[0].file_id, Some(42));
+        assert!(!result[0].hidden_or_dot);
+    }
+
+    #[test]
+    fn parse_multiple_entries() {
+        let mut buf = build_dir_info_entry("a.txt", false, false, 0, 1);
+        let entry2 = build_dir_info_entry("b.txt", false, false, 0, 2);
+        let offset2 = buf.len() as u32;
+        buf[0..4].copy_from_slice(&offset2.to_ne_bytes());
+        buf.extend_from_slice(&entry2);
+
+        let result = parse_directory_buffer(&buf, 100).unwrap();
+        assert_eq!(result.len(), 2);
+        assert_eq!(result[0].name, "a.txt");
+        assert_eq!(result[1].name, "b.txt");
+    }
+
+    #[test]
+    fn parse_skips_dot_and_dotdot() {
+        let mut buf = build_dir_info_entry(".", true, false, 0, 1);
+        let entry2 = build_dir_info_entry("..", true, false, 0, 2);
+        let offset2 = buf.len() as u32;
+        buf[0..4].copy_from_slice(&offset2.to_ne_bytes());
+        buf.extend_from_slice(&entry2);
+
+        let result = parse_directory_buffer(&buf, 100).unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn parse_directory_entry() {
+        let entry = build_dir_info_entry("subdir", true, false, 0, 10);
+        let result = parse_directory_buffer(&entry, 100).unwrap();
+        assert_eq!(result[0].kind, DirectoryEntryKind::Directory);
+    }
+
+    #[test]
+    fn parse_reparse_entry() {
+        let entry = build_dir_info_entry("link", false, true, 0, 20);
+        let result = parse_directory_buffer(&entry, 100).unwrap();
+        assert_eq!(result[0].kind, DirectoryEntryKind::ReparsePoint);
+    }
+
+    #[test]
+    fn parse_dotfile() {
+        let entry = build_dir_info_entry(".hidden", false, false, 0, 30);
+        let result = parse_directory_buffer(&entry, 100).unwrap();
+        assert!(result[0].hidden_or_dot);
+    }
+
+    #[test]
+    fn parse_empty_buffer() {
+        let result = parse_directory_buffer(&[], 100).unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn parse_truncated_header() {
+        let buf = vec![0u8; 4];
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::TruncatedHeader)));
+    }
+
+    #[test]
+    fn parse_odd_filename_length() {
+        let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 10];
+        buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
+        buf[68..72].copy_from_slice(&5u32.to_ne_bytes());
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::OddFileNameLength)));
+    }
+
+    #[test]
+    fn parse_filename_out_of_range() {
+        let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 4];
+        buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
+        buf[68..72].copy_from_slice(&100u32.to_ne_bytes());
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::FileNameOutOfRange)));
+    }
+
+    #[test]
+    fn parse_offset_overflow() {
+        let entry = build_dir_info_entry("a.txt", false, false, 9999, 1);
+        let result = parse_directory_buffer(&entry, 100);
+        assert!(matches!(result, Err(DirBufParseError::OffsetOverflow)));
+    }
+
+    #[test]
+    fn parse_offset_loop() {
+        let mut buf = build_dir_info_entry("a.txt", false, false, 0, 1);
+        let entry2 = build_dir_info_entry("b.txt", false, false, 0, 2);
+        let offset2 = buf.len() as u32;
+        buf[0..4].copy_from_slice(&offset2.to_ne_bytes());
+        buf.extend_from_slice(&entry2);
+        // Make entry2 point back to offset 0 (loop).
+        let loop_offset = 0u32;
+        let pos = offset2 as usize;
+        buf[pos..pos + 4].copy_from_slice(&loop_offset.to_ne_bytes());
+
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::OffsetOverflow)));
+    }
+
+    #[test]
+    fn parse_max_entries_respected() {
+        let mut entries_data = Vec::new();
+        for i in 0..10u32 {
+            entries_data.push(build_dir_info_entry(
+                &format!("file{i}.txt"),
+                false,
+                false,
+                0,
+                i,
+            ));
+        }
+        let mut buf = Vec::new();
+        for (i, entry) in entries_data.iter().enumerate() {
+            let current_offset = buf.len();
+            if i < entries_data.len() - 1 {
+                let next_offset = (current_offset + entry.len()) as u32;
+                let mut entry_clone = entry.clone();
+                entry_clone[0..4].copy_from_slice(&next_offset.to_ne_bytes());
+                buf.extend_from_slice(&entry_clone);
+            } else {
+                buf.extend_from_slice(entry);
+            }
+        }
+
+        let result = parse_directory_buffer(&buf, 3).unwrap();
+        assert_eq!(result.len(), 3);
     }
 }

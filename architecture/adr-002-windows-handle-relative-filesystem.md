@@ -2,7 +2,7 @@
 
 ## Status
 
-**Accepted** (implemented — Plan 084)
+**Accepted** (implemented — Plans 084, 085)
 
 ## Context
 
@@ -187,6 +187,106 @@ Plan 084 completed the production implementation of Windows handle-relative file
 
 Reparse-point hardening remains deferred (Plans 085–086).
 
+## Plan 085: Windows Handle-Relative Directory Enumeration
+
+### Selected API
+
+`NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` (information class 10).
+
+This is the least-complex API that provides handle-relative enumeration, UTF-16 filename length in bytes, file attributes and reparse indication, stable file identity, and deterministic continuation through a caller-owned bounded buffer.
+
+### Windows Support Floor
+
+**Windows XP+** — `ntdll.dll` is always present and exports `NtQueryDirectoryFile`. No version-gating required. `FILE_ID_BOTH_DIR_INFO` is supported on NTFS and ReFS from Windows XP onward; on FAT32/exFAT the file identity field is zeroed, which is handled by the parser.
+
+### Buffer Layout
+
+`FILE_ID_BOTH_DIR_INFO` structure:
+
+```
+Byte offset  Size  Field
+-----------  ----  -----
+0            4     NextEntryOffset (0 for final entry)
+4            4     FileIndex (8-byte stable identity, low 4 bytes)
+8            8     CreationTime
+16           8     LastAccessTime
+24           8     LastWriteTime
+32           8     ChangeTime
+40           4     EndOfFile (low 4 bytes)
+44           4     EndOfFile (high 4 bytes)
+48           4     AllocationSize (low 4 bytes)
+52           4     AllocationSize (high 4 bytes)
+56           4     FileAttributes
+60           4     FileNameLength (in bytes, must be even)
+64           2     FileIndex (high 2 bytes)
+66           64    Reserved
+66+FileNameLen var  FileName (UTF-16LE, variable length)
+```
+
+Total header: 80 bytes. Each entry is 8-byte aligned via `NextEntryOffset`.
+
+### Restart Semantics
+
+- First call: `restart_scan=TRUE` — discards any cached state, returns entries from the beginning.
+- Subsequent calls: `restart_scan=FALSE` — resumes from the last returned entry.
+- The caller passes the directory handle; no path reconstruction is involved.
+
+### End-of-Directory
+
+`NtQueryDirectoryFile` returns `STATUS_NO_MORE_FILES` (`0x80000006`) when the last entry has been returned. This is the canonical termination signal for the enumeration loop. The caller treats it as end-of-directory and stops.
+
+### Filename Encoding
+
+- UTF-16LE, always.
+- `FileNameLength` is in **bytes** (not code units). Must be even; odd values are rejected by the parser.
+- The filename range must lie within the returned buffer.
+- Invalid UTF-16 sequences (unpaired surrogates) are handled deterministically without unsafe truncation — entries with invalid names are omitted with a categorized event.
+
+### File Identity
+
+- `FileIndex` (8-byte field from the header) provides a stable identity across renames within the same volume.
+- On FAT32/exFAT where `FileIndex` is zeroed, identity is unavailable — the entry is still valid but identity is `None`.
+- `FileIndex` is never used as authority for reopening; reopened handles are validated independently.
+
+### File Attributes
+
+From the `FILE_ID_BOTH_DIR_INFO` header:
+
+- `FILE_ATTRIBUTE_DIRECTORY` (0x10) — entry is a directory.
+- `FILE_ATTRIBUTE_REPARSE_POINT` (0x400) — entry is a reparse point (junction, symlink, mount point).
+- In the hardened branch, all reparse-point entries are denied regardless of reparse tag. The attribute bit is sufficient for denial; no `ReparseTag` parsing is needed.
+
+### Cancellation and Blocking
+
+- `NtQueryDirectoryFile` is synchronous and non-cancellable from Rust.
+- SMB/network shares may block — integration uses `spawn_blocking` to avoid blocking the Tokio executor.
+- Local NTFS enumeration is near-instant (< 1ms for typical directories).
+- A blocked OS call cannot cause the server to claim all work has stopped; the file-operation semaphore bounds concurrency.
+
+### Error Mapping
+
+NTSTATUS negative values (errors) map to `WindowsFsError::IoError`:
+
+| NTSTATUS | Meaning | Mapped to |
+|----------|---------|-----------|
+| `STATUS_NO_MORE_FILES` (0x80000006) | End of directory | Loop termination (not error) |
+| `STATUS_INVALID_PARAMETER` (0xC000000D) | Bad buffer or class | `WindowsFsError::IoError` |
+| `STATUS_ACCESS_DENIED` (0xC0000022) | Handle lacks `FILE_LIST_DIRECTORY` | `WindowsFsError::IoError` |
+| `STATUS_NOT_A_DIRECTORY` (0xC0000103) | Handle is not a directory | `WindowsFsError::IoError` |
+| Other negative NTSTATUS | Unexpected kernel error | `WindowsFsError::IoError` |
+
+Positive NTSTATUS values (informational) are not expected from `NtQueryDirectoryFile`.
+
+### Why Not `FindFirstFileW`
+
+`FindFirstFileW` and `FindNextFileW` require a **path** as input, not a handle. To use them from a retained handle, the implementation would need to reconstruct the path via `GetFinalPathNameByHandleW`. This reintroduces TOCTOU:
+
+1. `GetFinalPathNameByHandleW` returns a normalized path, not the original — namespace normalization may differ from the original request.
+2. The reconstructed path could reference a different directory if a rename or replace occurred between handle open and enumeration.
+3. It splits filesystem authority between the retained handle (for child opens) and the reconstructed path (for enumeration), creating a two-source security model.
+
+`NtQueryDirectoryFile` operates directly on the directory handle — no path reconstruction, no TOCTOU window. The invariant is preserved: all directory entries come from the already-validated handle.
+
 ## Consequences
 
 - Plan 084 implemented the production resolver using `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory` as the primary API
@@ -195,5 +295,6 @@ Reparse-point hardening remains deferred (Plans 085–086).
 - `windows-sys` is a Windows-only dependency (feature-gated)
 - The existing `resolve_fallback()` path remains for non-hardened modes
 - Parser-level protections are retained as a first line of defense
-- Plans 085–086 complete the roadmap for reparse-point hardening
+- Plan 085 implements handle-relative directory enumeration via `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` (class 10), replacing path-based enumeration in the hardened branch
+- Plan 086 completes the roadmap for reparse-point hardening via adversarial qualification
 - Windows hardened profile promotion requires passing all reparse-point race tests (Plans 085–086)

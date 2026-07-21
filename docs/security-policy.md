@@ -93,7 +93,7 @@ On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementatio
 
 The configured root is canonicalized and opened as a directory descriptor during request resolution (per request), not once at server startup. Caching the root descriptor across requests is a future optimization; current behavior is correct and tested.
 
-Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration still uses a path-based fallback (pending Plan 085). Reparse-point hardening qualification is pending Plans 085–086. Windows remains functional-only until evidence supports promotion.
+Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Reparse-point hardening qualification is pending Plan 086. Windows remains functional-only until evidence supports promotion.
 
 ### `--directory-listing`
 

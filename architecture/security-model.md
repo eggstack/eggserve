@@ -183,7 +183,7 @@ An attacker can:
 |----------|---------------|-------------|
 | Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None (fully hardened) |
 | macOS (x86_64, aarch64) | Same descriptor-relative guarantees | None (fully hardened) |
-| Windows (x86_64) | Parser-level checks + handle-relative child resolution (Plan 084) | Reparse-point hardening qualification pending Plans 085–086; not for untrusted mutable public content |
+| Windows (x86_64) | Parser-level checks + handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) | Reparse-point hardening qualification pending Plan 086; not for untrusted mutable public content |
 
 ## Consumer Trust Boundaries
 
