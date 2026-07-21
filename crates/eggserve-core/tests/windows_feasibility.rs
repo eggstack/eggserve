@@ -170,11 +170,16 @@ fn open_relative(
     is_directory: bool,
     open_reparse_point: bool,
 ) -> io::Result<OwnedHandle> {
-    if name == ".." || name.contains('/') || name.contains('\\') {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidInput,
-            "path component validation rejected: invalid component",
-        ));
+    for component in Path::new(name).components() {
+        if matches!(
+            component,
+            std::path::Component::ParentDir | std::path::Component::RootDir
+        ) {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "path component validation rejected: invalid component",
+            ));
+        }
     }
     let parent_path = get_final_path(parent)?;
     let full_path = parent_path.join(name);
