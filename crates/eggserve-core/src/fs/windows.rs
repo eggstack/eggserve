@@ -643,50 +643,20 @@ pub(crate) fn resolve_components_relative(
 
 /// Opens a file or directory relative to a parent directory handle.
 ///
-/// Unlike `open_file_relative`, this does not use `FILE_NON_DIRECTORY_FILE`,
-/// so it succeeds for both files and directories. Unlike
-/// `open_directory_relative`, this does not use `FILE_DIRECTORY_FILE`, so it
-/// succeeds for both files and directories.
+/// Tries `open_file_relative` first (non-directory). If that fails with
+/// `NotADirectory`, tries `open_directory_relative`. This avoids needing a
+/// single NtOpenFile CreateOptions value that works for both, since
+/// `FILE_SYNCHRONOUS_IO_NONALERT` (0x20) collides with `FILE_DIRECTORY_FILE`.
 ///
 /// This is used by `RootGuard::resolve` when the final component type is
 /// unknown (could be a file or directory).
 pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandle, WindowsFsError> {
-    let name_utf16 = to_utf16_null(name);
-    let mut obj_name = NtUnicodeString {
-        length: (name.len() * 2) as u16,
-        maximum_length: (name.len() * 2 + 2) as u16,
-        buffer: name_utf16.as_ptr() as *mut u16,
-    };
-    let mut obj_attr = ObjectAttributes {
-        length: std::mem::size_of::<ObjectAttributes>() as u32,
-        root_directory: parent,
-        object_name: &mut obj_name,
-        attributes: OBJ_CASE_INSENSITIVE,
-        security_descriptor: ptr::null_mut(),
-        security_quality_of_service: ptr::null_mut(),
-    };
-    let mut handle = INVALID_HANDLE_VALUE;
-    let mut iosb = IoStatusBlock {
-        status: 0,
-        information: 0,
-    };
-
-    let status = unsafe {
-        NtOpenFile(
-            &mut handle,
-            FILE_READ_DATA | FILE_READ_ATTRIBUTES | FILE_READ_EA | READ_CONTROL | SYNCHRONIZE,
-            &mut obj_attr,
-            &mut iosb,
-            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_SYNCHRONOUS_IO_NONALERT,
-        )
-    };
-
-    if status < 0 {
-        return Err(ntstatus_to_error(status));
+    match open_file_relative(parent, name) {
+        Ok(h) => return Ok(h),
+        Err(WindowsFsError::NotADirectory) => {}
+        Err(e) => return Err(e),
     }
-
-    Ok(OwnedHandle(handle))
+    open_directory_relative(parent, name)
 }
 
 /// Resolves a sequence of path components relative to a root handle,
