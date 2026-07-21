@@ -67,7 +67,7 @@ An attacker who can place reparse points (NTFS junctions, symbolic links, mount 
 
 ### Resource-exhaustion attacker
 
-An attacker who sends requests designed to consume excessive server resources (memory, CPU, file descriptors, file streams). The server enforces resource limits including: connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), request target size limits, header count/size limits, and directory listing entry/byte limits. Request bodies are rejected by default on GET/HEAD.
+An attacker who sends requests designed to consume excessive server resources (memory, CPU, file descriptors, file streams). The server enforces resource limits including: connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), request target size limits, header count/size limits, and directory listing entry/byte limits (4096 entries max, 1 MiB response body max, 255-byte filenames max, 30s enumeration timeout). Request bodies are rejected by default on GET/HEAD.
 
 ### Log-injection attacker
 

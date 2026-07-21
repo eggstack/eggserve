@@ -131,3 +131,9 @@ name = "fuzz_request_body"
 path = "fuzz_targets/fuzz_request_body.rs"
 test = false
 doc = false
+
+[[bin]]
+name = "fuzz_directory_buffer"
+path = "fuzz_targets/fuzz_directory_buffer.rs"
+test = false
+doc = false

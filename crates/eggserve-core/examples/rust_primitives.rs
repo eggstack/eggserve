@@ -44,7 +44,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let resource = root.resolve(&confined);
             match resource {
                 ResolvedResource::Directory(dir) => {
-                    let entries = dir.list(&root)?;
+                    let entries =
+                        dir.list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)?;
                     println!("Directory ({} entries):", entries.len());
                     for (name, is_dir) in &entries {
                         let kind = if *is_dir { "dir" } else { "file" };

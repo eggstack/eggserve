@@ -310,7 +310,9 @@ fn windows_resolved_directory_retains_handle_after_resolve() {
     );
 
     // List directory entries — exercises the retained directory handle.
-    let entries = dir.list(&root).expect("list should succeed");
+    let entries = dir
+        .list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
+        .expect("list should succeed");
     let names: Vec<&str> = entries.iter().map(|(n, _)| n.as_str()).collect();
     assert!(
         names.contains(&"nested.txt"),

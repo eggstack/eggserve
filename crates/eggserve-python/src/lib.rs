@@ -898,7 +898,7 @@ impl PyResolvedDirectory {
             let result = root.resolve(&confined);
             match result {
                 RustResolvedResource::Directory(dir) => {
-                    let entries = dir.list(&root).map_err(io_err_to_pyerr)?;
+                    let entries = dir.list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES).map_err(io_err_to_pyerr)?;
                     let py_list = PyList::empty(py);
                     for entry in &entries {
                         let name_obj: PyObject =

@@ -332,7 +332,11 @@ async fn handle_directory(
         }
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
-                let entries = match guard.list_directory(dir, &config.static_policy) {
+                let entries = match guard.list_directory(
+                    dir,
+                    &config.static_policy,
+                    config.limits.max_listing_entries,
+                ) {
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };

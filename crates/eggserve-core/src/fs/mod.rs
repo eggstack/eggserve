@@ -273,6 +273,7 @@ impl<'a> RootGuard<'a> {
         &self,
         dir: &ResolvedDirectory,
         policy: &StaticPolicy,
+        #[allow(unused_variables)] max_entries: usize,
     ) -> Result<Vec<(String, bool)>, std::io::Error> {
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
@@ -280,7 +281,7 @@ impl<'a> RootGuard<'a> {
         }
         #[cfg(windows)]
         if policy.symlinks == SymlinkPolicy::Denied {
-            return windows::list_directory_handle(dir.dir_handle.raw(), policy);
+            return windows::list_directory_handle(dir.dir_handle.raw(), policy, max_entries);
         }
         build_listing_entries_fallback(&dir.canonical_path, policy)
     }

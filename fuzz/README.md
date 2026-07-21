@@ -15,6 +15,7 @@ Fuzz targets for eggserve's path confinement, request parsing, URL parsing, resp
 | `platform_component` | Windows reserved names, drive prefixes, alternate data streams |
 | `validate_request_target` | Request target validation: starts-with-/no-whitespace |
 | `validate_method` | Method validation and request body rejection for read-only methods |
+| `fuzz_directory_buffer` | Windows directory buffer parser: FILE_ID_BOTH_DIR_INFO parsing, offset validation, UTF-16 decoding (Windows-only) |
 
 ## Running
 
@@ -30,6 +31,7 @@ cargo fuzz run if_none_match
 cargo fuzz run platform_component
 cargo fuzz run validate_request_target
 cargo fuzz run validate_method
+cargo fuzz run fuzz_directory_buffer  # Windows-only
 ```
 
 To run with a time limit:

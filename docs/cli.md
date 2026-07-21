@@ -39,6 +39,10 @@ Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 |------|-------------|---------|
 | `--max-connections N` | Maximum concurrent connections | `64` |
 | `--max-file-streams N` | Maximum concurrent file streams | `32` |
+| `--max-listing-entries N` | Maximum directory listing entries | `4096` |
+| `--max-listing-response-bytes N` | Maximum directory listing response body bytes | `1048576` (1 MiB) |
+| `--max-listing-filename-bytes N` | Maximum single filename bytes in listing | `255` |
+| `--listing-enumeration-timeout SECS` | Directory enumeration timeout | `30` |
 
 ### Timeouts
 

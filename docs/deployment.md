@@ -97,3 +97,4 @@ A common setup for small deployments:
 - For production, always prefer a mature TLS terminator unless eggserve's native TLS is sufficient for your threat model.
 - Never expose eggserve directly to the public internet without proper TLS and access control.
 - Every production deployment must name a profile from `release/support-profiles.toml`. No document should claim production support without naming the profile.
+- **Directory listing is opt-in and disabled by default.** When enabled with `--directory-listing`, it exposes file names and directory structure. Listing responses are bounded (max 4096 entries, 1 MiB body, 255-byte filenames, 30s timeout). Symlink entries are hidden from listings by default. Do not enable directory listing for untrusted content without understanding the information disclosure implications.

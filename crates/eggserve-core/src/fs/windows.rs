@@ -1024,8 +1024,9 @@ pub(crate) fn resolve_child_relative(
 pub(crate) fn list_directory_handle(
     dir_handle: HANDLE,
     policy: &crate::policy::StaticPolicy,
+    max_entries: usize,
 ) -> Result<Vec<(String, bool)>, std::io::Error> {
-    let entries = enumerate_directory(dir_handle)
+    let entries = enumerate_directory(dir_handle, max_entries)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
 
     let mut result = Vec::new();
@@ -1338,7 +1339,7 @@ pub(crate) fn verify_handle_not_closed_after_conversion(handle: &OwnedHandle) ->
 /// This is the platform-neutral representation (Track C). It does not expose
 /// raw Windows attribute bits publicly.
 #[derive(Debug, Clone)]
-pub(crate) struct DirectoryEntryRecord {
+pub struct DirectoryEntryRecord {
     /// The file name as a String. Validated to be valid UTF-16.
     pub name: String,
     /// Classification of the entry type.
@@ -1350,7 +1351,7 @@ pub(crate) struct DirectoryEntryRecord {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum DirectoryEntryKind {
+pub enum DirectoryEntryKind {
     File,
     Directory,
     ReparsePoint,
@@ -1359,7 +1360,7 @@ pub(crate) enum DirectoryEntryKind {
 
 /// Error type for directory buffer parsing.
 #[derive(Debug)]
-pub(crate) enum DirBufParseError {
+pub enum DirBufParseError {
     /// The returned byte count exceeds the buffer allocation.
     BufferOverflow,
     /// An entry header is not fully contained within the buffer.
@@ -1397,7 +1398,7 @@ pub(crate) enum DirBufParseError {
 /// # Filtering
 ///
 /// Entries named `.` and `..` are excluded from the result.
-pub(crate) fn parse_directory_buffer(
+pub fn parse_directory_buffer(
     buffer: &[u8],
     max_entries: usize,
 ) -> Result<Vec<DirectoryEntryRecord>, DirBufParseError> {
@@ -1482,7 +1483,10 @@ pub(crate) fn parse_directory_buffer(
             if next_entry_offset == 0 {
                 break;
             }
-            if next_entry_offset <= offset || next_entry_offset >= total_len {
+            if next_entry_offset < offset {
+                return Err(DirBufParseError::OffsetUnderflow);
+            }
+            if next_entry_offset == offset || next_entry_offset >= total_len {
                 return Err(DirBufParseError::OffsetOverflow);
             }
             offset = next_entry_offset;
@@ -1520,7 +1524,10 @@ pub(crate) fn parse_directory_buffer(
         }
 
         // Validate offset: must advance, must stay within buffer, must not loop.
-        if next_entry_offset <= offset || next_entry_offset >= total_len {
+        if next_entry_offset < offset {
+            return Err(DirBufParseError::OffsetUnderflow);
+        }
+        if next_entry_offset == offset || next_entry_offset >= total_len {
             return Err(DirBufParseError::OffsetOverflow);
         }
 
@@ -1535,9 +1542,6 @@ pub(crate) fn parse_directory_buffer(
 /// Default buffer size for NtQueryDirectoryFile (64 KiB).
 /// This is large enough for most directories without reallocation.
 const DIR_ENUM_BUFFER_SIZE: usize = 64 * 1024;
-
-/// Default maximum entries for directory listing.
-const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
 
 /// A single directory entry returned by the path-based `enumerate_directory_path_based`.
 #[derive(Debug)]
@@ -1648,18 +1652,24 @@ pub(crate) fn enumerate_directory_path_based(
 ///
 /// Entries named `.` and `..` are excluded from the result.
 ///
+/// # Arguments
+///
+/// * `handle` - Directory handle opened with `FILE_LIST_DIRECTORY | SYNCHRONIZE`.
+/// * `max_entries` - Maximum number of entries to enumerate (from configuration).
+///
 /// # Errors
 ///
 /// Returns `WindowsFsError::IoError` if the `NtQueryDirectoryFile` call fails.
 pub(crate) fn enumerate_directory(
     handle: HANDLE,
+    max_entries: usize,
 ) -> Result<Vec<DirectoryEntryRecord>, WindowsFsError> {
     let mut buffer = vec![0u8; DIR_ENUM_BUFFER_SIZE];
     let mut all_entries = Vec::new();
     let mut first_call = true;
 
     loop {
-        if all_entries.len() >= DEFAULT_MAX_LISTING_ENTRIES {
+        if all_entries.len() >= max_entries {
             break;
         }
 
@@ -1708,7 +1718,7 @@ pub(crate) fn enumerate_directory(
             break;
         }
 
-        let remaining = DEFAULT_MAX_LISTING_ENTRIES.saturating_sub(all_entries.len());
+        let remaining = max_entries.saturating_sub(all_entries.len());
         let parsed = parse_directory_buffer(&buffer[..bytes_returned], remaining)
             .map_err(|_| WindowsFsError::IoError(0xBAADF00D))?;
 
@@ -1872,7 +1882,7 @@ mod tests {
     #[test]
     fn enumerate_directory_entries() {
         let (_tmp, root_handle) = setup_test_root();
-        let entries = enumerate_directory(root_handle.raw());
+        let entries = enumerate_directory(root_handle.raw(), 4096);
         assert!(
             entries.is_ok(),
             "enumerate_directory failed: {:?}",
@@ -1899,7 +1909,7 @@ mod tests {
     fn enumerate_directory_subdir() {
         let (_tmp, root_handle) = setup_test_root();
         let dir_handle = open_directory_relative(root_handle.raw(), "subdir").unwrap();
-        let entries = enumerate_directory(dir_handle.raw());
+        let entries = enumerate_directory(dir_handle.raw(), 4096);
         assert!(entries.is_ok());
         let entries = entries.unwrap();
         assert_eq!(entries.len(), 1);
@@ -2139,13 +2149,13 @@ mod tests {
         let offset2 = buf.len() as u32;
         buf[0..4].copy_from_slice(&offset2.to_ne_bytes());
         buf.extend_from_slice(&entry2);
-        // Make entry2 point back to offset 0 (loop).
+        // Make entry2 point back to offset 0 (loop — backward offset).
         let loop_offset = 0u32;
         let pos = offset2 as usize;
         buf[pos..pos + 4].copy_from_slice(&loop_offset.to_ne_bytes());
 
         let result = parse_directory_buffer(&buf, 100);
-        assert!(matches!(result, Err(DirBufParseError::OffsetOverflow)));
+        assert!(matches!(result, Err(DirBufParseError::OffsetUnderflow)));
     }
 
     #[test]
@@ -2175,5 +2185,410 @@ mod tests {
 
         let result = parse_directory_buffer(&buf, 3).unwrap();
         assert_eq!(result.len(), 3);
+    }
+
+    #[test]
+    fn parse_zero_length_filename() {
+        let entry = build_dir_info_entry("", false, false, 0, 1);
+        let result = parse_directory_buffer(&entry, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, "");
+        assert_eq!(result[0].kind, DirectoryEntryKind::File);
+    }
+
+    #[test]
+    fn parse_offset_underflow() {
+        let mut buf = build_dir_info_entry("a.txt", false, false, 0, 1);
+        let entry2 = build_dir_info_entry("b.txt", false, false, 0, 2);
+        let offset2 = buf.len() as u32;
+        buf[0..4].copy_from_slice(&offset2.to_ne_bytes());
+        buf.extend_from_slice(&entry2);
+        // Make entry2 point back to offset 1 (before its own record start).
+        let underflow_offset = 1u32;
+        let pos = offset2 as usize;
+        buf[pos..pos + 4].copy_from_slice(&underflow_offset.to_ne_bytes());
+
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::OffsetUnderflow)));
+    }
+
+    #[test]
+    fn parse_truncated_filename() {
+        let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 4];
+        buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
+        // FileNameLength claims 100 bytes but buffer only has 4 bytes of name.
+        buf[68..72].copy_from_slice(&100u32.to_ne_bytes());
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::FileNameOutOfRange)));
+    }
+
+    #[test]
+    fn parse_unpaired_surrogate() {
+        // Build a filename with an unpaired surrogate (0xD800).
+        let name_utf16: Vec<u16> = vec![0x0041, 0xD800, 0x0042]; // A <surrogate> B
+        let name_bytes = name_utf16.len() * 2;
+        let record_size = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + name_bytes;
+        let aligned_size = (record_size + 7) & !7;
+        let mut buf = vec![0u8; aligned_size];
+
+        buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
+        buf[68..72].copy_from_slice(&(name_bytes as u32).to_ne_bytes());
+        for (i, &ch) in name_utf16.iter().enumerate() {
+            let idx = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + i * 2;
+            buf[idx..idx + 2].copy_from_slice(&ch.to_ne_bytes());
+        }
+
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::InvalidUtf16)));
+    }
+
+    #[test]
+    fn parse_max_filename_length() {
+        // Build a filename at the maximum practical length (255 UTF-16 code units).
+        let name: String = (0..255)
+            .map(|i| char::from_u32(0x41 + (i % 26)).unwrap())
+            .collect();
+        let entry = build_dir_info_entry(&name, false, false, 0, 1);
+        let result = parse_directory_buffer(&entry, 100).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].name, name);
+    }
+
+    #[test]
+    fn parse_offset_before_current_record_end() {
+        // Build two entries where entry1's offset points to the middle of entry2.
+        let entry1 = build_dir_info_entry("a.txt", false, false, 0, 1);
+        let entry2 = build_dir_info_entry("b.txt", false, false, 0, 2);
+        let mut buf = entry1.clone();
+        let entry2_start = buf.len();
+        buf.extend_from_slice(&entry2);
+        // Set entry1's offset to point inside entry2 (not at its start).
+        let bad_offset = (entry2_start + 4) as u32;
+        buf[0..4].copy_from_slice(&bad_offset.to_ne_bytes());
+
+        let result = parse_directory_buffer(&buf, 100);
+        // Should either parse 1 entry (if offset terminates) or error.
+        // The offset advances past the current record but not to a record boundary,
+        // which is still within the buffer so it tries to parse from the middle.
+        // The parser reads a header from the middle of entry2, which has
+        // NextEntryOffset=0 (from the filename bytes), so it terminates.
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 1);
+    }
+
+    // ── Enumeration-to-open swap race tests ────────────────────────────────
+    //
+    // These tests verify that when an entry is enumerated and then opened
+    // relative to the directory handle, the protocol correctly handles races.
+    // They require a Windows runner with NTFS.
+
+    #[test]
+    fn race_file_to_reparse_point_denied() {
+        let tmp = TempDir::new().unwrap();
+        let root_path = tmp.path().to_path_buf();
+        std::fs::write(root_path.join("target.txt"), "original").unwrap();
+
+        let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        let root_handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(root_handle, INVALID_HANDLE_VALUE);
+
+        // Enumerate — should see target.txt as a file.
+        let entries = enumerate_directory(root_handle, 4096).unwrap();
+        assert!(entries.iter().any(|e| e.name == "target.txt"));
+        let entry = entries.iter().find(|e| e.name == "target.txt").unwrap();
+        assert_eq!(entry.kind, DirectoryEntryKind::File);
+
+        // Now replace with a junction (reparse point) to a different directory.
+        let outside = TempDir::new().unwrap();
+        std::fs::write(outside.path().join("secret.txt"), "leaked").unwrap();
+        std::fs::remove_file(root_path.join("target.txt")).unwrap();
+        std::os::windows::fs::symlink_dir(outside.path(), root_path.join("target.txt")).unwrap();
+
+        // Open relative to directory handle — should detect reparse and deny.
+        let result = open_any_relative(root_handle, "target.txt");
+        match result {
+            Ok(h) => {
+                // If open succeeds, the reparse check should deny it.
+                let check = deny_all_reparse_check(h.raw());
+                assert!(
+                    check.is_err(),
+                    "reparse point should be denied after file-to-reparse swap"
+                );
+            }
+            Err(WindowsFsError::NotFound) => {
+                // Open may fail if the handle cannot follow the reparse.
+                // This is also safe.
+            }
+            Err(e) => {
+                // Other errors are acceptable — the key is that no bytes
+                // outside the pinned root are served.
+                eprintln!("open returned error (safe): {e:?}");
+            }
+        }
+
+        unsafe {
+            CloseHandle(root_handle);
+        }
+    }
+
+    #[test]
+    fn race_file_to_directory_type_change() {
+        let tmp = TempDir::new().unwrap();
+        let root_path = tmp.path().to_path_buf();
+        std::fs::write(root_path.join("target.txt"), "original").unwrap();
+
+        let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        let root_handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::mut_ptr(),
+            )
+        };
+        assert_ne!(root_handle, INVALID_HANDLE_VALUE);
+
+        // Enumerate — should see target.txt as a file.
+        let entries = enumerate_directory(root_handle, 4096).unwrap();
+        let entry = entries.iter().find(|e| e.name == "target.txt");
+        assert!(entry.is_some(), "target.txt should be in listing");
+        assert_eq!(entry.unwrap().kind, DirectoryEntryKind::File);
+
+        // Replace file with directory.
+        std::fs::remove_file(root_path.join("target.txt")).unwrap();
+        std::fs::create_dir(root_path.join("target.txt")).unwrap();
+
+        // Open as file — should fail (directory, not file).
+        let result = open_file_relative(root_handle, "target.txt");
+        assert!(
+            matches!(result, Err(WindowsFsError::NotADirectory)),
+            "opening a directory as file should fail with NotADirectory after type change, got {:?}",
+            result
+        );
+
+        // Open as directory — should succeed.
+        let result = open_directory_relative(root_handle, "target.txt");
+        assert!(
+            result.is_ok(),
+            "opening a directory as directory should succeed after type change, got {:?}",
+            result
+        );
+
+        unsafe {
+            CloseHandle(root_handle);
+        }
+    }
+
+    #[test]
+    fn race_same_name_replacement_file() {
+        let tmp = TempDir::new().unwrap();
+        let root_path = tmp.path().to_path_buf();
+        std::fs::write(root_path.join("target.txt"), "original").unwrap();
+
+        let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        let root_handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(root_handle, INVALID_HANDLE_VALUE);
+
+        // Open the file and verify original content.
+        let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
+        let std_file = handle_to_std_file(file_handle);
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
+            .unwrap();
+        assert_eq!(contents, "original");
+
+        // Replace with a different file (unlink + create = new inode).
+        std::fs::remove_file(root_path.join("target.txt")).unwrap();
+        std::fs::write(root_path.join("target.txt"), "replaced").unwrap();
+
+        // Open again — should see the new content (new handle, new inode).
+        let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
+        let std_file = handle_to_std_file(file_handle);
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
+            .unwrap();
+        assert_eq!(contents, "replaced");
+
+        unsafe {
+            CloseHandle(root_handle);
+        }
+    }
+
+    #[test]
+    fn race_delete_and_recreate() {
+        let tmp = TempDir::new().unwrap();
+        let root_path = tmp.path().to_path_buf();
+        std::fs::write(root_path.join("target.txt"), "original").unwrap();
+
+        let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        let root_handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(root_handle, INVALID_HANDLE_VALUE);
+
+        // Enumerate — should see target.txt.
+        let entries = enumerate_directory(root_handle, 4096).unwrap();
+        assert!(entries.iter().any(|e| e.name == "target.txt"));
+
+        // Delete the file.
+        std::fs::remove_file(root_path.join("target.txt")).unwrap();
+
+        // Open after deletion — should fail with NotFound.
+        let result = open_file_relative(root_handle, "target.txt");
+        assert!(
+            matches!(result, Err(WindowsFsError::NotFound)),
+            "opening deleted file should return NotFound, got {:?}",
+            result
+        );
+
+        // Recreate with different content.
+        std::fs::write(root_path.join("target.txt"), "recreated").unwrap();
+
+        // Open after recreation — should succeed with new content.
+        let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
+        let std_file = handle_to_std_file(file_handle);
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
+            .unwrap();
+        assert_eq!(contents, "recreated");
+
+        unsafe {
+            CloseHandle(root_handle);
+        }
+    }
+
+    #[test]
+    fn race_permission_change_after_enumeration() {
+        let tmp = TempDir::new().unwrap();
+        let root_path = tmp.path().to_path_buf();
+        std::fs::write(root_path.join("target.txt"), "content").unwrap();
+
+        let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        let root_handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(root_handle, INVALID_HANDLE_VALUE);
+
+        // Enumerate — should see target.txt.
+        let entries = enumerate_directory(root_handle, 4096).unwrap();
+        assert!(entries.iter().any(|e| e.name == "target.txt"));
+
+        // Remove read permission.
+        let mut perms = std::fs::metadata(root_path.join("target.txt"))
+            .unwrap()
+            .permissions();
+        perms.set_readonly(true);
+        std::fs::set_permissions(root_path.join("target.txt"), perms).unwrap();
+
+        // Open — should still succeed (we opened with FILE_LIST_DIRECTORY on the
+        // parent, and FILE_READ_DATA on the child; readonly doesn't prevent reading).
+        let result = open_file_relative(root_handle, "target.txt");
+        assert!(
+            result.is_ok(),
+            "opening a read-only file should succeed, got {:?}",
+            result
+        );
+
+        // Restore permissions and verify content.
+        let mut perms = std::fs::metadata(root_path.join("target.txt"))
+            .unwrap()
+            .permissions();
+        perms.set_readonly(false);
+        std::fs::set_permissions(root_path.join("target.txt"), perms).unwrap();
+
+        let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
+        let std_file = handle_to_std_file(file_handle);
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
+            .unwrap();
+        assert_eq!(contents, "content");
+
+        unsafe {
+            CloseHandle(root_handle);
+        }
+    }
+
+    #[test]
+    fn race_directory_entry_count_stability() {
+        let tmp = TempDir::new().unwrap();
+        let root_path = tmp.path().to_path_buf();
+        // Create several files.
+        for i in 0..10 {
+            std::fs::write(
+                root_path.join(format!("file{i}.txt")),
+                format!("content{i}"),
+            )
+            .unwrap();
+        }
+
+        let root_utf16 = to_utf16_null(root_path.to_str().unwrap());
+        let root_handle = unsafe {
+            CreateFileW(
+                root_utf16.as_ptr(),
+                FILE_LIST_DIRECTORY | SYNCHRONIZE,
+                FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                ptr::null_mut(),
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
+                ptr::null_mut(),
+            )
+        };
+        assert_ne!(root_handle, INVALID_HANDLE_VALUE);
+
+        // Enumerate multiple times — should be stable.
+        let entries1 = enumerate_directory(root_handle, 4096).unwrap();
+        let entries2 = enumerate_directory(root_handle, 4096).unwrap();
+        let entries3 = enumerate_directory(root_handle, 4096).unwrap();
+
+        assert_eq!(entries1.len(), entries2.len());
+        assert_eq!(entries2.len(), entries3.len());
+
+        // Names should be consistent.
+        let names1: Vec<&str> = entries1.iter().map(|e| e.name.as_str()).collect();
+        let names2: Vec<&str> = entries2.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names1, names2);
+
+        unsafe {
+            CloseHandle(root_handle);
+        }
     }
 }
