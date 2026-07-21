@@ -53,6 +53,7 @@ const OPEN_EXISTING: DWORD = 3;
 const FILE_FLAG_OPEN_REPARSE_POINT: DWORD = 0x00200000;
 const FILE_ATTRIBUTE_REPARSE_POINT: DWORD = 0x00000400;
 const FILE_ATTRIBUTE_DIRECTORY: DWORD = 0x00000010;
+const FILE_FLAG_BACKUP_SEMANTICS: DWORD = 0x02000000;
 const IO_REPARSE_TAG_SYMLINK: u32 = 0xA0000000;
 const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
 const MAX_PATH_W: usize = 32768;
@@ -71,8 +72,8 @@ struct FILE_STANDARD_INFO {
     allocation_size: i64,
     end_of_file: i64,
     number_of_links: DWORD,
-    delete_pending: BOOL,
-    directory: BOOL,
+    delete_pending: u8,
+    directory: u8,
 }
 
 #[repr(C)]
@@ -134,7 +135,7 @@ fn open_root_handle(path: &Path) -> OwnedHandle {
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
             ptr::null_mut(),
             OPEN_EXISTING,
-            FILE_ATTRIBUTE_DIRECTORY,
+            FILE_FLAG_BACKUP_SEMANTICS,
             ptr::null_mut(),
         )
     };
@@ -175,7 +176,7 @@ fn open_relative(
     let wide = utf16_string(full_path.to_str().unwrap());
 
     let mut flags: DWORD = if is_directory {
-        FILE_ATTRIBUTE_DIRECTORY
+        FILE_FLAG_BACKUP_SEMANTICS
     } else {
         0x80 // FILE_ATTRIBUTE_NORMAL
     };
@@ -253,7 +254,7 @@ fn get_standard_info(handle: &OwnedHandle) -> io::Result<FILE_STANDARD_INFO> {
     let success = unsafe {
         GetFileInformationByHandleEx(
             handle.as_raw_handle() as HANDLE,
-            5, // FileStandardInfo
+            1, // FileStandardInfo
             &mut info as *mut _ as *mut _,
             std::mem::size_of::<FILE_STANDARD_INFO>() as DWORD,
         )
