@@ -1524,6 +1524,124 @@ waiver_allowed = false
 security_relevance = true
 release_stage = "qualification"
 
+# ---------------------------------------------------------------------------
+# Plan 084 — Windows handle-relative filesystem confinement
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "windows.handle-retained-directory"
+title = "Windows retained directory handle"
+description = "ResolvedDirectory on Windows retains an OwnedHandle for handle-relative traversal"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_handle"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "windows.handle-relative-child"
+title = "Windows handle-relative child resolution"
+description = "RootGuard::resolve_child uses NtOpenFile with handle-relative opens on Windows hardened mode"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_child_resolution"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "windows.index-handle-relative"
+title = "Windows index lookup via retained handle"
+description = "Directory index resolution uses the retained directory handle, not path reconstruction"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_index"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "windows.unicode-child-production-path"
+title = "Windows Unicode child names via production path"
+description = "Non-ASCII child names resolve correctly through the NtOpenFile production path with correct UTF-16 lengths"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_unicode"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "windows.handle-ownership"
+title = "Windows handle ownership semantics"
+description = "OwnedHandle duplication is fallible and non-panicking; borrowed handles are never closed by owners"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_handle"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
+[[gate]]
+id = "windows.hardened-no-fallback"
+title = "Windows hardened mode never enters path fallback"
+description = "Hardened Windows resolution never reconstructs filesystem authority from a path"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_hardened_no_fallback"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "preflight"
+
 [[gate]]
 id = "check-generated"
 title = "Generated file cleanliness"

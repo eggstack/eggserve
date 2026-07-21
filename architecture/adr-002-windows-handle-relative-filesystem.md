@@ -2,7 +2,7 @@
 
 ## Status
 
-**Proposed** (feasibility spike — not yet implemented)
+**Accepted** (implemented — Plan 084)
 
 ## Context
 
@@ -18,22 +18,24 @@ Prove that the same open-once confinement invariant can be implemented on Window
 
 ## API Choice and Fallback Hierarchy
 
-### Primary: `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`
+### Primary: `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory`
+
+- Lower-level NT API for root-relative opens
+- `OBJECT_ATTRIBUTES.RootDirectory` provides native handle-relative open semantics
+- More control over disposition, share mode, and options
+- Requires `ntdll.dll` — dynamically resolved via `LoadLibraryW`/`GetProcAddress`
+- Semi-documented but widely used by Windows system programming
+- Available since Windows XP
+- **Production API** as of Plan 084 — used for all handle-relative child resolution
+
+### Secondary: `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`
 
 - Well-documented, stable Win32 API
 - `FILE_FLAG_OPEN_REPARSE_POINT` opens the reparse point object itself rather than following it
 - Available on all Windows versions since Windows XP/Server 2003
 - Can be used with a root directory handle via `HANDLE` parameter
 - Share mode `FILE_SHARE_READ | FILE_SHARE_DELETE` for concurrent access
-
-### Secondary: `NtCreateFile` / `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory`
-
-- Lower-level NT API for root-relative opens
-- `OBJECT_ATTRIBUTES.RootDirectory` provides native handle-relative open semantics
-- More control over disposition, share mode, and options
-- Requires `ntdll.dll` — either statically linked via `windows-sys` or dynamically resolved
-- Semi-documented but widely used by Windows system programming
-- Available since Windows XP
+- Retained as a fallback path for non-hardened modes
 
 ### Diagnostic: `GetFinalPathNameByHandleW`
 
@@ -43,7 +45,7 @@ Prove that the same open-once confinement invariant can be implemented on Window
 
 ### Recommended approach
 
-Use `CreateFileW` as the primary API. It is fully documented, stable, and sufficient for handle-relative opens. Fall back to `NtCreateFile` only if `CreateFileW` cannot provide the needed root-relative semantics.
+As of Plan 084, `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory` is the production API for handle-relative child resolution. It provides native handle-relative semantics without the limitations of `CreateFileW`. `CreateFileW` is retained as the fallback for non-hardened modes.
 
 ## Minimum Supported Windows Version
 
@@ -172,10 +174,26 @@ The feasibility spike demonstrates that:
 - FAT32/exFAT: no reparse points; functional-only
 - Cloud placeholder files (OneDrive): may appear as reparse points; functional-only
 
+## Plan 084 Completion
+
+Plan 084 completed the production implementation of Windows handle-relative filesystem confinement:
+
+- **Directory handle retention**: `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative traversal. `OwnedHandle::try_clone()` is fallible (not `Clone`), so the owned handle is preserved rather than cloned.
+- **Handle-relative child resolution**: `RootGuard::resolve_child` uses `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory` for handle-relative opens in hardened mode.
+- **Index handle-relative**: Directory index resolution uses the retained directory handle, not path reconstruction.
+- **Unicode child names**: Non-ASCII child names resolve correctly through the `NtOpenFile` production path with correct UTF-16 lengths.
+- **Handle ownership semantics**: `OwnedHandle` duplication is fallible and non-panicking; borrowed handles are never closed by owners.
+- **Hardened no-fallback**: Hardened Windows resolution never reconstructs filesystem authority from a path.
+
+Reparse-point hardening remains deferred (Plans 085–086).
+
 ## Consequences
 
-- Plan 063 can implement the production resolver using the approved API subset
-- Windows hardened profile promotion requires passing all reparse-point race tests
-- `windows-sys` will be added as a Windows-only dependency (feature-gated)
+- Plan 084 implemented the production resolver using `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory` as the primary API
+- `ResolvedDirectory` retains an `OwnedHandle` for handle-relative child resolution; `OwnedHandle::try_clone()` is fallible
+- Windows hardened profile requires passing all handle-relative child resolution tests (Plans 084 gates)
+- `windows-sys` is a Windows-only dependency (feature-gated)
 - The existing `resolve_fallback()` path remains for non-hardened modes
 - Parser-level protections are retained as a first line of defense
+- Plans 085–086 complete the roadmap for reparse-point hardening
+- Windows hardened profile promotion requires passing all reparse-point race tests (Plans 085–086)

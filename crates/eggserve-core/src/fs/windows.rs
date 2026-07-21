@@ -389,6 +389,28 @@ impl Drop for OwnedHandle {
 // ── Error type ──────────────────────────────────────────────────────────────
 
 /// Filesystem error type for Windows handle-relative operations.
+///
+/// Each variant maps to a stable internal event category used for
+/// diagnostics and observability. The categories are:
+///
+/// - `NotFound` — **child-open not found**: the target file or directory
+///   does not exist at the requested path, or the NTSTATUS code indicates
+///   `STATUS_NO_SUCH_FILE` / `STATUS_OBJECT_NAME_NOT_FOUND`.
+/// - `NotADirectory` — **invalid namespace/component**: an intermediate
+///   path component was expected to be a directory but was a file, or the
+///   NTSTATUS code indicates `STATUS_NOT_A_DIRECTORY` /
+///   `STATUS_FILE_IS_A_DIRECTORY`.
+/// - `AccessDenied` — **child access denied**: the handle lacks permission
+///   to open the target, or the NTSTATUS code indicates
+///   `STATUS_ACCESS_DENIED`.
+/// - `TooManyLinks` — **root-open failure**: the file system has too many
+///   hard links for the target (maps from Win32 `ERROR_TOO_MANY_LINKS`).
+/// - `ReparsePointDenied` — **reparse denied**: the target is a reparse
+///   point (symlink, junction, mount point) and the hardened policy requires
+///   all reparse points to be denied.
+/// - `IoError(DWORD)` — **unexpected Windows status/error code**: a Win32
+///   error code or NTSTATUS value that does not map to a specific variant.
+///   The contained `DWORD` is the raw error code for diagnostics.
 #[derive(Debug)]
 pub(crate) enum WindowsFsError {
     NotFound,
@@ -481,10 +503,12 @@ pub(crate) fn open_directory_relative(
     parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
+    debug_assert!(!name.is_empty(), "child name must not be empty");
     let name_utf16 = to_utf16_null(name);
+    let utf16_byte_len = (name_utf16.len() * 2) as u16;
     let mut obj_name = NtUnicodeString {
-        length: (name.len() * 2) as u16,
-        maximum_length: (name.len() * 2 + 2) as u16,
+        length: utf16_byte_len - 2,
+        maximum_length: utf16_byte_len,
         buffer: name_utf16.as_ptr() as *mut u16,
     };
     let mut obj_attr = ObjectAttributes {
@@ -543,10 +567,12 @@ pub(crate) fn open_file_relative(
     parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
+    debug_assert!(!name.is_empty(), "child name must not be empty");
     let name_utf16 = to_utf16_null(name);
+    let utf16_byte_len = (name_utf16.len() * 2) as u16;
     let mut obj_name = NtUnicodeString {
-        length: (name.len() * 2) as u16,
-        maximum_length: (name.len() * 2 + 2) as u16,
+        length: utf16_byte_len - 2,
+        maximum_length: utf16_byte_len,
         buffer: name_utf16.as_ptr() as *mut u16,
     };
     let mut obj_attr = ObjectAttributes {
@@ -718,6 +744,24 @@ pub(crate) fn open_any_relative(parent: HANDLE, name: &str) -> Result<OwnedHandl
 ///
 /// When `dotfiles_denied` is true, components starting with `.` are rejected
 /// with `DotfileDenied`, matching the Unix behavior.
+/// Resolves a sequence of path components relative to a root handle,
+/// returning a `ResolvedResource` (file or directory).
+///
+/// This is the Windows equivalent of Unix `resolve_fd_relative`. It opens
+/// each component relative to the previous handle, checking for reparse
+/// points when `deny_reparse` is true. The final component is opened as
+/// either a file or directory and the type is determined from metadata.
+///
+/// When `dotfiles_denied` is true, components starting with `.` are rejected
+/// with `DotfileDenied`, matching the Unix behavior.
+///
+/// # Hardened mode invariant
+///
+/// When `deny_reparse` is `true` (hardened mode), this function must **never**
+/// call [`super::RootGuard::resolve_fallback`]. All resolution is performed
+/// through handle-relative opens; no path-based fallback is used. The caller
+/// in `RootGuard::resolve` is responsible for dispatching to this function
+/// only when `SymlinkPolicy::Denied` is in effect.
 pub(crate) fn resolve_to_resource(
     root: HANDLE,
     canonical_root: &std::path::Path,
@@ -726,6 +770,11 @@ pub(crate) fn resolve_to_resource(
     dotfiles_denied: bool,
 ) -> super::ResolvedResource {
     use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
+
+    debug_assert!(
+        !root.is_null() && root != INVALID_HANDLE_VALUE,
+        "root handle must be valid"
+    );
 
     if components.is_empty() {
         // Root path — return the root directory itself, retaining a handle.
@@ -875,6 +924,11 @@ pub(crate) fn resolve_child_relative(
     dotfiles_denied: bool,
 ) -> super::ResolvedResource {
     use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
+
+    debug_assert!(
+        !parent_handle.is_null() && parent_handle != INVALID_HANDLE_VALUE,
+        "parent handle must be valid"
+    );
 
     if dotfiles_denied && child.starts_with('.') {
         return ResolvedResource::Denied(crate::path::PathRejection::DotfileDenied);

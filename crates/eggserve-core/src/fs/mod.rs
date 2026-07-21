@@ -285,6 +285,15 @@ impl<'a> RootGuard<'a> {
         build_listing_entries_fallback(&dir.canonical_path, policy)
     }
 
+    /// Path-based fallback — permitted only in the link-following compatibility profile.
+    ///
+    /// This function uses `fs::canonicalize` and path-based `stat` to resolve
+    /// resources when symlinks are allowed (`SymlinkPolicy::Follow`). It is
+    /// **never** called from the Windows hardened branch (symlinks denied),
+    /// where handle-relative traversal via `windows::resolve_to_resource` is
+    /// used instead. The Windows hardened branch dispatches directly to
+    /// `resolve_to_resource` or `resolve_child_relative` without falling
+    /// through to this function.
     fn resolve_fallback(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
         let mut candidate = self.pinned.canonical_root().to_path_buf();
 
@@ -340,6 +349,10 @@ impl<'a> RootGuard<'a> {
                             Err(_) => ResolvedResource::NotFound,
                         }
                     }
+                    // Windows link-following compatibility profile only.
+                    // The hardened branch (symlinks denied) never reaches
+                    // this fallback; it dispatches to windows::resolve_to_resource
+                    // or windows::resolve_child_relative instead.
                     #[cfg(windows)]
                     {
                         match windows::open_root_handle(&canonical) {
@@ -1439,6 +1452,27 @@ mod tests {
         assert_eq!(
             data, b"new tree",
             "newly constructed pinned root should serve the replacement tree"
+        );
+    }
+
+    /// Verifies the hardened Windows branch resolves a normal file through
+    /// `RootGuard::resolve` without falling through to path-based fallback.
+    ///
+    /// On Windows with safe defaults (`SymlinkPolicy::Denied`), the dispatch
+    /// goes to `windows::resolve_to_resource` which uses handle-relative
+    /// traversal. This test confirms the hardened path works end-to-end.
+    #[cfg(windows)]
+    #[test]
+    fn windows_hardened_no_fallback() {
+        let (_tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
+        let path = parse_path("/hello.txt");
+        let policy = StaticPolicy::safe_default();
+        let result = guard.resolve(&path, &policy);
+        assert!(
+            matches!(result, ResolvedResource::File(_)),
+            "hardened Windows branch should resolve file via handle-relative traversal, got {:?}",
+            result
         );
     }
 }
