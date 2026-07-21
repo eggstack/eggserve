@@ -495,7 +495,7 @@ pub(crate) fn open_directory_relative(
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_DIRECTORY_FILE | FILE_OPEN_FOR_BACKUP_INTENT,
+            FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT,
         )
     };
 
@@ -556,7 +556,7 @@ pub(crate) fn open_file_relative(
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_NON_DIRECTORY_FILE,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
         )
     };
 
