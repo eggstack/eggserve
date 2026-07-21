@@ -202,9 +202,9 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; parser-level checks only. Plan 062 feasibility spike complete; production hardening planned for Plans 063–065 |
+| Windows x86_64 | Functional; handle-relative confinement implemented (Plans 084–085). Reparse-point qualification in progress (Plan 086). Do not use with untrusted mutable public content |
 
-Windows is functional but filesystem hardening (reparse-point/NTFS junction handling) is not yet complete. Plan 062 has proven handle-relative confinement feasibility on Windows, but production implementation is not yet in place. Do not use with untrusted public content on Windows.
+Windows implements handle-relative confinement (Plans 084–085) with reparse-point denial qualification in progress (Plan 086). Parser-level protections reject reserved names, ADS syntax, drive prefixes, and backslash. Do not use with untrusted mutable public content on Windows until Plan 086 closes.
 
 ## Production profiles
 
@@ -214,8 +214,8 @@ eggserve defines explicit production deployment profiles. Every production claim
 |---------|--------|-------------|
 | unix-reverse-proxy | Hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment) |
 | unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform) |
-| windows-reverse-proxy | Candidate | Windows behind reverse proxy (functional until reparse-point hardening passes) |
-| windows-direct-https | Functional | Windows with native rustls (parser-level security only) |
+| windows-reverse-proxy | Candidate | Windows behind reparse-point qualification (Plan 086) |
+| windows-direct-https | Functional | Windows with native rustls (hardening in progress) |
 | local-development | Hardened | Any platform, loopback, safe defaults |
 | windows-functional | Functional | Windows SMB/non-NTFS/cloud filesystems |
 | link-following-compat | Functional | Any platform with --follow-symlinks (weaker guarantee) |

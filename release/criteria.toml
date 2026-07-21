@@ -26,7 +26,7 @@ support = "supported-hardened"
 runner = "windows-latest"
 targets = ["x86_64-pc-windows-msvc"]
 support = "supported-functional"
-support_note = "Reparse-point hardening is deferred; do not use with untrusted mutable public content"
+support_note = "Handle-relative confinement implemented (Plans 084-085). Reparse-point qualification in progress (Plan 086). Do not use with untrusted mutable public content until qualification closes."
 
 [languages.rust]
 toolchain = "stable"
@@ -1756,6 +1756,162 @@ triggers = ["push"]
 max_age_days = 1
 invalidated_by = ["crates/eggserve-python/**", "crates/eggserve-core/src/fs/windows.rs"]
 depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+# ---------------------------------------------------------------------------
+# Plan 086 — Windows adversarial filesystem qualification
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "windows.reparse-matrix"
+title = "Windows reparse-point denial matrix"
+description = "All available reparse classes (file symlinks, directory symlinks, junctions, mount points, dangling reparse, inside/outside root targets) are denied under the hardened policy. Tag-independent denial verified for direct, index, and listing paths."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_reparse"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = ["windows.handle-retained-directory"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.namespace-matrix"
+title = "Windows namespace and normalization matrix"
+description = "Drive prefixes, UNC forms, ADS syntax, reserved device names, backslash in components, double encoding, and long components are rejected before filesystem access. Unicode names resolve by correct UTF-16 code-unit length."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_namespace"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/path/platform.rs", "crates/eggserve-core/src/path/components.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.race-root-escape"
+title = "Windows concurrent mutation race harness"
+description = "Concurrent filesystem mutations (file-to-reparse swap, file-to-directory type change, same-name replacement, delete-recreate during enumeration) do not serve bytes outside the pinned root or from denied objects."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_race"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = ["windows.reparse-matrix"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.root-identity"
+title = "Windows root identity and deployment replacement"
+description = "Pinned root survives pathname rename, replacement, and new directory creation at the old path. Old root handles retained during in-flight streams. New requests continue using pinned root identity."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_root_rename"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs", "crates/eggserve-core/src/config.rs"]
+depends_on = ["windows.handle-retained-directory"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.validator-identity"
+title = "Windows file identity and range consistency"
+description = "File identity metadata (same-size replacement, rename-over, direct vs directory-index) produces consistent representation identity. Range requests work correctly with file replacement."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_file_identity"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/primitives/planner.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.resource-stability"
+title = "Windows resource stability"
+description = "Repeated direct files, ranges, directory index lookups, directory listings, reparse denials, and missing paths do not leak handles, grow task counts, or leak permits. Return to stable baseline."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_resource_stability"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.installed-artifact"
+title = "Windows installed artifact parity"
+description = "Installed wheel, binary, and in-process primitives use the same Windows resolver implementation and produce identical results for the critical qualification subset."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_artifact_parity"
+workflow_job = "wheel-smoke"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/**", "crates/eggserve-core/src/fs/windows.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.fuzz-corpus-replay"
+title = "Windows fuzz corpus replay"
+description = "Windows-focused fuzz corpora for request component parsing, namespace rejection, and reparse detection produce no panics, no integer overflows, and deterministic category mapping."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- windows_fuzz"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["push", "pull_request"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/path/**"]
+depends_on = []
 waiver_allowed = false
 security_relevance = true
 release_stage = "qualification"

@@ -68,7 +68,7 @@ See [tls.md](tls.md) for details on the TLS feature, certificate requirements, a
 
 ## Windows deployment
 
-Windows is functional-only. Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Filesystem-level reparse-point hardening is an active roadmap item (Plans 062–065). Do not use with untrusted mutable public content on Windows.
+Windows implements handle-relative confinement (Plans 084–085) with reparse-point denial qualification in progress (Plan 086). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. Do not use with untrusted mutable public content on Windows until Plan 086 closes and the `windows-reverse-proxy` profile is promoted.
 
 See `release/support-profiles.toml` for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
 

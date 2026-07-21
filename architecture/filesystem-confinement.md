@@ -8,6 +8,7 @@ After path validation, filesystem confinement resolves the validated path agains
 |--------|------|---------|
 | `mod.rs` | `fs/mod.rs` | `PinnedRoot` (pinned root identity), `RootGuard`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory` |
 | `unix.rs` | `fs/unix.rs` | Descriptor-relative traversal (statat + openat) |
+| `windows.rs` | `fs/windows.rs` | Handle-relative traversal (NtOpenFile, NtQueryDirectoryFile), reparse-point denial, directory buffer parsing (Windows only) |
 
 ## Core Types
 
@@ -127,7 +128,7 @@ On non-Unix platforms (or in follow-symlinks mode), component-wise `symlink_meta
 
 This is explicitly documented as outside the descriptor-relative hardening guarantee.
 
-Plan 084 has implemented handle-relative child resolution on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative child resolution (analogous to Unix `dir_fd`), and `RootGuard::resolve_child` uses handle-relative traversal on Windows. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback entirely.
+Plan 084 has implemented handle-relative child resolution on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative child resolution (analogous to Unix `dir_fd`), and `RootGuard::resolve_child` uses handle-relative traversal on Windows. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback entirely. Plan 086 has established the adversarial filesystem qualification test scaffold covering reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity.
 
 ## `RootGuard` Lifecycle
 

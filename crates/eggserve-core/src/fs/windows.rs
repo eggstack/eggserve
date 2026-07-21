@@ -2356,7 +2356,7 @@ mod tests {
                 ptr::null_mut(),
                 OPEN_EXISTING,
                 FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT,
-                ptr::mut_ptr(),
+                ptr::null_mut(),
             )
         };
         assert_ne!(root_handle, INVALID_HANDLE_VALUE);

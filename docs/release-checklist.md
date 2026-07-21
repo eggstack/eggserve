@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 77
+Total gates: 97
 
 ## Preflight
 
@@ -19,6 +19,12 @@ Total gates: 77
 | `rust.test.server-tls` | Server TLS feature tests | yes | ci-log, test-output | PENDING | TBD |
 | `supply-chain.audit` | cargo-audit vulnerability check | yes | ci-log, audit-output | PENDING | TBD |
 | `supply-chain.deny` | cargo-deny license/policy check | yes | ci-log, deny-output | PENDING | TBD |
+| `windows.handle-ownership` | Windows handle ownership semantics | yes | ci-log, test-output | PENDING | TBD |
+| `windows.handle-relative-child` | Windows handle-relative child resolution | yes | ci-log, test-output | PENDING | TBD |
+| `windows.handle-retained-directory` | Windows retained directory handle | yes | ci-log, test-output | PENDING | TBD |
+| `windows.hardened-no-fallback` | Windows hardened mode never enters path fallback | yes | ci-log, test-output | PENDING | TBD |
+| `windows.index-handle-relative` | Windows index lookup via retained handle | yes | ci-log, test-output | PENDING | TBD |
+| `windows.unicode-child-production-path` | Windows Unicode child names via production path | yes | ci-log, test-output | PENDING | TBD |
 
 ## Qualification
 
@@ -81,6 +87,20 @@ Total gates: 77
 | `runtime.public-rust-consumer` | Rust runtime public consumer | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.service-dispatch` | Runtime service dispatch | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.tls-service-parity` | TLS and plaintext service parity | no | ci-log, test-output | PENDING | TBD |
+| `windows.directory-buffer-parser` | Windows directory buffer parser | yes | ci-log, test-output | PENDING | TBD |
+| `windows.directory-enumeration-handle-relative` | Windows handle-relative directory enumeration | yes | ci-log, test-output | PENDING | TBD |
+| `windows.directory-listing-head-parity` | Windows directory listing HEAD parity | yes | ci-log, test-output | PENDING | TBD |
+| `windows.directory-listing-installed-artifact` | Windows directory listing installed artifact | yes | ci-log, test-output | PENDING | TBD |
+| `windows.directory-listing-policy` | Windows directory listing policy enforcement | yes | ci-log, test-output | PENDING | TBD |
+| `windows.directory-listing-resource-stability` | Windows directory listing resource stability | yes | ci-log, test-output | PENDING | TBD |
+| `windows.fuzz-corpus-replay` | Windows fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
+| `windows.installed-artifact` | Windows installed artifact parity | yes | ci-log, test-output | PENDING | TBD |
+| `windows.namespace-matrix` | Windows namespace and normalization matrix | yes | ci-log, test-output | PENDING | TBD |
+| `windows.race-root-escape` | Windows concurrent mutation race harness | yes | ci-log, test-output | PENDING | TBD |
+| `windows.reparse-matrix` | Windows reparse-point denial matrix | yes | ci-log, test-output | PENDING | TBD |
+| `windows.resource-stability` | Windows resource stability | yes | ci-log, test-output | PENDING | TBD |
+| `windows.root-identity` | Windows root identity and deployment replacement | yes | ci-log, test-output | PENDING | TBD |
+| `windows.validator-identity` | Windows file identity and range consistency | yes | ci-log, test-output | PENDING | TBD |
 
 ## Artifact
 
@@ -104,7 +124,7 @@ Total gates: 77
 
 ## Summary
 
-- PENDING: 77
+- PENDING: 97
 
 ## Platform Support
 

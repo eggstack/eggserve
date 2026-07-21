@@ -63,7 +63,7 @@ On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` w
 
 ### Windows reparse and namespace attacker
 
-An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the hardened Windows profile, all reparse-point components are denied. Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Plans 075–084 have implemented handle-relative confinement on Windows including child resolution (Plan 084). Plan 085 has implemented handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback. Reparse-point hardening qualification is pending Plan 086. Directory listing remains disabled by default and is outside the hardened production profile until Plan 086 closes. Until full qualification completes, Windows is currently functional-only, not hardened.
+An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the hardened Windows profile, all reparse-point components are denied (tag-independent denial). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Plans 075–084 have implemented handle-relative confinement on Windows including child resolution (Plan 084). Plan 085 has implemented handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback. Plan 086 has established the adversarial filesystem qualification test scaffold covering reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity. Directory listing remains disabled by default. Windows is currently functional-only, with reparse-point qualification in progress.
 
 ### Resource-exhaustion attacker
 
@@ -129,7 +129,7 @@ Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge 
 - final files and directories served from already validated handles;
 - loopback or private-interface origin behind a mature edge.
 
-Windows handle-relative child resolution is implemented (Plan 084). Handle-relative directory enumeration is implemented (Plan 085). Reparse-point hardening qualification is pending Plan 086. Windows remains functional-only until evidence supports promotion.
+Windows handle-relative child resolution is implemented (Plan 084). Handle-relative directory enumeration is implemented (Plan 085). Reparse-point hardening qualification test scaffold is established (Plan 086). Windows remains functional-only until evidence supports promotion.
 
 ### windows-direct-https
 

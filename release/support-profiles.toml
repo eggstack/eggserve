@@ -232,6 +232,24 @@ required_gates = [
     "supply-chain.audit",
     "supply-chain.deny",
     "check-generated",
+    "windows.handle-retained-directory",
+    "windows.handle-relative-child",
+    "windows.index-handle-relative",
+    "windows.unicode-child-production-path",
+    "windows.handle-ownership",
+    "windows.hardened-no-fallback",
+    "windows.directory-enumeration-handle-relative",
+    "windows.directory-buffer-parser",
+    "windows.directory-listing-policy",
+    "windows.directory-listing-head-parity",
+    "windows.reparse-matrix",
+    "windows.namespace-matrix",
+    "windows.race-root-escape",
+    "windows.root-identity",
+    "windows.validator-identity",
+    "windows.resource-stability",
+    "windows.installed-artifact",
+    "windows.fuzz-corpus-replay",
     "python.wheel.windows",
     "python.lifecycle-windows",
 ]
@@ -247,7 +265,7 @@ invalidation_paths = [
     "Cargo.lock",
 ]
 waivers_allowed = true
-notes = "Functional-only. Handle-relative child resolution (Plan 084) and directory enumeration (Plan 085) implemented. Reparse-point hardening qualification pending Plan 086. Profiles remain unpromoted."
+notes = "Candidate. Handle-relative child resolution (Plan 084) and directory enumeration (Plan 085) implemented. Reparse-point qualification test scaffold established (Plan 086). Requires reparse-matrix, namespace-matrix, race-root-escape, root-identity, validator-identity, resource-stability, and installed-artifact gates to pass before promotion."
 
 # ---------------------------------------------------------------------------
 # windows-direct-https: Windows with native rustls
@@ -293,7 +311,7 @@ invalidation_paths = [
     "Cargo.lock",
 ]
 waivers_allowed = true
-notes = "Functional until Windows hardening evidence passes. Parser-level security defaults only."
+notes = "Functional until Windows hardening evidence passes. Reparse-point qualification in progress (Plan 086)."
 
 # ---------------------------------------------------------------------------
 # local-development: Any platform, loopback, safe defaults
