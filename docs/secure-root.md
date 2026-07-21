@@ -119,7 +119,7 @@ Parser and canonicalization checks only. Symlink checks use `symlink_metadata` (
 
 ### Windows
 
-Plan 062 has proven that handle-relative confinement is feasible on Windows using CreateFileW with FILE_FLAG_OPEN_REPARSE_POINT. Production implementation is planned for Plans 063–065. Until then, Windows remains functional-only.
+Plan 084 has implemented handle-relative child resolution on Windows. `ResolvedDirectory` retains an owned `OwnedHandle` for handle-relative child resolution, and `RootGuard::resolve_child` uses handle-relative traversal on Windows. This provides stronger confinement than parser-level checks alone. Directory enumeration still uses a path-based fallback (pending Plan 085). Reparse-point hardening qualification is pending Plans 085–086.
 
 ## Usage example
 

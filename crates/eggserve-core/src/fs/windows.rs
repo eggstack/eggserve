@@ -1,7 +1,7 @@
 #![cfg(windows)]
 #![allow(dead_code)]
 
-//! Windows handle-relative filesystem confinement prototype (Plan 062).
+//! Windows handle-relative filesystem confinement.
 //!
 //! This module mirrors the Unix `fs/unix.rs` module but uses Windows APIs to
 //! achieve the same open-once confinement invariant. Under the hardened profile,
@@ -15,9 +15,11 @@
 //!    `FILE_FLAG_OPEN_REPARSE_POINT` at every level.
 //! 4. Detects and rejects reparse points via `GetFileInformationByHandleEx`
 //!    with `FileAttributeTagInfo`.
-//! 5. Queries file identity from the opened handle for diagnostics and root
+//! 5. Retains directory handles in `ResolvedDirectory` for handle-relative
+//!    child resolution (index lookup, nested traversal).
+//! 6. Queries file identity from the opened handle for diagnostics and root
 //!    identity verification.
-//! 6. Streams from the final validated handle by converting to `std::fs::File`.
+//! 7. Streams from the final validated handle by converting to `std::fs::File`.
 //!
 //! # Safety model
 //!
@@ -35,10 +37,10 @@
 //!
 //! # Limitations
 //!
-//! This is a prototype. Directory enumeration uses a path-based fallback
-//! (`GetFinalPathNameByHandleW` + `FindFirstFileW`) rather than
-//! `NtQueryDirectoryFile`. A production implementation would use handle-based
-//! enumeration to avoid the path reconstruction step.
+//! Directory enumeration uses a path-based fallback (`GetFinalPathNameByHandleW`
+//! + `FindFirstFileW`) rather than `NtQueryDirectoryFile`. A production
+//! implementation would use handle-based enumeration to avoid the path
+//! reconstruction step (Planned for Plan 085).
 
 use std::ffi::c_void;
 use std::os::windows::io::{FromRawHandle, RawHandle};
@@ -292,23 +294,36 @@ extern "system" {
 
 /// RAII wrapper for a Windows `HANDLE`.
 ///
-/// Guarantees exactly-once `CloseHandle` on drop. Supports `Clone` via
-/// `DuplicateHandle` to create an independent copy of the handle.
+/// Guarantees exactly-once `CloseHandle` on drop. Handles are duplicated
+/// via `try_clone()` rather than `Clone` — duplication may fail due to
+/// handle-quota exhaustion, and the error must be propagated.
 ///
 /// # Safety invariants
 ///
 /// - `0` and `INVALID_HANDLE_VALUE` are treated as invalid and are not closed.
-/// - `Clone` panics if `DuplicateHandle` fails, which indicates a system-level
-///   error (e.g., out of memory or handle quota exhaustion).
+/// - Borrowed handles (e.g., the raw root handle from `PinnedRoot`) must
+///   never be wrapped in `OwnedHandle` — doing so would cause a double-close.
 pub(crate) struct OwnedHandle(HANDLE);
 
 impl std::fmt::Debug for OwnedHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_tuple("OwnedHandle").field(&self.0).finish()
+        f.debug_tuple("OwnedHandle").finish()
     }
 }
 
 impl OwnedHandle {
+    /// Wraps a raw `HANDLE` as an owned value.
+    ///
+    /// # Safety contract
+    ///
+    /// The caller must ensure:
+    /// - The handle is valid (not null, not `INVALID_HANDLE_VALUE`).
+    /// - The handle was returned by a Windows API that transfers ownership.
+    /// - The handle will not be closed by any other code path.
+    pub(crate) unsafe fn from_raw(handle: HANDLE) -> Self {
+        Self(handle)
+    }
+
     /// Returns `true` if the handle is not null and not `INVALID_HANDLE_VALUE`.
     pub(crate) fn is_valid(&self) -> bool {
         !self.0.is_null() && self.0 != INVALID_HANDLE_VALUE
@@ -317,6 +332,38 @@ impl OwnedHandle {
     /// Returns the raw `HANDLE` value.
     pub(crate) fn raw(&self) -> HANDLE {
         self.0
+    }
+
+    /// Duplicates this handle via `DuplicateHandle`, creating an independent
+    /// owned copy with the same access rights.
+    ///
+    /// # Errors
+    ///
+    /// Returns `WindowsFsError::IoError` if `DuplicateHandle` fails (e.g.,
+    /// handle-quota exhaustion or out of memory).
+    pub(crate) fn try_clone(&self) -> Result<Self, WindowsFsError> {
+        if !self.is_valid() {
+            return Ok(Self(INVALID_HANDLE_VALUE));
+        }
+        let mut new_handle = INVALID_HANDLE_VALUE;
+        // SAFETY: GetCurrentProcess() returns a pseudohandle valid for
+        // DuplicateHandle. DUPLICATE_SAME_ACCESS copies access rights.
+        // The output pointer is stack-allocated.
+        let ok = unsafe {
+            DuplicateHandle(
+                GetCurrentProcess(),
+                self.0,
+                GetCurrentProcess(),
+                &mut new_handle,
+                0,
+                FALSE,
+                DUPLICATE_SAME_ACCESS,
+            )
+        };
+        if ok == 0 {
+            return Err(WindowsFsError::IoError(unsafe { GetLastError() }));
+        }
+        Ok(Self(new_handle))
     }
 }
 
@@ -336,36 +383,6 @@ impl Drop for OwnedHandle {
                 CloseHandle(self.0);
             }
         }
-    }
-}
-
-impl Clone for OwnedHandle {
-    fn clone(&self) -> Self {
-        if !self.is_valid() {
-            return Self(INVALID_HANDLE_VALUE);
-        }
-        let mut new_handle = INVALID_HANDLE_VALUE;
-        // SAFETY: GetCurrentProcess() returns a pseudohandle that is valid
-        // for DuplicateHandle. We request DUPLICATE_SAME_ACCESS so the new
-        // handle inherits the same access rights. The output pointer is a
-        // stack-allocated HANDLE. Failure indicates a system-level error;
-        // panicking is appropriate since this is a prototype and the caller
-        // cannot reasonably recover.
-        let ok = unsafe {
-            DuplicateHandle(
-                GetCurrentProcess(),
-                self.0,
-                GetCurrentProcess(),
-                &mut new_handle,
-                0,
-                FALSE,
-                DUPLICATE_SAME_ACCESS,
-            )
-        };
-        if ok == 0 {
-            panic!("DuplicateHandle failed: {}", unsafe { GetLastError() });
-        }
-        Self(new_handle)
     }
 }
 
@@ -597,6 +614,29 @@ pub(crate) fn open_file_relative(
 /// `WindowsFsError::ReparsePointDenied` if a reparse point is encountered
 /// and `deny_reparse` is true, or `WindowsFsError::IoError` for other
 /// failures.
+/// Duplicates a raw handle via `DuplicateHandle`, returning a new owned handle.
+///
+/// This is used when we need to create an `OwnedHandle` from a borrowed raw
+/// handle (e.g., the root handle from `PinnedRoot`).
+fn duplicate_raw_handle(source: HANDLE) -> Result<OwnedHandle, WindowsFsError> {
+    let mut new_handle = INVALID_HANDLE_VALUE;
+    let ok = unsafe {
+        DuplicateHandle(
+            GetCurrentProcess(),
+            source,
+            GetCurrentProcess(),
+            &mut new_handle,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS,
+        )
+    };
+    if ok == 0 {
+        return Err(WindowsFsError::IoError(unsafe { GetLastError() }));
+    }
+    Ok(unsafe { OwnedHandle::from_raw(new_handle) })
+}
+
 pub(crate) fn resolve_components_relative(
     root: HANDLE,
     components: &[String],
@@ -605,11 +645,14 @@ pub(crate) fn resolve_components_relative(
     if components.is_empty() {
         // Caller wants the root handle itself. Duplicate it to return an
         // owned copy.
-        let root_owned = OwnedHandle(root);
-        return Ok(root_owned.clone());
+        return duplicate_raw_handle(root);
     }
 
-    let mut current = OwnedHandle(root);
+    // Track the current directory as a raw handle. Intermediate OwnedHandles
+    // are kept alive in `intermediates` to ensure parent handles outlive any
+    // child handles opened from them.
+    let mut current_raw = root;
+    let mut intermediates: Vec<OwnedHandle> = Vec::new();
     let total = components.len();
 
     for (i, component) in components.iter().enumerate() {
@@ -617,9 +660,9 @@ pub(crate) fn resolve_components_relative(
 
         // Open the component relative to the current handle.
         let child = if is_final {
-            open_file_relative(current.raw(), component)?
+            open_file_relative(current_raw, component)?
         } else {
-            open_directory_relative(current.raw(), component)?
+            open_directory_relative(current_raw, component)?
         };
 
         // Validate intermediate components are directories.
@@ -635,10 +678,16 @@ pub(crate) fn resolve_components_relative(
             deny_all_reparse_check(child.raw())?;
         }
 
-        current = child;
+        if is_final {
+            return Ok(child);
+        }
+
+        // Intermediate: keep alive and update the raw pointer.
+        current_raw = child.raw();
+        intermediates.push(child);
     }
 
-    Ok(current)
+    Err(WindowsFsError::NotFound)
 }
 
 /// Opens a file or directory relative to a parent directory handle.
@@ -679,8 +728,14 @@ pub(crate) fn resolve_to_resource(
     use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
 
     if components.is_empty() {
-        // Root path — return the root directory itself.
+        // Root path — return the root directory itself, retaining a handle.
+        let dir_handle = match duplicate_raw_handle(root) {
+            Ok(h) => h,
+            Err(_) => return ResolvedResource::NotFound,
+        };
         return ResolvedResource::Directory(ResolvedDirectory {
+            #[cfg(windows)]
+            dir_handle,
             canonical_path: canonical_root.to_path_buf(),
             components: Vec::new(),
         });
@@ -747,15 +802,25 @@ pub(crate) fn resolve_to_resource(
                 Err(_) => canonical_root.join(component),
             };
 
-            let std_file = handle_to_std_file(child);
             let safe_components = components.to_vec();
 
             if is_dir {
+                // Retain the directory handle in ResolvedDirectory for
+                // handle-relative child resolution.
                 return ResolvedResource::Directory(ResolvedDirectory {
+                    #[cfg(windows)]
+                    dir_handle: child,
                     canonical_path,
                     components: safe_components,
                 });
             } else {
+                // Duplicate the handle for the std::fs::File, preserving the
+                // original OwnedHandle for potential intermediate use.
+                let file_handle = match child.try_clone() {
+                    Ok(h) => h,
+                    Err(_) => return ResolvedResource::NotFound,
+                };
+                let std_file = handle_to_std_file(file_handle);
                 let metadata = match std_file.metadata() {
                     Ok(m) => m,
                     Err(_) => return ResolvedResource::NotFound,
@@ -778,7 +843,128 @@ pub(crate) fn resolve_to_resource(
     ResolvedResource::NotFound
 }
 
-// ── Track C: Reparse detection ──────────────────────────────────────────────
+// ── Track C: Child resolution and directory listing ─────────────────────────
+
+/// Resolves a single child component relative to a retained directory handle.
+///
+/// This is the Windows equivalent of `unix::resolve_child_fd`. It opens the
+/// child relative to the parent directory handle using NtOpenFile, checks for
+/// reparse points, and returns a `ResolvedResource`.
+///
+/// The child must have been validated by `validate_child_component` before
+/// calling this function (no empty, `.`, `..`, NUL, or separator characters).
+///
+/// # Arguments
+///
+/// * `parent_handle` - Handle to the parent directory (from `ResolvedDirectory`).
+/// * `parent_components` - The parent's logical component path (for building the
+///   child's `safe_relative_components`).
+/// * `child` - The child component name.
+/// * `deny_reparse` - If `true`, reject the child if it is a reparse point.
+/// * `dotfiles_denied` - If `true`, reject children starting with `.`.
+///
+/// # Errors
+///
+/// Returns `ResolvedResource::NotFound` if the child does not exist or cannot
+/// be opened, `ResolvedResource::Denied` for policy violations.
+pub(crate) fn resolve_child_relative(
+    parent_handle: HANDLE,
+    parent_components: &[String],
+    child: &str,
+    deny_reparse: bool,
+    dotfiles_denied: bool,
+) -> super::ResolvedResource {
+    use super::{ResolvedDirectory, ResolvedFile, ResolvedResource};
+
+    if dotfiles_denied && child.starts_with('.') {
+        return ResolvedResource::Denied(crate::path::PathRejection::DotfileDenied);
+    }
+
+    // Try opening as a file first, then as a directory.
+    let child_handle = match open_file_relative(parent_handle, child) {
+        Ok(h) => h,
+        Err(WindowsFsError::NotADirectory) => {
+            // Not a file — try as directory.
+            match open_directory_relative(parent_handle, child) {
+                Ok(h) => h,
+                Err(_) => return ResolvedResource::NotFound,
+            }
+        }
+        Err(_) => return ResolvedResource::NotFound,
+    };
+
+    // Check for reparse points if policy requires denial.
+    if deny_reparse {
+        match deny_all_reparse_check(child_handle.raw()) {
+            Ok(()) => {}
+            Err(WindowsFsError::ReparsePointDenied) => {
+                return ResolvedResource::Denied(crate::path::PathRejection::SymlinkDenied);
+            }
+            Err(_) => return ResolvedResource::NotFound,
+        }
+    }
+
+    // Determine if this is a file or directory.
+    let is_dir = match get_file_standard_info(child_handle.raw()) {
+        Ok(info) => info.directory != 0,
+        Err(_) => false,
+    };
+
+    let mut components = parent_components.to_vec();
+    components.push(child.to_string());
+
+    if is_dir {
+        ResolvedResource::Directory(ResolvedDirectory {
+            #[cfg(windows)]
+            dir_handle: child_handle,
+            canonical_path: std::path::PathBuf::new(), // diagnostic only
+            components,
+        })
+    } else {
+        let std_file = handle_to_std_file(child_handle);
+        let metadata = match std_file.metadata() {
+            Ok(m) => m,
+            Err(_) => return ResolvedResource::NotFound,
+        };
+        ResolvedResource::File(ResolvedFile {
+            file: std_file,
+            metadata,
+            safe_relative_components: components,
+        })
+    }
+}
+
+/// Enumerates directory contents with policy filtering.
+///
+/// Returns entries filtered according to the dotfile and symlink policies.
+/// This is the Windows handle-relative equivalent of `unix::list_directory_fd`.
+pub(crate) fn list_directory_handle(
+    dir_handle: HANDLE,
+    policy: &crate::policy::StaticPolicy,
+) -> Result<Vec<(String, bool)>, std::io::Error> {
+    let entries = enumerate_directory(dir_handle)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+
+    let mut result = Vec::new();
+    for entry in entries {
+        // Filter dotfiles.
+        if policy.dotfiles == DotfilePolicy::Denied && entry.name.starts_with('.') {
+            continue;
+        }
+
+        // Filter reparse points when symlinks are denied.
+        if policy.symlinks == SymlinkPolicy::Denied && entry.is_reparse_point {
+            continue;
+        }
+
+        result.push((entry.name, entry.is_directory));
+    }
+
+    result.sort_by(|a, b| a.0.cmp(&b.0));
+    Ok(result)
+}
+
+// ── Track D: Reparse detection ──────────────────────────────────────────────
 
 /// Queries `FILE_ATTRIBUTE_TAG_INFO` from an open handle.
 ///
@@ -1157,39 +1343,11 @@ pub(crate) fn enumerate_directory(handle: HANDLE) -> Result<Vec<DirectoryEntry>,
     Ok(entries)
 }
 
-// ── PinnedRoot Windows extension documentation ──────────────────────────────
+// ── PinnedRoot and ResolvedDirectory Windows fields ─────────────────────────
 //
-// When the production Windows resolver is integrated, the `PinnedRoot` struct
-// in `fs/mod.rs` would be extended with a Windows-specific field:
-//
-// ```rust
-// pub(crate) struct PinnedRoot {
-//     canonical_root: PathBuf,
-//     #[cfg(unix)]
-//     root_fd: fs::File,
-//     #[cfg(windows)]
-//     root_handle: windows::OwnedHandle,  // Plan 062
-// }
-// ```
-//
-// `PinnedRoot::new()` on Windows would:
-//
-// 1. Canonicalize the root path via `fs::canonicalize`.
-// 2. Open the root directory with `open_directory_relative` (using the
-//    canonical path as the parent context) or directly via `CreateFileW` with
-//    `FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS`.
-// 3. Store the resulting `OwnedHandle` in `root_handle`.
-// 4. Verify the root is not a reparse point with `deny_all_reparse_check`.
-//
-// `RootGuard::resolve()` on Windows with symlinks denied would dispatch to
-// `resolve_components_relative(root_handle, components, true)` to perform
-// handle-relative traversal with reparse denial.
-//
-// The `RootGuard` would clone the `OwnedHandle` (via `DuplicateHandle`) for
-// request-scoped traversal, ensuring the pinned root handle is never mutated.
-//
-// `ResolvedDirectory` on Windows would carry an `OwnedHandle` (analogous to
-// the Unix `dir_fd` field) for child resolution and enumeration.
+// `PinnedRoot` in `fs/mod.rs` carries `root_handle: OwnedHandle` on Windows.
+// `ResolvedDirectory` carries `dir_handle: OwnedHandle` on Windows, enabling
+// handle-relative child resolution for index lookup and nested traversal.
 
 #[cfg(test)]
 mod tests {

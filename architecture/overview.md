@@ -13,7 +13,7 @@ eggserve/
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, independent build)
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (31 files)
-├── plans/                      # design plans (000–059, all complete)
+├── plans/                      # design plans (000–084, all complete)
 ├── release/                    # machine-readable release criteria (criteria.toml)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora
@@ -192,7 +192,7 @@ eggserve uses three distinct error layers:
 |----------|--------|-------|
 | Linux (x86_64, aarch64) | **Supported-hardened** | Descriptor-relative traversal via `statat`+`openat` |
 | macOS (x86_64, aarch64) | **Supported-hardened** | Same descriptor-relative guarantees as Linux |
-| Windows (x86_64) | **Supported-functional** | Plan 062 feasibility spike complete; production reparse-point hardening planned for Plans 063–065. Parser-level checks only. Not for untrusted content. |
+| Windows (x86_64) | **Supported-functional** | Plan 084 implements handle-relative child resolution via retained directory handles. Production reparse-point hardening planned for Plans 085–086. Not for untrusted content. |
 
 ## Non-Goals
 

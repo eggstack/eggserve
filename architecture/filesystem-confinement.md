@@ -77,10 +77,14 @@ A directory handle for listing and child resolution.
 ```rust
 pub(crate) struct ResolvedDirectory {
     dir_fd: fs::File,              // Unix: directory descriptor
+    #[cfg(windows)]
+    dir_handle: OwnedHandle,       // Windows: retained directory handle for child resolution
     canonical_path: PathBuf,       // canonicalized directory path
     components: Vec<String>,       // path components relative to root
 }
 ```
+
+On Windows, `ResolvedDirectory` retains an `OwnedHandle` for handle-relative child resolution, analogous to the Unix `dir_fd`. This handle is used by `RootGuard::resolve_child` to traverse child entries without reopening by path.
 
 ## Unix Descriptor-Relative Traversal (`unix.rs`)
 
@@ -123,7 +127,7 @@ On non-Unix platforms (or in follow-symlinks mode), component-wise `symlink_meta
 
 This is explicitly documented as outside the descriptor-relative hardening guarantee.
 
-Plan 062 has proven feasibility of handle-relative confinement on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). Production implementation is planned for Plans 063–065.
+Plan 084 has implemented handle-relative child resolution on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative child resolution (analogous to Unix `dir_fd`), and `RootGuard::resolve_child` uses handle-relative traversal on Windows. Directory enumeration still uses a path-based fallback (pending Plan 085).
 
 ## `RootGuard` Lifecycle
 

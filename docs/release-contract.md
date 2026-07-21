@@ -190,7 +190,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Path traversal, NUL bytes, ambiguous separators, Windows prefixes, reserved names, and ADS syntax are rejected.
 - On Unix with safe defaults (symlinks denied): descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`. A symlink swapped between check and open is refused rather than followed.
 - With `--follow-symlinks`: component-wise `symlink_metadata` checks. Weaker than descriptor-relative; explicitly outside the hardening guarantee.
-- On Windows: parser-level checks only. Reparse-point/junction hardening is deferred. Do not use with untrusted public content on Windows.
+- On Windows: parser-level checks plus handle-relative child resolution (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration still uses a path-based fallback (pending Plan 085). Reparse-point hardening qualification is pending Plans 085–086. Do not use with untrusted public content on Windows.
 
 ### Resource Limits
 
@@ -434,7 +434,7 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 | Linux aarch64 | Supported, CI-tested | Full (descriptor-relative) |
 | macOS arm64 | Supported, CI-tested | Full (descriptor-relative) |
 | macOS x86_64 | Supported, CI-tested | Full (descriptor-relative) |
-| Windows x86_64 | Supported, CI-tested | Partial (parser-level only; reparse-point hardening roadmap Plans 062–065) |
+| Windows x86_64 | Supported, CI-tested | Partial (handle-relative child resolution implemented; reparse-point hardening pending Plans 085–086) |
 
 ## Production Profiles
 

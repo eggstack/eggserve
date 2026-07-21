@@ -63,7 +63,7 @@ On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` w
 
 ### Windows reparse and namespace attacker
 
-An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the hardened Windows profile, all reparse-point components are denied. Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Plan 062 has proven feasibility of handle-relative confinement on Windows (CreateFileW with FILE_FLAG_OPEN_REPARSE_POINT), concluding with a GO decision. Production hardening will be implemented in Plans 063–065. Until then, Windows is currently functional-only, not hardened.
+An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the hardened Windows profile, all reparse-point components are denied. Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Plans 075–084 have implemented handle-relative confinement on Windows including child resolution (Plan 084). Reparse-point hardening qualification is pending Plans 085–086. Until qualification completes, Windows is currently functional-only, not hardened.
 
 ### Resource-exhaustion attacker
 
@@ -120,16 +120,16 @@ Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge 
 
 ### windows-reverse-proxy
 
-**Status:** candidate (functional-only until Plans 062–065 complete)
+**Status:** candidate (functional-only until reparse-point hardening completes)
 
 - supported Windows release on a local NTFS volume;
 - pinned root directory handle;
-- component-by-component handle-relative traversal;
+- component-by-component handle-relative traversal including child resolution (Plan 084);
 - all reparse points denied under the hardened profile;
 - final files and directories served from already validated handles;
 - loopback or private-interface origin behind a mature edge.
 
-Windows reparse-point hardening is an active roadmap item. Windows remains functional-only until evidence supports promotion.
+Windows handle-relative child resolution is implemented (Plan 084). Reparse-point hardening qualification is pending Plans 085–086. Windows remains functional-only until evidence supports promotion.
 
 ### windows-direct-https
 
@@ -179,14 +179,14 @@ eggserve terminates TLS directly. Certificate management is manual — the opera
 
 ### Windows profiles
 
-Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Plan 062 has proven feasibility of handle-relative confinement on Windows, concluding with a GO decision. Production reparse-point hardening will be implemented in Plans 063–065. Until then, Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows. The hardened Windows profile remains candidate/functional-only until production implementation completes.
+Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Plans 075–084 have implemented handle-relative confinement on Windows including child resolution (Plan 084). Reparse-point hardening qualification is pending Plans 085–086. Until qualification completes, Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows. The hardened Windows profile remains candidate/functional-only until production implementation completes.
 
 ## Defensive layers
 
 1. **Path confinement** — all request paths are parsed, percent-decoded, validated, and resolved against the configured root. The `ConfinedPath` parser rejects traversal (`..`), absolute paths, NUL bytes, malformed percent-encoding, backslash ambiguity, and platform-specific attacks (Windows reserved names, ADS, drive prefixes). The `RootGuard` canonicalizes the final path and verifies it remains within the root.
 2. **Policy enforcement** — a security policy object controls what is allowed (methods, symlink following, dotfiles, directory listing). Defaults deny everything except direct file GET/HEAD.
 3. **Input validation** — malformed request targets are rejected before path resolution. Percent-encoding is decoded exactly once. Double-encoded traversal is caught by per-component decode checks.
-4. **Filesystem checks** — when symlink policy denies symlinks, on Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat(..., O_NOFOLLOW)` to detect symlinks at each path component and to refuse to follow them at open time. Intermediate components are opened with `O_DIRECTORY|O_NOFOLLOW`, final components with `O_RDONLY|O_NOFOLLOW`. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical path is verified against the root; this fallback is **weaker** than the descriptor-relative path and is explicitly outside the hardened guarantee. Plan 062 has proven feasibility of handle-relative confinement on Windows using CreateFileW with FILE_FLAG_OPEN_REPARSE_POINT; production implementation is planned for Plans 063–065. Files are opened during resolution — never re-opened later by absolute path. Canonical root escape is rejected with `PathRejection::RootEscapeDenied`. Dotfile policy checks components at both the path-validation and filesystem-resolution layers. Directory listings also respect symlink policy and hide symlink entries when denied.
+4. **Filesystem checks** — when symlink policy denies symlinks, on Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat(..., O_NOFOLLOW)` to detect symlinks at each path component and to refuse to follow them at open time. Intermediate components are opened with `O_DIRECTORY|O_NOFOLLOW`, final components with `O_RDONLY|O_NOFOLLOW`. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical path is verified against the root; this fallback is **weaker** than the descriptor-relative path and is explicitly outside the hardened guarantee. Plans 075–084 have implemented handle-relative confinement on Windows including child resolution (Plan 084); reparse-point hardening qualification is pending Plans 085–086. Files are opened during resolution — never re-opened later by absolute path. Canonical root escape is rejected with `PathRejection::RootEscapeDenied`. Dotfile policy checks components at both the path-validation and filesystem-resolution layers. Directory listings also respect symlink policy and hide symlink entries when denied.
 5. **Resource limits** — connection count (64 max), file-stream count (32 max), header read timeout (10s), response write timeout (60s), and request body metadata rejection (`Content-Length > 0`, invalid `Content-Length`, or any `Transfer-Encoding` on GET/HEAD) are enforced to prevent resource exhaustion.
 6. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.
 7. **Framing enforcement** — TE+CL conflict, duplicate Content-Length, and malformed Content-Length are rejected before the service is invoked. This prevents request smuggling where front-end and back-end servers disagree on message boundaries.

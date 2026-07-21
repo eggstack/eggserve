@@ -82,12 +82,16 @@ impl ResolvedFile {
 /// A resolved directory with an optional pre-opened handle.
 ///
 /// On Unix safe defaults, `dir_fd` is an open directory file descriptor used
-/// for fd-relative child resolution and listing. On the fallback path
-/// (follow-symlinks or non-Unix), `canonical_path` is used instead.
+/// for fd-relative child resolution and listing. On Windows safe defaults,
+/// `dir_handle` is an owned directory handle for handle-relative child
+/// resolution. On the fallback path (follow-symlinks or non-Unix without
+/// handle support), `canonical_path` is used instead.
 #[derive(Debug)]
 pub(crate) struct ResolvedDirectory {
     #[cfg(unix)]
     pub(crate) dir_fd: fs::File,
+    #[cfg(windows)]
+    pub(crate) dir_handle: windows::OwnedHandle,
     pub(crate) canonical_path: PathBuf,
     pub(crate) components: Vec<String>,
 }
@@ -147,7 +151,10 @@ impl Clone for PinnedRoot {
             #[cfg(unix)]
             root_fd: self.root_fd.try_clone().expect("failed to clone root fd"),
             #[cfg(windows)]
-            root_handle: self.root_handle.clone(),
+            root_handle: self
+                .root_handle
+                .try_clone()
+                .expect("failed to clone root handle"),
         }
     }
 }
@@ -247,6 +254,16 @@ impl<'a> RootGuard<'a> {
         if policy.symlinks == SymlinkPolicy::Denied {
             return unix::resolve_child_fd(&dir.dir_fd, &dir.components, child, policy);
         }
+        #[cfg(windows)]
+        if policy.symlinks == SymlinkPolicy::Denied {
+            return windows::resolve_child_relative(
+                dir.dir_handle.raw(),
+                &dir.components,
+                child,
+                true,
+                policy.dotfiles == DotfilePolicy::Denied,
+            );
+        }
         let mut components = dir.components.clone();
         components.push(child.to_string());
         self.resolve_fallback(&components, policy)
@@ -260,6 +277,10 @@ impl<'a> RootGuard<'a> {
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return unix::list_directory_fd(&dir.dir_fd, policy);
+        }
+        #[cfg(windows)]
+        if policy.symlinks == SymlinkPolicy::Denied {
+            return windows::list_directory_handle(dir.dir_handle.raw(), policy);
         }
         build_listing_entries_fallback(&dir.canonical_path, policy)
     }
@@ -319,7 +340,18 @@ impl<'a> RootGuard<'a> {
                             Err(_) => ResolvedResource::NotFound,
                         }
                     }
-                    #[cfg(not(unix))]
+                    #[cfg(windows)]
+                    {
+                        match windows::open_root_handle(&canonical) {
+                            Ok(dir_handle) => ResolvedResource::Directory(ResolvedDirectory {
+                                dir_handle,
+                                canonical_path: canonical,
+                                components: components.to_vec(),
+                            }),
+                            Err(_) => ResolvedResource::NotFound,
+                        }
+                    }
+                    #[cfg(not(any(unix, windows)))]
                     {
                         ResolvedResource::Directory(ResolvedDirectory {
                             canonical_path: canonical,

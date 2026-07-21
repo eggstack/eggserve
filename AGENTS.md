@@ -251,7 +251,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI binary.
-- **Windows**: functional but reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
+- **Windows**: functional with handle-relative child resolution (Plan 084). `OwnedHandle::try_clone()` is fallible (not `Clone`), so `ResolvedDirectory` on Windows retains an owned `dir_handle` for handle-relative child resolution. Reparse-point hardening is deferred. Do not use with untrusted public content on Windows.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
 - **Two Method types**: `ReadOnlyMethod` (GET/HEAD only, stable) and `Method` (standard + extension, experimental). `ReadOnlyMethod` is used by the response planner. `Method` is the canonical type for new code.
@@ -288,6 +288,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 060 defines production support profiles (7 profiles with machine-readable definitions in `release/support-profiles.toml`), aligns all documentation with the production scope firewall, adds contract consistency tests for profile validation and non-goal retention, reinforces API stability tier classifications, and expands the threat model with a central invariant and profile-specific security notes.
 - Plan 061 establishes pinned root identity and opened-resource ownership. `PinnedRoot` is opened once at server startup and retained for the server lifetime. `RootGuard` borrows from the pinned root for request-scoped traversal. Renaming or replacing the configured pathname does not redirect a running server.
 - Plan 062 proves Windows handle-relative filesystem feasibility. ADR-002 documents API choice (CreateFileW + FILE_FLAG_OPEN_REPARSE_POINT). Prototype covers root-relative opens, reparse suppression, file identity, streaming, directory enumeration, and race probes. Go/no-go: GO. Production implementation planned for Plans 063-065.
+- Plan 084 implements Windows directory-handle retention and child resolution. `PinnedRoot` opens a root handle at startup; `RootGuard` borrows from it for request-scoped traversal. `ResolvedDirectory` retains an owned `dir_handle` for handle-relative child opens. `OwnedHandle::try_clone()` is fallible (not `Clone`), so the owned handle is preserved rather than cloned. Reparse-point hardening remains deferred (Plans 085-086).
 
 ## Plan-driven development
 
