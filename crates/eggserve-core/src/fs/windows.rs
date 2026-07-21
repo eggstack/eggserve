@@ -435,7 +435,7 @@ fn to_utf16_null(s: &str) -> Vec<u16> {
 /// Trims trailing NUL bytes that are padding in fixed-size Windows arrays
 /// like `WIN32_FIND_DATAW.c_file_name`.
 fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
-    let end = slice.iter().rposition(|&c| c != 0).map_or(0, |i| i + 1);
+    let end = slice.iter().position(|&c| c == 0).unwrap_or(slice.len());
     String::from_utf16_lossy(&slice[..end]).into()
 }
 
