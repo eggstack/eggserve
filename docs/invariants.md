@@ -88,6 +88,21 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Python body source exposes correct kind | `test_primitives.py` — `test_body_source_repr` |
 | Python body source read returns expected bytes | `test_primitives.py` — `test_body_for_plan_read_range` |
 
+## Streaming buffer invariants (Plan 088)
+
+| Invariant | Test coverage |
+|-----------|---------------|
+| Each chunk allocates a fresh bounded buffer (8 KiB default) | `response.rs` — `DEFAULT_CHUNK_SIZE` constant |
+| Chunk buffer never exceeds remaining range bytes | `streaming_buffer_qualification` — exact range boundary tests |
+| No stale cross-request data exposure | `streaming_buffer_qualification` — `buffer_isolation` |
+| Client disconnect releases stream permit | `streaming_buffer_qualification` — `client_disconnect_releases_stream_permits` |
+| Forced shutdown releases all stream permits | `streaming_buffer_qualification` — `forced_shutdown_releases_stream_permits` |
+| Concurrent stream exhaustion returns 503 | `streaming_buffer_qualification` — `concurrent_stream_exhaustion_returns_503` |
+| Range request releases permit after body consumption | `streaming_buffer_qualification` — `range_request_releases_permits_after_stream` |
+| HEAD does not acquire stream permits | `streaming_buffer_qualification` — `head_request_does_not_acquire_stream_permits` |
+| normalize_metadata uses in-place retain (no clone) | `canonical.rs` — `strip_hop_by_hop`, `remove_header` via `retain` |
+| Hop-by-hop stripping preserves duplicate non-hop-by-hop headers | `canonical.rs` — `normalize_metadata_preserves_duplicate_non_hop_by_hop_headers` |
+
 ## Python binding invariants
 
 | Invariant | Test coverage |

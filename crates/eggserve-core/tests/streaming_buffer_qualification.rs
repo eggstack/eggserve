@@ -311,3 +311,186 @@ async fn large_file_range_preserves_exact_content() {
     assert_eq!(body.len(), 1000);
     assert_eq!(&body[..], &data[100000..101000]);
 }
+
+// ---------------------------------------------------------------------------
+// Required tests: client disconnect, shutdown, concurrency
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn client_disconnect_releases_stream_permits() {
+    // Simulate client disconnect by dropping response body mid-stream.
+    // The OwnedSemaphorePermit is held in the stream state; dropping the
+    // stream should release the permit back to the semaphore.
+    let (_tmp, state) = setup();
+    let data = vec![b'x'; 128 * 1024];
+    fs::write(state.config().root.join("big.bin"), &data).unwrap();
+
+    let max = state.config().limits.max_file_streams;
+
+    // Exhaust all permits except one
+    let mut permits = Vec::with_capacity(max - 1);
+    for _ in 0..max - 1 {
+        permits.push(
+            state
+                .file_stream_semaphore()
+                .clone()
+                .try_acquire_owned()
+                .unwrap(),
+        );
+    }
+
+    // Start streaming a large file, then drop the response body immediately
+    let resp = handle_request(get_req("/big.bin"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    drop(resp); // Simulate client disconnect — stream and permit dropped
+
+    // The permit should be released; we should be able to acquire one more
+    drop(permits.pop());
+    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    assert!(
+        acquired.is_ok(),
+        "stream permit not released after client disconnect"
+    );
+}
+
+#[tokio::test]
+async fn forced_shutdown_releases_stream_permits() {
+    // Simulate forced shutdown by dropping all responses and state.
+    // All OwnedSemaphorePermits held by streams must be released.
+    let (_tmp, state) = setup();
+    let data = vec![b'x'; 128 * 1024];
+    fs::write(state.config().root.join("big.bin"), &data).unwrap();
+
+    let max = state.config().limits.max_file_streams;
+
+    // Start multiple streaming responses
+    let mut responses = Vec::new();
+    for _ in 0..max {
+        let resp = handle_request(get_req("/big.bin"), &state).await;
+        assert_eq!(resp.status(), StatusCode::OK);
+        responses.push(resp);
+    }
+
+    // All permits are held by the streaming responses
+    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    assert!(
+        acquired.is_err(),
+        "should not be able to acquire permit when all are held"
+    );
+
+    // Simulate forced shutdown: drop all responses
+    responses.clear();
+
+    // All permits should be released
+    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    assert!(
+        acquired.is_ok(),
+        "permits not released after forced shutdown"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_stream_exhaustion_returns_503() {
+    // Verify that concurrent streaming requests that exhaust the semaphore
+    // return 503 Service Unavailable.
+    let (_tmp, state) = setup();
+    let data = vec![b'x'; 1024];
+    fs::write(state.config().root.join("file.bin"), &data).unwrap();
+
+    let max = state.config().limits.max_file_streams;
+
+    // Exhaust all permits
+    let mut permits = Vec::with_capacity(max);
+    for _ in 0..max {
+        permits.push(
+            state
+                .file_stream_semaphore()
+                .clone()
+                .try_acquire_owned()
+                .unwrap(),
+        );
+    }
+
+    // Next request should fail with 503
+    let resp = handle_request(get_req("/file.bin"), &state).await;
+    assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
+
+    drop(permits);
+
+    // After releasing permits, requests should succeed again
+    let resp = handle_request(get_req("/file.bin"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn range_request_releases_permits_after_stream() {
+    // Range requests also acquire a stream permit; verify it's released.
+    let (_tmp, state) = setup();
+    let data = vec![b'y'; 16 * 1024];
+    fs::write(state.config().root.join("ranged.bin"), &data).unwrap();
+
+    let max = state.config().limits.max_file_streams;
+
+    // Exhaust all permits except one
+    let mut permits = Vec::with_capacity(max - 1);
+    for _ in 0..max - 1 {
+        permits.push(
+            state
+                .file_stream_semaphore()
+                .clone()
+                .try_acquire_owned()
+                .unwrap(),
+        );
+    }
+
+    // Range request acquires the last permit, streams, then releases
+    let resp = handle_request(
+        get_req_with_header("/ranged.bin", "range", "bytes=0-4095"),
+        &state,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(body.len(), 4096);
+
+    // Permit should be released after body consumption
+    drop(permits.pop());
+    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    assert!(
+        acquired.is_ok(),
+        "stream permit not released after range request body consumption"
+    );
+}
+
+#[tokio::test]
+async fn head_request_does_not_acquire_stream_permits() {
+    // HEAD requests should not acquire file stream permits since they
+    // don't stream any body data.
+    let (_tmp, state) = setup();
+    let data = vec![b'z'; 1024];
+    fs::write(state.config().root.join("head.bin"), &data).unwrap();
+
+    let max = state.config().limits.max_file_streams;
+
+    // Exhaust all permits
+    let mut permits = Vec::with_capacity(max);
+    for _ in 0..max {
+        permits.push(
+            state
+                .file_stream_semaphore()
+                .clone()
+                .try_acquire_owned()
+                .unwrap(),
+        );
+    }
+
+    // HEAD should succeed even with all permits held (no streaming needed)
+    let req = Request::builder()
+        .method(Method::HEAD)
+        .uri("/head.bin")
+        .body(http_body_util::Empty::<Bytes>::new())
+        .unwrap();
+    let resp = handle_request(req, &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(resp.headers().get("content-length").unwrap(), "1024");
+}

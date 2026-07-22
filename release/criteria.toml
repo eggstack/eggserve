@@ -2162,3 +2162,57 @@ id = "perf.normalize-metadata-correctness"
 description = "Hop-by-hop stripping and Content-Length normalization preserve duplicate headers"
 triggers = ["push", "pull_request", "manual_dispatch"]
 evidence = [["test", "eggserve-core", "--", "normalize_metadata"]]
+
+[[gate]]
+id = "perf.static-small-file"
+description = "Small file (<=16 KiB) GET/HEAD response latency remains within baseline bounds"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["bench", "file_serving", "--", "get_file_sizes/16k", "head_file_sizes/16k"]]
+
+[[gate]]
+id = "perf.static-large-file"
+description = "Large file (1 MiB) GET response latency remains within baseline bounds"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["bench", "file_serving", "--", "get_file_sizes/1m"]]
+
+[[gate]]
+id = "perf.range-streaming"
+description = "Range request latency remains within baseline bounds for small and large files"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["bench", "file_serving", "--", "range_requests"]]
+
+[[gate]]
+id = "perf.keepalive"
+description = "Sequential request throughput on same connection remains within baseline bounds"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["bench", "file_serving", "--", "sequential_3_requests"]]
+
+[[gate]]
+id = "perf.allocation-profile"
+description = "Chunk count scaling remains linear; no super-linear allocation growth"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["bench", "file_serving", "--", "chunk_count_regimes"]]
+
+[[gate]]
+id = "perf.directory-listing"
+description = "Directory listing generation at 100 entries remains within baseline bounds"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["bench", "file_serving", "--", "directory_listing/100"]]
+
+[[gate]]
+id = "perf.tls-overhead"
+description = "TLS handshake and throughput overhead characterized (deferred to dedicated session)"
+triggers = ["manual_dispatch"]
+evidence = [["note", "TLS benchmarks require --features tls; deferred per Track I audit"]]
+
+[[gate]]
+id = "perf.installed-artifact-parity"
+description = "Installed binary/wheel behaves identically to source build for file serving"
+triggers = ["manual_dispatch"]
+evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification"]]
+
+[[gate]]
+id = "perf.client-disconnect-release"
+description = "Client disconnect releases stream permits; forced shutdown releases all permits"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "client_disconnect", "forced_shutdown", "concurrent_stream", "range_request_releases", "head_does_not_acquire"]]

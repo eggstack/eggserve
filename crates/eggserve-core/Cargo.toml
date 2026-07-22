@@ -50,3 +50,7 @@ rustls-pki-types = "1"
 [[bench]]
 name = "canonical_types"
 harness = false
+
+[[bench]]
+name = "file_serving"
+harness = false

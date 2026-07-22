@@ -310,6 +310,28 @@ Key allocation classification per request:
 - **Removable copy (eliminated)**: `normalize_metadata` header filtering (now uses `retain`)
 - **Benchmark artifact**: per-chunk allocation is bounded and cheap at 8 KiB
 
+### Baseline Performance (Plan 088)
+
+Representative benchmarks via `benches/file_serving.rs` on macOS arm64 (APFS, warm cache):
+
+| Workload | Median | Notes |
+|----------|--------|-------|
+| GET 1 KiB | 12.6 us | Handler latency (no TCP/TLS) |
+| GET 128 KiB | 12.9 us | Streaming body is lazy; latency is setup-dominated |
+| GET 1 MiB | 12.3 us | Same — body consumed separately |
+| HEAD 128 KiB | 12.1 us | Body suppressed by normalize_metadata |
+| Range 16 KiB (chunk-cross) | 26.3 us | Seek + range parsing overhead ~14 us |
+| 304 Not Modified | 11.3 us | No file open or streaming |
+| 404 Not Found | 1.9 us | Path parse + resolve only |
+| 405 Method Not Allowed | 692 ns | Method check only |
+| Sequential 3 requests | 39.9 us | ~13.3 us per request |
+| Body consumption 128 KiB | 215 us | Includes streaming and Bytes conversion |
+| 129 chunks (1 MiB + 1) | 1.48 ms | ~11.4 us per chunk (alloc + read + Frame) |
+| Dir listing 100 entries | 229 us | ~2.2 us per entry |
+| Dir listing 1000 entries | 2.25 ms | Linear scaling |
+
+Full benchmark results: `benchmarks/088-baseline/results.json`
+
 ## Test coverage
 
 The response planner has extensive test coverage:
@@ -319,4 +341,4 @@ The response planner has extensive test coverage:
 - **Live HTTP tests** (`http_primitives_integration.rs`): 15 tests exercising real TCP connections through hyper's client/server stack, covering GET, HEAD, POST (405), 404, 403, 400, 413, 206, 416, and 304 responses.
 - **Python tests** (`test_primitives.py`): comprehensive tests for method validation, body validation, request target validation, response planning, range responses, conditional responses, and HEAD parity through PyO3 bindings.
 - **Canonical conformance tests** (`tests/canonical_conformance.rs`, `python/eggserve/test_canonical_conformance.py`): parity tests for canonical HTTP types (Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, StatusCode, ResponseHead, ResponseBody, Response, normalize_response). Exercises identical behavior across Rust and Python, including normalization rules (HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation).
-- **Buffer qualification tests** (`tests/streaming_buffer_qualification.rs`): 18 tests for Plan 088 covering exact range boundaries (first byte, last byte, full file, chunk-crossing, chunk-start), zero-length file handling (GET, HEAD, range 416), buffer isolation between sequential requests, suffix/open-ended ranges, Content-Range header accuracy, sequential range requests across a full file, and large-file range content preservation.
+- **Buffer qualification tests** (`tests/streaming_buffer_qualification.rs`): 24 tests for Plan 088 covering exact range boundaries (first byte, last byte, full file, chunk-crossing, chunk-start), zero-length file handling (GET, HEAD, range 416), buffer isolation between sequential requests, suffix/open-ended ranges, Content-Range header accuracy, sequential range requests across a full file, large-file range content preservation, client disconnect permit release, forced shutdown permit release, concurrent stream exhaustion (503), range request permit release, and HEAD non-acquisition of stream permits.

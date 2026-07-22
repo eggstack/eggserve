@@ -56,7 +56,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | `api_stability.rs` | — | API stability snapshot checks |
 | `no_hyper_in_public_api.rs` | — | Ensures no Hyper types leak into public API |
 | `production_path.rs` (bin) | — | Binary production path validation |
-| `streaming_buffer_qualification.rs` | — | Plan 088: exact range boundaries, chunk-crossing, buffer isolation, zero-length files |
+| `streaming_buffer_qualification.rs` | — | Plan 088: exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition |
 
 ## Conformance Corpora
 

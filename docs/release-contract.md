@@ -212,6 +212,10 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 | Header read timeout | 10s | `tokio::time::timeout` |
 | Response write timeout | 60s | `tokio::time::timeout` |
 | Graceful shutdown | 10s | Drain after SIGTERM |
+| Stream chunk size | 8 KiB | `DEFAULT_CHUNK_SIZE` constant |
+| Stream chunk (configurable) | 8 KiB | `Limits::stream_chunk_size` (reserved) |
+| Directory listing entries | 4096 | `Limits::max_listing_entries` |
+| Directory listing response | 1 MiB | `Limits::max_listing_response_bytes` |
 
 ### Callback Server (Python `Server` with handler)
 

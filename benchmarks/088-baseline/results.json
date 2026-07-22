@@ -1,0 +1,133 @@
+{
+  "schema_version": 1,
+  "plan": "088",
+  "source_sha": "8114d676a77c4d528bcf62190fa56f551eed9257",
+  "environment": {
+    "os": "Darwin",
+    "arch": "x86_64",
+    "rustc": "1.96.0 (ac68faa20 2026-05-25)",
+    "cargo": "1.96.0 (30a34c68 2026-05-25)",
+    "filesystem": "APFS",
+    "cpu": "Apple Silicon (Rosetta x86_64)",
+    "captured_at": "2026-07-22T13:42:44Z"
+  },
+  "feature_set": {
+    "default": true,
+    "tls": false,
+    "client": false,
+    "profile": "release"
+  },
+  "workloads": {
+    "get_file_sizes": {
+      "description": "GET full file response (handle_request -> file_response streaming)",
+      "results": {
+        "empty": {"median_us": 12.472, "p95_low_us": 12.304, "p95_high_us": 12.638},
+        "1k": {"median_us": 12.561, "p95_low_us": 12.382, "p95_high_us": 12.733},
+        "16k": {"median_us": 12.515, "p95_low_us": 12.322, "p95_high_us": 12.715},
+        "128k": {"median_us": 12.900, "p95_low_us": 12.756, "p95_high_us": 13.059},
+        "1m": {"median_us": 12.286, "p95_low_us": 12.133, "p95_high_us": 12.451}
+      },
+      "notes": "Latency is dominated by handle_request setup (path parse, resolve, ETag, planner) not streaming. Streaming bodies are lazy; the response is returned before data is consumed."
+    },
+    "head_file_sizes": {
+      "description": "HEAD request (no body, headers only)",
+      "results": {
+        "empty": {"median_us": 12.147, "p95_low_us": 11.994, "p95_high_us": 12.308},
+        "1k": {"median_us": 12.388, "p95_low_us": 12.248, "p95_high_us": 12.524},
+        "16k": {"median_us": 11.912, "p95_low_us": 11.779, "p95_high_us": 12.035},
+        "128k": {"median_us": 12.069, "p95_low_us": 11.911, "p95_high_us": 12.229},
+        "1m": {"median_us": 11.576, "p95_low_us": 11.450, "p95_high_us": 11.724}
+      },
+      "notes": "HEAD suppresses body via normalize_metadata; Content-Length preserved for payload-permitting status."
+    },
+    "range_requests": {
+      "description": "Range requests (seek + bounded streaming)",
+      "results": {
+        "16k_first_byte": {"median_us": 26.980, "p95_low_us": 26.319, "p95_high_us": 27.720},
+        "16k_chunk_cross": {"median_us": 26.298, "p95_low_us": 25.583, "p95_high_us": 27.051},
+        "16k_full": {"median_us": 27.730, "p95_low_us": 26.797, "p95_high_us": 28.856},
+        "1m_first_8k": {"median_us": 27.688, "p95_low_us": 26.929, "p95_high_us": 28.449},
+        "1m_suffix": {"median_us": 26.324, "p95_low_us": 25.611, "p95_high_us": 27.043},
+        "1m_last_8k": {"median_us": 27.846, "p95_low_us": 27.006, "p95_high_us": 28.701}
+      },
+      "notes": "Range requests add ~14us overhead vs non-range (seek + range header parsing + Content-Range computation). Seek cost is uniform regardless of position."
+    },
+    "conditional_requests": {
+      "description": "Conditional requests (304 Not Modified)",
+      "results": {
+        "if_none_match": {"median_us": 11.288, "p95_low_us": 11.138, "p95_high_us": 11.456},
+        "if_modified_since": {"median_us": 11.692, "p95_low_us": 11.528, "p95_high_us": 11.888}
+      },
+      "notes": "304 responses avoid file open and streaming entirely. ETag comparison is string-based."
+    },
+    "error_paths": {
+      "description": "Error response paths (no file I/O)",
+      "results": {
+        "not_found_404": {"median_us": 1.895, "p95_low_us": 1.861, "p95_high_us": 1.927},
+        "forbidden_403_dotfile": {"median_ns": 623.51, "p95_low_ns": 616.53, "p95_high_ns": 631.27},
+        "method_not_allowed_405": {"median_ns": 692.18, "p95_low_ns": 684.76, "p95_high_ns": 700.26}
+      },
+      "notes": "404 requires path parse + resolve. 403 dotfile rejects at parse level (very fast). 405 rejects at method check (fastest)."
+    },
+    "directory_index": {
+      "description": "Directory index.html serving",
+      "results": {
+        "serves_index_html": {"median_us": 26.176, "p95_low_us": 25.545, "p95_high_us": 26.851}
+      },
+      "notes": "Similar to file GET: path resolve + index.html file open + streaming."
+    },
+    "sequential_requests": {
+      "description": "Sequential requests on same ServeState (keep-alive proxy)",
+      "results": {
+        "3_requests": {"median_us": 39.907, "p95_low_us": 39.250, "p95_high_us": 40.508}
+      },
+      "notes": "~13.3us per request. No connection overhead measured (direct handler calls)."
+    },
+    "body_consumption": {
+      "description": "GET + full body read (collect streaming body into memory)",
+      "results": {
+        "1k": {"median_us": 39.104, "p95_low_us": 37.976, "p95_high_us": 40.329},
+        "16k": {"median_us": 49.281, "p95_low_us": 48.310, "p95_high_us": 50.240},
+        "128k": {"median_us": 214.95, "p95_low_us": 202.55, "p95_high_us": 227.88}
+      },
+      "notes": "Includes full streaming body consumption (chunk reads into Vec<u8>, Bytes conversion, collect). 128k takes ~22us per 8KiB chunk."
+    },
+    "chunk_count_regimes": {
+      "description": "Streaming body with different chunk counts (DEFAULT_CHUNK_SIZE=8192)",
+      "results": {
+        "exact_1_chunk": {"median_us": 53.269, "p95_low_us": 50.401, "p95_high_us": 56.268},
+        "exact_2_chunks": {"median_us": 71.743, "p95_low_us": 65.959, "p95_high_us": 78.571},
+        "129_chunks_plus_1": {"median_us": 1476.3, "p95_low_us": 1309.9, "p95_high_us": 1667.0}
+      },
+      "notes": "Per-chunk allocation cost scales linearly. 129 chunks: ~11.4us per chunk (includes Vec alloc + read + Bytes conversion + Frame wrapping)."
+    },
+    "directory_listing": {
+      "description": "Directory listing HTML generation at various entry counts",
+      "results": {
+        "0_entries": {"median_us": 17.917, "p95_low_us": 17.669, "p95_high_us": 18.175},
+        "10_entries": {"median_us": 34.167, "p95_low_us": 33.607, "p95_high_us": 34.731},
+        "100_entries": {"median_us": 228.64, "p95_low_us": 224.19, "p95_high_us": 233.75},
+        "1000_entries": {"median_us": 2245.7, "p95_low_us": 2181.3, "p95_high_us": 2320.8}
+      },
+      "notes": "Scaling is roughly linear: ~2.2us per entry for HTML generation + path resolution overhead. 1000 entries: ~2.2ms total."
+    },
+    "head_vs_get": {
+      "description": "HEAD vs GET comparison for same file",
+      "results": {
+        "get_128k": {"median_us": 15.293, "p95_low_us": 14.846, "p95_high_us": 15.818},
+        "head_128k": {"median_us": 14.174, "p95_low_us": 13.996, "p95_high_us": 14.363}
+      },
+      "notes": "HEAD saves ~1.1us by skipping streaming body creation. Difference is small because bodies are lazy."
+    }
+  },
+  "known_limitations": [
+    "Benchmarks measure handler latency only (no TCP, TLS, or HTTP framing overhead)",
+    "Warm page-cache only (files created immediately before benchmark)",
+    "macOS APFS only; Linux ext4/xfs and Windows NTFS may differ",
+    "Single-threaded tokio runtime in benchmark (production uses multi-thread)",
+    "No concurrent connections measured (sequential requests only)",
+    "Gnuplot not available; using plotters backend for criterion"
+  ],
+  "comparison_baseline": null,
+  "variance": "See individual p95_low/p95_high bounds. Outliers reported per benchmark."
+}
