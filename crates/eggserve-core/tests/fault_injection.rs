@@ -109,6 +109,7 @@ async fn fault_read_only_root() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn fault_unreadable_file() {
     let setup = FaultTestSetup::new();
     let root = setup.root();
@@ -495,6 +496,7 @@ async fn fault_concurrent_streaming_stress() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn fault_graceful_degradation() {
     let setup = FaultTestSetup::new();
     let root = setup.root();
