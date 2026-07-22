@@ -77,6 +77,7 @@ pub async fn serve_connection<I, S>(
                     );
                 }
                 Err(_elapsed) => {
+                    crate::ops::global_counters().response_write_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     crate::ops::Logger::global().emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Warn,
@@ -243,9 +244,12 @@ pub async fn serve_connection_with_service<I, S>(
                             return Ok::<_, Infallible>(body_error_to_response(err, &head));
                         }
                         Err(_elapsed) => {
+                            crate::ops::global_counters()
+                                .header_timeouts
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
-                                crate::ops::EventKind::HeaderTimeout,
+                                crate::ops::EventKind::BodyReadTimeout,
                                 "body read timeout",
                             ));
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;

@@ -397,6 +397,9 @@ async fn accept_loop(
         return ShutdownResult::Clean;
     }
 
+    let correlation = crate::ops::CorrelationId::new();
+    let counters = crate::ops::global_counters();
+
     // Track spawned connection tasks for graceful drain.
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
@@ -405,9 +408,15 @@ async fn accept_loop(
             result = listener.accept() => {
                 match result {
                     Ok((stream, _addr)) => {
+                        let _conn_id = correlation.next();
+                        counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
                         let permit = match connection_semaphore.clone().try_acquire_owned() {
                             Ok(p) => p,
                             Err(_) => {
+                                counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                 drop(stream);
                                 continue;
                             }
@@ -458,7 +467,7 @@ async fn accept_loop(
                         tasks.push(join);
                     }
                     Err(e) => {
-                        classify_accept_error(&e).await;
+                        classify_accept_error(&e, &mut shutdown_rx).await;
                     }
                 }
             }
@@ -492,8 +501,19 @@ async fn accept_loop(
     let _ = lifecycle.mark_stopped();
 
     if timed_out {
+        counters
+            .forced_shutdowns
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Warn,
+            crate::ops::EventKind::ForcedShutdownStarted,
+            "drain deadline exceeded, aborting remaining connections",
+        ));
         ShutdownResult::Timeout
     } else {
+        counters
+            .graceful_shutdowns
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ShutdownResult::Clean
     }
 }
@@ -515,6 +535,9 @@ async fn accept_loop_with_service<S: Service>(
         return ShutdownResult::Clean;
     }
 
+    let correlation = crate::ops::CorrelationId::new();
+    let counters = crate::ops::global_counters();
+
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
 
     loop {
@@ -522,9 +545,15 @@ async fn accept_loop_with_service<S: Service>(
             result = listener.accept() => {
                 match result {
                     Ok((stream, _addr)) => {
+                        let _conn_id = correlation.next();
+                        counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
                         let permit = match connection_semaphore.clone().try_acquire_owned() {
                             Ok(p) => p,
                             Err(_) => {
+                                counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                 drop(stream);
                                 continue;
                             }
@@ -572,7 +601,7 @@ async fn accept_loop_with_service<S: Service>(
                         tasks.push(join);
                     }
                     Err(e) => {
-                        classify_accept_error(&e).await;
+                        classify_accept_error(&e, &mut shutdown_rx).await;
                     }
                 }
             }
@@ -604,8 +633,19 @@ async fn accept_loop_with_service<S: Service>(
     let _ = lifecycle.mark_stopped();
 
     if timed_out {
+        counters
+            .forced_shutdowns
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Warn,
+            crate::ops::EventKind::ForcedShutdownStarted,
+            "drain deadline exceeded, aborting remaining connections",
+        ));
         ShutdownResult::Timeout
     } else {
+        counters
+            .graceful_shutdowns
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ShutdownResult::Clean
     }
 }
@@ -626,9 +666,10 @@ async fn accept_tls(
 }
 
 /// Classify an accept loop error, emit a structured log event, and apply
-/// bounded exponential backoff for transient errors.
+/// bounded exponential backoff for transient errors. The backoff is
+/// interruptible by shutdown via the provided receiver.
 #[allow(clippy::collapsible_match)]
-async fn classify_accept_error(e: &std::io::Error) {
+async fn classify_accept_error(e: &std::io::Error, shutdown_rx: &mut broadcast::Receiver<()>) {
     use crate::ops::{Event, EventKind, Logger, Severity};
 
     let err_str = e.to_string();
@@ -686,7 +727,11 @@ async fn classify_accept_error(e: &std::io::Error) {
         let idx = COUNTER
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
             .min(BACKOFF_MS.len() - 1);
-        tokio::time::sleep(std::time::Duration::from_millis(BACKOFF_MS[idx])).await;
+        let backoff = std::time::Duration::from_millis(BACKOFF_MS[idx]);
+        tokio::select! {
+            _ = tokio::time::sleep(backoff) => {}
+            _ = shutdown_rx.recv() => {}
+        }
     }
 }
 

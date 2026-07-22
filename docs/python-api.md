@@ -288,7 +288,7 @@ with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
-Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10)`
+Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, observer=None, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close")`
 
 **Default parity with Rust/CLI:** Python defaults intentionally differ from Rust `RuntimeConfig` defaults for Python-specific workloads:
 
@@ -308,6 +308,7 @@ Parameters:
 - `policy` — optional `StaticPolicyWrapper` for filesystem policy
 - `handler` — optional Python callable `(Request) -> Response` for dynamic responses
 - `public` — must be `True` to bind to 0.0.0.0 or ::
+- `observer` — optional callback `fn(event: dict) -> None` for structured logging; receives event dictionaries with keys: `schema_version`, `severity`, `event`, `message`, `timestamp`, `connection_id`, `request_seq`, `fields`. Observer errors are caught and printed to stderr. Long-running observers may block event processing (GIL acquired).
 - `max_connections` — maximum concurrent connections (default: 100)
 - `max_file_streams` — maximum concurrent file streams (default: 64)
 - `max_python_callbacks` — maximum concurrent handler callbacks (default: 8)
@@ -315,6 +316,10 @@ Parameters:
 - `write_timeout_secs` — response write timeout in seconds (default: 30)
 - `handler_timeout_secs` — handler callback timeout in seconds (default: 30); uses the actual Rust runtime's handler timeout mechanism, enforced at transport level by the Rust server
 - `graceful_shutdown_timeout_secs` — graceful shutdown drain deadline in seconds (default: 10)
+- `request_body_mode` — request body policy: `"reject"` (default), `"buffer"`, or `"stream"`
+- `max_request_body_bytes` — maximum request body size in bytes (default: 0; hard ceiling)
+- `body_timeout_secs` — total deadline for body consumption in buffer mode (default: 30)
+- `incomplete_body_policy` — behavior when handler returns without consuming body: `"close"` (default) or `"drain"`
 
 Properties:
 - `addr` — bound address string (e.g. "127.0.0.1:8000"), or `None` when stopped
@@ -337,7 +342,7 @@ The server enforces connection limits, header read timeouts, and response write 
 
 **Framing strictness:** The server enforces hardened HTTP/1 framing before any handler invocation. Requests containing both `Transfer-Encoding` and `Content-Length` are rejected with 400. Duplicate `Content-Length` fields are rejected with 400, even when values are identical. Malformed `Content-Length` values (non-numeric, negative, overflowing) are rejected at the HTTP/1 wire level by Hyper. These checks prevent HTTP request smuggling attacks where front-end and back-end servers disagree on message boundaries.
 
-**Observability hooks:** The `Server` provides minimal observability via `state` and `addr` properties. Active connection/stream counters are not exposed as public API — they are internal to the Rust runtime and may be added as test-only instrumentation in a future milestone if needed for lifecycle verification.
+**Observability hooks:** The `Server` provides minimal observability via `state` and `addr` properties. The `observer` parameter receives structured event dictionaries matching the Rust/CLI event semantics (see `architecture/structured-logging.md`). Events include process lifecycle, connection errors, filesystem denials, and operational faults. Observer errors are caught and printed to Python stderr without crashing the server.
 
 ### `ServerSecureRoot`
 

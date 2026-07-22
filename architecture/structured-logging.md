@@ -19,16 +19,45 @@ Every operational event has:
 ## Event Categories
 
 ### Process/Config
-ProcessStarting, RootInitialized, ListenerReady, ShutdownRequested, DrainingStarted, ShutdownComplete
+- `process_starting` — server starting with version, bind, root, policy flags
+- `root_initialized` — root directory opened and pinned
+- `listener_ready` — accept loop bound and polling
+- `shutdown_requested` — graceful shutdown initiated
+- `draining_started` — draining in-flight connections
+- `forced_shutdown_started` — drain deadline exceeded, aborting connections
+- `shutdown_complete` — server stopped with result (clean/timeout/error)
 
 ### Connection
-ConnectionAccepted, ConnectionRejected, TlsHandshakeSuccess/Failure/Timeout, HeaderTimeout, ParserRejection, KeepAliveClosed, ResponseWriteTimeout, ClientDisconnect, ConnectionPanic
+- `connection_accepted` — new TCP connection accepted with correlation ID
+- `connection_rejected` — admission limit reached
+- `tls_handshake_success/failure/timeout` — TLS events (feature-gated)
+- `header_timeout` — HTTP header read timeout
+- `body_read_timeout` — request body read timeout (buffer mode)
+- `parser_rejection` — HTTP framing rejection
+- `keep_alive_closed` — keep-alive connection closed
+- `response_write_timeout` — response write timeout
+- `client_disconnect` — client disconnected (Debug severity)
+- `connection_panic` — handler panic contained
 
 ### Request/Service
-RequestCompleted, FileNotFound, FileDenied, FileError, DotfileDenied, SymlinkDenied, RootEscapeDenied, BodyPolicyRejection, ServiceTimeout, ServiceError, DirectoryListingLimit
+- `request_completed` — request finished with status, bytes, duration
+- `file_not_found` — path resolved but file not found (sanitized path field)
+- `file_denied` — access denied (dotfile/symlink/policy)
+- `file_error` — file stream I/O error
+- `dotfile_denied` — dotfile access denied
+- `symlink_denied` — symlink access denied
+- `root_escape_denied` — path escapes root (Warn severity)
+- `body_policy_rejection` — request body rejected by policy
+- `service_timeout` — handler timed out (504 response)
+- `service_error` — handler returned error
+- `directory_listing_limit` — listing entry limit reached
 
 ### Operational
-ListenerTransientError, ListenerPersistentError, ResourceExhaustion, BlockingWorkerSaturation
+- `listener_transient_error` — retryable accept error with backoff
+- `listener_persistent_error` — fatal accept error, no backoff
+- `resource_exhaustion` — file descriptor or memory exhaustion
+- `blocking_worker_saturation` — blocking pool at capacity
+- `log_sink_failure` — logging backend failed
 
 ## Output Modes
 
@@ -39,6 +68,7 @@ ListenerTransientError, ListenerPersistentError, ResourceExhaustion, BlockingWor
 ## Privacy
 
 - Request paths are sanitized/truncated (last component only, max 128 chars)
+- Control characters, bidi controls, and escape sequences are stripped
 - Query strings are omitted by default
 - Sensitive headers (Authorization, Cookie) are never logged
 - Absolute filesystem paths are startup-only diagnostics
@@ -54,9 +84,23 @@ def my_observer(event):
 server = Server(root="/path", observer=my_observer)
 ```
 
+Observer callback errors are caught and printed to Python stderr. The observer runs with the GIL acquired, so long-running observers may block event processing. Observer errors are not counted.
+
 ## Operational Counters
 
-`OpsCounters` tracks: connections accepted/rejected, active connections/streams, parser rejects, timeouts, bytes sent, shutdown counts, listener errors, dropped log events.
+`OpsCounters` (accessible via `global_counters()`) tracks:
+- `connections_accepted` — TCP connections accepted
+- `connections_rejected` — connections rejected by admission limit
+- `active_connections` — currently active connections
+- `active_file_streams` — currently streaming file responses
+- `parser_rejects` — HTTP parsing failures
+- `header_timeouts` — header/body read timeouts
+- `response_write_timeouts` — response write timeouts
+- `bytes_sent` — total bytes sent to clients
+- `graceful_shutdowns` — clean shutdowns without timeout
+- `forced_shutdowns` — shutdowns where drain deadline was exceeded
+- `listener_errors` — accept loop errors (all classifications)
+- `dropped_log_events` — events dropped due to sink failures
 
 ## Listener Error Classification
 
@@ -66,3 +110,11 @@ Accept errors are classified by `io::ErrorKind`:
 - **Persistent** (unknown errors) → Error severity, no backoff
 
 Backoff uses bounded exponential: 1ms → 2ms → 4ms → 8ms → 50ms cap.
+Backoff is interruptible by shutdown via `tokio::select!`.
+
+## Log Sink Failure Behavior
+
+- `CompositeLogSink` catches panics from individual sinks via `catch_unwind`
+- Failed sink events increment `dropped_log_events` counter
+- `Logger::try_init()` returns `Err(())` if already initialized (Python coexistence)
+- `NopLogSink` is the default when no logger is configured

@@ -193,8 +193,49 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                 ResolvedResource::Directory(dir) => {
                     handle_directory(&dir, config, state, is_head).await
                 }
-                ResolvedResource::NotFound => not_found(),
-                ResolvedResource::Denied(_) => forbidden(),
+                ResolvedResource::NotFound => {
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::FileNotFound,
+                            "file not found",
+                        )
+                        .field(crate::ops::Field::Str(
+                            "path".into(),
+                            crate::ops::sanitize_path(path_str),
+                        )),
+                    );
+                    not_found()
+                }
+                ResolvedResource::Denied(rejection) => {
+                    let (event_kind, severity) = match rejection {
+                        crate::path::PathRejection::DotfileDenied => (
+                            crate::ops::EventKind::DotfileDenied,
+                            crate::ops::Severity::Debug,
+                        ),
+                        crate::path::PathRejection::SymlinkDenied => (
+                            crate::ops::EventKind::SymlinkDenied,
+                            crate::ops::Severity::Debug,
+                        ),
+                        crate::path::PathRejection::RootEscapeDenied => (
+                            crate::ops::EventKind::RootEscapeDenied,
+                            crate::ops::Severity::Warn,
+                        ),
+                        _ => (
+                            crate::ops::EventKind::FileDenied,
+                            crate::ops::Severity::Debug,
+                        ),
+                    };
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(severity, event_kind, "access denied").field(
+                            crate::ops::Field::Str(
+                                "path".into(),
+                                crate::ops::sanitize_path(path_str),
+                            ),
+                        ),
+                    );
+                    forbidden()
+                }
             }
         }
         _ => method_not_allowed(),

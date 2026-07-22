@@ -33,6 +33,7 @@ pub enum EventKind {
     ListenerReady,
     ShutdownRequested,
     DrainingStarted,
+    ForcedShutdownStarted,
     ShutdownComplete,
 
     // Connection
@@ -42,6 +43,7 @@ pub enum EventKind {
     TlsHandshakeFailure,
     TlsHandshakeTimeout,
     HeaderTimeout,
+    BodyReadTimeout,
     ParserRejection,
     KeepAliveClosed,
     ResponseWriteTimeout,
@@ -66,6 +68,7 @@ pub enum EventKind {
     ListenerPersistentError,
     ResourceExhaustion,
     BlockingWorkerSaturation,
+    LogSinkFailure,
 }
 
 impl fmt::Display for EventKind {
@@ -76,6 +79,7 @@ impl fmt::Display for EventKind {
             EventKind::ListenerReady => "listener_ready",
             EventKind::ShutdownRequested => "shutdown_requested",
             EventKind::DrainingStarted => "draining_started",
+            EventKind::ForcedShutdownStarted => "forced_shutdown_started",
             EventKind::ShutdownComplete => "shutdown_complete",
 
             EventKind::ConnectionAccepted => "connection_accepted",
@@ -84,6 +88,7 @@ impl fmt::Display for EventKind {
             EventKind::TlsHandshakeFailure => "tls_handshake_failure",
             EventKind::TlsHandshakeTimeout => "tls_handshake_timeout",
             EventKind::HeaderTimeout => "header_timeout",
+            EventKind::BodyReadTimeout => "body_read_timeout",
             EventKind::ParserRejection => "parser_rejection",
             EventKind::KeepAliveClosed => "keep_alive_closed",
             EventKind::ResponseWriteTimeout => "response_write_timeout",
@@ -106,6 +111,7 @@ impl fmt::Display for EventKind {
             EventKind::ListenerPersistentError => "listener_persistent_error",
             EventKind::ResourceExhaustion => "resource_exhaustion",
             EventKind::BlockingWorkerSaturation => "blocking_worker_saturation",
+            EventKind::LogSinkFailure => "log_sink_failure",
         };
         write!(f, "{}", name)
     }
@@ -286,12 +292,23 @@ impl CompositeLogSink {
 impl LogSink for CompositeLogSink {
     fn emit(&self, event: &Event) {
         for sink in &self.sinks {
-            sink.emit(event);
+            // Catch panics from individual sinks to prevent one broken sink
+            // from blocking all subsequent sinks for this event.
+            let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                sink.emit(event);
+            }));
+            if result.is_err() {
+                global_counters()
+                    .dropped_log_events
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            }
         }
     }
     fn flush(&self) {
         for sink in &self.sinks {
-            sink.flush();
+            let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                sink.flush();
+            }));
         }
     }
 }

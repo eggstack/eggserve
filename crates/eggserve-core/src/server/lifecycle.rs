@@ -172,7 +172,14 @@ impl Lifecycle {
             Ordering::Acquire,
         );
         match prev {
-            Ok(_) => Ok(()),
+            Ok(_) => {
+                crate::ops::Logger::global().emit(crate::ops::Event::new(
+                    crate::ops::Severity::Info,
+                    crate::ops::EventKind::DrainingStarted,
+                    "draining in-flight connections",
+                ));
+                Ok(())
+            }
             Err(actual) => {
                 let state = LifecycleState::from_u8(actual);
                 if state == LifecycleState::Created || state == LifecycleState::Starting {

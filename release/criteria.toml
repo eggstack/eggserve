@@ -1365,6 +1365,162 @@ security_relevance = true
 release_stage = "qualification"
 
 # ---------------------------------------------------------------------------
+# Plan 087 — Structured logging and operational error closure
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "ops.json-log-validity"
+title = "JSON log validity"
+description = "Every JSON log line emitted in --log-format json mode is valid JSON, one object per line, no text banners"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- ops::tests::json_log_validity"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/ops.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.text-log-sanitization"
+title = "Text log sanitization"
+description = "Text log output sanitizes control characters, bidi controls, and long inputs; no terminal injection possible"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- ops::tests::text_log_sanitize"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/ops.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.library-silence"
+title = "Library silence"
+description = "Library crates do not write to stdout/stderr during ordinary use; only the logging sink and CLI own output"
+required = true
+evidence_classes = ["ci-log", "lint-output"]
+command = "cargo clippy --workspace --all-targets -- -D warnings"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/**", "crates/eggserve-bin/src/**"]
+depends_on = ["rust.clippy"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.listener-backoff"
+title = "Listener error backoff"
+description = "Persistent listener errors use bounded exponential backoff that is interruptible by shutdown"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- ops::tests::backoff_interruptible_by_shutdown"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/mod.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.streaming-error-events"
+title = "Streaming error event visibility"
+description = "Client disconnect, response write timeout, body read timeout, and service timeout produce structured log events"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- ops::tests::streaming_error_events"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/server/connection.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.log-sink-failure"
+title = "Log sink failure resilience"
+description = "Log sink panics do not crash the server; dropped events are counted; CompositeLogSink catches individual sink failures"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- ops::tests::composite_sink_catches_panic ops::tests::log_failure_does_not_panic"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/ops.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.python-observer-parity"
+title = "Python observer event parity"
+description = "Python observer callback receives structured event dictionaries matching Rust/CLI event semantics"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cd crates/eggserve-python && PYTHONPATH=python python -m unittest eggserve.test_server_primitives -v"
+workflow_job = "python-unit-tests"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-python/src/server.rs"]
+depends_on = ["python.native-tests"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+[[gate]]
+id = "ops.installed-artifact-logging"
+title = "Installed artifact logging parity"
+description = "Installed binary and wheel produce identical structured log output for equivalent configurations"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core -- ops::tests::event_schema_version"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["pull_request", "push"]
+max_age_days = 1
+invalidated_by = ["crates/eggserve-core/src/ops.rs", "crates/eggserve-bin/src/lib.rs"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
+
+# ---------------------------------------------------------------------------
 # Release gates
 # ---------------------------------------------------------------------------
 
