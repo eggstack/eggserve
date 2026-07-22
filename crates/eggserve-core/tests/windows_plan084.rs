@@ -239,11 +239,17 @@ fn windows_handle_duplication_failure_is_typed() {
     let cloned = root_handle
         .try_clone()
         .expect("try_clone should succeed on valid handle");
-    assert!(cloned.as_raw_handle() != INVALID_HANDLE_VALUE as _);
+    assert!(!std::ptr::eq(
+        cloned.as_raw_handle(),
+        INVALID_HANDLE_VALUE as _
+    ));
     drop(cloned);
 
     // Original is still valid after clone drop.
-    assert!(root_handle.as_raw_handle() != INVALID_HANDLE_VALUE as _);
+    assert!(!std::ptr::eq(
+        root_handle.as_raw_handle(),
+        INVALID_HANDLE_VALUE as _
+    ));
 
     // Verify through the production SecureRoot API that clone + resolve works.
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
@@ -667,7 +673,7 @@ fn windows_duplicate_handle_failure_is_typed() {
     );
     let cloned = clone_result.unwrap();
     assert!(
-        cloned.as_raw_handle() != INVALID_HANDLE_VALUE as _,
+        !std::ptr::eq(cloned.as_raw_handle(), INVALID_HANDLE_VALUE as _),
         "cloned handle should be valid"
     );
     drop(cloned);
