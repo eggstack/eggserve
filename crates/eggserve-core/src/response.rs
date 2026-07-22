@@ -12,6 +12,13 @@ use std::time::SystemTime;
 use crate::primitives::header_block::HeaderBlock;
 use crate::primitives::response::HeaderMapPlan;
 
+/// Default chunk size for file streaming reads (8 KiB).
+///
+/// This balances syscall overhead against memory pressure for typical
+/// static-file workloads. The constant is public so that benchmarks
+/// and external consumers can reference it without magic numbers.
+pub const DEFAULT_CHUNK_SIZE: usize = 8192;
+
 pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 
 pub(crate) fn canonical_error(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
@@ -102,7 +109,7 @@ pub fn file_response(
             if failed {
                 return None;
             }
-            let mut buf = vec![0u8; 8192];
+            let mut buf = vec![0u8; DEFAULT_CHUNK_SIZE];
             match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
                 Ok(0) => None,
                 Ok(n) => {
@@ -223,7 +230,7 @@ pub async fn file_response_range(
             if remaining == 0 {
                 return None;
             }
-            let mut buf = vec![0u8; remaining.min(8192) as usize];
+            let mut buf = vec![0u8; remaining.min(DEFAULT_CHUNK_SIZE as u64) as usize];
             match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
                 Ok(0) => None,
                 Ok(n) => {

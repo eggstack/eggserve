@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–061 are complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–088 are complete. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4: TE+CL rejection, duplicate Content-Length policy, one-shot consumption errors, transport adapter visibility cleanup, error taxonomy audit, and conformance corpus alignment.
 
 ## Non-negotiables
 
@@ -298,6 +298,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 085 implements Windows handle-relative directory enumeration. `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` replaces the path-based `GetFinalPathNameByHandleW` + `FindFirstFileW` fallback. A safe bounded parser (`parse_directory_buffer`) validates variable-length `FILE_ID_BOTH_DIR_INFO` records. `DirectoryEntryRecord` provides a platform-neutral entry type. Adversarial qualification test scaffold established (Plan 086, 113 tests). Independent safety review and profile promotion decision awaited.
 - Plan 086 establishes Windows adversarial filesystem qualification. Test scaffold covers reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity. 113 tests in `crates/eggserve-core/tests/windows_plan086.rs`. Release gates added to `release/criteria.toml`. Independent safety review and profile promotion decision awaited. Dedicated Windows VM required for Developer Mode symlink/junction fixtures.
 - Plan 087 establishes structured logging and operational error closure: operational event taxonomy, JSON Lines/text output, listener error classification with bounded backoff, streaming error visibility, Python observer callback, operational counters, and library silence. The `ops` module provides `Event`, `EventKind`, `Severity`, `Logger`, `LogSink`, `OpsCounters`, and `CorrelationId`.
+- Plan 088 establishes streaming allocation and buffer performance qualification. Extracts `DEFAULT_CHUNK_SIZE` constant (8 KiB) for file streaming, adds `stream_chunk_size` to `Limits` for future configurability, optimizes `normalize_metadata` header filtering to use in-place `retain` instead of clone+rebuild, adds 18 targeted buffer-qualification tests (exact range boundaries, chunk-crossing ranges, buffer isolation, zero-length files), and adds 5 performance regression gates to `release/criteria.toml`.
 
 ## Plan-driven development
 

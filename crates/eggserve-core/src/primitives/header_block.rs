@@ -252,6 +252,14 @@ impl HeaderBlock {
     pub fn is_empty(&self) -> bool {
         self.fields.is_empty()
     }
+
+    /// Retains only the elements specified by the predicate.
+    pub fn retain<F>(&mut self, f: F)
+    where
+        F: FnMut(&HeaderField) -> bool,
+    {
+        self.fields.retain(f);
+    }
 }
 
 impl fmt::Display for HeaderBlock {

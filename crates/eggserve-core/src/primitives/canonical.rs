@@ -16,7 +16,7 @@
 
 use std::fmt;
 
-use super::header_block::{HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue};
+use super::header_block::{HeaderBlock, HeaderError, HeaderName, HeaderValue};
 
 /// Errors from response construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -492,28 +492,12 @@ pub fn is_hop_by_hop_header(name: &str) -> bool {
 /// Remove all headers with the given name (case-insensitive).
 fn remove_header(headers: &mut HeaderBlock, name: &str) {
     let lower = name.to_ascii_lowercase();
-    let fields: Vec<HeaderField> = headers
-        .iter()
-        .filter(|f| f.name.as_str().to_ascii_lowercase() != lower)
-        .cloned()
-        .collect();
-    *headers = HeaderBlock::new();
-    for field in fields {
-        headers.push(field.name, field.value);
-    }
+    headers.retain(|f| f.name.as_str().to_ascii_lowercase() != lower);
 }
 
 /// Remove all hop-by-hop headers from the block.
 fn strip_hop_by_hop(headers: &mut HeaderBlock) {
-    let fields: Vec<HeaderField> = headers
-        .iter()
-        .filter(|f| !is_hop_by_hop_header(f.name.as_str()))
-        .cloned()
-        .collect();
-    *headers = HeaderBlock::new();
-    for field in fields {
-        headers.push(field.name, field.value);
-    }
+    headers.retain(|f| !is_hop_by_hop_header(f.name.as_str()));
 }
 
 /// Convert a canonical [`Response`] into a Hyper response with a boxed body.

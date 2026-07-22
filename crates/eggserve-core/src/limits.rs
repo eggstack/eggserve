@@ -22,6 +22,8 @@ pub struct Limits {
     pub max_listing_filename_bytes: usize,
     /// Timeout for directory enumeration operations.
     pub listing_enumeration_timeout: Duration,
+    /// Chunk size in bytes for file streaming reads.
+    pub stream_chunk_size: usize,
 }
 
 impl Default for Limits {
@@ -37,6 +39,7 @@ impl Default for Limits {
             max_listing_response_bytes: 1024 * 1024, // 1 MiB
             max_listing_filename_bytes: 255,
             listing_enumeration_timeout: Duration::from_secs(30),
+            stream_chunk_size: 8192,
         }
     }
 }

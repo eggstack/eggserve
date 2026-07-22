@@ -299,6 +299,17 @@ The service layer's `body_source_to_response()` async function then converts the
 - [eggserve-core.md](eggserve-core.md) — Core library context
 - [architecture/overview.md](overview.md) — Data flow diagram
 
+## Streaming Buffer Strategy (Plan 088)
+
+File streaming uses `DEFAULT_CHUNK_SIZE` (8 KiB) as the read buffer size for both full-file and range responses. Each chunk allocates a fresh `Vec<u8>`, reads into it, truncates to actual bytes read, and wraps in `Bytes::from(buf)` (zero-copy transfer of ownership). No buffer pool or reuse strategy is currently employed — each chunk allocation is bounded by the fixed chunk size and released when consumed by the transport layer.
+
+The `stream_chunk_size` field in `Limits` is reserved for future configurability. The `normalize_metadata()` function uses in-place `retain` for hop-by-hop header stripping and Content-Length removal, avoiding the previous clone+rebuild pattern.
+
+Key allocation classification per request:
+- **Required by ownership/lifetime**: chunk `Vec<u8>` (bounded by chunk size), ETag `String`, `HeaderMapPlan` headers
+- **Removable copy (eliminated)**: `normalize_metadata` header filtering (now uses `retain`)
+- **Benchmark artifact**: per-chunk allocation is bounded and cheap at 8 KiB
+
 ## Test coverage
 
 The response planner has extensive test coverage:
@@ -308,3 +319,4 @@ The response planner has extensive test coverage:
 - **Live HTTP tests** (`http_primitives_integration.rs`): 15 tests exercising real TCP connections through hyper's client/server stack, covering GET, HEAD, POST (405), 404, 403, 400, 413, 206, 416, and 304 responses.
 - **Python tests** (`test_primitives.py`): comprehensive tests for method validation, body validation, request target validation, response planning, range responses, conditional responses, and HEAD parity through PyO3 bindings.
 - **Canonical conformance tests** (`tests/canonical_conformance.rs`, `python/eggserve/test_canonical_conformance.py`): parity tests for canonical HTTP types (Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, StatusCode, ResponseHead, ResponseBody, Response, normalize_response). Exercises identical behavior across Rust and Python, including normalization rules (HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation).
+- **Buffer qualification tests** (`tests/streaming_buffer_qualification.rs`): 18 tests for Plan 088 covering exact range boundaries (first byte, last byte, full file, chunk-crossing, chunk-start), zero-length file handling (GET, HEAD, range 416), buffer isolation between sequential requests, suffix/open-ended ranges, Content-Range header accuracy, sequential range requests across a full file, and large-file range content preservation.

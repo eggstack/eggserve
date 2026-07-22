@@ -7,7 +7,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | ~200+ |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 23 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 24 files |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 1 file |
 | Python native primitives | `python/eggserve/test_primitives.py` | PyO3 bindings, 143 tests | 143 |
 | Python server primitives | `python/eggserve/test_server_primitives.py` | Server types, 68 tests | 68 |
@@ -56,6 +56,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | `api_stability.rs` | — | API stability snapshot checks |
 | `no_hyper_in_public_api.rs` | — | Ensures no Hyper types leak into public API |
 | `production_path.rs` (bin) | — | Binary production path validation |
+| `streaming_buffer_qualification.rs` | — | Plan 088: exact range boundaries, chunk-crossing, buffer isolation, zero-length files |
 
 ## Conformance Corpora
 

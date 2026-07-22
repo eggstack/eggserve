@@ -2128,3 +2128,37 @@ depends_on = []
 waiver_allowed = false
 security_relevance = false
 release_stage = "preflight"
+
+# ---------------------------------------------------------------------------
+# Plan 088 — Streaming allocation and buffer performance qualification
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "perf.resource-bounds"
+description = "File-stream semaphore and connection limits remain bounded under load"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["test", "eggserve-core", "--", "file_stream_exhaustion"]]
+
+[[gate]]
+id = "perf.buffer-isolation"
+description = "Sequential range requests return exact byte-identical content with no stale cross-request data"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "buffer_isolation"]]
+
+[[gate]]
+id = "perf.exact-range-boundaries"
+description = "Range requests at chunk boundaries, first/last byte, and suffix ranges return exact content"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification"]]
+
+[[gate]]
+id = "perf.zero-length-files"
+description = "Zero-length files return 200 OK with Content-Length: 0; range requests return 416"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "zero_length"]]
+
+[[gate]]
+id = "perf.normalize-metadata-correctness"
+description = "Hop-by-hop stripping and Content-Length normalization preserve duplicate headers"
+triggers = ["push", "pull_request", "manual_dispatch"]
+evidence = [["test", "eggserve-core", "--", "normalize_metadata"]]
