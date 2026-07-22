@@ -1026,8 +1026,8 @@ pub(crate) fn list_directory_handle(
     policy: &crate::policy::StaticPolicy,
     max_entries: usize,
 ) -> Result<Vec<(String, bool)>, std::io::Error> {
-    let entries = enumerate_directory(dir_handle, max_entries)
-        .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))?;
+    let entries =
+        enumerate_directory(dir_handle, max_entries).map_err(|e| std::io::Error::other(e))?;
 
     let mut result = Vec::new();
     for entry in entries {
@@ -1434,7 +1434,7 @@ pub fn parse_directory_buffer(
         ]) as usize;
 
         // FileNameLength must be even (UTF-16 code units × 2 bytes each).
-        if file_name_length % 2 != 0 {
+        if !file_name_length.is_multiple_of(2) {
             return Err(DirBufParseError::OddFileNameLength);
         }
 
@@ -1871,9 +1871,9 @@ mod tests {
     }
 
     #[test]
-    fn owned_handle_clone_and_drop() {
+    fn owned_handle_try_clone_and_drop() {
         let (_tmp, root_handle) = setup_test_root();
-        let cloned = root_handle.clone();
+        let cloned = root_handle.try_clone().unwrap();
         assert!(cloned.is_valid());
         drop(cloned);
         assert!(root_handle.is_valid());
@@ -1999,9 +1999,9 @@ mod tests {
     }
 
     #[test]
-    fn owned_handle_invalid_clone() {
+    fn owned_handle_invalid_try_clone() {
         let invalid = OwnedHandle(INVALID_HANDLE_VALUE);
-        let cloned = invalid.clone();
+        let cloned = invalid.try_clone().unwrap();
         assert!(!cloned.is_valid());
     }
 
@@ -2161,7 +2161,7 @@ mod tests {
     #[test]
     fn parse_max_entries_respected() {
         let mut entries_data = Vec::new();
-        for i in 0..10u32 {
+        for i in 0..10u64 {
             entries_data.push(build_dir_info_entry(
                 &format!("file{i}.txt"),
                 false,

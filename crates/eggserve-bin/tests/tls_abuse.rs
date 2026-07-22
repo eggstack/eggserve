@@ -86,30 +86,27 @@ async fn start_tls_server() -> TlsTestServer {
 
                         tokio::spawn(async move {
                             let acceptor = tokio_rustls::TlsAcceptor::from(config);
-                            match acceptor.accept(stream).await {
-                                Ok(mut tls_stream) => {
-                                    // Simple echo server for testing
-                                    let mut buf = vec![0u8; 4096];
-                                    loop {
-                                        tokio::select! {
-                                            result = tokio::time::timeout(Duration::from_secs(5), tls_stream.read(&mut buf)) => {
-                                                match result {
-                                                    Ok(Ok(0)) => break, // EOF
-                                                    Ok(Ok(n)) => {
-                                                        // Echo back or serve file
-                                                        let _ = tls_stream.write_all(&buf[..n]).await;
-                                                    }
-                                                    Ok(Err(_)) => break,
-                                                    Err(_) => break, // Timeout
+                            if let Ok(mut tls_stream) = acceptor.accept(stream).await {
+                                // Simple echo server for testing
+                                let mut buf = vec![0u8; 4096];
+                                loop {
+                                    tokio::select! {
+                                        result = tokio::time::timeout(Duration::from_secs(5), tls_stream.read(&mut buf)) => {
+                                            match result {
+                                                Ok(Ok(0)) => break, // EOF
+                                                Ok(Ok(n)) => {
+                                                    // Echo back or serve file
+                                                    let _ = tls_stream.write_all(&buf[..n]).await;
                                                 }
+                                                Ok(Err(_)) => break,
+                                                Err(_) => break, // Timeout
                                             }
-                                            _ = conn_shutdown_rx.recv() => {
-                                                break;
-                                            }
+                                        }
+                                        _ = conn_shutdown_rx.recv() => {
+                                            break;
                                         }
                                     }
                                 }
-                                Err(_) => {}
                             }
                         });
                     }
@@ -141,18 +138,18 @@ async fn tls_handshake_succeeds() {
     let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
     let stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
     let domain = rustls::pki_types::ServerName::try_from("localhost").unwrap();
-    
+
     // This will fail because we don't have the CA cert, but that's OK for testing
     // We're just testing that the server can handle TLS connections
     let result = connector.connect(domain, stream).await;
-    
+
     // The connection may fail due to certificate verification, but the server should handle it gracefully
     match result {
         Ok(mut tls_stream) => {
             // Send data and verify connection works
             let test_data = b"test data";
             let _ = tls_stream.write_all(test_data).await;
-            
+
             let mut buf = vec![0u8; 1024];
             let _ = tokio::time::timeout(Duration::from_secs(2), tls_stream.read(&mut buf)).await;
         }
@@ -204,7 +201,10 @@ async fn tls_incomplete_handshake() {
     // Connect but don't complete TLS handshake
     let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
     // Send partial TLS ClientHello
-    stream.write_all(b"\x16\x03\x01\x00\x05\x01\x00\x00\x01").await.unwrap();
+    stream
+        .write_all(b"\x16\x03\x01\x00\x05\x01\x00\x00\x01")
+        .await
+        .unwrap();
     drop(stream);
 
     // Server should handle gracefully
@@ -212,7 +212,10 @@ async fn tls_incomplete_handshake() {
 
     // Server should still accept new connections
     let result = tokio::net::TcpStream::connect(server.addr).await;
-    assert!(result.is_ok(), "server should accept new connection after incomplete handshake");
+    assert!(
+        result.is_ok(),
+        "server should accept new connection after incomplete handshake"
+    );
 
     let _ = server.shutdown_tx.send(());
 }
@@ -223,7 +226,10 @@ async fn tls_malformed_record() {
 
     let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
     // Send malformed TLS record
-    stream.write_all(b"\x16\x03\x01\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00").await.unwrap();
+    stream
+        .write_all(b"\x16\x03\x01\x00\x0a\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00")
+        .await
+        .unwrap();
     drop(stream);
 
     // Server should handle gracefully
@@ -246,7 +252,9 @@ async fn tls_handshake_flood() {
         let addr = server.addr;
         handles.push(tokio::spawn(async move {
             if let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await {
-                let _ = stream.write_all(b"\x16\x03\x01\x00\x05\x01\x00\x00\x01").await;
+                let _ = stream
+                    .write_all(b"\x16\x03\x01\x00\x05\x01\x00\x00\x01")
+                    .await;
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
         }));
@@ -278,7 +286,10 @@ async fn tls_client_abort_during_handshake() {
 
     // Verify server is still alive
     let result = tokio::net::TcpStream::connect(server.addr).await;
-    assert!(result.is_ok(), "server should survive client abort during handshake");
+    assert!(
+        result.is_ok(),
+        "server should survive client abort during handshake"
+    );
 
     let _ = server.shutdown_tx.send(());
 }
@@ -304,12 +315,9 @@ async fn tls_shutdown_during_handshake() {
 
     // Handshake may succeed or fail, but server should shutdown gracefully
     let result = tokio::time::timeout(Duration::from_secs(2), handshake).await;
-    match result {
-        Ok(Ok(mut tls_stream)) => {
-            // Handshake succeeded, but server is shutting down
-            let _ = tls_stream.shutdown().await;
-        }
-        _ => {} // Handshake failed or timed out (acceptable)
+    if let Ok(Ok(mut tls_stream)) = result {
+        // Handshake succeeded, but server is shutting down
+        let _ = tls_stream.shutdown().await;
     }
 }
 
@@ -326,62 +334,17 @@ async fn tls_concurrent_connections() {
         let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
         let stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
         let domain = rustls::pki_types::ServerName::try_from("localhost").unwrap();
-        
+
         // This will fail due to certificate verification, but that's OK
         let result = connector.connect(domain, stream).await;
         if let Ok(mut tls_stream) = result {
             let test_data = b"concurrent test";
             let _ = tls_stream.write_all(test_data).await;
-            
+
             let mut buf = vec![0u8; 1024];
             let _ = tokio::time::timeout(Duration::from_secs(2), tls_stream.read(&mut buf)).await;
         }
     }
 
     let _ = server.shutdown_tx.send(());
-}
-
-#[derive(Debug)]
-struct SkipVerify;
-
-impl rustls::client::danger::ServerCertVerifier for SkipVerify {
-    fn verify_server_cert(
-        &self,
-        _end_entity: &rustls::pki_types::CertificateDer<'_>,
-        _intermediates: &[rustls::pki_types::CertificateDer<'_>],
-        _server_name: &rustls::pki_types::ServerName<'_>,
-        _ocsp_response: &[u8],
-        _now: rustls::pki_types::UnixTime,
-    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
-        Ok(rustls::client::danger::ServerCertVerified::assertion())
-    }
-
-    fn verify_tls12_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn verify_tls13_signature(
-        &self,
-        _message: &[u8],
-        _cert: &rustls::pki_types::CertificateDer<'_>,
-        _dss: &rustls::DigitallySignedStruct,
-    ) -> Result<rustls::client::danger::HandshakeSignatureValid, rustls::Error> {
-        Ok(rustls::client::danger::HandshakeSignatureValid::assertion())
-    }
-
-    fn supported_verify_schemes(&self) -> Vec<rustls::SignatureScheme> {
-        vec![
-            rustls::SignatureScheme::RSA_PKCS1_SHA256,
-            rustls::SignatureScheme::RSA_PKCS1_SHA384,
-            rustls::SignatureScheme::RSA_PKCS1_SHA512,
-            rustls::SignatureScheme::ECDSA_NISTP256_SHA256,
-            rustls::SignatureScheme::ECDSA_NISTP384_SHA384,
-            rustls::SignatureScheme::ECDSA_NISTP521_SHA512,
-        ]
-    }
 }

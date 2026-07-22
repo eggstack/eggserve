@@ -98,9 +98,7 @@ async fn fault_read_only_root() {
     // Try to serve - should handle gracefully
     let resp = handle_request(get_req("/file.txt"), &setup.state).await;
     // Should either succeed (if file is readable) or fail gracefully
-    assert!(
-        resp.status() == 200 || resp.status() == 403 || resp.status() == 500
-    );
+    assert!(resp.status() == 200 || resp.status() == 403 || resp.status() == 500);
 
     // Restore permissions
     #[cfg(unix)]
@@ -148,7 +146,11 @@ async fn fault_concurrent_requests_under_pressure() {
 
     // Create files
     for i in 0..10 {
-        fs::write(root.join(format!("file_{}.txt", i)), format!("content {}", i)).unwrap();
+        fs::write(
+            root.join(format!("file_{}.txt", i)),
+            format!("content {}", i),
+        )
+        .unwrap();
     }
 
     // Send many concurrent requests
@@ -178,7 +180,11 @@ async fn fault_shutdown_during_requests() {
 
     // Create files
     for i in 0..5 {
-        fs::write(root.join(format!("file_{}.txt", i)), format!("content {}", i)).unwrap();
+        fs::write(
+            root.join(format!("file_{}.txt", i)),
+            format!("content {}", i),
+        )
+        .unwrap();
     }
 
     // Start requests

@@ -158,7 +158,10 @@ async fn fuzz_partial_request_fragments() {
     tokio::time::sleep(Duration::from_millis(50)).await;
     stream.write_all(b"TTP/1.1\r\nHost: localho").await.unwrap();
     tokio::time::sleep(Duration::from_millis(50)).await;
-    stream.write_all(b"st\r\nConnection: close\r\n\r\n").await.unwrap();
+    stream
+        .write_all(b"st\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
 
     let mut buf = Vec::new();
     let _ = stream.read_to_end(&mut buf).await;
@@ -257,7 +260,10 @@ async fn fuzz_disconnect_during_read() {
     // Send partial request and disconnect
     {
         let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
-        stream.write_all(b"GET /hello.txt HTTP/1.1\r\n").await.unwrap();
+        stream
+            .write_all(b"GET /hello.txt HTTP/1.1\r\n")
+            .await
+            .unwrap();
         // Don't complete headers, just drop
     }
 
@@ -265,7 +271,10 @@ async fn fuzz_disconnect_during_read() {
 
     // Server should still be alive
     let result = tokio::net::TcpStream::connect(server.addr).await;
-    assert!(result.is_ok(), "server should survive disconnect during read");
+    assert!(
+        result.is_ok(),
+        "server should survive disconnect during read"
+    );
 
     let _ = server.shutdown_tx.send(());
 }
@@ -289,7 +298,10 @@ async fn fuzz_disconnect_during_write() {
 
     // Server should still be alive
     let result = tokio::net::TcpStream::connect(server.addr).await;
-    assert!(result.is_ok(), "server should survive disconnect during write");
+    assert!(
+        result.is_ok(),
+        "server should survive disconnect during write"
+    );
 
     let _ = server.shutdown_tx.send(());
 }
@@ -338,8 +350,12 @@ async fn fuzz_invalid_target() {
         // Server should handle gracefully without crashing — any valid
         // HTTP status or connection close is acceptable
         assert!(
-            resp.contains("200") || resp.contains("400") || resp.contains("403")
-                || resp.contains("404") || resp.contains("405") || resp.is_empty(),
+            resp.contains("200")
+                || resp.contains("400")
+                || resp.contains("403")
+                || resp.contains("404")
+                || resp.contains("405")
+                || resp.is_empty(),
             "invalid target should return valid response: {}",
             resp
         );

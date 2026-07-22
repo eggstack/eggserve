@@ -272,7 +272,11 @@ async fn race_listing_churn() {
     // Create directory with files
     fs::create_dir_all(root.join("dir")).unwrap();
     for i in 0..10 {
-        fs::write(root.join(format!("dir/file_{}.txt", i)), format!("content {}", i)).unwrap();
+        fs::write(
+            root.join(format!("dir/file_{}.txt", i)),
+            format!("content {}", i),
+        )
+        .unwrap();
     }
 
     // Note: Directory listing is disabled by default for security.
@@ -369,9 +373,11 @@ async fn race_permission_changes() {
         {
             use std::os::unix::fs::PermissionsExt;
             if i % 2 == 0 {
-                let _ = fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o000));
+                let _ =
+                    fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o000));
             } else {
-                let _ = fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o644));
+                let _ =
+                    fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o644));
             }
         }
     }
@@ -434,7 +440,11 @@ async fn race_concurrent_directory_listing() {
     // Create directory with files
     fs::create_dir_all(root.join("dir")).unwrap();
     for i in 0..50 {
-        fs::write(root.join(format!("dir/file_{}.txt", i)), format!("content {}", i)).unwrap();
+        fs::write(
+            root.join(format!("dir/file_{}.txt", i)),
+            format!("content {}", i),
+        )
+        .unwrap();
     }
 
     // Note: Directory listing is disabled by default for security.
@@ -460,7 +470,11 @@ async fn race_concurrent_directory_listing() {
 
             // Modify directory
             let _ = fs::remove_file(root.join(format!("dir/file_{}.txt", i)));
-            fs::write(root.join(format!("dir/new_{}.txt", i)), format!("new {}", i)).unwrap();
+            fs::write(
+                root.join(format!("dir/new_{}.txt", i)),
+                format!("new {}", i),
+            )
+            .unwrap();
         }));
     }
 
@@ -502,7 +516,8 @@ async fn race_outside_root_access() {
     // Create symlink pointing outside root
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("escape.txt")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("secret.txt"), root.join("escape.txt"))
+            .unwrap();
 
         // Try to serve through symlink - must fail
         let resp = handle_request(get_req("/escape.txt"), &setup.state).await;
