@@ -65,6 +65,20 @@ Total gates: 134
 | `ops.python-observer-parity` | Python observer event parity | yes | ci-log, test-output | PENDING | TBD |
 | `ops.streaming-error-events` | Streaming error event visibility | yes | ci-log, test-output | PENDING | TBD |
 | `ops.text-log-sanitization` | Text log sanitization | yes | ci-log, test-output | PENDING | TBD |
+| `perf.allocation-profile` | Allocation profile | no | test-output | PENDING | TBD |
+| `perf.buffer-isolation` | Buffer isolation | no | test-output | PENDING | TBD |
+| `perf.client-disconnect-release` | Client disconnect release | no | test-output | PENDING | TBD |
+| `perf.directory-listing` | Directory listing performance | no | test-output | PENDING | TBD |
+| `perf.exact-range-boundaries` | Exact range boundaries | no | test-output | PENDING | TBD |
+| `perf.installed-artifact-parity` | Installed artifact parity | no | test-output | PENDING | TBD |
+| `perf.keepalive` | Keep-alive throughput | no | test-output | PENDING | TBD |
+| `perf.normalize-metadata-correctness` | Normalize metadata correctness | no | test-output | PENDING | TBD |
+| `perf.range-streaming` | Range request streaming latency | no | test-output | PENDING | TBD |
+| `perf.resource-bounds` | Resource bounds under load | no | test-output | PENDING | TBD |
+| `perf.static-large-file` | Large file static serving latency | no | test-output | PENDING | TBD |
+| `perf.static-small-file` | Small file static serving latency | no | test-output | PENDING | TBD |
+| `perf.tls-overhead` | TLS overhead | no | approval-record | PENDING | TBD |
+| `perf.zero-length-files` | Zero-length file handling | no | test-output | PENDING | TBD |
 | `pinned-root.descriptor-leak-resistance` | Descriptor leak resistance | yes | ci-log, test-output | PENDING | TBD |
 | `pinned-root.identity` | Pinned root identity behavior | yes | ci-log, test-output | PENDING | TBD |
 | `pinned-root.no-reopen-pipeline` | No-reopen static pipeline | yes | ci-log, test-output | PENDING | TBD |
@@ -147,7 +161,7 @@ Total gates: 134
 
 ## Summary
 
-- PENDING: 120
+- PENDING: 134
 
 ## Platform Support
 

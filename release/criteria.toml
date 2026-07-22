@@ -2135,87 +2135,269 @@ release_stage = "preflight"
 
 [[gate]]
 id = "perf.resource-bounds"
+title = "Resource bounds under load"
 description = "File-stream semaphore and connection limits remain bounded under load"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core -- --test-threads=1 file_stream_exhaustion"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["test", "eggserve-core", "--", "file_stream_exhaustion"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.buffer-isolation"
+title = "Buffer isolation"
 description = "Sequential range requests return exact byte-identical content with no stale cross-request data"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core --test streaming_buffer_qualification buffer_isolation"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "buffer_isolation"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.exact-range-boundaries"
+title = "Exact range boundaries"
 description = "Range requests at chunk boundaries, first/last byte, and suffix ranges return exact content"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core --test streaming_buffer_qualification"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.zero-length-files"
+title = "Zero-length file handling"
 description = "Zero-length files return 200 OK with Content-Length: 0; range requests return 416"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core --test streaming_buffer_qualification zero_length"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "zero_length"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.normalize-metadata-correctness"
+title = "Normalize metadata correctness"
 description = "Hop-by-hop stripping and Content-Length normalization preserve duplicate headers"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core -- normalize_metadata"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["test", "eggserve-core", "--", "normalize_metadata"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.static-small-file"
+title = "Small file static serving latency"
 description = "Small file (<=16 KiB) GET/HEAD response latency remains within baseline bounds"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo bench -p eggserve-core --bench file_serving get_file_sizes/16k head_file_sizes/16k"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["bench", "file_serving", "--", "get_file_sizes/16k", "head_file_sizes/16k"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.static-large-file"
+title = "Large file static serving latency"
 description = "Large file (1 MiB) GET response latency remains within baseline bounds"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo bench -p eggserve-core --bench file_serving get_file_sizes/1m"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["bench", "file_serving", "--", "get_file_sizes/1m"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.range-streaming"
+title = "Range request streaming latency"
 description = "Range request latency remains within baseline bounds for small and large files"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo bench -p eggserve-core --bench file_serving range_requests"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["bench", "file_serving", "--", "range_requests"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.keepalive"
+title = "Keep-alive throughput"
 description = "Sequential request throughput on same connection remains within baseline bounds"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo bench -p eggserve-core --bench file_serving sequential_3_requests"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["bench", "file_serving", "--", "sequential_3_requests"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.allocation-profile"
+title = "Allocation profile"
 description = "Chunk count scaling remains linear; no super-linear allocation growth"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo bench -p eggserve-core --bench file_serving chunk_count_regimes"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["bench", "file_serving", "--", "chunk_count_regimes"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.directory-listing"
+title = "Directory listing performance"
 description = "Directory listing generation at 100 entries remains within baseline bounds"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo bench -p eggserve-core --bench file_serving directory_listing/100"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["bench", "file_serving", "--", "directory_listing/100"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.tls-overhead"
+title = "TLS overhead"
 description = "TLS handshake and throughput overhead characterized (deferred to dedicated session)"
+required = false
+evidence_classes = ["approval-record"]
+command = "echo 'TLS benchmarks require --features tls; deferred per Track I audit'"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = ["tls"]
+artifacts = []
 triggers = ["manual_dispatch"]
-evidence = [["note", "TLS benchmarks require --features tls; deferred per Track I audit"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.installed-artifact-parity"
+title = "Installed artifact parity"
 description = "Installed binary/wheel behaves identically to source build for file serving"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core --test streaming_buffer_qualification"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
 triggers = ["manual_dispatch"]
-evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 [[gate]]
 id = "perf.client-disconnect-release"
+title = "Client disconnect release"
 description = "Client disconnect releases stream permits; forced shutdown releases all permits"
+required = false
+evidence_classes = ["test-output"]
+command = "cargo test -p eggserve-core --test streaming_buffer_qualification client_disconnect forced_shutdown concurrent_stream range_request_releases head_does_not_acquire"
+workflow_job = "rust-check"
+platforms = ["linux", "macos", "windows"]
+features = []
+artifacts = []
 triggers = ["push", "pull_request", "manual_dispatch"]
-evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "client_disconnect", "forced_shutdown", "concurrent_stream", "range_request_releases", "head_does_not_acquire"]]
+max_age_days = 30
+invalidated_by = ["release/criteria.toml"]
+depends_on = []
+waiver_allowed = false
+security_relevance = false
+release_stage = "qualification"
 
 # ---------------------------------------------------------------------------
 # Plan 089 — Production Soak, Internet, Artifact, and Release Closure

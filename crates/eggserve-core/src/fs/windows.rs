@@ -1026,8 +1026,7 @@ pub(crate) fn list_directory_handle(
     policy: &crate::policy::StaticPolicy,
     max_entries: usize,
 ) -> Result<Vec<(String, bool)>, std::io::Error> {
-    let entries =
-        enumerate_directory(dir_handle, max_entries).map_err(|e| std::io::Error::other(e))?;
+    let entries = enumerate_directory(dir_handle, max_entries).map_err(std::io::Error::other)?;
 
     let mut result = Vec::new();
     for entry in entries {
@@ -2532,7 +2531,10 @@ mod tests {
         let mut perms = std::fs::metadata(root_path.join("target.txt"))
             .unwrap()
             .permissions();
-        perms.set_readonly(false);
+        #[allow(clippy::permissions_set_readonly_false)]
+        {
+            perms.set_readonly(false);
+        }
         std::fs::set_permissions(root_path.join("target.txt"), perms).unwrap();
 
         let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
