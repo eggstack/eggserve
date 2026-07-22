@@ -215,33 +215,32 @@ fn days_to_civil(days: u64) -> (u64, u64, u64) {
 }
 
 pub fn sanitize_text_field(text: &str) -> String {
-    text.chars()
+    let filtered: String = text
+        .chars()
         .filter(|c| {
             let code = *c as u32;
-            // Remove control chars below 0x20 (except allow normal chars)
             if code < 0x20 {
                 return false;
             }
-            // Remove DEL (0x7F)
             if code == 0x7F {
                 return false;
             }
-            // Remove ESC (0x1B)
             if code == 0x1B {
                 return false;
             }
-            // Remove chars above 0x7E
             if code > 0x7E {
                 return false;
             }
             true
         })
-        .collect()
+        .collect();
+    truncate_str(&filtered, 512).into_owned()
 }
 
 pub fn sanitize_path(path: &str) -> String {
     let last_component = path.rsplit('/').next().unwrap_or(path);
-    let sanitized: String = last_component
+    let without_query = last_component.split('?').next().unwrap_or(last_component);
+    let sanitized: String = without_query
         .chars()
         .filter(|c| {
             let code = *c as u32;
@@ -292,8 +291,6 @@ impl CompositeLogSink {
 impl LogSink for CompositeLogSink {
     fn emit(&self, event: &Event) {
         for sink in &self.sinks {
-            // Catch panics from individual sinks to prevent one broken sink
-            // from blocking all subsequent sinks for this event.
             let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                 sink.emit(event);
             }));
@@ -301,6 +298,15 @@ impl LogSink for CompositeLogSink {
                 global_counters()
                     .dropped_log_events
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                // Emit a LogSinkFailure event to surface sink panics.
+                // Use catch_unwind to prevent recursive failure.
+                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    Logger::global().emit(Event::new(
+                        Severity::Error,
+                        EventKind::LogSinkFailure,
+                        "log sink panicked",
+                    ));
+                }));
             }
         }
     }
@@ -349,7 +355,7 @@ impl LogSink for StderrLogSink {
     fn flush(&self) {}
 }
 
-fn event_to_json(event: &Event) -> String {
+pub fn event_to_json(event: &Event) -> String {
     let mut out = String::with_capacity(256);
     out.push('{');
 
@@ -425,7 +431,7 @@ fn event_to_json(event: &Event) -> String {
     out
 }
 
-fn escape_json_string(s: &str) -> String {
+pub(crate) fn escape_json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for c in s.chars() {
         match c {
@@ -518,6 +524,7 @@ pub struct OpsCounters {
     pub active_file_streams: AtomicU64,
     pub parser_rejects: AtomicU64,
     pub header_timeouts: AtomicU64,
+    pub body_read_timeouts: AtomicU64,
     pub response_write_timeouts: AtomicU64,
     pub bytes_sent: AtomicU64,
     pub graceful_shutdowns: AtomicU64,
@@ -541,6 +548,7 @@ impl OpsCounters {
             active_file_streams: AtomicU64::new(0),
             parser_rejects: AtomicU64::new(0),
             header_timeouts: AtomicU64::new(0),
+            body_read_timeouts: AtomicU64::new(0),
             response_write_timeouts: AtomicU64::new(0),
             bytes_sent: AtomicU64::new(0),
             graceful_shutdowns: AtomicU64::new(0),
@@ -558,6 +566,7 @@ impl OpsCounters {
             active_file_streams: self.active_file_streams.load(Ordering::Relaxed),
             parser_rejects: self.parser_rejects.load(Ordering::Relaxed),
             header_timeouts: self.header_timeouts.load(Ordering::Relaxed),
+            body_read_timeouts: self.body_read_timeouts.load(Ordering::Relaxed),
             response_write_timeouts: self.response_write_timeouts.load(Ordering::Relaxed),
             bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
             graceful_shutdowns: self.graceful_shutdowns.load(Ordering::Relaxed),
@@ -576,6 +585,7 @@ pub struct OpsSnapshot {
     pub active_file_streams: u64,
     pub parser_rejects: u64,
     pub header_timeouts: u64,
+    pub body_read_timeouts: u64,
     pub response_write_timeouts: u64,
     pub bytes_sent: u64,
     pub graceful_shutdowns: u64,

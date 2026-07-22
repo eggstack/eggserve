@@ -92,6 +92,30 @@ None. All legacy APIs remain stable and functional.
 
 These methods are disabled by default and are not part of the public contract.
 
+## Plan 087: Structured Logging
+
+### --log-format json behavior change
+
+`--log-format json` now emits valid JSON Lines (one JSON object per line on stderr). Previous versions emitted a placeholder format that was not guaranteed to be parseable.
+
+**Migration**: Any tooling parsing `--log-format json` output must accept standard JSON Lines. The schema includes `schema_version`, `severity`, `event`, `timestamp`, `message`, `connection_id`, `request_seq`, and `fields`.
+
+### Operational events
+
+All operational events (connection lifecycle, request handling, listener errors, shutdown) now emit structured log events via the `ops` module. Previously, many of these events were not logged or used ad-hoc `eprintln!` output.
+
+### Connection IDs
+
+Connections are now assigned a unique 64-bit connection ID at accept time. This ID is included in all connection-scoped and request-scoped log events.
+
+### Listener error backoff
+
+Backoff for transient listener errors now resets on successful accepts. Previously, backoff accumulated without reset.
+
+### Fatal accept errors
+
+Fatal accept errors (unknown `io::ErrorKind` variants) now terminate the accept loop immediately. Previously, the loop retried these errors with backoff, which was incorrect for truly fatal conditions.
+
 ## Breaking Change Policy
 
 Pre-1.0, minor releases may break stable APIs only with explicit release notes

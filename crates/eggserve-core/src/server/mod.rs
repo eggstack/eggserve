@@ -397,26 +397,51 @@ async fn accept_loop(
         return ShutdownResult::Clean;
     }
 
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Info,
+        crate::ops::EventKind::ListenerReady,
+        "accept loop started",
+    ));
+
     let correlation = crate::ops::CorrelationId::new();
     let counters = crate::ops::global_counters();
 
     // Track spawned connection tasks for graceful drain.
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let mut backoff_idx: usize = 0;
 
     loop {
         tokio::select! {
             result = listener.accept() => {
                 match result {
                     Ok((stream, _addr)) => {
-                        let _conn_id = correlation.next();
+                        backoff_idx = 0;
+                        let conn_id = correlation.next();
                         counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::ConnectionAccepted,
+                                "connection accepted",
+                            )
+                            .connection_id(conn_id),
+                        );
 
                         let permit = match connection_semaphore.clone().try_acquire_owned() {
                             Ok(p) => p,
                             Err(_) => {
                                 counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                crate::ops::Logger::global().emit(
+                                    crate::ops::Event::new(
+                                        crate::ops::Severity::Debug,
+                                        crate::ops::EventKind::ConnectionRejected,
+                                        "connection rejected: admission limit",
+                                    )
+                                    .connection_id(conn_id),
+                                );
                                 drop(stream);
                                 continue;
                             }
@@ -435,6 +460,14 @@ async fn accept_loop(
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
                                     match accept_tls(stream, &tls_acceptor, config.header_read_timeout).await {
                                         Some(tls_stream) => {
+                                            crate::ops::Logger::global().emit(
+                                                crate::ops::Event::new(
+                                                    crate::ops::Severity::Debug,
+                                                    crate::ops::EventKind::TlsHandshakeSuccess,
+                                                    "TLS handshake completed",
+                                                )
+                                                .connection_id(conn_id),
+                                            );
                                             let io = TokioIo::new(tls_stream);
                                             let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                                                 let state = state.clone();
@@ -444,10 +477,14 @@ async fn accept_loop(
                                                     )
                                                 }
                                             });
-                                            connection::serve_connection(io, svc, &config, &mut shutdown_rx).await;
+                                            connection::serve_connection(io, svc, &config, &mut shutdown_rx, conn_id).await;
+                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                             return;
                                         }
-                                        None => return,
+                                        None => {
+                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                            return;
+                                        }
                                     }
                                 }
                             }
@@ -461,13 +498,17 @@ async fn accept_loop(
                                     )
                                 }
                             });
-                            connection::serve_connection(io, svc, &config, &mut shutdown_rx).await;
+                            connection::serve_connection(io, svc, &config, &mut shutdown_rx, conn_id).await;
+                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         });
                         tasks.retain(|t| !t.is_finished());
                         tasks.push(join);
                     }
                     Err(e) => {
-                        classify_accept_error(&e, &mut shutdown_rx).await;
+                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx).await;
+                        if fatal {
+                            break;
+                        }
                     }
                 }
             }
@@ -476,6 +517,12 @@ async fn accept_loop(
             }
         }
     }
+
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Info,
+        crate::ops::EventKind::ShutdownRequested,
+        "shutdown requested",
+    ));
 
     // Transition to Draining.
     let _ = lifecycle.drain();
@@ -535,25 +582,50 @@ async fn accept_loop_with_service<S: Service>(
         return ShutdownResult::Clean;
     }
 
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Info,
+        crate::ops::EventKind::ListenerReady,
+        "accept loop started",
+    ));
+
     let correlation = crate::ops::CorrelationId::new();
     let counters = crate::ops::global_counters();
 
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let mut backoff_idx: usize = 0;
 
     loop {
         tokio::select! {
             result = listener.accept() => {
                 match result {
                     Ok((stream, _addr)) => {
-                        let _conn_id = correlation.next();
+                        backoff_idx = 0;
+                        let conn_id = correlation.next();
                         counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::ConnectionAccepted,
+                                "connection accepted",
+                            )
+                            .connection_id(conn_id),
+                        );
 
                         let permit = match connection_semaphore.clone().try_acquire_owned() {
                             Ok(p) => p,
                             Err(_) => {
                                 counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                                 counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                crate::ops::Logger::global().emit(
+                                    crate::ops::Event::new(
+                                        crate::ops::Severity::Debug,
+                                        crate::ops::EventKind::ConnectionRejected,
+                                        "connection rejected: admission limit",
+                                    )
+                                    .connection_id(conn_id),
+                                );
                                 drop(stream);
                                 continue;
                             }
@@ -573,6 +645,14 @@ async fn accept_loop_with_service<S: Service>(
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
                                     match accept_tls(stream, &tls_acceptor, config.header_read_timeout).await {
                                         Some(tls_stream) => {
+                                            crate::ops::Logger::global().emit(
+                                                crate::ops::Event::new(
+                                                    crate::ops::Severity::Debug,
+                                                    crate::ops::EventKind::TlsHandshakeSuccess,
+                                                    "TLS handshake completed",
+                                                )
+                                                .connection_id(conn_id),
+                                            );
                                             let io = TokioIo::new(tls_stream);
                                             connection::serve_connection_with_service(
                                                 io,
@@ -580,10 +660,15 @@ async fn accept_loop_with_service<S: Service>(
                                                 &config,
                                                 &state,
                                                 &mut shutdown_rx,
+                                                conn_id,
                                             ).await;
+                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                             return;
                                         }
-                                        None => return,
+                                        None => {
+                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+                                            return;
+                                        }
                                     }
                                 }
                             }
@@ -595,13 +680,18 @@ async fn accept_loop_with_service<S: Service>(
                                 &config,
                                 &state,
                                 &mut shutdown_rx,
+                                conn_id,
                             ).await;
+                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         });
                         tasks.retain(|t| !t.is_finished());
                         tasks.push(join);
                     }
                     Err(e) => {
-                        classify_accept_error(&e, &mut shutdown_rx).await;
+                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx).await;
+                        if fatal {
+                            break;
+                        }
                     }
                 }
             }
@@ -610,6 +700,12 @@ async fn accept_loop_with_service<S: Service>(
             }
         }
     }
+
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Info,
+        crate::ops::EventKind::ShutdownRequested,
+        "shutdown requested",
+    ));
 
     let _ = lifecycle.drain();
 
@@ -668,34 +764,54 @@ async fn accept_tls(
 /// Classify an accept loop error, emit a structured log event, and apply
 /// bounded exponential backoff for transient errors. The backoff is
 /// interruptible by shutdown via the provided receiver.
+///
+/// Returns `true` if the error is fatal and the accept loop should terminate.
 #[allow(clippy::collapsible_match)]
-async fn classify_accept_error(e: &std::io::Error, shutdown_rx: &mut broadcast::Receiver<()>) {
+async fn classify_accept_error(
+    e: &std::io::Error,
+    shutdown_rx: &mut broadcast::Receiver<()>,
+    backoff_idx: &mut usize,
+) -> bool {
     use crate::ops::{Event, EventKind, Logger, Severity};
 
     let err_str = e.to_string();
     let kind = e.kind();
 
-    let (severity, event_kind, should_backoff) = match kind {
-        std::io::ErrorKind::Interrupted => {
-            (Severity::Debug, EventKind::ListenerTransientError, true)
-        }
+    let (severity, event_kind, should_backoff, is_fatal) = match kind {
+        std::io::ErrorKind::Interrupted => (
+            Severity::Debug,
+            EventKind::ListenerTransientError,
+            true,
+            false,
+        ),
         std::io::ErrorKind::ConnectionRefused
         | std::io::ErrorKind::ConnectionReset
         | std::io::ErrorKind::ConnectionAborted
-        | std::io::ErrorKind::BrokenPipe => {
-            (Severity::Debug, EventKind::ListenerTransientError, true)
-        }
-        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
-            (Severity::Warn, EventKind::ListenerTransientError, true)
-        }
+        | std::io::ErrorKind::BrokenPipe => (
+            Severity::Debug,
+            EventKind::ListenerTransientError,
+            true,
+            false,
+        ),
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => (
+            Severity::Warn,
+            EventKind::ListenerTransientError,
+            true,
+            false,
+        ),
         std::io::ErrorKind::OutOfMemory => {
             if err_str.contains("too many open files")
                 || err_str.contains("EMFILE")
                 || err_str.contains("ENFILE")
             {
-                (Severity::Error, EventKind::ResourceExhaustion, true)
+                (Severity::Error, EventKind::ResourceExhaustion, true, false)
             } else {
-                (Severity::Error, EventKind::ListenerPersistentError, false)
+                (
+                    Severity::Error,
+                    EventKind::ListenerPersistentError,
+                    false,
+                    true,
+                )
             }
         }
         std::io::ErrorKind::Other => {
@@ -703,12 +819,22 @@ async fn classify_accept_error(e: &std::io::Error, shutdown_rx: &mut broadcast::
                 || err_str.contains("EMFILE")
                 || err_str.contains("ENFILE")
             {
-                (Severity::Error, EventKind::ResourceExhaustion, true)
+                (Severity::Error, EventKind::ResourceExhaustion, true, false)
             } else {
-                (Severity::Error, EventKind::ListenerPersistentError, false)
+                (
+                    Severity::Error,
+                    EventKind::ListenerPersistentError,
+                    false,
+                    true,
+                )
             }
         }
-        _ => (Severity::Error, EventKind::ListenerPersistentError, false),
+        _ => (
+            Severity::Error,
+            EventKind::ListenerPersistentError,
+            false,
+            true,
+        ),
     };
 
     crate::ops::global_counters()
@@ -723,16 +849,16 @@ async fn classify_accept_error(e: &std::io::Error, shutdown_rx: &mut broadcast::
 
     if should_backoff {
         static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];
-        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-        let idx = COUNTER
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-            .min(BACKOFF_MS.len() - 1);
+        let idx = (*backoff_idx).min(BACKOFF_MS.len() - 1);
+        *backoff_idx = backoff_idx.saturating_add(1);
         let backoff = std::time::Duration::from_millis(BACKOFF_MS[idx]);
         tokio::select! {
             _ = tokio::time::sleep(backoff) => {}
             _ = shutdown_rx.recv() => {}
         }
     }
+
+    is_fatal
 }
 
 /// Wrapper to implement `Service` for `Arc<S>`.

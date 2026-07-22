@@ -186,7 +186,12 @@ pub async fn file_response_range(
         Some(len) => len,
         None => return internal_error(),
     };
-    if file.seek(SeekFrom::Start(start)).await.is_err() {
+    if let Err(e) = file.seek(SeekFrom::Start(start)).await {
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Warn,
+            crate::ops::EventKind::FileError,
+            format!("file seek error: {e}"),
+        ));
         return internal_error();
     }
 

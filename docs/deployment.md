@@ -98,3 +98,31 @@ A common setup for small deployments:
 - Never expose eggserve directly to the public internet without proper TLS and access control.
 - Every production deployment must name a profile from `release/support-profiles.toml`. No document should claim production support without naming the profile.
 - **Directory listing is opt-in and disabled by default.** When enabled with `--directory-listing`, it exposes file names and directory structure. Listing responses are bounded (max 4096 entries, 1 MiB body, 255-byte filenames, 30s timeout). Symlink entries are hidden from listings by default. Do not enable directory listing for untrusted content without understanding the information disclosure implications.
+
+## Structured Logging
+
+eggserve emits structured operational logs to stderr. Use `--log-format` to select the output mode:
+
+- `--log-format json` — JSON Lines to stderr. One valid JSON object per line with fields: `schema_version`, `severity`, `event`, `timestamp`, `message`, `connection_id`, `request_seq`, `fields`.
+- `--log-format text` — Human-readable text to stderr (default). Format: `[severity] event_name: message`. Control characters are sanitized and long fields are truncated.
+- `--log-format none` — Disables request logs. Only fatal startup diagnostics are emitted.
+
+### Event Categories
+
+| Category | Examples |
+|----------|----------|
+| Process/config | `process_starting`, `root_initialized`, `listener_ready`, `shutdown_requested` |
+| Connection lifecycle | `connection_accepted`, `tls_handshake_success`, `keep_alive_closed` |
+| Request/service | `request_completed`, `file_not_found`, `file_denied`, `body_policy_rejection` |
+| Operational faults | `listener_transient_error`, `resource_exhaustion`, `blocking_worker_saturation` |
+
+### Privacy
+
+- No absolute filesystem paths in request logs (startup diagnostics only)
+- No `Authorization` or `Cookie` headers in logs
+- Query strings omitted from request path fields
+- Request paths truncated to last component (max 128 chars)
+
+### Stderr Destination
+
+All log output goes to stderr. stdout remains clean for CLI conventions (e.g. piped output, scripted usage).

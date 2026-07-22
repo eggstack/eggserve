@@ -70,6 +70,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `mime` | pub(crate) | internal | Not externally visible |
 | `path` | pub(crate) | internal | Not externally visible |
 | `response` | pub(crate) | internal | Not externally visible |
+| `ops` | pub | experimental | Structured logging, event model, counters |
 
 ### Experimental (eggserve-core::server)
 

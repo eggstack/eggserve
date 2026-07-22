@@ -120,6 +120,16 @@ Key properties:
 - Static service remains bodyless (`RequestBodyPolicy::Reject`).
 - Callback timeout does not cancel arbitrary Python code; timed-out callbacks still count against concurrency until they return.
 
+## Structured Logging
+
+**Stability**: The `ops` module is **experimental**. Event schema and counter semantics may evolve.
+
+- **Event schema version**: 1. All emitted events include `schema_version: 1`.
+- **JSON Lines format**: Each event is one valid JSON object per line on stderr. No array wrapping, no trailing commas.
+- **Text sanitization**: Control characters, bidi controls, and escape sequences are stripped from text output. Long fields are truncated.
+- **Counter semantics**: `OpsCounters` uses atomic increments with relaxed ordering. Counter values are approximate under concurrent access (no snapshot consistency guarantee).
+- **Correlation ID uniqueness**: Connection IDs are unique per-process 64-bit identifiers. Request sequence numbers are monotonically increasing within a connection.
+
 ## Supported Protocol
 
 - **HTTP/1.1 only** — no HTTP/2 or HTTP/3.

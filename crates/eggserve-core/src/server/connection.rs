@@ -49,6 +49,7 @@ pub async fn serve_connection<I, S>(
     service: S,
     config: &RuntimeConfig,
     shutdown_rx: &mut broadcast::Receiver<()>,
+    conn_id: u64,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: hyper::service::Service<
@@ -66,14 +67,24 @@ pub async fn serve_connection<I, S>(
     tokio::select! {
         result = tokio::time::timeout(config.response_write_timeout, &mut conn) => {
             match result {
-                Ok(Ok(())) => {}
+                Ok(Ok(())) => {
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::KeepAliveClosed,
+                            "connection closed",
+                        )
+                        .connection_id(conn_id),
+                    );
+                }
                 Ok(Err(e)) => {
                     crate::ops::Logger::global().emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Debug,
                             crate::ops::EventKind::ClientDisconnect,
                             format!("connection error: {}", e),
-                        ),
+                        )
+                        .connection_id(conn_id),
                     );
                 }
                 Err(_elapsed) => {
@@ -83,7 +94,8 @@ pub async fn serve_connection<I, S>(
                             crate::ops::Severity::Warn,
                             crate::ops::EventKind::ResponseWriteTimeout,
                             "response write timeout",
-                        ),
+                        )
+                        .connection_id(conn_id),
                     );
                     conn.as_mut().graceful_shutdown();
                     let _ = conn.await;
@@ -112,6 +124,7 @@ pub async fn serve_connection_with_service<I, S>(
     config: &RuntimeConfig,
     _state: &ServeState,
     shutdown_rx: &mut broadcast::Receiver<()>,
+    conn_id: u64,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
@@ -147,6 +160,17 @@ pub async fn serve_connection_with_service<I, S>(
 
             // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
             if let Err(e) = validate_body_framing(&parts.headers) {
+                crate::ops::global_counters()
+                    .parser_rejects
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ParserRejection,
+                        format!("parser rejection: {}", e),
+                    )
+                    .connection_id(conn_id),
+                );
                 return Ok::<_, Infallible>(e.to_response());
             }
 
@@ -160,6 +184,16 @@ pub async fn serve_connection_with_service<I, S>(
             if let Some(len) = declared_length {
                 if let Some(limit) = effective_policy.max_bytes() {
                     if len > limit {
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::BodyPolicyRejection,
+                                "body too large",
+                            )
+                            .connection_id(conn_id)
+                            .field(crate::ops::Field::U64("declared_bytes".into(), len))
+                            .field(crate::ops::Field::U64("limit_bytes".into(), limit)),
+                        );
                         let err = crate::primitives::request_body_error::RequestBodyError::DeclaredLengthTooLarge {
                             declared: len,
                             limit,
@@ -245,7 +279,7 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                         Err(_elapsed) => {
                             crate::ops::global_counters()
-                                .header_timeouts
+                                .body_read_timeouts
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
@@ -348,7 +382,7 @@ pub async fn serve_connection_with_service<I, S>(
         }
     });
 
-    serve_connection(io, hyper_service, config, shutdown_rx).await;
+    serve_connection(io, hyper_service, config, shutdown_rx, conn_id).await;
 }
 
 /// Select the effective body policy from service preference and runtime ceiling.
@@ -612,7 +646,7 @@ mod tests {
                 let state = state_clone.clone();
                 async move { Ok::<_, Infallible>(crate::service::handle_request(req, &state).await) }
             });
-            serve_connection(io, svc, &config, &mut shutdown_rx).await;
+            serve_connection(io, svc, &config, &mut shutdown_rx, 1).await;
         });
 
         let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();

@@ -118,3 +118,17 @@ Backoff is interruptible by shutdown via `tokio::select!`.
 - Failed sink events increment `dropped_log_events` counter
 - `Logger::try_init()` returns `Err(())` if already initialized (Python coexistence)
 - `NopLogSink` is the default when no logger is configured
+
+## Example Events
+
+```json
+{"schema_version":1,"severity":"Info","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.1.0 starting","fields":{"version":"0.1.0","bind":"127.0.0.1:8000","root":"./public","symlinks":"denied","dotfiles":"denied"}}
+```
+
+```json
+{"schema_version":1,"severity":"Info","event":"request_completed","timestamp":"2026-07-22T10:00:01Z","message":"GET /style.css 200","connection_id":42,"request_seq":1,"fields":{"method":"GET","path":"/style.css","status":200,"bytes":1024,"duration_ms":3}}
+```
+
+```json
+{"schema_version":1,"severity":"Warn","event":"listener_transient_error","timestamp":"2026-07-22T10:00:02Z","message":"accept error, retrying in 2ms","fields":{"error":"connection refused","backoff_ms":2}}
+```

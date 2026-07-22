@@ -891,7 +891,11 @@ impl PythonCallbackService {
                 .map_err(|e| ServiceError::internal(format!("failed to create request: {e}")))?;
 
             let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|e| {
-                eprintln!("Handler error: {e}");
+                eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
+                    eggserve_core::ops::Severity::Error,
+                    eggserve_core::ops::EventKind::ServiceError,
+                    format!("handler error: {e}"),
+                ));
                 ServiceError::internal("handler raised an exception")
             })?;
 

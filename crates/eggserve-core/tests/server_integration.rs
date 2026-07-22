@@ -41,7 +41,7 @@ async fn panic_in_service_returns_500() {
         let svc = service_fn(|_req: Request| async {
             panic!("intentional panic");
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
+        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -87,7 +87,7 @@ async fn slow_handler_returns_504() {
                 .body(ResponseBody::Empty)
                 .unwrap())
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
+        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -134,7 +134,7 @@ async fn malformed_request_rejected_before_service() {
                     .unwrap())
             }
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
+        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -172,7 +172,7 @@ async fn custom_service_bytes_through_pipeline() {
                 .body(ResponseBody::Bytes(b"hello".to_vec()))
                 .unwrap())
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx).await;
+        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
