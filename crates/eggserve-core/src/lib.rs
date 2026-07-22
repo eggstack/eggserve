@@ -32,6 +32,7 @@ pub(crate) mod error;
 pub(crate) mod fs;
 pub mod limits;
 pub(crate) mod mime;
+pub mod ops;
 pub(crate) mod path;
 pub mod policy;
 pub mod primitives;

@@ -457,7 +457,9 @@ async fn accept_loop(
                         tasks.retain(|t| !t.is_finished());
                         tasks.push(join);
                     }
-                    Err(_e) => {}
+                    Err(e) => {
+                        classify_accept_error(&e).await;
+                    }
                 }
             }
             _ = shutdown_rx.recv() => {
@@ -569,7 +571,9 @@ async fn accept_loop_with_service<S: Service>(
                         tasks.retain(|t| !t.is_finished());
                         tasks.push(join);
                     }
-                    Err(_e) => {}
+                    Err(e) => {
+                        classify_accept_error(&e).await;
+                    }
                 }
             }
             _ = shutdown_rx.recv() => {
@@ -618,6 +622,71 @@ async fn accept_tls(
     match tokio::time::timeout(timeout, tls_acceptor.accept(stream)).await {
         Ok(Ok(tls_stream)) => Some(tls_stream),
         Ok(Err(_)) | Err(_) => None,
+    }
+}
+
+/// Classify an accept loop error, emit a structured log event, and apply
+/// bounded exponential backoff for transient errors.
+#[allow(clippy::collapsible_match)]
+async fn classify_accept_error(e: &std::io::Error) {
+    use crate::ops::{Event, EventKind, Logger, Severity};
+
+    let err_str = e.to_string();
+    let kind = e.kind();
+
+    let (severity, event_kind, should_backoff) = match kind {
+        std::io::ErrorKind::Interrupted => {
+            (Severity::Debug, EventKind::ListenerTransientError, true)
+        }
+        std::io::ErrorKind::ConnectionRefused
+        | std::io::ErrorKind::ConnectionReset
+        | std::io::ErrorKind::ConnectionAborted
+        | std::io::ErrorKind::BrokenPipe => {
+            (Severity::Debug, EventKind::ListenerTransientError, true)
+        }
+        std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut => {
+            (Severity::Warn, EventKind::ListenerTransientError, true)
+        }
+        std::io::ErrorKind::OutOfMemory => {
+            if err_str.contains("too many open files")
+                || err_str.contains("EMFILE")
+                || err_str.contains("ENFILE")
+            {
+                (Severity::Error, EventKind::ResourceExhaustion, true)
+            } else {
+                (Severity::Error, EventKind::ListenerPersistentError, false)
+            }
+        }
+        std::io::ErrorKind::Other => {
+            if err_str.contains("too many open files")
+                || err_str.contains("EMFILE")
+                || err_str.contains("ENFILE")
+            {
+                (Severity::Error, EventKind::ResourceExhaustion, true)
+            } else {
+                (Severity::Error, EventKind::ListenerPersistentError, false)
+            }
+        }
+        _ => (Severity::Error, EventKind::ListenerPersistentError, false),
+    };
+
+    crate::ops::global_counters()
+        .listener_errors
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    Logger::global().emit(
+        Event::new(severity, event_kind, format!("accept error: {}", err_str)).field(
+            crate::ops::Field::Str("error_kind".into(), format!("{:?}", kind)),
+        ),
+    );
+
+    if should_backoff {
+        static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];
+        static COUNTER: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let idx = COUNTER
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            .min(BACKOFF_MS.len() - 1);
+        tokio::time::sleep(std::time::Duration::from_millis(BACKOFF_MS[idx])).await;
     }
 }
 

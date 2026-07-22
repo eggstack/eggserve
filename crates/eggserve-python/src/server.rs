@@ -33,6 +33,66 @@ use eggserve_core::server::lifecycle::LifecycleState;
 use eggserve_core::server::service::{Service, ServiceError};
 use eggserve_core::server::{Server, ServerHandle};
 
+// ---------------------------------------------------------------------------
+// Python log observer callback wrapper
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct PyLogObserver {
+    callback: Arc<pyo3::PyObject>,
+}
+
+impl PyLogObserver {
+    fn new(callback: pyo3::PyObject) -> Self {
+        Self {
+            callback: Arc::new(callback),
+        }
+    }
+}
+
+impl eggserve_core::ops::LogSink for PyLogObserver {
+    fn emit(&self, event: &eggserve_core::ops::Event) {
+        Python::with_gil(|py| {
+            let dict = pyo3::types::PyDict::new(py);
+            dict.set_item("schema_version", event.schema_version).ok();
+            dict.set_item("severity", event.severity.to_string())
+                .ok();
+            dict.set_item("event", event.event.to_string()).ok();
+            dict.set_item("message", &event.message).ok();
+            dict.set_item("timestamp", &event.timestamp).ok();
+            if let Some(cid) = event.connection_id {
+                dict.set_item("connection_id", cid).ok();
+            }
+            if let Some(seq) = event.request_seq {
+                dict.set_item("request_seq", seq).ok();
+            }
+            let fields_dict = pyo3::types::PyDict::new(py);
+            for field in &event.fields {
+                match field {
+                    eggserve_core::ops::Field::Bool(k, v) => {
+                        fields_dict.set_item(k, v).ok();
+                    }
+                    eggserve_core::ops::Field::I64(k, v) => {
+                        fields_dict.set_item(k, v).ok();
+                    }
+                    eggserve_core::ops::Field::U64(k, v) => {
+                        fields_dict.set_item(k, v).ok();
+                    }
+                    eggserve_core::ops::Field::Str(k, v) => {
+                        fields_dict.set_item(k, v).ok();
+                    }
+                }
+            }
+            dict.set_item("fields", fields_dict).ok();
+            if let Err(e) = self.callback.call1(py, (dict,)) {
+                e.print(py);
+            }
+        });
+    }
+
+    fn flush(&self) {}
+}
+
 #[pyclass(frozen, name = "ServerRequestError")]
 #[derive(Debug)]
 pub enum ServerRequestError {
@@ -1018,6 +1078,7 @@ pub struct PyServer {
     addr: std::sync::Mutex<Option<String>>,
     responder: PyStaticResponder,
     handler: Option<std::sync::Mutex<Option<Py<PyAny>>>>,
+    observer: Option<PyLogObserver>,
     handle: std::sync::Mutex<Option<ServerHandle>>,
     runtime: std::sync::Mutex<Option<tokio::runtime::Runtime>>,
     has_been_started: std::sync::atomic::AtomicBool,
@@ -1038,13 +1099,14 @@ pub struct PyServer {
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close"))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, observer=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close"))]
     fn new(
         root: String,
         bind: &str,
         port: u16,
         policy: Option<PyStaticPolicyWrapper>,
         handler: Option<Py<PyAny>>,
+        observer: Option<PyObject>,
         public: bool,
         max_connections: usize,
         max_file_streams: usize,
@@ -1169,6 +1231,7 @@ impl PyServer {
             addr: std::sync::Mutex::new(None),
             responder,
             handler: handler.map(|h| std::sync::Mutex::new(Some(h))),
+            observer: observer.map(PyLogObserver::new),
             handle: std::sync::Mutex::new(None),
             runtime: std::sync::Mutex::new(None),
             has_been_started: std::sync::atomic::AtomicBool::new(false),
@@ -1253,6 +1316,17 @@ impl PyServer {
             static_policy: self.responder.policy.clone(),
             ..eggserve_core::config::ServeConfig::default()
         });
+
+        if let Some(ref observer) = self.observer {
+            use eggserve_core::ops::{CompositeLogSink, LogFormat, Logger, StderrLogSink};
+            let sink: Box<dyn eggserve_core::ops::LogSink> = Box::new(CompositeLogSink::new(
+                vec![
+                    Box::new(StderrLogSink { log_format: LogFormat::Text }),
+                    Box::new(observer.clone()),
+                ],
+            ));
+            let _ = Logger::try_init(sink);
+        }
 
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;

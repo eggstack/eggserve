@@ -1,6 +1,9 @@
 use std::sync::Arc;
 
 use eggserve_core::config::ServeConfig;
+use eggserve_core::ops::{
+    Event, EventKind, Field, LogFormat as OpsLogFormat, Logger, Severity, StderrLogSink,
+};
 use eggserve_core::server::{RuntimeConfig, Server};
 use tokio::sync::broadcast;
 
@@ -28,7 +31,16 @@ pub fn run() {
 
     let static_policy = args.static_policy();
     let limits = args.limits();
-    let quiet = args.quiet || args.log_format == args::LogFormat::None;
+    let _quiet = args.quiet || args.log_format == args::LogFormat::None;
+
+    // Initialize structured logger.
+    let ops_log_format = match args.log_format {
+        args::LogFormat::Json => OpsLogFormat::Json,
+        _ => OpsLogFormat::Text,
+    };
+    Logger::init(Box::new(StderrLogSink {
+        log_format: ops_log_format,
+    }));
 
     #[cfg(feature = "tls")]
     let tls_config = match (&args.tls_cert, &args.tls_key) {
@@ -49,16 +61,54 @@ pub fn run() {
         static_policy,
     });
 
-    // Print startup banner.
-    if !quiet {
-        log_startup(&serve_config, serve_config.startup_summary());
-        #[cfg(feature = "tls")]
-        if tls_config.is_some() {
-            println!(
-                "TLS: enabled, certificate: {}",
+    // Emit structured startup event.
+    let summary = serve_config.startup_summary();
+    Logger::global().emit(
+        Event::new(
+            Severity::Info,
+            EventKind::ProcessStarting,
+            format!("eggserve {}", env!("CARGO_PKG_VERSION")),
+        )
+        .field(Field::Str(
+            "version".into(),
+            env!("CARGO_PKG_VERSION").into(),
+        ))
+        .field(Field::Str("bind".into(), format!("{}", serve_config.bind)))
+        .field(Field::Str(
+            "root".into(),
+            format!("{}", serve_config.root.display()),
+        ))
+        .field(Field::Bool(
+            "directory_listing".into(),
+            summary.directory_listing_enabled,
+        ))
+        .field(Field::Bool(
+            "symlinks_followed".into(),
+            summary.symlinks_followed,
+        ))
+        .field(Field::Bool(
+            "dotfiles_served".into(),
+            summary.dotfiles_served,
+        ))
+        .field(Field::U64(
+            "max_connections".into(),
+            summary.max_connections as u64,
+        ))
+        .field(Field::U64(
+            "max_file_streams".into(),
+            summary.max_file_streams as u64,
+        )),
+    );
+    #[cfg(feature = "tls")]
+    if tls_config.is_some() {
+        Logger::global().emit(Event::new(
+            Severity::Info,
+            EventKind::ProcessStarting,
+            format!(
+                "TLS enabled, certificate: {}",
                 args.tls_cert.as_ref().unwrap().display()
-            );
-        }
+            ),
+        ));
     }
 
     let rt = tokio::runtime::Runtime::new().unwrap();
@@ -82,38 +132,64 @@ pub fn run() {
 
             match server.start().await {
                 Ok(handle) => {
-                    if !quiet {
-                        println!("Listening: http://{}", handle.local_addr());
-                    }
+                    Logger::global().emit(
+                        Event::new(
+                            Severity::Info,
+                            EventKind::ListenerReady,
+                            format!("Listening: http://{}", handle.local_addr()),
+                        )
+                        .field(Field::Str("addr".into(), handle.local_addr().to_string())),
+                    );
 
                     // Wait for first signal: graceful shutdown.
                     let mut signal_rx = shutdown_rx;
                     let _ = signal_rx.recv().await;
 
-                    println!(
-                        "shutting down (grace period: {}s)",
-                        shutdown_timeout.as_secs()
-                    );
+                    Logger::global().emit(Event::new(
+                        Severity::Info,
+                        EventKind::ShutdownRequested,
+                        format!(
+                            "shutting down (grace period: {}s)",
+                            shutdown_timeout.as_secs()
+                        ),
+                    ));
 
                     handle.shutdown();
 
                     // Wait for drain with configured timeout.
                     match tokio::time::timeout(shutdown_timeout, handle.wait()).await {
                         Ok(Ok(result)) => {
-                            if !quiet {
-                                println!("{}", result);
-                            }
+                            Logger::global().emit(
+                                Event::new(
+                                    Severity::Info,
+                                    EventKind::ShutdownComplete,
+                                    format!("{}", result),
+                                )
+                                .field(Field::Str("result".into(), result.to_string())),
+                            );
                         }
                         Ok(Err(e)) => {
-                            eprintln!("shutdown error: {}", e);
+                            Logger::global().emit(Event::new(
+                                Severity::Error,
+                                EventKind::ShutdownComplete,
+                                format!("shutdown error: {}", e),
+                            ));
                         }
                         Err(_) => {
-                            eprintln!("shutdown timed out, forcing");
+                            Logger::global().emit(Event::new(
+                                Severity::Warn,
+                                EventKind::ShutdownComplete,
+                                "shutdown timed out, forcing",
+                            ));
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    Logger::global().emit(Event::new(
+                        Severity::Error,
+                        EventKind::ProcessStarting,
+                        format!("error: {}", e),
+                    ));
                     std::process::exit(1);
                 }
             }
@@ -139,35 +215,61 @@ pub fn run() {
 
             match server.start().await {
                 Ok(handle) => {
-                    if !quiet {
-                        println!("Listening: https://{}", handle.local_addr());
-                    }
+                    Logger::global().emit(
+                        Event::new(
+                            Severity::Info,
+                            EventKind::ListenerReady,
+                            format!("Listening: https://{}", handle.local_addr()),
+                        )
+                        .field(Field::Str("addr".into(), handle.local_addr().to_string())),
+                    );
 
                     let mut signal_rx = shutdown_rx;
                     let _ = signal_rx.recv().await;
 
-                    println!(
-                        "shutting down (grace period: {}s)",
-                        shutdown_timeout.as_secs()
-                    );
+                    Logger::global().emit(Event::new(
+                        Severity::Info,
+                        EventKind::ShutdownRequested,
+                        format!(
+                            "shutting down (grace period: {}s)",
+                            shutdown_timeout.as_secs()
+                        ),
+                    ));
                     handle.shutdown();
 
                     match tokio::time::timeout(shutdown_timeout, handle.wait()).await {
                         Ok(Ok(result)) => {
-                            if !quiet {
-                                println!("{}", result);
-                            }
+                            Logger::global().emit(
+                                Event::new(
+                                    Severity::Info,
+                                    EventKind::ShutdownComplete,
+                                    format!("{}", result),
+                                )
+                                .field(Field::Str("result".into(), result.to_string())),
+                            );
                         }
                         Ok(Err(e)) => {
-                            eprintln!("shutdown error: {}", e);
+                            Logger::global().emit(Event::new(
+                                Severity::Error,
+                                EventKind::ShutdownComplete,
+                                format!("shutdown error: {}", e),
+                            ));
                         }
                         Err(_) => {
-                            eprintln!("shutdown timed out, forcing");
+                            Logger::global().emit(Event::new(
+                                Severity::Warn,
+                                EventKind::ShutdownComplete,
+                                "shutdown timed out, forcing",
+                            ));
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("error: {}", e);
+                    Logger::global().emit(Event::new(
+                        Severity::Error,
+                        EventKind::ProcessStarting,
+                        format!("error: {}", e),
+                    ));
                     std::process::exit(1);
                 }
             }
@@ -216,49 +318,6 @@ async fn serve_connection<I>(
         _ = shutdown_rx.recv() => {
             conn.as_mut().graceful_shutdown();
         }
-    }
-}
-
-fn log_startup(config: &ServeConfig, summary: eggserve_core::config::StartupSummary) {
-    println!("eggserve {}", env!("CARGO_PKG_VERSION"));
-    println!("Serving root: {}", config.root.display());
-    println!("Listening: http://{}", config.bind);
-    println!("Methods: GET, HEAD");
-    println!(
-        "Directory listing: {}",
-        if summary.directory_listing_enabled {
-            "enabled"
-        } else {
-            "disabled"
-        }
-    );
-    println!(
-        "Symlinks: {}",
-        if summary.symlinks_followed {
-            "follow"
-        } else {
-            "denied"
-        }
-    );
-    println!(
-        "Dotfiles: {}",
-        if summary.dotfiles_served {
-            "serve"
-        } else {
-            "denied"
-        }
-    );
-    println!("Max connections: {}", summary.max_connections);
-    println!("Max file streams: {}", summary.max_file_streams);
-
-    if summary.bind_is_unspecified {
-        eprintln!("WARNING: public bind enabled");
-    }
-    if summary.symlinks_followed {
-        eprintln!("WARNING: symlink following enabled");
-    }
-    if summary.dotfiles_served {
-        eprintln!("WARNING: dotfile serving enabled");
     }
 }
 

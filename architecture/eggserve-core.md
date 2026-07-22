@@ -23,6 +23,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
 | `server/connection.rs` | **pub** (experimental) | Body ingestion pipeline, Hyper incoming-body adapter, transfer decoding, error mapping |
+| `ops` | **pub** | Operational event model, structured logging, listener error classification, operational counters |
 
 ## Key Types
 

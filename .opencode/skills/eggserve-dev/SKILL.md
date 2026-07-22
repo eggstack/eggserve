@@ -66,6 +66,8 @@ python3 scripts/check-contract-consistency.py              # contract consistenc
 - **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `StaticServiceBuilder`. Lifecycle types: `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed). The module is experimental; API may change.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`.
 - **Python RequestBody** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive. `iter_chunks()` bridges async Rust body to synchronous Python via bounded channel with backpressure.
+- **Structured logging** — `eggserve-core::ops` provides the event model (`Event`, `EventKind`, `Severity`, `Logger`, `LogSink`, `OpsCounters`). The CLI initializes with `StderrLogSink`. Python server can add `PyLogObserver`. Library crates must not use `println!`/`eprintln!` — use `Logger::global().emit()` instead.
+- **Listener error classification** — Accept errors are classified by `io::ErrorKind` into transient/resource-exhaustion/persistent categories with bounded exponential backoff. Use `classify_accept_error()` helper.
 
 ## Architecture docs
 
@@ -105,3 +107,5 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **Production profiles** — `release/support-profiles.toml` defines 7 production profiles. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes.
+- **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
+- **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output. The two `eprintln!` calls in `response.rs` have been replaced with structured logging.

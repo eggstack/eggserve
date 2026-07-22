@@ -119,6 +119,10 @@ Allowed operations per state:
 
 Race safety: state is stored in an `AtomicU8` with `compare_exchange` for all transitions. Channel notifications (`watch` for readiness, `broadcast` for terminal state) ensure waiters are awakened without polling.
 
+## Listener Error Classification
+
+Listener errors are classified by `io::ErrorKind` into transient, resource-exhaustion, and persistent categories. Transient errors use bounded exponential backoff (1ms to 50ms cap). All errors emit structured log events via `classify_accept_error()`.
+
 ## Connection/Task Tracking
 
 - Each accepted connection spawns a tokio task, tracked in a bounded `Vec<JoinHandle<()>>`

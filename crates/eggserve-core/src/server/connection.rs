@@ -67,8 +67,23 @@ pub async fn serve_connection<I, S>(
         result = tokio::time::timeout(config.response_write_timeout, &mut conn) => {
             match result {
                 Ok(Ok(())) => {}
-                Ok(Err(_e)) => {}
+                Ok(Err(e)) => {
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ClientDisconnect,
+                            format!("connection error: {}", e),
+                        ),
+                    );
+                }
                 Err(_elapsed) => {
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Warn,
+                            crate::ops::EventKind::ResponseWriteTimeout,
+                            "response write timeout",
+                        ),
+                    );
                     conn.as_mut().graceful_shutdown();
                     let _ = conn.await;
                 }
@@ -179,6 +194,11 @@ pub async fn serve_connection_with_service<I, S>(
                     }
                     Ok(Err(service_err)) => service_err.to_response(),
                     Err(_elapsed) => {
+                        crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            crate::ops::Severity::Warn,
+                            crate::ops::EventKind::ServiceTimeout,
+                            "handler timed out",
+                        ));
                         ServiceError::timeout("handler timed out".to_string()).to_response()
                     }
                 };
@@ -223,6 +243,11 @@ pub async fn serve_connection_with_service<I, S>(
                             return Ok::<_, Infallible>(body_error_to_response(err, &head));
                         }
                         Err(_elapsed) => {
+                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::HeaderTimeout,
+                                "body read timeout",
+                            ));
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
                             return Ok::<_, Infallible>(body_error_to_response(err, &head));
                         }
@@ -243,6 +268,11 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                         Ok(Err(service_err)) => service_err.to_response(),
                         Err(_elapsed) => {
+                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::ServiceTimeout,
+                                "handler timed out",
+                            ));
                             ServiceError::timeout("handler timed out".to_string()).to_response()
                         }
                     };
@@ -269,6 +299,11 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                         Ok(Err(service_err)) => service_err.to_response(),
                         Err(_elapsed) => {
+                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::ServiceTimeout,
+                                "handler timed out",
+                            ));
                             ServiceError::timeout("handler timed out".to_string()).to_response()
                         }
                     };

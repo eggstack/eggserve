@@ -113,7 +113,11 @@ pub fn file_response(
                     ))
                 }
                 Err(e) => {
-                    eprintln!("warn: file stream I/O error: {e}");
+                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::FileError,
+                        format!("file stream I/O error: {e}"),
+                    ));
                     Some((Err(e), (file, permit, true)))
                 }
             }
@@ -227,7 +231,11 @@ pub async fn file_response_range(
                     ))
                 }
                 Err(e) => {
-                    eprintln!("warn: file stream I/O error: {e}");
+                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::FileError,
+                        format!("file stream I/O error: {e}"),
+                    ));
                     Some((Err(e), (file, permit, 0)))
                 }
             }

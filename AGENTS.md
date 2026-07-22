@@ -133,6 +133,7 @@ cargo test -p eggserve-core --test request_body_wire  # request body wire tests
 bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
+# Note: ops module tests run as part of cargo test --workspace
 bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
 python3 scripts/check-contract-consistency.py              # contract consistency validation
 # Canonical HTTP type conformance:
@@ -171,6 +172,10 @@ Python native primitives tests (requires built wheel):
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_primitives -v
 ```
+
+# Structured logging tests:
+cd crates/eggserve-python
+PYTHONPATH=python python -m unittest eggserve.test_primitives -v  # includes ops module tests
 
 Python server primitives tests (requires built wheel):
 
@@ -278,6 +283,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - **Python RequestBody is one-shot** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive and consume the body. Second use raises `RequestBodyConsumedError`. `iter_chunks()` bridges async Rust body to synchronous Python via a bounded channel with backpressure. Body objects are only present when `has_body` is True (non-empty bodies with allowed policy). Empty bodies and rejected bodies produce `body=None`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary (`Server`, `Service` trait, `StaticService`, etc.) for embedding. Includes lifecycle state machine (`LifecycleState`), listener abstraction, readiness signaling, and graceful/forced shutdown with drain deadline. Python `Server` now stores the tokio runtime in `PyServer` (not as a temporary), `start()` blocks until Running state, and callback handlers use `start_with_service()` instead of `build_with_service()`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Its API is subject to change without notice. Do not depend on it for stable integrations. Verified by Plan 055.
 - **Production profiles** — `release/support-profiles.toml` is the single source of truth for production deployment profiles. Every production claim must name a profile. Profiles are: unix-reverse-proxy (hardened), unix-direct-https (candidate), windows-reverse-proxy (candidate), windows-direct-https (functional), local-development (hardened), windows-functional (functional), link-following-compat (functional).
+- **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. The Python server can add a `PyLogObserver` callback. Library code must not use `println!`/`eprintln!`.
 
 ## Plan status
 
@@ -291,6 +297,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 084 implements Windows directory-handle retention and child resolution. `PinnedRoot` opens a root handle at startup; `RootGuard` borrows from it for request-scoped traversal. `ResolvedDirectory` retains an owned `dir_handle` for handle-relative child opens. `OwnedHandle::try_clone()` is fallible (not `Clone`), so the owned handle is preserved rather than cloned.
 - Plan 085 implements Windows handle-relative directory enumeration. `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` replaces the path-based `GetFinalPathNameByHandleW` + `FindFirstFileW` fallback. A safe bounded parser (`parse_directory_buffer`) validates variable-length `FILE_ID_BOTH_DIR_INFO` records. `DirectoryEntryRecord` provides a platform-neutral entry type. Adversarial qualification test scaffold established (Plan 086, 113 tests). Independent safety review and profile promotion decision awaited.
 - Plan 086 establishes Windows adversarial filesystem qualification. Test scaffold covers reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity. 113 tests in `crates/eggserve-core/tests/windows_plan086.rs`. Release gates added to `release/criteria.toml`. Independent safety review and profile promotion decision awaited. Dedicated Windows VM required for Developer Mode symlink/junction fixtures.
+- Plan 087 establishes structured logging and operational error closure: operational event taxonomy, JSON Lines/text output, listener error classification with bounded backoff, streaming error visibility, Python observer callback, operational counters, and library silence. The `ops` module provides `Event`, `EventKind`, `Severity`, `Logger`, `LogSink`, `OpsCounters`, and `CorrelationId`.
 
 ## Plan-driven development
 

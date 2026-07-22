@@ -55,7 +55,7 @@ Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--log-format FORMAT` | Log format: `text`, `json`, or `none` | `text` |
+| `--log-format FORMAT` | Log format: `text` (default), `json` (JSON Lines), `none` — `json` outputs valid JSON Lines to stderr; `none` suppresses non-fatal operational logs | `text` |
 | `--quiet` | Suppress startup banner | off |
 | `-h`, `--help` | Print help and exit | |
 | `-V`, `--version` | Print version and exit | |
