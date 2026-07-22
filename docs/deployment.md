@@ -68,7 +68,7 @@ See [tls.md](tls.md) for details on the TLS feature, certificate requirements, a
 
 ## Windows deployment
 
-Windows implements handle-relative confinement (Plans 084–085) with reparse-point denial qualification in progress (Plan 086). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. Do not use with untrusted mutable public content on Windows until Plan 086 closes and the `windows-reverse-proxy` profile is promoted.
+Windows implements handle-relative confinement (Plans 084–085) with parser-level protections rejecting Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. Plan 086 adversarial qualification test scaffold is established (113 tests covering reparse-point denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
 
 See `release/support-profiles.toml` for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
 

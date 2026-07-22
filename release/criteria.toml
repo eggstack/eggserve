@@ -1917,6 +1917,44 @@ security_relevance = true
 release_stage = "qualification"
 
 [[gate]]
+id = "windows.independent-safety-review"
+title = "Windows independent safety review"
+description = "A reviewer who did not author the implementation has inspected all Windows FFI declarations, struct layouts, unsafe blocks, ownership transfer, UTF-16 lengths, relative-open semantics, reparse detection timing, directory record parsing, path fallback reachability, and race harness methodology. No unresolved high or critical findings."
+required = true
+evidence_classes = ["approval-record"]
+command = "echo 'Requires human review record'"
+workflow_job = "rust-check"
+platforms = ["windows"]
+features = []
+artifacts = []
+triggers = ["manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/fs/mod.rs"]
+depends_on = ["windows.reparse-matrix", "windows.namespace-matrix", "windows.race-root-escape"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "windows.profile-decision"
+title = "Windows profile promotion decision"
+description = "A signed/recorded decision for each Windows profile (windows-reverse-proxy, windows-direct-https, windows-functional, link-following-compat) based on exact-SHA evidence from all preceding gates. Promotion updates support-profiles.toml, generated docs, release checklist, and release notes atomically."
+required = true
+evidence_classes = ["approval-record"]
+command = "echo 'Requires human decision record'"
+workflow_job = "evidence-aggregate"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["release/support-profiles.toml", "release/criteria.toml"]
+depends_on = ["windows.independent-safety-review", "windows.installed-artifact", "windows.fuzz-corpus-replay"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
 id = "check-generated"
 title = "Generated file cleanliness"
 description = "Verifies that generated release checklist and other artifacts match their source of truth"

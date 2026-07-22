@@ -56,7 +56,7 @@ eggserve defines production readiness through explicit profiles. Each profile sp
 |---------|--------|----------|
 | unix-reverse-proxy | supported-hardened | Yes (once CI gates pass) |
 | unix-direct-https | candidate | Partial (native TLS, limited) |
-| windows-reverse-proxy | candidate | Partial (reparse-point qualification in progress, Plan 086) |
+| windows-reverse-proxy | candidate | Partial (adversarial qualification scaffold established, Plan 086; awaiting independent review and profile decision) |
 | windows-direct-https | functional | No |
 | local-development | supported-hardened | Yes |
 | windows-functional | functional | No |
@@ -94,7 +94,7 @@ On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementatio
 
 The configured root is canonicalized and opened as a directory descriptor during request resolution (per request), not once at server startup. Caching the root descriptor across requests is a future optimization; current behavior is correct and tested.
 
-Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Reparse-point hardening qualification is in progress (Plan 086) — test scaffold covers denial matrix, namespace normalization, race harness, root identity, and resource stability. Windows remains functional-only until Plan 086 closes and evidence supports profile promotion.
+Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Plan 086 adversarial qualification test scaffold is established (113 tests covering denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
 
 ### `--directory-listing`
 

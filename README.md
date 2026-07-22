@@ -202,9 +202,9 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; handle-relative confinement implemented (Plans 084–085). Reparse-point qualification in progress (Plan 086). Do not use with untrusted mutable public content |
+| Windows x86_64 | Functional; handle-relative confinement (Plans 084–085). Adversarial qualification scaffold established (Plan 086, 113 tests). Awaiting independent safety review and profile promotion decision. |
 
-Windows implements handle-relative confinement (Plans 084–085) with reparse-point denial qualification in progress (Plan 086). Parser-level protections reject reserved names, ADS syntax, drive prefixes, and backslash. Do not use with untrusted mutable public content on Windows until Plan 086 closes.
+Windows implements handle-relative confinement (Plans 084–085) with parser-level protections rejecting reserved names, ADS syntax, drive prefixes, and backslash. Plan 086 adversarial qualification test scaffold is established (reparse-point denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
 
 ## Production profiles
 
@@ -214,7 +214,7 @@ eggserve defines explicit production deployment profiles. Every production claim
 |---------|--------|-------------|
 | unix-reverse-proxy | Hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment) |
 | unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform) |
-| windows-reverse-proxy | Candidate | Windows behind reparse-point qualification (Plan 086) |
+| windows-reverse-proxy | Candidate | Windows behind reverse proxy; adversarial qualification scaffold established (Plan 086), awaiting independent review and profile decision |
 | windows-direct-https | Functional | Windows with native rustls (hardening in progress) |
 | local-development | Hardened | Any platform, loopback, safe defaults |
 | windows-functional | Functional | Windows SMB/non-NTFS/cloud filesystems |

@@ -185,7 +185,7 @@ Plan 084 completed the production implementation of Windows handle-relative file
 - **Handle ownership semantics**: `OwnedHandle` duplication is fallible and non-panicking; borrowed handles are never closed by owners.
 - **Hardened no-fallback**: Hardened Windows resolution never reconstructs filesystem authority from a path.
 
-Reparse-point hardening remains deferred (Plans 085–086).
+Reparse-point hardening qualification test scaffold is established (Plan 086, 113 tests). Independent safety review and profile promotion decision awaited.
 
 ## Plan 085: Windows Handle-Relative Directory Enumeration
 
@@ -287,6 +287,32 @@ Positive NTSTATUS values (informational) are not expected from `NtQueryDirectory
 
 `NtQueryDirectoryFile` operates directly on the directory handle — no path reconstruction, no TOCTOU window. The invariant is preserved: all directory entries come from the already-validated handle.
 
+## Plan 086: Windows Adversarial Filesystem Qualification
+
+### Test Scaffold
+
+113 tests in `crates/eggserve-core/tests/windows_plan086.rs` covering:
+
+- **Track A**: Environment metadata recording (OS, arch, filesystem, Developer Mode, symlink privileges, source SHA, artifact hash)
+- **Track B**: Reparse-point denial matrix — file/dir symlinks, junctions, intermediate, index, listing, dangling, inside/outside root, GET/HEAD parity, handle leak resistance, nested chains, volume mount points, custom reparse tags, target path leak check, denial category observability
+- **Track C**: Namespace normalization — drive prefix, ADS, reserved names, backslash, double encoding, long components, encoded separator, dotfile policy, UNC forms, `\\?\` extended paths, `\\.\` device paths, trailing spaces/dots, repeated separators, non-ASCII/Unicode names, surrogate pairs, case-insensitive aliases, 8.3 short-name aliases (NTFS `FileAlternateNameInfo`), percent-encoded colon, encoded dot components
+- **Track D**: Race harness — file↔reparse, file↔dir, reparse→file, delete-recreate, parent dir replacement, ACL removal/restoration, root rename during request, listing churn, same-name replacement during range streaming, concurrent file swap with content digest verification, directory↔junction swap race, index file replacement during resolution race, rename chain race
+- **Track E**: Root identity — rename survival, pinned retention, handle retention during streaming, root delete-pending behavior, new root after replacement
+- **Track F**: File identity — same-size replacement, rename-over, direct vs index, hard links, range during replacement, conditional after replacement
+- **Track G**: Error behavior — no panic, no path leakage, handle count stability, delete-pending, file removed after open, directory removed after enumeration, handle quota stability, memory pressure, sharing violation graceful handling, access revoked during streaming, readonly file readable
+- **Track H**: Resource stability — direct files, ranges, index, listing, reparse denials, missing paths, repeated start/stop, concurrent operations, large listing, rapid creation/deletion, graceful/forced shutdown, handle count baseline, numeric handle count measurement, memory bounded verification, slow client simulation, client disconnect simulation, shutdown timing measurement
+- **Track I**: Installed artifact parity — SecureRoot primitives, ConfinedPath parsing, resolver consistency, policy enforcement, binary SHA-256 capture, source SHA matching
+- **Track J**: Fuzz corpus replay — adversarial parsing, namespace rejection, reparse detection, bounded allocation, UTF-16 conversion edge cases, path parser stress, directory buffer parse stress, error mapping deterministic, 5 actual corpus replay tests using files from `fuzz/corpus/`
+
+### Release Gates
+
+Added to `release/criteria.toml`: `windows.reparse-matrix`, `windows.namespace-matrix`, `windows.race-root-escape`, `windows.root-identity`, `windows.validator-identity`, `windows.resource-stability`, `windows.installed-artifact`, `windows.fuzz-corpus-replay`, `windows.independent-safety-review`, `windows.profile-decision`.
+
+### Human Gates Awaited
+
+- **Track K**: Independent Windows safety review (requires a reviewer who didn't author the implementation; evidence class: `approval-record`)
+- **Track L**: Profile promotion decision (requires Track K + all gates passing; evidence class: `approval-record`)
+
 ## Consequences
 
 - Plan 084 implemented the production resolver using `NtOpenFile` with `OBJECT_ATTRIBUTES.RootDirectory` as the primary API
@@ -296,5 +322,5 @@ Positive NTSTATUS values (informational) are not expected from `NtQueryDirectory
 - The existing `resolve_fallback()` path remains for non-hardened modes
 - Parser-level protections are retained as a first line of defense
 - Plan 085 implements handle-relative directory enumeration via `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` (class 10), replacing path-based enumeration in the hardened branch
-- Plan 086 completes the roadmap for reparse-point hardening via adversarial qualification
-- Windows hardened profile promotion requires passing all reparse-point race tests (Plans 085–086)
+- Plan 086 adversarial qualification test scaffold is established (113 tests, all code-addressable gates passing). Independent safety review and profile promotion decision awaited.
+- Windows hardened profile promotion requires independent review with no unresolved high/critical findings and exact-SHA evidence from all preceding gates

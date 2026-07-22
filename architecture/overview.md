@@ -192,7 +192,7 @@ eggserve uses three distinct error layers:
 |----------|--------|-------|
 | Linux (x86_64, aarch64) | **Supported-hardened** | Descriptor-relative traversal via `statat`+`openat` |
 | macOS (x86_64, aarch64) | **Supported-hardened** | Same descriptor-relative guarantees as Linux |
-| Windows (x86_64) | **Supported-functional** | Plan 084 implements handle-relative child resolution via retained directory handles. Plan 085 implements handle-relative directory enumeration via `NtQueryDirectoryFile`. Reparse-point hardening qualification pending Plan 086. Not for untrusted content. |
+| Windows (x86_64) | **Supported-functional** | Plan 084 implements handle-relative child resolution via retained directory handles. Plan 085 implements handle-relative directory enumeration via `NtQueryDirectoryFile`. Plan 086 adversarial qualification test scaffold established (113 tests). Independent safety review and profile promotion decision awaited. Not for untrusted content until those human gates complete. |
 
 ## Non-Goals
 
