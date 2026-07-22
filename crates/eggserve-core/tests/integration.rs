@@ -361,6 +361,7 @@ async fn last_modified_header_present() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn directory_listing_enabled_shows_entries() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
@@ -383,6 +384,7 @@ async fn directory_listing_enabled_shows_entries() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn directory_listing_escapes_html() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("file with 'quotes' & ampersand"), "xss").unwrap();
@@ -418,6 +420,7 @@ async fn directory_listing_percent_encodes_url_significant_chars_in_href() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn directory_listing_has_security_headers() {
     let tmp = TempDir::new().unwrap();
     let policy = StaticPolicy {
@@ -460,6 +463,7 @@ async fn directory_listing_does_not_include_absolute_path() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn directory_listing_head_has_no_body() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("a.txt"), "a").unwrap();
@@ -616,6 +620,7 @@ async fn dotfile_denied_in_subdir() {
 }
 
 #[tokio::test]
+#[cfg(unix)]
 async fn directory_listing_denies_dotfile_entries() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join(".hidden"), "secret").unwrap();
