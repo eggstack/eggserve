@@ -15,6 +15,7 @@ client = ["hyper/client", "hyper-util/client-legacy"]
 client-tls = ["client", "dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 tls = ["dep:rustls", "dep:tokio-rustls"]
 python-bindings-internal = []
+windows-plan086 = []
 
 [dependencies]
 bytes = "1"

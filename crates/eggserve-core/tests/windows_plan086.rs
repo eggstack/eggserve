@@ -16,7 +16,7 @@
 //! All tests are gated with `#![cfg(windows)]` and will not compile on
 //! other platforms.
 
-#![cfg(windows)]
+#![cfg(all(windows, feature = "windows-plan086"))]
 #![allow(
     dead_code,
     clippy::upper_case_acronyms,
