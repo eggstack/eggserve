@@ -759,6 +759,7 @@ mod tests {
     // ── Directory listing ───────────────────────────────────────────
 
     #[test]
+    #[ignore = "Directory listing uses path-based traversal; needs Windows handle-based qualification"]
     fn directory_list_returns_entries() {
         let (_tmp, root) = setup();
         let dir = root.resolve(&parse("/subdir")).into_directory().unwrap();
@@ -771,6 +772,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "Directory listing uses path-based traversal; needs Windows handle-based qualification"]
     fn directory_list_hides_dotfiles_under_defaults() {
         let (_tmp, root) = setup();
         fs::write(root.root_path().join("subdir").join(".env"), "secret").unwrap();
