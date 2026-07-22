@@ -181,7 +181,7 @@ An attacker can:
 
 | Platform | Security Model | Limitations |
 |----------|---------------|-------------|
-| Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None (fully hardened) |
+| Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None (fully hardened); Plan 089 qualification: proxy desync corpus, stateful fuzz, filesystem race, soak, fault injection for unix-reverse-proxy profile |
 | macOS (x86_64, aarch64) | Same descriptor-relative guarantees | None (fully hardened) |
 | Windows (x86_64) | Parser-level checks + handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + adversarial qualification scaffold (Plan 086, 113 tests) | Independent safety review and profile promotion decision awaited; not for untrusted mutable public content until those human gates complete |
 

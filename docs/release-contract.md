@@ -456,8 +456,8 @@ eggserve defines production readiness through explicit profiles rather than one 
 
 | Profile | Status | Description |
 |---------|--------|-------------|
-| unix-reverse-proxy | supported-hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment) |
-| unix-direct-https | candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform) |
+| unix-reverse-proxy | supported-hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; Plan 089 gates: proxy.caddy-interop, proxy.nginx-interop, proxy.desync-corpus, stateful.fuzz-replay, filesystem.unix-race, fault.injection, soak.unix-reverse-proxy, artifact.installed-binaries, supply-chain.sbom, release.independent-review, release.profile-decision) |
+| unix-direct-https | candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; Plan 089 gates: native-tls.abuse-limits, soak.unix-direct-https) |
 | windows-reverse-proxy | candidate | Windows behind reverse proxy (adversarial qualification scaffold established, awaiting independent review and profile decision) |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |
 | local-development | supported-hardened | Any platform, loopback, safe defaults |

@@ -2216,3 +2216,254 @@ id = "perf.client-disconnect-release"
 description = "Client disconnect releases stream permits; forced shutdown releases all permits"
 triggers = ["push", "pull_request", "manual_dispatch"]
 evidence = [["test", "eggserve-core", "--test", "streaming_buffer_qualification", "--", "client_disconnect", "forced_shutdown", "concurrent_stream", "range_request_releases", "head_does_not_acquire"]]
+
+# ---------------------------------------------------------------------------
+# Plan 089 — Production Soak, Internet, Artifact, and Release Closure
+# ---------------------------------------------------------------------------
+
+[[gate]]
+id = "proxy.caddy-interop"
+title = "Caddy reverse-proxy interop"
+description = "eggserve functions correctly behind Caddy as reverse proxy: TLS termination, connection reuse, header forwarding, timeout alignment, and no request desynchronization"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "bash tests/proxy/caddy_interop.sh"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["http.raw-wire", "http.production-path"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "proxy.nginx-interop"
+title = "nginx reverse-proxy interop"
+description = "eggserve functions correctly behind nginx as reverse proxy: TLS termination, connection reuse, header forwarding, timeout alignment, and no request desynchronization"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "bash tests/proxy/nginx_interop.sh"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["http.raw-wire", "http.production-path"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "proxy.desync-corpus"
+title = "Proxy desynchronization corpus"
+description = "Desynchronization corpus (TE+CL, duplicate CL, malformed chunks, pipelining, hidden requests, premature EOF) produces no frontend/backend disagreement through Caddy and nginx"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "bash tests/proxy/desync_corpus.sh"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["proxy.caddy-interop", "proxy.nginx-interop"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "native-tls.abuse-limits"
+title = "Native TLS abuse and resource limits"
+description = "Native TLS passes abuse tests: incomplete handshakes, handshake floods, malformed records, cert/key mismatch, empty chains, unsupported encrypted keys, shutdown during handshake, client abort, large-file streaming over TLS, no plaintext on TLS listener"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-bin --features tls --test tls_abuse"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = ["tls"]
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["rust.test.server-tls"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "stateful.fuzz-replay"
+title = "Stateful live-socket fuzz replay and release budget"
+description = "State-machine fuzzer against real server completes release budget with no unresolved failure: no panic, no response splitting, no cross-request contamination, no permit leak, bounded shutdown"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test stateful_fuzz_replay"
+workflow_job = "corpus-replay"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["rust.test", "filesystem.corpus-replay"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "filesystem.unix-race"
+title = "Unix filesystem race qualification"
+description = "Cross-platform filesystem race suite on Linux produces zero outside-root bytes served, zero denied-object bytes served, no mixed response body, no path leakage, and resources return to baseline"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test filesystem_race_qualification"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["pinned-root.identity", "pinned-root.no-reopen-pipeline"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "fault.injection"
+title = "Fault injection and degraded environments"
+description = "Fault injection suite (fd exhaustion, memory pressure, log sink failure, read-only roots, file read errors, listener errors, blocking-worker saturation, forced shutdown) produces no panic, no tight loop, errors categorized and rate-limited, future requests recover"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-core --test fault_injection"
+workflow_job = "rust-check"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["rust.test"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "soak.unix-reverse-proxy"
+title = "24-hour soak — unix-reverse-proxy profile"
+description = "24-hour mixed-traffic soak on unix-reverse-proxy profile shows bounded resources (no monotonic RSS growth, no task accumulation, no permit loss, no shutdown deadline violation)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "bash tests/soak/soak_24h.sh unix-reverse-proxy"
+workflow_job = "evidence-aggregate"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["rust.test", "python.server-integration"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "soak.unix-direct-https"
+title = "24-hour soak — unix-direct-https profile"
+description = "24-hour mixed-traffic soak on unix-direct-https profile shows bounded resources (no monotonic RSS growth, no task accumulation, no permit loss, no shutdown deadline violation)"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "bash tests/soak/soak_24h.sh unix-direct-https"
+workflow_job = "evidence-aggregate"
+platforms = ["linux"]
+features = ["tls"]
+artifacts = []
+triggers = ["manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["rust.test.server-tls", "native-tls.abuse-limits"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "artifact.installed-binaries"
+title = "Installed binary production-path validation"
+description = "Release binaries (default and TLS-enabled) pass production-path test suite and behave identically to source build"
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "cargo test -p eggserve-bin --test production_path"
+workflow_job = "production-path"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**", "Cargo.toml"]
+depends_on = ["package.core", "package.bin"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "artifact"
+
+[[gate]]
+id = "supply-chain.sbom"
+title = "SBOM and provenance record"
+description = "SBOM for release artifacts generated, checksums bind artifact hashes to source SHA, provenance record includes tag, commit, run ID, and timestamp"
+required = true
+evidence_classes = ["ci-log", "checksum", "provenance"]
+command = "bash scripts/generate-sbom.sh"
+workflow_job = "supply-chain"
+platforms = ["linux"]
+features = []
+artifacts = ["sbom.json", "checksums-sha256.txt", "provenance.json"]
+triggers = ["tagged_push"]
+max_age_days = 1
+invalidated_by = ["crates/**", "Cargo.toml", "Cargo.lock"]
+depends_on = ["supply-chain.audit", "supply-chain.deny"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "artifact"
+
+[[gate]]
+id = "release.independent-review"
+title = "Independent security review"
+description = "Independent reviewer has inspected confinement, HTTP framing, body rejection, response normalization, timeout/shutdown, TLS, Python FFI, logging, and artifact/provenance gates. No unresolved high/critical findings"
+required = true
+evidence_classes = ["approval-record"]
+command = "echo 'Requires human review record'"
+workflow_job = "evidence-aggregate"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/**/src/**"]
+depends_on = ["proxy.desync-corpus", "native-tls.abuse-limits", "stateful.fuzz-replay", "filesystem.unix-race", "soak.unix-reverse-proxy"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
+id = "release.profile-decision"
+title = "Production profile promotion decision"
+description = "Signed/recorded decision for each profile (unix-reverse-proxy, unix-direct-https, windows-reverse-proxy, windows-direct-https) based on exact-SHA evidence from all preceding gates"
+required = true
+evidence_classes = ["approval-record"]
+command = "echo 'Requires human decision record'"
+workflow_job = "evidence-aggregate"
+platforms = ["linux"]
+features = []
+artifacts = []
+triggers = ["manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["release/support-profiles.toml", "release/criteria.toml"]
+depends_on = ["release.independent-review"]
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"

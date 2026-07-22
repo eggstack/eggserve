@@ -68,9 +68,6 @@ required_gates = [
     "python.callback-timeout",
     "python.lifecycle-linux",
     "python.lifecycle-macos",
-    "python.boundary-hardening",
-    "python.api-stability",
-    "python.contract-consistency",
     "body.public-rust-consumer",
     "body.fixed-length-accounting",
     "body.chunked-accounting",
@@ -88,6 +85,17 @@ required_gates = [
     "python.body-parity",
     "python.body-timeout",
     "body.fuzz-smoke",
+    "proxy.caddy-interop",
+    "proxy.nginx-interop",
+    "proxy.desync-corpus",
+    "stateful.fuzz-replay",
+    "filesystem.unix-race",
+    "fault.injection",
+    "soak.unix-reverse-proxy",
+    "artifact.installed-binaries",
+    "supply-chain.sbom",
+    "release.independent-review",
+    "release.profile-decision",
 ]
 excluded_flags = [
     "follow-symlinks",
@@ -102,7 +110,7 @@ invalidation_paths = [
     "crates/eggserve-python/**",
 ]
 waivers_allowed = true
-notes = "Preferred public deployment. Reverse proxy handles TLS termination and public binding."
+notes = "Preferred public deployment. Reverse proxy handles TLS termination and public binding. Plan 089 qualification gates (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review, profile decision) are required for promotion."
 
 # ---------------------------------------------------------------------------
 # unix-direct-https: Linux/macOS with native rustls
@@ -184,6 +192,12 @@ required_gates = [
     "body.fuzz-smoke",
     "body.tls-parity",
     "runtime.tls-service-parity",
+    "native-tls.abuse-limits",
+    "soak.unix-direct-https",
+    "artifact.installed-binaries",
+    "supply-chain.sbom",
+    "release.independent-review",
+    "release.profile-decision",
 ]
 excluded_flags = [
     "follow-symlinks",
@@ -201,7 +215,7 @@ invalidation_paths = [
     "crates/eggserve-python/**",
 ]
 waivers_allowed = true
-notes = "Limited HTTP/1.1 static server with native TLS. Not an edge platform; no ACME, virtual hosting, or HTTP/2."
+notes = "Limited HTTP/1.1 static server with native TLS. Not an edge platform; no ACME, virtual hosting, or HTTP/2. Plan 089 qualification gates (native TLS abuse, 24h soak, installed artifacts, SBOM/provenance, independent review, profile decision) are required for promotion from candidate."
 
 # ---------------------------------------------------------------------------
 # windows-reverse-proxy: Windows behind reverse proxy

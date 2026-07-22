@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 107
+Total gates: 134
 
 ## Preflight
 
@@ -50,10 +50,13 @@ Total gates: 107
 | `conformance.public-rust-compile-fixtures` | Public Rust compile fixtures | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.python-api-import-fixtures` | Python API/import fixtures | yes | ci-log, test-output | PENDING | TBD |
 | `conformance.raw-wire-normalization` | Raw-wire normalization verification | yes | ci-log, test-output | PENDING | TBD |
+| `fault.injection` | Fault injection and degraded environments | yes | ci-log, test-output | PENDING | TBD |
 | `filesystem.corpus-replay` | Fuzz corpus replay | yes | ci-log, test-output | PENDING | TBD |
+| `filesystem.unix-race` | Unix filesystem race qualification | yes | ci-log, test-output | PENDING | TBD |
 | `http.primitives-integration` | HTTP primitives integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `http.production-path` | Production path tests | yes | ci-log, test-output | PENDING | TBD |
 | `http.raw-wire` | Raw HTTP/1.x wire correctness tests | yes | ci-log, test-output | PENDING | TBD |
+| `native-tls.abuse-limits` | Native TLS abuse and resource limits | yes | ci-log, test-output | PENDING | TBD |
 | `ops.installed-artifact-logging` | Installed artifact logging parity | yes | ci-log, test-output | PENDING | TBD |
 | `ops.json-log-validity` | JSON log validity | yes | ci-log, test-output | PENDING | TBD |
 | `ops.library-silence` | Library silence | yes | ci-log, lint-output | PENDING | TBD |
@@ -66,6 +69,9 @@ Total gates: 107
 | `pinned-root.identity` | Pinned root identity behavior | yes | ci-log, test-output | PENDING | TBD |
 | `pinned-root.no-reopen-pipeline` | No-reopen static pipeline | yes | ci-log, test-output | PENDING | TBD |
 | `pinned-root.root-replacement-regression` | Root replacement regression | yes | ci-log, test-output | PENDING | TBD |
+| `proxy.caddy-interop` | Caddy reverse-proxy interop | yes | ci-log, test-output | PENDING | TBD |
+| `proxy.desync-corpus` | Proxy desynchronization corpus | yes | ci-log, test-output | PENDING | TBD |
+| `proxy.nginx-interop` | nginx reverse-proxy interop | yes | ci-log, test-output | PENDING | TBD |
 | `python.api-stability` | Python API stability tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-conformance` | Python body conformance corpus | yes | ci-log, test-output | PENDING | TBD |
 | `python.body-lifecycle-linux` | Python body lifecycle qualification (Linux) | yes | ci-log, test-output | PENDING | TBD |
@@ -89,12 +95,17 @@ Total gates: 107
 | `python.server-integration` | Python server integration tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.server-primitives` | Python server primitives tests | yes | ci-log, test-output | PENDING | TBD |
 | `python.unit-tests` | Python source-only unit tests | yes | ci-log, test-output | PENDING | TBD |
+| `release.independent-review` | Independent security review | yes | approval-record | PENDING | TBD |
+| `release.profile-decision` | Production profile promotion decision | yes | approval-record | PENDING | TBD |
 | `runtime.forced-shutdown` | Runtime forced shutdown | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.graceful-shutdown` | Runtime graceful shutdown | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.listener-lifecycle` | Runtime listener lifecycle | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.public-rust-consumer` | Rust runtime public consumer | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.service-dispatch` | Runtime service dispatch | yes | ci-log, test-output | PENDING | TBD |
 | `runtime.tls-service-parity` | TLS and plaintext service parity | no | ci-log, test-output | PENDING | TBD |
+| `soak.unix-direct-https` | 24-hour soak — unix-direct-https profile | yes | ci-log, test-output | PENDING | TBD |
+| `soak.unix-reverse-proxy` | 24-hour soak — unix-reverse-proxy profile | yes | ci-log, test-output | PENDING | TBD |
+| `stateful.fuzz-replay` | Stateful live-socket fuzz replay and release budget | yes | ci-log, test-output | PENDING | TBD |
 | `windows.directory-buffer-parser` | Windows directory buffer parser | yes | ci-log, test-output | PENDING | TBD |
 | `windows.directory-enumeration-handle-relative` | Windows handle-relative directory enumeration | yes | ci-log, test-output | PENDING | TBD |
 | `windows.directory-listing-head-parity` | Windows directory listing HEAD parity | yes | ci-log, test-output | PENDING | TBD |
@@ -116,6 +127,7 @@ Total gates: 107
 
 | Gate ID | Title | Required | Evidence Class | Status | Evidence |
 |---------|-------|----------|----------------|--------|----------|
+| `artifact.installed-binaries` | Installed binary production-path validation | yes | ci-log, test-output | PENDING | TBD |
 | `package.bin` | eggserve-bin package/publish dry-run | yes | ci-log, package-output | PENDING | TBD |
 | `package.core` | eggserve-core package/publish dry-run | yes | ci-log, package-output | PENDING | TBD |
 | `python.packaging-smoke` | Installed wheel packaging smoke tests | yes | ci-log, test-output | PENDING | TBD |
@@ -123,6 +135,7 @@ Total gates: 107
 | `python.wheel.macos` | macOS wheel build/install/smoke | yes | ci-log, test-output, wheel | PENDING | TBD |
 | `python.wheel.windows` | Windows wheel build/install/smoke | yes | ci-log, test-output, wheel | PENDING | TBD |
 | `release.artifacts` | Release artifact assembly and checksums | yes | ci-log, checksum, provenance | PENDING | TBD |
+| `supply-chain.sbom` | SBOM and provenance record | yes | ci-log, checksum, provenance | PENDING | TBD |
 
 ## Approval
 
@@ -134,7 +147,7 @@ Total gates: 107
 
 ## Summary
 
-- PENDING: 107
+- PENDING: 120
 
 ## Platform Support
 

@@ -34,7 +34,7 @@ Each gate is a `[[gate]]` block with these fields:
 | `security_relevance` | Marks security-critical gates |
 | `release_stage` | preflight, qualification, artifact, approval |
 
-## Gate Categories (53 gates)
+## Gate Categories (66 gates)
 
 ### Rust Correctness (7)
 `rust.format`, `rust.clippy`, `rust.test`, `rust.doctest`, `rust.client-feature`, `rust.client-tls`, `rust.server-tls`
@@ -68,6 +68,9 @@ Each gate is a `[[gate]]` block with these fields:
 
 ### Generated File Cleanliness (1)
 `generated.checklist-clean`
+
+### Plan 089 Production Closure (13)
+`proxy.caddy-interop`, `proxy.nginx-interop`, `proxy.desync-corpus`, `native-tls.abuse-limits`, `stateful.fuzz-replay`, `filesystem.unix-race`, `fault.injection`, `soak.unix-reverse-proxy`, `soak.unix-direct-https`, `artifact.installed-binaries`, `supply-chain.sbom`, `release.independent-review`, `release.profile-decision`
 
 ## Evidence Model
 

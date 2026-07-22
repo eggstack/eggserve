@@ -54,7 +54,7 @@ eggserve defines production readiness through explicit profiles. Each profile sp
 
 | Profile | Status | Hardened |
 |---------|--------|----------|
-| unix-reverse-proxy | supported-hardened | Yes (once CI gates pass) |
+| unix-reverse-proxy | supported-hardened | Yes (once CI gates pass; Plan 089 qualification: proxy interop, fuzz, race, soak, review gates) |
 | unix-direct-https | candidate | Partial (native TLS, limited) |
 | windows-reverse-proxy | candidate | Partial (adversarial qualification scaffold established, Plan 086; awaiting independent review and profile decision) |
 | windows-direct-https | functional | No |

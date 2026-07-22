@@ -49,7 +49,7 @@ An attacker who sends HTTP requests that violate the HTTP/1.1 grammar or framing
 
 ### Request-smuggling attacker operating through a reverse proxy
 
-An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud load balancer) with the intent that the proxy and eggserve disagree on request boundaries. eggserve's hardened framing checks (TE+CL rejection, duplicate Content-Length rejection, wire-level validation) ensure that ambiguous requests are rejected at the origin, preventing desynchronization. This attacker is in scope because reverse-proxy deployment is the preferred production profile.
+An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud load balancer) with the intent that the proxy and eggserve disagree on request boundaries. eggserve's hardened framing checks (TE+CL rejection, duplicate Content-Length rejection, wire-level validation) ensure that ambiguous requests are rejected at the origin, preventing desynchronization. Plan 089 proxy desynchronization corpus validates no frontend/backend disagreement through Caddy and nginx. This attacker is in scope because reverse-proxy deployment is the preferred production profile.
 
 ### Filesystem namespace attacker able to mutate content within or adjacent to the root
 
@@ -171,7 +171,7 @@ These configurations are weaker than the hardened profile and are not production
 
 ### Unix reverse-proxy profile
 
-The origin communicates with the edge over HTTP/1.1 on loopback. The edge terminates TLS, handles client identity, and enforces connection policy. eggserve does not acquire edge-server responsibilities — it must not implicitly trust forwarding headers, provide certificate automation, or implement public client-identity policy. The edge should use its own logs for client attribution. eggserve logs sanitized request paths and headers, but these are not suitable for client attribution behind a proxy.
+The origin communicates with the edge over HTTP/1.1 on loopback. The edge terminates TLS, handles client identity, and enforces connection policy. eggserve does not acquire edge-server responsibilities — it must not implicitly trust forwarding headers, provide certificate automation, or implement public client-identity policy. The edge should use its own logs for client attribution. eggserve logs sanitized request paths and headers, but these are not suitable for client attribution behind a proxy. Plan 089 proxy interop and desync corpus qualify the reverse-proxy profile for hardened status.
 
 ### Unix direct-HTTPS profile
 

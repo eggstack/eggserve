@@ -14,7 +14,7 @@ For public-facing production deployments, a mature TLS terminator (Caddy, nginx,
 
 ## Production profile
 
-Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited HTTP/1.1 static-server deployment, not an edge platform. It does not imply ACME, virtual hosting, HTTP/2, or edge parity.
+Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited HTTP/1.1 static-server deployment, not an edge platform. It does not imply ACME, virtual hosting, HTTP/2, or edge parity. Native TLS abuse/limits qualification and 24-hour soak are part of Plan 089 qualification; the profile remains candidate until full qualification passes.
 
 For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefik termination) is preferred. See `release/support-profiles.toml` for the full profile definitions and `docs/deployment.md` for deployment patterns.
 

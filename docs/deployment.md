@@ -50,11 +50,11 @@ This is the recommended pattern for production deployments. Reverse proxies hand
 
 ### Production profile: unix-reverse-proxy
 
-The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. This profile is hardened once all required CI gates pass. See `release/support-profiles.toml` for the full specification.
+The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. This profile is hardened once all required CI gates pass. Plan 089 qualification covers proxy interop (Caddy, nginx), desync corpus, stateful fuzz replay, filesystem race probing, fault injection, 24-hour soak, installed artifact validation, SBOM/provenance, and independent review. See `release/support-profiles.toml` for the full specification.
 
 ### Production profile: unix-direct-https
 
-Native TLS is a candidate production profile for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing.
+Native TLS is a candidate production profile for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. Native TLS abuse/limits qualification and 24-hour soak are part of Plan 089 qualification.
 
 ## Pattern 3: Native TLS
 
