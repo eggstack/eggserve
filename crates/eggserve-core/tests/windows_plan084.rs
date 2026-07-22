@@ -27,11 +27,10 @@ use std::ptr;
 
 use tempfile::TempDir;
 
-use eggserve_core::path::{ConfinedPath, PathPolicy};
 use eggserve_core::policy::StaticPolicy;
-use eggserve_core::primitives::body::BodySource;
 use eggserve_core::primitives::response::BodyPlan;
 use eggserve_core::primitives::{check_component, SecureRoot};
+use eggserve_core::primitives::{ConfinedPath, PathPolicy};
 
 // ============================================================================
 // Inline Windows FFI — test isolation mirrors windows_feasibility.rs
@@ -202,7 +201,7 @@ fn parse(raw: &str) -> ConfinedPath {
 
 fn parse_allow_dotfiles(raw: &str) -> ConfinedPath {
     let policy = PathPolicy {
-        dotfiles: eggserve_core::path::DotfilePolicy::Allow,
+        dotfiles: eggserve_core::primitives::PathDotfilePolicy::Allow,
         ..PathPolicy::default()
     };
     ConfinedPath::parse(raw, &policy).unwrap()

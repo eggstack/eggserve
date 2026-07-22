@@ -380,6 +380,8 @@ async fn race_permission_changes() {
                     fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o644));
             }
         }
+        #[cfg(not(unix))]
+        let _ = &i;
     }
 
     // Restore permissions
@@ -502,6 +504,8 @@ async fn race_symlink_loop_detection() {
             "symlink loop should be detected"
         );
     }
+    #[cfg(not(unix))]
+    let _ = &root;
 }
 
 #[tokio::test]
@@ -527,6 +531,8 @@ async fn race_outside_root_access() {
             assert_ne!(&body[..], b"secret", "must not serve outside-root content");
         }
     }
+    #[cfg(not(unix))]
+    let _ = &root;
 }
 
 #[tokio::test]
