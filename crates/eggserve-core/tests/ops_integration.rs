@@ -409,19 +409,35 @@ impl LogSink for PanicSink {
 
 #[test]
 fn composite_sink_catches_panic() {
+    let counters = eggserve_core::ops::global_counters();
+    let before = counters
+        .dropped_log_events
+        .load(std::sync::atomic::Ordering::Relaxed);
+
     let composite = CompositeLogSink::new(vec![Box::new(PanicSink), Box::new(NopLogSink)]);
 
     let event = Event::new(Severity::Info, EventKind::ProcessStarting, "test");
     // Should not panic
     composite.emit(&event);
+
+    let after = counters
+        .dropped_log_events
+        .load(std::sync::atomic::Ordering::Relaxed);
+    assert!(
+        after > before,
+        "dropped_log_events should increment when a sink panics"
+    );
 }
 
 #[test]
 fn log_failure_does_not_panic() {
     let logger = Logger::global();
     let event = Event::new(Severity::Info, EventKind::ProcessStarting, "test");
-    // NopLogSink never panics
+    // NopLogSink never panics; emit should succeed without error
     logger.emit(event);
+    // Verify logger is still functional after emit
+    let event2 = Event::new(Severity::Debug, EventKind::FileNotFound, "still works");
+    logger.emit(event2);
 }
 
 // ---------------------------------------------------------------------------
@@ -437,12 +453,20 @@ fn backoff_interruptible_by_shutdown() {
         let (_tx, mut rx) = tokio::sync::broadcast::channel::<()>(1);
         let err = std::io::Error::new(std::io::ErrorKind::Interrupted, "test");
         let mut backoff_idx = 0usize;
+        let mut error_repeat_count = 0usize;
+        let mut last_error_kind = None;
         // Send shutdown immediately so the select! resolves
         let _ = _tx.send(());
         // This should return quickly without hanging
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(5),
-            classify_accept_error_for_test(&err, &mut rx, &mut backoff_idx),
+            classify_accept_error_for_test(
+                &err,
+                &mut rx,
+                &mut backoff_idx,
+                &mut error_repeat_count,
+                &mut last_error_kind,
+            ),
         )
         .await;
         assert!(
@@ -471,6 +495,8 @@ async fn classify_accept_error_for_test(
     e: &std::io::Error,
     shutdown_rx: &mut tokio::sync::broadcast::Receiver<()>,
     backoff_idx: &mut usize,
+    error_repeat_count: &mut usize,
+    last_error_kind: &mut Option<String>,
 ) -> bool {
     use eggserve_core::ops::{Event, EventKind, Logger, Severity};
 
@@ -492,11 +518,30 @@ async fn classify_accept_error_for_test(
         ),
     };
 
-    Logger::global().emit(
-        Event::new(severity, event_kind, format!("accept error: {}", err_str)).field(
+    // Rate-limit repeated identical errors (mirrors production logic).
+    let current_kind = format!("{}", event_kind);
+    let is_same_kind = last_error_kind.as_deref() == Some(&current_kind);
+    if is_same_kind {
+        *error_repeat_count += 1;
+    } else {
+        *error_repeat_count = 1;
+        *last_error_kind = Some(current_kind);
+    }
+
+    let should_emit = *error_repeat_count == 1 || (*error_repeat_count).is_multiple_of(10);
+    if should_emit {
+        let message = if *error_repeat_count > 1 {
+            format!(
+                "accept error ({} consecutive): {}",
+                error_repeat_count, err_str
+            )
+        } else {
+            format!("accept error: {}", err_str)
+        };
+        Logger::global().emit(Event::new(severity, event_kind, message).field(
             eggserve_core::ops::Field::Str("error_kind".into(), format!("{:?}", kind)),
-        ),
-    );
+        ));
+    }
 
     if should_backoff {
         static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];
@@ -748,8 +793,10 @@ mod proptest_tests {
         ) {
             let event = Event::new(severity, EventKind::ProcessStarting, message)
                 .field(Field::Str(field_key, field_val));
-            // Should never panic
-            let _ = format!("{:?}", event);
+            // Should never panic — tests event_to_json, not Debug formatting
+            let json = ops::event_to_json(&event);
+            // Output must be valid JSON
+            let _: serde_json::Value = serde_json::from_str(&json).unwrap();
         }
 
         #[test]

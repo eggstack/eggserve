@@ -297,6 +297,13 @@ impl Server {
         let state = Arc::new(
             ServeState::new(self.serve_config).map_err(|e| ServerError::Config(e.to_string()))?,
         );
+
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Info,
+            crate::ops::EventKind::RootInitialized,
+            "root initialized",
+        ));
+
         let config = Arc::new(self.config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
 
@@ -349,6 +356,12 @@ impl Server {
         let state = Arc::new(
             ServeState::new(self.serve_config).map_err(|e| ServerError::Config(e.to_string()))?,
         );
+
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Info,
+            crate::ops::EventKind::RootInitialized,
+            "root initialized",
+        ));
         let config = Arc::new(self.config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
 
@@ -409,6 +422,8 @@ async fn accept_loop(
     // Track spawned connection tasks for graceful drain.
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut backoff_idx: usize = 0;
+    let mut error_repeat_count: usize = 0;
+    let mut last_error_kind: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -416,6 +431,8 @@ async fn accept_loop(
                 match result {
                     Ok((stream, _addr)) => {
                         backoff_idx = 0;
+                        error_repeat_count = 0;
+                        last_error_kind = None;
                         let conn_id = correlation.next();
                         counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -458,7 +475,7 @@ async fn accept_loop(
                             {
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout).await {
+                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout, conn_id).await {
                                         Some(tls_stream) => {
                                             crate::ops::Logger::global().emit(
                                                 crate::ops::Event::new(
@@ -505,7 +522,7 @@ async fn accept_loop(
                         tasks.push(join);
                     }
                     Err(e) => {
-                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx).await;
+                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind).await;
                         if fatal {
                             break;
                         }
@@ -593,6 +610,8 @@ async fn accept_loop_with_service<S: Service>(
 
     let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
     let mut backoff_idx: usize = 0;
+    let mut error_repeat_count: usize = 0;
+    let mut last_error_kind: Option<String> = None;
 
     loop {
         tokio::select! {
@@ -600,6 +619,8 @@ async fn accept_loop_with_service<S: Service>(
                 match result {
                     Ok((stream, _addr)) => {
                         backoff_idx = 0;
+                        error_repeat_count = 0;
+                        last_error_kind = None;
                         let conn_id = correlation.next();
                         counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -643,7 +664,7 @@ async fn accept_loop_with_service<S: Service>(
                             {
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout).await {
+                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout, conn_id).await {
                                         Some(tls_stream) => {
                                             crate::ops::Logger::global().emit(
                                                 crate::ops::Event::new(
@@ -688,7 +709,7 @@ async fn accept_loop_with_service<S: Service>(
                         tasks.push(join);
                     }
                     Err(e) => {
-                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx).await;
+                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind).await;
                         if fatal {
                             break;
                         }
@@ -749,15 +770,38 @@ async fn accept_loop_with_service<S: Service>(
 /// Accept a TLS connection with timeout.
 ///
 /// Returns the TLS stream on success, or `None` if the handshake failed or timed out.
+/// Emits `TlsHandshakeFailure` or `TlsHandshakeTimeout` events on failure.
 #[cfg(feature = "tls")]
 async fn accept_tls(
     stream: tokio::net::TcpStream,
     tls_acceptor: &tokio_rustls::TlsAcceptor,
     timeout: std::time::Duration,
+    conn_id: u64,
 ) -> Option<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
     match tokio::time::timeout(timeout, tls_acceptor.accept(stream)).await {
         Ok(Ok(tls_stream)) => Some(tls_stream),
-        Ok(Err(_)) | Err(_) => None,
+        Ok(Err(_)) => {
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Warn,
+                    crate::ops::EventKind::TlsHandshakeFailure,
+                    "TLS handshake failed",
+                )
+                .connection_id(conn_id),
+            );
+            None
+        }
+        Err(_) => {
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Warn,
+                    crate::ops::EventKind::TlsHandshakeTimeout,
+                    "TLS handshake timeout",
+                )
+                .connection_id(conn_id),
+            );
+            None
+        }
     }
 }
 
@@ -765,12 +809,18 @@ async fn accept_tls(
 /// bounded exponential backoff for transient errors. The backoff is
 /// interruptible by shutdown via the provided receiver.
 ///
+/// Rate-limits repeated identical errors: emits the first occurrence, then
+/// a summary every 10 consecutive identical errors, resetting on success
+/// or a different error kind.
+///
 /// Returns `true` if the error is fatal and the accept loop should terminate.
 #[allow(clippy::collapsible_match)]
 async fn classify_accept_error(
     e: &std::io::Error,
     shutdown_rx: &mut broadcast::Receiver<()>,
     backoff_idx: &mut usize,
+    error_repeat_count: &mut usize,
+    last_error_kind: &mut Option<String>,
 ) -> bool {
     use crate::ops::{Event, EventKind, Logger, Severity};
 
@@ -841,11 +891,31 @@ async fn classify_accept_error(
         .listener_errors
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-    Logger::global().emit(
-        Event::new(severity, event_kind, format!("accept error: {}", err_str)).field(
+    // Rate-limit repeated identical errors.
+    let current_kind = format!("{}", event_kind);
+    let is_same_kind = last_error_kind.as_deref() == Some(&current_kind);
+    if is_same_kind {
+        *error_repeat_count += 1;
+    } else {
+        *error_repeat_count = 1;
+        *last_error_kind = Some(current_kind);
+    }
+
+    // Emit on first occurrence, then every 10th.
+    let should_emit = *error_repeat_count == 1 || (*error_repeat_count).is_multiple_of(10);
+    if should_emit {
+        let message = if *error_repeat_count > 1 {
+            format!(
+                "accept error ({} consecutive): {}",
+                error_repeat_count, err_str
+            )
+        } else {
+            format!("accept error: {}", err_str)
+        };
+        Logger::global().emit(Event::new(severity, event_kind, message).field(
             crate::ops::Field::Str("error_kind".into(), format!("{:?}", kind)),
-        ),
-    );
+        ));
+    }
 
     if should_backoff {
         static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];

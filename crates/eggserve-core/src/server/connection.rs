@@ -227,7 +227,22 @@ pub async fn serve_connection_with_service<I, S>(
                             Err(_) => crate::response::internal_error(),
                         }
                     }
-                    Ok(Err(service_err)) => service_err.to_response(),
+                    Ok(Err(service_err)) => {
+                        let severity = if service_err.is_panic() || !service_err.is_timeout() {
+                            crate::ops::Severity::Error
+                        } else {
+                            crate::ops::Severity::Warn
+                        };
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                severity,
+                                crate::ops::EventKind::ServiceError,
+                                service_err.to_string(),
+                            )
+                            .connection_id(conn_id),
+                        );
+                        service_err.to_response()
+                    }
                     Err(_elapsed) => {
                         crate::ops::Logger::global().emit(crate::ops::Event::new(
                             crate::ops::Severity::Warn,
@@ -304,7 +319,22 @@ pub async fn serve_connection_with_service<I, S>(
                                 Err(_) => crate::response::internal_error(),
                             }
                         }
-                        Ok(Err(service_err)) => service_err.to_response(),
+                        Ok(Err(service_err)) => {
+                            let severity = if service_err.is_panic() || !service_err.is_timeout() {
+                                crate::ops::Severity::Error
+                            } else {
+                                crate::ops::Severity::Warn
+                            };
+                            crate::ops::Logger::global().emit(
+                                crate::ops::Event::new(
+                                    severity,
+                                    crate::ops::EventKind::ServiceError,
+                                    service_err.to_string(),
+                                )
+                                .connection_id(conn_id),
+                            );
+                            service_err.to_response()
+                        }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
@@ -335,7 +365,22 @@ pub async fn serve_connection_with_service<I, S>(
                                 Err(_) => crate::response::internal_error(),
                             }
                         }
-                        Ok(Err(service_err)) => service_err.to_response(),
+                        Ok(Err(service_err)) => {
+                            let severity = if service_err.is_panic() || !service_err.is_timeout() {
+                                crate::ops::Severity::Error
+                            } else {
+                                crate::ops::Severity::Warn
+                            };
+                            crate::ops::Logger::global().emit(
+                                crate::ops::Event::new(
+                                    severity,
+                                    crate::ops::EventKind::ServiceError,
+                                    service_err.to_string(),
+                                )
+                                .connection_id(conn_id),
+                            );
+                            service_err.to_response()
+                        }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
