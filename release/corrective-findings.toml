@@ -192,7 +192,7 @@ release = "B"
 status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "078"
-regression_evidence = "build_with_service removed; custom services must use start_with_service()"
+regression_evidence = "build_with_service removed; lifecycle tests verify drop count (normal + forced shutdown), supplied-instance identity, and service trait bounds"
 
 [finding.description]
 text = "build_with_service accepts a service value that is not retained by the built server. Users expect the service to handle requests but it is silently discarded."
@@ -203,6 +203,9 @@ location = "crates/eggserve-core/tests/server_integration.rs"
 cases = [
     "build_with_service no longer exists; compile error on removal",
     "start_with_service retains service for request handling",
+    "service_drop_count_on_normal_shutdown — service dropped exactly once",
+    "service_drop_count_on_forced_shutdown — service dropped on forced shutdown",
+    "supplied_service_instance_is_invoked — the supplied instance handles requests",
 ]
 platform = "all"
 deterministic = true
@@ -230,7 +233,7 @@ release = "B"
 status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "078"
-regression_evidence = "Real socket addresses threaded through accept loop and TLS path"
+regression_evidence = "Real socket addresses threaded through accept loop and TLS path; TLS info (protocol version, SNI) extracted from completed sessions; Python Request exposes remote_addr, local_addr, scheme; installed-wheel tests verify real ephemeral ports"
 
 [finding.description]
 text = "Connection metadata uses fake 127.0.0.1 addresses instead of real peer/local socket addresses. No TLS/scheme information is captured."
@@ -239,8 +242,9 @@ text = "Connection metadata uses fake 127.0.0.1 addresses instead of real peer/l
 strategy = "integration-test"
 location = "crates/eggserve-core/tests/server_integration.rs"
 cases = [
-    "ConnectionInfo contains real peer and local addresses",
-    "TLS connections report correct scheme and TLS state",
+    "connection_metadata_propagated_to_service — real addresses in Request",
+    "separate_connections_have_distinct_remote_ports — distinct ephemeral ports",
+    "TestConnectionMetadata — Python Request remote_addr, local_addr, scheme",
 ]
 platform = "all"
 deterministic = true
