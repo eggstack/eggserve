@@ -7,7 +7,7 @@ Although the built-in static server rejects all request bodies, the generic prim
 1. Reject-before-handler path
 2. Buffer mode allocation ceiling
 3. Stream mode chunking and backpressure
-4. Incomplete-body close/drain behavior
+4. Incomplete-body close behavior
 5. Timeout and cancellation
 6. Python iterator bridge
 
@@ -46,12 +46,11 @@ if let Err(rejection) = validate_no_request_body(&req, config.limits.max_request
 - Backpressure prevents unbounded buffering
 - Each chunk is independently allocated and consumed
 
-### 4. Incomplete-body close/drain behavior
+### 4. Incomplete-body close behavior
 
 `IncompleteBodyPolicy::Close` (default) closes the connection when the service returns without consuming the body.
 
 **Assessment: Correct**
-- No drain code path is wired yet (marked as future work)
 - Close is the safe default — prevents ambiguous framing on keep-alive connections
 
 ### 5. Timeout and cancellation

@@ -529,19 +529,15 @@ async fn partial_body_close_policy() {
 }
 
 #[tokio::test]
-async fn drain_policy_body_close_on_partial_consumption() {
-    // When drain policy is set but body is not fully consumed,
-    // the connection should close (drain is best-effort for Stream mode
-    // because the body is opaque inside the Request).
+async fn close_policy_body_close_on_partial_consumption() {
+    // When close policy is set and body is not fully consumed,
+    // the connection should close.
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                max_bytes: 1024,
-                timeout: Duration::from_secs(1),
-            },
+            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
         .build()
@@ -601,18 +597,15 @@ async fn drain_policy_body_close_on_partial_consumption() {
 }
 
 #[tokio::test]
-async fn drain_policy_keepalive_after_full_body_consumption() {
-    // When drain policy is set and body IS fully consumed,
+async fn close_policy_keepalive_after_full_body_consumption() {
+    // When close policy is set and body IS fully consumed,
     // keep-alive should work for subsequent requests.
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                max_bytes: 1024,
-                timeout: Duration::from_secs(1),
-            },
+            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
         .build()
@@ -1054,8 +1047,8 @@ async fn leftover_bytes_not_parsed_as_next_request() {
 }
 
 #[tokio::test]
-async fn drain_policy_timeout_closes_connection() {
-    // When drain policy is set and body is not fully consumed,
+async fn close_policy_timeout_closes_connection() {
+    // When close policy is set and body is not fully consumed,
     // the connection should close (Hyper encounters leftover bytes
     // and closes to prevent request smuggling).
     let config = RuntimeConfig::builder()
@@ -1063,10 +1056,7 @@ async fn drain_policy_timeout_closes_connection() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                max_bytes: 1024,
-                timeout: Duration::from_millis(100),
-            },
+            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
         .build()
@@ -1127,17 +1117,14 @@ async fn drain_policy_timeout_closes_connection() {
 }
 
 #[tokio::test]
-async fn drain_policy_partial_chunked_body() {
-    // Drain policy with partial chunked body consumption.
+async fn close_policy_partial_chunked_body() {
+    // Close policy with partial chunked body consumption.
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                max_bytes: 1024,
-                timeout: Duration::from_secs(1),
-            },
+            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
         .build()
@@ -1201,18 +1188,15 @@ async fn drain_policy_partial_chunked_body() {
 }
 
 #[tokio::test]
-async fn drain_policy_malformed_remainder() {
-    // Drain policy: service reads partial body, remainder is malformed.
+async fn close_policy_malformed_remainder() {
+    // Close policy: service reads partial body, remainder is malformed.
     // Connection should close cleanly.
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                max_bytes: 1024,
-                timeout: Duration::from_secs(1),
-            },
+            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
         .build()
@@ -1274,18 +1258,15 @@ async fn drain_policy_malformed_remainder() {
 }
 
 #[tokio::test]
-async fn drain_policy_keepalive_with_full_consumption_stream() {
-    // Drain policy with Stream mode and full body consumption.
+async fn close_policy_keepalive_with_full_consumption_stream() {
+    // Close policy with Stream mode and full body consumption.
     // Keep-alive should work.
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                max_bytes: 1024,
-                timeout: Duration::from_secs(1),
-            },
+            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
         .build()

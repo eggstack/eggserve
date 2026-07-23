@@ -583,16 +583,6 @@ class TestServerBodyPolicyConstructor(unittest.TestCase):
         )
         self.assertEqual(s.state, "created")
 
-    def test_incomplete_body_policy_drain(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            request_body_mode="buffer",
-            max_request_body_bytes=1024,
-            incomplete_body_policy="drain",
-        )
-        self.assertEqual(s.state, "created")
-
     def test_invalid_body_mode_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             Server(

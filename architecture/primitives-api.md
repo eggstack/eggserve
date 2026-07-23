@@ -337,7 +337,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 ### Incomplete body policy
 
-- `IncompleteBodyPolicy` — Drain { max_bytes, timeout } or Close
+- `IncompleteBodyPolicy` — Close (only supported policy)
 - Applied when handler returns without fully consuming the body
 
 ## See Also

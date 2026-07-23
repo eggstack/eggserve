@@ -1222,13 +1222,9 @@ impl PyServer {
         // Parse incomplete body policy
         let inc_policy = match incomplete_body_policy {
             "close" => IncompleteBodyPolicy::Close,
-            "drain" => IncompleteBodyPolicy::Drain {
-                max_bytes: u64::MAX,
-                timeout: Duration::from_secs(body_timeout_secs),
-            },
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
-                    "incomplete_body_policy must be 'close' or 'drain'",
+                    "incomplete_body_policy must be 'close'",
                 ));
             }
         };

@@ -188,7 +188,7 @@ The runtime handles request body ingestion transparently for services:
    - 413: body too large
    - 500: transport error
 
-6. **Incomplete body handling**: After the service returns, if the body was not fully consumed, the runtime applies `IncompleteBodyPolicy`. Default is `Close` (connection closed). `Drain` is defined but not yet wired.
+6. **Incomplete body handling**: After the service returns, if the body was not fully consumed, the runtime applies `IncompleteBodyPolicy`. `Close` closes the connection. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value.
 
 ## Request body handling
 
@@ -198,7 +198,7 @@ The runtime manages request body lifecycle through the `Request` envelope:
 
 - `RuntimeConfig::request_body_policy` — global policy (Reject/Buffer/Stream)
 - `RuntimeConfig::max_request_body_bytes` — hard ceiling no service can exceed
-- `RuntimeConfig::incomplete_body_policy` — drain-or-close when handler doesn't consume
+- `RuntimeConfig::incomplete_body_policy` — close when handler doesn't consume body
 
 ### Request envelope
 

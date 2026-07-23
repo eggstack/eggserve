@@ -319,7 +319,7 @@ Parameters:
 - `request_body_mode` — request body policy: `"reject"` (default), `"buffer"`, or `"stream"`
 - `max_request_body_bytes` — maximum request body size in bytes (default: 0; hard ceiling)
 - `body_timeout_secs` — total deadline for body consumption in buffer mode (default: 30)
-- `incomplete_body_policy` — behavior when handler returns without consuming body: `"close"` (default) or `"drain"`
+- `incomplete_body_policy` — behavior when handler returns without consuming body: `"close"` (default)
 
 Properties:
 - `addr` — bound address string (e.g. "127.0.0.1:8000"), or `None` when stopped

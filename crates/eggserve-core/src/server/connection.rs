@@ -141,7 +141,6 @@ pub async fn serve_connection_with_service<I, S>(
     let handler_timeout = config.handler_timeout;
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
-    let incomplete_body_policy = config.incomplete_body_policy;
     let tls_info = std::sync::Arc::new(tls_info);
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
@@ -213,6 +212,25 @@ pub async fn serve_connection_with_service<I, S>(
                 }
             }
 
+            // Reject Expect: 100-continue early — do not send an invitation
+            // to send a body that will be rejected.
+            if effective_policy.is_reject() {
+                if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
+                    if expect == "100-continue" {
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::BodyPolicyRejection,
+                                "100-continue rejected by body policy",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        let response = crate::response::payload_too_large();
+                        return Ok::<_, Infallible>(response);
+                    }
+                }
+            }
+
             // Handle Reject policy — reject without invoking the service,
             // but only if the request actually carries a body.
             let has_body = declared_length.is_some_and(|len| len > 0)
@@ -227,9 +245,11 @@ pub async fn serve_connection_with_service<I, S>(
                     .connection_id(conn_id),
                 );
                 let response = crate::response::payload_too_large();
-                // Drain the body to keep the connection clean for keep-alive.
+                // Drain the body with a bounded timeout to keep the connection
+                // clean. This is a pre-service drain: it happens before any
+                // user code invocation and is bounded by a fixed timeout.
                 let mut body = body;
-                let _ = tokio::time::timeout(std::time::Duration::from_millis(100), async {
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
                     while let Some(Ok(_)) = body.frame().await {}
                 })
                 .await;
@@ -417,30 +437,11 @@ pub async fn serve_connection_with_service<I, S>(
                     // Check if body was fully consumed via the shared flag.
                     // If not, apply incomplete_body_policy.
                     if !consumed_flag.load(std::sync::atomic::Ordering::Acquire) {
-                        match incomplete_body_policy {
-                            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close => {
-                                // Connection will close after response — no drain needed.
-                                // Hyper handles cleanup of unconsumed body bytes.
-                            }
-                            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                                max_bytes,
-                                timeout,
-                            } => {
-                                // Architectural note: in Stream mode, the body stream is
-                                // consumed into the Request envelope and passed to
-                                // Service::call by value. After the service returns, the
-                                // body stream is no longer accessible from this pipeline.
-                                // Hyper handles cleanup of remaining bytes: if the body
-                                // was not fully consumed, Hyper encounters leftover bytes
-                                // when attempting to parse the next request, which causes
-                                // a parse error and connection close. This is safe
-                                // (request smuggling is prevented) but does not preserve
-                                // keep-alive. The drain parameters (max_bytes, timeout)
-                                // are recorded for future active-drain implementations
-                                // that intercept the body before service invocation.
-                                let _ = (max_bytes, timeout);
-                            }
-                        }
+                        // Close: connection will close after response.
+                        // Hyper handles cleanup of unconsumed body bytes.
+                        // Active drain is not safely implementable because
+                        // the body stream is consumed into the Request envelope
+                        // by value and is no longer accessible from this pipeline.
                     }
 
                     Ok::<_, Infallible>(response)

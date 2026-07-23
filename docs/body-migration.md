@@ -36,7 +36,7 @@ Server(
     request_body_mode="buffer",      # "reject" | "buffer" | "stream"
     max_request_body_bytes=10240,    # required for buffer/stream
     body_timeout_secs=30,            # optional, default 30
-    incomplete_body_policy="close",  # "close" | "drain"
+    incomplete_body_policy="close",  # "close" only
 ).start()
 ```
 

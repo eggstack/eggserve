@@ -210,7 +210,7 @@ The Python `Server` constructor accepts body policy parameters:
 - `request_body_mode`: `"reject"` (default), `"buffer"`, or `"stream"`
 - `max_request_body_bytes`: hard byte ceiling (default 0)
 - `body_read_timeout_secs`: total body read deadline (default 30)
-- `incomplete_body_policy`: `"close"` (default) or `"drain"`
+- `incomplete_body_policy`: `"close"` (default)
 
 Static mode always rejects bodies regardless of callback defaults. Buffer/stream require explicit finite limits.
 

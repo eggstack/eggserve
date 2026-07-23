@@ -417,12 +417,6 @@ mod tests {
             .server_header("eggserve/0.1".into())
             .max_request_body_bytes(1024 * 1024)
             .request_body_policy(RequestBodyPolicy::Buffer { max_bytes: 512 })
-            .incomplete_body_policy(
-                crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Drain {
-                    max_bytes: 4096,
-                    timeout: Duration::from_secs(2),
-                },
-            )
             .build()
             .unwrap();
         assert_eq!(config.bind.port(), 9000);
@@ -441,7 +435,10 @@ mod tests {
             config.request_body_policy,
             RequestBodyPolicy::Buffer { max_bytes: 512 }
         );
-        assert!(config.incomplete_body_policy.is_drain());
+        assert_eq!(
+            config.incomplete_body_policy,
+            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close
+        );
     }
 
     #[test]

@@ -84,7 +84,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `RequestBody` | One-shot, bounded request body with `read_all` and streaming |
 | `BodyState` | Body consumption state machine: Unread, Streaming, Complete, Error |
 | `RequestBodyError` | Typed body error taxonomy (policy, limit, timeout, disconnect, consumption state) |
-| `IncompleteBodyPolicy` | Drain-or-close for incomplete bodies: `Drain { max_bytes, timeout }` or `Close` |
+| `IncompleteBodyPolicy` | Close for incomplete bodies |
 | `Request` | Canonical request envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` |
 | `Service::call(Request)` | Service trait now accepts `Request` instead of `RequestHead` |
 | `RuntimeConfig::max_request_body_bytes` | Hard body size ceiling (default 0) |

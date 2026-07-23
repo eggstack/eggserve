@@ -94,7 +94,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `RequestBody::was_fully_consumed()` | Internal | `pub(crate)` — not public API |
 | `BodyState` | Experimental | Body consumption state machine |
 | `RequestBodyError` | Experimental | Typed body error taxonomy |
-| `IncompleteBodyPolicy` | Experimental | Drain-or-close for incomplete bodies |
+| `IncompleteBodyPolicy` | Experimental | Close for incomplete bodies |
 | `Request` | Experimental | Canonical request envelope |
 | `Service::call(Request)` | Experimental | Updated to accept Request envelope |
 | `RuntimeConfig::max_request_body_bytes` | Experimental | Hard body size ceiling |

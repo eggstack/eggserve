@@ -13,7 +13,6 @@ use eggserve_core::primitives::request_target::RequestTarget;
 use eggserve_core::primitives::version::HttpVersion;
 use futures_util::StreamExt;
 use std::net::SocketAddr;
-use std::time::Duration;
 
 fn test_connection() -> ConnectionInfo {
     ConnectionInfo {
@@ -327,19 +326,8 @@ fn incomplete_default_is_close() {
 }
 
 #[test]
-fn incomplete_drain_helpers() {
-    let p = IncompleteBodyPolicy::Drain {
-        max_bytes: 1024,
-        timeout: Duration::from_secs(5),
-    };
-    assert!(p.is_drain());
-    assert!(!p.is_close());
-}
-
-#[test]
 fn incomplete_close_helpers() {
     let p = IncompleteBodyPolicy::Close;
-    assert!(!p.is_drain());
     assert!(p.is_close());
 }
 

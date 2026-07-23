@@ -168,7 +168,7 @@ The `server::connection` module implements the body ingestion pipeline:
 - Buffers or streams request bodies through public `RequestBody` primitives
 - Enforces body read timeout
 - Maps body errors to deterministic HTTP responses
-- Handles incomplete body drain/close after service completion
+- Handles incomplete body close after service completion
 
 ### `ServerHandle`
 
