@@ -50,6 +50,7 @@ cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
 bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
 python3 scripts/check-contract-consistency.py              # contract consistency validation
+python3 -m unittest scripts.test_corrective_tooling -v     # corrective baseline/finding tests
 ```
 
 ## Key conventions
@@ -104,6 +105,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **Release criteria** — `release/criteria.toml` is the single source of truth for release gates.
+- **Corrective baseline** — `release/corrective-baseline.toml` records the pinned SHA/toolchain. `release/corrective-findings.toml` has 17 findings (all closed). Gate IDs in findings must match `release/criteria.toml`. Run `python3 -m unittest scripts.test_corrective_tooling -v` to validate.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **Production profiles** — `release/support-profiles.toml` defines 7 production profiles. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes.

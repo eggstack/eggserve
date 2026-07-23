@@ -13,6 +13,10 @@ eggserve uses an evidence-driven release process where every gate is defined in 
 | CI evidence collection | `scripts/ci-gate-evidence.sh` | Collects evidence artifacts from CI runs |
 | Release checklist | `docs/release-checklist.md` | Generated canonical checklist (do not edit by hand) |
 | Cargo package gates | `scripts/verify-cargo-packages.sh` | Package and publish dry-run validation |
+| Corrective baseline | `release/corrective-baseline.toml` | Pinned SHA, toolchain, platform matrix, release sequence |
+| Finding registry | `release/corrective-findings.toml` | 17 findings with stable IDs, severity, gate mappings, reproduction strategies |
+| Corrective status | `release/corrective-status.md` | Dashboard for handoff agents and reviewers |
+| Corrective tooling tests | `scripts/test_corrective_tooling.py` | Validates finding registry schema, gate mapping consistency, blocking behavior |
 
 ## Gate Structure (`release/criteria.toml`)
 
@@ -34,7 +38,7 @@ Each gate is a `[[gate]]` block with these fields:
 | `security_relevance` | Marks security-critical gates |
 | `release_stage` | preflight, qualification, artifact, approval |
 
-## Gate Categories (66 gates)
+## Gate Categories (134 gates)
 
 ### Rust Correctness (7)
 `rust.format`, `rust.clippy`, `rust.test`, `rust.doctest`, `rust.client-feature`, `rust.client-tls`, `rust.server-tls`

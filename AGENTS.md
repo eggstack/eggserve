@@ -136,6 +136,7 @@ cargo deny check                                           # license/policy chec
 # Note: ops module tests run as part of cargo test --workspace
 bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
 python3 scripts/check-contract-consistency.py              # contract consistency validation
+python3 -m unittest scripts.test_corrective_tooling -v     # corrective baseline/finding tests
 # Canonical HTTP type conformance:
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_canonical_conformance -v
@@ -294,7 +295,7 @@ bash run_all.sh ../dist/*.whl python3.14
 - Plan 060 defines production support profiles (7 profiles with machine-readable definitions in `release/support-profiles.toml`), aligns all documentation with the production scope firewall, adds contract consistency tests for profile validation and non-goal retention, reinforces API stability tier classifications, and expands the threat model with a central invariant and profile-specific security notes.
 - Plan 061 establishes pinned root identity and opened-resource ownership. `PinnedRoot` is opened once at server startup and retained for the server lifetime. `RootGuard` borrows from the pinned root for request-scoped traversal. Renaming or replacing the configured pathname does not redirect a running server.
 - Plan 062 proves Windows handle-relative filesystem feasibility. ADR-002 documents API choice (CreateFileW + FILE_FLAG_OPEN_REPARSE_POINT). Prototype covers root-relative opens, reparse suppression, file identity, streaming, directory enumeration, and race probes. Go/no-go: GO. Production implementation planned for Plans 063-065.
-- Plan 075 establishes the corrective baseline and evidence tracking: pinned baseline SHA/toolchain, finding registry (17 findings with stable IDs, severity, owning plan, reproduction strategy), evidence storage convention, corrective-program marker in support profiles, and release-tooling tests. See `release/corrective-baseline.toml`, `release/corrective-findings.toml`, `release/corrective-status.md`.
+- Plan 075 establishes the corrective baseline and evidence tracking: pinned baseline SHA/toolchain, finding registry (17 findings with stable IDs, severity, owning plan, reproduction strategy), evidence storage convention, corrective-program marker in support profiles, and release-tooling tests. Gate ID references in the finding registry are validated against `release/criteria.toml` for consistency. See `release/corrective-baseline.toml`, `release/corrective-findings.toml`, `release/corrective-status.md`.
 - Plan 076 addresses Windows Unicode and handle-ownership correctness (deferred to Release D / Plans 084-086).
 - Plan 077 corrects runtime timeout semantics: `response_write_timeout` renamed to `connection_total_timeout` to match actual behavior (total connection lifetime), `Vec<JoinHandle>` replaced with `JoinSet` for proper task tracking and abort+join on forced shutdown, `build_connection_info` accepts real socket addresses, and duplicate accept loops merged.
 - Plan 078 corrects custom-service ownership: `build_with_service` documents service is not retained (use `start_with_service`), real peer/local addresses threaded through connection pipeline.

@@ -85,7 +85,7 @@ status = "implemented"
 [releases.C]
 title = "HTTP semantic correction"
 plans = [81, 82, 83]
-status = "implemented"  # 081-082 code done, 083 verification pending
+status = "implemented"  # 081-083 verified, no critical defects
 
 [releases.D]
 title = "Windows hardened-profile completion"

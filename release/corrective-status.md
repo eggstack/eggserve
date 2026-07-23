@@ -19,7 +19,7 @@
 |---------|-------|-------|--------|
 | **A** | Critical safety and lifecycle correction | 075, 076, 077 | ✅ Implemented |
 | **B** | Embedded runtime contract correction | 078, 079, 080 | ✅ Implemented |
-| **C** | HTTP semantic correction | 081, 082, 083 | ⚠️ 081-082 implemented, 083 verification pending |
+| **C** | HTTP semantic correction | 081, 082, 083 | ✅ Implemented |
 | **D** | Windows hardened-profile completion | 084, 085, 086 | ✅ Implemented |
 | **E** | Operational, performance, internet, and release closure | 087, 088, 089 | ✅ Implemented |
 
@@ -45,7 +45,7 @@
 | 080 | Configuration authority and frontend parity | ✅ Closed | commit e3782ab |
 | 081 | Unified static-file and directory-index response path | ✅ Closed | commit e3782ab |
 | 082 | HEAD, error-response, and validator correctness | ✅ Closed | commit e3782ab |
-| 083 | HTTP conformance and raw-wire corrective closure | ⏳ Verification pending | Plan 083 tracks A-M |
+| 083 | HTTP conformance and raw-wire corrective closure | ✅ Closed | Independent review, no critical defects |
 
 ## Blocking Findings
 
@@ -53,7 +53,7 @@ None. All 17 findings are closed.
 
 ## Next Unblocked Plan
 
-**Plan 083** — HTTP conformance and raw-wire corrective closure (verification gate).
+None. All corrective plans (075–089) are closed. The corrective program is complete.
 
 ## Known Environmental Requirements
 

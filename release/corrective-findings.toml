@@ -56,7 +56,7 @@ deterministic = true
 
 [finding.gates_invalidated]
 required = ["windows.unicode-child-production-path"]
-optional = ["windows.handle-ownership", "windows.adversarial-filesystem"]
+optional = ["windows.handle-ownership", "windows.reparse-matrix", "windows.namespace-matrix"]
 
 [finding.regression_test]
 test_name = "windows_unicode_bmp_non_ascii"
@@ -132,7 +132,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.lifecycle-shutdown", "conformance.production-path"]
+required = ["runtime.graceful-shutdown", "runtime.forced-shutdown", "http.production-path"]
 
 [finding.regression_test]
 test_name = "lifecycle_integration"
@@ -170,7 +170,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.lifecycle-shutdown", "runtime.soak-stability"]
+required = ["runtime.graceful-shutdown", "runtime.forced-shutdown", "soak.unix-reverse-proxy"]
 
 [finding.regression_test]
 test_name = "lifecycle_integration"
@@ -208,7 +208,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.server-embedding"]
+required = ["runtime.public-rust-consumer", "runtime.service-dispatch"]
 
 [finding.regression_test]
 test_name = "server_integration"
@@ -246,7 +246,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.server-embedding"]
+required = ["runtime.public-rust-consumer", "runtime.service-dispatch"]
 
 [finding.regression_test]
 test_name = "server_integration"
@@ -284,7 +284,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.request-body-rejection", "conformance.raw-wire"]
+required = ["body.static-rejection", "body.wire-tests", "conformance.raw-wire-normalization"]
 
 [finding.regression_test]
 test_name = "request_body_wire"
@@ -322,7 +322,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.request-body-rejection"]
+required = ["body.static-rejection"]
 
 [finding.regression_test]
 test_name = "request_body_integration"
@@ -360,7 +360,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.configuration-parity"]
+required = ["rust.test"]
 
 [finding.regression_test]
 test_name = "workspace-tests"
@@ -399,7 +399,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["runtime.configuration-parity"]
+required = ["rust.test"]
 
 [finding.regression_test]
 test_name = "workspace-tests"
@@ -438,7 +438,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["conformance.raw-wire", "conformance.canonical-http-corpus-rust"]
+required = ["conformance.raw-wire-normalization", "conformance.canonical-http-corpus-rust"]
 
 [finding.regression_test]
 test_name = "http_wire_correctness"
@@ -477,7 +477,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["conformance.canonical-http-corpus-rust", "conformance.production-path"]
+required = ["conformance.canonical-http-corpus-rust", "http.production-path"]
 
 [finding.regression_test]
 test_name = "canonical_conformance"
@@ -555,7 +555,7 @@ platform = "windows"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["windows.handle-ownership", "windows.handle-relative-enumeration", "windows.adversarial-filesystem"]
+required = ["windows.handle-ownership", "windows.directory-enumeration-handle-relative", "windows.reparse-matrix", "windows.namespace-matrix", "windows.race-root-escape"]
 
 [finding.regression_test]
 test_name = "windows_plan084"
@@ -593,7 +593,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["ops.structured-logging"]
+required = ["ops.json-log-validity", "ops.text-log-sanitization", "ops.library-silence"]
 
 [finding.regression_test]
 test_name = "workspace-tests"
@@ -632,7 +632,7 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["performance.buffer-qualification", "runtime.listener-error-classification"]
+required = ["perf.buffer-isolation", "perf.client-disconnect-release", "ops.listener-backoff"]
 
 [finding.regression_test]
 test_name = "workspace-tests"
