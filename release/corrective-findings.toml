@@ -192,7 +192,7 @@ release = "B"
 status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "078"
-regression_evidence = "build_with_service documents limitation, start_with_service recommended"
+regression_evidence = "build_with_service removed; custom services must use start_with_service()"
 
 [finding.description]
 text = "build_with_service accepts a service value that is not retained by the built server. Users expect the service to handle requests but it is silently discarded."
@@ -201,7 +201,7 @@ text = "build_with_service accepts a service value that is not retained by the b
 strategy = "integration-test"
 location = "crates/eggserve-core/tests/server_integration.rs"
 cases = [
-    "build_with_service documentation warns of service discard",
+    "build_with_service no longer exists; compile error on removal",
     "start_with_service retains service for request handling",
 ]
 platform = "all"

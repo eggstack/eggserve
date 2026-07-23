@@ -96,15 +96,14 @@ use crate::server::lifecycle::Lifecycle;
 ///     .runtime(RuntimeConfig::builder()
 ///         .bind("127.0.0.1:8000".parse().unwrap())
 ///         .build()?)
-///     .service(service_fn(|_req: Request| async {
-///         Ok(Response::builder()
-///             .status(StatusCode::OK)
-///             .body(ResponseBody::Bytes(b"hello".to_vec()))
-///             .unwrap())
-///     }))
 ///     .build()?;
 ///
-/// let handle = server.start().await?;
+/// let handle = server.start_with_service(service_fn(|_req: Request| async {
+///     Ok(Response::builder()
+///         .status(StatusCode::OK)
+///         .body(ResponseBody::Bytes(b"hello".to_vec()))
+///         .unwrap())
+/// })).await?;
 /// handle.ready().await?;
 /// println!("listening on {}", handle.local_addr());
 ///
@@ -207,32 +206,6 @@ impl ServerBuilder {
     pub fn from_listener(mut self, listener: TcpListener) -> Self {
         self.listener_source = Some(ListenerSource::Listener(listener));
         self
-    }
-
-    /// Build the server with a custom service.
-    ///
-    /// **Note**: The service is not stored in the built `Server`. Use
-    /// [`start_with_service`] instead to start with a custom service.
-    /// This method exists for backward compatibility.
-    pub fn build_with_service<S: service::Service>(
-        self,
-        _service: S,
-    ) -> Result<Server, ServerError> {
-        let config = self
-            .runtime_config
-            .ok_or_else(|| ServerError::Config("runtime configuration required".into()))?;
-        let serve_config = self.serve_config.unwrap_or_else(|| {
-            Arc::new(ServeConfig {
-                bind: config.bind,
-                ..ServeConfig::default()
-            })
-        });
-        Ok(Server {
-            config,
-            serve_config,
-            lifecycle: Arc::new(Lifecycle::new()),
-            listener_source: self.listener_source,
-        })
     }
 
     /// Build the server with the built-in static file service.

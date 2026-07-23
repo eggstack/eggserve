@@ -48,6 +48,10 @@ eggserve --directory public
 
 This is the recommended pattern for production deployments. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement.
 
+### Connection metadata behind a reverse proxy
+
+When eggserve runs behind a reverse proxy, connection metadata (`remote_addr`, `local_addr`, `scheme`, `tls`) reflects the **transport peer** — the proxy's address, not the end client's. eggserve does not automatically trust `Forwarded` or `X-Forwarded-*` headers. If you need end-client identity, implement proxy-header validation in your service layer with an explicit allowlist.
+
 ### Production profile: unix-reverse-proxy
 
 The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. This profile is hardened once all required CI gates pass. Plan 089 qualification covers proxy interop (Caddy, nginx), desync corpus, stateful fuzz replay, filesystem race probing, fault injection, 24-hour soak, installed artifact validation, SBOM/provenance, and independent review. See `release/support-profiles.toml` for the full specification.
@@ -98,6 +102,7 @@ A common setup for small deployments:
 - Never expose eggserve directly to the public internet without proper TLS and access control.
 - Every production deployment must name a profile from `release/support-profiles.toml`. No document should claim production support without naming the profile.
 - **Directory listing is opt-in and disabled by default.** When enabled with `--directory-listing`, it exposes file names and directory structure. Listing responses are bounded (max 4096 entries, 1 MiB body, 255-byte filenames, 30s timeout). Symlink entries are hidden from listings by default. Do not enable directory listing for untrusted content without understanding the information disclosure implications.
+- **Connection metadata is transport-peer metadata.** `remote_addr` on the `Request` object reflects the TCP peer address (proxy address when behind a reverse proxy). Do not use it for end-client identification without proxy-header validation.
 
 ## Structured Logging
 

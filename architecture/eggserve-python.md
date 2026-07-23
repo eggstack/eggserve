@@ -67,7 +67,7 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 
 | Python Class | Wraps | Key Methods |
 |---|---|---|
-| `Request` | parsed HTTP request | `method`, `path`, `query`, `headers`, `remote_addr`, `http_version`, `has_body` |
+| `Request` | parsed HTTP request | `method`, `path`, `query`, `headers`, `remote_addr`, `local_addr`, `scheme`, `http_version`, `has_body` |
 | `Response` | response builder | `empty(status)`, `bytes(status, data, headers=None)`, `text(status, text, headers=None)`, `body_source(status, source, headers=None)` |
 | `StaticResponder` | `SecureRoot` + `resolve_and_plan` | `respond(method, target, headers=None)` → `Response` |
 | `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(directory_listing, follow_symlinks, allow_dotfiles)`, getters |
@@ -93,7 +93,7 @@ The tokio runtime is stored in the `PyServer` struct (not created as a temporary
 
 ### Callback model (Plan 053, verified Plan 055)
 
-- When a handler callback is provided, `start()` uses `start_with_service()` (not `build_with_service()`) to wire the callback into the Rust server.
+- When a handler callback is provided, `start()` uses `start_with_service()` to wire the callback into the Rust server.
 - Handler timeout (`handler_timeout_secs`, default 30s): best-effort in Python; enforced at transport level by Rust server.
 - Coroutine rejection: handlers returning coroutine objects are rejected with a 500 response.
 - GIL released during network/file I/O via `py.allow_threads`.

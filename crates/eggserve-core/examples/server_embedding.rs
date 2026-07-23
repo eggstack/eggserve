@@ -14,7 +14,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .bind("127.0.0.1:3000".parse().unwrap())
                 .build()?,
         )
-        .build_with_service(service_fn(|req: Request| async move {
+        .build()?;
+
+    let handle = server
+        .start_with_service(service_fn(|req: Request| async move {
             let head = req.head();
             let body = format!(
                 "Hello from custom service!\nRequest: {} {}",
@@ -25,9 +28,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .status(StatusCode::OK)
                 .body(ResponseBody::Bytes(body.into_bytes()))
                 .unwrap())
-        }))?;
+        }))
+        .await?;
 
-    let handle = server.start().await?;
     println!("Listening on {}", handle.local_addr());
     handle.wait().await?;
     Ok(())

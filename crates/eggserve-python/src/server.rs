@@ -416,6 +416,10 @@ pub struct PyRequest {
     #[pyo3(get)]
     remote_addr: Option<String>,
     #[pyo3(get)]
+    local_addr: Option<String>,
+    #[pyo3(get)]
+    scheme: Option<String>,
+    #[pyo3(get)]
     http_version: String,
     #[pyo3(get)]
     body: Option<PyRequestBody>,
@@ -913,7 +917,10 @@ impl PythonCallbackService {
         head: RequestHead,
         body: RequestBody,
         body_policy: RequestBodyPolicy,
+        connection: eggserve_core::primitives::connection_info::ConnectionInfo,
     ) -> PyRequest {
+        use eggserve_core::primitives::connection_info::Scheme;
+
         let method_str = head.method().as_str().to_string();
         let target = head.target().path().to_string();
         let query = head.target().query().unwrap_or("").to_string();
@@ -923,6 +930,13 @@ impl PythonCallbackService {
             .map(|f| (f.name.to_string(), f.value.to_string()))
             .collect();
         let http_version = head.version().to_string();
+
+        let remote_addr = Some(connection.remote_addr.to_string());
+        let local_addr = Some(connection.local_addr.to_string());
+        let scheme = Some(match connection.scheme {
+            Scheme::Http => "http".to_string(),
+            Scheme::Https => "https".to_string(),
+        });
 
         let (py_body, has_body) = if body_policy.is_reject() {
             (None, false)
@@ -955,7 +969,9 @@ impl PythonCallbackService {
             path: target,
             query,
             headers,
-            remote_addr: None,
+            remote_addr,
+            local_addr,
+            scheme,
             http_version,
             body: if has_body { py_body } else { None },
         }
@@ -1059,8 +1075,8 @@ impl Service for PythonCallbackService {
                 .await
                 .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
 
-            let (head, body) = request.into_head_and_body();
-            let py_request = Self::build_py_request(head, body, body_policy);
+            let (head, body, connection) = request.into_parts();
+            let py_request = Self::build_py_request(head, body, body_policy, connection);
 
             tokio::task::spawn_blocking(move || Self::call_python_callback(&handler, py_request))
                 .await
