@@ -116,6 +116,42 @@ Backoff for transient listener errors now resets on successful accepts. Previous
 
 Fatal accept errors (unknown `io::ErrorKind` variants) now terminate the accept loop immediately. Previously, the loop retried these errors with backoff, which was incorrect for truly fatal conditions.
 
+## Plan 077: Runtime Timeout Semantics and Structured Shutdown
+
+### response_write_timeout → connection_total_timeout
+
+The `response_write_timeout` field has been renamed to `connection_total_timeout` to accurately reflect its behavior. The field wraps the entire Hyper connection future (total connection lifetime), not individual response writes.
+
+| Before | After | Change |
+|--------|-------|--------|
+| `Limits::response_write_timeout` | `Limits::connection_total_timeout` | Renamed; same default (60s) |
+| `RuntimeConfig::response_write_timeout` | `RuntimeConfig::connection_total_timeout` | Renamed; same default (60s) |
+| `RuntimeConfigBuilder::response_write_timeout()` | `RuntimeConfigBuilder::connection_total_timeout()` | Renamed; same default (60s) |
+| `--response-write-timeout` (CLI) | `--connection-total-timeout` (CLI) | Renamed; same default (60s) |
+| `response_write_timeout_secs` (Python) | `connection_total_timeout_secs` (Python) | Renamed; same default (30s) |
+
+**Migration**: Replace all references to `response_write_timeout` with `connection_total_timeout`. The behavior is unchanged — it remains a total connection lifetime limit. If you were relying on this timeout to close stalled writes, note that it still functions as a hard deadline for the entire connection. A progress-aware write timeout (inactivity-based) is not yet implemented.
+
+### Zero-duration timeout validation
+
+`RuntimeConfigBuilder::build()` now rejects zero-duration values for all timeout fields. Previously, zero durations were silently accepted and could cause immediate request failures.
+
+| Field | Minimum | Default | Error on zero |
+|-------|---------|---------|---------------|
+| `header_read_timeout` | > 0 | 10s | Yes |
+| `connection_total_timeout` | > 0 | 60s | Yes |
+| `handler_timeout` | > 0 | 30s | Yes |
+| `body_read_timeout` | > 0 | 30s | Yes |
+| `graceful_shutdown_timeout` | > 0 | 10s | Yes |
+
+**Migration**: If you were setting any timeout to `Duration::ZERO`, choose a small positive value instead (e.g., `Duration::from_millis(1)`).
+
+### Shutdown observability
+
+The `ShutdownComplete` operational event now includes the abort count (`aborted=N`) when tasks are forcibly terminated. The `ForcedShutdownStarted` event is now emitted before `tasks.abort_all()` when the grace deadline expires.
+
+**Migration**: If you are parsing operational log output, update parsers to handle the new `(aborted=N)` suffix in `ShutdownComplete` messages and the new `ForcedShutdownStarted` event type.
+
 ## Breaking Change Policy
 
 Pre-1.0, minor releases may break stable APIs only with explicit release notes

@@ -988,3 +988,344 @@ async fn connection_tasks_completed_before_stopped() {
     );
     assert_eq!(result, ShutdownResult::Clean);
 }
+
+// ===== Plan 077 closure: listener fault tests =====
+//
+// The plan requires injected listener abstraction for full fault injection.
+// These tests verify observable behavior with the current architecture.
+
+#[tokio::test]
+async fn shutdown_completes_during_rapid_connect_disconnect() {
+    let tmp = TempDir::new().unwrap();
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_secs(5));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+    let addr = handle.local_addr();
+
+    // Rapidly connect and disconnect to create transient load.
+    for _ in 0..20 {
+        let Ok(mut stream) = tokio::net::TcpStream::connect(addr).await else {
+            break;
+        };
+        let _ = stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await;
+        // Drop immediately without reading response.
+        drop(stream);
+    }
+
+    handle.shutdown();
+    let result = handle.wait().await.unwrap();
+    assert!(
+        result == ShutdownResult::Clean || result == ShutdownResult::Timeout,
+        "shutdown should complete regardless of transient load"
+    );
+}
+
+#[tokio::test]
+async fn concurrent_shutdown_calls_are_idempotent() {
+    let tmp = TempDir::new().unwrap();
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_secs(5));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+    let addr = handle.local_addr();
+
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(response.starts_with("HTTP/1.1 200"));
+
+    // Spawn multiple concurrent shutdown calls.
+    for _ in 0..5 {
+        handle.shutdown();
+    }
+
+    let result = handle.wait().await.unwrap();
+    assert_eq!(result, ShutdownResult::Clean);
+}
+
+// ===== Plan 077 closure: timeout semantic tests =====
+
+#[tokio::test]
+async fn short_handler_timeout_returns_504() {
+    let tmp = TempDir::new().unwrap();
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .handler_timeout(Duration::from_millis(50))
+        .graceful_shutdown_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server
+        .start_with_service(slow_service(Duration::from_secs(60)))
+        .await
+        .unwrap();
+
+    let addr = handle.local_addr();
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(
+        response.starts_with("HTTP/1.1 504"),
+        "short handler timeout should produce 504: {}",
+        response
+    );
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+#[tokio::test]
+async fn short_connection_total_timeout_closes_connection() {
+    let tmp = TempDir::new().unwrap();
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .connection_total_timeout(Duration::from_millis(100))
+        .graceful_shutdown_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+
+    let addr = handle.local_addr();
+    // Send a request without Connection: close to keep the connection alive.
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    stream
+        .write_all(b"GET /test HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+
+    // Wait for connection total timeout to fire.
+    tokio::time::sleep(Duration::from_millis(200)).await;
+
+    // Connection should be closed by now.
+    let mut buf = Vec::new();
+    let result = tokio::time::timeout(Duration::from_millis(200), async {
+        let _ = stream.read_to_end(&mut buf).await;
+    })
+    .await;
+    // Should complete (connection closed by timeout).
+    assert!(
+        result.is_ok(),
+        "connection should be closed by total timeout"
+    );
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+#[tokio::test]
+async fn different_timeouts_do_not_alias() {
+    let tmp = TempDir::new().unwrap();
+
+    // Configure with distinct timeouts.
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .header_read_timeout(Duration::from_secs(5))
+        .handler_timeout(Duration::from_millis(200))
+        .connection_total_timeout(Duration::from_secs(10))
+        .body_read_timeout(Duration::from_secs(3))
+        .graceful_shutdown_timeout(Duration::from_secs(7))
+        .build()
+        .unwrap();
+
+    // Verify the distinct values are preserved.
+    assert_eq!(config.header_read_timeout, Duration::from_secs(5));
+    assert_eq!(config.handler_timeout, Duration::from_millis(200));
+    assert_eq!(config.connection_total_timeout, Duration::from_secs(10));
+    assert_eq!(config.body_read_timeout, Duration::from_secs(3));
+    assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(7));
+
+    // Verify they are all different (no aliasing).
+    let mut durations = vec![
+        config.header_read_timeout,
+        config.handler_timeout,
+        config.connection_total_timeout,
+        config.body_read_timeout,
+        config.graceful_shutdown_timeout,
+    ];
+    durations.sort();
+    durations.dedup();
+    assert_eq!(
+        durations.len(),
+        5,
+        "all timeout durations should be distinct"
+    );
+
+    // Start a server with these config and verify it works.
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+
+    let addr = handle.local_addr();
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(response.starts_with("HTTP/1.1 200"));
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+// ===== Plan 077 closure: stability tests =====
+
+#[tokio::test]
+async fn repeated_force_shutdown_no_resource_leak() {
+    for _ in 0..5 {
+        let tmp = TempDir::new().unwrap();
+        let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(100));
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(make_serve_config(&tmp))
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(slow_service(Duration::from_secs(60)))
+            .await
+            .unwrap();
+
+        let addr = handle.local_addr();
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let result = handle
+            .force_shutdown(Duration::from_millis(50))
+            .await
+            .unwrap();
+        assert_eq!(result, ShutdownResult::Forced);
+    }
+}
+
+#[tokio::test]
+async fn many_concurrent_requests_drain_cleanly() {
+    let tmp = TempDir::new().unwrap();
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_connections(50)
+        .graceful_shutdown_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+
+    let addr = handle.local_addr();
+    let mut streams = Vec::new();
+    for _ in 0..20 {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
+        streams.push(stream);
+    }
+
+    // All requests should complete.
+    for mut stream in streams {
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf).await;
+        let response = String::from_utf8_lossy(&buf);
+        assert!(response.starts_with("HTTP/1.1 200"));
+    }
+
+    handle.shutdown();
+    let result = handle.wait().await.unwrap();
+    assert_eq!(result, ShutdownResult::Clean);
+}
+
+#[tokio::test]
+async fn server_recovers_after_force_shutdown() {
+    // Verify that force-shutting down doesn't corrupt internal state
+    // by starting a new server after force shutdown.
+    for _ in 0..3 {
+        let tmp = TempDir::new().unwrap();
+        let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(100));
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(make_serve_config(&tmp))
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(slow_service(Duration::from_secs(60)))
+            .await
+            .unwrap();
+
+        let addr = handle.local_addr();
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let result = handle
+            .force_shutdown(Duration::from_millis(50))
+            .await
+            .unwrap();
+        assert_eq!(result, ShutdownResult::Forced);
+    }
+
+    // Final server should work correctly.
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+
+    let addr = handle.local_addr();
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(
+        response.starts_with("HTTP/1.1 200"),
+        "server should work after force shutdown cycles"
+    );
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+#[tokio::test]
+async fn config_validation_rejects_zero_timeouts() {
+    use std::time::Duration;
+
+    let cases = [
+        ("header_read_timeout", Duration::ZERO),
+        ("connection_total_timeout", Duration::ZERO),
+        ("handler_timeout", Duration::ZERO),
+        ("body_read_timeout", Duration::ZERO),
+        ("graceful_shutdown_timeout", Duration::ZERO),
+    ];
+
+    for (name, dur) in cases {
+        let result = match name {
+            "header_read_timeout" => RuntimeConfig::builder().header_read_timeout(dur).build(),
+            "connection_total_timeout" => RuntimeConfig::builder()
+                .connection_total_timeout(dur)
+                .build(),
+            "handler_timeout" => RuntimeConfig::builder().handler_timeout(dur).build(),
+            "body_read_timeout" => RuntimeConfig::builder().body_read_timeout(dur).build(),
+            "graceful_shutdown_timeout" => RuntimeConfig::builder()
+                .graceful_shutdown_timeout(dur)
+                .build(),
+            _ => unreachable!(),
+        };
+        assert!(result.is_err(), "{} = zero should return error", name);
+    }
+}

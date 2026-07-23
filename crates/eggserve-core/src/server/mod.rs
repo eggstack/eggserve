@@ -574,9 +574,17 @@ async fn accept_loop(
         }
     }
 
+    let mut abort_count = 0usize;
+
     if timed_out {
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Warn,
+            crate::ops::EventKind::ForcedShutdownStarted,
+            "grace deadline exceeded, aborting remaining tasks",
+        ));
         tasks.abort_all();
         while let Some(result) = tasks.join_next().await {
+            abort_count += 1;
             if let Err(e) = result {
                 if e.is_panic() {
                     crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -606,7 +614,7 @@ async fn accept_loop(
     crate::ops::Logger::global().emit(crate::ops::Event::new(
         crate::ops::Severity::Info,
         crate::ops::EventKind::ShutdownComplete,
-        format!("shutdown complete: {:?}", result),
+        format!("shutdown complete: {:?} (aborted={})", result, abort_count),
     ));
 
     result
@@ -796,9 +804,17 @@ async fn accept_loop_with_service<S: Service>(
         }
     }
 
+    let mut abort_count = 0usize;
+
     if timed_out {
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Warn,
+            crate::ops::EventKind::ForcedShutdownStarted,
+            "grace deadline exceeded, aborting remaining tasks",
+        ));
         tasks.abort_all();
         while let Some(result) = tasks.join_next().await {
+            abort_count += 1;
             if let Err(e) = result {
                 if e.is_panic() {
                     crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -828,7 +844,7 @@ async fn accept_loop_with_service<S: Service>(
     crate::ops::Logger::global().emit(crate::ops::Event::new(
         crate::ops::Severity::Info,
         crate::ops::EventKind::ShutdownComplete,
-        format!("shutdown complete: {:?}", result),
+        format!("shutdown complete: {:?} (aborted={})", result, abort_count),
     ));
 
     result

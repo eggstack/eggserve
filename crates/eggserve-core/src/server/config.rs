@@ -267,7 +267,8 @@ impl RuntimeConfigBuilder {
 
     /// Build the runtime configuration.
     ///
-    /// Returns an error if `max_connections` or `max_file_streams` is 0.
+    /// Returns an error if `max_connections`, `max_file_streams`, or any
+    /// timeout duration is 0.
     pub fn build(self) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
         let max_connections = self.max_connections.unwrap_or(64);
         let max_file_streams = self.max_file_streams.unwrap_or(32);
@@ -281,21 +282,53 @@ impl RuntimeConfigBuilder {
                 "max_file_streams must be > 0".into(),
             ));
         }
+
+        let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
+        let connection_total_timeout = self
+            .connection_total_timeout
+            .unwrap_or(Duration::from_secs(60));
+        let handler_timeout = self.handler_timeout.unwrap_or(Duration::from_secs(30));
+        let body_read_timeout = self.body_read_timeout.unwrap_or(Duration::from_secs(30));
+        let graceful_shutdown_timeout = self
+            .graceful_shutdown_timeout
+            .unwrap_or(Duration::from_secs(10));
+
+        if header_read_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "header_read_timeout must be > 0".into(),
+            ));
+        }
+        if connection_total_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "connection_total_timeout must be > 0".into(),
+            ));
+        }
+        if handler_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "handler_timeout must be > 0".into(),
+            ));
+        }
+        if body_read_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "body_read_timeout must be > 0".into(),
+            ));
+        }
+        if graceful_shutdown_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "graceful_shutdown_timeout must be > 0".into(),
+            ));
+        }
         Ok(RuntimeConfig {
             bind: self
                 .bind
                 .unwrap_or_else(|| "127.0.0.1:8000".parse().unwrap()),
             max_connections,
             max_file_streams,
-            header_read_timeout: self.header_read_timeout.unwrap_or(Duration::from_secs(10)),
-            connection_total_timeout: self
-                .connection_total_timeout
-                .unwrap_or(Duration::from_secs(60)),
-            handler_timeout: self.handler_timeout.unwrap_or(Duration::from_secs(30)),
-            body_read_timeout: self.body_read_timeout.unwrap_or(Duration::from_secs(30)),
-            graceful_shutdown_timeout: self
-                .graceful_shutdown_timeout
-                .unwrap_or(Duration::from_secs(10)),
+            header_read_timeout,
+            connection_total_timeout,
+            handler_timeout,
+            body_read_timeout,
+            graceful_shutdown_timeout,
             keep_alive: self.keep_alive.unwrap_or(true),
             max_in_flight_requests: self.max_in_flight_requests,
             server_header: self.server_header,
@@ -442,5 +475,59 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(err.to_string().contains("max_file_streams must be > 0"));
+    }
+
+    #[test]
+    fn zero_header_read_timeout_returns_error() {
+        let result = RuntimeConfig::builder()
+            .header_read_timeout(Duration::ZERO)
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("header_read_timeout must be > 0"));
+    }
+
+    #[test]
+    fn zero_connection_total_timeout_returns_error() {
+        let result = RuntimeConfig::builder()
+            .connection_total_timeout(Duration::ZERO)
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("connection_total_timeout must be > 0"));
+    }
+
+    #[test]
+    fn zero_handler_timeout_returns_error() {
+        let result = RuntimeConfig::builder()
+            .handler_timeout(Duration::ZERO)
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("handler_timeout must be > 0"));
+    }
+
+    #[test]
+    fn zero_body_read_timeout_returns_error() {
+        let result = RuntimeConfig::builder()
+            .body_read_timeout(Duration::ZERO)
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("body_read_timeout must be > 0"));
+    }
+
+    #[test]
+    fn zero_graceful_shutdown_timeout_returns_error() {
+        let result = RuntimeConfig::builder()
+            .graceful_shutdown_timeout(Duration::ZERO)
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("graceful_shutdown_timeout must be > 0"));
     }
 }
