@@ -184,6 +184,36 @@
             "status": 200,
             "echo_body": "12345"
           }
+        },
+        {
+          "id": "fixed-one-under-limit",
+          "description": "Body one byte under the limit",
+          "input": {
+            "method": "POST",
+            "body": "1234",
+            "headers": { "Content-Length": "4" },
+            "policy": "buffer",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 200,
+            "echo_body": "1234"
+          }
+        },
+        {
+          "id": "fixed-one-over-limit",
+          "description": "Body one byte over the limit",
+          "input": {
+            "method": "POST",
+            "body": "123456",
+            "headers": { "Content-Length": "6" },
+            "policy": "buffer",
+            "max_body_bytes": 5
+          },
+          "expected": {
+            "status": 413,
+            "handler_called": false
+          }
         }
       ]
     },
@@ -481,6 +511,29 @@
             "status": 400,
             "handler_called": false,
             "connection_closed": true
+          }
+        }
+      ]
+    },
+    "expect_100_continue": {
+      "description": "Expect: 100-continue handling with body policy",
+      "fixtures": [
+        {
+          "id": "expect-100-continue-rejected-by-policy",
+          "description": "Expect: 100-continue with reject policy returns 413 without sending 100 Continue",
+          "input": {
+            "method": "POST",
+            "body": "hello",
+            "headers": {
+              "Content-Length": "5",
+              "Expect": "100-continue"
+            },
+            "policy": "reject",
+            "max_body_bytes": 1024
+          },
+          "expected": {
+            "status": 413,
+            "handler_called": false
           }
         }
       ]

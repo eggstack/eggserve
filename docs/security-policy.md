@@ -86,6 +86,14 @@ These framing checks are applied in `validate_body_framing()` in the connection 
 
 The in-process Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. It applies the same framing checks before invoking a handler or static responder. Its `Request.has_body` field reflects a positive `Content-Length` or non-empty `Transfer-Encoding` signal for methods that are allowed to carry bodies.
 
+### Pre-service body rejection
+
+When `RequestBodyPolicy::Reject` is active (the default for GET/HEAD), bodies are rejected before any service code is invoked. `Expect: 100-continue` is rejected early — the runtime never sends an invitation to send a body that will be refused. Handler side effects never occur for rejected requests.
+
+### Incomplete body handling
+
+When a handler returns without fully consuming the request body, the connection is closed. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value and is no longer accessible after service invocation. `IncompleteBodyPolicy::Close` is the only supported policy. Hyper cleans up unconsumed bytes by closing the connection. This prevents request smuggling through leftover body bytes on keep-alive connections.
+
 ## Implementation status and limitations
 
 On Unix (Linux, macOS) with safe defaults, eggserve resolves request paths relative to an opened root directory descriptor. Components are checked with `statat(..., AT_SYMLINK_NOFOLLOW)` and opened with `openat(..., O_NOFOLLOW)`. This prevents the service layer from reopening validated absolute paths and closes the primary final-object symlink-swap issue. Files are always opened during resolution — never re-opened later by absolute path.

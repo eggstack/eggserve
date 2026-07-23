@@ -193,6 +193,9 @@ pub async fn serve_connection_with_service<I, S>(
             if let Some(len) = declared_length {
                 if let Some(limit) = effective_policy.max_bytes() {
                     if len > limit {
+                        crate::ops::global_counters()
+                            .body_rejections
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         crate::ops::Logger::global().emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
@@ -217,6 +220,9 @@ pub async fn serve_connection_with_service<I, S>(
             if effective_policy.is_reject() {
                 if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
                     if expect == "100-continue" {
+                        crate::ops::global_counters()
+                            .body_rejections
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         crate::ops::Logger::global().emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
@@ -236,11 +242,22 @@ pub async fn serve_connection_with_service<I, S>(
             let has_body = declared_length.is_some_and(|len| len > 0)
                 || parts.headers.contains_key(hyper::header::TRANSFER_ENCODING);
             if effective_policy.is_reject() && has_body {
+                crate::ops::global_counters()
+                    .body_rejections
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 crate::ops::Logger::global().emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::BodyPolicyRejection,
                         "request body rejected by policy",
+                    )
+                    .connection_id(conn_id),
+                );
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ServiceInvocationSuppressed,
+                        "service invocation suppressed: body rejected by policy",
                     )
                     .connection_id(conn_id),
                 );
@@ -442,6 +459,14 @@ pub async fn serve_connection_with_service<I, S>(
                         // Active drain is not safely implementable because
                         // the body stream is consumed into the Request envelope
                         // by value and is no longer accessible from this pipeline.
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::IncompleteBodyClose,
+                                "service returned with unconsumed body; connection will close",
+                            )
+                            .connection_id(conn_id),
+                        );
                     }
 
                     Ok::<_, Infallible>(response)
@@ -576,9 +601,15 @@ fn validate_request_policy(
 
 /// Validate body framing for ALL methods.
 ///
-/// Rejects requests with both Transfer-Encoding and Content-Length present,
-/// and requests with duplicate Content-Length fields. This is a hardened
+/// Rejects requests with duplicate Content-Length fields and TE+CL
+/// conflicts where both headers are visible. This is a hardened
 /// framing policy applied before body construction.
+///
+/// Note: Hyper 1.x strips the Content-Length header when
+/// Transfer-Encoding is present. In that case, Hyper's own behavior
+/// prevents request smuggling — it processes the chunked body and
+/// ignores the removed Content-Length. The duplicate-CL check remains
+/// because Hyper does not strip duplicate CL fields.
 fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
     let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
     let cl_values: Vec<_> = headers

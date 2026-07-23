@@ -236,6 +236,8 @@ eggserve enforces hardened HTTP/1 framing before body ingestion:
 - **TE+CL conflict**: Requests containing both `Transfer-Encoding` and `Content-Length` are rejected with 400 before the service is invoked. This prevents HTTP request smuggling attacks where front-end and back-end servers disagree on message boundaries.
 - **Duplicate Content-Length**: Requests with more than one `Content-Length` field are rejected with 400, even when values are identical. This eliminates ambiguity about which length value to trust.
 - **Malformed Content-Length**: Non-numeric, negative, signed, overflowing, or non-decimal `Content-Length` values are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
+- **Pre-service body rejection**: When `RequestBodyPolicy::Reject` is active, the runtime rejects bodies before invoking any service code. `Expect: 100-continue` is rejected early — no invitation to send a body that will be refused. Handler side effects never occur for rejected requests.
+- **Incomplete body close**: When a handler returns without consuming the entire request body, the connection is closed. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value and is no longer accessible after service invocation. Hyper cleans up unconsumed bytes by closing the connection. This prevents request smuggling through leftover body bytes on keep-alive connections.
 
 Downstream adapters must apply the same framing checks before invoking their handlers. If an adapter bypasses the runtime's framing validation, it must implement equivalent checks to prevent smuggling attacks.
 

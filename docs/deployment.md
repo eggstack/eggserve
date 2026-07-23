@@ -52,6 +52,10 @@ This is the recommended pattern for production deployments. Reverse proxies hand
 
 When eggserve runs behind a reverse proxy, connection metadata (`remote_addr`, `local_addr`, `scheme`, `tls`) reflects the **transport peer** — the proxy's address, not the end client's. eggserve does not automatically trust `Forwarded` or `X-Forwarded-*` headers. If you need end-client identity, implement proxy-header validation in your service layer with an explicit allowlist.
 
+### Body handling behind a reverse proxy
+
+eggserve rejects request bodies by default (safe default). When a reverse proxy forwards requests with bodies (e.g., POST, PUT), the runtime enforces body policy before invoking any service code. If the proxy and eggserve disagree on framing (TE+CL conflicts, duplicate Content-Length), the request is rejected with 400 at the origin. When a handler returns without fully consuming the body, the connection is closed to prevent request smuggling through leftover bytes. Reverse proxies should be configured to forward `Content-Length` and `Transfer-Encoding` headers without modification to preserve framing integrity.
+
 ### Production profile: unix-reverse-proxy
 
 The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. This profile is hardened once all required CI gates pass. Plan 089 qualification covers proxy interop (Caddy, nginx), desync corpus, stateful fuzz replay, filesystem race probing, fault injection, 24-hour soak, installed artifact validation, SBOM/provenance, and independent review. See `release/support-profiles.toml` for the full specification.

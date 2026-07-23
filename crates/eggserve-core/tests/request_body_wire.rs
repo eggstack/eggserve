@@ -45,6 +45,28 @@ async fn start_server(config: RuntimeConfig) -> (ServerHandle, TempDir) {
     (handle, tmp)
 }
 
+async fn start_reject_server(config: RuntimeConfig) -> (ServerHandle, TempDir) {
+    let tmp = TempDir::new().unwrap();
+    let serve_config = Arc::new(ServeConfig {
+        root: tmp.path().to_path_buf(),
+        ..ServeConfig::default()
+    });
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(serve_config)
+        .build()
+        .unwrap();
+    let handle = server
+        .start_with_service(service_fn_with_policy(
+            |_req: Request| async move { unreachable!("reject server should not invoke handler") },
+            RequestBodyPolicy::Reject,
+        ))
+        .await
+        .unwrap();
+    handle.ready().await.unwrap();
+    (handle, tmp)
+}
+
 #[tokio::test]
 async fn fixed_length_body_wire() {
     let config = RuntimeConfig::builder()
@@ -1470,6 +1492,217 @@ async fn http11_body_limit_exceeded_returns_413() {
     assert!(
         response.starts_with("HTTP/1.1 413"),
         "expected 413 for HTTP/1.1 body limit exceeded: {}",
+        response
+    );
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn expect_100_continue_rejected_by_policy() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_request_body_bytes(1024)
+        .body_read_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let (handle, _tmp) = start_reject_server(config).await;
+    let addr = handle.local_addr();
+
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(
+        b"POST /test HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Length: 5\r\n\
+          Expect: 100-continue\r\n\
+          Connection: close\r\n\
+          \r\n",
+    )
+    .await
+    .unwrap();
+
+    let mut buf = Vec::new();
+    conn.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+    assert!(
+        response.starts_with("HTTP/1.1 413"),
+        "expected 413 for Expect: 100-continue with reject policy, got: {}",
+        response
+    );
+    assert!(
+        !response.contains("100"),
+        "should not contain 100 Continue: {}",
+        response
+    );
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn duplicate_content_length_rejected_wire() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_request_body_bytes(1024)
+        .body_read_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let (handle, _tmp) = start_server(config).await;
+    let addr = handle.local_addr();
+
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(
+        b"POST /test HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Length: 5\r\n\
+          Content-Length: 10\r\n\
+          Connection: close\r\n\
+          \r\n",
+    )
+    .await
+    .unwrap();
+
+    let mut buf = Vec::new();
+    conn.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+    assert!(
+        response.starts_with("HTTP/1.1 400"),
+        "expected 400 for duplicate Content-Length, got: {}",
+        response
+    );
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn rejected_positive_cl_with_bytes_sent() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_request_body_bytes(1024)
+        .body_read_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let (handle, _tmp) = start_reject_server(config).await;
+    let addr = handle.local_addr();
+
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    // Send headers claiming Content-Length: 5, then actually send 5 bytes.
+    // The server should reject based on policy before reading the body.
+    conn.write_all(
+        b"POST /test HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Length: 5\r\n\
+          Connection: close\r\n\
+          \r\n\
+          hello",
+    )
+    .await
+    .unwrap();
+
+    let mut buf = Vec::new();
+    conn.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+    assert!(
+        response.starts_with("HTTP/1.1 413"),
+        "expected 413 for rejected body with bytes sent, got: {}",
+        response
+    );
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn body_limit_minus_one_accepted() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_request_body_bytes(1024)
+        .body_read_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let (handle, _tmp) = start_server(config).await;
+    let addr = handle.local_addr();
+
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(
+        b"POST /test HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Length: 4\r\n\
+          Connection: close\r\n\
+          \r\n\
+          hell",
+    )
+    .await
+    .unwrap();
+
+    let mut buf = Vec::new();
+    conn.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+    assert!(
+        response.starts_with("HTTP/1.1 200"),
+        "expected 200 for body at limit-1 (4 bytes, limit 1024), got: {}",
+        response
+    );
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn body_limit_exact_accepted() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_request_body_bytes(5)
+        .body_read_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let (handle, _tmp) = start_server(config).await;
+    let addr = handle.local_addr();
+
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(
+        b"POST /test HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Length: 5\r\n\
+          Connection: close\r\n\
+          \r\n\
+          hello",
+    )
+    .await
+    .unwrap();
+
+    let mut buf = Vec::new();
+    conn.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+    assert!(
+        response.starts_with("HTTP/1.1 200"),
+        "expected 200 for body at exact limit (5 bytes, limit 5), got: {}",
+        response
+    );
+    handle.shutdown();
+}
+
+#[tokio::test]
+async fn body_limit_plus_one_rejected() {
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_request_body_bytes(5)
+        .body_read_timeout(Duration::from_secs(5))
+        .build()
+        .unwrap();
+    let (handle, _tmp) = start_server(config).await;
+    let addr = handle.local_addr();
+
+    let mut conn = tokio::net::TcpStream::connect(addr).await.unwrap();
+    conn.write_all(
+        b"POST /test HTTP/1.1\r\n\
+          Host: localhost\r\n\
+          Content-Length: 6\r\n\
+          Connection: close\r\n\
+          \r\n\
+          helloo",
+    )
+    .await
+    .unwrap();
+
+    let mut buf = Vec::new();
+    conn.read_to_end(&mut buf).await.unwrap();
+    let response = String::from_utf8_lossy(&buf);
+    assert!(
+        response.starts_with("HTTP/1.1 413"),
+        "expected 413 for body at limit+1 (6 bytes, limit 5), got: {}",
         response
     );
     handle.shutdown();
