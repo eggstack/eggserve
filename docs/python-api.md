@@ -288,18 +288,7 @@ with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
-Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, observer=None, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close")`
-
-**Default parity with Rust/CLI:** Python defaults intentionally differ from Rust `RuntimeConfig` defaults for Python-specific workloads:
-
-| Parameter | Python default | Rust/CLI default | Reason |
-|-----------|---------------|------------------|--------|
-| `max_connections` | 100 | 64 | Higher concurrency for callback-heavy workloads |
-| `max_file_streams` | 64 | 32 | Higher file-stream concurrency for mixed static/callback serving |
-| `connection_total_timeout_secs` | 30 | 60 | Lower connection timeout for more responsive Python callbacks |
-| `header_timeout_secs` | 10 | 10 | Same |
-| `handler_timeout_secs` | 30 | 30 | Same |
-| `graceful_shutdown_timeout_secs` | 10 | 10 | Same |
+Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, observer=None, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close")`
 
 Parameters:
 - `root` — server root directory path (string)
@@ -309,11 +298,11 @@ Parameters:
 - `handler` — optional Python callable `(Request) -> Response` for dynamic responses
 - `public` — must be `True` to bind to 0.0.0.0 or ::
 - `observer` — optional callback `fn(event: dict) -> None` for structured logging; receives event dictionaries with keys: `schema_version`, `severity`, `event`, `message`, `timestamp`, `connection_id`, `request_seq`, `fields`. Observer errors are caught and printed to stderr. Long-running observers may block event processing (GIL acquired).
-- `max_connections` — maximum concurrent connections (default: 100)
-- `max_file_streams` — maximum concurrent file streams (default: 64)
+- `max_connections` — maximum concurrent connections (default: 64)
+- `max_file_streams` — maximum concurrent file streams (default: 32)
 - `max_python_callbacks` — maximum concurrent handler callbacks (default: 8)
 - `header_timeout_secs` — header read timeout in seconds (default: 10)
-- `connection_total_timeout_secs` — total connection lifetime timeout in seconds (default: 30)
+- `connection_total_timeout_secs` — total connection lifetime timeout in seconds (default: 60)
 - `handler_timeout_secs` — handler callback timeout in seconds (default: 30); uses the actual Rust runtime's handler timeout mechanism, enforced at transport level by the Rust server
 - `graceful_shutdown_timeout_secs` — graceful shutdown drain deadline in seconds (default: 10)
 - `request_body_mode` — request body policy: `"reject"` (default), `"buffer"`, or `"stream"`

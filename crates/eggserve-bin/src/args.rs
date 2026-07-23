@@ -25,6 +25,8 @@ pub struct Args {
     max_file_streams: Option<usize>,
     header_read_timeout: Option<Duration>,
     connection_total_timeout: Option<Duration>,
+    handler_timeout: Option<Duration>,
+    body_read_timeout: Option<Duration>,
     #[cfg(feature = "tls")]
     pub tls_cert: Option<PathBuf>,
     #[cfg(feature = "tls")]
@@ -52,6 +54,8 @@ impl Args {
         let mut max_file_streams: Option<usize> = None;
         let mut header_read_timeout: Option<Duration> = None;
         let mut connection_total_timeout: Option<Duration> = None;
+        let mut handler_timeout: Option<Duration> = None;
+        let mut body_read_timeout: Option<Duration> = None;
         #[cfg(feature = "tls")]
         let mut tls_cert: Option<PathBuf> = None;
         #[cfg(feature = "tls")]
@@ -173,6 +177,26 @@ impl Args {
                     })?;
                     connection_total_timeout = Some(Duration::from_secs(secs));
                 }
+                "--handler-timeout" => {
+                    i += 1;
+                    let val = args
+                        .get(i)
+                        .ok_or("--handler-timeout requires an argument")?;
+                    let secs: u64 = val
+                        .parse()
+                        .map_err(|e| format!("invalid handler-timeout '{}': {}", val, e))?;
+                    handler_timeout = Some(Duration::from_secs(secs));
+                }
+                "--body-read-timeout" => {
+                    i += 1;
+                    let val = args
+                        .get(i)
+                        .ok_or("--body-read-timeout requires an argument")?;
+                    let secs: u64 = val
+                        .parse()
+                        .map_err(|e| format!("invalid body-read-timeout '{}': {}", val, e))?;
+                    body_read_timeout = Some(Duration::from_secs(secs));
+                }
                 #[cfg(feature = "tls")]
                 "--tls-cert" => {
                     i += 1;
@@ -249,6 +273,8 @@ impl Args {
             max_file_streams,
             header_read_timeout,
             connection_total_timeout,
+            handler_timeout,
+            body_read_timeout,
             #[cfg(feature = "tls")]
             tls_cert,
             #[cfg(feature = "tls")]
@@ -278,6 +304,12 @@ impl Args {
         if let Some(v) = self.connection_total_timeout {
             limits.connection_total_timeout = v;
         }
+        if let Some(v) = self.handler_timeout {
+            limits.handler_timeout = v;
+        }
+        if let Some(v) = self.body_read_timeout {
+            limits.body_read_timeout = v;
+        }
         limits
     }
 }
@@ -304,6 +336,8 @@ pub fn print_usage() {
     eprintln!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
     eprintln!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
     eprintln!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
+    eprintln!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
+    eprintln!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
     #[cfg(feature = "tls")]
     {
         eprintln!("  --tls-cert <PATH>          PEM certificate chain (requires --tls-key)");

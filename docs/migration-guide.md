@@ -128,7 +128,7 @@ The `response_write_timeout` field has been renamed to `connection_total_timeout
 | `RuntimeConfig::response_write_timeout` | `RuntimeConfig::connection_total_timeout` | Renamed; same default (60s) |
 | `RuntimeConfigBuilder::response_write_timeout()` | `RuntimeConfigBuilder::connection_total_timeout()` | Renamed; same default (60s) |
 | `--response-write-timeout` (CLI) | `--connection-total-timeout` (CLI) | Renamed; same default (60s) |
-| `response_write_timeout_secs` (Python) | `connection_total_timeout_secs` (Python) | Renamed; same default (30s) |
+| `response_write_timeout_secs` (Python) | `connection_total_timeout_secs` (Python) | Renamed; same default (60s) |
 
 **Migration**: Replace all references to `response_write_timeout` with `connection_total_timeout`. The behavior is unchanged — it remains a total connection lifetime limit. If you were relying on this timeout to close stalled writes, note that it still functions as a hard deadline for the entire connection. A progress-aware write timeout (inactivity-based) is not yet implemented.
 

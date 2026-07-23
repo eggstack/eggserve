@@ -122,7 +122,7 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_file_streams` | 32 | Concurrent file streams |
 | `header_read_timeout` | 10s | Time to read request headers |
 | `connection_total_timeout` | 60s | Timeout wrapping the entire Hyper connection future |
-| `handler_timeout` | None | Per-request handler timeout |
+| `handler_timeout` | 30s | Per-request handler timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
 | `keep_alive` | true | TCP keep-alive |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |

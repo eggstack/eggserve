@@ -598,13 +598,6 @@ def check_python_server_defaults(repo_root: Path) -> list[str]:
         errors.append("docs/python-api.md not found")
         return errors
 
-    # Check that the defaults table exists
-    if "Default parity with Rust/CLI" not in docs_text:
-        errors.append(
-            "docs/python-api.md: missing 'Default parity with Rust/CLI' section "
-            "documenting Python vs Rust default differences"
-        )
-
     # Read the Rust server.rs to extract Python Server constructor defaults
     server_rs = _read(repo_root, "crates/eggserve-python/src/server.rs")
     if server_rs is None:
@@ -639,11 +632,11 @@ def check_python_server_defaults(repo_root: Path) -> list[str]:
         "bind": '"127.0.0.1"',
         "port": "8000",
         "public": "false",
-        "max_connections": "100",
-        "max_file_streams": "64",
+        "max_connections": "64",
+        "max_file_streams": "32",
         "max_python_callbacks": "8",
         "header_timeout_secs": "10",
-        "connection_total_timeout_secs": "30",
+        "connection_total_timeout_secs": "60",
         "handler_timeout_secs": "30",
         "graceful_shutdown_timeout_secs": "10",
     }

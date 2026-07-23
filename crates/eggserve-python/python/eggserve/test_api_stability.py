@@ -370,14 +370,14 @@ class TestServerConstructorSnapshot(unittest.TestCase):
         s.stop()
 
     def test_server_default_max_connections(self) -> None:
-        """Server default max_connections must be 100 (Python-specific)."""
+        """Server default max_connections must be 64 (matches Rust Limits::default)."""
         import eggserve
 
         if not eggserve.NATIVE_AVAILABLE:
             self.skipTest("native module not available")
 
         s = eggserve.Server(root=".")
-        # Verify the default by checking we can use it with 100 connections
+        # Verify the default by checking we can use it with 64 connections
         self.assertIsNotNone(s)
         s.stop()
 

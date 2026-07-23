@@ -210,7 +210,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 | Concurrent file streams | 32 | Tokio semaphore |
 | Request body size | 0 (rejected) | Header validation |
 | Header read timeout | 10s | `tokio::time::timeout` |
-| Response write timeout | 60s | `tokio::time::timeout` |
+| Connection total timeout | 60s | `tokio::time::timeout` |
 | Graceful shutdown | 10s | Drain after SIGTERM |
 | Stream chunk size | 8 KiB | `DEFAULT_CHUNK_SIZE` constant |
 | Stream chunk (configurable) | 8 KiB | `Limits::stream_chunk_size` (reserved) |

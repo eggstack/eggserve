@@ -358,8 +358,8 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             max_file_streams: config.limits.max_file_streams,
             header_read_timeout: config.limits.header_read_timeout,
             connection_total_timeout: config.limits.connection_total_timeout,
-            handler_timeout: Duration::from_secs(30),
-            body_read_timeout: Duration::from_secs(30),
+            handler_timeout: config.limits.handler_timeout,
+            body_read_timeout: config.limits.body_read_timeout,
             graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
             keep_alive: true,
             max_in_flight_requests: None,
@@ -526,5 +526,60 @@ mod tests {
         assert!(err
             .to_string()
             .contains("graceful_shutdown_timeout must be > 0"));
+    }
+
+    #[test]
+    fn limits_defaults_match_runtime_config_defaults() {
+        let limits = crate::limits::Limits::default();
+        let runtime = RuntimeConfig::default();
+        assert_eq!(limits.max_connections, runtime.max_connections);
+        assert_eq!(limits.max_file_streams, runtime.max_file_streams);
+        assert_eq!(limits.header_read_timeout, runtime.header_read_timeout);
+        assert_eq!(
+            limits.connection_total_timeout,
+            runtime.connection_total_timeout
+        );
+        assert_eq!(limits.handler_timeout, runtime.handler_timeout);
+        assert_eq!(limits.body_read_timeout, runtime.body_read_timeout);
+        assert_eq!(
+            limits.graceful_shutdown_timeout,
+            runtime.graceful_shutdown_timeout
+        );
+    }
+
+    #[test]
+    fn serve_config_to_runtime_preserves_limits() {
+        let limits = crate::limits::Limits {
+            max_connections: 99,
+            max_file_streams: 77,
+            handler_timeout: Duration::from_secs(42),
+            body_read_timeout: Duration::from_secs(99),
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let runtime = RuntimeConfig::from(&serve);
+        assert_eq!(runtime.max_connections, 99);
+        assert_eq!(runtime.max_file_streams, 77);
+        assert_eq!(runtime.handler_timeout, Duration::from_secs(42));
+        assert_eq!(runtime.body_read_timeout, Duration::from_secs(99));
+    }
+
+    #[test]
+    fn limits_validate_rejects_all_zero_fields() {
+        let limits = crate::limits::Limits {
+            max_connections: 0,
+            max_file_streams: 0,
+            header_read_timeout: Duration::ZERO,
+            connection_total_timeout: Duration::ZERO,
+            handler_timeout: Duration::ZERO,
+            body_read_timeout: Duration::ZERO,
+            graceful_shutdown_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert_eq!(errs.len(), 7);
     }
 }
