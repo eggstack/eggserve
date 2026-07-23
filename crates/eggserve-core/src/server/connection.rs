@@ -18,6 +18,7 @@
 
 use std::convert::Infallible;
 
+use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -65,7 +66,7 @@ pub async fn serve_connection<I, S>(
         .with_upgrades();
     let mut conn = std::pin::pin!(conn);
     tokio::select! {
-        result = tokio::time::timeout(config.response_write_timeout, &mut conn) => {
+        result = tokio::time::timeout(config.connection_total_timeout, &mut conn) => {
             match result {
                 Ok(Ok(())) => {
                     crate::ops::Logger::global().emit(
@@ -118,6 +119,7 @@ pub async fn serve_connection<I, S>(
 /// - Canonical response normalization
 ///
 /// Panics in the service are caught by the tokio task boundary.
+#[allow(clippy::too_many_arguments)]
 pub async fn serve_connection_with_service<I, S>(
     io: TokioIo<I>,
     service: S,
@@ -125,6 +127,9 @@ pub async fn serve_connection_with_service<I, S>(
     _state: &ServeState,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
+    local_addr: std::net::SocketAddr,
+    remote_addr: std::net::SocketAddr,
+    tls: bool,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
@@ -203,79 +208,89 @@ pub async fn serve_connection_with_service<I, S>(
                 }
             }
 
-            // Handle Reject policy — consume and discard body if non-empty.
-            if effective_policy.is_reject() {
-                let body_limit = 0u64;
-                let request_body = crate::primitives::request_body::RequestBody::from_incoming(
-                    wrap_incoming_body(body),
-                    declared_length,
-                    body_limit,
+            // Handle Reject policy — reject without invoking the service,
+            // but only if the request actually carries a body.
+            let has_body = declared_length.is_some_and(|len| len > 0)
+                || parts.headers.contains_key(hyper::header::TRANSFER_ENCODING);
+            if effective_policy.is_reject() && has_body {
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::BodyPolicyRejection,
+                        "request body rejected by policy",
+                    )
+                    .connection_id(conn_id),
                 );
-
-                let connection = build_connection_info(&parts);
-                let request = crate::primitives::request::Request::new(
-                    head.clone(),
-                    crate::primitives::request_body::RequestBody::empty(),
-                    connection,
-                );
-
-                let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
-                let response = match result {
-                    Ok(Ok(canonical)) => {
-                        match crate::primitives::canonical::to_hyper_response(canonical) {
-                            Ok(r) => r,
-                            Err(_) => crate::response::internal_error(),
-                        }
-                    }
-                    Ok(Err(service_err)) => {
-                        let severity = if service_err.is_panic() || !service_err.is_timeout() {
-                            crate::ops::Severity::Error
-                        } else {
-                            crate::ops::Severity::Warn
-                        };
-                        crate::ops::Logger::global().emit(
-                            crate::ops::Event::new(
-                                severity,
-                                crate::ops::EventKind::ServiceError,
-                                service_err.to_string(),
-                            )
-                            .connection_id(conn_id),
-                        );
-                        service_err.to_response()
-                    }
-                    Err(_elapsed) => {
-                        crate::ops::Logger::global().emit(crate::ops::Event::new(
-                            crate::ops::Severity::Warn,
-                            crate::ops::EventKind::ServiceTimeout,
-                            "handler timed out",
-                        ));
-                        ServiceError::timeout("handler timed out".to_string()).to_response()
-                    }
-                };
-
-                // Drain the rejected body to clean up the connection.
-                let _ = tokio::time::timeout(
-                    std::time::Duration::from_millis(100),
-                    drain_body(request_body),
-                )
+                let response = crate::response::payload_too_large();
+                // Drain the body to keep the connection clean for keep-alive.
+                let mut body = body;
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(100), async {
+                    while let Some(Ok(_)) = body.frame().await {}
+                })
                 .await;
-
                 return Ok::<_, Infallible>(response);
             }
 
             // For Buffer/Stream policies, create RequestBody with proper limits.
+            // For Reject with no body, create an empty body (nothing to reject).
             let body_limit = effective_policy.max_bytes().unwrap_or(u64::MAX);
-            let request_body = crate::primitives::request_body::RequestBody::from_incoming(
-                wrap_incoming_body(body),
-                declared_length,
-                body_limit,
-            );
+            let request_body = match &effective_policy {
+                RequestBodyPolicy::Reject => crate::primitives::request_body::RequestBody::empty(),
+                _ => crate::primitives::request_body::RequestBody::from_incoming(
+                    wrap_incoming_body(body),
+                    declared_length,
+                    body_limit,
+                ),
+            };
 
             // Clone the consumption flag before the body is moved into Request.
             let consumed_flag = request_body.consumed_flag();
 
             // For Buffer policy, pre-buffer the body under timeout.
             match &effective_policy {
+                RequestBodyPolicy::Reject => {
+                    // Reject with no body — proceed to service with empty body.
+                    let connection = build_connection_info(local_addr, remote_addr, tls);
+                    let request =
+                        crate::primitives::request::Request::new(head, request_body, connection);
+
+                    let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+
+                    let response = match result {
+                        Ok(Ok(canonical)) => {
+                            match crate::primitives::canonical::to_hyper_response(canonical) {
+                                Ok(r) => r,
+                                Err(_) => crate::response::internal_error(),
+                            }
+                        }
+                        Ok(Err(service_err)) => {
+                            let severity = if service_err.is_panic() || !service_err.is_timeout() {
+                                crate::ops::Severity::Error
+                            } else {
+                                crate::ops::Severity::Warn
+                            };
+                            crate::ops::Logger::global().emit(
+                                crate::ops::Event::new(
+                                    severity,
+                                    crate::ops::EventKind::ServiceError,
+                                    service_err.to_string(),
+                                )
+                                .connection_id(conn_id),
+                            );
+                            service_err.to_response()
+                        }
+                        Err(_elapsed) => {
+                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::ServiceTimeout,
+                                "handler timed out",
+                            ));
+                            ServiceError::timeout("handler timed out".to_string()).to_response()
+                        }
+                    };
+
+                    Ok::<_, Infallible>(response)
+                }
                 RequestBodyPolicy::Buffer { .. } => {
                     // Buffer: body is fully consumed during pre-buffering.
                     // No incomplete body handling needed.
@@ -306,7 +321,7 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                     };
 
-                    let connection = build_connection_info(&parts);
+                    let connection = build_connection_info(local_addr, remote_addr, tls);
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -351,7 +366,7 @@ pub async fn serve_connection_with_service<I, S>(
                     // For Stream mode, enforce body_read_timeout as a total deadline
                     // on the service call (which includes body consumption).
                     let effective_timeout = body_read_timeout.min(handler_timeout);
-                    let connection = build_connection_info(&parts);
+                    let connection = build_connection_info(local_addr, remote_addr, tls);
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -422,7 +437,6 @@ pub async fn serve_connection_with_service<I, S>(
 
                     Ok::<_, Infallible>(response)
                 }
-                _ => unreachable!(),
             }
         }
     });
@@ -489,24 +503,21 @@ fn body_error_to_response(
     resp
 }
 
-/// Build ConnectionInfo from Hyper request parts.
+/// Build ConnectionInfo from real socket addresses.
 fn build_connection_info(
-    _parts: &hyper::http::request::Parts,
+    local_addr: std::net::SocketAddr,
+    remote_addr: std::net::SocketAddr,
+    tls: bool,
 ) -> crate::primitives::connection_info::ConnectionInfo {
     crate::primitives::connection_info::ConnectionInfo {
-        local_addr: "127.0.0.1:0".parse().unwrap(),
-        remote_addr: "127.0.0.1:0".parse().unwrap(),
-        scheme: crate::primitives::connection_info::Scheme::Http,
+        local_addr,
+        remote_addr,
+        scheme: if tls {
+            crate::primitives::connection_info::Scheme::Https
+        } else {
+            crate::primitives::connection_info::Scheme::Http
+        },
         tls: None,
-    }
-}
-
-/// Drain a request body, discarding all bytes.
-async fn drain_body(mut body: crate::primitives::request_body::RequestBody) {
-    while let Some(chunk) = body.next_chunk().await.transpose() {
-        if chunk.is_err() {
-            break;
-        }
     }
 }
 

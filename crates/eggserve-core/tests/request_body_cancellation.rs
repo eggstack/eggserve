@@ -47,7 +47,8 @@ async fn shutdown_before_first_body_byte() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -86,7 +87,8 @@ async fn shutdown_mid_body() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -124,7 +126,8 @@ async fn shutdown_between_chunks() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Stream {
@@ -164,7 +167,8 @@ async fn forced_shutdown_with_pending_body() {
         .body_read_timeout(Duration::from_secs(30))
         .graceful_shutdown_timeout(Duration::from_millis(50))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -202,7 +206,8 @@ async fn client_disconnect_during_body_read() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -240,7 +245,8 @@ async fn handler_timeout_aborts_body_read() {
         .body_read_timeout(Duration::from_secs(30))
         .handler_timeout(Duration::from_millis(100))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(
         config,
         RequestBodyPolicy::Buffer {

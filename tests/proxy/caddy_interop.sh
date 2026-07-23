@@ -51,7 +51,7 @@ openssl req -x509 -newkey rsa:2048 -keyout "$WORK_DIR/key.pem" \
 
 # Start eggserve on loopback (no TLS)
 EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
-"$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --root "$WORK_DIR/root" &
+"$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
 EGGSERVE_PID=$!
 trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
 sleep 1
@@ -105,11 +105,11 @@ run_test() {
     actual="$("$@" 2>/dev/null || echo "CURL_FAILED")"
     if echo "$actual" | grep -q "$expected"; then
         echo "  PASS: $name"
-        ((PASS++))
+        PASS=$((PASS + 1))
     else
         echo "  FAIL: $name (expected '$expected' in response)"
         echo "    Got: $(echo "$actual" | head -5)"
-        ((FAIL++))
+        FAIL=$((FAIL + 1))
     fi
 }
 

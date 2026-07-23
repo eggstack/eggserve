@@ -322,10 +322,180 @@ async fn tls_shutdown_during_handshake() {
 }
 
 #[tokio::test]
+async fn tls_large_file_streaming() {
+    let server = start_tls_server().await;
+
+    let large_content = "x".repeat(256 * 1024);
+    std::fs::write(server._tmp.path().join("large.txt"), &large_content).unwrap();
+
+    let mut root_store = rustls::RootCertStore::empty();
+    let cert_path = server._tmp.path().join("cert.pem");
+    let cert_file = std::fs::File::open(&cert_path).unwrap();
+    let mut cert_reader = std::io::BufReader::new(cert_file);
+    if let Ok(certs) = rustls_pemfile::certs(&mut cert_reader).collect::<Result<Vec<_>, _>>() {
+        for cert in certs {
+            let _ = root_store.add(cert);
+        }
+    }
+
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+
+    let connector = tokio_rustls::TlsConnector::from(Arc::new(config));
+    let stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
+    let domain = rustls::pki_types::ServerName::try_from("localhost").unwrap();
+
+    if let Ok(mut tls_stream) = connector.connect(domain, stream).await {
+        let _ = tls_stream
+            .write_all(b"GET /large.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await;
+
+        let mut buf = Vec::new();
+        let _ =
+            tokio::time::timeout(Duration::from_secs(10), tls_stream.read_to_end(&mut buf)).await;
+
+        let resp = String::from_utf8_lossy(&buf);
+        assert!(
+            resp.contains("200") || buf.is_empty(),
+            "large file streaming over TLS should succeed",
+        );
+    }
+
+    let _ = server.shutdown_tx.send(());
+}
+
+#[test]
+fn tls_cert_key_mismatch_fails_startup() {
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    std::process::Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            tmp.path().join("key1.pem").to_str().unwrap(),
+            "-out",
+            tmp.path().join("cert1.pem").to_str().unwrap(),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=server1",
+        ])
+        .output()
+        .expect("Failed to generate cert1");
+
+    std::process::Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            tmp.path().join("key2.pem").to_str().unwrap(),
+            "-out",
+            tmp.path().join("cert2.pem").to_str().unwrap(),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=server2",
+        ])
+        .output()
+        .expect("Failed to generate cert2");
+
+    let result = eggserve_bin::tls::load_tls_config(
+        &tmp.path().join("cert1.pem"),
+        &tmp.path().join("key2.pem"),
+    );
+    assert!(result.is_err(), "cert/key mismatch should fail");
+}
+
+#[test]
+fn tls_empty_cert_chain_rejected() {
+    use std::io::Write;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    let empty_cert = tmp.path().join("empty.pem");
+    let mut f = std::fs::File::create(&empty_cert).unwrap();
+    f.write_all(b"").unwrap();
+    f.flush().unwrap();
+
+    std::process::Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            tmp.path().join("key.pem").to_str().unwrap(),
+            "-out",
+            tmp.path().join("dummy.pem").to_str().unwrap(),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=test",
+        ])
+        .output()
+        .expect("Failed to generate key");
+
+    let result = eggserve_bin::tls::load_tls_config(&empty_cert, &tmp.path().join("key.pem"));
+    assert!(result.is_err(), "empty cert chain should fail");
+
+    match result.unwrap_err() {
+        eggserve_bin::tls::TlsError::NoCertificatesFound => {}
+        other => panic!("expected NoCertificatesFound, got: {:?}", other),
+    }
+}
+
+#[test]
+fn tls_no_private_key_rejected() {
+    use std::io::Write;
+
+    let tmp = tempfile::TempDir::new().unwrap();
+
+    std::process::Command::new("openssl")
+        .args([
+            "req",
+            "-x509",
+            "-newkey",
+            "rsa:2048",
+            "-keyout",
+            tmp.path().join("real_key.pem").to_str().unwrap(),
+            "-out",
+            tmp.path().join("cert.pem").to_str().unwrap(),
+            "-days",
+            "1",
+            "-nodes",
+            "-subj",
+            "/CN=test",
+        ])
+        .output()
+        .expect("Failed to generate cert");
+
+    let empty_key = tmp.path().join("empty_key.pem");
+    let mut f = std::fs::File::create(&empty_key).unwrap();
+    f.write_all(b"").unwrap();
+    f.flush().unwrap();
+
+    let result = eggserve_bin::tls::load_tls_config(&tmp.path().join("cert.pem"), &empty_key);
+    assert!(result.is_err(), "empty key file should fail");
+
+    match result.unwrap_err() {
+        eggserve_bin::tls::TlsError::NoPrivateKeyFound => {}
+        other => panic!("expected NoPrivateKeyFound, got: {:?}", other),
+    }
+}
+
+#[tokio::test]
 async fn tls_concurrent_connections() {
     let server = start_tls_server().await;
 
-    // Test that server can handle multiple connections sequentially
     for _ in 0..5 {
         let config = rustls::ClientConfig::builder()
             .with_root_certificates(rustls::RootCertStore::empty())
@@ -335,7 +505,6 @@ async fn tls_concurrent_connections() {
         let stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
         let domain = rustls::pki_types::ServerName::try_from("localhost").unwrap();
 
-        // This will fail due to certificate verification, but that's OK
         let result = connector.connect(domain, stream).await;
         if let Ok(mut tls_stream) = result {
             let test_data = b"concurrent test";

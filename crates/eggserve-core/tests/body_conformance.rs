@@ -400,7 +400,8 @@ async fn body_conformance_policy_selection() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         if fixture.input.policy == "static" {
             // Static service test
@@ -593,7 +594,8 @@ async fn body_conformance_te_plus_cl_variants() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let tmp = TempDir::new().unwrap();
@@ -645,7 +647,8 @@ async fn body_conformance_empty_body() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -717,7 +720,8 @@ async fn body_conformance_fixed_length_exact() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let tmp = TempDir::new().unwrap();
@@ -782,7 +786,8 @@ async fn body_conformance_fixed_length_over_limit() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -848,7 +853,8 @@ async fn body_conformance_chunked_exact() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let tmp = TempDir::new().unwrap();
@@ -911,7 +917,8 @@ async fn body_conformance_chunked_over_limit() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1004,7 +1011,8 @@ async fn body_conformance_one_shot_consumption() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_action = fixture.input.handler_action.clone();
@@ -1090,7 +1098,8 @@ async fn body_conformance_get_with_body_rejected() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1156,7 +1165,8 @@ async fn body_conformance_conflicting_content_length() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1222,7 +1232,8 @@ async fn body_conformance_te_plus_content_length_conflict() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let tmp = TempDir::new().unwrap();
@@ -1285,7 +1296,8 @@ async fn body_conformance_chunked_malformed() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1351,7 +1363,8 @@ async fn body_conformance_chunked_exact_limit() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1444,7 +1457,8 @@ async fn body_conformance_buffer_mode() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1539,7 +1553,8 @@ async fn body_conformance_stream_mode() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1644,7 +1659,8 @@ async fn body_conformance_mixed_read_iteration() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1738,7 +1754,8 @@ async fn body_conformance_partial_consumption_close() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -1818,7 +1835,8 @@ async fn body_conformance_premature_eof() {
             .bind("127.0.0.1:0".parse().unwrap())
             .max_request_body_bytes(fixture.input.max_body_bytes)
             .body_read_timeout(Duration::from_secs(5))
-            .build();
+            .build()
+            .unwrap();
 
         let policy = parse_policy(&fixture.input);
         let handler_called = Arc::new(std::sync::atomic::AtomicBool::new(false));

@@ -121,7 +121,7 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_connections` | 64 | Concurrent TCP connections |
 | `max_file_streams` | 32 | Concurrent file streams |
 | `header_read_timeout` | 10s | Time to read request headers |
-| `response_write_timeout` | 60s | Time to write response body |
+| `connection_total_timeout` | 60s | Timeout wrapping the entire Hyper connection future |
 | `handler_timeout` | None | Per-request handler timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
 | `keep_alive` | true | TCP keep-alive |
@@ -129,6 +129,8 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `request_body_policy` | `Reject` | Global body policy (Reject/Buffer/Stream) |
 | `body_read_timeout` | 30s | Total deadline for body consumption in Buffer mode |
 | `incomplete_body_policy` | `Close` | Connection behavior when handler doesn't consume body |
+
+Note: `Limits::response_write_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by the `From<&ServeConfig>` impl. The naming divergence reflects the expanded scope of the timeout — it wraps the entire Hyper connection future, not just the response write phase.
 
 ### `Service` Trait
 

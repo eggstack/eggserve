@@ -33,7 +33,7 @@ use crate::primitives::request_body_policy::RequestBodyPolicy;
 /// let config = RuntimeConfig::builder()
 ///     .bind("127.0.0.1:8000".parse().unwrap())
 ///     .max_connections(128)
-///     .build();
+///     .build()?;
 /// ```
 #[derive(Debug, Clone)]
 #[must_use]
@@ -46,8 +46,8 @@ pub struct RuntimeConfig {
     pub max_file_streams: usize,
     /// Timeout for reading request headers. Default: 10s.
     pub header_read_timeout: Duration,
-    /// Timeout for writing response bodies. Default: 60s.
-    pub response_write_timeout: Duration,
+    /// Timeout wrapping the entire Hyper connection future. Default: 60s.
+    pub connection_total_timeout: Duration,
     /// Timeout for a single handler invocation. Default: 30s.
     pub handler_timeout: Duration,
     /// Timeout for reading the request body. Default: 30s.
@@ -88,7 +88,7 @@ impl Default for RuntimeConfig {
             max_connections: 64,
             max_file_streams: 32,
             header_read_timeout: Duration::from_secs(10),
-            response_write_timeout: Duration::from_secs(60),
+            connection_total_timeout: Duration::from_secs(60),
             handler_timeout: Duration::from_secs(30),
             body_read_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: Duration::from_secs(10),
@@ -113,7 +113,7 @@ impl RuntimeConfig {
             max_connections: None,
             max_file_streams: None,
             header_read_timeout: None,
-            response_write_timeout: None,
+            connection_total_timeout: None,
             handler_timeout: None,
             body_read_timeout: None,
             graceful_shutdown_timeout: None,
@@ -137,7 +137,7 @@ pub struct RuntimeConfigBuilder {
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
     header_read_timeout: Option<Duration>,
-    response_write_timeout: Option<Duration>,
+    connection_total_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
     body_read_timeout: Option<Duration>,
     graceful_shutdown_timeout: Option<Duration>,
@@ -180,9 +180,9 @@ impl RuntimeConfigBuilder {
         self
     }
 
-    /// Set the response-write timeout.
-    pub fn response_write_timeout(mut self, timeout: Duration) -> Self {
-        self.response_write_timeout = Some(timeout);
+    /// Set the connection total timeout.
+    pub fn connection_total_timeout(mut self, timeout: Duration) -> Self {
+        self.connection_total_timeout = Some(timeout);
         self
     }
 
@@ -267,23 +267,29 @@ impl RuntimeConfigBuilder {
 
     /// Build the runtime configuration.
     ///
-    /// # Panics
-    ///
-    /// Panics if `max_connections` or `max_file_streams` is 0.
-    pub fn build(self) -> RuntimeConfig {
+    /// Returns an error if `max_connections` or `max_file_streams` is 0.
+    pub fn build(self) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
         let max_connections = self.max_connections.unwrap_or(64);
         let max_file_streams = self.max_file_streams.unwrap_or(32);
-        assert!(max_connections > 0, "max_connections must be > 0");
-        assert!(max_file_streams > 0, "max_file_streams must be > 0");
-        RuntimeConfig {
+        if max_connections == 0 {
+            return Err(crate::server::errors::ServerError::Config(
+                "max_connections must be > 0".into(),
+            ));
+        }
+        if max_file_streams == 0 {
+            return Err(crate::server::errors::ServerError::Config(
+                "max_file_streams must be > 0".into(),
+            ));
+        }
+        Ok(RuntimeConfig {
             bind: self
                 .bind
                 .unwrap_or_else(|| "127.0.0.1:8000".parse().unwrap()),
             max_connections,
             max_file_streams,
             header_read_timeout: self.header_read_timeout.unwrap_or(Duration::from_secs(10)),
-            response_write_timeout: self
-                .response_write_timeout
+            connection_total_timeout: self
+                .connection_total_timeout
                 .unwrap_or(Duration::from_secs(60)),
             handler_timeout: self.handler_timeout.unwrap_or(Duration::from_secs(30)),
             body_read_timeout: self.body_read_timeout.unwrap_or(Duration::from_secs(30)),
@@ -302,7 +308,7 @@ impl RuntimeConfigBuilder {
             incomplete_body_policy: self
                 .incomplete_body_policy
                 .unwrap_or(crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close),
-        }
+        })
     }
 }
 
@@ -318,7 +324,7 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             max_connections: config.limits.max_connections,
             max_file_streams: config.limits.max_file_streams,
             header_read_timeout: config.limits.header_read_timeout,
-            response_write_timeout: config.limits.response_write_timeout,
+            connection_total_timeout: config.limits.response_write_timeout,
             handler_timeout: Duration::from_secs(30),
             body_read_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
@@ -347,7 +353,7 @@ mod tests {
         assert_eq!(config.max_connections, 64);
         assert_eq!(config.max_file_streams, 32);
         assert_eq!(config.header_read_timeout, Duration::from_secs(10));
-        assert_eq!(config.response_write_timeout, Duration::from_secs(60));
+        assert_eq!(config.connection_total_timeout, Duration::from_secs(60));
         assert_eq!(config.handler_timeout, Duration::from_secs(30));
         assert_eq!(config.body_read_timeout, Duration::from_secs(30));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(10));
@@ -369,7 +375,7 @@ mod tests {
             .max_connections(128)
             .max_file_streams(64)
             .header_read_timeout(Duration::from_secs(5))
-            .response_write_timeout(Duration::from_secs(30))
+            .connection_total_timeout(Duration::from_secs(30))
             .handler_timeout(Duration::from_secs(15))
             .body_read_timeout(Duration::from_secs(20))
             .graceful_shutdown_timeout(Duration::from_secs(5))
@@ -384,12 +390,13 @@ mod tests {
                     timeout: Duration::from_secs(2),
                 },
             )
-            .build();
+            .build()
+            .unwrap();
         assert_eq!(config.bind.port(), 9000);
         assert_eq!(config.max_connections, 128);
         assert_eq!(config.max_file_streams, 64);
         assert_eq!(config.header_read_timeout, Duration::from_secs(5));
-        assert_eq!(config.response_write_timeout, Duration::from_secs(30));
+        assert_eq!(config.connection_total_timeout, Duration::from_secs(30));
         assert_eq!(config.handler_timeout, Duration::from_secs(15));
         assert_eq!(config.body_read_timeout, Duration::from_secs(20));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(5));
@@ -422,14 +429,18 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "max_connections must be > 0")]
-    fn zero_connections_panics() {
-        let _ = RuntimeConfig::builder().max_connections(0).build();
+    fn zero_connections_returns_error() {
+        let result = RuntimeConfig::builder().max_connections(0).build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("max_connections must be > 0"));
     }
 
     #[test]
-    #[should_panic(expected = "max_file_streams must be > 0")]
-    fn zero_file_streams_panics() {
-        let _ = RuntimeConfig::builder().max_file_streams(0).build();
+    fn zero_file_streams_returns_error() {
+        let result = RuntimeConfig::builder().max_file_streams(0).build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("max_file_streams must be > 0"));
     }
 }

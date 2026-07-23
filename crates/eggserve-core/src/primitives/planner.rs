@@ -230,7 +230,8 @@ pub fn generate_etag(metadata: &Metadata) -> Option<String> {
     let mtime = metadata.modified().ok()?;
     let epoch = mtime.duration_since(UNIX_EPOCH).ok()?;
     let mtime_secs = epoch.as_secs();
-    Some(format!("W/\"{}-{}\"", size, mtime_secs))
+    let mtime_nanos = epoch.subsec_nanos();
+    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
 }
 
 fn build_full_response(

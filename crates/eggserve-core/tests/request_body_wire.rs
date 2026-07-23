@@ -51,7 +51,8 @@ async fn fixed_length_body_wire() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -89,7 +90,8 @@ async fn chunked_body_wire() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -130,7 +132,8 @@ async fn malformed_chunking_returns_400() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -165,7 +168,8 @@ async fn body_limit_exceeded_mid_stream_wire() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(10)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -203,7 +207,8 @@ async fn keepalive_after_complete_body() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -275,7 +280,8 @@ async fn connection_close_after_rejected_body() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -306,7 +312,8 @@ async fn get_with_body_wire_rejected() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -340,7 +347,8 @@ async fn partial_body_then_pipelined_request() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -463,7 +471,8 @@ async fn partial_body_close_policy() {
             eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -535,7 +544,8 @@ async fn drain_policy_body_close_on_partial_consumption() {
             },
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -605,7 +615,8 @@ async fn drain_policy_keepalive_after_full_body_consumption() {
             },
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -698,7 +709,8 @@ async fn partial_chunked_body_close() {
             eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -762,7 +774,8 @@ async fn handler_error_before_body_consumption() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -822,7 +835,8 @@ async fn body_read_timeout_before_service() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(50))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -880,7 +894,8 @@ async fn body_complete_before_service_keepalive() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -973,7 +988,8 @@ async fn leftover_bytes_not_parsed_as_next_request() {
             eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -1053,7 +1069,8 @@ async fn drain_policy_timeout_closes_connection() {
             },
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -1123,7 +1140,8 @@ async fn drain_policy_partial_chunked_body() {
             },
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -1197,7 +1215,8 @@ async fn drain_policy_malformed_remainder() {
             },
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -1269,7 +1288,8 @@ async fn drain_policy_keepalive_with_full_consumption_stream() {
             },
         )
         .keep_alive(true)
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {
@@ -1371,7 +1391,8 @@ async fn http10_post_with_body_wire() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -1410,7 +1431,8 @@ async fn http10_body_timeout_returns_408() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(50))
         .keep_alive(false)
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 
@@ -1445,7 +1467,8 @@ async fn http11_body_limit_exceeded_returns_413() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_server(config).await;
     let addr = handle.local_addr();
 

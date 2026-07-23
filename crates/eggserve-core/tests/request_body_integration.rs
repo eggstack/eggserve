@@ -44,7 +44,8 @@ async fn buffer_mode_post_with_body() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -87,7 +88,8 @@ async fn reject_policy_gets_empty_body() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -110,8 +112,8 @@ async fn reject_policy_gets_empty_body() {
     conn.read_to_end(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf);
     assert!(
-        response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
+        response.starts_with("HTTP/1.1 413"),
+        "expected 413, got: {}",
         response
     );
     handle.shutdown();
@@ -123,7 +125,8 @@ async fn body_limit_exceeded_returns_413() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(5)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -155,7 +158,8 @@ async fn declared_length_too_large_returns_413() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(5)
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -187,7 +191,8 @@ async fn empty_post_with_content_length_zero() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -228,7 +233,8 @@ async fn get_with_body_is_rejected() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -249,7 +255,7 @@ async fn get_with_body_is_rejected() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 400"),
-        "expected 400 for GET with body, got: {}",
+        "expected 400, got: {}",
         response
     );
     handle.shutdown();
@@ -261,7 +267,8 @@ async fn stream_mode_chunked_body() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,
@@ -311,7 +318,8 @@ async fn static_service_post_returns_405() {
     std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
-        .build();
+        .build()
+        .unwrap();
     let serve_config = Arc::new(ServeConfig {
         root: tmp.path().to_path_buf(),
         ..ServeConfig::default()
@@ -345,7 +353,8 @@ async fn body_timeout_returns_408() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(50))
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server_with_service(
         config,

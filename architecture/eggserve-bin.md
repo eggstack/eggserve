@@ -48,7 +48,7 @@ The non-TLS path delegates to `ServerBuilder`/`ServerHandle` from `eggserve-core
 │ serve_connection()                          │
 │  • Read headers with header_read_timeout    │
 │  • Call handle_request() from eggserve-core │
-│  • Write response with response_write_timeout│
+│  • Write response with connection_total_timeout│
 │  • Drop semaphore permit on completion      │
 └─────────────────────────────────────────────┘
 ```
@@ -70,7 +70,7 @@ The non-TLS path delegates to `ServerBuilder`/`ServerHandle` from `eggserve-core
 │ serve_connection_tls()                      │
 │  • Read headers with header_read_timeout    │
 │  • Call handle_request() from eggserve-core │
-│  • Write response with response_write_timeout│
+│  • Write response with connection_total_timeout│
 │  • Drop semaphore permit on completion      │
 └─────────────────────────────────────────────┘
 ```

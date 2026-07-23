@@ -13,7 +13,7 @@ last_updated = "2026-07-16"
 
 [[profile]]
 profile = "unix-reverse-proxy"
-status = "supported-hardened"
+status = "candidate"
 platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64"]
 filesystem = ["ext4", "apfs", "hfs+"]
 network_binding = "loopback"

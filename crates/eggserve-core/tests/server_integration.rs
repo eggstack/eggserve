@@ -41,7 +41,18 @@ async fn panic_in_service_returns_500() {
         let svc = service_fn(|_req: Request| async {
             panic!("intentional panic");
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
+        serve_connection_with_service(
+            io,
+            svc,
+            &config,
+            &state_clone,
+            &mut shutdown_rx,
+            1,
+            addr,
+            addr,
+            false,
+        )
+        .await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -70,7 +81,8 @@ async fn slow_handler_returns_504() {
     let state = build_state(&tmp);
     let config = RuntimeConfig::builder()
         .handler_timeout(Duration::from_millis(50))
-        .build();
+        .build()
+        .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -87,7 +99,18 @@ async fn slow_handler_returns_504() {
                 .body(ResponseBody::Empty)
                 .unwrap())
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
+        serve_connection_with_service(
+            io,
+            svc,
+            &config,
+            &state_clone,
+            &mut shutdown_rx,
+            1,
+            addr,
+            addr,
+            false,
+        )
+        .await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -134,7 +157,18 @@ async fn malformed_request_rejected_before_service() {
                     .unwrap())
             }
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
+        serve_connection_with_service(
+            io,
+            svc,
+            &config,
+            &state_clone,
+            &mut shutdown_rx,
+            1,
+            addr,
+            addr,
+            false,
+        )
+        .await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -172,7 +206,18 @@ async fn custom_service_bytes_through_pipeline() {
                 .body(ResponseBody::Bytes(b"hello".to_vec()))
                 .unwrap())
         });
-        serve_connection_with_service(io, svc, &config, &state_clone, &mut shutdown_rx, 1).await;
+        serve_connection_with_service(
+            io,
+            svc,
+            &config,
+            &state_clone,
+            &mut shutdown_rx,
+            1,
+            addr,
+            addr,
+            false,
+        )
+        .await;
     });
 
     let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
@@ -203,7 +248,8 @@ async fn connection_permits_released() {
     let config = RuntimeConfig::builder()
         .max_connections(1)
         .handler_timeout(Duration::from_secs(10))
-        .build();
+        .build()
+        .unwrap();
 
     let server = Server::builder()
         .runtime(config)

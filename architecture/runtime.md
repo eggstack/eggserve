@@ -30,7 +30,7 @@ Transport-level configuration separate from service-level concerns:
 - Bind address
 - Connection limits
 - File-stream limits
-- Timeouts (header read, response write, handler, graceful shutdown)
+- Timeouts (header read, connection total, handler, graceful shutdown)
 - Keep-alive policy
 
 Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time.

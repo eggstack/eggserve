@@ -88,6 +88,7 @@ fn config_for_tls(addr: &str, ctx: &TlsContext) -> RuntimeConfig {
         .bind(addr.parse().unwrap())
         .tls_config(ctx.server_config.clone())
         .build()
+        .unwrap()
 }
 
 async fn raw_request(addr: std::net::SocketAddr, request: &str) -> Vec<u8> {
@@ -115,7 +116,8 @@ async fn custom_service_fn_over_plaintext() {
     let tmp = TempDir::new().unwrap();
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
-        .build();
+        .build()
+        .unwrap();
     let server = Server::builder()
         .runtime(config)
         .serve_config(make_serve_config(&tmp))
@@ -164,7 +166,8 @@ async fn static_service_over_plaintext() {
 
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
-        .build();
+        .build()
+        .unwrap();
     let server = Server::builder()
         .runtime(config)
         .serve_config(make_serve_config(&tmp))
@@ -292,7 +295,8 @@ async fn tls_handshake_timeout_does_not_hang() {
         .bind("127.0.0.1:0".parse().unwrap())
         .header_read_timeout(Duration::from_secs(1))
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let server = Server::builder()
         .runtime(config)
         .serve_config(make_serve_config(&tmp))
@@ -382,7 +386,8 @@ async fn forced_shutdown_works_during_tls_connections() {
         .bind("127.0.0.1:0".parse().unwrap())
         .graceful_shutdown_timeout(Duration::from_millis(100))
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let server = Server::builder()
         .runtime(config)
         .serve_config(make_serve_config(&tmp))
@@ -434,6 +439,7 @@ async fn tls_and_plaintext_same_service_dispatch_path() {
             RuntimeConfig::builder()
                 .bind("127.0.0.1:0".parse().unwrap())
                 .build()
+                .unwrap()
         };
 
         let server = Server::builder()

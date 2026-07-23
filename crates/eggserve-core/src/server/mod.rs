@@ -95,7 +95,7 @@ use crate::server::lifecycle::Lifecycle;
 /// let server = Server::builder()
 ///     .runtime(RuntimeConfig::builder()
 ///         .bind("127.0.0.1:8000".parse().unwrap())
-///         .build())
+///         .build()?)
 ///     .service(service_fn(|_req: Request| async {
 ///         Ok(Response::builder()
 ///             .status(StatusCode::OK)
@@ -211,8 +211,9 @@ impl ServerBuilder {
 
     /// Build the server with a custom service.
     ///
-    /// Uses the provided service for request handling. The runtime config
-    /// must have been set via [`ServerBuilder::runtime`].
+    /// **Note**: The service is not stored in the built `Server`. Use
+    /// [`start_with_service`] instead to start with a custom service.
+    /// This method exists for backward compatibility.
     pub fn build_with_service<S: service::Service>(
         self,
         _service: S,
@@ -420,7 +421,7 @@ async fn accept_loop(
     let counters = crate::ops::global_counters();
 
     // Track spawned connection tasks for graceful drain.
-    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let mut tasks = tokio::task::JoinSet::new();
     let mut backoff_idx: usize = 0;
     let mut error_repeat_count: usize = 0;
     let mut last_error_kind: Option<String> = None;
@@ -429,7 +430,7 @@ async fn accept_loop(
         tokio::select! {
             result = listener.accept() => {
                 match result {
-                    Ok((stream, _addr)) => {
+                    Ok((stream, _peer_addr)) => {
                         backoff_idx = 0;
                         error_repeat_count = 0;
                         last_error_kind = None;
@@ -468,7 +469,7 @@ async fn accept_loop(
                         let state = state.clone();
                         let config = config.clone();
 
-                        let join = tokio::spawn(async move {
+                        tasks.spawn(async move {
                             let _permit = permit;
 
                             #[cfg(feature = "tls")]
@@ -518,8 +519,6 @@ async fn accept_loop(
                             connection::serve_connection(io, svc, &config, &mut shutdown_rx, conn_id).await;
                             counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         });
-                        tasks.retain(|t| !t.is_finished());
-                        tasks.push(join);
                     }
                     Err(e) => {
                         let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind).await;
@@ -549,16 +548,44 @@ async fn accept_loop(
     let deadline = tokio::time::Instant::now() + drain_timeout;
     let mut timed_out = false;
 
-    while !tasks.is_empty() {
+    loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             timed_out = true;
             break;
         }
-        let mut task = tasks.pop().unwrap();
-        if tokio::time::timeout(remaining, &mut task).await.is_err() {
-            timed_out = true;
-            task.abort();
+        match tokio::time::timeout(remaining, tasks.join_next()).await {
+            Ok(Some(result)) => {
+                if let Err(e) = result {
+                    if e.is_panic() {
+                        crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            crate::ops::Severity::Error,
+                            crate::ops::EventKind::ServiceError,
+                            "connection task panicked during drain",
+                        ));
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(_) => {
+                timed_out = true;
+                break;
+            }
+        }
+    }
+
+    if timed_out {
+        tasks.abort_all();
+        while let Some(result) = tasks.join_next().await {
+            if let Err(e) = result {
+                if e.is_panic() {
+                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        crate::ops::Severity::Error,
+                        crate::ops::EventKind::ServiceError,
+                        "connection task panicked during forced shutdown",
+                    ));
+                }
+            }
         }
     }
 
@@ -608,7 +635,7 @@ async fn accept_loop_with_service<S: Service>(
     let correlation = crate::ops::CorrelationId::new();
     let counters = crate::ops::global_counters();
 
-    let mut tasks: Vec<tokio::task::JoinHandle<()>> = Vec::new();
+    let mut tasks = tokio::task::JoinSet::new();
     let mut backoff_idx: usize = 0;
     let mut error_repeat_count: usize = 0;
     let mut last_error_kind: Option<String> = None;
@@ -617,7 +644,7 @@ async fn accept_loop_with_service<S: Service>(
         tokio::select! {
             result = listener.accept() => {
                 match result {
-                    Ok((stream, _addr)) => {
+                    Ok((stream, peer_addr)) => {
                         backoff_idx = 0;
                         error_repeat_count = 0;
                         last_error_kind = None;
@@ -656,8 +683,10 @@ async fn accept_loop_with_service<S: Service>(
                         let state = state.clone();
                         let config = config.clone();
                         let service = service.clone();
+                        let remote_addr = peer_addr;
+                        let local_addr_pre_tls = stream.local_addr().unwrap_or(config.bind);
 
-                        let join = tokio::spawn(async move {
+                        tasks.spawn(async move {
                             let _permit = permit;
 
                             #[cfg(feature = "tls")]
@@ -682,6 +711,9 @@ async fn accept_loop_with_service<S: Service>(
                                                 &state,
                                                 &mut shutdown_rx,
                                                 conn_id,
+                                                local_addr_pre_tls,
+                                                remote_addr,
+                                                true,
                                             ).await;
                                             counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                             return;
@@ -702,11 +734,12 @@ async fn accept_loop_with_service<S: Service>(
                                 &state,
                                 &mut shutdown_rx,
                                 conn_id,
+                                local_addr_pre_tls,
+                                remote_addr,
+                                false,
                             ).await;
                             counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         });
-                        tasks.retain(|t| !t.is_finished());
-                        tasks.push(join);
                     }
                     Err(e) => {
                         let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind).await;
@@ -734,16 +767,44 @@ async fn accept_loop_with_service<S: Service>(
     let deadline = tokio::time::Instant::now() + drain_timeout;
     let mut timed_out = false;
 
-    while !tasks.is_empty() {
+    loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
             timed_out = true;
             break;
         }
-        let mut task = tasks.pop().unwrap();
-        if tokio::time::timeout(remaining, &mut task).await.is_err() {
-            timed_out = true;
-            task.abort();
+        match tokio::time::timeout(remaining, tasks.join_next()).await {
+            Ok(Some(result)) => {
+                if let Err(e) = result {
+                    if e.is_panic() {
+                        crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            crate::ops::Severity::Error,
+                            crate::ops::EventKind::ServiceError,
+                            "connection task panicked during drain",
+                        ));
+                    }
+                }
+            }
+            Ok(None) => break,
+            Err(_) => {
+                timed_out = true;
+                break;
+            }
+        }
+    }
+
+    if timed_out {
+        tasks.abort_all();
+        while let Some(result) = tasks.join_next().await {
+            if let Err(e) = result {
+                if e.is_panic() {
+                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        crate::ops::Severity::Error,
+                        crate::ops::EventKind::ServiceError,
+                        "connection task panicked during forced shutdown",
+                    ));
+                }
+            }
         }
     }
 

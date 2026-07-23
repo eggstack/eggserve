@@ -1306,14 +1306,15 @@ impl PyServer {
             .max_connections(self.max_connections)
             .max_file_streams(self.max_file_streams)
             .header_read_timeout(self.header_timeout)
-            .response_write_timeout(self.write_timeout)
+            .connection_total_timeout(self.write_timeout)
             .handler_timeout(self.handler_timeout)
             .graceful_shutdown_timeout(self.graceful_shutdown_timeout)
             .max_request_body_bytes(self.max_request_body_bytes)
             .request_body_policy(self.body_policy)
             .body_read_timeout(self.body_read_timeout)
             .incomplete_body_policy(self.incomplete_body_policy)
-            .build();
+            .build()
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
         let serve_config = Arc::new(eggserve_core::config::ServeConfig {
             root: self.responder.root.root_path().to_path_buf(),

@@ -114,7 +114,8 @@ async fn tls_post_with_body() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_tls_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -154,7 +155,8 @@ async fn tls_chunked_body() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_tls_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -210,7 +212,8 @@ async fn tls_body_limit_exceeded() {
         .max_request_body_bytes(5)
         .body_read_timeout(Duration::from_secs(5))
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_tls_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -245,7 +248,8 @@ async fn tls_body_timeout() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(50))
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_tls_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -279,7 +283,8 @@ async fn tls_get_with_body_rejected() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
     let (handle, _tmp) = start_tls_server(
         config,
         RequestBodyPolicy::Buffer {
@@ -317,7 +322,8 @@ async fn tls_partial_body_close_policy() {
             eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
         )
         .tls_config(ctx.server_config.clone())
-        .build();
+        .build()
+        .unwrap();
 
     let tmp = TempDir::new().unwrap();
     let serve_config = Arc::new(ServeConfig {

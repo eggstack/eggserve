@@ -57,6 +57,7 @@ jobs:
       - run: bash scripts/ci-gate-evidence.sh rust.test.client test-output cargo test -p eggserve-core --features client
       - run: bash scripts/ci-gate-evidence.sh rust.test.client-tls test-output sh -c 'cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings && cargo test -p eggserve-core --features client-tls'
       - run: bash scripts/ci-gate-evidence.sh rust.test.server-tls test-output sh -c 'cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings && cargo test -p eggserve-bin --features tls'
+      - run: bash scripts/ci-gate-evidence.sh native-tls.abuse-limits test-output cargo test -p eggserve-bin --features tls --test tls_abuse
       - run: bash scripts/ci-gate-evidence.sh conformance.canonical-http-corpus-rust test-output cargo test -p eggserve-core --test canonical_conformance
       - run: bash scripts/ci-gate-evidence.sh conformance.canonical-wire-interop test-output cargo test -p eggserve-core --test canonical_wire_interop
       - run: bash scripts/ci-gate-evidence.sh conformance.public-rust-compile-fixtures test-output cargo test -p eggserve-core --test public_api_consumers
@@ -162,6 +163,111 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-evidence-corpus-replay
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  stateful-fuzz-replay:
+    name: gate/stateful-fuzz-replay
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - run: bash scripts/ci-gate-evidence.sh stateful.fuzz-replay test-output cargo test -p eggserve-core --test stateful_fuzz_replay
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-stateful-fuzz
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  fault-injection:
+    name: gate/fault-injection
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - run: bash scripts/ci-gate-evidence.sh fault.injection test-output cargo test -p eggserve-core --test fault_injection
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-fault-injection
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  filesystem-race:
+    name: gate/filesystem-race
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - run: bash scripts/ci-gate-evidence.sh filesystem.unix-race test-output cargo test -p eggserve-core --test filesystem_race_qualification
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-filesystem-race
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  proxy-interop:
+    name: gate/proxy-interop
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Install Caddy
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq debian-keyring debian-archive-keyring apt-transport-https curl
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
+          curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq caddy
+      - name: Install nginx
+        run: sudo apt-get install -y -qq nginx
+      - name: Build eggserve (debug)
+        run: cargo build -p eggserve-bin
+      - name: Run Caddy interop tests
+        run: bash scripts/ci-gate-evidence.sh proxy.caddy-interop test-output bash tests/proxy/caddy_interop.sh
+      - name: Run nginx interop tests
+        run: bash scripts/ci-gate-evidence.sh proxy.nginx-interop test-output bash tests/proxy/nginx_interop.sh
+      - name: Run desync corpus tests
+        run: bash scripts/ci-gate-evidence.sh proxy.desync-corpus test-output bash tests/proxy/desync_corpus.sh
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-proxy-interop
           path: |
             target/release-evidence/
           retention-days: 30
@@ -385,7 +491,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [rust-check, supply-chain, wire-tests, production-path, corpus-replay, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
+    needs: [rust-check, supply-chain, wire-tests, production-path, corpus-replay, stateful-fuzz-replay, fault-injection, filesystem-race, proxy-interop, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
     permissions:
       contents: read
     steps:

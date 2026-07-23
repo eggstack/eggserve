@@ -12,3 +12,7 @@ crates/eggserve-python/python/eggserve/bin/
 *.pyc
 __pycache__/
 crates/eggserve-python/packaging-tests/__pycache__/
+
+# Release infrastructure (generated)
+release/rc-status.json
+release/sbom/

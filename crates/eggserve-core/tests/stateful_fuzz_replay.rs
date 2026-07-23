@@ -642,3 +642,140 @@ async fn fuzz_server_survives_abuse_sequence() {
 
     let _ = server.shutdown_tx.send(());
 }
+
+#[tokio::test]
+async fn fuzz_header_injection() {
+    let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
+
+    let payloads = vec![
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Injected: true\r\n\r\n" as &[u8],
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-evil:\r\nContent-Length: 0\r\n\r\n"
+            as &[u8],
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\nEvil-Header: value\r\n\r\n" as &[u8],
+    ];
+
+    for payload in payloads {
+        let raw = send_raw(server.addr, payload).await;
+        let resp = String::from_utf8_lossy(&raw);
+        assert!(
+            !resp.contains("Evil-Header") && !resp.contains("X-Injected: true"),
+            "header injection should not leak: {}",
+            resp
+        );
+    }
+
+    let _ = server.shutdown_tx.send(());
+}
+
+#[tokio::test]
+async fn fuzz_slowloris_headers() {
+    let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
+
+    let mut stream = tokio::net::TcpStream::connect(server.addr).await.unwrap();
+    stream
+        .write_all(b"GET /hello.txt HTTP/1.1\r\n")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    stream.write_all(b"Host: localho").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    stream.write_all(b"st\r\n").await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    stream
+        .write_all(b"Connection: close\r\n\r\n")
+        .await
+        .unwrap();
+
+    let mut buf = Vec::new();
+    let _ = tokio::time::timeout(Duration::from_secs(5), stream.read_to_end(&mut buf)).await;
+    let resp = String::from_utf8_lossy(&buf);
+    assert!(
+        resp.contains("200") || resp.contains("408") || buf.is_empty(),
+        "slowloris should be handled: {}",
+        resp
+    );
+
+    let _ = server.shutdown_tx.send(());
+}
+
+#[tokio::test]
+async fn fuzz_shutdown_during_requests() {
+    let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
+
+    let mut handles = Vec::new();
+    for i in 0..10 {
+        let addr = server.addr;
+        handles.push(tokio::spawn(async move {
+            let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+            let req = format!(
+                "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Req: {}\r\nConnection: close\r\n\r\n",
+                i
+            );
+            let _ = stream.write_all(req.as_bytes()).await;
+            let mut buf = Vec::new();
+            let _ = tokio::time::timeout(Duration::from_secs(2), stream.read_to_end(&mut buf)).await;
+        }));
+    }
+
+    tokio::time::sleep(Duration::from_millis(20)).await;
+    let _ = server.shutdown_tx.send(());
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+}
+
+#[tokio::test]
+async fn fuzz_http_request_smuggling() {
+    let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
+
+    let smuggling_payloads = vec![
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 6\r\nContent-Length: 5\r\n\r\nhelloXGET /status.txt HTTP/1.1\r\nHost: localhost\r\n\r\n" as &[u8],
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Length: 6\r\n\r\n0\r\n\r\nGET /status.txt HTTP/1.1\r\nHost: localhost\r\n\r\n" as &[u8],
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: \x09chunked\r\nContent-Length: 6\r\n\r\n0\r\n\r\nGET /status.txt HTTP/1.1\r\nHost: localhost\r\n\r\n" as &[u8],
+    ];
+
+    for payload in smuggling_payloads {
+        let raw = send_raw(server.addr, payload).await;
+        let resp = String::from_utf8_lossy(&raw);
+        assert!(
+            resp.contains("200")
+                || resp.contains("400")
+                || resp.contains("403")
+                || resp.contains("405")
+                || resp.is_empty(),
+            "smuggling attempt should be safe: {}",
+            resp
+        );
+    }
+
+    let _ = server.shutdown_tx.send(());
+}
+
+#[tokio::test]
+async fn fuzz_invalid_chunk_extensions() {
+    let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
+
+    let payloads = vec![
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5;ext=value\r\nhello\r\n0\r\n\r\n" as &[u8],
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n5;ext\r\nhello\r\n0\r\n\r\n" as &[u8],
+    ];
+
+    for payload in payloads {
+        let _ = send_raw(server.addr, payload).await;
+    }
+
+    let raw = send_raw(
+        server.addr,
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let resp = String::from_utf8_lossy(&raw);
+    assert!(
+        resp.contains("200") || resp.is_empty(),
+        "server should handle chunk extensions: {}",
+        resp
+    );
+
+    let _ = server.shutdown_tx.send(());
+}

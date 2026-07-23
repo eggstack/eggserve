@@ -7,7 +7,7 @@
       "fixtures": [
         {
           "id": "reject-policy-blocks-body",
-          "description": "Reject policy silently drops body, handler still called",
+          "description": "Reject policy returns 413 without invoking handler",
           "input": {
             "method": "POST",
             "body": "hello",
@@ -16,8 +16,8 @@
             "max_body_bytes": 1024
           },
           "expected": {
-            "status": 200,
-            "handler_called": true
+            "status": 413,
+            "handler_called": false
           }
         },
         {

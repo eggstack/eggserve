@@ -12,7 +12,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .runtime(
             RuntimeConfig::builder()
                 .bind("127.0.0.1:3000".parse().unwrap())
-                .build(),
+                .build()?,
         )
         .build_with_service(service_fn(|req: Request| async move {
             let head = req.head();

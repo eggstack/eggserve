@@ -12,7 +12,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-OUTPUT_DIR="${1:-$REPO_ROOT/release/sbom}"
+OUTPUT_DIR="$REPO_ROOT/release/sbom"
 
 # Parse arguments
 while [[ $# -gt 0 ]]; do
@@ -114,7 +114,58 @@ fi
 # Generate SBOM
 echo "Generating SBOM..."
 SBOM_FILE="$OUTPUT_DIR/sbom.json"
-cat > "$SBOM_FILE" <<EOF
+CARGO_META="$OUTPUT_DIR/cargo-metadata.json"
+
+if [[ -f "$CARGO_META" ]] && command -v jq &>/dev/null; then
+    # Parse all packages from cargo metadata into SBOM components
+    jq --arg tag "$SOURCE_TAG" --arg ts "$TIMESTAMP" '
+    {
+      "bomFormat": "CycloneDX",
+      "specVersion": "1.4",
+      "version": 1,
+      "metadata": {
+        "timestamp": $ts,
+        "tools": [
+          {
+            "vendor": "eggserve",
+            "name": "generate-sbom.sh",
+            "version": "1.0.0"
+          }
+        ],
+        "component": {
+          "type": "application",
+          "name": "eggserve",
+          "version": $tag,
+          "description": "Security-oriented static file server"
+        }
+      },
+      "components": [
+        .packages[] | {
+          "type": "library",
+          "name": .name,
+          "version": .version,
+          "description": (.description // ""),
+          "licenses": [if .license then { "id": .license } else { "id": "UNKNOWN" } end],
+          "purl": ("pkg:cargo/" + .name + "@" + .version),
+          "properties": [
+            { "name": "cargo:manifest_path", "value": .manifest_path },
+            { "name": "cargo:source", "value": (.source // "local") }
+          ]
+        }
+      ],
+      "dependencies": [
+        .resolve.nodes[] | {
+          "ref": .id,
+          "dependsOn": [.dependencies[]]
+        }
+      ]
+    }
+    ' "$CARGO_META" > "$SBOM_FILE"
+    COMPONENT_COUNT=$(jq '.components | length' "$SBOM_FILE")
+    echo "  Created sbom.json ($COMPONENT_COUNT components)"
+else
+    # Fallback: minimal SBOM without parsed components
+    cat > "$SBOM_FILE" <<EOF
 {
   "bomFormat": "CycloneDX",
   "specVersion": "1.4",
@@ -136,10 +187,12 @@ cat > "$SBOM_FILE" <<EOF
     }
   },
   "components": [],
-  "dependencies": []
+  "dependencies": [],
+  "_warning": "Components not populated: cargo-metadata.json missing or jq unavailable"
 }
 EOF
-echo "  Created sbom.json"
+    echo "  Created sbom.json (minimal, components not populated)"
+fi
 
 # Generate provenance record
 echo "Generating provenance record..."

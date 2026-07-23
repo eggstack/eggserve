@@ -53,7 +53,8 @@ async fn handler_timeout_before_body_timeout() {
         .max_request_body_bytes(1024)
         .handler_timeout(Duration::from_millis(50))
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
 
     let handler_called = Arc::new(AtomicBool::new(false));
     let handler_called_clone = handler_called.clone();
@@ -110,7 +111,8 @@ async fn body_timeout_before_handler_timeout() {
         .max_request_body_bytes(1024)
         .handler_timeout(Duration::from_secs(10))
         .body_read_timeout(Duration::from_millis(50))
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server(
         config,
@@ -148,7 +150,8 @@ async fn graceful_shutdown_waits_for_body_completion() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
 
     let body_completed = Arc::new(AtomicBool::new(false));
     let body_completed_clone = body_completed.clone();
@@ -204,7 +207,8 @@ async fn forced_shutdown_during_body_ingestion() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(10))
-        .build();
+        .build()
+        .unwrap();
 
     let handler_called = Arc::new(AtomicBool::new(false));
     let handler_called_clone = handler_called.clone();
@@ -261,7 +265,8 @@ async fn partial_body_read_then_shutdown() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
 
     let (handle, _tmp) = start_server(
         config,
@@ -321,7 +326,8 @@ async fn repeated_requests_after_body_timeout() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(100))
-        .build();
+        .build()
+        .unwrap();
 
     let request_count = Arc::new(AtomicUsize::new(0));
     let request_count_clone = request_count.clone();

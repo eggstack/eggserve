@@ -51,7 +51,10 @@ async fn raw_request(addr: std::net::SocketAddr, request: &str) -> Vec<u8> {
 const GET_REQUEST: &str = "GET /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
 
 fn config_for(addr: &str) -> RuntimeConfig {
-    RuntimeConfig::builder().bind(addr.parse().unwrap()).build()
+    RuntimeConfig::builder()
+        .bind(addr.parse().unwrap())
+        .build()
+        .unwrap()
 }
 
 fn config_for_with_timeout(addr: &str, grace: Duration) -> RuntimeConfig {
@@ -59,6 +62,7 @@ fn config_for_with_timeout(addr: &str, grace: Duration) -> RuntimeConfig {
         .bind(addr.parse().unwrap())
         .graceful_shutdown_timeout(grace)
         .build()
+        .unwrap()
 }
 
 // ===== Track B: Listener abstraction tests =====
@@ -127,7 +131,7 @@ async fn occupied_address_returns_bind_error() {
     let handle1 = server1.start_with_service(simple_service()).await.unwrap();
     let addr = handle1.local_addr();
 
-    let config2 = RuntimeConfig::builder().bind(addr).build();
+    let config2 = RuntimeConfig::builder().bind(addr).build().unwrap();
     let server2 = Server::builder()
         .runtime(config2)
         .serve_config(make_serve_config(&tmp))
@@ -634,7 +638,8 @@ async fn concurrent_idle_connections() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_connections(100)
         .graceful_shutdown_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let server = Server::builder()
         .runtime(config)
         .serve_config(make_serve_config(&tmp))
@@ -678,7 +683,8 @@ async fn connection_limit_saturation() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_connections(2)
         .graceful_shutdown_timeout(Duration::from_secs(5))
-        .build();
+        .build()
+        .unwrap();
     let server = Server::builder()
         .runtime(config)
         .serve_config(make_serve_config(&tmp))

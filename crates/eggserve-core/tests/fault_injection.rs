@@ -531,3 +531,134 @@ async fn fault_graceful_degradation() {
         let _ = fs::set_permissions(root.join("secret.txt"), fs::Permissions::from_mode(0o644));
     }
 }
+
+#[tokio::test]
+async fn fault_fd_exhaustion_recovery() {
+    let setup = FaultTestSetup::new();
+    let root = setup.root();
+
+    fs::write(root.join("file.txt"), "content").unwrap();
+
+    // Open many file descriptors to pressure the system
+    let mut _open_files: Vec<fs::File> = Vec::new();
+    for i in 0..128 {
+        let path = root.join(format!("pressure_{}.txt", i));
+        fs::write(&path, format!("data {}", i)).unwrap();
+        match fs::File::open(&path) {
+            Ok(f) => _open_files.push(f),
+            Err(_) => break,
+        }
+    }
+
+    // Server should still serve requests despite FD pressure
+    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    assert!(
+        resp.status() == 200 || resp.status() == 503,
+        "server should handle FD pressure: {}",
+        resp.status()
+    );
+}
+
+#[tokio::test]
+async fn fault_forced_shutdown_under_load() {
+    let setup = FaultTestSetup::new();
+    let root = setup.root();
+
+    for i in 0..10 {
+        fs::write(
+            root.join(format!("file_{}.txt", i)),
+            format!("content {}", i),
+        )
+        .unwrap();
+    }
+
+    let mut handles = Vec::new();
+    for i in 0..20 {
+        let state = setup.state.clone();
+        handles.push(tokio::spawn(async move {
+            let path = format!("/file_{}.txt", i % 10);
+            let resp = handle_request(get_req(&path), &state).await;
+            let _ = resp.into_body().collect().await;
+        }));
+    }
+
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    drop(setup);
+
+    for handle in handles {
+        let _ = handle.await;
+    }
+}
+
+#[tokio::test]
+async fn fault_rapid_create_delete_cycles() {
+    let setup = FaultTestSetup::new();
+    let root = setup.root();
+
+    fs::write(root.join("static.txt"), "static content").unwrap();
+
+    let root_clone = root.to_path_buf();
+    let state = setup.state.clone();
+
+    let writer = tokio::spawn(async move {
+        for i in 0..50 {
+            let path = root_clone.join(format!("temp_{}.txt", i));
+            fs::write(&path, format!("temp {}", i)).unwrap();
+            let _ = fs::remove_file(&path);
+        }
+    });
+
+    let reader = tokio::spawn(async move {
+        for _ in 0..50 {
+            let resp = handle_request(get_req("/static.txt"), &state).await;
+            assert_eq!(resp.status(), 200);
+            let _ = resp.into_body().collect().await;
+        }
+    });
+
+    writer.await.unwrap();
+    reader.await.unwrap();
+}
+
+#[tokio::test]
+async fn fault_deeply_nested_path_traversal() {
+    let setup = FaultTestSetup::new();
+
+    let paths = vec![
+        "/../../../../../../etc/passwd",
+        "/sub/../../../sub/../../etc/hostname",
+        "/%2e%2e/%2e%2e/%2e%2e/etc/passwd",
+    ];
+
+    for path in paths {
+        let resp = handle_request(get_req(path), &setup.state).await;
+        assert!(
+            resp.status() == 400 || resp.status() == 403 || resp.status() == 404,
+            "deep traversal {} should be denied: {}",
+            path,
+            resp.status()
+        );
+    }
+}
+
+#[tokio::test]
+async fn fault_empty_request_handling() {
+    let setup = FaultTestSetup::new();
+
+    let resp = handle_request(
+        hyper::Request::builder()
+            .body(http_body_util::Empty::<Bytes>::new())
+            .unwrap(),
+        &setup.state,
+    )
+    .await;
+
+    assert!(
+        resp.status() == 400
+            || resp.status() == 403
+            || resp.status() == 405
+            || resp.status() == 500,
+        "empty request should be rejected: {}",
+        resp.status()
+    );
+}

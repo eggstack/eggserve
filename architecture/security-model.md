@@ -134,7 +134,7 @@ See [filesystem-confinement.md](filesystem-confinement.md) for the full traversa
 | Max connections | 64 | TCP accept semaphore; new connections dropped when exhausted |
 | Max file streams | 32 | Concurrent file streaming; 503 when exhausted |
 | Header read timeout | 10s | Slowloris protection |
-| Response write timeout | 60s | Slow response protection |
+| Connection total timeout | 60s | Slow response protection (wraps entire Hyper connection future) |
 | Graceful shutdown timeout | 10s | Drain period after SIGTERM |
 | Request body size | 0 (rejected) | No bodies processed by default |
 | Handler timeout | configurable | Per-request timeout for service processing |

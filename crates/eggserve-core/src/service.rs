@@ -121,6 +121,23 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
 
             let guard = RootGuard::new(state.pinned_root());
 
+            let if_none_match = req
+                .headers()
+                .get(hyper::header::IF_NONE_MATCH)
+                .and_then(|v| v.to_str().ok());
+            let if_modified_since = req
+                .headers()
+                .get(hyper::header::IF_MODIFIED_SINCE)
+                .and_then(|v| v.to_str().ok());
+            let range = req
+                .headers()
+                .get(hyper::header::RANGE)
+                .and_then(|v| v.to_str().ok());
+            let if_range = req
+                .headers()
+                .get(hyper::header::IF_RANGE)
+                .and_then(|v| v.to_str().ok());
+
             match guard.resolve(&confined, &config.static_policy) {
                 ResolvedResource::File(file) => {
                     let etag = generate_etag(&file.metadata);
@@ -133,23 +150,6 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                     } else {
                         ReadOnlyMethod::Get
                     };
-
-                    let if_none_match = req
-                        .headers()
-                        .get(hyper::header::IF_NONE_MATCH)
-                        .and_then(|v| v.to_str().ok());
-                    let if_modified_since = req
-                        .headers()
-                        .get(hyper::header::IF_MODIFIED_SINCE)
-                        .and_then(|v| v.to_str().ok());
-                    let range = req
-                        .headers()
-                        .get(hyper::header::RANGE)
-                        .and_then(|v| v.to_str().ok());
-                    let if_range = req
-                        .headers()
-                        .get(hyper::header::IF_RANGE)
-                        .and_then(|v| v.to_str().ok());
 
                     let plan = plan_file_response(
                         method,
@@ -191,7 +191,17 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
                     .await
                 }
                 ResolvedResource::Directory(dir) => {
-                    handle_directory(&dir, config, state, is_head).await
+                    handle_directory(
+                        &dir,
+                        config,
+                        state,
+                        is_head,
+                        if_none_match,
+                        if_modified_since,
+                        range,
+                        if_range,
+                    )
+                    .await
                 }
                 ResolvedResource::NotFound => {
                     crate::ops::Logger::global().emit(
@@ -242,11 +252,16 @@ pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 async fn handle_directory(
     dir: &ResolvedDirectory,
     config: &crate::config::ServeConfig,
     state: &crate::config::ServeState,
     is_head: bool,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range: Option<&str>,
+    if_range: Option<&str>,
 ) -> Response<BoxBodyInner> {
     let guard = RootGuard::new(state.pinned_root());
 
@@ -263,8 +278,15 @@ async fn handle_directory(
                 ReadOnlyMethod::Get
             };
 
-            let plan =
-                plan_file_response(method, &file.metadata, content_type, None, None, None, None);
+            let plan = plan_file_response(
+                method,
+                &file.metadata,
+                content_type,
+                if_none_match,
+                if_modified_since,
+                range,
+                if_range,
+            );
 
             let status = match plan.status.as_u16() {
                 200 => StatusCode::OK,
@@ -317,7 +339,8 @@ fn generate_etag(metadata: &fs::Metadata) -> Option<String> {
     let mtime = metadata.modified().ok()?;
     let epoch = mtime.duration_since(SystemTime::UNIX_EPOCH).ok()?;
     let mtime_secs = epoch.as_secs();
-    Some(format!("W/\"{}-{}\"", size, mtime_secs))
+    let mtime_nanos = epoch.subsec_nanos();
+    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
 }
 
 fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner> {

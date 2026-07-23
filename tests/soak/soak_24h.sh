@@ -21,8 +21,17 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
 PROFILE="${1:-unix-reverse-proxy}"
 DURATION_HOURS="${SOAK_DURATION_HOURS:-24}"
+DURATION_SECS="${SOAK_DURATION_SECS:-0}"
 LOG_DIR="${SOAK_LOG_DIR:-/tmp/eggserve-soak}"
 VERBOSE="${SOAK_VERBOSE:-false}"
+
+# Convert hours to seconds if duration_secs not set
+if [[ "$DURATION_SECS" -eq 0 ]]; then
+    DURATION_SECS=$((DURATION_HOURS * 3600))
+fi
+if [[ "$DURATION_SECS" -lt 1 ]]; then
+    DURATION_SECS=1
+fi
 
 mkdir -p "$LOG_DIR"
 
@@ -74,7 +83,7 @@ touch "$WORK_DIR/root/empty.txt"
 
 # Start eggserve
 EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
-"$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --root "$WORK_DIR/root" &
+"$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
 EGGSERVE_PID=$!
 trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
 sleep 1
@@ -86,14 +95,17 @@ fi
 
 # Soak test metrics
 START_TIME=$(date +%s)
-END_TIME=$((START_TIME + DURATION_HOURS * 3600))
+END_TIME=$((START_TIME + DURATION_SECS))
 TOTAL_REQUESTS=0
 TOTAL_ERRORS=0
 MAX_RSS_KB=0
 LOG_FILE="$LOG_DIR/soak_${PROFILE}_$(date +%Y%m%d_%H%M%S).log"
+LATENCY_SUM=0
+LATENCY_COUNT=0
+LATENCY_MAX=0
 
 echo "=== Soak Test: $PROFILE ===" | tee "$LOG_FILE"
-echo "Duration: ${DURATION_HOURS}h" | tee -a "$LOG_FILE"
+echo "Duration: ${DURATION_SECS}s" | tee -a "$LOG_FILE"
 echo "Port: $EGGSERVE_PORT" | tee -a "$LOG_FILE"
 echo "Log: $LOG_FILE" | tee -a "$LOG_FILE"
 echo "" | tee -a "$LOG_FILE"
@@ -101,8 +113,20 @@ echo "" | tee -a "$LOG_FILE"
 # Traffic mix functions
 do_get() {
     local path="$1"
+    local start_ms
+    start_ms=$(date +%s%N 2>/dev/null | cut -b1-13 || echo "0")
     local status
     status=$("$CURL_BIN" -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:${EGGSERVE_PORT}${path}" 2>/dev/null || echo "000")
+    local end_ms
+    end_ms=$(date +%s%N 2>/dev/null | cut -b1-13 || echo "0")
+    if [[ "$start_ms" != "0" ]] && [[ "$end_ms" != "0" ]]; then
+        local elapsed_ms=$((end_ms - start_ms))
+        LATENCY_SUM=$((LATENCY_SUM + elapsed_ms))
+        LATENCY_COUNT=$((LATENCY_COUNT + 1))
+        if [[ "$elapsed_ms" -gt "$LATENCY_MAX" ]]; then
+            LATENCY_MAX="$elapsed_ms"
+        fi
+    fi
     echo "$status"
 }
 
@@ -134,92 +158,98 @@ log_metric() {
     timestamp=$(date '+%Y-%m-%d %H:%M:%S')
     local rss_kb
     rss_kb=$(ps -o rss= -p "$EGGSERVE_PID" 2>/dev/null | tr -d ' ' || echo "0")
+    local fd_count
+    fd_count=$(ls /proc/"$EGGSERVE_PID"/fd 2>/dev/null | wc -l || echo "0")
+    local avg_latency="0"
+    if [[ "$LATENCY_COUNT" -gt 0 ]]; then
+        avg_latency=$((LATENCY_SUM / LATENCY_COUNT))
+    fi
     
     if [[ "$rss_kb" -gt "$MAX_RSS_KB" ]]; then
         MAX_RSS_KB="$rss_kb"
     fi
     
-    echo "${timestamp} | requests=${TOTAL_REQUESTS} errors=${TOTAL_ERRORS} rss_kb=${rss_kb} max_rss_kb=${MAX_RSS_KB}" >> "$LOG_FILE"
+    echo "${timestamp} | requests=${TOTAL_REQUESTS} errors=${TOTAL_ERRORS} rss_kb=${rss_kb} max_rss_kb=${MAX_RSS_KB} fds=${fd_count} avg_latency_ms=${avg_latency} max_latency_ms=${LATENCY_MAX}" >> "$LOG_FILE"
     
     if [[ "$VERBOSE" == "true" ]]; then
-        echo "${timestamp} | requests=${TOTAL_REQUESTS} errors=${TOTAL_ERRORS} rss_kb=${rss_kb}"
+        echo "${timestamp} | requests=${TOTAL_REQUESTS} errors=${TOTAL_ERRORS} rss_kb=${rss_kb} fds=${fd_count} avg_ms=${avg_latency}"
     fi
 }
 
 # Main loop
 CYCLE=0
 while [[ $(date +%s) -lt $END_TIME ]]; do
-    ((CYCLE++))
-    
+    CYCLE=$((CYCLE + 1))
+
     # GET small files
     for i in $(seq 1 10); do
         status=$(do_get "/small_${i}.txt")
-        ((TOTAL_REQUESTS++))
+        TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
         if [[ "$status" != "200" ]]; then
-            ((TOTAL_ERRORS++))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
             echo "ERROR: GET /small_${i}.txt returned $status" >> "$LOG_FILE"
         fi
     done
-    
+
     # HEAD medium files
     for i in $(seq 1 5); do
         status=$(do_head "/medium_${i}.bin")
-        ((TOTAL_REQUESTS++))
+        TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
         if [[ "$status" != "200" ]]; then
-            ((TOTAL_ERRORS++))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
             echo "ERROR: HEAD /medium_${i}.bin returned $status" >> "$LOG_FILE"
         fi
     done
-    
+
     # Range requests on large files
     for i in $(seq 1 3); do
         local_size=$(stat -c%s "$WORK_DIR/root/large_${i}.bin" 2>/dev/null || echo "102400")
         local_start=$((RANDOM % (local_size / 2)))
         local_end=$((local_start + 1023))
         status=$(do_range "/large_${i}.bin" "$local_start" "$local_end")
-        ((TOTAL_REQUESTS++))
+        TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
         if [[ "$status" != "206" ]]; then
-            ((TOTAL_ERRORS++))
+            TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
             echo "ERROR: RANGE /large_${i}.bin returned $status" >> "$LOG_FILE"
         fi
     done
-    
+
     # GET nested files
     status=$(do_get "/subdir/nested.txt")
-    ((TOTAL_REQUESTS++))
+    TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
     if [[ "$status" != "200" ]]; then
-        ((TOTAL_ERRORS++))
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
-    
+
     status=$(do_get "/subdir/deep.bin")
-    ((TOTAL_REQUESTS++))
+    TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
     if [[ "$status" != "200" ]]; then
-        ((TOTAL_ERRORS++))
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
-    
+
     # 404 requests
     status=$(do_get "/nonexistent_${CYCLE}.txt")
-    ((TOTAL_REQUESTS++))
+    TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
     if [[ "$status" != "404" ]]; then
-        ((TOTAL_ERRORS++))
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
-    
+
     # Empty file
     status=$(do_get "/empty.txt")
-    ((TOTAL_REQUESTS++))
+    TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
     if [[ "$status" != "200" ]]; then
-        ((TOTAL_ERRORS++))
+        TOTAL_ERRORS=$((TOTAL_ERRORS + 1))
     fi
-    
+
     # Malformed requests (every 100 cycles)
     if (( CYCLE % 100 == 0 )); then
         do_malformed "GARBAGE DATA\r\n\r\n" > /dev/null 2>&1
-        ((TOTAL_REQUESTS++))
-        
+        TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
+
         do_malformed "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Length: 6\r\n\r\n0\r\n\r\n" > /dev/null 2>&1
-        ((TOTAL_REQUESTS++))
+        TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
     fi
-    
+
     # Slow headers (every 200 cycles)
     if (( CYCLE % 200 == 0 )); then
         (
@@ -230,34 +260,34 @@ while [[ $(date +%s) -lt $END_TIME ]]; do
             cat <&3
             exec 3>&-
         ) > /dev/null 2>&1 || true
-        ((TOTAL_REQUESTS++))
+        TOTAL_REQUESTS=$((TOTAL_REQUESTS + 1))
     fi
-    
+
     # Periodic graceful restart (every 1000 cycles)
     if (( CYCLE % 1000 == 0 )); then
         log_metric
         echo "Cycle $CYCLE: performing graceful restart" >> "$LOG_FILE"
-        
+
         kill -TERM "$EGGSERVE_PID" 2>/dev/null || true
         wait "$EGGSERVE_PID" 2>/dev/null || true
-        
+
         sleep 2
-        
-        "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --root "$WORK_DIR/root" &
+
+        "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
         EGGSERVE_PID=$!
         sleep 1
-        
+
         if ! kill -0 "$EGGSERVE_PID" 2>/dev/null; then
             echo "FAIL: eggserve failed to restart after cycle $CYCLE"
             exit 1
         fi
     fi
-    
+
     # Log metrics every 100 cycles
     if (( CYCLE % 100 == 0 )); then
         log_metric
     fi
-    
+
     # Brief pause to avoid tight loop
     sleep 0.1
 done
@@ -270,7 +300,13 @@ echo "=== Soak Test Complete ===" | tee -a "$LOG_FILE"
 echo "Total requests: $TOTAL_REQUESTS" | tee -a "$LOG_FILE"
 echo "Total errors: $TOTAL_ERRORS" | tee -a "$LOG_FILE"
 echo "Max RSS: ${MAX_RSS_KB}KB" | tee -a "$LOG_FILE"
-echo "Duration: ${DURATION_HOURS}h" | tee -a "$LOG_FILE"
+AVG_LATENCY="0"
+if [[ "$LATENCY_COUNT" -gt 0 ]]; then
+    AVG_LATENCY=$((LATENCY_SUM / LATENCY_COUNT))
+fi
+echo "Avg latency: ${AVG_LATENCY}ms" | tee -a "$LOG_FILE"
+echo "Max latency: ${LATENCY_MAX}ms" | tee -a "$LOG_FILE"
+echo "Duration: ${DURATION_SECS}s" | tee -a "$LOG_FILE"
 
 # Validate results
 if [[ $TOTAL_ERRORS -gt 0 ]]; then
