@@ -82,6 +82,29 @@ pub(crate) fn validate_no_request_body<B>(
 }
 
 pub async fn handle_request<B>(req: Request<B>, state: &ServeState) -> Response<BoxBodyInner> {
+    handle_request_with_metadata(
+        req,
+        state,
+        std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 0),
+        std::net::SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::LOCALHOST), 0),
+        None,
+    )
+    .await
+}
+
+/// Handle an HTTP request with real connection metadata.
+///
+/// This is identical to [`handle_request`] but accepts transport-level metadata
+/// (local/remote addresses, TLS info) that may be used for logging or diagnostics.
+/// The metadata is captured at accept time and reflects the actual transport peer,
+/// not end-client identity behind a reverse proxy.
+pub async fn handle_request_with_metadata<B>(
+    req: Request<B>,
+    state: &ServeState,
+    _local_addr: std::net::SocketAddr,
+    _remote_addr: std::net::SocketAddr,
+    _tls_info: Option<crate::primitives::connection_info::TlsInfo>,
+) -> Response<BoxBodyInner> {
     let config = &state.config;
 
     match *req.method() {

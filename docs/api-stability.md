@@ -117,7 +117,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | Item | Tier | Notes |
 |------|------|-------|
 | `Server` | experimental | Main entry point; `Server::builder()` returns `ServerBuilder` |
-| `ServerBuilder` | experimental | Configured builder; `.config()`, `.service()`, `.start()`, `.bind()`, `.from_listener()` |
+| `ServerBuilder` | experimental | Configured builder; `.config()`, `.start()`, `.bind()`, `.from_listener()` |
 | `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, keep-alive |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |

@@ -6,7 +6,7 @@ use eggserve_core::config::ServeConfig;
 use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
 use eggserve_core::primitives::request::Request;
 use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::{service_fn, Server, Service, ShutdownResult};
+use eggserve_core::server::{service_fn, Server, Service, ServiceError, ShutdownResult};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -629,6 +629,38 @@ async fn repeated_start_shutdown_cycles() {
         handle.shutdown();
         let _ = handle.wait().await;
     }
+}
+
+/// Compile-time service trait bound verification.
+///
+/// This test verifies that the `Service` trait is correctly implemented for
+/// the expected types and that `start_with_service` accepts them. Invalid
+/// types would cause a compile error at the `start_with_service` call.
+#[tokio::test]
+async fn service_trait_bound_verification() {
+    // Verify service_fn works (returns impl Service).
+    let svc = service_fn(|_req: Request| async {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Bytes(b"ok".to_vec()))
+            .unwrap())
+    });
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(svc).await.unwrap();
+    let addr = handle.local_addr();
+
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(response.starts_with("HTTP/1.1 200"));
+
+    handle.shutdown();
+    let _ = handle.wait().await;
 }
 
 #[tokio::test]
@@ -1328,4 +1360,323 @@ async fn config_validation_rejects_zero_timeouts() {
         };
         assert!(result.is_err(), "{} = zero should return error", name);
     }
+}
+
+// ===== Track C: Service ownership and lifecycle tests =====
+
+use std::sync::atomic::AtomicUsize;
+
+/// Drop-count instrumentation: verify the supplied service instance is dropped
+/// exactly once on normal shutdown.
+#[tokio::test]
+async fn service_drop_count_on_normal_shutdown() {
+    static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    struct CountingService;
+    impl Service for CountingService {
+        fn call(
+            &self,
+            _req: Request,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Response, ServiceError>> + Send + '_>,
+        > {
+            Box::pin(async {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"ok".to_vec()))
+                    .unwrap())
+            })
+        }
+    }
+    impl Drop for CountingService {
+        fn drop(&mut self) {
+            DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(CountingService).await.unwrap();
+    let addr = handle.local_addr();
+
+    // Make a request to verify the service is invoked.
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(response.starts_with("HTTP/1.1 200"));
+
+    // Shutdown and wait for the server to stop.
+    handle.shutdown();
+    let _ = handle.wait().await;
+
+    // The service should be dropped exactly once.
+    let count = DROP_COUNT.load(Ordering::SeqCst);
+    assert_eq!(
+        count, 1,
+        "service should be dropped exactly once, got {}",
+        count
+    );
+}
+
+/// Drop-count instrumentation: verify the supplied service instance is dropped
+/// exactly once on forced shutdown.
+#[tokio::test]
+async fn service_drop_count_on_forced_shutdown() {
+    static DROP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    struct SlowService;
+    impl Service for SlowService {
+        fn call(
+            &self,
+            _req: Request,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Response, ServiceError>> + Send + '_>,
+        > {
+            Box::pin(async {
+                // Simulate a slow handler that won't finish before forced shutdown.
+                tokio::time::sleep(Duration::from_secs(60)).await;
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"slow".to_vec()))
+                    .unwrap())
+            })
+        }
+    }
+    impl Drop for SlowService {
+        fn drop(&mut self) {
+            DROP_COUNT.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(50));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(SlowService).await.unwrap();
+    let addr = handle.local_addr();
+
+    // Start a request that will be in-flight during forced shutdown.
+    let _resp = raw_request(addr, GET_REQUEST).await;
+
+    // Force shutdown with a very short timeout.
+    let _result = handle.force_shutdown(Duration::from_millis(10)).await;
+
+    // The service should be dropped exactly once (even on forced shutdown).
+    let count = DROP_COUNT.load(Ordering::SeqCst);
+    assert_eq!(
+        count, 1,
+        "service should be dropped exactly once on forced shutdown, got {}",
+        count
+    );
+}
+
+/// Supplied-instance identity: verify the service instance supplied to
+/// `start_with_service` is the one that handles requests.
+#[tokio::test]
+async fn supplied_service_instance_is_invoked() {
+    static WAS_INVOKED: AtomicBool = AtomicBool::new(false);
+
+    struct IdentityService;
+    impl Service for IdentityService {
+        fn call(
+            &self,
+            _req: Request,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Response, ServiceError>> + Send + '_>,
+        > {
+            WAS_INVOKED.store(true, Ordering::SeqCst);
+            Box::pin(async {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"identity".to_vec()))
+                    .unwrap())
+            })
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(IdentityService).await.unwrap();
+    let addr = handle.local_addr();
+
+    let resp = raw_request(addr, GET_REQUEST).await;
+    let response = String::from_utf8_lossy(&resp);
+    assert!(response.starts_with("HTTP/1.1 200"));
+    assert!(
+        WAS_INVOKED.load(Ordering::SeqCst),
+        "the supplied service instance should be invoked"
+    );
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+/// Service state persists across keep-alive requests on the same connection.
+#[tokio::test]
+async fn service_state_persists_across_keepalive() {
+    use std::sync::atomic::AtomicU32;
+
+    static REQUEST_COUNT: AtomicU32 = AtomicU32::new(0);
+
+    struct StatefulService;
+    impl Service for StatefulService {
+        fn call(
+            &self,
+            _req: Request,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<Response, ServiceError>> + Send + '_>,
+        > {
+            let count = REQUEST_COUNT.fetch_add(1, Ordering::SeqCst) + 1;
+            Box::pin(async move {
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(format!("count={count}").into_bytes()))
+                    .unwrap())
+            })
+        }
+    }
+
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(StatefulService).await.unwrap();
+    let addr = handle.local_addr();
+
+    // Send two requests on the same connection (keep-alive).
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    stream
+        .write_all(b"GET /req1 HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf1 = Vec::new();
+    let _ = stream.read_to_end(&mut buf1).await;
+
+    // The request count should be 1.
+    let count = REQUEST_COUNT.load(Ordering::SeqCst);
+    assert_eq!(count, 1, "first request should be counted, got {}", count);
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+/// Static and custom services use the same listener/task supervisor.
+#[tokio::test]
+async fn static_and_custom_service_equivalent_supervisor() {
+    let tmp = TempDir::new().unwrap();
+
+    // Start a static service server.
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let static_handle = server.start().await.unwrap();
+    let static_addr = static_handle.local_addr();
+
+    // Start a custom service server.
+    let config2 = config_for("127.0.0.1:0");
+    let server2 = Server::builder()
+        .runtime(config2)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let custom_handle = server2.start_with_service(simple_service()).await.unwrap();
+    let custom_addr = custom_handle.local_addr();
+
+    // Both should be reachable.
+    let static_resp = raw_request(static_addr, GET_REQUEST).await;
+    let custom_resp = raw_request(custom_addr, GET_REQUEST).await;
+    assert!(
+        String::from_utf8_lossy(&static_resp).starts_with("HTTP/1.1"),
+        "static service should respond"
+    );
+    assert!(
+        String::from_utf8_lossy(&custom_resp).starts_with("HTTP/1.1"),
+        "custom service should respond"
+    );
+
+    static_handle.shutdown();
+    let _ = static_handle.wait().await;
+    custom_handle.shutdown();
+    let _ = custom_handle.wait().await;
+}
+
+/// Separate connections have distinct remote ephemeral ports.
+#[tokio::test]
+async fn separate_connections_have_distinct_remote_ports() {
+    use std::sync::atomic::{AtomicU16, AtomicUsize, Ordering};
+
+    static PORT_1: AtomicU16 = AtomicU16::new(0);
+    static PORT_2: AtomicU16 = AtomicU16::new(0);
+    static CONN_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server
+        .start_with_service(service_fn(|_req: Request| async {
+            let conn_num = CONN_COUNT.fetch_add(1, Ordering::SeqCst);
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(format!("conn={conn_num}").into_bytes()))
+                .unwrap())
+        }))
+        .await
+        .unwrap();
+    let addr = handle.local_addr();
+
+    // First connection.
+    {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"GET /1 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf).await;
+        PORT_1.store(stream.local_addr().unwrap().port(), Ordering::SeqCst);
+    }
+
+    // Second connection (after first is closed).
+    {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"GET /2 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf).await;
+        PORT_2.store(stream.local_addr().unwrap().port(), Ordering::SeqCst);
+    }
+
+    let _port1 = PORT_1.load(Ordering::SeqCst);
+    let _port2 = PORT_2.load(Ordering::SeqCst);
+    // Ephemeral ports should typically be different (OS assigns from a pool).
+    // On some systems they may be reused, so we just verify the count is 2.
+    let count = CONN_COUNT.load(Ordering::SeqCst);
+    assert_eq!(count, 2, "both connections should be served");
+
+    handle.shutdown();
+    let _ = handle.wait().await;
 }

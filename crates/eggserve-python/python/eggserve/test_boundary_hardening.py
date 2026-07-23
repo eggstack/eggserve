@@ -1001,5 +1001,114 @@ class TestHandlerInvalidResponse(_TestServerBase):
             self.assertEqual(e.code, 500)
 
 
+class TestConnectionMetadata(_TestServerBase):
+    """Connection metadata: verify real socket addresses are propagated."""
+
+    def test_remote_addr_has_real_ephemeral_port(self):
+        """remote_addr contains a real ephemeral port, not a placeholder."""
+        captured = []
+
+        def handler(req):
+            captured.append(req.remote_addr)
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        urllib.request.urlopen(url, timeout=2)
+
+        remote_addr = captured[-1]
+        self.assertIsNotNone(remote_addr, "remote_addr should be populated")
+        # Parse host:port and verify the port is a real ephemeral port (> 0).
+        host, port_str = remote_addr.rsplit(":", 1)
+        port = int(port_str)
+        self.assertGreater(port, 0, "remote port should be a real ephemeral port")
+        self.assertLess(port, 65536, "remote port should be valid")
+
+    def test_local_addr_populated(self):
+        """local_addr is populated with the server's bind address."""
+        captured = []
+
+        def handler(req):
+            captured.append(req.local_addr)
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        urllib.request.urlopen(url, timeout=2)
+
+        local_addr = captured[-1]
+        self.assertIsNotNone(local_addr, "local_addr should be populated")
+        host, port_str = local_addr.rsplit(":", 1)
+        port = int(port_str)
+        self.assertGreater(port, 0, "local port should be a real port")
+        self.assertLess(port, 65536, "local port should be valid")
+
+    def test_scheme_is_http_for_plaintext(self):
+        """scheme is 'http' for plaintext connections."""
+        captured = []
+
+        def handler(req):
+            captured.append(req.scheme)
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        urllib.request.urlopen(url, timeout=2)
+
+        self.assertEqual(captured[-1], "http")
+
+    def test_remote_addr_not_placeholder(self):
+        """remote_addr is not a fake placeholder value."""
+        captured = []
+
+        def handler(req):
+            captured.append(req.remote_addr)
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        urllib.request.urlopen(url, timeout=2)
+
+        remote_addr = captured[-1]
+        self.assertIsNotNone(remote_addr)
+        # Should not be a placeholder like "127.0.0.1:0" or "[::1]:0".
+        self.assertFalse(
+            remote_addr.endswith(":0"),
+            f"remote_addr should not be a placeholder: {remote_addr}",
+        )
+
+    def test_connection_metadata_across_requests(self):
+        """Connection metadata is consistent across requests on the same connection."""
+        captured = []
+
+        def handler(req):
+            captured.append((req.remote_addr, req.local_addr, req.scheme))
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+
+        # Make two requests (different connections).
+        urllib.request.urlopen(url, timeout=2)
+        urllib.request.urlopen(url, timeout=2)
+
+        self.assertEqual(len(captured), 2)
+        # Both should have valid metadata.
+        for remote_addr, local_addr, scheme in captured:
+            self.assertIsNotNone(remote_addr)
+            self.assertIsNotNone(local_addr)
+            self.assertEqual(scheme, "http")
+            # Ports should be real.
+            _, rport = remote_addr.rsplit(":", 1)
+            _, lport = local_addr.rsplit(":", 1)
+            self.assertGreater(int(rport), 0)
+            self.assertGreater(int(lport), 0)
+
+
 if __name__ == "__main__":
     unittest.main()

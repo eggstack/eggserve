@@ -132,6 +132,7 @@ pub async fn serve_connection_with_service<I, S>(
     local_addr: std::net::SocketAddr,
     remote_addr: std::net::SocketAddr,
     tls: bool,
+    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
@@ -141,9 +142,11 @@ pub async fn serve_connection_with_service<I, S>(
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
     let incomplete_body_policy = config.incomplete_body_policy;
+    let tls_info = std::sync::Arc::new(tls_info);
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
         let service = service.clone();
+        let tls_info = tls_info.clone();
         async move {
             // Convert Hyper request to canonical RequestHead.
             let head = match convert_request_head(&req) {
@@ -252,7 +255,8 @@ pub async fn serve_connection_with_service<I, S>(
             match &effective_policy {
                 RequestBodyPolicy::Reject => {
                     // Reject with no body — proceed to service with empty body.
-                    let connection = build_connection_info(local_addr, remote_addr, tls);
+                    let connection =
+                        build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -323,7 +327,8 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                     };
 
-                    let connection = build_connection_info(local_addr, remote_addr, tls);
+                    let connection =
+                        build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -368,7 +373,8 @@ pub async fn serve_connection_with_service<I, S>(
                     // For Stream mode, enforce body_read_timeout as a total deadline
                     // on the service call (which includes body consumption).
                     let effective_timeout = body_read_timeout.min(handler_timeout);
-                    let connection = build_connection_info(local_addr, remote_addr, tls);
+                    let connection =
+                        build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -510,6 +516,7 @@ fn build_connection_info(
     local_addr: std::net::SocketAddr,
     remote_addr: std::net::SocketAddr,
     tls: bool,
+    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
 ) -> crate::primitives::connection_info::ConnectionInfo {
     crate::primitives::connection_info::ConnectionInfo {
         local_addr,
@@ -519,7 +526,7 @@ fn build_connection_info(
         } else {
             crate::primitives::connection_info::Scheme::Http
         },
-        tls: None,
+        tls: tls_info,
     }
 }
 

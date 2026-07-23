@@ -51,6 +51,7 @@ async fn panic_in_service_returns_500() {
             addr,
             addr,
             false,
+            None,
         )
         .await;
     });
@@ -109,6 +110,7 @@ async fn slow_handler_returns_504() {
             addr,
             addr,
             false,
+            None,
         )
         .await;
     });
@@ -167,6 +169,7 @@ async fn malformed_request_rejected_before_service() {
             addr,
             addr,
             false,
+            None,
         )
         .await;
     });
@@ -216,6 +219,7 @@ async fn custom_service_bytes_through_pipeline() {
             addr,
             addr,
             false,
+            None,
         )
         .await;
     });
@@ -353,5 +357,77 @@ async fn hop_by_hop_headers_stripped() {
             .iter()
             .any(|n| n.eq_ignore_ascii_case("x-custom")),
         "non-hop-by-hop header 'X-Custom' should be preserved"
+    );
+}
+
+/// Connection metadata: verify real socket addresses are propagated to the
+/// custom service through the Request envelope.
+#[tokio::test]
+async fn connection_metadata_propagated_to_service() {
+    use eggserve_core::primitives::connection_info::Scheme;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    static METADATA_SEEN: AtomicBool = AtomicBool::new(false);
+
+    let tmp = TempDir::new().unwrap();
+    let state = build_state(&tmp);
+    let config = RuntimeConfig::default();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, _rx) = broadcast::channel::<()>(1);
+
+    let state_clone = state.clone();
+    let server = tokio::spawn(async move {
+        let (stream, peer_addr) = listener.accept().await.unwrap();
+        let io = TokioIo::new(stream);
+        let mut shutdown_rx = tx.subscribe();
+        let svc = service_fn(move |req: Request| {
+            let peer_addr = peer_addr;
+            async move {
+                let conn = req.connection();
+                // Verify real addresses are present (not placeholder 127.0.0.1:0).
+                assert_ne!(
+                    conn.remote_addr.port(),
+                    0,
+                    "remote port should be a real ephemeral port"
+                );
+                assert_eq!(conn.remote_addr, peer_addr);
+                assert_eq!(conn.local_addr, addr);
+                assert_eq!(conn.scheme, Scheme::Http);
+                assert!(conn.tls.is_none());
+                METADATA_SEEN.store(true, Ordering::SeqCst);
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"ok".to_vec()))
+                    .unwrap())
+            }
+        });
+        serve_connection_with_service(
+            io,
+            svc,
+            &config,
+            &state_clone,
+            &mut shutdown_rx,
+            1,
+            addr,
+            peer_addr,
+            false,
+            None,
+        )
+        .await;
+    });
+
+    let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(b"GET /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = Vec::new();
+    let _ = client.read_to_end(&mut buf).await;
+    let _ = server.await;
+
+    assert!(
+        METADATA_SEEN.load(Ordering::SeqCst),
+        "connection metadata should be visible to the service"
     );
 }

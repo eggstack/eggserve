@@ -152,6 +152,34 @@ The `ShutdownComplete` operational event now includes the abort count (`aborted=
 
 **Migration**: If you are parsing operational log output, update parsers to handle the new `(aborted=N)` suffix in `ShutdownComplete` messages and the new `ForcedShutdownStarted` event type.
 
+## Plan 078: Custom-Service Ownership and Connection Metadata
+
+### Removed: `ServerBuilder::build_with_service()`
+
+The `build_with_service()` method accepted a service value but silently discarded it. The service had to be supplied again at `start_with_service()`. This method has been removed.
+
+| Before | After | Change |
+|--------|-------|--------|
+| `ServerBuilder::build_with_service(svc)` | `ServerBuilder::build()` + `.start_with_service(svc)` | Removed; use `start_with_service()` |
+
+**Migration**: Replace `server.build_with_service(svc)` with `server.build()` and pass the service to `start_with_service()`.
+
+### Python: `Request.local_addr` and `Request.scheme`
+
+The Python `Request` object now includes `local_addr` (the server's local socket address) and `scheme` (`"http"` or `"https"`). The `remote_addr` field is now populated from the actual transport peer instead of being `None`.
+
+| Field | Before | After |
+|-------|--------|-------|
+| `Request.remote_addr` | `None` (always) | Real peer socket address string (e.g., `"127.0.0.1:54321"`) |
+| `Request.local_addr` | Not present | Real local socket address string (e.g., `"127.0.0.1:8000"`) |
+| `Request.scheme` | Not present | `"http"` or `"https"` |
+
+**Migration**: No action required for existing code. The new fields are additive. If you were working around `remote_addr` being `None`, the workaround is no longer needed.
+
+### Connection metadata reflects transport peer
+
+Connection metadata (`remote_addr`, `local_addr`, `scheme`) reflects the transport-level peer, not the end-client identity. When eggserve is behind a reverse proxy, `remote_addr` will be the proxy's address. End-client identity requires explicit proxy-header validation (see `docs/deployment.md`).
+
 ## Breaking Change Policy
 
 Pre-1.0, minor releases may break stable APIs only with explicit release notes

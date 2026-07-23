@@ -403,7 +403,7 @@ async fn accept_loop(
         tokio::select! {
             result = listener.accept() => {
                 match result {
-                    Ok((stream, _peer_addr)) => {
+                    Ok((stream, peer_addr)) => {
                         backoff_idx = 0;
                         error_repeat_count = 0;
                         last_error_kind = None;
@@ -441,6 +441,8 @@ async fn accept_loop(
                         let mut shutdown_rx = shutdown_rx.resubscribe();
                         let state = state.clone();
                         let config = config.clone();
+                        let remote_addr = peer_addr;
+                        let local_addr = stream.local_addr().unwrap_or(config.bind);
 
                         tasks.spawn(async move {
                             let _permit = permit;
@@ -450,7 +452,7 @@ async fn accept_loop(
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
                                     match accept_tls(stream, &tls_acceptor, config.header_read_timeout, conn_id).await {
-                                        Some(tls_stream) => {
+                                        Some((tls_stream, tls_info)) => {
                                             crate::ops::Logger::global().emit(
                                                 crate::ops::Event::new(
                                                     crate::ops::Severity::Debug,
@@ -460,11 +462,15 @@ async fn accept_loop(
                                                 .connection_id(conn_id),
                                             );
                                             let io = TokioIo::new(tls_stream);
+                                            let tls_info = std::sync::Arc::new(Some(tls_info));
                                             let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                                                 let state = state.clone();
+                                                let tls_info = tls_info.clone();
+                                                let local_addr = local_addr;
+                                                let remote_addr = remote_addr;
                                                 async move {
                                                     Ok::<_, std::convert::Infallible>(
-                                                        crate::service::handle_request(req, &state).await,
+                                                        crate::service::handle_request_with_metadata(req, &state, local_addr, remote_addr, (*tls_info).clone()).await,
                                                     )
                                                 }
                                             });
@@ -483,9 +489,11 @@ async fn accept_loop(
                             let io = TokioIo::new(stream);
                             let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
                                 let state = state.clone();
+                                let local_addr = local_addr;
+                                let remote_addr = remote_addr;
                                 async move {
                                     Ok::<_, std::convert::Infallible>(
-                                        crate::service::handle_request(req, &state).await,
+                                        crate::service::handle_request_with_metadata(req, &state, local_addr, remote_addr, None).await,
                                     )
                                 }
                             });
@@ -678,7 +686,7 @@ async fn accept_loop_with_service<S: Service>(
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
                                     match accept_tls(stream, &tls_acceptor, config.header_read_timeout, conn_id).await {
-                                        Some(tls_stream) => {
+                                        Some((tls_stream, tls_info)) => {
                                             crate::ops::Logger::global().emit(
                                                 crate::ops::Event::new(
                                                     crate::ops::Severity::Debug,
@@ -698,6 +706,7 @@ async fn accept_loop_with_service<S: Service>(
                                                 local_addr_pre_tls,
                                                 remote_addr,
                                                 true,
+                                                Some(tls_info),
                                             ).await;
                                             counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                             return;
@@ -721,6 +730,7 @@ async fn accept_loop_with_service<S: Service>(
                                 local_addr_pre_tls,
                                 remote_addr,
                                 false,
+                                None,
                             ).await;
                             counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         });
@@ -825,17 +835,24 @@ async fn accept_loop_with_service<S: Service>(
 
 /// Accept a TLS connection with timeout.
 ///
-/// Returns the TLS stream on success, or `None` if the handshake failed or timed out.
-/// Emits `TlsHandshakeFailure` or `TlsHandshakeTimeout` events on failure.
+/// Returns the TLS stream and TLS session metadata on success, or `None` if
+/// the handshake failed or timed out. Emits `TlsHandshakeFailure` or
+/// `TlsHandshakeTimeout` events on failure.
 #[cfg(feature = "tls")]
 async fn accept_tls(
     stream: tokio::net::TcpStream,
     tls_acceptor: &tokio_rustls::TlsAcceptor,
     timeout: std::time::Duration,
     conn_id: u64,
-) -> Option<tokio_rustls::server::TlsStream<tokio::net::TcpStream>> {
+) -> Option<(
+    tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    crate::primitives::connection_info::TlsInfo,
+)> {
     match tokio::time::timeout(timeout, tls_acceptor.accept(stream)).await {
-        Ok(Ok(tls_stream)) => Some(tls_stream),
+        Ok(Ok(tls_stream)) => {
+            let tls_info = extract_tls_info(&tls_stream);
+            Some((tls_stream, tls_info))
+        }
         Ok(Err(_)) => {
             crate::ops::Logger::global().emit(
                 crate::ops::Event::new(
@@ -858,6 +875,22 @@ async fn accept_tls(
             );
             None
         }
+    }
+}
+
+/// Extract TLS session metadata from a completed TLS stream.
+#[cfg(feature = "tls")]
+fn extract_tls_info(
+    tls_stream: &tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+) -> crate::primitives::connection_info::TlsInfo {
+    use crate::primitives::connection_info::TlsInfo;
+
+    let (_io, conn) = tls_stream.get_ref();
+    let protocol_version = conn.protocol_version().map(|v| format!("{v:?}"));
+    let server_name = conn.server_name().map(|n| n.to_owned());
+    TlsInfo {
+        protocol_version,
+        server_name,
     }
 }
 
