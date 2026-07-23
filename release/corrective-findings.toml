@@ -1,0 +1,688 @@
+# Plan 075 — Track B: Finding Registry + Track C: Reproduction Inventory
+#
+# Machine-readable registry of all corrective findings from Plan 074.
+# Each finding has a stable ID, severity, owning plan, status, and
+# reproduction strategy.
+
+[meta]
+schema_version = "1.0.0"
+plan = 75
+tracks = ["B", "C"]
+title = "Corrective Finding Registry"
+baseline_sha = "e3782abd971902e63a6b33d52b7a472da63e2310"
+
+# ──────────────────────────────────────────────────────────────────────
+# Severity legend:
+#   critical — memory/handle unsafety, confinement failure, handler
+#              invocation despite rejection, false release evidence,
+#              detached work after claimed shutdown (externally exploitable)
+#   high     — material protocol ambiguity, API contract violation,
+#              incorrect lifecycle state
+#   medium   — incorrect timeout semantics, silently ignored values,
+#              inaccurate metadata, HEAD/validator inconsistencies
+#   low      — performance opportunities, documentation cleanup
+# ──────────────────────────────────────────────────────────────────────
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-001: Windows native string length from UTF-8 bytes
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-001"
+title = "Windows native string lengths derived from UTF-8 byte counts"
+severity = "critical"
+subsystem = "filesystem"
+affected_profiles = ["windows-reverse-proxy", "windows-direct-https", "windows-functional"]
+first_observed = "pre-074"
+owning_plan = 76
+release = "A"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "084"
+regression_evidence = "windows-plan084::windows_unicode_bmp_non_ascii, windows_unicode_surrogate_pair"
+
+[finding.description]
+text = "UNICODE_STRING call sites use UTF-8 byte counts instead of UTF-16 code unit lengths for component names, causing incorrect buffer sizes for non-ASCII paths."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/windows_plan084.rs"
+cases = [
+    "windows_unicode_bmp_non_ascii — Latin/Cyrillic/CJK through production resolver",
+    "windows_unicode_surrogate_pair — supplementary plane characters",
+    "windows_unicode_case_insensitive — case folding through production resolver",
+]
+platform = "windows"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["windows.unicode-child-production-path"]
+optional = ["windows.handle-ownership", "windows.adversarial-filesystem"]
+
+[finding.regression_test]
+test_name = "windows_unicode_bmp_non_ascii"
+file = "crates/eggserve-core/tests/windows_plan084.rs"
+command = "cargo test -p eggserve-core --test windows_plan084 --features windows-plan086 windows_unicode"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-002: Windows raw-handle ownership hazard
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-002"
+title = "Windows raw-handle ownership contains borrowed-vs-owned hazard"
+severity = "critical"
+subsystem = "filesystem"
+affected_profiles = ["windows-reverse-proxy", "windows-direct-https", "windows-functional"]
+first_observed = "pre-074"
+owning_plan = 76
+release = "A"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "084"
+regression_evidence = "windows-plan084::windows_handle_duplication_failure_is_typed"
+
+[finding.description]
+text = "Borrowed handles can be accidentally closed through owned wrappers; handle duplication uses panic-capable paths instead of fallible try_clone."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/windows_plan084.rs"
+cases = [
+    "windows_handle_duplication_failure_is_typed — duplication failure returns error, no panic",
+    "OwnedHandle does not implement Clone — compile-time prevention of double-close",
+]
+platform = "windows"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["windows.handle-ownership"]
+
+[finding.regression_test]
+test_name = "windows_handle_duplication_failure_is_typed"
+file = "crates/eggserve-core/tests/windows_plan084.rs"
+command = "cargo test -p eggserve-core --test windows_plan084 --features windows-plan086 windows_handle"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-003: response_write_timeout semantics mismatch
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-003"
+title = "response_write_timeout behaves as total connection-lifetime timeout"
+severity = "high"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
+first_observed = "pre-074"
+owning_plan = 77
+release = "A"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "077"
+regression_evidence = "connection_total_timeout field rename, documentation update"
+
+[finding.description]
+text = "Field named response_write_timeout is implemented as an undocumented whole-connection lifetime, not a progress-aware write timeout. A steadily progressing response could be terminated."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/lifecycle_integration.rs"
+cases = [
+    "Server stops after connection_total_timeout even with active progress",
+    "Documentation accurately describes the field as total connection lifetime",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.lifecycle-shutdown", "conformance.production-path"]
+
+[finding.regression_test]
+test_name = "lifecycle_integration"
+file = "crates/eggserve-core/tests/lifecycle_integration.rs"
+command = "cargo test -p eggserve-core --test lifecycle_integration"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-004: Forced shutdown drops JoinHandles without abort+join
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-004"
+title = "Forced shutdown drops JoinHandles without aborting and joining"
+severity = "critical"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
+first_observed = "pre-074"
+owning_plan = 77
+release = "A"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "077"
+regression_evidence = "JoinSet migration with abort_all + join_all on forced shutdown"
+
+[finding.description]
+text = "Vec<JoinHandle> is dropped without abort+join, allowing detached work after server reports Stopped. Server can transition to Stopped while connection tasks are non-empty."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/lifecycle_integration.rs"
+cases = [
+    "Forced shutdown aborts all tasks and joins before Stopped",
+    "File handles and permits return to baseline after forced shutdown",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.lifecycle-shutdown", "runtime.soak-stability"]
+
+[finding.regression_test]
+test_name = "lifecycle_integration"
+file = "crates/eggserve-core/tests/lifecycle_integration.rs"
+command = "cargo test -p eggserve-core --test lifecycle_integration"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-005: Custom-service builder discards service
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-005"
+title = "Custom-service builder accepts and discards service value"
+severity = "high"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 78
+release = "B"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "078"
+regression_evidence = "build_with_service documents limitation, start_with_service recommended"
+
+[finding.description]
+text = "build_with_service accepts a service value that is not retained by the built server. Users expect the service to handle requests but it is silently discarded."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/server_integration.rs"
+cases = [
+    "build_with_service documentation warns of service discard",
+    "start_with_service retains service for request handling",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.server-embedding"]
+
+[finding.regression_test]
+test_name = "server_integration"
+file = "crates/eggserve-core/tests/server_integration.rs"
+command = "cargo test -p eggserve-core --test server_integration"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-006: Connection metadata uses placeholder loopback
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-006"
+title = "Connection metadata populated with placeholder loopback addresses"
+severity = "high"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 78
+release = "B"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "078"
+regression_evidence = "Real socket addresses threaded through accept loop and TLS path"
+
+[finding.description]
+text = "Connection metadata uses fake 127.0.0.1 addresses instead of real peer/local socket addresses. No TLS/scheme information is captured."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/server_integration.rs"
+cases = [
+    "ConnectionInfo contains real peer and local addresses",
+    "TLS connections report correct scheme and TLS state",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.server-embedding"]
+
+[finding.regression_test]
+test_name = "server_integration"
+file = "crates/eggserve-core/tests/server_integration.rs"
+command = "cargo test -p eggserve-core --test server_integration"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-007: RequestBodyPolicy::Reject invokes service
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-007"
+title = "RequestBodyPolicy::Reject can invoke service before rejection"
+severity = "critical"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 79
+release = "B"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "079"
+regression_evidence = "request_body_wire::rejection_before_service_invocation"
+
+[finding.description]
+text = "Reject policy allows the service to be invoked before the body is rejected, enabling handler side effects for a request the runtime claims to reject."
+
+[finding.reproduction]
+strategy = "raw-wire-test"
+location = "crates/eggserve-core/tests/request_body_wire.rs"
+cases = [
+    "rejection_before_service_invocation — service not called on Reject",
+    "Expect: 100-continue rejection does not send 100 Continue",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.request-body-rejection", "conformance.raw-wire"]
+
+[finding.regression_test]
+test_name = "request_body_wire"
+file = "crates/eggserve-core/tests/request_body_wire.rs"
+command = "cargo test -p eggserve-core --test request_body_wire"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-008: Incomplete-body drain advertised but not implemented
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-008"
+title = "Incomplete-body drain configuration advertised without implementation"
+severity = "medium"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 79
+release = "B"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "079"
+regression_evidence = "Drain option removed; Close is the only supported behavior"
+
+[finding.description]
+text = "IncompleteBodyPolicy::Drain is advertised in the configuration but not implemented. The drain path has no bounded byte/time/shutdown integration."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/request_body_integration.rs"
+cases = [
+    "Incomplete body with Close policy closes connection",
+    "No Drain variant exists in the public API",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.request-body-rejection"]
+
+[finding.regression_test]
+test_name = "request_body_integration"
+file = "crates/eggserve-core/tests/request_body_integration.rs"
+command = "cargo test -p eggserve-core --test request_body_integration"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-009: Duplicate/ineffective resource controls
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-009"
+title = "Runtime/static/frontend configuration contains duplicate resource controls"
+severity = "medium"
+subsystem = "configuration"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 80
+release = "B"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "080"
+regression_evidence = "Limits::validate() added, single authority per resource control"
+
+[finding.description]
+text = "File-stream limits and other resource controls are defined in multiple locations with inconsistent enforcement. Some fields are silently ignored."
+
+[finding.reproduction]
+strategy = "unit-test"
+location = "crates/eggserve-core/src/server/config.rs"
+cases = [
+    "Limits::validate() rejects zero-valued limits",
+    "Single authority for file-stream semaphore",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.configuration-parity"]
+
+[finding.regression_test]
+test_name = "workspace-tests"
+file = "N/A"
+command = "cargo test --workspace"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-010: Zero-valued limits panic or deadlock
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-010"
+title = "Direct Rust construction can create zero-valued limits"
+severity = "high"
+subsystem = "configuration"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 80
+release = "B"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "080"
+regression_evidence = "RuntimeConfigBuilder::build() returns Result<RuntimeConfig, ServerError>"
+
+[finding.description]
+text = "RuntimeConfigBuilder::build() panics on invalid values instead of returning a structured error. Zero-valued limits can create deadlocks."
+
+[finding.reproduction]
+strategy = "unit-test"
+location = "crates/eggserve-core/src/server/config.rs"
+cases = [
+    "build() returns Err for zero limits",
+    "build() returns Err for out-of-range values",
+    "build() returns Ok for valid configuration",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["runtime.configuration-parity"]
+
+[finding.regression_test]
+test_name = "workspace-tests"
+file = "N/A"
+command = "cargo test --workspace"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-011: HEAD normalization incomplete
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-011"
+title = "HEAD normalization incomplete for error and directory-listing paths"
+severity = "high"
+subsystem = "http"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 82
+release = "C"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "082"
+regression_evidence = "ETag nanosecond precision, HEAD Content-Length preserved"
+
+[finding.description]
+text = "HEAD responses do not consistently suppress body while preserving representation headers. Error and directory-listing HEAD paths may emit payload bytes or lose Content-Length."
+
+[finding.reproduction]
+strategy = "raw-wire-test"
+location = "crates/eggserve-core/tests/http_wire_correctness.rs"
+cases = [
+    "HEAD 200 preserves Content-Length without body bytes",
+    "HEAD directory listing preserves headers without body bytes",
+    "HEAD error responses preserve status and headers without body",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["conformance.raw-wire", "conformance.canonical-http-corpus-rust"]
+
+[finding.regression_test]
+test_name = "http_wire_correctness"
+file = "crates/eggserve-core/tests/http_wire_correctness.rs"
+command = "cargo test -p eggserve-core --test http_wire_correctness"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-012: Directory index bypasses conditional/range
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-012"
+title = "Directory index resolution bypasses direct-file conditional and range handling"
+severity = "high"
+subsystem = "http"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 81
+release = "C"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "081"
+regression_evidence = "Canonical conformance tests covering direct/index equivalence"
+
+[finding.description]
+text = "Directory index files do not forward conditional (If-None-Match, If-Modified-Since) or range headers, causing /x/ and /x/index.html to behave differently."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/canonical_conformance.rs"
+cases = [
+    "/directory/ and /directory/index.html produce equivalent conditional behavior",
+    "Range requests work identically for direct and index forms",
+    "If-Range match/mismatch behaves identically",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["conformance.canonical-http-corpus-rust", "conformance.production-path"]
+
+[finding.regression_test]
+test_name = "canonical_conformance"
+file = "crates/eggserve-core/tests/canonical_conformance.rs"
+command = "cargo test -p eggserve-core --test canonical_conformance"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-013: Validators collide for same-size/same-second
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-013"
+title = "Validators weak enough to collide for same-size, same-second modifications"
+severity = "medium"
+subsystem = "http"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+first_observed = "pre-074"
+owning_plan = 82
+release = "C"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "082"
+regression_evidence = "ETag format now includes nanosecond precision"
+
+[finding.description]
+text = "ETag validators use size plus whole-second mtime, causing collisions when a file is replaced within the same second with the same size."
+
+[finding.reproduction]
+strategy = "unit-test"
+location = "crates/eggserve-core/src/primitives/planner.rs"
+cases = [
+    "ETag format includes nanosecond component (size-secs-nanos)",
+    "Same-second same-size replacement produces different ETag when platform exposes nanoseconds",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["conformance.canonical-http-corpus-rust"]
+
+[finding.regression_test]
+test_name = "canonical_conformance"
+file = "crates/eggserve-core/tests/canonical_conformance.rs"
+command = "cargo test -p eggserve-core --test canonical_conformance"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-014: Windows hardened traversal incomplete
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-014"
+title = "Windows hardened traversal incomplete for child resolution and enumeration"
+severity = "high"
+subsystem = "filesystem"
+affected_profiles = ["windows-reverse-proxy"]
+first_observed = "pre-074"
+owning_plan = 76
+release = "D"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "084-086"
+regression_evidence = "windows_plan084, windows_plan085, windows_plan086 test suites"
+
+[finding.description]
+text = "Windows directory-handle retention, handle-relative child resolution, and handle-relative enumeration are not implemented. Path-based fallback is used in hardened profiles."
+
+[finding.reproduction]
+strategy = "integration-test"
+location = "crates/eggserve-core/tests/windows_plan084.rs, windows_plan085.rs, windows_plan086.rs"
+cases = [
+    "PinnedRoot retains directory handle through request lifetime",
+    "Child resolution is handle-relative from retained directory",
+    "Directory enumeration uses NtQueryDirectoryFile from validated handle",
+    "Adversarial reparse point denial matrix passes",
+]
+platform = "windows"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["windows.handle-ownership", "windows.handle-relative-enumeration", "windows.adversarial-filesystem"]
+
+[finding.regression_test]
+test_name = "windows_plan084"
+file = "crates/eggserve-core/tests/windows_plan084.rs"
+command = "cargo test -p eggserve-core --test windows_plan084 --features windows-plan086"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-015: JSON logging advertised but not emitted
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-015"
+title = "JSON logging advertised but not emitted as structured JSON"
+severity = "medium"
+subsystem = "observability"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https"]
+first_observed = "pre-074"
+owning_plan = 87
+release = "E"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "087"
+regression_evidence = "ops module with Event/EventKind/Logger/LogSink"
+
+[finding.description]
+text = "Documentation advertises JSON logging but the implementation uses println/eprintln without structured output."
+
+[finding.reproduction]
+strategy = "unit-test"
+location = "crates/eggserve-core/src/ops/"
+cases = [
+    "Logger::global().emit() produces structured events",
+    "No println!/eprintln! in library code",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["ops.structured-logging"]
+
+[finding.regression_test]
+test_name = "workspace-tests"
+file = "N/A"
+command = "cargo test --workspace"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-016: Streaming/accept-loop allocation risks
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-016"
+title = "Streaming and accept-loop internals contain allocation and hot-loop risks"
+severity = "medium"
+subsystem = "runtime"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https"]
+first_observed = "pre-074"
+owning_plan = 88
+release = "E"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "088"
+regression_evidence = "Buffer qualification tests, benchmarks, optimize_metadata"
+
+[finding.description]
+text = "File streaming allocates per-chunk without a bounded constant. Accept-loop error handling can spin on persistent errors without backoff."
+
+[finding.reproduction]
+strategy = "benchmark"
+location = "crates/eggserve-core/benches/file_serving.rs"
+cases = [
+    "DEFAULT_CHUNK_SIZE constant extracted (8 KiB)",
+    "normalize_metadata uses in-place retain instead of clone+rebuild",
+    "Accept error classification with bounded backoff",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["performance.buffer-qualification", "runtime.listener-error-classification"]
+
+[finding.regression_test]
+test_name = "workspace-tests"
+file = "N/A"
+command = "cargo test --workspace"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-017: Proxy/TLS/fuzz/soak/artifact evidence incomplete
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-017"
+title = "Reverse-proxy, TLS, fuzz, soak, and artifact evidence incomplete"
+severity = "low"
+subsystem = "release"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https"]
+first_observed = "pre-074"
+owning_plan = 89
+release = "E"
+status = "closed"
+closure_commit = "e3782ab"
+closure_plan = "089"
+regression_evidence = "Plan 089 qualification infrastructure (CI jobs, tests, soak scripts)"
+
+[finding.description]
+text = "Production-profile claims require proxy interop, TLS abuse, stateful fuzz, soak, installed-artifact, SBOM/provenance, and independent-review evidence that was not yet collected."
+
+[finding.reproduction]
+strategy = "ci-workflow"
+location = ".github/workflows/ci.yml"
+cases = [
+    "proxy-interop job runs caddy/nginx/desync tests",
+    "stateful-fuzz-replay job runs fuzz corpus",
+    "Soak scripts run 24-hour qualification",
+    "SBOM and provenance generation scripts exist",
+]
+platform = "linux"
+deterministic = false  # depends on external services
+
+[finding.gates_invalidated]
+required = [
+    "proxy.caddy-interop",
+    "proxy.nginx-interop",
+    "proxy.desync-corpus",
+    "native-tls.abuse-limits",
+    "stateful.fuzz-replay",
+    "filesystem.unix-race",
+    "fault.injection",
+]
+
+[finding.regression_test]
+test_name = "ci-full-matrix"
+file = "N/A"
+command = "bash scripts/release-validate.sh full"

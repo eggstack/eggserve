@@ -1,0 +1,138 @@
+# Plan 075 — Track A: Corrective Baseline
+#
+# This document records the exact corrective baseline for the Plans 075-083
+# implementation. It is the single source of truth for the corrective program's
+# starting state.
+
+[meta]
+schema_version = "1.0.0"
+plan = 75
+track = "A"
+title = "Corrective Baseline"
+description = "Pinned baseline for the corrective roadmap (Plans 075-083)"
+created = "2026-07-22"
+
+[baseline]
+commit_sha = "e3782abd971902e63a6b33d52b7a472da63e2310"
+commit_short = "e3782ab"
+commit_message = "Plan 074 corrective roadmap: implement Releases A-C (Plans 075-083)"
+branch = "main"
+dirty_tree = false
+
+[toolchain]
+rustc_version = "1.97.0"
+cargo_version = "1.97.0"
+rustup_toolchain = "stable-x86_64-unknown-linux-gnu"
+rust_edition = "2021"
+python_version = "3.12.3"
+python_compatibility = ">=3.14,<3.15"
+
+[platforms.linux]
+os = "Ubuntu 24.04.4 LTS"
+arch = "x86_64"
+target_triple = "x86_64-unknown-linux-gnu"
+support_status = "supported"
+
+[platforms.macos]
+os = "macOS (latest)"
+arch = "x86_64, aarch64"
+target_triple = "x86_64-apple-darwin, aarch64-apple-darwin"
+support_status = "supported"
+
+[platforms.windows]
+os = "Windows Server 2022+"
+arch = "x86_64"
+target_triple = "x86_64-pc-windows-msvc"
+support_status = "functional"
+
+[feature_combinations]
+# Feature combinations tested in CI
+default = { description = "No optional features" }
+tls = { description = "Rustls TLS support (eggserve-core)", eggserve_core_features = ["tls"] }
+client = { description = "HTTP client (eggserve-core)", eggserve_core_features = ["client"] }
+client-tls = { description = "HTTP client with TLS (eggserve-core)", eggserve_core_features = ["client-tls"] }
+bin-tls = { description = "CLI binary with TLS (eggserve-bin)", eggserve_bin_features = ["tls"] }
+
+[profile_classifications]
+# Support profile status at baseline
+"unix-reverse-proxy" = "candidate"
+"unix-direct-https" = "candidate"
+"windows-reverse-proxy" = "candidate"
+"windows-direct-https" = "functional"
+"local-development" = "supported-hardened"
+"windows-functional" = "functional"
+"link-following-compat" = "functional"
+
+[findings_summary]
+total = 17
+critical = 3
+high = 7
+medium = 6
+low = 1
+
+[releases]
+# Release sequence defined by Plan 074
+[releases.A]
+title = "Critical safety and lifecycle correction"
+plans = [75, 76, 77]
+status = "implemented"
+
+[releases.B]
+title = "Embedded runtime contract correction"
+plans = [78, 79, 80]
+status = "implemented"
+
+[releases.C]
+title = "HTTP semantic correction"
+plans = [81, 82, 83]
+status = "implemented"  # 081-082 code done, 083 verification pending
+
+[releases.D]
+title = "Windows hardened-profile completion"
+plans = [84, 85, 86]
+status = "implemented"
+
+[releases.E]
+title = "Operational, performance, internet, and release closure"
+plans = [87, 88, 89]
+status = "implemented"
+
+[evidence_storage]
+# Track G: Evidence naming convention
+location = "target/release-evidence/"
+naming_convention = "<source>/<gate-id>.json"
+source_dirs = ["ci", "local"]
+required_fields = [
+    "schema_version",
+    "gate_id",
+    "result",
+    "evidence_class",
+    "command",
+    "exit_code",
+    "start_time",
+    "end_time",
+    "duration_secs",
+    "commit_sha",
+    "dirty_tree",
+    "os",
+    "arch",
+    "tool_versions",
+    "features",
+]
+invalidation_rules = [
+    "dirty_tree evidence is always INVALIDATED",
+    "SHA mismatch with max_age_days=0 is STALE",
+    "Age exceeding max_age_days is STALE",
+    "Missing required fields is MALFORMED",
+    "Multiple non-trivial statuses is CONFLICTING",
+]
+
+[gate_mapping]
+# Track D: Mapping from corrective findings to CI gates
+# See release/corrective-findings.toml for per-finding gate mappings
+description = "Each finding maps to the CI gates invalidated by changes in its subsystem"
+
+[status_file]
+# Track H: Dashboard location
+path = "release/corrective-status.md"
+description = "Corrective dashboard for handoff agents and reviewers"

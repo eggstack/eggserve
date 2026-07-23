@@ -5,7 +5,13 @@
 [metadata]
 schema_version = "1"
 description = "eggserve production support profiles — single source of truth for production claims"
-last_updated = "2026-07-16"
+last_updated = "2026-07-22"
+
+# corrective_program: Tracks whether the corrective program (Plans 075-089) blocks
+# profile promotion. Values:
+#   "open"    — blocking findings remain; profile promotion is blocked
+#   "closed"  — all corrective findings resolved; promotion permitted (subject to gates)
+corrective_program = "closed"
 
 # ---------------------------------------------------------------------------
 # unix-reverse-proxy: Linux/macOS behind Caddy/nginx/Traefik
@@ -14,6 +20,7 @@ last_updated = "2026-07-16"
 [[profile]]
 profile = "unix-reverse-proxy"
 status = "candidate"
+corrective_program = "closed"
 platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64"]
 filesystem = ["ext4", "apfs", "hfs+"]
 network_binding = "loopback"
@@ -119,6 +126,7 @@ notes = "Preferred public deployment. Reverse proxy handles TLS termination and 
 [[profile]]
 profile = "unix-direct-https"
 status = "candidate"
+corrective_program = "closed"
 platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64"]
 filesystem = ["ext4", "apfs", "hfs+"]
 network_binding = "configurable"
@@ -224,6 +232,7 @@ notes = "Limited HTTP/1.1 static server with native TLS. Not an edge platform; n
 [[profile]]
 profile = "windows-reverse-proxy"
 status = "candidate"
+corrective_program = "closed"
 platform = ["windows-x86_64"]
 filesystem = ["ntfs"]
 network_binding = "loopback"
@@ -288,6 +297,7 @@ notes = "Candidate. Handle-relative child resolution (Plan 084) and directory en
 [[profile]]
 profile = "windows-direct-https"
 status = "functional"
+corrective_program = "closed"
 platform = ["windows-x86_64"]
 filesystem = ["ntfs"]
 network_binding = "configurable"
@@ -334,6 +344,7 @@ notes = "Functional until Windows hardening evidence passes. Reparse-point quali
 [[profile]]
 profile = "local-development"
 status = "supported-hardened"
+corrective_program = "closed"
 platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64", "windows-x86_64"]
 filesystem = ["local"]
 network_binding = "loopback-127.0.0.1"
@@ -375,6 +386,7 @@ notes = "Development and testing use case. Loopback-only, safe defaults, no hard
 [[profile]]
 profile = "windows-functional"
 status = "functional"
+corrective_program = "closed"
 platform = ["windows-x86_64"]
 filesystem = ["smb", "non-ntfs", "cloud-placeholder"]
 network_binding = "configurable"
@@ -409,6 +421,7 @@ notes = "Functional-only, no hardened security guarantee. SMB, non-NTFS, and clo
 [[profile]]
 profile = "link-following-compat"
 status = "functional"
+corrective_program = "closed"
 platform = ["linux-x86_64", "linux-aarch64", "macos-x86_64", "macos-aarch64", "windows-x86_64"]
 filesystem = ["local-with-symlinks"]
 network_binding = "configurable"

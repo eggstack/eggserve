@@ -290,11 +290,10 @@ async fn handle_directory(
 
             let status = match plan.status.as_u16() {
                 200 => StatusCode::OK,
+                206 => StatusCode::PARTIAL_CONTENT,
                 304 => StatusCode::NOT_MODIFIED,
-                other => {
-                    let _ = other;
-                    return internal_error();
-                }
+                416 => StatusCode::RANGE_NOT_SATISFIABLE,
+                _ => return internal_error(),
             };
 
             if is_head {

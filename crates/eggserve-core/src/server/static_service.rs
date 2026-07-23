@@ -370,7 +370,9 @@ async fn handle_directory(
 
             let status = match plan.status.as_u16() {
                 200 => hyper::StatusCode::OK,
+                206 => hyper::StatusCode::PARTIAL_CONTENT,
                 304 => hyper::StatusCode::NOT_MODIFIED,
+                416 => hyper::StatusCode::RANGE_NOT_SATISFIABLE,
                 _ => return internal_error(),
             };
 
