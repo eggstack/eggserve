@@ -560,7 +560,7 @@ async fn accept_loop(
                     if e.is_panic() {
                         crate::ops::Logger::global().emit(crate::ops::Event::new(
                             crate::ops::Severity::Error,
-                            crate::ops::EventKind::ServiceError,
+                            crate::ops::EventKind::ConnectionPanic,
                             "connection task panicked during drain",
                         ));
                     }
@@ -581,7 +581,7 @@ async fn accept_loop(
                 if e.is_panic() {
                     crate::ops::Logger::global().emit(crate::ops::Event::new(
                         crate::ops::Severity::Error,
-                        crate::ops::EventKind::ServiceError,
+                        crate::ops::EventKind::ConnectionPanic,
                         "connection task panicked during forced shutdown",
                     ));
                 }
@@ -591,22 +591,25 @@ async fn accept_loop(
 
     let _ = lifecycle.mark_stopped();
 
-    if timed_out {
+    let result = if timed_out {
         counters
             .forced_shutdowns
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
-            crate::ops::Severity::Warn,
-            crate::ops::EventKind::ForcedShutdownStarted,
-            "drain deadline exceeded, aborting remaining connections",
-        ));
         ShutdownResult::Timeout
     } else {
         counters
             .graceful_shutdowns
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ShutdownResult::Clean
-    }
+    };
+
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Info,
+        crate::ops::EventKind::ShutdownComplete,
+        format!("shutdown complete: {:?}", result),
+    ));
+
+    result
 }
 
 /// Accept loop with a custom service.
@@ -779,7 +782,7 @@ async fn accept_loop_with_service<S: Service>(
                     if e.is_panic() {
                         crate::ops::Logger::global().emit(crate::ops::Event::new(
                             crate::ops::Severity::Error,
-                            crate::ops::EventKind::ServiceError,
+                            crate::ops::EventKind::ConnectionPanic,
                             "connection task panicked during drain",
                         ));
                     }
@@ -800,7 +803,7 @@ async fn accept_loop_with_service<S: Service>(
                 if e.is_panic() {
                     crate::ops::Logger::global().emit(crate::ops::Event::new(
                         crate::ops::Severity::Error,
-                        crate::ops::EventKind::ServiceError,
+                        crate::ops::EventKind::ConnectionPanic,
                         "connection task panicked during forced shutdown",
                     ));
                 }
@@ -810,22 +813,25 @@ async fn accept_loop_with_service<S: Service>(
 
     let _ = lifecycle.mark_stopped();
 
-    if timed_out {
+    let result = if timed_out {
         counters
             .forced_shutdowns
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
-            crate::ops::Severity::Warn,
-            crate::ops::EventKind::ForcedShutdownStarted,
-            "drain deadline exceeded, aborting remaining connections",
-        ));
         ShutdownResult::Timeout
     } else {
         counters
             .graceful_shutdowns
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ShutdownResult::Clean
-    }
+    };
+
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Info,
+        crate::ops::EventKind::ShutdownComplete,
+        format!("shutdown complete: {:?}", result),
+    ));
+
+    result
 }
 
 /// Accept a TLS connection with timeout.

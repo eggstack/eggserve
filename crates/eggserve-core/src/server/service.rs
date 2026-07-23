@@ -44,6 +44,7 @@ enum ServiceErrorKind {
     /// A deliberate rejection with a specific status code.
     Rejected(u16),
     /// The handler panicked. Maps to 500.
+    #[allow(dead_code)]
     Panic,
     /// The handler timed out. Maps to 504.
     Timeout,
@@ -66,6 +67,7 @@ impl ServiceError {
         }
     }
 
+    #[allow(dead_code)]
     pub(crate) fn panic(message: impl Into<String>) -> Self {
         Self {
             kind: ServiceErrorKind::Panic,
@@ -158,7 +160,8 @@ impl From<RequestBodyError> for ServiceError {
 ///
 /// - The service is called once per request.
 /// - The service must not write to raw sockets or access transport internals.
-/// - Panics are caught and converted to 500 responses.
+/// - Panics are caught at the task boundary (JoinSet) and logged; the
+///   connection is dropped without a response.
 /// - The response goes through runtime normalization (hop-by-hop stripping,
 ///   content-length computation) before transport.
 ///
@@ -267,24 +270,6 @@ where
         request: Request,
     ) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>> {
         Box::pin((self.f)(request))
-    }
-}
-
-/// Wrap a future with panic containment.
-///
-/// If the future panics, the panic is caught and converted to a
-/// [`ServiceError::panic`].
-pub async fn catch_unwind_service<F>(future: F) -> Result<F::Output, ServiceError>
-where
-    F: std::future::Future + Send + 'static,
-    F::Output: Send + 'static,
-{
-    match tokio::task::spawn(future).await {
-        Ok(result) => Ok(result),
-        Err(e) => {
-            let msg = e.to_string();
-            Err(ServiceError::panic(msg))
-        }
     }
 }
 

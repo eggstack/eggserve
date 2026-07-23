@@ -118,7 +118,9 @@ pub async fn serve_connection<I, S>(
 /// - Service error to response conversion
 /// - Canonical response normalization
 ///
-/// Panics in the service are caught by the tokio task boundary.
+/// Panics in the service propagate to the tokio task boundary and are
+/// caught by the `JoinSet` in the accept loop. The connection is dropped
+/// and a `ConnectionPanic` event is emitted.
 #[allow(clippy::too_many_arguments)]
 pub async fn serve_connection_with_service<I, S>(
     io: TokioIo<I>,

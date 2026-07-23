@@ -778,3 +778,213 @@ async fn shutdown_duration_within_bound() {
 
     assert!(result.is_ok(), "shutdown should complete within bound");
 }
+
+// ===== Plan 077 closure: additional required tests =====
+
+#[tokio::test]
+async fn repeated_forced_shutdown_cycles() {
+    for _ in 0..3 {
+        let tmp = TempDir::new().unwrap();
+        let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(100));
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(make_serve_config(&tmp))
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(slow_service(Duration::from_secs(60)))
+            .await
+            .unwrap();
+
+        let addr = handle.local_addr();
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let result = handle
+            .force_shutdown(Duration::from_millis(50))
+            .await
+            .unwrap();
+        assert_eq!(result, ShutdownResult::Forced);
+    }
+}
+
+#[tokio::test]
+async fn zero_active_connections_shutdown() {
+    let tmp = TempDir::new().unwrap();
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_secs(5));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+
+    handle.shutdown();
+    let result = handle.wait().await.unwrap();
+    assert_eq!(result, ShutdownResult::Clean);
+}
+
+#[tokio::test]
+async fn shutdown_during_header_read() {
+    let tmp = TempDir::new().unwrap();
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(200));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+
+    let addr = handle.local_addr();
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    // Send partial headers (no complete request).
+    stream
+        .write_all(b"GET /test HTTP/1.1\r\nHost: localhost\r\n")
+        .await
+        .unwrap();
+
+    tokio::time::sleep(Duration::from_millis(50)).await;
+    handle.shutdown();
+    let result = handle.wait().await.unwrap();
+
+    // Should complete without hanging.
+    assert!(
+        result == ShutdownResult::Clean || result == ShutdownResult::Timeout,
+        "shutdown during header read should complete"
+    );
+}
+
+#[tokio::test]
+async fn shutdown_during_response_stream() {
+    let tmp = TempDir::new().unwrap();
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(500));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    // Service that streams bytes slowly.
+    let handle = server
+        .start_with_service(service_fn(|_req: Request| {
+            Box::pin(async move {
+                // Simulate a slow streaming response.
+                let chunk = vec![b'x'; 1024];
+                let mut body = Vec::new();
+                for _ in 0..100 {
+                    body.extend_from_slice(&chunk);
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(body))
+                    .unwrap())
+            })
+        }))
+        .await
+        .unwrap();
+
+    let addr = handle.local_addr();
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    stream
+        .write_all(b"GET /test HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+
+    // Wait for response to start streaming.
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    handle.shutdown();
+    let result = handle.wait().await.unwrap();
+
+    assert!(
+        result == ShutdownResult::Clean || result == ShutdownResult::Timeout,
+        "shutdown during response stream should complete"
+    );
+}
+
+#[tokio::test]
+async fn static_and_custom_service_equivalent_lifecycle() {
+    // Verify that static and custom-service modes produce equivalent
+    // ShutdownResult for the same workload.
+    for use_static in [false, true] {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("test"), "ok").unwrap();
+        let config = config_for_with_timeout("127.0.0.1:0", Duration::from_secs(5));
+
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(make_serve_config(&tmp))
+            .build()
+            .unwrap();
+
+        let handle = if use_static {
+            server.start().await.unwrap()
+        } else {
+            server.start_with_service(simple_service()).await.unwrap()
+        };
+
+        let addr = handle.local_addr();
+        let resp = raw_request(addr, GET_REQUEST).await;
+        let response = String::from_utf8_lossy(&resp);
+        assert!(
+            response.starts_with("HTTP/1.1 200"),
+            "{}: expected 200, got: {}",
+            if use_static { "static" } else { "custom" },
+            response
+        );
+
+        handle.shutdown();
+        let result = handle.wait().await.unwrap();
+        assert_eq!(
+            result,
+            ShutdownResult::Clean,
+            "{}: should be clean shutdown",
+            if use_static { "static" } else { "custom" }
+        );
+    }
+}
+
+#[tokio::test]
+async fn connection_tasks_completed_before_stopped() {
+    use std::sync::atomic::AtomicBool;
+
+    let tmp = TempDir::new().unwrap();
+    let handler_done = Arc::new(AtomicBool::new(false));
+    let handler_done_clone = handler_done.clone();
+
+    let config = config_for_with_timeout("127.0.0.1:0", Duration::from_secs(5));
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server
+        .start_with_service(service_fn(move |_req: Request| {
+            let hd = handler_done_clone.clone();
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+                hd.store(true, Ordering::SeqCst);
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"done".to_vec()))
+                    .unwrap())
+            })
+        }))
+        .await
+        .unwrap();
+
+    let addr = handle.local_addr();
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    stream.write_all(GET_REQUEST.as_bytes()).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    handle.shutdown();
+    let result = handle.wait().await.unwrap();
+
+    // The handler should have completed before Stopped was reached.
+    assert!(
+        handler_done.load(Ordering::SeqCst),
+        "handler should have completed before shutdown finished"
+    );
+    assert_eq!(result, ShutdownResult::Clean);
+}
