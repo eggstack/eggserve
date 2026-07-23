@@ -102,11 +102,11 @@ file = "crates/eggserve-core/tests/windows_plan084.rs"
 command = "cargo test -p eggserve-core --test windows_plan084 --features windows-plan086 windows_handle"
 
 # ════════════════════════════════════════════════════════════════════════
-# Finding COR-003: response_write_timeout semantics mismatch
+# Finding COR-003: connection_total_timeout semantics (renamed from response_write_timeout)
 # ════════════════════════════════════════════════════════════════════════
 [[finding]]
 id = "COR-003"
-title = "response_write_timeout behaves as total connection-lifetime timeout"
+title = "connection_total_timeout renamed from response_write_timeout to match actual behavior"
 severity = "high"
 subsystem = "runtime"
 affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
@@ -119,7 +119,7 @@ closure_plan = "077"
 regression_evidence = "connection_total_timeout field rename, documentation update"
 
 [finding.description]
-text = "Field named response_write_timeout is implemented as an undocumented whole-connection lifetime, not a progress-aware write timeout. A steadily progressing response could be terminated."
+text = "Field originally named response_write_timeout was renamed to connection_total_timeout to accurately reflect its behavior as a whole-connection lifetime timeout. All documentation and API surfaces updated."
 
 [finding.reproduction]
 strategy = "integration-test"

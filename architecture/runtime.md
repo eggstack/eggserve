@@ -125,7 +125,7 @@ Listener errors are classified by `io::ErrorKind` into transient, resource-exhau
 
 ## Connection/Task Tracking
 
-- Each accepted connection spawns a tokio task, tracked in a bounded `Vec<JoinHandle<()>>`
+- Each accepted connection spawns a tokio task, tracked in a `JoinSet` with bounded concurrency
 - Graceful drain waits for each task up to the configured deadline; remaining tasks are dropped (aborted)
 - Forced shutdown abandons remaining tasks immediately
 - RAII permits ensure connection and file-stream permits are released on drop, even under cancellation

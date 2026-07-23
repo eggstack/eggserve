@@ -12,7 +12,7 @@ pub struct Limits {
     pub max_file_streams: usize,
     pub(crate) max_request_body_bytes: u64,
     pub header_read_timeout: Duration,
-    pub response_write_timeout: Duration,
+    pub connection_total_timeout: Duration,
     pub graceful_shutdown_timeout: Duration,
     /// Maximum number of entries to enumerate in a directory listing.
     pub max_listing_entries: usize,
@@ -33,7 +33,7 @@ impl Default for Limits {
             max_file_streams: 32,
             max_request_body_bytes: 0,
             header_read_timeout: Duration::from_secs(10),
-            response_write_timeout: Duration::from_secs(60),
+            connection_total_timeout: Duration::from_secs(60),
             graceful_shutdown_timeout: Duration::from_secs(10),
             max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
             max_listing_response_bytes: 1024 * 1024, // 1 MiB

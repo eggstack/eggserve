@@ -282,7 +282,7 @@ async fn serve_connection<I>(
     io: hyper_util::rt::TokioIo<I>,
     state: Arc<eggserve_core::config::ServeState>,
     header_timeout: std::time::Duration,
-    write_timeout: std::time::Duration,
+    connection_total_timeout: std::time::Duration,
     shutdown_rx: &mut broadcast::Receiver<()>,
 ) where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -306,7 +306,7 @@ async fn serve_connection<I>(
         .with_upgrades();
     let mut conn = std::pin::pin!(conn);
     tokio::select! {
-        result = tokio::time::timeout(write_timeout, &mut conn) => {
+        result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
             match result {
                 Ok(Ok(())) => {}
                 Ok(Err(_e)) => {}

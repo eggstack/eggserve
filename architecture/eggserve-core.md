@@ -61,7 +61,7 @@ Resource limits with safe defaults:
 | `max_file_streams` | 32 | Concurrent file streams (body transfer) |
 | `max_request_body_bytes` | 0 | Request body size (rejected unconditionally) |
 | `header_read_timeout` | 10s | Time to read full request headers |
-| `response_write_timeout` | 60s | Time to write response body |
+| `connection_total_timeout` | 60s | Total connection lifetime timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
 
 ### `handle_request()` (`service.rs`)
@@ -130,7 +130,7 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `body_read_timeout` | 30s | Total deadline for body consumption in Buffer mode |
 | `incomplete_body_policy` | `Close` | Connection behavior when handler doesn't consume body |
 
-Note: `Limits::response_write_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by the `From<&ServeConfig>` impl. The naming divergence reflects the expanded scope of the timeout — it wraps the entire Hyper connection future, not just the response write phase.
+Note: `Limits::connection_total_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by the `From<&ServeConfig>` impl.
 
 ### `Service` Trait
 

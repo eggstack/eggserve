@@ -49,7 +49,7 @@ Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--header-timeout SECS` | Header read timeout (seconds) | `10` |
-| `--write-timeout SECS` | Response write timeout (seconds) | `60` |
+| `--connection-total-timeout SECS` | Total connection lifetime timeout (seconds) | `60` |
 
 ### Output
 

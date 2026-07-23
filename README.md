@@ -75,7 +75,8 @@ Options:
   --max-connections N      Max concurrent connections (default: 64)
   --max-file-streams N     Max concurrent file streams (default: 32)
   --header-timeout SECS    Header read timeout (default: 10)
-  --write-timeout SECS     Response write timeout (default: 60)
+  --connection-total-timeout SECS
+                            Total connection lifetime timeout (default: 60)
 
 TLS options (requires tls feature):
   --tls-cert PATH          PEM certificate chain (requires --tls-key)

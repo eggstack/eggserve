@@ -1090,7 +1090,7 @@ pub struct PyServer {
     max_file_streams: usize,
     max_python_callbacks: usize,
     header_timeout: Duration,
-    write_timeout: Duration,
+    connection_total_timeout: Duration,
     handler_timeout: Duration,
     graceful_shutdown_timeout: Duration,
     body_policy: RequestBodyPolicy,
@@ -1103,7 +1103,7 @@ pub struct PyServer {
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, observer=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, write_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close"))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, observer=None, public=false, max_connections=100, max_file_streams=64, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=30, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close"))]
     fn new(
         root: String,
         bind: &str,
@@ -1116,7 +1116,7 @@ impl PyServer {
         max_file_streams: usize,
         max_python_callbacks: usize,
         header_timeout_secs: u64,
-        write_timeout_secs: u64,
+        connection_total_timeout_secs: u64,
         handler_timeout_secs: u64,
         graceful_shutdown_timeout_secs: u64,
         request_body_mode: &str,
@@ -1152,9 +1152,9 @@ impl PyServer {
                 "header_timeout_secs must be greater than zero",
             ));
         }
-        if write_timeout_secs == 0 {
+        if connection_total_timeout_secs == 0 {
             return Err(pyo3::exceptions::PyValueError::new_err(
-                "write_timeout_secs must be greater than zero",
+                "connection_total_timeout_secs must be greater than zero",
             ));
         }
         if handler_timeout_secs == 0 {
@@ -1243,7 +1243,7 @@ impl PyServer {
             max_file_streams,
             max_python_callbacks,
             header_timeout: Duration::from_secs(header_timeout_secs),
-            write_timeout: Duration::from_secs(write_timeout_secs),
+            connection_total_timeout: Duration::from_secs(connection_total_timeout_secs),
             handler_timeout: Duration::from_secs(handler_timeout_secs),
             graceful_shutdown_timeout: Duration::from_secs(graceful_shutdown_timeout_secs),
             body_policy,
@@ -1306,7 +1306,7 @@ impl PyServer {
             .max_connections(self.max_connections)
             .max_file_streams(self.max_file_streams)
             .header_read_timeout(self.header_timeout)
-            .connection_total_timeout(self.write_timeout)
+            .connection_total_timeout(self.connection_total_timeout)
             .handler_timeout(self.handler_timeout)
             .graceful_shutdown_timeout(self.graceful_shutdown_timeout)
             .max_request_body_bytes(self.max_request_body_bytes)

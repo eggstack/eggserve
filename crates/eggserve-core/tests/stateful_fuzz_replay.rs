@@ -71,7 +71,7 @@ async fn start_fuzz_server(limits: eggserve_core::limits::Limits) -> FuzzServer 
                         let mut conn_shutdown_rx = shutdown_rx.resubscribe();
                         let state = state.clone();
                         let header_timeout = config.limits.header_read_timeout;
-                        let write_timeout = config.limits.response_write_timeout;
+                        let connection_total_timeout = config.limits.connection_total_timeout;
 
                         tokio::spawn(async move {
                             let _permit = permit;
@@ -91,7 +91,7 @@ async fn start_fuzz_server(limits: eggserve_core::limits::Limits) -> FuzzServer 
                                 .with_upgrades();
                             let mut conn = std::pin::pin!(conn);
                             tokio::select! {
-                                result = tokio::time::timeout(write_timeout, &mut conn) => {
+                                result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
                                     match result {
                                         Ok(Ok(())) => {}
                                         Ok(Err(_)) => {}

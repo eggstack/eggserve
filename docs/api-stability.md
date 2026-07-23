@@ -143,7 +143,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `Limits` | stable | `max_connections`, `max_file_streams`, `header_read_timeout`, `response_write_timeout`, `graceful_shutdown_timeout` are pub; `max_request_body_bytes` is pub(crate) |
+| `Limits` | stable | `max_connections`, `max_file_streams`, `header_read_timeout`, `connection_total_timeout`, `graceful_shutdown_timeout` are pub; `max_request_body_bytes` is pub(crate) |
 | `Limits::default()` | stable | Safe defaults |
 
 ### `policy` Module

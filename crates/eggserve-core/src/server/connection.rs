@@ -89,12 +89,12 @@ pub async fn serve_connection<I, S>(
                     );
                 }
                 Err(_elapsed) => {
-                    crate::ops::global_counters().response_write_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    crate::ops::global_counters().connection_total_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     crate::ops::Logger::global().emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Warn,
-                            crate::ops::EventKind::ResponseWriteTimeout,
-                            "response write timeout",
+                            crate::ops::EventKind::ConnectionTotalTimeout,
+                            "connection total timeout",
                         )
                         .connection_id(conn_id),
                     );

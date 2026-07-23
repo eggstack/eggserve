@@ -137,7 +137,7 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `parser_rejects` | HTTP parsing failures |
 | `header_timeouts` | Header read timeouts |
 | `body_read_timeouts` | Body read timeouts |
-| `response_write_timeouts` | Response write timeouts |
+| `connection_total_timeouts` | Total connection lifetime timeouts |
 | `bytes_sent` | Total bytes sent |
 | `graceful_shutdowns` | Clean shutdowns |
 | `forced_shutdowns` | Shutdowns with timeout |

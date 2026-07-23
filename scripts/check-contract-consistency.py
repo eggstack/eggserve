@@ -643,7 +643,7 @@ def check_python_server_defaults(repo_root: Path) -> list[str]:
         "max_file_streams": "64",
         "max_python_callbacks": "8",
         "header_timeout_secs": "10",
-        "write_timeout_secs": "30",
+        "connection_total_timeout_secs": "30",
         "handler_timeout_secs": "30",
         "graceful_shutdown_timeout_secs": "10",
     }

@@ -296,7 +296,7 @@ fn all_event_kinds_have_names() {
         EventKind::BodyReadTimeout,
         EventKind::ParserRejection,
         EventKind::KeepAliveClosed,
-        EventKind::ResponseWriteTimeout,
+        EventKind::ConnectionTotalTimeout,
         EventKind::ClientDisconnect,
         EventKind::ConnectionPanic,
         EventKind::RequestCompleted,
@@ -615,7 +615,7 @@ fn ops_counters_snapshot() {
     counters.parser_rejects.fetch_add(1, Ordering::Relaxed);
     counters.header_timeouts.fetch_add(1, Ordering::Relaxed);
     counters
-        .response_write_timeouts
+        .connection_total_timeouts
         .fetch_add(1, Ordering::Relaxed);
     counters.graceful_shutdowns.fetch_add(1, Ordering::Relaxed);
     counters.forced_shutdowns.fetch_add(1, Ordering::Relaxed);
@@ -632,7 +632,7 @@ fn ops_counters_snapshot() {
     assert_eq!(snap.active_file_streams, 2);
     assert_eq!(snap.parser_rejects, 1);
     assert_eq!(snap.header_timeouts, 1);
-    assert_eq!(snap.response_write_timeouts, 1);
+    assert_eq!(snap.connection_total_timeouts, 1);
     assert_eq!(snap.graceful_shutdowns, 1);
     assert_eq!(snap.forced_shutdowns, 1);
     assert_eq!(snap.connections_rejected, 2);
@@ -704,8 +704,8 @@ fn streaming_error_events_exist() {
     // Verify all streaming error event kinds exist and have correct names
     assert_eq!(EventKind::ClientDisconnect.to_string(), "client_disconnect");
     assert_eq!(
-        EventKind::ResponseWriteTimeout.to_string(),
-        "response_write_timeout"
+        EventKind::ConnectionTotalTimeout.to_string(),
+        "connection_total_timeout"
     );
     assert_eq!(EventKind::BodyReadTimeout.to_string(), "body_read_timeout");
     assert_eq!(EventKind::ServiceTimeout.to_string(), "service_timeout");
@@ -842,7 +842,7 @@ mod proptest_tests {
             Just(EventKind::ConnectionAccepted),
             Just(EventKind::ConnectionRejected),
             Just(EventKind::ClientDisconnect),
-            Just(EventKind::ResponseWriteTimeout),
+            Just(EventKind::ConnectionTotalTimeout),
             Just(EventKind::BodyReadTimeout),
             Just(EventKind::ServiceTimeout),
             Just(EventKind::FileNotFound),

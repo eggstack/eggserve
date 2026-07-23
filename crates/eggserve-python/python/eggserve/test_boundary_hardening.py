@@ -95,7 +95,7 @@ class _TestServerBase(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = Server(**defaults)

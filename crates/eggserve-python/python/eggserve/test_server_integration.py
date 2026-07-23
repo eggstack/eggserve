@@ -1,7 +1,7 @@
 """Deterministic integration tests for Python server runtime limits.
 
 Tests connection saturation, callback concurrency, file-stream semaphore,
-header/write timeouts, and graceful shutdown using event-based
+header/connection total timeouts, and graceful shutdown using event-based
 synchronization, atomic counters, and raw socket control rather than
 sleep-based assertions.
 """
@@ -153,7 +153,7 @@ class TestConnectionSemaphore(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -306,9 +306,9 @@ class TestConnectionSemaphore(unittest.TestCase):
 
         held.close()
 
-    def test_release_after_write_timeout(self):
-        """Connection stalled on read releases the permit on write timeout."""
-        s = self._make_server(max_connections=2, write_timeout_secs=1)
+    def test_release_after_connection_total_timeout(self):
+        """Connection stalled on read releases the permit on connection total timeout."""
+        s = self._make_server(max_connections=2, connection_total_timeout_secs=1)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -428,7 +428,7 @@ class TestCallbackSemaphore(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -708,7 +708,7 @@ class TestFileStreamSemaphore(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -941,7 +941,7 @@ class TestTimeoutBoundaries(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -950,7 +950,7 @@ class TestTimeoutBoundaries(unittest.TestCase):
 
     def test_header_timeout_covers_incomplete_headers(self):
         """Header timeout fires when headers are not fully received."""
-        s = self._make_server(header_timeout_secs=1, write_timeout_secs=30)
+        s = self._make_server(header_timeout_secs=1, connection_total_timeout_secs=30)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -972,9 +972,9 @@ class TestTimeoutBoundaries(unittest.TestCase):
         self.assertEqual(resp.read(), b"ok")
         resp.close()
 
-    def test_write_timeout_covers_stalled_response(self):
-        """Write timeout fires when client stops reading during response."""
-        s = self._make_server(max_connections=10, write_timeout_secs=1)
+    def test_connection_total_timeout_covers_stalled_response(self):
+        """Connection total timeout fires when client stops reading during response."""
+        s = self._make_server(max_connections=10, connection_total_timeout_secs=1)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -993,9 +993,9 @@ class TestTimeoutBoundaries(unittest.TestCase):
         self.assertEqual(resp.read(), b"ok")
         resp.close()
 
-    def test_write_timeout_covers_file_body_streaming(self):
-        """Write timeout applies to file body streaming (not just headers)."""
-        s = self._make_server(max_connections=10, write_timeout_secs=1)
+    def test_connection_total_timeout_covers_file_body_streaming(self):
+        """Connection total timeout applies to file body streaming (not just headers)."""
+        s = self._make_server(max_connections=10, connection_total_timeout_secs=1)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -1020,7 +1020,7 @@ class TestTimeoutBoundaries(unittest.TestCase):
             Server(
                 root=self._td, port=0,
                 header_timeout_secs=0,
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
     def test_client_request_timeout_rejects_negative(self):
@@ -1029,34 +1029,34 @@ class TestTimeoutBoundaries(unittest.TestCase):
             Server(
                 root=self._td, port=0,
                 header_timeout_secs=-1,
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
-    def test_write_timeout_rejects_zero(self):
-        """Zero write_timeout_secs is rejected."""
+    def test_connection_total_timeout_rejects_zero(self):
+        """Zero connection_total_timeout_secs is rejected."""
         with self.assertRaises(ValueError):
             Server(
                 root=self._td, port=0,
                 header_timeout_secs=10,
-                write_timeout_secs=0,
+                connection_total_timeout_secs=0,
             )
 
-    def test_write_timeout_rejects_nan(self):
+    def test_connection_total_timeout_rejects_nan(self):
         """NaN timeout is rejected."""
         with self.assertRaises(TypeError):
             Server(
                 root=self._td, port=0,
                 header_timeout_secs=float("nan"),
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
-    def test_write_timeout_rejects_inf(self):
+    def test_connection_total_timeout_rejects_inf(self):
         """Infinity timeout is rejected."""
         with self.assertRaises(TypeError):
             Server(
                 root=self._td, port=0,
                 header_timeout_secs=float("inf"),
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
     def test_max_connections_rejects_zero(self):
@@ -1066,7 +1066,7 @@ class TestTimeoutBoundaries(unittest.TestCase):
                 root=self._td, port=0,
                 max_connections=0,
                 header_timeout_secs=10,
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
     def test_max_file_streams_rejects_zero(self):
@@ -1076,7 +1076,7 @@ class TestTimeoutBoundaries(unittest.TestCase):
                 root=self._td, port=0,
                 max_file_streams=0,
                 header_timeout_secs=10,
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
     def test_max_python_callbacks_rejects_zero(self):
@@ -1086,7 +1086,7 @@ class TestTimeoutBoundaries(unittest.TestCase):
                 root=self._td, port=0,
                 max_python_callbacks=0,
                 header_timeout_secs=10,
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
     def test_float_max_connections_rejected(self):
@@ -1096,12 +1096,12 @@ class TestTimeoutBoundaries(unittest.TestCase):
                 root=self._td, port=0,
                 max_connections=1.5,
                 header_timeout_secs=10,
-                write_timeout_secs=10,
+                connection_total_timeout_secs=10,
             )
 
     def test_connect_timeout_distinct_from_header_timeout(self):
         """Connect timeout is documented as distinct from header timeout."""
-        s = self._make_server(header_timeout_secs=1, write_timeout_secs=10)
+        s = self._make_server(header_timeout_secs=1, connection_total_timeout_secs=10)
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -1141,7 +1141,7 @@ class TestCallbackContainment(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -1362,7 +1362,7 @@ class TestGracefulShutdown(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -1401,7 +1401,7 @@ class TestGracefulShutdown(unittest.TestCase):
 
     def test_shutdown_during_active_file_stream(self):
         """Shutdown during an active file stream completes without deadlock."""
-        s = self._make_server(max_connections=10, write_timeout_secs=5)
+        s = self._make_server(max_connections=10, connection_total_timeout_secs=5)
         addr = s.addr
         url = f"http://{addr}/big.bin"
         self.assertTrue(_wait_for_server(url))
@@ -1476,7 +1476,7 @@ class TestGracefulShutdown(unittest.TestCase):
         s = Server(
             root=self._td, port=0,
             header_timeout_secs=10,
-            write_timeout_secs=10,
+            connection_total_timeout_secs=10,
         )
         s.stop()
 
@@ -1546,7 +1546,7 @@ class TestServerPrimitives(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)
@@ -1557,7 +1557,7 @@ class TestServerPrimitives(unittest.TestCase):
         s = Server(
             root=self._td, port=0,
             header_timeout_secs=10,
-            write_timeout_secs=10,
+            connection_total_timeout_secs=10,
         )
         self.assertIsNone(s.addr)
 
@@ -1575,7 +1575,7 @@ class TestServerPrimitives(unittest.TestCase):
         s = Server(
             root=self._td, port=0,
             header_timeout_secs=10,
-            write_timeout_secs=10,
+            connection_total_timeout_secs=10,
         )
         s.stop()
 
@@ -1583,7 +1583,7 @@ class TestServerPrimitives(unittest.TestCase):
         s = Server(
             root=self._td, port=0,
             header_timeout_secs=10,
-            write_timeout_secs=10,
+            connection_total_timeout_secs=10,
         )
         self.assertIn("not started", repr(s))
 
@@ -1638,7 +1638,7 @@ class TestLifecycleParity(unittest.TestCase):
             "root": self._td,
             "port": 0,
             "header_timeout_secs": 10,
-            "write_timeout_secs": 10,
+            "connection_total_timeout_secs": 10,
         }
         defaults.update(kwargs)
         s = _start_server(**defaults)

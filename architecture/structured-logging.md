@@ -35,7 +35,7 @@ Every operational event has:
 - `body_read_timeout` — request body read timeout (buffer mode)
 - `parser_rejection` — HTTP framing rejection
 - `keep_alive_closed` — keep-alive connection closed
-- `response_write_timeout` — response write timeout
+- `connection_total_timeout` — total connection lifetime timeout
 - `client_disconnect` — client disconnected (Debug severity)
 - `connection_panic` — handler panic contained
 
@@ -95,7 +95,7 @@ Observer callback errors are caught and printed to Python stderr. The observer r
 - `active_file_streams` — currently streaming file responses
 - `parser_rejects` — HTTP parsing failures
 - `header_timeouts` — header/body read timeouts
-- `response_write_timeouts` — response write timeouts
+- `connection_total_timeouts` — total connection lifetime timeouts
 - `bytes_sent` — total bytes sent to clients
 - `graceful_shutdowns` — clean shutdowns without timeout
 - `forced_shutdowns` — shutdowns where drain deadline was exceeded

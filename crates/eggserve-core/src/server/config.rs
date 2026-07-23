@@ -324,7 +324,7 @@ impl From<&crate::config::ServeConfig> for RuntimeConfig {
             max_connections: config.limits.max_connections,
             max_file_streams: config.limits.max_file_streams,
             header_read_timeout: config.limits.header_read_timeout,
-            connection_total_timeout: config.limits.response_write_timeout,
+            connection_total_timeout: config.limits.connection_total_timeout,
             handler_timeout: Duration::from_secs(30),
             body_read_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
