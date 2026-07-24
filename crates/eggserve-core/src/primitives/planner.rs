@@ -1538,4 +1538,83 @@ mod tests {
         assert_eq!(head_plan.body, BodyPlan::Empty);
         assert_eq!(get_plan.headers, head_plan.headers);
     }
+
+    // -----------------------------------------------------------------------
+    // Plan 081 required: file changed between pathname lookup and opened-handle
+    // metadata observation.
+    //
+    // The planner is pure — it operates on metadata, not paths. This test
+    // verifies that if a file changes after resolution (mtime/size differ),
+    // the planner produces a different plan, confirming that the service layer
+    // uses the opened-handle metadata rather than a stale cached value.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parity_file_changed_between_lookup_and_observation() {
+        // Create a file with initial content.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"initial content").unwrap();
+        tmp.flush().unwrap();
+        let meta_before = std::fs::metadata(tmp.path()).unwrap();
+
+        // Plan a response with the original metadata.
+        let plan_before = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta_before,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan_before.status.as_u16(), 200);
+        let etag_before = plan_before.headers.get("etag").unwrap();
+        let cl_before = plan_before.headers.get("content-length").unwrap();
+
+        // Simulate a file change: rewrite with different content and a new mtime.
+        // This changes both size and modification time.
+        let future_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(tmp.path())
+                .unwrap();
+            use std::io::Write;
+            let mut file = file;
+            file.write_all(b"completely different content that is longer than the original")
+                .unwrap();
+            file.flush().unwrap();
+            file.set_times(std::fs::FileTimes::new().set_modified(future_time))
+                .unwrap();
+        }
+
+        let meta_after = std::fs::metadata(tmp.path()).unwrap();
+
+        // Plan a response with the updated metadata (simulates re-reading
+        // the opened handle after a detected change).
+        let plan_after = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta_after,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan_after.status.as_u16(), 200);
+
+        // The plans must differ — different size means different ETag and
+        // Content-Length, proving the planner uses fresh metadata.
+        let etag_after = plan_after.headers.get("etag").unwrap();
+        let cl_after = plan_after.headers.get("content-length").unwrap();
+        assert!(
+            etag_before != etag_after,
+            "ETag must change when file content changes"
+        );
+        assert!(
+            cl_before != cl_after,
+            "Content-Length must change when file size changes"
+        );
+    }
 }

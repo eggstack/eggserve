@@ -462,7 +462,7 @@ first_observed = "pre-074"
 owning_plan = 81
 release = "C"
 status = "closed"
-closure_commit = "e3782ab"
+closure_commit = "1d12b23"
 closure_plan = "081"
 regression_evidence = "Canonical conformance tests covering direct/index equivalence"
 

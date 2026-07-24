@@ -142,6 +142,38 @@ let plan = plan_file_response(
 
 The planner produces value objects (`StaticResponsePlan` with `ResponseStatus`, `HeaderMapPlan`, `BodyPlan`) that can be serialized to `(name, value)` header pairs and byte bodies. Python bindings expose these via `ResolvedFile.plan_response()` and `ResolvedFile.plan_conditional_response()`. See [python-api.md](python-api.md) for details.
 
+## Unified service-layer entry point
+
+Both direct-file and directory-index routes share a single code path (`serve_resolved_file`) that constructs a `StaticRequestInput` from the canonical request and passes it through the planner. This eliminates semantic drift between `/x/` and `/x/index.html`.
+
+### `StaticRequestInput`
+
+```rust
+pub(crate) struct StaticRequestInput<'a> {
+    pub method: ReadOnlyMethod,
+    pub if_none_match: Option<&'a str>,
+    pub if_modified_since: Option<&'a str>,
+    pub range: Option<&'a str>,
+    pub if_range: Option<&'a str>,
+}
+```
+
+Both routes extract these five fields identically from the incoming request. The helper `serve_resolved_file()` then:
+
+1. Calls `plan_file_response()` with the `StaticRequestInput` fields
+2. Constructs the response body from the opened file handle per `BodyPlan`
+3. Normalizes the response through the canonical path
+
+No route drops conditional or range headers. No route reconstructs the plan after body construction.
+
+### Parity guarantee
+
+Plan 081 requires that `/x/` and `/x/index.html` produce identical conditional and range behavior for the same file. This is verified by:
+
+- **14 planner parity tests** — identical metadata + headers always produce identical planner outputs (same status, same headers, same `BodyPlan` variant)
+- **8 production-path parity tests** — raw TCP comparison of `/subdir/` vs `/subdir/index.html` and `/` vs `/index.html` for full response, HEAD, range, If-None-Match 304, If-Modified-Since 304, and unsatisfiable range 416
+- **keep-alive reuse test** — verifies that conditional and range outcomes are correct when requests are sent sequentially on a single keep-alive connection
+
 ## Non-goals
 
 - Full HTTP/2 or HTTP/3 semantics.

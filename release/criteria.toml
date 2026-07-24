@@ -203,7 +203,7 @@ release_stage = "qualification"
 [[gate]]
 id = "http.production-path"
 title = "Production path tests"
-description = "Tests the production binary path handling and serving behavior"
+description = "Tests the production binary path handling, serving behavior, and direct-file / directory-index parity (Plan 081)"
 required = true
 evidence_classes = ["ci-log", "test-output"]
 command = "cargo test -p eggserve-bin --test production_path"

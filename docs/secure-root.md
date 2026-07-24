@@ -178,6 +178,15 @@ A running server pins root identity. Renaming or replacing the configured pathna
 
 `safe_relative_components()` provides extension information for MIME detection without exposing the absolute path. Callers should use the returned `std::fs::File` handle directly, not re-derive a path for opening.
 
+## Opened-resource ownership across routes
+
+Both direct-file requests (e.g., `/x/index.html`) and directory-index requests (e.g., `/x/`) share the same `serve_resolved_file()` entry point. This guarantees that:
+
+- **Metadata and body refer to the same opened object.** The `ResolvedFile` obtained during resolution is passed directly to the planner and then consumed by `into_body()`. No secondary open occurs.
+- **Range offset/length is applied to that handle.** The planner outputs a byte range; the body construction applies it to the same file handle used for metadata.
+- **Pathname replacement after resolution does not switch the served object.** If a file is renamed or replaced after the directory index resolves `index.html`, the already-opened handle continues to serve the original content.
+- **No canonicalization or reopen is introduced for convenience.** Both routes follow the same resolution-then-serve pipeline with no shortcut paths.
+
 ## Limitations
 
 - **No descriptor caching.** `RootGuard` is created per resolution call, borrowing from the pinned root rather than opening it fresh. This is correct but has overhead; caching the root descriptor across requests is a future optimization.

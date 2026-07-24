@@ -43,7 +43,7 @@
 | 078 | Custom-service ownership and connection metadata | ✅ Closed | commit e3782ab |
 | 079 | Request-body rejection and incomplete-body policy | ✅ Closed | commit e3782ab |
 | 080 | Configuration authority and frontend parity | ✅ Closed | commit e3782ab |
-| 081 | Unified static-file and directory-index response path | ✅ Closed | commit e3782ab |
+| 081 | Unified static-file and directory-index response path | ✅ Closed | commit 1d12b23 |
 | 082 | HEAD, error-response, and validator correctness | ✅ Closed | commit e3782ab |
 | 083 | HTTP conformance and raw-wire corrective closure | ✅ Closed | Independent review, no critical defects |
 
