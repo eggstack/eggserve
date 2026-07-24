@@ -1089,3 +1089,193 @@ async fn ws_f_connection_closed_after_get() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(resp.contains("200"), "Should get 200");
 }
+
+// ---------------------------------------------------------------------------
+// Plan 082 — HEAD 416 wire test
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn ws_e_head_unsatisfiable_range_returns_416_no_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(
+        resp.contains("416"),
+        "HEAD unsatisfiable range should return 416, got: {}",
+        resp
+    );
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HEAD 416 should have no body, got {} bytes",
+        body.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plan 082 — HEAD error status wire tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn ws_e_head_404_returns_no_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /nonexistent.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(resp.contains("404"), "Expected 404, got: {}", resp);
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HEAD 404 should have no body, got {} bytes",
+        body.len()
+    );
+}
+
+#[tokio::test]
+async fn ws_e_head_403_returns_no_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /.env HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(resp.contains("403"), "Expected 403, got: {}", resp);
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HEAD 403 should have no body, got {} bytes",
+        body.len()
+    );
+}
+
+#[tokio::test]
+async fn ws_e_post_405_has_body() {
+    let s = start_server(None).await;
+    let data = b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(resp.contains("405"), "Expected 405, got: {}", resp);
+    assert!(
+        resp.contains("allow: GET, HEAD"),
+        "405 must include Allow header: {}",
+        resp
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plan 082 — Keep-alive after HEAD (framing correctness)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn ws_f_keepalive_after_head_serves_subsequent_get() {
+    let s = start_server(None).await;
+    let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();
+
+    // Send HEAD
+    stream
+        .write_all(b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf = Vec::new();
+    // Read until end of first response
+    let mut partial = [0u8; 4096];
+    let mut found_end = false;
+    while !found_end {
+        let n = stream.read(&mut partial).await.unwrap();
+        buf.extend_from_slice(&partial[..n]);
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+            found_end = true;
+        }
+    }
+    let resp = String::from_utf8_lossy(&buf);
+    assert!(resp.contains("200"), "HEAD should return 200: {}", resp);
+
+    // Send GET on same connection
+    stream
+        .write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf2 = Vec::new();
+    stream.read_to_end(&mut buf2).await.unwrap();
+    let resp2 = String::from_utf8_lossy(&buf2);
+    assert!(
+        resp2.contains("200"),
+        "GET after HEAD should return 200: {}",
+        resp2
+    );
+}
+
+#[tokio::test]
+async fn ws_f_keepalive_after_304_serves_subsequent_get() {
+    let s = start_server(None).await;
+    let etag = get_etag(s.addr).await;
+    let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();
+
+    // Send conditional GET returning 304
+    let req = format!(
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: keep-alive\r\n\r\n",
+        etag
+    );
+    stream.write_all(req.as_bytes()).await.unwrap();
+    let mut buf = Vec::new();
+    let mut partial = [0u8; 4096];
+    let mut found_end = false;
+    while !found_end {
+        let n = stream.read(&mut partial).await.unwrap();
+        buf.extend_from_slice(&partial[..n]);
+        if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+            found_end = true;
+        }
+    }
+    let resp = String::from_utf8_lossy(&buf);
+    assert!(
+        resp.contains("304"),
+        "Conditional GET should return 304: {}",
+        resp
+    );
+
+    // Send GET on same connection
+    stream
+        .write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut buf2 = Vec::new();
+    stream.read_to_end(&mut buf2).await.unwrap();
+    let resp2 = String::from_utf8_lossy(&buf2);
+    assert!(
+        resp2.contains("200"),
+        "GET after 304 should return 200: {}",
+        resp2
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plan 082 — HTTP/1.0 HEAD
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn ws_e_head_http10_returns_content_length() {
+    let s = start_server(None).await;
+    let data = b"HEAD /hello.txt HTTP/1.0\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(
+        resp.contains("200"),
+        "HTTP/1.0 HEAD should return 200: {}",
+        resp
+    );
+    assert!(
+        resp.contains("content-length: 11"),
+        "HTTP/1.0 HEAD should include content-length: {}",
+        resp
+    );
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HTTP/1.0 HEAD should have no body, got {} bytes",
+        body.len()
+    );
+}

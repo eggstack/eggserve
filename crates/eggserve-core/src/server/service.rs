@@ -124,7 +124,7 @@ impl ServiceError {
             },
             ServiceErrorKind::Internal => "500 Internal Server Error\n",
         };
-        crate::response::canonical_error(status, body)
+        crate::response::canonical_error(status, body, false)
     }
 }
 

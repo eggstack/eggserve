@@ -21,7 +21,11 @@ pub const DEFAULT_CHUNK_SIZE: usize = 8192;
 
 pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 
-pub(crate) fn canonical_error(status: StatusCode, body: &'static str) -> Response<BoxBodyInner> {
+pub(crate) fn canonical_error(
+    status: StatusCode,
+    body: &'static str,
+    is_head: bool,
+) -> Response<BoxBodyInner> {
     let code = crate::primitives::canonical::StatusCode::new(status.as_u16())
         .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
     let mut headers = crate::primitives::header_block::HeaderBlock::new();
@@ -32,43 +36,63 @@ pub(crate) fn canonical_error(status: StatusCode, body: &'static str) -> Respons
         headers.push_str("allow", "GET, HEAD").unwrap();
     }
     let body_len = body.len() as u64;
-    crate::primitives::canonical::normalize_metadata(code, &mut headers, body_len, false).unwrap();
+    crate::primitives::canonical::normalize_metadata(code, &mut headers, body_len, is_head)
+        .unwrap();
     let mut builder = Response::builder().status(status);
     for field in headers.iter() {
         builder = builder.header(field.name.as_str(), field.value.as_str());
     }
-    builder.body(full_body(body)).unwrap()
+    // For HEAD, suppress the body per the canonical contract: no payload bytes
+    // are transmitted, and the application response should reflect this.
+    if is_head {
+        builder.body(full_body("")).unwrap()
+    } else {
+        builder.body(full_body(body)).unwrap()
+    }
 }
 
-pub fn not_found() -> Response<BoxBodyInner> {
-    canonical_error(StatusCode::NOT_FOUND, "404 Not Found\n")
+pub fn not_found(is_head: bool) -> Response<BoxBodyInner> {
+    canonical_error(StatusCode::NOT_FOUND, "404 Not Found\n", is_head)
 }
 
-pub fn forbidden() -> Response<BoxBodyInner> {
-    canonical_error(StatusCode::FORBIDDEN, "403 Forbidden\n")
+pub fn forbidden(is_head: bool) -> Response<BoxBodyInner> {
+    canonical_error(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head)
 }
 
-pub fn bad_request() -> Response<BoxBodyInner> {
-    canonical_error(StatusCode::BAD_REQUEST, "400 Bad Request\n")
+pub fn bad_request(is_head: bool) -> Response<BoxBodyInner> {
+    canonical_error(StatusCode::BAD_REQUEST, "400 Bad Request\n", is_head)
 }
 
-pub fn payload_too_large() -> Response<BoxBodyInner> {
-    canonical_error(StatusCode::PAYLOAD_TOO_LARGE, "413 Payload Too Large\n")
+pub fn payload_too_large(is_head: bool) -> Response<BoxBodyInner> {
+    canonical_error(
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "413 Payload Too Large\n",
+        is_head,
+    )
 }
 
 pub fn internal_error() -> Response<BoxBodyInner> {
     canonical_error(
         StatusCode::INTERNAL_SERVER_ERROR,
         "500 Internal Server Error\n",
+        false,
     )
 }
 
 pub fn service_unavailable() -> Response<BoxBodyInner> {
-    canonical_error(StatusCode::SERVICE_UNAVAILABLE, "503 Service Unavailable\n")
+    canonical_error(
+        StatusCode::SERVICE_UNAVAILABLE,
+        "503 Service Unavailable\n",
+        false,
+    )
 }
 
-pub fn method_not_allowed() -> Response<BoxBodyInner> {
-    canonical_error(StatusCode::METHOD_NOT_ALLOWED, "405 Method Not Allowed\n")
+pub fn method_not_allowed(is_head: bool) -> Response<BoxBodyInner> {
+    canonical_error(
+        StatusCode::METHOD_NOT_ALLOWED,
+        "405 Method Not Allowed\n",
+        is_head,
+    )
 }
 
 pub fn file_response(
@@ -375,7 +399,7 @@ mod tests {
 
     #[test]
     fn get_returns_200_with_text_content_type() {
-        let resp = not_found();
+        let resp = not_found(false);
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         assert_eq!(
             resp.headers().get("content-type").unwrap(),
@@ -385,7 +409,7 @@ mod tests {
 
     #[test]
     fn method_not_allowed_returns_405_with_allow_header() {
-        let resp = method_not_allowed();
+        let resp = method_not_allowed(false);
         assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
         assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");
     }

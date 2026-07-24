@@ -340,6 +340,136 @@ fn header_name_value_validation() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Plan 082 — Expanded body-forbidden status matrix
+// ---------------------------------------------------------------------------
+
+// ---------------------------------------------------------------------------
+// Plan 082 — Expanded body-forbidden status matrix
+// ---------------------------------------------------------------------------
+
+#[test]
+fn body_forbidden_matrix_204_no_content_length_no_body() {
+    let resp = Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .header("content-type", "text/plain")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"surprise".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 204);
+    assert!(!normalized.headers().contains("content-length"));
+    assert!(!normalized.headers().contains("transfer-encoding"));
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn body_forbidden_matrix_304_no_content_length_no_body() {
+    let resp = Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header("etag", "W/\"100-1234\"")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"surprise".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 304);
+    assert!(!normalized.headers().contains("content-length"));
+    assert!(normalized.body().unwrap().is_empty());
+    // ETag must be preserved
+    assert_eq!(
+        normalized.headers().get_first("etag").unwrap().as_str(),
+        "W/\"100-1234\""
+    );
+}
+
+#[test]
+fn body_forbidden_matrix_head_suppresses_body_preserves_headers() {
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-length", "11")
+        .unwrap()
+        .header("content-type", "text/plain")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"hello world".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(true);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 200);
+    assert_eq!(
+        normalized
+            .headers()
+            .get_first("content-length")
+            .unwrap()
+            .as_str(),
+        "11"
+    );
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn body_forbidden_matrix_head_304_no_content_length() {
+    let resp = Response::builder()
+        .status(StatusCode::NOT_MODIFIED)
+        .header("etag", "W/\"100-1234\"")
+        .unwrap()
+        .body(ResponseBody::Empty)
+        .unwrap();
+    let req = NormalizeRequest::new(true);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 304);
+    assert!(!normalized.headers().contains("content-length"));
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn body_forbidden_matrix_head_204_no_content_length() {
+    let resp = Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(ResponseBody::Empty)
+        .unwrap();
+    let req = NormalizeRequest::new(true);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert_eq!(normalized.status().as_u16(), 204);
+    assert!(!normalized.headers().contains("content-length"));
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn body_forbidden_matrix_hop_by_hop_stripped_for_forbidden_status() {
+    let resp = Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .header("transfer-encoding", "chunked")
+        .unwrap()
+        .body(ResponseBody::Empty)
+        .unwrap();
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert!(!normalized.headers().contains("transfer-encoding"));
+}
+
+#[test]
+fn body_forbidden_matrix_transfer_encoding_stripped_for_ok() {
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("transfer-encoding", "chunked")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"hello".to_vec()))
+        .unwrap();
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert!(!normalized.headers().contains("transfer-encoding"));
+    assert_eq!(
+        normalized
+            .headers()
+            .get_first("content-length")
+            .unwrap()
+            .as_str(),
+        "5"
+    );
+}
+
 #[test]
 fn header_block_operations() {
     for f in group("headers") {

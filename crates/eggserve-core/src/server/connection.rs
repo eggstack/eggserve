@@ -231,7 +231,7 @@ pub async fn serve_connection_with_service<I, S>(
                             )
                             .connection_id(conn_id),
                         );
-                        let response = crate::response::payload_too_large();
+                        let response = crate::response::payload_too_large(false);
                         return Ok::<_, Infallible>(response);
                     }
                 }
@@ -261,7 +261,7 @@ pub async fn serve_connection_with_service<I, S>(
                     )
                     .connection_id(conn_id),
                 );
-                let response = crate::response::payload_too_large();
+                let response = crate::response::payload_too_large(false);
                 // Drain the body with a bounded timeout to keep the connection
                 // clean. This is a pre-service drain: it happens before any
                 // user code invocation and is bounded by a fixed timeout.
@@ -527,7 +527,8 @@ fn body_error_to_response(
         501 => "501 Not Implemented\n",
         _ => "500 Internal Server Error\n",
     };
-    let mut resp = crate::response::canonical_error(status, body_text);
+    let is_head = _head.method().is_head();
+    let mut resp = crate::response::canonical_error(status, body_text, is_head);
     if should_close {
         resp.headers_mut().insert(
             hyper::header::CONNECTION,

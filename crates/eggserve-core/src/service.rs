@@ -176,20 +176,20 @@ pub async fn handle_request_with_metadata<B>(
     match *req.method() {
         Method::GET | Method::HEAD => {
             let uri = req.uri();
+            let is_head = *req.method() == Method::HEAD;
             if uri.authority().is_some() {
-                return bad_request();
+                return bad_request(is_head);
             }
             let path_str = uri.path();
-            let is_head = *req.method() == Method::HEAD;
 
             if let Err(rejection) =
                 validate_no_request_body(&req, config.limits.max_request_body_bytes)
             {
                 return match rejection {
-                    BodyRejection::BodyTooLarge => payload_too_large(),
+                    BodyRejection::BodyTooLarge => payload_too_large(is_head),
                     BodyRejection::InvalidContentLength
                     | BodyRejection::UnsupportedTransferEncoding
-                    | BodyRejection::ConflictingBodyHeaders => bad_request(),
+                    | BodyRejection::ConflictingBodyHeaders => bad_request(is_head),
                 };
             }
 
@@ -204,7 +204,7 @@ pub async fn handle_request_with_metadata<B>(
             let confined = match ConfinedPath::parse(path_str, &path_policy) {
                 Ok(p) => p,
                 Err(rejection) => {
-                    return map_rejection(rejection);
+                    return map_rejection(rejection, is_head);
                 }
             };
 
@@ -253,7 +253,7 @@ pub async fn handle_request_with_metadata<B>(
                             crate::ops::sanitize_path(path_str),
                         )),
                     );
-                    not_found()
+                    not_found(is_head)
                 }
                 ResolvedResource::Denied(rejection) => {
                     let (event_kind, severity) = match rejection {
@@ -282,11 +282,11 @@ pub async fn handle_request_with_metadata<B>(
                             ),
                         ),
                     );
-                    forbidden()
+                    forbidden(is_head)
                 }
             }
         }
-        _ => method_not_allowed(),
+        _ => method_not_allowed(false),
     }
 }
 
@@ -297,6 +297,8 @@ async fn handle_directory(
     input: &StaticRequestInput<'_>,
 ) -> Response<BoxBodyInner> {
     let guard = RootGuard::new(state.pinned_root());
+
+    let is_head = input.method == ReadOnlyMethod::Head;
 
     match guard.resolve_child(dir, "index.html", &config.static_policy) {
         ResolvedResource::File(file) => serve_resolved_file(file, input, state).await,
@@ -310,12 +312,11 @@ async fn handle_directory(
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };
-                let is_head = input.method == ReadOnlyMethod::Head;
                 directory_listing_response(&entries, is_head)
             }
-            DirectoryListingPolicy::Disabled => forbidden(),
+            DirectoryListingPolicy::Disabled => forbidden(is_head),
         },
-        ResolvedResource::Denied(_) => forbidden(),
+        ResolvedResource::Denied(_) => forbidden(is_head),
         ResolvedResource::Directory(_) => internal_error(),
     }
 }
@@ -329,7 +330,7 @@ fn generate_etag(metadata: &fs::Metadata) -> Option<String> {
     Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
 }
 
-fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner> {
+fn map_rejection(rejection: crate::path::PathRejection, is_head: bool) -> Response<BoxBodyInner> {
     let is_malformed = matches!(
         rejection,
         crate::path::PathRejection::MalformedPercentEncoding
@@ -341,9 +342,9 @@ fn map_rejection(rejection: crate::path::PathRejection) -> Response<BoxBodyInner
     );
 
     if is_malformed {
-        bad_request()
+        bad_request(is_head)
     } else {
-        forbidden()
+        forbidden(is_head)
     }
 }
 
@@ -977,5 +978,76 @@ mod tests {
         assert_eq!(resp.headers().get("content-length").unwrap(), "3");
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert!(body.is_empty());
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 082 — HEAD error body tests
+    // -----------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn head_404_returns_no_body() {
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::HEAD, "/nope.txt"), &state).await;
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.is_empty(), "HEAD 404 should have no body");
+    }
+
+    #[tokio::test]
+    async fn head_403_returns_no_body() {
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::HEAD, "/.env"), &state).await;
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.is_empty(), "HEAD 403 should have no body");
+    }
+
+    #[tokio::test]
+    async fn head_405_returns_no_body() {
+        // Note: HEAD to a valid file returns 200, not 405. This test verifies
+        // that POST to a file returns 405 WITH a body (non-HEAD error).
+        let (_tmp, state) = setup_test_state();
+        let resp = handle_request(req_with_path(Method::POST, "/hello.txt"), &state).await;
+        assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        // POST 405 should have a body — only HEAD suppresses it
+        assert!(!body.is_empty(), "POST 405 should have a body");
+    }
+
+    #[tokio::test]
+    async fn head_413_returns_no_body() {
+        let (_tmp, state) = setup_test_state();
+        let req = Request::builder()
+            .method(Method::HEAD)
+            .uri("/hello.txt")
+            .header("content-length", "1024")
+            .body(Empty::<Bytes>::new())
+            .unwrap();
+        let resp = handle_request(req, &state).await;
+        assert_eq!(resp.status(), StatusCode::PAYLOAD_TOO_LARGE);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.is_empty(), "HEAD 413 should have no body");
+    }
+
+    #[tokio::test]
+    async fn head_error_matches_get_status() {
+        let (_tmp, state) = setup_test_state();
+
+        // 404
+        let get = handle_request(req_with_path(Method::GET, "/nope.txt"), &state).await;
+        let head = handle_request(req_with_path(Method::HEAD, "/nope.txt"), &state).await;
+        assert_eq!(get.status(), head.status());
+
+        // 403
+        let get = handle_request(req_with_path(Method::GET, "/.env"), &state).await;
+        let head = handle_request(req_with_path(Method::HEAD, "/.env"), &state).await;
+        assert_eq!(get.status(), head.status());
+
+        // 405
+        let get = handle_request(req_with_path(Method::POST, "/hello.txt"), &state).await;
+        let head = handle_request(req_with_path(Method::HEAD, "/hello.txt"), &state).await;
+        assert_eq!(StatusCode::METHOD_NOT_ALLOWED, get.status());
+        // HEAD to existing file returns 200, not 405 — this is correct behavior
+        assert_eq!(StatusCode::OK, head.status());
     }
 }

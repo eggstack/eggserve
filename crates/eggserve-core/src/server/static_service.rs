@@ -204,7 +204,7 @@ async fn handle_static_request(
     let is_head = method.is_head();
 
     if !method.is_get() && !is_head {
-        return method_not_allowed();
+        return method_not_allowed(is_head);
     }
 
     let target = req.target();
@@ -212,7 +212,7 @@ async fn handle_static_request(
 
     // Reject absolute-form URIs (authority present in raw target).
     if target.raw().contains("://") {
-        return bad_request();
+        return bad_request(is_head);
     }
 
     let path_policy = PathPolicy {
@@ -225,7 +225,7 @@ async fn handle_static_request(
 
     let confined = match ConfinedPath::parse(path_str, &path_policy) {
         Ok(p) => p,
-        Err(rejection) => return map_rejection(rejection),
+        Err(rejection) => return map_rejection(rejection, is_head),
     };
 
     let guard = RootGuard::new(state.pinned_root());
@@ -312,7 +312,7 @@ async fn handle_static_request(
                     crate::ops::sanitize_path(path_str),
                 )),
             );
-            not_found()
+            not_found(is_head)
         }
         ResolvedResource::Denied(rejection) => {
             let (event_kind, severity) = match rejection {
@@ -338,7 +338,7 @@ async fn handle_static_request(
                     crate::ops::Field::Str("path".into(), crate::ops::sanitize_path(path_str)),
                 ),
             );
-            forbidden()
+            forbidden(is_head)
         }
     }
 }
@@ -417,9 +417,9 @@ async fn handle_directory(
                 };
                 directory_listing_response(&entries, is_head)
             }
-            DirectoryListingPolicy::Disabled => forbidden(),
+            DirectoryListingPolicy::Disabled => forbidden(is_head),
         },
-        ResolvedResource::Denied(_) => forbidden(),
+        ResolvedResource::Denied(_) => forbidden(is_head),
         ResolvedResource::Directory(_) => internal_error(),
     }
 }
@@ -433,7 +433,10 @@ fn generate_etag(metadata: &std::fs::Metadata) -> Option<String> {
     Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
 }
 
-fn map_rejection(rejection: crate::path::PathRejection) -> hyper::Response<BoxBodyInner> {
+fn map_rejection(
+    rejection: crate::path::PathRejection,
+    is_head: bool,
+) -> hyper::Response<BoxBodyInner> {
     let is_malformed = matches!(
         rejection,
         crate::path::PathRejection::MalformedPercentEncoding
@@ -445,9 +448,9 @@ fn map_rejection(rejection: crate::path::PathRejection) -> hyper::Response<BoxBo
     );
 
     if is_malformed {
-        bad_request()
+        bad_request(is_head)
     } else {
-        forbidden()
+        forbidden(is_head)
     }
 }
 
