@@ -528,3 +528,264 @@ async fn prod_put_returns_405() {
     .await;
     assert!(line.contains("405"), "expected 405: {}", line);
 }
+
+// ---------------------------------------------------------------------------
+// Plan 081: Direct-file and directory-index parity tests.
+//
+// Verifies that /subdir/ and /subdir/index.html produce equivalent responses
+// over raw TCP for full response, range, conditional, HEAD, and 416 cases.
+// Root index (/) and /index.html parity is also tested.
+// ---------------------------------------------------------------------------
+
+async fn start_parity_server() -> ProdServer {
+    let tmp = TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
+    std::fs::create_dir(tmp.path().join("subdir")).unwrap();
+    std::fs::write(
+        tmp.path().join("subdir").join("index.html"),
+        "<html>subdir index</html>",
+    )
+    .unwrap();
+    std::fs::write(tmp.path().join("index.html"), "<html>root index</html>").unwrap();
+
+    let config = Arc::new(ServeConfig {
+        root: tmp.path().to_path_buf(),
+        bind: "127.0.0.1:0".parse().unwrap(),
+        limits: eggserve_core::limits::Limits::default(),
+        ..ServeConfig::default()
+    });
+    let state = Arc::new(ServeState::new(config.clone()).unwrap());
+    let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
+
+    let listener = TcpListener::bind(config.bind).await.unwrap();
+    let addr = listener.local_addr().unwrap();
+
+    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
+
+    let handle = tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                result = listener.accept() => {
+                    if let Ok((stream, _addr)) = result {
+                        let permit = match connection_semaphore.clone().try_acquire_owned() {
+                            Ok(p) => p,
+                            Err(_) => { drop(stream); continue; }
+                        };
+                        let mut conn_shutdown_rx = shutdown_rx.resubscribe();
+                        let state = state.clone();
+                        let header_timeout = config.limits.header_read_timeout;
+                        let connection_total_timeout = config.limits.connection_total_timeout;
+                        tokio::spawn(async move {
+                            let _permit = permit;
+                            let io = TokioIo::new(stream);
+                            let service = service_fn(move |req| {
+                                let state = state.clone();
+                                async move {
+                                    Ok::<_, std::convert::Infallible>(
+                                        handle_request(req, &state).await,
+                                    )
+                                }
+                            });
+                            let conn = http1::Builder::new()
+                                .timer(TokioTimer::new())
+                                .header_read_timeout(header_timeout)
+                                .serve_connection(io, service)
+                                .with_upgrades();
+                            let mut conn = std::pin::pin!(conn);
+                            tokio::select! {
+                                result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
+                                    match result {
+                                        Ok(Ok(())) => {}
+                                        Ok(Err(_)) => {}
+                                        Err(_elapsed) => { conn.as_mut().graceful_shutdown(); }
+                                    }
+                                }
+                                _ = conn_shutdown_rx.recv() => { conn.as_mut().graceful_shutdown(); }
+                            }
+                        });
+                    }
+                }
+                _ = shutdown_rx.recv() => { break; }
+            }
+        }
+    });
+
+    ProdServer {
+        _tmp: tmp,
+        addr,
+        shutdown_tx,
+        _handle: handle,
+    }
+}
+
+async fn send_request(addr: std::net::SocketAddr, request: &str) -> String {
+    let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+    stream.write_all(request.as_bytes()).await.unwrap();
+    let mut buf = Vec::new();
+    let _ = stream.read_to_end(&mut buf).await;
+    String::from_utf8_lossy(&buf).into_owned()
+}
+
+fn extract_status(resp: &str) -> &str {
+    resp.lines().next().unwrap_or("")
+}
+
+fn header_value(resp: &str, name: &str) -> Option<String> {
+    let prefix = format!("{}:", name.to_ascii_lowercase());
+    for line in resp.lines() {
+        if line.to_ascii_lowercase().starts_with(&prefix) {
+            return Some(line[eline_start(line, ':') + 1..].trim().to_string());
+        }
+    }
+    None
+}
+
+fn eline_start(line: &str, delimiter: char) -> usize {
+    line.find(delimiter).unwrap_or(line.len())
+}
+
+fn body_after(resp: &str) -> &str {
+    if let Some(idx) = resp.find("\r\n\r\n") {
+        &resp[idx + 4..]
+    } else {
+        ""
+    }
+}
+
+#[tokio::test]
+async fn parity_subdir_full_response() {
+    let s = start_parity_server().await;
+    let dir_resp = send_request(
+        s.addr,
+        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let file_resp = send_request(
+        s.addr,
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(extract_status(&dir_resp).contains("200"));
+    assert_eq!(body_after(&dir_resp), body_after(&file_resp));
+    assert_eq!(body_after(&dir_resp), "<html>subdir index</html>");
+}
+
+#[tokio::test]
+async fn parity_root_full_response() {
+    let s = start_parity_server().await;
+    let dir_resp = send_request(
+        s.addr,
+        "GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let file_resp = send_request(
+        s.addr,
+        "GET /index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(extract_status(&dir_resp).contains("200"));
+    assert_eq!(body_after(&dir_resp), body_after(&file_resp));
+    assert_eq!(body_after(&dir_resp), "<html>root index</html>");
+}
+
+#[tokio::test]
+async fn parity_subdir_head() {
+    let s = start_parity_server().await;
+    let dir_resp = send_request(
+        s.addr,
+        "HEAD /subdir/ HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let file_resp = send_request(
+        s.addr,
+        "HEAD /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(body_after(&dir_resp).is_empty());
+    assert!(body_after(&file_resp).is_empty());
+    assert_eq!(
+        header_value(&dir_resp, "content-length"),
+        header_value(&file_resp, "content-length")
+    );
+}
+
+#[tokio::test]
+async fn parity_subdir_range() {
+    let s = start_parity_server().await;
+    let dir_resp = send_request(
+        s.addr,
+        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let file_resp = send_request(s.addr, "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n").await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(extract_status(&dir_resp).contains("206"));
+    assert_eq!(body_after(&dir_resp), body_after(&file_resp));
+    assert_eq!(
+        header_value(&dir_resp, "content-range"),
+        header_value(&file_resp, "content-range")
+    );
+}
+
+#[tokio::test]
+async fn parity_subdir_if_none_match_304() {
+    let s = start_parity_server().await;
+    let raw = send_request(
+        s.addr,
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let etag = header_value(&raw, "etag").expect("should have etag");
+
+    let dir_resp = send_request(s.addr, &format!(
+        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n", etag
+    )).await;
+    let file_resp = send_request(s.addr, &format!(
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n", etag
+    )).await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(extract_status(&dir_resp).contains("304"));
+    assert_eq!(
+        header_value(&dir_resp, "etag"),
+        header_value(&file_resp, "etag")
+    );
+}
+
+#[tokio::test]
+async fn parity_subdir_if_modified_since_304() {
+    let s = start_parity_server().await;
+    let raw = send_request(
+        s.addr,
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let lm = header_value(&raw, "last-modified").expect("should have last-modified");
+
+    let dir_resp = send_request(s.addr, &format!(
+        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: {}\r\nConnection: close\r\n\r\n", lm
+    )).await;
+    let file_resp = send_request(s.addr, &format!(
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: {}\r\nConnection: close\r\n\r\n", lm
+    )).await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(extract_status(&dir_resp).contains("304"));
+}
+
+#[tokio::test]
+async fn parity_subdir_unsatisfiable_range_416() {
+    let s = start_parity_server().await;
+    let dir_resp = send_request(s.addr, "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nRange: bytes=1000-2000\r\nConnection: close\r\n\r\n").await;
+    let file_resp = send_request(s.addr, "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nRange: bytes=1000-2000\r\nConnection: close\r\n\r\n").await;
+
+    assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
+    assert!(extract_status(&dir_resp).contains("416"));
+}

@@ -7,7 +7,7 @@ use std::time::SystemTime;
 use hyper::{Method, Request, Response, StatusCode};
 
 use crate::config::ServeState;
-use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
+use crate::fs::{ResolvedDirectory, ResolvedFile, ResolvedResource, RootGuard};
 use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy};
@@ -25,6 +25,72 @@ use crate::response::{
     internal_error, method_not_allowed, not_found, payload_too_large, planned_response,
     service_unavailable,
 };
+
+/// Typed request input for static-file response planning.
+///
+/// Both direct-file and directory-index routes construct this identically
+/// from the canonical request, ensuring conditional and range headers are
+/// never silently dropped.
+pub(crate) struct StaticRequestInput<'a> {
+    pub method: ReadOnlyMethod,
+    pub if_none_match: Option<&'a str>,
+    pub if_modified_since: Option<&'a str>,
+    pub range: Option<&'a str>,
+    pub if_range: Option<&'a str>,
+}
+
+/// Serve a resolved file through the canonical planner and body-construction path.
+///
+/// This is the single entry point for both direct-file and directory-index routes.
+/// It applies conditional/range planning, constructs the response body from the
+/// opened handle, and normalizes the response through the canonical path.
+async fn serve_resolved_file(
+    file: ResolvedFile,
+    input: &StaticRequestInput<'_>,
+    state: &ServeState,
+) -> Response<BoxBodyInner> {
+    let etag = generate_etag(&file.metadata);
+    let last_modified = file.metadata.modified().ok();
+    let safe_path: PathBuf = file.safe_relative_components.iter().collect();
+    let content_type = mime_for_path(&safe_path);
+
+    let plan = plan_file_response(
+        input.method,
+        &file.metadata,
+        content_type,
+        input.if_none_match,
+        input.if_modified_since,
+        input.range,
+        input.if_range,
+    );
+
+    let status = match plan.status.as_u16() {
+        200 => StatusCode::OK,
+        206 => StatusCode::PARTIAL_CONTENT,
+        304 => StatusCode::NOT_MODIFIED,
+        416 => StatusCode::RANGE_NOT_SATISFIABLE,
+        _ => return internal_error(),
+    };
+
+    let is_head = input.method == ReadOnlyMethod::Head;
+    if is_head {
+        return planned_response(status, &plan.headers, true);
+    }
+
+    let body_source = match file.into_body(&plan) {
+        Ok(bs) => bs,
+        Err(_) => return planned_response(status, &plan.headers, false),
+    };
+    body_source_to_response(
+        body_source,
+        status,
+        &plan.headers,
+        etag,
+        last_modified,
+        state,
+    )
+    .await
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BodyRejection {
@@ -144,87 +210,36 @@ pub async fn handle_request_with_metadata<B>(
 
             let guard = RootGuard::new(state.pinned_root());
 
-            let if_none_match = req
-                .headers()
-                .get(hyper::header::IF_NONE_MATCH)
-                .and_then(|v| v.to_str().ok());
-            let if_modified_since = req
-                .headers()
-                .get(hyper::header::IF_MODIFIED_SINCE)
-                .and_then(|v| v.to_str().ok());
-            let range = req
-                .headers()
-                .get(hyper::header::RANGE)
-                .and_then(|v| v.to_str().ok());
-            let if_range = req
-                .headers()
-                .get(hyper::header::IF_RANGE)
-                .and_then(|v| v.to_str().ok());
+            let method = if is_head {
+                ReadOnlyMethod::Head
+            } else {
+                ReadOnlyMethod::Get
+            };
+
+            let input = StaticRequestInput {
+                method,
+                if_none_match: req
+                    .headers()
+                    .get(hyper::header::IF_NONE_MATCH)
+                    .and_then(|v| v.to_str().ok()),
+                if_modified_since: req
+                    .headers()
+                    .get(hyper::header::IF_MODIFIED_SINCE)
+                    .and_then(|v| v.to_str().ok()),
+                range: req
+                    .headers()
+                    .get(hyper::header::RANGE)
+                    .and_then(|v| v.to_str().ok()),
+                if_range: req
+                    .headers()
+                    .get(hyper::header::IF_RANGE)
+                    .and_then(|v| v.to_str().ok()),
+            };
 
             match guard.resolve(&confined, &config.static_policy) {
-                ResolvedResource::File(file) => {
-                    let etag = generate_etag(&file.metadata);
-                    let last_modified = file.metadata.modified().ok();
-                    let safe_path: PathBuf = file.safe_relative_components.iter().collect();
-                    let content_type = mime_for_path(&safe_path);
-
-                    let method = if is_head {
-                        ReadOnlyMethod::Head
-                    } else {
-                        ReadOnlyMethod::Get
-                    };
-
-                    let plan = plan_file_response(
-                        method,
-                        &file.metadata,
-                        content_type,
-                        if_none_match,
-                        if_modified_since,
-                        range,
-                        if_range,
-                    );
-
-                    let status = match plan.status.as_u16() {
-                        200 => StatusCode::OK,
-                        206 => StatusCode::PARTIAL_CONTENT,
-                        304 => StatusCode::NOT_MODIFIED,
-                        416 => StatusCode::RANGE_NOT_SATISFIABLE,
-                        other => {
-                            let _ = other;
-                            return internal_error();
-                        }
-                    };
-
-                    if is_head {
-                        return planned_response(status, &plan.headers, true);
-                    }
-
-                    let body_source = match file.into_body(&plan) {
-                        Ok(bs) => bs,
-                        Err(_) => return planned_response(status, &plan.headers, is_head),
-                    };
-                    body_source_to_response(
-                        body_source,
-                        status,
-                        &plan.headers,
-                        etag,
-                        last_modified,
-                        state,
-                    )
-                    .await
-                }
+                ResolvedResource::File(file) => serve_resolved_file(file, &input, state).await,
                 ResolvedResource::Directory(dir) => {
-                    handle_directory(
-                        &dir,
-                        config,
-                        state,
-                        is_head,
-                        if_none_match,
-                        if_modified_since,
-                        range,
-                        if_range,
-                    )
-                    .await
+                    handle_directory(&dir, config, state, &input).await
                 }
                 ResolvedResource::NotFound => {
                     crate::ops::Logger::global().emit(
@@ -275,68 +290,16 @@ pub async fn handle_request_with_metadata<B>(
     }
 }
 
-#[allow(clippy::too_many_arguments)]
 async fn handle_directory(
     dir: &ResolvedDirectory,
     config: &crate::config::ServeConfig,
     state: &crate::config::ServeState,
-    is_head: bool,
-    if_none_match: Option<&str>,
-    if_modified_since: Option<&str>,
-    range: Option<&str>,
-    if_range: Option<&str>,
+    input: &StaticRequestInput<'_>,
 ) -> Response<BoxBodyInner> {
     let guard = RootGuard::new(state.pinned_root());
 
     match guard.resolve_child(dir, "index.html", &config.static_policy) {
-        ResolvedResource::File(file) => {
-            let etag = generate_etag(&file.metadata);
-            let last_modified = file.metadata.modified().ok();
-            let safe_path: PathBuf = file.safe_relative_components.iter().collect();
-            let content_type = mime_for_path(&safe_path);
-
-            let method = if is_head {
-                ReadOnlyMethod::Head
-            } else {
-                ReadOnlyMethod::Get
-            };
-
-            let plan = plan_file_response(
-                method,
-                &file.metadata,
-                content_type,
-                if_none_match,
-                if_modified_since,
-                range,
-                if_range,
-            );
-
-            let status = match plan.status.as_u16() {
-                200 => StatusCode::OK,
-                206 => StatusCode::PARTIAL_CONTENT,
-                304 => StatusCode::NOT_MODIFIED,
-                416 => StatusCode::RANGE_NOT_SATISFIABLE,
-                _ => return internal_error(),
-            };
-
-            if is_head {
-                return planned_response(status, &plan.headers, true);
-            }
-
-            let body_source = match file.into_body(&plan) {
-                Ok(bs) => bs,
-                Err(_) => return planned_response(status, &plan.headers, is_head),
-            };
-            body_source_to_response(
-                body_source,
-                status,
-                &plan.headers,
-                etag,
-                last_modified,
-                state,
-            )
-            .await
-        }
+        ResolvedResource::File(file) => serve_resolved_file(file, input, state).await,
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
                 let entries = match guard.list_directory(
@@ -347,6 +310,7 @@ async fn handle_directory(
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };
+                let is_head = input.method == ReadOnlyMethod::Head;
                 directory_listing_response(&entries, is_head)
             }
             DirectoryListingPolicy::Disabled => forbidden(),

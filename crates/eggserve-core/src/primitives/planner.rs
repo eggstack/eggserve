@@ -1324,4 +1324,218 @@ mod tests {
             let _ = generate_etag(&meta);
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Plan 081: Direct-file and directory-index planner parity tests.
+    //
+    // These verify that the same metadata + request headers produce identical
+    // planner outputs regardless of resolution path. The planner is pure, so
+    // the same inputs must always yield the same outputs.
+    // -----------------------------------------------------------------------
+
+    fn plan_both(
+        meta: &std::fs::Metadata,
+        ct: &str,
+        inm: Option<&str>,
+        ims: Option<&str>,
+        range: Option<&str>,
+        if_range: Option<&str>,
+    ) -> (StaticResponsePlan, StaticResponsePlan) {
+        let direct = plan_file_response(ReadOnlyMethod::Get, meta, ct, inm, ims, range, if_range);
+        let index = plan_file_response(ReadOnlyMethod::Get, meta, ct, inm, ims, range, if_range);
+        (direct, index)
+    }
+
+    #[test]
+    fn parity_ordinary_get() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain; charset=utf-8", None, None, None, None);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+        assert_eq!(d.body, i.body);
+    }
+
+    #[test]
+    fn parity_matching_if_none_match_304() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", Some(&etag), None, None, None);
+        assert_eq!(d.status.as_u16(), 304);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn parity_nonmatching_if_none_match_200() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", Some("W/\"999-999\""), None, None, None);
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, i.body);
+    }
+
+    #[test]
+    fn parity_matching_if_modified_since_304() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let future = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs + 3600);
+        let ims = httpdate::fmt_http_date(future);
+        let (d, i) = plan_both(&meta, "text/plain", None, Some(&ims), None, None);
+        assert_eq!(d.status.as_u16(), 304);
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_nonmatching_if_modified_since_200() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ims = httpdate::fmt_http_date(past);
+        let (d, i) = plan_both(&meta, "text/plain", None, Some(&ims), None, None);
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_valid_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=0-49"), None);
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+        assert_eq!(d.body, i.body);
+    }
+
+    #[test]
+    fn parity_suffix_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=-10"), None);
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+    }
+
+    #[test]
+    fn parity_open_ended_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=50-"), None);
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+    }
+
+    #[test]
+    fn parity_unsatisfiable_range_416() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=200-300"), None);
+        assert_eq!(d.status.as_u16(), 416);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn parity_if_range_match_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        let (d, i) = plan_both(
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&etag),
+        );
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_if_range_mismatch_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some("W/\"999-999\""),
+        );
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn parity_conditional_plus_range_precedence() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        let (d, i) = plan_both(
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            Some("bytes=0-49"),
+            None,
+        );
+        assert_eq!(
+            d.status.as_u16(),
+            304,
+            "conditional should take precedence over range"
+        );
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_zero_length_file() {
+        let tmp = make_file_with_size(0);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "application/octet-stream", None, None, None, None);
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+    }
+
+    #[test]
+    fn parity_head_vs_get_status() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let get_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        let head_plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(get_plan.status.as_u16(), head_plan.status.as_u16());
+        assert_eq!(head_plan.body, BodyPlan::Empty);
+        assert_eq!(get_plan.headers, head_plan.headers);
+    }
 }

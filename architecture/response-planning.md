@@ -293,6 +293,38 @@ The `into_body()` conversion is consuming — it takes ownership of the `Resolve
 
 The service layer's `body_source_to_response()` async function then converts the `BodySource` into a Hyper streaming body, acquiring a semaphore permit for file-backed variants to enforce `max_file_streams`.
 
+## Unified Service-Layer Entry Point (Plan 081)
+
+Before Plan 081, direct-file and directory-index routes had separate code paths that could diverge in how conditional and range headers were handled. Plan 081 eliminates this by introducing a shared input type and a single serving function.
+
+### `StaticRequestInput`
+
+Defined in `service.rs`, this struct bundles the method and conditional/range headers for both routes:
+
+```rust
+pub(crate) struct StaticRequestInput<'a> {
+    pub method: ReadOnlyMethod,
+    pub if_none_match: Option<&'a str>,
+    pub if_modified_since: Option<&'a str>,
+    pub range: Option<&'a str>,
+    pub if_range: Option<&'a str>,
+}
+```
+
+Both direct-file and directory-index routes construct this identically from the canonical request, ensuring conditional and range headers are never silently dropped.
+
+### `serve_resolved_file()`
+
+This async function is the single entry point for serving any resolved file — whether reached via a direct path or a directory index lookup. It:
+
+1. Generates an ETag from file metadata
+2. Calls `plan_file_response()` with the `StaticRequestInput` fields
+3. Maps the plan status to a Hyper `StatusCode`
+4. For HEAD requests, returns the planned response without a body
+5. For GET requests, converts the resolved file into a `BodySource` via `into_body(&plan)` and streams it through `body_source_to_response()`
+
+This guarantees that `/directory/index.html` and `/directory/` (resolving to the same file) share identical metadata, validators, conditional handling, range handling, content headers, and streaming behavior.
+
 ## See Also
 
 - [primitives-api.md](primitives-api.md) — Public API for response planning
