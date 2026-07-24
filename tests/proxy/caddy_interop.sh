@@ -147,10 +147,10 @@ run_test "Keep-alive request 2" "200" \
 
 # Test 8: Conditional request (If-None-Match)
 echo "Test 8: Conditional request"
-ETAG=$(curl -s "http://localhost:${CADDY_PORT}/hello.txt" -I 2>/dev/null | grep -i etag | tr -d '\r' | awk '{print $2}' | tr -d '"')
+ETAG=$(curl -s "http://localhost:${CADDY_PORT}/hello.txt" -D - -o /dev/null 2>/dev/null | grep -i '^etag:' | tr -d '\r' | awk '{print $2}')
 if [[ -n "$ETAG" ]]; then
     run_test "Conditional 304" "304" \
-        curl -s "http://localhost:${CADDY_PORT}/hello.txt" -H "If-None-Match: \"$ETAG\"" -w "%{http_code}" -o /dev/null
+        curl -s "http://localhost:${CADDY_PORT}/hello.txt" -H "If-None-Match: $ETAG" -w "%{http_code}" -o /dev/null
 else
     echo "  SKIP: No ETag returned"
 fi
