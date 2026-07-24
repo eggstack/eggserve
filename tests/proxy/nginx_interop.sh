@@ -44,9 +44,9 @@ dd if=/dev/urandom of="$WORK_DIR/root/large.bin" bs=1024 count=64 2>/dev/null
 mkdir -p "$WORK_DIR/root/subdir"
 echo "nested" > "$WORK_DIR/root/subdir/nested.txt"
 
-# Start eggserve on loopback (no TLS)
+# Start eggserve on loopback (no TLS, with directory listing)
 EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
-"$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
+"$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" --directory-listing &
 EGGSERVE_PID=$!
 trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
 sleep 1
@@ -105,7 +105,7 @@ http {
 EOF
 
 # Start nginx
-"$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" &
+"$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" 2>&1 &
 NGINX_PID=$!
 trap 'kill $NGINX_PID 2>/dev/null; kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
 sleep 2
@@ -113,10 +113,14 @@ sleep 2
 # Verify nginx is running
 if ! kill -0 "$NGINX_PID" 2>/dev/null; then
     echo "FAIL: nginx failed to start"
+    echo "  nginx config:"
+    cat "$WORK_DIR/nginx.conf"
     if [[ -f "$WORK_DIR/nginx_error.log" ]]; then
         echo "  nginx error log:"
-        tail -10 "$WORK_DIR/nginx_error.log"
+        cat "$WORK_DIR/nginx_error.log"
     fi
+    # Try starting nginx in foreground to see error
+    "$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" -t 2>&1 || true
     exit 1
 fi
 
