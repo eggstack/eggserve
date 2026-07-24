@@ -65,8 +65,6 @@ cat > "$WORK_DIR/Caddyfile" <<EOF
 }
 
 :${CADDY_PORT} {
-    tls internal
-
     reverse_proxy 127.0.0.1:${EGGSERVE_PORT} {
         header_up X-Forwarded-For {remote_host}
         transport http {
@@ -113,46 +111,46 @@ echo "=== Caddy Reverse-Proxy Interop Tests ==="
 # Test 1: Basic GET through Caddy
 echo "Test 1: GET through Caddy"
 run_test "GET returns 200" "200" \
-    curl -sk "https://localhost:${CADDY_PORT}/hello.txt" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/hello.txt" -w "%{http_code}" -o /dev/null
 
 # Test 2: HEAD through Caddy
 echo "Test 2: HEAD through Caddy"
 run_test "HEAD returns 200" "200" \
-    curl -sk "https://localhost:${CADDY_PORT}/hello.txt" -I -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/hello.txt" -I -w "%{http_code}" -o /dev/null
 
 # Test 3: Large file through Caddy
 echo "Test 3: Large file through Caddy"
 run_test "Large file returns 200" "200" \
-    curl -sk "https://localhost:${CADDY_PORT}/large.bin" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/large.bin" -w "%{http_code}" -o /dev/null
 
 # Test 4: Range request through Caddy
 echo "Test 4: Range request through Caddy"
 run_test "Range returns 206" "206" \
-    curl -sk "https://localhost:${CADDY_PORT}/large.bin" -H "Range: bytes=0-1023" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/large.bin" -H "Range: bytes=0-1023" -w "%{http_code}" -o /dev/null
 
 # Test 5: 404 through Caddy
 echo "Test 5: 404 through Caddy"
 run_test "Missing file returns 404" "404" \
-    curl -sk "https://localhost:${CADDY_PORT}/nonexistent.txt" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/nonexistent.txt" -w "%{http_code}" -o /dev/null
 
 # Test 6: Directory index through Caddy
 echo "Test 6: Directory index through Caddy"
 run_test "Directory index returns 200" "200" \
-    curl -sk "https://localhost:${CADDY_PORT}/subdir/" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/subdir/" -w "%{http_code}" -o /dev/null
 
 # Test 7: Connection reuse (multiple requests)
 echo "Test 7: Connection reuse"
 run_test "Keep-alive request 1" "200" \
-    curl -sk "https://localhost:${CADDY_PORT}/hello.txt" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/hello.txt" -w "%{http_code}" -o /dev/null
 run_test "Keep-alive request 2" "200" \
-    curl -sk "https://localhost:${CADDY_PORT}/hello.txt" -w "%{http_code}" -o /dev/null
+    curl -s "http://localhost:${CADDY_PORT}/hello.txt" -w "%{http_code}" -o /dev/null
 
 # Test 8: Conditional request (If-None-Match)
 echo "Test 8: Conditional request"
-ETAG=$(curl -sk "https://localhost:${CADDY_PORT}/hello.txt" -I 2>/dev/null | grep -i etag | tr -d '\r' | awk '{print $2}' | tr -d '"')
+ETAG=$(curl -s "http://localhost:${CADDY_PORT}/hello.txt" -I 2>/dev/null | grep -i etag | tr -d '\r' | awk '{print $2}' | tr -d '"')
 if [[ -n "$ETAG" ]]; then
     run_test "Conditional 304" "304" \
-        curl -sk "https://localhost:${CADDY_PORT}/hello.txt" -H "If-None-Match: \"$ETAG\"" -w "%{http_code}" -o /dev/null
+        curl -s "http://localhost:${CADDY_PORT}/hello.txt" -H "If-None-Match: \"$ETAG\"" -w "%{http_code}" -o /dev/null
 else
     echo "  SKIP: No ETag returned"
 fi
