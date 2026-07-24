@@ -108,7 +108,7 @@ EOF
 "$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" 2>&1 &
 NGINX_PID=$!
 trap 'kill $NGINX_PID 2>/dev/null; kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
-sleep 2
+sleep 3
 
 # Verify nginx is running
 if ! kill -0 "$NGINX_PID" 2>/dev/null; then
@@ -119,7 +119,6 @@ if ! kill -0 "$NGINX_PID" 2>/dev/null; then
         echo "  nginx error log:"
         cat "$WORK_DIR/nginx_error.log"
     fi
-    # Try starting nginx in foreground to see error
     "$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" -t 2>&1 || true
     exit 1
 fi
