@@ -69,7 +69,7 @@ cat > "$WORK_DIR/Caddyfile" <<EOF
     admin off
 }
 
-https://localhost:${CADDY_PORT} {
+:${CADDY_PORT} {
     tls "$WORK_DIR/cert.pem" "$WORK_DIR/key.pem"
 
     reverse_proxy 127.0.0.1:${EGGSERVE_PORT} {
