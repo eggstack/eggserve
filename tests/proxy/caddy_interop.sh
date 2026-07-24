@@ -44,11 +44,6 @@ dd if=/dev/urandom of="$WORK_DIR/root/large.bin" bs=1024 count=64 2>/dev/null
 mkdir -p "$WORK_DIR/root/subdir"
 echo "nested" > "$WORK_DIR/root/subdir/nested.txt"
 
-# Generate self-signed TLS cert for Caddy
-openssl req -x509 -newkey rsa:2048 -keyout "$WORK_DIR/key.pem" \
-    -out "$WORK_DIR/cert.pem" -days 1 -nodes \
-    -subj "/CN=localhost" 2>/dev/null
-
 # Start eggserve on loopback (no TLS)
 EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
@@ -70,7 +65,7 @@ cat > "$WORK_DIR/Caddyfile" <<EOF
 }
 
 :${CADDY_PORT} {
-    tls "$WORK_DIR/cert.pem" "$WORK_DIR/key.pem"
+    tls internal
 
     reverse_proxy 127.0.0.1:${EGGSERVE_PORT} {
         header_up X-Forwarded-For {remote_host}
