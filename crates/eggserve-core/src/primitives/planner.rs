@@ -226,17 +226,16 @@ pub fn evaluate_if_range(
 
 /// Generate a weak ETag from file metadata.
 ///
-/// Uses file size, mtime seconds, and mtime milliseconds (truncated from
-/// nanoseconds) to produce a stable weak validator. Millisecond precision
-/// matches typical filesystem mtime resolution and avoids flaky comparisons
-/// when files are created in rapid succession.
+/// Uses file size, mtime seconds, and mtime nanoseconds to produce a stable
+/// weak validator. Nanosecond precision distinguishes rapid same-size
+/// modifications where millisecond precision would collide.
 pub fn generate_etag(metadata: &Metadata) -> Option<String> {
     let size = metadata.len();
     let mtime = metadata.modified().ok()?;
     let epoch = mtime.duration_since(UNIX_EPOCH).ok()?;
     let mtime_secs = epoch.as_secs();
-    let mtime_millis = epoch.subsec_millis();
-    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_millis))
+    let mtime_nanos = epoch.subsec_nanos();
+    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
 }
 
 fn build_full_response(

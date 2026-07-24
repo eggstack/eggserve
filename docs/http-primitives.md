@@ -113,7 +113,7 @@ Response headers are constructed as a `HeaderMapPlan` (ordered list of name/valu
 - `Accept-Ranges: bytes`
 - `X-Content-Type-Options: nosniff`
 - `Last-Modified` — from file metadata (when available)
-- `ETag` — weak validator from size + mtime (when available)
+- `ETag` — weak validator from size + mtime secs + mtime nanos (when available)
 
 ### Range response (206 Partial Content)
 

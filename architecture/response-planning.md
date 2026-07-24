@@ -127,7 +127,7 @@ Generates ETag from file metadata:
 pub fn generate_etag(metadata: &std::fs::Metadata) -> Option<String>
 ```
 
-Returns `None` if metadata has no modification time. Format when present: `W/"<size>-<mtime_secs>"` (weak validator).
+Returns `None` if metadata has no modification time. Format when present: `W/"<size>-<mtime_secs>-<mtime_nanos>"` (weak validator, nanosecond precision).
 
 ### `plan_directory_listing()`
 
