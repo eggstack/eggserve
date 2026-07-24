@@ -314,6 +314,7 @@ jobs:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_primitives -v
       - name: Test server primitives
+        timeout-minutes: 5
         env:
           PYTHONPATH: ""
         run: python -m unittest eggserve.test_server_primitives -v
