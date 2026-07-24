@@ -1093,6 +1093,7 @@ class TestConnectionMetadata(_TestServerBase):
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
+        captured.clear()
 
         # Make two requests (different connections).
         urllib.request.urlopen(url, timeout=2)

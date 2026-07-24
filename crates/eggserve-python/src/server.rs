@@ -33,6 +33,9 @@ use eggserve_core::server::lifecycle::LifecycleState;
 use eggserve_core::server::service::{Service, ServiceError};
 use eggserve_core::server::{Server, ServerHandle};
 
+/// Maximum time to wait for the server to reach Running state during startup.
+const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+
 // ---------------------------------------------------------------------------
 // Python log observer callback wrapper
 // ---------------------------------------------------------------------------
@@ -1345,11 +1348,11 @@ impl PyServer {
             let _ = Logger::try_init(sink);
         }
 
-        let rt = tokio::runtime::Runtime::new()
-            .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let (server_handle, rt) = py.allow_threads(|| -> PyResult<(ServerHandle, tokio::runtime::Runtime)> {
+            let rt = tokio::runtime::Runtime::new()
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-        let server_handle = py.allow_threads(|| -> PyResult<ServerHandle> {
-            rt.block_on(async {
+            let server_handle = rt.block_on(async {
                 if let Some(handler_arc) = &self.handler {
                     let cloned_handler = handler_arc
                         .lock()
@@ -1385,12 +1388,25 @@ impl PyServer {
                             "failed to start server: {e}"
                         ))
                     })?;
-                    handle.ready().await.map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "server failed during startup: {e}"
-                        ))
-                    })?;
-                    Ok(handle)
+                    let start_time = std::time::Instant::now();
+                    loop {
+                        let state = handle.state();
+                        if state == LifecycleState::Running {
+                            break;
+                        }
+                        if state == LifecycleState::Failed {
+                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                "server failed during startup",
+                            ));
+                        }
+                        if start_time.elapsed() > STARTUP_TIMEOUT {
+                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                "server failed to start: timed out waiting for readiness",
+                            ));
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    Ok::<ServerHandle, PyErr>(handle)
                 } else {
                     let server = Server::builder()
                         .runtime(runtime_config)
@@ -1408,14 +1424,29 @@ impl PyServer {
                             "failed to start server: {e}"
                         ))
                     })?;
-                    handle.ready().await.map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "server failed during startup: {e}"
-                        ))
-                    })?;
-                    Ok(handle)
+                    let start_time = std::time::Instant::now();
+                    loop {
+                        let state = handle.state();
+                        if state == LifecycleState::Running {
+                            break;
+                        }
+                        if state == LifecycleState::Failed {
+                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                "server failed during startup",
+                            ));
+                        }
+                        if start_time.elapsed() > STARTUP_TIMEOUT {
+                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                "server failed to start: timed out waiting for readiness",
+                            ));
+                        }
+                        tokio::time::sleep(Duration::from_millis(5)).await;
+                    }
+                    Ok::<ServerHandle, PyErr>(handle)
                 }
-            })
+            })?;
+
+            Ok((server_handle, rt))
         })?;
 
         let local_addr = server_handle.local_addr();
@@ -1463,7 +1494,9 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(rt) = runtime_guard.take() {
-            rt.shutdown_background();
+            py.allow_threads(|| {
+                drop(rt);
+            });
         }
         drop(runtime_guard);
 
@@ -1495,7 +1528,8 @@ impl PyServer {
                 if let Some(rt) = runtime_guard.as_ref() {
                     py.allow_threads(|| {
                         rt.block_on(async {
-                            let _ = handle.ready().await;
+                            let _ =
+                                tokio::time::timeout(STARTUP_TIMEOUT, handle.ready()).await;
                         });
                         Ok::<(), PyErr>(())
                     })?;
@@ -1580,9 +1614,10 @@ impl PyServer {
                 .lock()
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             if let Some(rt) = runtime_guard.as_ref() {
+                let deadline = self.graceful_shutdown_timeout + Duration::from_secs(2);
                 py.allow_threads(|| {
                     rt.block_on(async {
-                        let _ = handle.wait().await;
+                        let _ = tokio::time::timeout(deadline, handle.wait()).await;
                     });
                     Ok::<(), PyErr>(())
                 })?;

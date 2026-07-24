@@ -688,7 +688,12 @@ fn convert_request_head(
         _ => HttpVersion::Http11,
     };
 
-    let target = RequestTarget::parse(req.uri().path())
+    let raw_target = req
+        .uri()
+        .path_and_query()
+        .map(|pq| pq.as_str())
+        .unwrap_or("/");
+    let target = RequestTarget::parse(raw_target)
         .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?;
 
     let mut headers = HeaderBlock::new();
