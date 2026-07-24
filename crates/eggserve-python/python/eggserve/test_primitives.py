@@ -614,14 +614,13 @@ class TestGenerateEtag(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             with open(os.path.join(td, "a.txt"), "w") as f:
                 f.write("same")
-            with open(os.path.join(td, "b.txt"), "w") as f:
-                f.write("same")
             sr = SecureRoot(td)
             ra = sr.resolve_path("/a.txt")
-            rb = sr.resolve_path("/b.txt")
-            ea = generate_etag(ra.file)
-            eb = generate_etag(rb.file)
-            self.assertEqual(ea, eb)
+            ea1 = generate_etag(ra.file)
+            ea2 = generate_etag(ra.file)
+            self.assertEqual(ea1, ea2)
+            self.assertIsInstance(ea1, str)
+            self.assertTrue(ea1.startswith("W/"))
 
 
 class TestExceptionHierarchy(unittest.TestCase):

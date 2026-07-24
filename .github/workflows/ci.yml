@@ -253,6 +253,8 @@ jobs:
           curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq caddy
+          sudo systemctl stop caddy || true
+          sudo systemctl disable caddy || true
       - name: Install nginx
         run: sudo apt-get install -y -qq nginx
       - name: Build eggserve (debug)

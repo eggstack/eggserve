@@ -429,8 +429,8 @@ fn generate_etag(metadata: &std::fs::Metadata) -> Option<String> {
     let mtime = metadata.modified().ok()?;
     let epoch = mtime.duration_since(SystemTime::UNIX_EPOCH).ok()?;
     let mtime_secs = epoch.as_secs();
-    let mtime_nanos = epoch.subsec_nanos();
-    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
+    let mtime_millis = epoch.subsec_millis();
+    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_millis))
 }
 
 fn map_rejection(rejection: crate::path::PathRejection) -> hyper::Response<BoxBodyInner> {
