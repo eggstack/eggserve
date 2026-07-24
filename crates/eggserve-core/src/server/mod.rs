@@ -59,7 +59,7 @@ pub mod service;
 pub mod static_service;
 
 pub use crate::primitives::request::Request;
-pub use config::{RuntimeConfig, RuntimeConfigBuilder};
+pub use config::{try_from_serve_config, RuntimeConfig, RuntimeConfigBuilder};
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
 pub use lifecycle::LifecycleState;
@@ -216,9 +216,10 @@ impl ServerBuilder {
         let serve_config = self.serve_config.ok_or_else(|| {
             ServerError::Config("serve configuration required for static service".into())
         })?;
-        let config = self
-            .runtime_config
-            .unwrap_or_else(|| RuntimeConfig::from(&*serve_config));
+        let config = match self.runtime_config {
+            Some(c) => c,
+            None => config::try_from_serve_config(&serve_config)?,
+        };
         Ok(Server {
             config,
             serve_config,
@@ -235,9 +236,10 @@ impl ServerBuilder {
             root: root.as_ref().to_path_buf(),
             ..ServeConfig::default()
         });
-        let config = self
-            .runtime_config
-            .unwrap_or_else(|| RuntimeConfig::from(&*serve_config));
+        let config = match self.runtime_config {
+            Some(c) => c,
+            None => config::try_from_serve_config(&serve_config)?,
+        };
         Ok(Server {
             config,
             serve_config,

@@ -1,0 +1,244 @@
+# Configuration schema for Plan 080, Track K.
+#
+# Machine-readable inventory of every operator-facing configuration field.
+# Used by tests and contract consistency checks to detect drift between
+# Rust, CLI, Python, and documentation.
+
+schema_version = "1.0"
+
+# ── Concurrency limits ────────────────────────────────────────────────
+
+[[fields]]
+name = "max_connections"
+owner = "RuntimeConfig"
+default = 64
+valid_range = "> 0"
+cli_flag = "--max-connections"
+python_param = "max_connections"
+enforcing = "connection_semaphore"
+
+[[fields]]
+name = "max_file_streams"
+owner = "Limits"
+default = 32
+valid_range = "> 0"
+cli_flag = "--max-file-streams"
+python_param = "max_file_streams"
+enforcing = "file_stream_semaphore"
+
+[[fields]]
+name = "max_python_callbacks"
+owner = "PyServer"
+default = 8
+valid_range = "> 0"
+cli_flag = null
+python_param = "max_python_callbacks"
+enforcing = "callback_semaphore"
+
+[[fields]]
+name = "max_in_flight_requests"
+owner = "RuntimeConfig"
+default = "None"
+valid_range = "Option<usize>"
+cli_flag = null
+python_param = null
+enforcing = "hyper_pipelining"
+
+[[fields]]
+name = "max_listing_entries"
+owner = "Limits"
+default = 4096
+valid_range = "> 0"
+cli_flag = null
+python_param = null
+enforcing = "directory_listing_enumeration"
+
+[[fields]]
+name = "max_listing_response_bytes"
+owner = "Limits"
+default = 1048576
+valid_range = "> 0"
+cli_flag = null
+python_param = null
+enforcing = "directory_listing_body_cap"
+
+[[fields]]
+name = "max_listing_filename_bytes"
+owner = "Limits"
+default = 255
+valid_range = "> 0"
+cli_flag = null
+python_param = null
+enforcing = "directory_listing_filename_cap"
+
+# ── Timeouts ──────────────────────────────────────────────────────────
+
+[[fields]]
+name = "header_read_timeout"
+owner = "RuntimeConfig"
+default_secs = 10
+valid_range = "> 0"
+cli_flag = "--header-timeout"
+python_param = "header_timeout_secs"
+enforcing = "hyper_header_read"
+
+[[fields]]
+name = "connection_total_timeout"
+owner = "RuntimeConfig"
+default_secs = 60
+valid_range = "> 0"
+cli_flag = "--connection-total-timeout"
+python_param = "connection_total_timeout_secs"
+enforcing = "hyper_connection_future"
+
+[[fields]]
+name = "handler_timeout"
+owner = "RuntimeConfig"
+default_secs = 30
+valid_range = "> 0"
+cli_flag = "--handler-timeout"
+python_param = "handler_timeout_secs"
+enforcing = "tokio_timeout_wrap"
+
+[[fields]]
+name = "body_read_timeout"
+owner = "RuntimeConfig"
+default_secs = 30
+valid_range = "> 0"
+cli_flag = "--body-read-timeout"
+python_param = "body_timeout_secs"
+enforcing = "body_consumption_deadline"
+
+[[fields]]
+name = "graceful_shutdown_timeout"
+owner = "RuntimeConfig"
+default_secs = 10
+valid_range = "> 0"
+cli_flag = null
+python_param = "graceful_shutdown_timeout_secs"
+enforcing = "drain_deadline"
+
+[[fields]]
+name = "listing_enumeration_timeout"
+owner = "Limits"
+default_secs = 30
+valid_range = "> 0"
+cli_flag = null
+python_param = null
+enforcing = "directory_enumeration"
+
+# ── Body policy ───────────────────────────────────────────────────────
+
+[[fields]]
+name = "max_request_body_bytes"
+owner = "RuntimeConfig"
+default = 0
+valid_range = "u64"
+cli_flag = null
+python_param = "max_request_body_bytes"
+enforcing = "hard_ceiling"
+
+[[fields]]
+name = "request_body_policy"
+owner = "RuntimeConfig"
+default = "Reject"
+valid_range = "Reject|Buffer|Stream"
+cli_flag = null
+python_param = "request_body_mode"
+enforcing = "service_declaration"
+
+[[fields]]
+name = "incomplete_body_policy"
+owner = "RuntimeConfig"
+default = "Close"
+valid_range = "Close"
+cli_flag = null
+python_param = "incomplete_body_policy"
+enforcing = "post_handler"
+
+# ── Network ───────────────────────────────────────────────────────────
+
+[[fields]]
+name = "bind"
+owner = "ServeConfig"
+default = "127.0.0.1:8000"
+valid_range = "SocketAddr"
+cli_flag = "--bind, --port, --addr"
+python_param = "bind, port"
+enforcing = "tcp_listener"
+
+[[fields]]
+name = "keep_alive"
+owner = "RuntimeConfig"
+default = true
+valid_range = "bool"
+cli_flag = null
+python_param = null
+enforcing = "hyper_keepalive"
+
+[[fields]]
+name = "server_header"
+owner = "RuntimeConfig"
+default = "None"
+valid_range = "Option<String>"
+cli_flag = null
+python_param = null
+enforcing = "response_header"
+
+# ── Filesystem policy ─────────────────────────────────────────────────
+
+[[fields]]
+name = "root"
+owner = "ServeConfig"
+default = "."
+valid_range = "PathBuf"
+cli_flag = "--directory"
+python_param = "root"
+enforcing = "pinned_root"
+
+[[fields]]
+name = "directory_listing"
+owner = "StaticPolicy"
+default = "Disabled"
+valid_range = "Enabled|Disabled"
+cli_flag = "--directory-listing"
+python_param = "directory_listing (StaticPolicy)"
+enforcing = "listing_response"
+
+[[fields]]
+name = "symlinks"
+owner = "StaticPolicy"
+default = "Denied"
+valid_range = "Follow|Denied"
+cli_flag = "--follow-symlinks"
+python_param = "follow_symlinks (StaticPolicy)"
+enforcing = "path_traversal"
+
+[[fields]]
+name = "dotfiles"
+owner = "StaticPolicy"
+default = "Denied"
+valid_range = "Serve|Denied"
+cli_flag = "--allow-dotfiles"
+python_param = "allow_dotfiles (StaticPolicy)"
+enforcing = "dotfile_check"
+
+[[fields]]
+name = "stream_chunk_size"
+owner = "Limits"
+default = 8192
+valid_range = "> 0"
+cli_flag = null
+python_param = null
+enforcing = "file_streaming_read"
+
+# ── TLS (feature-gated) ──────────────────────────────────────────────
+
+[[fields]]
+name = "tls_config"
+owner = "RuntimeConfig"
+default = "None"
+valid_range = "Option<Arc<ServerConfig>>"
+cli_flag = "--tls-cert + --tls-key"
+python_param = null
+enforcing = "tls_handshake"

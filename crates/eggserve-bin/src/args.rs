@@ -290,7 +290,7 @@ impl Args {
         }
     }
 
-    pub fn limits(&self) -> Limits {
+    pub fn limits(&self) -> Result<Limits, String> {
         let mut limits = Limits::default();
         if let Some(v) = self.max_connections {
             limits.max_connections = v;
@@ -311,6 +311,14 @@ impl Args {
             limits.body_read_timeout = v;
         }
         limits
+            .validate()
+            .map_err(|errs| {
+                errs.iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            })
+            .map(|()| limits)
     }
 }
 
@@ -552,9 +560,17 @@ mod tests {
     #[test]
     fn limits_override_defaults() {
         let args = parse(&["--max-connections", "128", "--max-file-streams", "64"]).unwrap();
-        let limits = args.limits();
+        let limits = args.limits().unwrap();
         assert_eq!(limits.max_connections, 128);
         assert_eq!(limits.max_file_streams, 64);
+    }
+
+    #[test]
+    fn limits_validates_zero_values() {
+        let args = parse(&[]).unwrap();
+        let mut limits = args.limits().unwrap();
+        limits.max_connections = 0;
+        assert!(limits.validate().is_err());
     }
 
     #[test]

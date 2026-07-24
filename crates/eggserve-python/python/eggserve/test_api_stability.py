@@ -467,5 +467,98 @@ class TestResponseFactorySnapshot(unittest.TestCase):
         self.assertIn("content-type", resp.headers)
 
 
+class TestServerValidationErrors(unittest.TestCase):
+    """Plan 080, Track J: Python constructor rejects invalid configuration values."""
+
+    def test_zero_max_connections_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", max_connections=0)
+        self.assertIn("max_connections", str(ctx.exception))
+
+    def test_zero_max_file_streams_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", max_file_streams=0)
+        self.assertIn("max_file_streams", str(ctx.exception))
+
+    def test_zero_handler_timeout_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", handler_timeout_secs=0)
+        self.assertIn("handler_timeout", str(ctx.exception))
+
+    def test_zero_body_timeout_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", body_timeout_secs=0)
+        self.assertIn("body_timeout", str(ctx.exception))
+
+    def test_zero_connection_total_timeout_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", connection_total_timeout_secs=0)
+        self.assertIn("connection_total_timeout", str(ctx.exception))
+
+    def test_zero_graceful_shutdown_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", graceful_shutdown_timeout_secs=0)
+        self.assertIn("graceful_shutdown_timeout", str(ctx.exception))
+
+    def test_zero_header_timeout_rejected(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        with self.assertRaises(ValueError) as ctx:
+            eggserve.Server(root=".", header_timeout_secs=0)
+        self.assertIn("header_timeout", str(ctx.exception))
+
+    def test_non_default_values_accepted(self) -> None:
+        import eggserve
+
+        if not eggserve.NATIVE_AVAILABLE:
+            self.skipTest("native module not available")
+
+        s = eggserve.Server(
+            root=".",
+            max_connections=128,
+            max_file_streams=64,
+            handler_timeout_secs=15,
+            body_timeout_secs=20,
+            connection_total_timeout_secs=45,
+            graceful_shutdown_timeout_secs=5,
+            header_timeout_secs=3,
+        )
+        self.assertIsNotNone(s)
+        s.stop()
+
+
 if __name__ == "__main__":
     unittest.main()

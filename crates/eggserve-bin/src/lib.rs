@@ -4,7 +4,7 @@ use eggserve_core::config::ServeConfig;
 use eggserve_core::ops::{
     Event, EventKind, Field, LogFormat as OpsLogFormat, Logger, Severity, StderrLogSink,
 };
-use eggserve_core::server::{RuntimeConfig, Server};
+use eggserve_core::server::{try_from_serve_config, Server};
 use tokio::sync::broadcast;
 
 pub mod args;
@@ -30,7 +30,13 @@ pub fn run() {
     };
 
     let static_policy = args.static_policy();
-    let limits = args.limits();
+    let limits = match args.limits() {
+        Ok(l) => l,
+        Err(e) => {
+            eprintln!("error: {}", e);
+            std::process::exit(1);
+        }
+    };
     let _quiet = args.quiet || args.log_format == args::LogFormat::None;
 
     // Initialize structured logger.
@@ -115,7 +121,13 @@ pub fn run() {
 
     #[cfg(not(feature = "tls"))]
     {
-        let runtime_config = RuntimeConfig::from(&*serve_config);
+        let runtime_config = match try_from_serve_config(&serve_config) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        };
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
 
         rt.block_on(async {
@@ -198,7 +210,13 @@ pub fn run() {
 
     #[cfg(feature = "tls")]
     {
-        let mut runtime_config = RuntimeConfig::from(&*serve_config);
+        let mut runtime_config = match try_from_serve_config(&serve_config) {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("error: {}", e);
+                std::process::exit(1);
+            }
+        };
         runtime_config.tls_config = tls_config;
 
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;

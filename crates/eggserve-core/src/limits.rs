@@ -258,4 +258,64 @@ mod tests {
         assert!(msg.contains("> 0"));
         assert!(msg.contains("0"));
     }
+
+    #[test]
+    fn large_concurrency_values_are_valid() {
+        let limits = Limits {
+            max_connections: usize::MAX,
+            max_file_streams: usize::MAX,
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
+    }
+
+    #[test]
+    fn large_duration_values_are_valid() {
+        let limits = Limits {
+            header_read_timeout: Duration::from_secs(u64::MAX),
+            connection_total_timeout: Duration::from_secs(u64::MAX),
+            handler_timeout: Duration::from_secs(u64::MAX),
+            body_read_timeout: Duration::from_secs(u64::MAX),
+            graceful_shutdown_timeout: Duration::from_secs(u64::MAX),
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
+    }
+
+    #[test]
+    fn limits_error_is_send_and_sync() {
+        fn assert_send_sync<T: Send + Sync>() {}
+        assert_send_sync::<LimitsError>();
+    }
+
+    #[test]
+    fn limits_is_clone() {
+        let limits = Limits::default();
+        let cloned = limits.clone();
+        assert_eq!(limits.max_connections, cloned.max_connections);
+    }
+
+    #[test]
+    fn validate_all_fields_simultaneously() {
+        let limits = Limits {
+            max_connections: 0,
+            max_file_streams: 0,
+            header_read_timeout: Duration::ZERO,
+            connection_total_timeout: Duration::ZERO,
+            handler_timeout: Duration::ZERO,
+            body_read_timeout: Duration::ZERO,
+            graceful_shutdown_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert_eq!(errs.len(), 7);
+        let fields: Vec<&str> = errs.iter().map(|e| e.field).collect();
+        assert!(fields.contains(&"max_connections"));
+        assert!(fields.contains(&"max_file_streams"));
+        assert!(fields.contains(&"header_read_timeout"));
+        assert!(fields.contains(&"connection_total_timeout"));
+        assert!(fields.contains(&"handler_timeout"));
+        assert!(fields.contains(&"body_read_timeout"));
+        assert!(fields.contains(&"graceful_shutdown_timeout"));
+    }
 }

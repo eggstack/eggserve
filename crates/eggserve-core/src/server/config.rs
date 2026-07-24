@@ -345,33 +345,44 @@ impl RuntimeConfigBuilder {
     }
 }
 
-/// Convert a [`crate::config::ServeConfig`] into a [`RuntimeConfig`].
+/// Try to convert a [`crate::config::ServeConfig`] into a [`RuntimeConfig`].
 ///
 /// This bridges the CLI/Python configuration model into the runtime model.
 /// Filesystem policy and root directory are NOT transferred — they belong
 /// to the service, not the runtime.
-impl From<&crate::config::ServeConfig> for RuntimeConfig {
-    fn from(config: &crate::config::ServeConfig) -> Self {
-        Self {
-            bind: config.bind,
-            max_connections: config.limits.max_connections,
-            max_file_streams: config.limits.max_file_streams,
-            header_read_timeout: config.limits.header_read_timeout,
-            connection_total_timeout: config.limits.connection_total_timeout,
-            handler_timeout: config.limits.handler_timeout,
-            body_read_timeout: config.limits.body_read_timeout,
-            graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
-            keep_alive: true,
-            max_in_flight_requests: None,
-            server_header: None,
-            #[cfg(feature = "tls")]
-            tls_config: None,
-            max_request_body_bytes: config.limits.max_request_body_bytes,
-            request_body_policy: RequestBodyPolicy::Reject,
-            incomplete_body_policy:
-                crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        }
-    }
+///
+/// Returns an error if the `Limits` contain invalid values (zero concurrency,
+/// zero timeouts).
+pub fn try_from_serve_config(
+    config: &crate::config::ServeConfig,
+) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
+    config.limits.validate().map_err(|errs| {
+        crate::server::errors::ServerError::Config(
+            errs.iter()
+                .map(|e| e.to_string())
+                .collect::<Vec<_>>()
+                .join("; "),
+        )
+    })?;
+    Ok(RuntimeConfig {
+        bind: config.bind,
+        max_connections: config.limits.max_connections,
+        max_file_streams: config.limits.max_file_streams,
+        header_read_timeout: config.limits.header_read_timeout,
+        connection_total_timeout: config.limits.connection_total_timeout,
+        handler_timeout: config.limits.handler_timeout,
+        body_read_timeout: config.limits.body_read_timeout,
+        graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
+        keep_alive: true,
+        max_in_flight_requests: None,
+        server_header: None,
+        #[cfg(feature = "tls")]
+        tls_config: None,
+        max_request_body_bytes: config.limits.max_request_body_bytes,
+        request_body_policy: RequestBodyPolicy::Reject,
+        incomplete_body_policy:
+            crate::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
+    })
 }
 
 #[cfg(test)]
@@ -444,7 +455,7 @@ mod tests {
     #[test]
     fn from_serve_config() {
         let serve_config = crate::config::ServeConfig::default();
-        let runtime = RuntimeConfig::from(&serve_config);
+        let runtime = try_from_serve_config(&serve_config).unwrap();
         assert_eq!(runtime.bind, serve_config.bind);
         assert_eq!(runtime.max_connections, serve_config.limits.max_connections);
         assert_eq!(
@@ -560,11 +571,25 @@ mod tests {
             limits,
             ..Default::default()
         };
-        let runtime = RuntimeConfig::from(&serve);
+        let runtime = try_from_serve_config(&serve).unwrap();
         assert_eq!(runtime.max_connections, 99);
         assert_eq!(runtime.max_file_streams, 77);
         assert_eq!(runtime.handler_timeout, Duration::from_secs(42));
         assert_eq!(runtime.body_read_timeout, Duration::from_secs(99));
+    }
+
+    #[test]
+    fn try_from_serve_config_rejects_invalid_limits() {
+        let limits = crate::limits::Limits {
+            max_connections: 0,
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let err = try_from_serve_config(&serve).unwrap_err();
+        assert!(err.to_string().contains("max_connections"));
     }
 
     #[test]
@@ -581,5 +606,120 @@ mod tests {
         };
         let errs = limits.validate().unwrap_err();
         assert_eq!(errs.len(), 7);
+    }
+
+    #[test]
+    fn builder_no_overrides_uses_defaults() {
+        let config = RuntimeConfig::builder().build().unwrap();
+        let default = RuntimeConfig::default();
+        assert_eq!(config.max_connections, default.max_connections);
+        assert_eq!(config.max_file_streams, default.max_file_streams);
+        assert_eq!(config.header_read_timeout, default.header_read_timeout);
+        assert_eq!(
+            config.connection_total_timeout,
+            default.connection_total_timeout
+        );
+        assert_eq!(config.handler_timeout, default.handler_timeout);
+        assert_eq!(config.body_read_timeout, default.body_read_timeout);
+        assert_eq!(
+            config.graceful_shutdown_timeout,
+            default.graceful_shutdown_timeout
+        );
+    }
+
+    #[test]
+    fn builder_is_consumed_by_build() {
+        let builder = RuntimeConfig::builder().max_connections(128);
+        let _config = builder.build().unwrap();
+        // builder is moved, cannot use again
+    }
+
+    #[test]
+    fn try_from_does_not_panic_on_invalid_input() {
+        let limits = crate::limits::Limits {
+            max_connections: 0,
+            max_file_streams: 0,
+            header_read_timeout: Duration::ZERO,
+            connection_total_timeout: Duration::ZERO,
+            handler_timeout: Duration::ZERO,
+            body_read_timeout: Duration::ZERO,
+            graceful_shutdown_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let result = try_from_serve_config(&serve);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // Error message contains all invalid field names
+        let msg = err.to_string();
+        assert!(msg.contains("max_connections"));
+        assert!(msg.contains("max_file_streams"));
+        assert!(msg.contains("header_read_timeout"));
+    }
+
+    #[test]
+    fn large_concurrency_valuesaccepted() {
+        let config = RuntimeConfig::builder()
+            .max_connections(usize::MAX)
+            .max_file_streams(usize::MAX)
+            .build()
+            .unwrap();
+        assert_eq!(config.max_connections, usize::MAX);
+        assert_eq!(config.max_file_streams, usize::MAX);
+    }
+
+    #[test]
+    fn large_timeout_values_accepted() {
+        let config = RuntimeConfig::builder()
+            .header_read_timeout(Duration::from_secs(u64::MAX))
+            .connection_total_timeout(Duration::from_secs(u64::MAX))
+            .handler_timeout(Duration::from_secs(u64::MAX))
+            .body_read_timeout(Duration::from_secs(u64::MAX))
+            .graceful_shutdown_timeout(Duration::from_secs(u64::MAX))
+            .build()
+            .unwrap();
+        assert_eq!(config.header_read_timeout, Duration::from_secs(u64::MAX));
+    }
+
+    #[test]
+    fn try_from_serve_config_multiple_invalid_fields() {
+        let limits = crate::limits::Limits {
+            max_connections: 0,
+            handler_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let err = try_from_serve_config(&serve).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("max_connections"));
+        assert!(msg.contains("handler_timeout"));
+    }
+
+    #[test]
+    fn try_from_serve_config_preserves_bind_address() {
+        let serve = crate::config::ServeConfig {
+            bind: "0.0.0.0:9000".parse().unwrap(),
+            ..Default::default()
+        };
+        let runtime = try_from_serve_config(&serve).unwrap();
+        assert_eq!(runtime.bind.port(), 9000);
+        assert!(runtime.bind.ip().is_unspecified());
+    }
+
+    #[test]
+    fn try_from_serve_config_sets_safe_defaults() {
+        let serve = crate::config::ServeConfig::default();
+        let runtime = try_from_serve_config(&serve).unwrap();
+        assert!(runtime.keep_alive);
+        assert_eq!(runtime.max_in_flight_requests, None);
+        assert_eq!(runtime.server_header, None);
+        assert_eq!(runtime.max_request_body_bytes, 0);
+        assert_eq!(runtime.request_body_policy, RequestBodyPolicy::Reject);
     }
 }

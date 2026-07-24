@@ -76,7 +76,8 @@ impl StaticServiceBuilder {
 
     /// Build the static service.
     ///
-    /// Validates that the root directory exists and is accessible.
+    /// Validates that the root directory exists and is accessible, and that
+    /// the file-stream limit is valid.
     pub fn build(self) -> Result<StaticService, ServiceError> {
         if !self.root.is_dir() {
             return Err(ServiceError::internal(format!(
@@ -84,12 +85,22 @@ impl StaticServiceBuilder {
                 self.root.display()
             )));
         }
+        let limits = crate::limits::Limits {
+            max_file_streams: self.max_file_streams,
+            ..Default::default()
+        };
+        limits.validate().map_err(|errs| {
+            ServiceError::internal(format!(
+                "invalid limits: {}",
+                errs.iter()
+                    .map(|e| e.to_string())
+                    .collect::<Vec<_>>()
+                    .join("; ")
+            ))
+        })?;
         let config = Arc::new(crate::config::ServeConfig {
             root: self.root,
-            limits: crate::limits::Limits {
-                max_file_streams: self.max_file_streams,
-                ..Default::default()
-            },
+            limits,
             static_policy: self.policy,
             ..Default::default()
         });
