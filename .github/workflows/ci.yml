@@ -253,6 +253,8 @@ jobs:
           curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
           sudo apt-get update -qq
           sudo apt-get install -y -qq caddy
+      - name: Stop Caddy systemd service
+        run: |
           sudo systemctl stop caddy.service 2>/dev/null || true
           sudo systemctl disable caddy.service 2>/dev/null || true
           sudo rm -f /etc/systemd/system/multi-user.target.wants/caddy.service
