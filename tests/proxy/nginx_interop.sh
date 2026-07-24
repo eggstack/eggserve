@@ -113,6 +113,10 @@ sleep 2
 # Verify nginx is running
 if ! kill -0 "$NGINX_PID" 2>/dev/null; then
     echo "FAIL: nginx failed to start"
+    if [[ -f "$WORK_DIR/nginx_error.log" ]]; then
+        echo "  nginx error log:"
+        tail -10 "$WORK_DIR/nginx_error.log"
+    fi
     exit 1
 fi
 
