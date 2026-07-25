@@ -21,10 +21,12 @@ pub(crate) struct PinnedRoot {
     canonical_root: PathBuf,     // canonicalized root path
     #[cfg(unix)]
     root_fd: fs::File,           // Unix: open directory descriptor
+    #[cfg(windows)]
+    root_handle: windows::OwnedHandle, // Windows: retained root handle
 }
 ```
 
-On Unix, holds an open directory fd that is cloned per-request via `try_clone()`. Cloning duplicates the underlying file descriptor, preserving the same root identity across concurrent requests.
+On Unix, holds an open directory fd that is cloned per-request via `try_clone()`. Cloning duplicates the underlying file descriptor, preserving the same root identity across concurrent requests. On Windows, holds an `OwnedHandle` opened once with `CreateFileW` using `FILE_FLAG_OPEN_REPARSE_POINT`. The handle is duplicated per-request via `try_clone()` for handle-relative traversal.
 
 ### `RootGuard`
 
@@ -121,14 +123,14 @@ If `openat` returns `ELOOP` (too many symlink levels) or `EMLINK` (too many link
 
 ## Non-Unix Fallback
 
-On non-Unix platforms (or in follow-symlinks mode), component-wise `symlink_metadata` checks are used. This is weaker than descriptor-relative traversal because:
+On non-Unix platforms without handle support (or in follow-symlinks mode), component-wise `symlink_metadata` checks are used. This is weaker than descriptor-relative traversal because:
 
 - There is a TOCTOU window between `symlink_metadata` and `open`
 - Symlink swaps within this window may be followed
 
 This is explicitly documented as outside the descriptor-relative hardening guarantee.
 
-Plan 084 has implemented handle-relative child resolution on Windows using `CreateFileW` with `FILE_FLAG_OPEN_REPARSE_POINT`. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). `ResolvedDirectory` on Windows retains an `OwnedHandle` for handle-relative child resolution (analogous to Unix `dir_fd`), and `RootGuard::resolve_child` uses handle-relative traversal on Windows. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback entirely. Plan 086 has established the adversarial filesystem qualification test scaffold covering reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity.
+**Windows handle-relative is stronger than the fallback.** Plan 084 and 085 implement true handle-relative traversal on Windows using `NtOpenFile` with `ObjectAttributes.RootDirectory` and `NtQueryDirectoryFile` for enumeration. Under the hardened profile (symlinks denied), Windows uses handle-relative traversal exclusively — no path reconstruction is used as filesystem authority. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). Plan 086 has established the adversarial filesystem qualification test scaffold covering reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity.
 
 ## `RootGuard` Lifecycle
 
@@ -142,11 +144,12 @@ The guard borrows the pinned root identity established at startup. No root reope
 ## Security Properties
 
 1. **Pinned root identity** — `PinnedRoot` is opened once at startup and retained for the server lifetime. Changing the root pathname does not retarget the running server; restart/reconstruction is required to serve a replacement root.
-2. **Descriptor-relative** — On Unix with safe defaults, all traversal is relative to the root directory descriptor. No absolute paths are used after the initial root open.
-3. **No TOCTOU** — `statat` + `openat` with `O_NOFOLLOW` prevents symlink-swap attacks.
-4. **Kernel-enforced** — Symlink rejection is enforced by the kernel via `O_NOFOLLOW`, not by userspace checks.
-5. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
-6. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root) and a cloned directory descriptor.
+2. **Descriptor-relative (Unix)** — On Unix with safe defaults, all traversal is relative to the root directory descriptor. No absolute paths are used after the initial root open.
+3. **Handle-relative (Windows)** — On Windows with safe defaults, all traversal is relative to the retained root handle via `NtOpenFile` with `ObjectAttributes.RootDirectory`. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle. No path reconstruction is used as filesystem authority.
+4. **No TOCTOU** — `statat` + `openat` with `O_NOFOLLOW` prevents symlink-swap attacks (Unix). `FILE_FLAG_OPEN_REPARSE_POINT` suppresses reparse following at every level (Windows).
+5. **Kernel-enforced** — Symlink rejection is enforced by the kernel via `O_NOFOLLOW` (Unix) or `FILE_ATTRIBUTE_REPARSE_POINT` checks from `GetFileInformationByHandleEx` (Windows).
+6. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
+7. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root) and a cloned directory descriptor or handle.
 
 ## Resolution-Path Audit (Plan 034 Workstream A)
 
@@ -158,9 +161,11 @@ This section traces every path from HTTP request target to response body, provin
 |------|------|-------------|-----------------|
 | 1. Parse | `path/mod.rs: ConfinedPath::parse` | Length check → origin-form parse → single-pass percent decode → normalize slashes → split components → validate each (NUL, `/`, `.`, `..`, backslash, dotfile, double-encoded traversal, platform checks) | No handles |
 | 2. Validate | `service.rs: handle_request` | Validates GET/HEAD, rejects bodies, builds `PathPolicy` from `StaticPolicy` | No handles |
-| 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`, clones its fd on Unix | Cloned `root_fd` for traversal |
-| 4. Resolve | `fs/mod.rs: RootGuard::resolve` | Dispatches to `unix::resolve_fd_relative` (safe defaults) or `resolve_fallback` (follow-symlinks) | `root_fd` used for traversal |
-| 5. fd-relative traversal | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
+| 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`, clones its fd on Unix or handle on Windows | Cloned `root_fd` (Unix) or `root_handle` (Windows) for traversal |
+| 4a. Resolve (Unix) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `unix::resolve_fd_relative` (safe defaults) or `resolve_fallback` (follow-symlinks) | `root_fd` used for traversal |
+| 4b. Resolve (Windows) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `windows::resolve_to_resource` (handle-relative) or `resolve_fallback` (follow-symlinks) | `root_handle` used for traversal |
+| 5. fd-relative traversal (Unix) | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
+| 5b. handle-relative traversal (Windows) | `fs/windows.rs: resolve_to_resource` | Per component: dotfile check → `NtOpenFile` with `FILE_NON_DIRECTORY_FILE` (final) or `FILE_DIRECTORY_FILE` (intermediate). Reparse check via `GetFileInformationByHandleEx`. Previous handle dropped. | Per-component handles opened and dropped; final handle → `ResolvedFile.file` or retained in `ResolvedDirectory` |
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
 | 7. Response plan | `service.rs` → `primitives/planner.rs` | `plan_file_response()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
 | 8. Body conversion | `fs/mod.rs: ResolvedFile::into_body` | Consumes `self.file` into `BodySource::FileFull` or `BodySource::FileRange` | `file` moved into `BodySource` |
@@ -181,8 +186,11 @@ Evidence:
 
 | Stage | Handle opened? | Where | Consumed/transferred? |
 |-------|---------------|-------|----------------------|
-| `RootGuard::new` | Cloned `root_fd` (borrows from `PinnedRoot`) | `fs/mod.rs:190` | Lives until request ends |
+| `RootGuard::new` | Cloned `root_fd` (Unix) or `root_handle` (Windows) | `fs/mod.rs:190` | Lives until request ends |
 | `unix::resolve_fd_relative` | Per-component `openat` fd | `fs/unix.rs:72` | Previous fd dropped; final fd → `ResolvedFile.file` |
+| `windows::resolve_to_resource` | Per-component `NtOpenFile` handle | `fs/windows.rs:791` | Previous handle dropped; final handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
+| `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:945` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
+| `windows::list_directory_handle` | `NtQueryDirectoryFile` on retained handle | `fs/windows.rs:1662` | Buffer owned by call; no handle transfer |
 | `ResolvedFile::into_body` | No new open | `fs/mod.rs:40-76` | Moves `self.file` into `BodySource` |
 | `body_source_to_response` | No new open | `service.rs:317,330` | `file` → `tokio::fs::File::from_std()` |
 | `file_response` / `file_response_range` | No new open | `response.rs:93,143` | File + semaphore permit owned by stream unfold closure |
@@ -190,8 +198,9 @@ Evidence:
 ### Non-regular file rejection
 
 - Unix fd-relative: `unix.rs:100-103` checks `(mode & S_IFMT) != S_IFREG` → `NotFound`
+- Windows handle-relative: `windows.rs:870-873` checks `get_file_standard_info(directory == 0)` to distinguish files from directories; reparse points rejected by `deny_all_reparse_check`
 - Fallback: `fs/mod.rs:249-250` checks `!meta.is_file()` → `NotFound`
-- FIFOs, sockets, block/char devices all rejected. Symlinks caught by `statat` pre-check.
+- FIFOs, sockets, block/char devices all rejected. Symlinks caught by `statat` pre-check (Unix) or `FILE_ATTRIBUTE_REPARSE_POINT` check (Windows).
 
 ## Pathname-Bearing Type Inventory (Plan 061 Track A)
 
@@ -201,12 +210,14 @@ Every type that carries path data is classified by its role in the serving pipel
 |------|-------|---------------|-------|
 | `PinnedRoot` | `canonical_root` | Diagnostic + fallback resolution | Canonical path for error messages and non-Unix fallback. Never opened after initial `PinnedRoot::new()`. |
 | `PinnedRoot` | `root_fd` | Opened-resource owner | Unix directory descriptor, opened once, cloned per-request. The sole root authority. |
+| `PinnedRoot` | `root_handle` | Opened-resource owner | Windows directory handle, opened once with `FILE_FLAG_OPEN_REPARSE_POINT`, duplicated per-request. The sole root authority. |
 | `RootGuard` | `pinned` | Borrowed authority | Borrows `&PinnedRoot`. Never opens root by path. |
 | `ResolvedFile` | `safe_relative_components` | Safe relative display data | Used only for MIME detection. Never used for file access. |
 | `ResolvedFile` | `file` | Opened-resource owner | Pre-opened file handle. Consumed by `into_body()`. Never reopened by path. |
 | `ResolvedFile` | `metadata` | Snapshot at resolution time | `fs::Metadata` captured during resolution. Used for ETag, Last-Modified, Content-Length. |
 | `ResolvedDirectory` | `canonical_path` | Diagnostic + fallback listing | Used for error messages. On Unix, listing uses `dir_fd`. On Windows, listing uses `NtQueryDirectoryFile` on the retained handle. |
 | `ResolvedDirectory` | `dir_fd` | Opened-resource owner | Unix directory descriptor for child resolution and listing. |
+| `ResolvedDirectory` | `dir_handle` | Opened-resource owner | Windows directory handle for child resolution (`NtOpenFile`) and listing (`NtQueryDirectoryFile`). `OwnedHandle::try_clone()` is fallible. |
 | `ResolvedDirectory` | `components` | Safe relative display data | Path components relative to root. Used for child resolution identity. |
 | `ConfinedPath` | (internal components) | Policy input | Parsed request target components. Consumed by `RootGuard::resolve()`. |
 | `StaticPolicy` | (all fields) | Policy input | Configuration for symlinks, dotfiles, listing. Never carries path data. |
