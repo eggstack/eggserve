@@ -72,7 +72,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 - `ready().await` returns error if server failed during startup
 - `force_shutdown(deadline)` returns `ShutdownResult::Forced` on deadline exceeded
 
-### Request Body Primitives (Experimental, Phase 56)
+### Request Body Primitives (Experimental, Plan 056)
 
 **Stability**: All request body types are **experimental**. The interface may change in any release.
 
@@ -91,7 +91,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `RuntimeConfig::request_body_policy` | Global body policy (default `Reject`) |
 | `RuntimeConfig::incomplete_body_policy` | Incomplete body handling (default `Close`) |
 
-Body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Phase 57.
+Body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Plan 057.
 
 ### Python Body Parity (Milestone 4C)
 
@@ -456,7 +456,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 
 | Profile | Status | Description |
 |---------|--------|-------------|
-| unix-reverse-proxy | supported-hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; Plan 089 gates: proxy.caddy-interop, proxy.nginx-interop, proxy.desync-corpus, stateful.fuzz-replay, filesystem.unix-race, fault.injection, soak.unix-reverse-proxy, artifact.installed-binaries, supply-chain.sbom, release.independent-review, release.profile-decision) |
+| unix-reverse-proxy | candidate | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; Plan 089 gates: proxy.caddy-interop, proxy.nginx-interop, proxy.desync-corpus, stateful.fuzz-replay, filesystem.unix-race, fault.injection, soak.unix-reverse-proxy, artifact.installed-binaries, supply-chain.sbom, release.independent-review, release.profile-decision) |
 | unix-direct-https | candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; Plan 089 gates: native-tls.abuse-limits, soak.unix-direct-https) |
 | windows-reverse-proxy | candidate | Windows behind reverse proxy (adversarial qualification scaffold established, awaiting independent review and profile decision) |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |

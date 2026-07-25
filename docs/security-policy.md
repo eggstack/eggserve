@@ -15,7 +15,7 @@ eggserve ships with the following safe defaults. These are not configurable with
 | **unknown MIME as application/octet-stream** | Unrecognized file extensions are served with a safe binary MIME type |
 | **malformed request targets rejected** | Invalid paths (traversal, encoding abuse, null bytes) return 400 |
 | **logs sanitized** | Paths and headers are sanitized before writing to logs |
-| **resource limits enabled** | Max 64 concurrent connections, 32 file streams, 10s header timeout, 60s write timeout, request bodies rejected |
+| **resource limits enabled** | Max 64 concurrent connections, 32 file streams, 10s header timeout, 60s connection total timeout, request bodies rejected |
 | **directory listing bounded** | Max 4096 entries, 1 MiB response body, 255-byte filenames, 30s enumeration timeout |
 
 These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access.
@@ -100,7 +100,7 @@ On Unix (Linux, macOS) with safe defaults, eggserve resolves request paths relat
 
 On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementation falls back to `symlink_metadata` checks plus `canonicalize` with root verification. Follow-symlinks mode is **not** covered by the descriptor-relative hardening guarantee.
 
-The configured root is canonicalized and opened as a directory descriptor during request resolution (per request), not once at server startup. Caching the root descriptor across requests is a future optimization; current behavior is correct and tested.
+The configured root is opened once at server startup via `PinnedRoot` and retained for the server lifetime. `RootGuard` borrows from the pinned root for request-scoped traversal. Renaming or replacing the configured pathname does not redirect a running server.
 
 Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Plan 086 adversarial qualification test scaffold is established (113 tests covering denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
 

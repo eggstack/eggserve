@@ -95,7 +95,7 @@ Manual parsing — no clap. Arguments:
 | `--max-connections` | `64` | Connection limit |
 | `--max-file-streams` | `32` | File stream limit |
 | `--header-timeout` | `10s` | Header read timeout |
-| `--write-timeout` | `60s` | Response write timeout |
+| `--connection-total-timeout` | `60s` | Total connection lifetime timeout |
 | `--tls-cert` | — | TLS certificate PEM path |
 | `--tls-key` | — | TLS private key PEM path |
 

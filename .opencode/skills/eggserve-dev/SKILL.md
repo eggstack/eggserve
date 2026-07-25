@@ -101,7 +101,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python Server has runtime hardening** — connection semaphore, header/write timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
+- **Python Server has runtime hardening** — connection semaphore, header timeouts, connection total timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **Release criteria** — `release/criteria.toml` is the single source of truth for release gates.

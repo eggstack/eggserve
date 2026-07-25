@@ -213,7 +213,7 @@ eggserve defines explicit production deployment profiles. Every production claim
 
 | Profile | Status | Description |
 |---------|--------|-------------|
-| unix-reverse-proxy | Hardened | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment). Plan 089 qualification: proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review. |
+| unix-reverse-proxy | Candidate | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment). Plan 089 qualification: proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review. |
 | unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform). Plan 089 qualification: native TLS abuse, 24h soak, installed artifacts, SBOM/provenance, independent review. |
 | windows-reverse-proxy | Candidate | Windows behind reverse proxy; adversarial qualification scaffold established (Plan 086), awaiting independent review and profile decision |
 | windows-direct-https | Functional | Windows with native rustls (hardening in progress) |
