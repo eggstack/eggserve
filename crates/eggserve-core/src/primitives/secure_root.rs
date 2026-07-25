@@ -1,5 +1,6 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use crate::fs::RootGuard;
 use crate::path::{ConfinedPath, PathPolicy, PathRejection};
@@ -306,13 +307,13 @@ impl From<crate::fs::ResolvedResource> for ResolvedResource {
 
 #[derive(Debug, Clone)]
 pub struct SecureRoot {
-    pinned: crate::fs::PinnedRoot,
+    pinned: Arc<crate::fs::PinnedRoot>,
     policy: StaticPolicy,
 }
 
 impl SecureRoot {
     pub fn new(root: impl AsRef<Path>, policy: StaticPolicy) -> Result<Self, std::io::Error> {
-        let pinned = crate::fs::PinnedRoot::new(root.as_ref())?;
+        let pinned = Arc::new(crate::fs::PinnedRoot::new(root.as_ref())?);
         Ok(Self { pinned, policy })
     }
 

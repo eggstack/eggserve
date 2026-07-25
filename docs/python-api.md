@@ -329,7 +329,7 @@ Handler timeout (`handler_timeout_secs`) uses the actual Rust runtime's handler 
 
 The server enforces connection limits, header read timeouts, and connection total timeouts. Binding to 0.0.0.0 or :: requires `public=True`.
 
-**Framing strictness:** The server enforces hardened HTTP/1 framing before any handler invocation. Requests containing both `Transfer-Encoding` and `Content-Length` are rejected with 400. Duplicate `Content-Length` fields are rejected with 400, even when values are identical. Malformed `Content-Length` values (non-numeric, negative, overflowing) are rejected at the HTTP/1 wire level by Hyper. These checks prevent HTTP request smuggling attacks where front-end and back-end servers disagree on message boundaries.
+**Framing strictness:** The server enforces hardened HTTP/1 framing before any handler invocation. Requests containing both `Transfer-Encoding` and `Content-Length` are rejected with 400 (when both headers survive Hyper's parser normalization). Duplicate `Content-Length` fields are rejected with 400, even when values are identical. Malformed `Content-Length` values (non-numeric, negative, overflowing) are rejected at the HTTP/1 wire level by Hyper. These checks prevent HTTP request smuggling attacks where front-end and back-end servers disagree on message boundaries.
 
 **Observability hooks:** The `Server` provides minimal observability via `state` and `addr` properties. The `observer` parameter receives structured event dictionaries matching the Rust/CLI event semantics (see `architecture/structured-logging.md`). Events include process lifecycle, connection errors, filesystem denials, and operational faults. Observer errors are caught and printed to Python stderr without crashing the server.
 

@@ -1431,6 +1431,239 @@ def cmd_aggregate(args: argparse.Namespace) -> int:
     return 0 if release_ready else 1
 
 
+def _load_support_profile(
+    profile_name: str,
+    profiles_path: str = "release/support-profiles.toml",
+) -> dict[str, Any] | None:
+    """Load a single support profile from support-profiles.toml."""
+    import tomllib
+
+    path = Path(profiles_path)
+    if not path.exists():
+        return None
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    for profile in data.get("profile", []):
+        if profile.get("profile") == profile_name:
+            return profile
+    return None
+
+
+def _load_corrective_findings(
+    findings_path: str = "release/corrective-findings.toml",
+) -> list[dict[str, Any]]:
+    """Load corrective findings registry."""
+    import tomllib
+
+    path = Path(findings_path)
+    if not path.exists():
+        return []
+    data = tomllib.loads(path.read_text(encoding="utf-8"))
+    return data.get("finding", [])
+
+
+def cmd_candidate(args: argparse.Namespace) -> int:
+    """Validate evidence for a specific profile's promotion candidacy.
+
+    Loads the profile's required gates from support-profiles.toml,
+    validates evidence against those gates for the candidate SHA,
+    and checks the corrective findings registry for blocking findings.
+    """
+    criteria, _ = parse_criteria_file(args.criteria)
+    gate_map = criteria.gate_by_id()
+
+    profile = _load_support_profile(args.profile, args.profiles)
+    if profile is None:
+        print(f"ERROR: profile '{args.profile}' not found in {args.profiles}",
+              file=sys.stderr)
+        return 2
+
+    required_gate_ids = profile.get("required_gates", [])
+
+    evidence_path = Path(args.evidence)
+    if not evidence_path.exists():
+        print(f"ERROR: evidence path not found: {args.evidence}", file=sys.stderr)
+        return 2
+
+    all_records: dict[str, list[dict[str, Any]]] = {}
+    if evidence_path.is_dir():
+        gates_dir = evidence_path / "gates"
+        if gates_dir.is_dir():
+            for f in sorted(gates_dir.glob("*.json")):
+                try:
+                    data = json.loads(f.read_text(encoding="utf-8"))
+                    gid = data.get("gate_id", "")
+                    if gid:
+                        all_records.setdefault(gid, []).append(data)
+                except Exception:
+                    pass
+
+        for f in sorted(evidence_path.glob("*.json")):
+            if f.name == "manifest.json":
+                continue
+            try:
+                data = json.loads(f.read_text(encoding="utf-8"))
+                if isinstance(data, list):
+                    for item in data:
+                        gid = item.get("gate_id", "")
+                        if gid:
+                            all_records.setdefault(gid, []).append(item)
+                elif isinstance(data, dict):
+                    gid = data.get("gate_id", "")
+                    if gid:
+                        all_records.setdefault(gid, []).append(data)
+            except Exception:
+                pass
+
+    candidate_sha = args.sha or ""
+
+    gate_results: dict[str, tuple[str, list[str]]] = {}
+    for gate_id in required_gate_ids:
+        gate = gate_map.get(gate_id)
+        if gate is None:
+            gate_results[gate_id] = ("MISSING", [f"gate '{gate_id}' not in criteria.toml"])
+            continue
+        records = all_records.get(gate_id, [])
+        status, reasons = _aggregate_gate(gate, records, candidate_sha)
+        gate_results[gate_id] = (status, reasons)
+
+    findings = _load_corrective_findings(args.findings)
+    open_blocking: list[str] = []
+    for finding in findings:
+        impl_status = finding.get("implementation_status", "")
+        ev_status = finding.get("evidence_status", "")
+        severity = finding.get("severity", "")
+        affected = finding.get("affected_profiles", [])
+        if args.profile not in affected:
+            continue
+        if severity in ("critical", "high") and ev_status not in ("passed", "not-required"):
+            open_blocking.append(
+                f"{finding['id']}: {finding.get('title', '')} "
+                f"(severity={severity}, evidence={ev_status})"
+            )
+
+    profile_ready = True
+    failing_gates: list[str] = []
+    for gate_id in required_gate_ids:
+        status, _reasons = gate_results.get(gate_id, ("MISSING", []))
+        if status != "PASSED":
+            profile_ready = False
+            failing_gates.append(gate_id)
+
+    if open_blocking:
+        profile_ready = False
+
+    if args.format == "json":
+        output = {
+            "profile": args.profile,
+            "candidate_sha": candidate_sha,
+            "profile_ready": profile_ready,
+            "required_gates": {
+                gid: {"status": s, "reasons": r}
+                for gid, (s, r) in gate_results.items()
+            },
+            "open_blocking_findings": open_blocking,
+            "failing_gates": failing_gates,
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        print(f"Profile: {args.profile}")
+        print(f"Candidate SHA: {candidate_sha}")
+        print()
+        for gate_id in required_gate_ids:
+            status, reasons = gate_results.get(gate_id, ("MISSING", []))
+            reasons_str = ""
+            if reasons:
+                reasons_str = f"  ({'; '.join(reasons)})"
+            print(f"  [{status:<17s}] {gate_id}{reasons_str}")
+
+        if open_blocking:
+            print()
+            print("Open blocking findings:")
+            for finding in open_blocking:
+                print(f"  - {finding}")
+
+        print()
+        if profile_ready:
+            print(f"PROFILE READY: {args.profile} can be promoted.")
+        else:
+            print(
+                f"NOT READY: {args.profile} has {len(failing_gates)} failing gate(s)"
+                + (f" and {len(open_blocking)} open blocking finding(s)" if open_blocking else "")
+                + f": {', '.join(sorted(failing_gates))}",
+                file=sys.stderr,
+            )
+
+    return 0 if profile_ready else 1
+
+
+def cmd_validate_all(args: argparse.Namespace) -> int:
+    """Validate evidence for all profiles in support-profiles.toml.
+
+    Reports which profiles are promotable and which are blocked.
+    Exits nonzero if any profile that should be promotable is not ready.
+    """
+    import tomllib
+
+    profiles_path = Path(args.profiles)
+    if not profiles_path.exists():
+        print(f"ERROR: profiles file not found: {args.profiles}", file=sys.stderr)
+        return 2
+
+    data = tomllib.loads(profiles_path.read_text(encoding="utf-8"))
+    profiles = data.get("profile", [])
+
+    results: dict[str, bool] = {}
+    for profile_def in profiles:
+        profile_name = profile_def.get("profile", "")
+        if not profile_name:
+            continue
+
+        candidate_args = argparse.Namespace(
+            criteria=args.criteria,
+            profiles=args.profiles,
+            findings=args.findings,
+            evidence=args.evidence,
+            sha=args.sha,
+            profile=profile_name,
+            format="text",
+        )
+        # Suppress stderr output for individual profiles
+        import io
+        old_stderr = sys.stderr
+        sys.stderr = io.StringIO()
+        try:
+            rc = cmd_candidate(candidate_args)
+        finally:
+            sys.stderr = old_stderr
+        results[profile_name] = (rc == 0)
+
+    if args.format == "json":
+        output = {
+            "candidate_sha": args.sha or "",
+            "profiles": {
+                name: {"ready": ready}
+                for name, ready in results.items()
+            },
+            "all_ready": all(results.values()),
+        }
+        print(json.dumps(output, indent=2))
+    else:
+        print(f"Candidate SHA: {args.sha or '(not specified)'}")
+        print()
+        for name, ready in results.items():
+            status = "READY" if ready else "BLOCKED"
+            print(f"  [{status:<8s}] {name}")
+
+        print()
+        blocked = [n for n, r in results.items() if not r]
+        if blocked:
+            print(f"Blocked profiles: {', '.join(sorted(blocked))}", file=sys.stderr)
+            return 1
+        print("All profiles ready for promotion.")
+
+    return 0 if all(results.values()) else 1
+
+
 def cmd_check_evidence(args: argparse.Namespace) -> int:
     """Validate evidence against criteria gates."""
     criteria, _ = parse_criteria_file(args.criteria)
@@ -1819,7 +2052,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_agg.add_argument(
         "--criteria",
         default="release/criteria.toml",
-        help="Path to criteria TOML file",
+        help="Path to criteria.toml (default: release/criteria.toml)",
     )
     p_agg.add_argument(
         "--evidence",
@@ -1832,6 +2065,85 @@ def build_parser() -> argparse.ArgumentParser:
         help="Candidate commit SHA",
     )
     p_agg.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
+    # candidate
+    p_cand = sub.add_parser(
+        "candidate",
+        help="Validate evidence for a specific profile candidacy",
+    )
+    p_cand.add_argument(
+        "--criteria",
+        default="release/criteria.toml",
+        help="Path to criteria.toml (default: release/criteria.toml)",
+    )
+    p_cand.add_argument(
+        "--profiles",
+        default="release/support-profiles.toml",
+        help="Path to support-profiles.toml",
+    )
+    p_cand.add_argument(
+        "--findings",
+        default="release/corrective-findings.toml",
+        help="Path to corrective-findings.toml",
+    )
+    p_cand.add_argument(
+        "--evidence",
+        required=True,
+        help="Path to evidence bundle directory",
+    )
+    p_cand.add_argument(
+        "--sha",
+        required=True,
+        help="Candidate commit SHA",
+    )
+    p_cand.add_argument(
+        "--profile",
+        required=True,
+        help="Profile name to validate (e.g. unix-reverse-proxy)",
+    )
+    p_cand.add_argument(
+        "--format",
+        choices=["json", "text"],
+        default="text",
+        help="Output format (default: text)",
+    )
+
+    # validate-all
+    p_va = sub.add_parser(
+        "validate-all",
+        help="Validate evidence for all profiles",
+    )
+    p_va.add_argument(
+        "--criteria",
+        default="release/criteria.toml",
+        help="Path to criteria.toml",
+    )
+    p_va.add_argument(
+        "--profiles",
+        default="release/support-profiles.toml",
+        help="Path to support-profiles.toml",
+    )
+    p_va.add_argument(
+        "--findings",
+        default="release/corrective-findings.toml",
+        help="Path to corrective-findings.toml",
+    )
+    p_va.add_argument(
+        "--evidence",
+        required=True,
+        help="Path to evidence bundle directory",
+    )
+    p_va.add_argument(
+        "--sha",
+        default="",
+        help="Candidate commit SHA",
+    )
+    p_va.add_argument(
         "--format",
         choices=["json", "text"],
         default="text",
@@ -1860,6 +2172,8 @@ def main() -> int:
         "record-waiver": lambda: cmd_record_waiver(args),
         "validate-evidence": lambda: cmd_validate_evidence(args),
         "aggregate": lambda: cmd_aggregate(args),
+        "candidate": lambda: cmd_candidate(args),
+        "validate-all": lambda: cmd_validate_all(args),
     }
 
     handler = handlers.get(args.command)

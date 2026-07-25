@@ -107,7 +107,7 @@ of constructor settings. POST/PUT/DELETE/PATCH return 405.
 
 eggserve enforces hardened HTTP/1 framing before any handler invocation:
 
-- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 before the service is called. This applies to all methods, not just body-forbidden ones.
+- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 before the service is called (when both headers survive Hyper's parser normalization). Duplicate Content-Length fields are always rejected. This applies to all methods, not just body-forbidden ones.
 - **Duplicate Content-Length rejection**: Requests with more than one `Content-Length` field are rejected with 400, even when values are identical. Conflicting values are rejected at the HTTP/1 wire level by Hyper.
 - **Malformed Content-Length**: Non-numeric, negative, signed, overflowing, or non-decimal `Content-Length` values are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
 

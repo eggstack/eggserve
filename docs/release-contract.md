@@ -76,7 +76,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 
 **Stability**: All request body types are **experimental**. The interface may change in any release.
 
-**Framing strictness**: Requests containing both Transfer-Encoding and Content-Length are rejected with 400 before service invocation. Conflicting Content-Length values are rejected at the HTTP/1 wire level.
+**Framing strictness**: Requests containing both Transfer-Encoding and Content-Length are rejected with 400 before service invocation. When Hyper's HTTP parser normalizes headers (stripping Content-Length when Transfer-Encoding is present), the rejection occurs if both headers survive parser extraction. Duplicate Content-Length values are always rejected at the HTTP/1 wire level. This behavior applies uniformly to both built-in static service and custom services.
 
 | Type | Description |
 |------|-------------|

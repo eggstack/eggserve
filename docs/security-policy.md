@@ -78,7 +78,7 @@ This closes the previous behavior where malformed `Content-Length` values were s
 
 For methods that accept bodies (`POST`, `PUT`, `DELETE`, `PATCH`), eggserve enforces the following framing rules before body ingestion:
 
-- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 Bad Request before the service is invoked. No body is constructed.
+- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 Bad Request before the service is invoked. No body is constructed. When Hyper's HTTP parser normalizes the headers first (e.g., stripping `Content-Length` when `Transfer-Encoding: chunked` is present), the rejection occurs if both headers survive parser extraction. Duplicate `Content-Length` fields are always rejected.
 - **Duplicate Content-Length rejection**: Requests with more than one `Content-Length` field are rejected with 400 Bad Request, even when values are identical. This minimizes intermediary disagreement and simplifies auditability.
 - **Wire-level validation**: Malformed `Content-Length` values (non-numeric, negative, signed, overflowing, non-decimal) are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
 

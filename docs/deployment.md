@@ -54,7 +54,7 @@ When eggserve runs behind a reverse proxy, connection metadata (`remote_addr`, `
 
 ### Body handling behind a reverse proxy
 
-eggserve rejects request bodies by default (safe default). When a reverse proxy forwards requests with bodies (e.g., POST, PUT), the runtime enforces body policy before invoking any service code. If the proxy and eggserve disagree on framing (TE+CL conflicts, duplicate Content-Length), the request is rejected with 400 at the origin. When a handler returns without fully consuming the body, the connection is closed to prevent request smuggling through leftover bytes. Reverse proxies should be configured to forward `Content-Length` and `Transfer-Encoding` headers without modification to preserve framing integrity.
+eggserve rejects request bodies by default (safe default). When a reverse proxy forwards requests with bodies (e.g., POST, PUT), the runtime enforces body policy before invoking any service code. If the proxy and eggserve disagree on framing (TE+CL conflicts, duplicate Content-Length), the request is rejected with 400 at the origin. When Hyper's HTTP parser normalizes headers (e.g., stripping Content-Length when Transfer-Encoding is present), the rejection occurs if both headers survive parser extraction. When a handler returns without fully consuming the body, the connection is closed to prevent request smuggling through leftover bytes. Reverse proxies should be configured to forward `Content-Length` and `Transfer-Encoding` headers without modification to preserve framing integrity.
 
 ### Production profile: unix-reverse-proxy
 

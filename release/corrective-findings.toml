@@ -1,15 +1,28 @@
 # Plan 075 — Track B: Finding Registry + Track C: Reproduction Inventory
+# Plan 090 — Track A: Implementation/evidence state model
 #
 # Machine-readable registry of all corrective findings from Plan 074.
-# Each finding has a stable ID, severity, owning plan, status, and
-# reproduction strategy.
+# Each finding has a stable ID, severity, owning plan, and separate
+# implementation and evidence status fields (Plan 090 schema v2).
 
 [meta]
-schema_version = "1.0.0"
+schema_version = "2.0.0"
 plan = 75
 tracks = ["B", "C"]
 title = "Corrective Finding Registry"
 baseline_sha = "e3782abd971902e63a6b33d52b7a472da63e2310"
+
+# ──────────────────────────────────────────────────────────────────────
+# Schema v2 fields (Plan 090 Track A):
+#   implementation_status — not-started | in-progress | implemented | reopened
+#   evidence_status       — missing | blocked | stale | partial | passed | not-required
+#   implementation_sha    — commit that implemented the fix
+#   evidence_sha          — commit that produced qualification evidence
+#   required_gates        — gates that must pass before finding is fully closed
+#   blocking_reason       — why evidence is not yet passed (if applicable)
+#   profile_impact        — profiles affected by this finding
+#   review_status         — independent review status where required
+# ──────────────────────────────────────────────────────────────────────
 
 # ──────────────────────────────────────────────────────────────────────
 # Severity legend:
@@ -39,6 +52,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "084"
 regression_evidence = "windows-plan084::windows_unicode_bmp_non_ascii, windows_unicode_surrogate_pair"
+implementation_status = "implemented"
+evidence_status = "partial"
+implementation_sha = "a878b28"
+evidence_sha = ""
+required_gates = ["windows.unicode-child-production-path"]
+blocking_reason = "Windows qualification requires dedicated NTFS environment"
+profile_impact = ["windows-reverse-proxy", "windows-direct-https", "windows-functional"]
+review_status = "pending"
 
 [finding.description]
 text = "UNICODE_STRING call sites use UTF-8 byte counts instead of UTF-16 code unit lengths for component names, causing incorrect buffer sizes for non-ASCII paths."
@@ -79,6 +100,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "084"
 regression_evidence = "windows-plan084::windows_handle_duplication_failure_is_typed"
+implementation_status = "implemented"
+evidence_status = "partial"
+implementation_sha = "a878b28"
+evidence_sha = ""
+required_gates = ["windows.handle-ownership"]
+blocking_reason = "Windows qualification requires dedicated NTFS environment; Plan 090 Track B removes remaining panic-capable clone path"
+profile_impact = ["windows-reverse-proxy", "windows-direct-https", "windows-functional"]
+review_status = "pending"
 
 [finding.description]
 text = "Borrowed handles can be accidentally closed through owned wrappers; handle duplication uses panic-capable paths instead of fallible try_clone."
@@ -117,6 +146,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "077"
 regression_evidence = "connection_total_timeout field rename, documentation update"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "92a7486"
+evidence_sha = "92a7486"
+required_gates = ["runtime.graceful-shutdown", "runtime.forced-shutdown", "http.production-path"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "Field originally named response_write_timeout was renamed to connection_total_timeout to accurately reflect its behavior as a whole-connection lifetime timeout. All documentation and API surfaces updated."
@@ -155,6 +192,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "077"
 regression_evidence = "JoinSet migration with abort_all + join_all on forced shutdown"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "76e27bb"
+evidence_sha = "76e27bb"
+required_gates = ["runtime.graceful-shutdown", "runtime.forced-shutdown", "soak.unix-reverse-proxy"]
+blocking_reason = "Soak evidence pending (24-hour qualification)"
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "Vec<JoinHandle> is dropped without abort+join, allowing detached work after server reports Stopped. Server can transition to Stopped while connection tasks are non-empty."
@@ -193,6 +238,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "078"
 regression_evidence = "build_with_service removed; lifecycle tests verify drop count (normal + forced shutdown), supplied-instance identity, and service trait bounds"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "b935859"
+evidence_sha = "b935859"
+required_gates = ["runtime.public-rust-consumer", "runtime.service-dispatch"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "build_with_service accepts a service value that is not retained by the built server. Users expect the service to handle requests but it is silently discarded."
@@ -234,6 +287,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "078"
 regression_evidence = "Real socket addresses threaded through accept loop and TLS path; TLS info (protocol version, SNI) extracted from completed sessions; Python Request exposes remote_addr, local_addr, scheme; installed-wheel tests verify real ephemeral ports"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "e05545b"
+evidence_sha = "e05545b"
+required_gates = ["runtime.public-rust-consumer", "runtime.service-dispatch"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "Connection metadata uses fake 127.0.0.1 addresses instead of real peer/local socket addresses. No TLS/scheme information is captured."
@@ -273,6 +334,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "079"
 regression_evidence = "request_body_wire::rejection_before_service_invocation"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "ccf3cd1"
+evidence_sha = "ccf3cd1"
+required_gates = ["body.static-rejection", "body.wire-tests", "conformance.raw-wire-normalization"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "Reject policy allows the service to be invoked before the body is rejected, enabling handler side effects for a request the runtime claims to reject."
@@ -311,6 +380,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "079"
 regression_evidence = "Drain option removed; Close is the only supported behavior"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "ccf3cd1"
+evidence_sha = "ccf3cd1"
+required_gates = ["body.static-rejection"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "IncompleteBodyPolicy::Drain is advertised in the configuration but not implemented. The drain path has no bounded byte/time/shutdown integration."
@@ -349,6 +426,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "080"
 regression_evidence = "Limits::validate() added, single authority per resource control"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "dd0ce8b"
+evidence_sha = "dd0ce8b"
+required_gates = ["rust.test"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "File-stream limits and other resource controls are defined in multiple locations with inconsistent enforcement. Some fields are silently ignored."
@@ -387,6 +472,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "080"
 regression_evidence = "RuntimeConfigBuilder::build() returns Result<RuntimeConfig, ServerError>"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "7a2c125"
+evidence_sha = "7a2c125"
+required_gates = ["rust.test"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "RuntimeConfigBuilder::build() panics on invalid values instead of returning a structured error. Zero-valued limits can create deadlocks."
@@ -426,6 +519,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "082"
 regression_evidence = "ETag nanosecond precision, HEAD Content-Length preserved"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "8e567d9"
+evidence_sha = "8e567d9"
+required_gates = ["conformance.raw-wire-normalization", "conformance.canonical-http-corpus-rust"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "HEAD responses do not consistently suppress body while preserving representation headers. Error and directory-listing HEAD paths may emit payload bytes or lose Content-Length."
@@ -465,6 +566,14 @@ status = "closed"
 closure_commit = "1d12b23"
 closure_plan = "081"
 regression_evidence = "Canonical conformance tests covering direct/index equivalence"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "1d12b23"
+evidence_sha = "1d12b23"
+required_gates = ["conformance.canonical-http-corpus-rust", "http.production-path"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "Directory index files do not forward conditional (If-None-Match, If-Modified-Since) or range headers, causing /x/ and /x/index.html to behave differently."
@@ -504,6 +613,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "082"
 regression_evidence = "ETag format now includes nanosecond precision"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "4049668"
+evidence_sha = "4049668"
+required_gates = ["conformance.canonical-http-corpus-rust"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "local-development"]
+review_status = ""
 
 [finding.description]
 text = "ETag validators use size plus whole-second mtime, causing collisions when a file is replaced within the same second with the same size."
@@ -542,6 +659,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "084-086"
 regression_evidence = "windows_plan084, windows_plan085, windows_plan086 test suites"
+implementation_status = "implemented"
+evidence_status = "partial"
+implementation_sha = "a878b28"
+evidence_sha = ""
+required_gates = ["windows.handle-ownership", "windows.directory-enumeration-handle-relative", "windows.reparse-matrix", "windows.namespace-matrix", "windows.race-root-escape"]
+blocking_reason = "Windows qualification requires dedicated NTFS environment with Developer Mode"
+profile_impact = ["windows-reverse-proxy"]
+review_status = "pending"
 
 [finding.description]
 text = "Windows directory-handle retention, handle-relative child resolution, and handle-relative enumeration are not implemented. Path-based fallback is used in hardened profiles."
@@ -582,6 +707,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "087"
 regression_evidence = "ops module with Event/EventKind/Logger/LogSink"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "522e12a"
+evidence_sha = "522e12a"
+required_gates = ["ops.json-log-validity", "ops.text-log-sanitization", "ops.library-silence"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https"]
+review_status = ""
 
 [finding.description]
 text = "Documentation advertises JSON logging but the implementation uses println/eprintln without structured output."
@@ -620,6 +753,14 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "088"
 regression_evidence = "Buffer qualification tests, benchmarks, optimize_metadata"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = "522e12a"
+evidence_sha = "522e12a"
+required_gates = ["perf.buffer-isolation", "perf.client-disconnect-release", "ops.listener-backoff"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https"]
+review_status = ""
 
 [finding.description]
 text = "File streaming allocates per-chunk without a bounded constant. Accept-loop error handling can spin on persistent errors without backoff."
@@ -659,6 +800,28 @@ status = "closed"
 closure_commit = "e3782ab"
 closure_plan = "089"
 regression_evidence = "Plan 089 qualification infrastructure (CI jobs, tests, soak scripts)"
+implementation_status = "implemented"
+evidence_status = "partial"
+implementation_sha = "522e12a"
+evidence_sha = ""
+required_gates = [
+    "proxy.caddy-interop",
+    "proxy.nginx-interop",
+    "proxy.desync-corpus",
+    "native-tls.abuse-limits",
+    "stateful.fuzz-replay",
+    "filesystem.unix-race",
+    "fault.injection",
+    "soak.unix-reverse-proxy",
+    "soak.unix-direct-https",
+    "artifact.installed-binaries",
+    "supply-chain.sbom",
+    "release.independent-review",
+    "release.profile-decision",
+]
+blocking_reason = "Qualification infrastructure implemented but evidence not yet collected; requires dedicated environments (proxy runners, TLS abuse harness, 24-hour soak, Windows NTFS VM, independent reviewer)"
+profile_impact = ["unix-reverse-proxy", "unix-direct-https"]
+review_status = "pending"
 
 [finding.description]
 text = "Production-profile claims require proxy interop, TLS abuse, stateful fuzz, soak, installed-artifact, SBOM/provenance, and independent-review evidence that was not yet collected."
@@ -690,3 +853,50 @@ required = [
 test_name = "ci-full-matrix"
 file = "N/A"
 command = "bash scripts/release-validate.sh full"
+
+# ════════════════════════════════════════════════════════════════════════
+# Finding COR-019: PinnedRoot clone panics on descriptor/handle duplication failure
+# ════════════════════════════════════════════════════════════════════════
+[[finding]]
+id = "COR-019"
+title = "PinnedRoot::clone panics on descriptor/handle duplication failure"
+severity = "high"
+subsystem = "filesystem"
+affected_profiles = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
+first_observed = "pre-074"
+owning_plan = 90
+release = "A"
+status = "closed"
+closure_commit = ""
+closure_plan = "090"
+regression_evidence = "PinnedRoot no longer implements Clone; try_clone() returns io::Result; SecureRoot uses Arc<PinnedRoot>"
+implementation_status = "implemented"
+evidence_status = "passed"
+implementation_sha = ""
+evidence_sha = ""
+required_gates = ["rust.test"]
+blocking_reason = ""
+profile_impact = ["unix-reverse-proxy", "unix-direct-https", "windows-reverse-proxy", "local-development"]
+review_status = ""
+
+[finding.description]
+text = "PinnedRoot::clone() uses expect() on try_clone(), panicking if the OS refuses to duplicate the file descriptor or handle. This contradicts the project's no-panic invariant for fallible OS operations."
+
+[finding.reproduction]
+strategy = "unit-test"
+location = "crates/eggserve-core/src/fs/mod.rs"
+cases = [
+    "PinnedRoot does not implement Clone — compile-time prevention of panic",
+    "PinnedRoot::try_clone() returns Result<Self, io::Error>",
+    "SecureRoot uses Arc<PinnedRoot> for safe shared ownership",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["rust.test"]
+
+[finding.regression_test]
+test_name = "workspace-tests"
+file = "N/A"
+command = "cargo test --workspace"

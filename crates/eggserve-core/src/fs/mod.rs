@@ -133,8 +133,10 @@ fn validate_child_component(child: &str) -> Result<(), PathRejection> {
 /// root, ensuring that renaming or replacing the configured pathname does not
 /// redirect the running server to a different tree.
 ///
-/// Cloning a `PinnedRoot` duplicates the underlying file descriptor (Unix)
-/// or shares the canonical path (non-Unix), preserving the same root identity.
+/// `PinnedRoot` does not implement `Clone` because duplicating the underlying
+/// file descriptor (Unix) or handle (Windows) is fallible. Use `Arc<PinnedRoot>`
+/// for shared ownership. Call `try_clone()` when an explicit duplicate is
+/// required and handle the error.
 #[derive(Debug)]
 pub(crate) struct PinnedRoot {
     canonical_root: PathBuf,
@@ -142,21 +144,6 @@ pub(crate) struct PinnedRoot {
     root_fd: fs::File,
     #[cfg(windows)]
     root_handle: windows::OwnedHandle,
-}
-
-impl Clone for PinnedRoot {
-    fn clone(&self) -> Self {
-        Self {
-            canonical_root: self.canonical_root.clone(),
-            #[cfg(unix)]
-            root_fd: self.root_fd.try_clone().expect("failed to clone root fd"),
-            #[cfg(windows)]
-            root_handle: self
-                .root_handle
-                .try_clone()
-                .expect("failed to clone root handle"),
-        }
-    }
 }
 
 impl PinnedRoot {
@@ -198,13 +185,36 @@ impl PinnedRoot {
     pub(crate) fn root_handle(&self) -> windows::HANDLE {
         self.root_handle.raw()
     }
+
+    /// Attempt to duplicate this pinned root.
+    ///
+    /// On Unix, duplicates the file descriptor via `File::try_clone()`.
+    /// On Windows, duplicates the handle via `OwnedHandle::try_clone()`.
+    ///
+    /// Returns an error if the operating system refuses duplication (e.g.,
+    /// resource exhaustion). The original `PinnedRoot` remains usable after
+    /// a failed duplication attempt.
+    #[allow(dead_code)]
+    pub(crate) fn try_clone(&self) -> Result<Self, std::io::Error> {
+        Ok(Self {
+            canonical_root: self.canonical_root.clone(),
+            #[cfg(unix)]
+            root_fd: self.root_fd.try_clone()?,
+            #[cfg(windows)]
+            root_handle: self
+                .root_handle
+                .try_clone()
+                .map_err(std::io::Error::other)?,
+        })
+    }
 }
 
 /// A request-scoped root guard for path resolution.
 ///
 /// Borrows a [`PinnedRoot`] rather than opening the root independently.
-/// Each request creates a new `RootGuard` which clones the root fd on Unix,
-/// performs traversal, and drops the cloned fd when the guard goes out of scope.
+/// Each request creates a new `RootGuard` which borrows the root fd/handle,
+/// performs traversal, and releases any duplicated descriptors when the guard
+/// goes out of scope.
 pub(crate) struct RootGuard<'a> {
     pinned: &'a PinnedRoot,
 }
