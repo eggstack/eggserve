@@ -35,7 +35,8 @@ eggserve/
 │   │       │   └── platform.rs     # Windows reserved names, ADS, drives
 │   │       ├── fs/         # filesystem confinement
 │   │       │   ├── mod.rs          # RootGuard, ResolvedResource, symlink-aware resolution
-│   │       │   └── unix.rs         # descriptor-relative traversal (statat + openat)
+│   │       │   ├── unix.rs         # descriptor-relative traversal (statat + openat)
+│   │       │   └── windows.rs      # handle-relative traversal (NtOpenFile), OwnedHandle, reparse denial
 │   │       ├── response.rs # file streaming, directory listing HTML, error responses (413, 503)
 │   │       ├── mime.rs     # MIME type detection (~60 extensions, octet-stream fallback)
 │   │       ├── service.rs  # HTTP handler: GET/HEAD, path validation, body rejection, file-stream semaphore, index, ETag
