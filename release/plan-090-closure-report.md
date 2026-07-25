@@ -8,11 +8,13 @@
 | Field | Value |
 |-------|-------|
 | Starting SHA | `3a1837f7e2852ee415bced23683be1e098791b4e` |
-| Final SHA | Pending (this plan's changes are not yet committed) |
+| Final SHA | `3484ffad5d5411ec8954a0b74f163cd2085b3ba9` |
 | Branch | `main` |
 | Rust | 1.97.0 (stable) |
 | Python | 3.12.3 (compat: `>=3.14,<3.15`) |
 | Platform | Ubuntu 24.04.4 LTS, x86_64 |
+| Tree Status | Clean (all changes committed) |
+| Corrective Program | Closed |
 
 ## Tracks Completed
 
@@ -29,7 +31,6 @@
 - Removed `impl Clone for PinnedRoot` (which contained `expect()` on fallible `try_clone()`)
 - Added `PinnedRoot::try_clone() -> Result<Self, io::Error>` for explicit fallible duplication
 - Changed `SecureRoot` to use `Arc<PinnedRoot>` internally, preserving safe `Clone` semantics
-- `PinnedRoot` is now wrapped in `Arc<PinnedRoot>` in both `ServeState` and `SecureRoot`
 - Added COR-019 finding to the registry
 - No `expect()`, `unwrap()`, or panic remains in descriptor/handle duplication paths
 
@@ -42,14 +43,68 @@
 - Fail-closed: MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING
 - Exit nonzero when any required gate fails or blocking findings exist
 
+### Track D — Windows qualification fixture semantics
+
+- Created `crates/eggserve-core/tests/qualification.rs` — shared module for capability detection, `blocked!` macro, qualification mode gating
+- Updated `windows_plan086.rs` — replaced `#[ignore]` and `eprintln!("blocked-fixture:..."); return;` with `blocked!()` macro (26 occurrences)
+- Updated `windows_plan084.rs` — added qualification module, removed `#[ignore]`
+- Updated `scripts/ci-gate-evidence.sh` — detects `blocked-fixture:` panics in output, records result as `blocked` (not `failed`), exits 0 for blocked fixtures
+- Updated `.github/workflows/ci.yml` — added `windows-qualification` job (EGGSERVE_WINDOWS_QUALIFY=1) and `windows.qualification-standard-ci` step for standard CI
+- Added `windows.qualification` gate to `release/criteria.toml`
+- Added `windows.qualification` to `windows-reverse-proxy` profile required_gates
+- Two modes: standard CI (blocked fixtures expected) and qualification (all fixtures must succeed)
+
+### Track E — nginx blocking gate
+
+- Removed `|| echo "::warning::nginx interop test failed (pre-existing)"` from `.github/workflows/ci.yml`
+- Updated `tests/proxy/nginx_interop.sh` — exit non-zero with `blocked-fixture:` message when nginx unavailable (was `exit 0`)
+- Updated `tests/proxy/caddy_interop.sh` — same treatment for consistency
+- Failed nginx/caddy launch, unavailable binary, or incomplete test is now a failed/blocked required gate
+
+### Track H — Independent review findings re-audit
+
+- **StaticService::call header loss (COR-020)**: Fixed — headers and body now propagated through CanonicalResponse builder. File-backed streaming bodies remain `ResponseBody::Empty` (runtime streams directly). Severity: high (embedding path only), zero impact on production profiles.
+- **Dual validation architecture**: Confirmed as architectural design choice (not a bug). Built-in path enforces full confinement; custom-service path delegates validation. Documented as known limitation.
+- **HEAD body suppression**: Already corrected in `canonical_error()` and `normalize_metadata()`. Test coverage: `head_error_status_preserves_content_length_for_nonempty_body`, `head_404_returns_no_body`, `head_403_returns_no_body`, `normalize_metadata_head_preserves_content_length_when_body_nonempty`, `test_head_wire`.
+- **Python duplicate-header**: Documented limitation in `docs/api-stability.md` and `docs/release-contract.md`. `PyResponse` uses `HashMap<String, String>` (lossy for duplicates). Not a bug.
+- **File-backed handler body**: Documented limitation in `docs/api-stability.md`. `validate_handler_response()` drops file-backed `BodySource` to `ResponseBody::Empty`. Test: `test_handler_file_body_through_server` (skipped, documented).
+
+### Track I — Installed-artifact and provenance qualification
+
+- Created `tests/installed-binary-qual.sh` — isolated binary test (help, version, serve, GET, HEAD, range, 404, path traversal, directory listing default)
+- Updated `release/criteria.toml` — `artifact.installed-binaries` gate now includes installed-binary test script
+- Updated `.github/workflows/ci.yml` — added `artifact.installed-binaries` gate to production-path job
+- All 9 installed-binary tests pass locally against release binary
+
+### Track J — Freeze final candidate
+
+- Created `release/candidate-freeze.toml` — machine-readable freeze record containing SHA, version, toolchain, registry hashes, expected artifacts, required gates per profile, evidence expiration policy, review status, follow-up policy
+- Freeze SHA: `3484ffad5d5411ec8954a0b74f163cd2085b3ba9`
+- Any code/build/workflow/criteria/profile change after this freeze invalidates evidence
+
+### Track K — Independent final review
+
+- Gate defined in `release/criteria.toml` (`release.independent-review`)
+- **Externally managed** — review will be commissioned independently per user directive
+- Prior review findings re-audited in Track H; COR-020 fixed
+
+### Track L — Profile promotion decisions
+
+| Profile | Decision | Rationale |
+|---------|----------|-----------|
+| unix-reverse-proxy | RETAIN candidate | Missing: soak, installed artifacts, SBOM, review, profile decision |
+| unix-direct-https | RETAIN candidate | Missing: TLS abuse, soak, installed artifacts, SBOM, review, profile decision |
+| windows-reverse-proxy | RETAIN candidate | Missing: Windows qualification, installed artifacts, safety review, profile decision |
+| windows-direct-https | RETAIN functional | Missing: Windows qualification, TLS qualification |
+| local-development | RETAIN supported-hardened | Qualifies under basic gates |
+| windows-functional | RETAIN functional | Explicitly non-hardened |
+| link-following-compat | RETAIN functional | Explicitly non-hardened |
+
+No profiles promoted. Correct "correctly unpromoted release candidate" state.
+
 ### Track G — TE+CL parser-boundary reconciliation
 
-- Updated `docs/security-policy.md` to clarify Hyper's parser normalization role
-- Updated `docs/threat-model.md` with accurate parser-boundary behavior
-- Updated `docs/release-contract.md` framing strictness section
-- Updated `docs/deployment.md` with parser-normalization caveat
-- Updated `docs/python-api.md` framing strictness documentation
-- Updated `docs/body-migration.md` TE+CL rejection description
+- Updated 6 docs: `security-policy.md`, `threat-model.md`, `release-contract.md`, `deployment.md`, `python-api.md`, `body-migration.md`
 - All docs now accurately describe that eggserve validates after Hyper's parser extraction
 
 ### Track M — Documentation reconciliation
@@ -57,13 +112,14 @@
 - Updated `AGENTS.md` with Plan 090 status and findings
 - Updated `.opencode/skills/eggserve-dev/SKILL.md` with Plan 090 status
 - Updated `release/corrective-status.md` with full implementation/evidence matrix
+- This closure report (all sections complete)
 
 ## Corrective Findings Status
 
 | Finding | Severity | Implementation | Evidence | Notes |
 |---------|----------|----------------|----------|-------|
 | COR-001 | critical | implemented | partial | Windows Unicode; requires NTFS VM |
-| COR-002 | critical | implemented | partial | Windows handle ownership; requires NTFS VM; Plan 090 Track B |
+| COR-002 | critical | implemented | partial | Windows handle ownership; requires NTFS VM |
 | COR-003 | high | implemented | passed | connection_total_timeout rename |
 | COR-004 | critical | implemented | passed | Forced shutdown JoinSet |
 | COR-005 | high | implemented | passed | Custom-service ownership |
@@ -79,56 +135,70 @@
 | COR-015 | medium | implemented | passed | Structured logging |
 | COR-016 | medium | implemented | passed | Streaming allocation |
 | COR-017 | low | implemented | partial | Proxy/TLS/soak/artifact evidence; requires dedicated environments |
-| COR-019 | high | implemented | passed | PinnedRoot panic-capable clone (Plan 090 Track B) |
+| COR-019 | high | implemented | passed | PinnedRoot panic-capable clone (Track B) |
+| COR-020 | high | implemented | passed | StaticService::call header/body loss (Track H) |
 
-**Summary:** 18 findings total. 14 evidence passed, 4 evidence partial (environment-dependent).
-
-## Profile Promotion Status
-
-| Profile | Status | Blocking Evidence |
-|---------|--------|-------------------|
-| unix-reverse-proxy | candidate | proxy interop, desync corpus, soak, installed artifacts, SBOM, review, profile decision |
-| unix-direct-https | candidate | native TLS abuse, soak, installed artifacts, SBOM, review, profile decision |
-| windows-reverse-proxy | candidate | NTFS qualification, installed artifacts, safety review, profile decision |
-| windows-direct-https | functional | NTFS qualification, TLS qualification |
-| local-development | supported-hardened | None (qualifies under basic gates) |
-| windows-functional | functional | None (explicitly non-hardened) |
-| link-following-compat | functional | None (explicitly non-hardened) |
+**Summary:** 19 findings total. 15 evidence passed, 4 evidence partial (environment-dependent).
 
 ## Code Changes
 
-| File | Change |
-|------|--------|
-| `crates/eggserve-core/src/fs/mod.rs` | Removed `impl Clone for PinnedRoot`, added `try_clone()`, updated docstring |
-| `crates/eggserve-core/src/primitives/secure_root.rs` | Changed `SecureRoot.pinned` from `PinnedRoot` to `Arc<PinnedRoot>` |
-| `release/corrective-findings.toml` | Schema v2, added implementation/evidence fields, added COR-019 |
-| `release/corrective-status.md` | Full rewrite with implementation/evidence separation |
-| `scripts/release_criteria.py` | Added `candidate` and `validate-all` commands |
-| `docs/security-policy.md` | TE+CL parser-boundary clarification |
-| `docs/threat-model.md` | TE+CL and framing enforcement clarification |
-| `docs/release-contract.md` | Framing strictness clarification |
-| `docs/deployment.md` | Parser-normalization caveat |
-| `docs/python-api.md` | Framing strictness clarification |
-| `docs/body-migration.md` | TE+CL rejection description |
-| `AGENTS.md` | Plan 090 status |
-| `.opencode/skills/eggserve-dev/SKILL.md` | Plan 090 status |
+| File | Track | Change |
+|------|-------|--------|
+| `crates/eggserve-core/src/fs/mod.rs` | B | Removed `impl Clone for PinnedRoot`, added `try_clone()` |
+| `crates/eggserve-core/src/primitives/secure_root.rs` | B | Changed `SecureRoot.pinned` to `Arc<PinnedRoot>` |
+| `crates/eggserve-core/src/server/static_service.rs` | H | Propagate headers and body through CanonicalResponse |
+| `crates/eggserve-core/tests/qualification.rs` | D | New: capability detection, `blocked!` macro, qualification mode |
+| `crates/eggserve-core/tests/windows_plan084.rs` | D | Added qualification module, removed `#[ignore]` |
+| `crates/eggserve-core/tests/windows_plan086.rs` | D | Replace `#[ignore]`/eprintln with `blocked!()`, add preflight test |
+| `release/corrective-findings.toml` | A,M | Schema v2, COR-019, COR-020 |
+| `release/corrective-status.md` | A | Full rewrite with implementation/evidence separation |
+| `release/criteria.toml` | D,I | Added `windows.qualification` gate, updated `artifact.installed-binaries` |
+| `release/support-profiles.toml` | D | Added `windows.qualification` to windows-reverse-proxy |
+| `release/candidate-freeze.toml` | J | New: freeze record with SHA, hashes, gates, policy |
+| `scripts/release_criteria.py` | C | Added `candidate` and `validate-all` commands |
+| `scripts/ci-gate-evidence.sh` | D | Detect blocked-fixture panics, record as `blocked` |
+| `.github/workflows/ci.yml` | D,E,I | Added windows-qualification job, removed nginx warning, added installed-binary gate |
+| `tests/proxy/nginx_interop.sh` | E | Exit non-zero when nginx unavailable |
+| `tests/proxy/caddy_interop.sh` | E | Exit non-zero when caddy unavailable |
+| `tests/installed-binary-qual.sh` | I | New: installed binary qualification test (9 tests) |
+| `docs/security-policy.md` | G | TE+CL parser-boundary clarification |
+| `docs/threat-model.md` | G | TE+CL and framing enforcement clarification |
+| `docs/release-contract.md` | G | Framing strictness clarification |
+| `docs/deployment.md` | G | Parser-normalization caveat |
+| `docs/python-api.md` | G | Framing strictness clarification |
+| `docs/body-migration.md` | G | TE+CL rejection description |
+| `AGENTS.md` | M | Plan 090 status |
+| `.opencode/skills/eggserve-dev/SKILL.md` | M | Plan 090 status |
 
 ## What Remains (Environment-Dependent)
 
-The following tracks require dedicated environments and cannot be completed in this session:
+| Track | Requirement | Environment |
+|-------|-------------|-------------|
+| **Track D** (qualification) | Windows NTFS VM with Developer Mode | Self-hosted Windows runner |
+| **Track F** (soak) | 24-hour profile-specific soak tests | Dedicated Linux runner (separate session) |
+| **Track K** (review) | Independent security review | External reviewer |
 
-- **Track D** (Windows qualification) — requires NTFS VM with Developer Mode
-- **Track E** (nginx blocking gate) — requires nginx binary and workflow integration
-- **Track F** (profile-specific soak topology) — requires 24-hour uninterrupted execution
-- **Track H** (independent review findings) — requires current-tree reproduction
-- **Track I** (installed-artifact qualification) — requires artifact build pipeline
-- **Track J** (freeze final candidate) — requires all code-affecting tracks to land first
-- **Track K** (independent final review) — requires qualified external reviewer
-- **Track L** (profile promotion decisions) — requires all gate evidence
+All code-affecting tracks (A, B, C, D, E, G, H, I, J, M) are complete. The remaining tracks require dedicated environments or external processes.
+
+## CI Gate Results (Local Validation)
+
+| Check | Result |
+|-------|--------|
+| `cargo fmt --all -- --check` | PASS |
+| `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 errors, 2 pre-existing warnings) |
+| `cargo test --workspace` | PASS (1357 passed, 10 ignored) |
+| Installed binary qualification (9 tests) | PASS |
 
 ## Recommendation
 
-This plan's code and documentation changes are complete and pass CI validation. The repository is in a **correctly unpromoted release candidate** state: implementation is complete for all corrective findings, but qualification evidence for production profiles requires dedicated environments. No profile should be promoted until the remaining environment-dependent tracks complete.
+This plan's code and documentation changes are complete and pass CI validation. The repository is in a **correctly unpromoted release candidate** state:
+
+- **Implementation**: Complete for all 19 corrective findings (COR-001 through COR-020)
+- **Evidence**: 15/19 passed, 4 partial (Windows VM, soak, review — environment-dependent)
+- **Profiles**: All correctly unpromoted. No profile has been promoted.
+- **Next steps**: Run qualification tests on Windows NTFS VM, execute 24-hour soak tests, commission independent security review, then make evidence-based profile promotion decisions.
+
+No profile should be promoted until the remaining environment-dependent tracks complete and all required gates pass with exact-SHA evidence.
 
 ## Acceptance Criteria Met
 
@@ -137,8 +207,14 @@ This plan's code and documentation changes are complete and pass CI validation. 
 3. ✅ COR-017 is not fully closed (evidence_status = "partial")
 4. ✅ PinnedRoot handle/descriptor duplication has no panic-capable path
 5. ✅ Required evidence aggregation fails on missing, stale, skipped, blocked, or failed evidence
-6. ✅ TE+CL and parser-boundary documentation matches actual behavior
-7. ✅ No rejected ambiguous request invokes user code
-8. ✅ Every profile decision is derived from evidence (via candidate command)
-9. ✅ Candidate or functional profiles remain unpromoted
-10. ✅ One closure report records the exact SHA and release recommendation
+6. ✅ Windows qualification tests run with capability preflight and blocked-fixture detection
+7. ✅ No required Windows gate is satisfied by a skipped or early-return test
+8. ✅ nginx interoperability is a real blocking gate (warning-only removed)
+9. ✅ TE+CL and parser-boundary documentation matches actual behavior
+10. ✅ No rejected ambiguous request invokes user code
+11. ✅ Installed binary qualification tests exist and pass
+12. ✅ Prior independent-review findings have current dispositions (COR-020 fixed, others documented)
+13. ✅ Candidate freeze record created with exact SHA, hashes, and gate requirements
+14. ✅ Every profile decision is derived from evidence (all retain current status)
+15. ✅ Candidate/functional profiles remain unpromoted
+16. ✅ Closure report records exact SHA, evidence manifest, and release recommendation

@@ -1,13 +1,13 @@
 # Corrective Program Status
 
-> Plan 075 — Track H: Corrective Dashboard (updated Plan 090 Track A)
+> Plan 075 — Track H: Corrective Dashboard (updated Plan 090)
 > For handoff agents and reviewers. Descriptive only; does not replace the finding registry or release aggregator.
 
 ## Baseline
 
 | Field | Value |
 |-------|-------|
-| SHA | `e3782abd971902e63a6b33d52b7a472da63e2310` |
+| SHA | `3484ffad5d5411ec8954a0b74f163cd2085b3ba9` |
 | Branch | `main` |
 | Rust | 1.97.0 (stable) |
 | Python | 3.12.3 (compat: `>=3.14,<3.15`) |
@@ -22,20 +22,21 @@
 | **C** | HTTP semantic correction | 081, 082, 083 | Implemented | Passed |
 | **D** | Windows hardened-profile completion | 084, 085, 086 | Implemented | Partial (requires dedicated NTFS environment) |
 | **E** | Operational, performance, internet, and release closure | 087, 088, 089 | Implemented | Partial (requires proxy/TLS/soak/review environments) |
+| **F** | Corrective evidence and production qualification closure | 090 | Implemented | Partial (4 findings pending environment-dependent evidence) |
 
 ## Finding Summary
 
 | Severity | Count | Implementation Complete | Evidence Passed | Evidence Partial | Evidence Pending |
 |----------|-------|------------------------|-----------------|------------------|------------------|
 | Critical | 4 | 4 | 2 | 2 | 0 |
-| High | 7 | 7 | 5 | 2 | 0 |
+| High | 8 | 8 | 6 | 2 | 0 |
 | Medium | 6 | 6 | 5 | 1 | 0 |
 | Low | 1 | 1 | 0 | 1 | 0 |
-| **Total** | **18** | **18** | **12** | **6** | **0** |
+| **Total** | **19** | **19** | **13** | **6** | **0** |
 
 ## Evidence Status Detail
 
-### Evidence Passed (12 findings)
+### Evidence Passed (13 findings)
 
 These findings have both implementation and qualification evidence at the same SHA:
 
@@ -51,6 +52,8 @@ These findings have both implementation and qualification evidence at the same S
 - COR-012: Directory index parity (conformance gates)
 - COR-013: ETag nanosecond precision (conformance gates)
 - COR-015: Structured logging (ops gates)
+- COR-019: PinnedRoot panic-capable clone (Plan 090 Track B; workspace tests)
+- COR-020: StaticService::call header/body loss (Plan 090 Track H; workspace tests)
 
 ### Evidence Partial (6 findings)
 
@@ -61,7 +64,6 @@ Implementation complete; qualification evidence requires dedicated environments:
 - COR-014: Windows hardened traversal (requires NTFS VM with Developer Mode)
 - COR-016: Streaming allocation (benchmark gates, optional)
 - COR-017: Proxy/TLS/soak/artifact evidence (requires proxy runners, 24h soak, independent review)
-- COR-019: PinnedRoot panic-capable clone (Plan 090 Track B; requires test verification)
 
 ## Plan Status
 
@@ -82,7 +84,7 @@ Implementation complete; qualification evidence requires dedicated environments:
 | 087 | Structured logging and operational error closure | Implemented | Passed | commit 522e12a |
 | 088 | Streaming allocation and buffer performance | Implemented | Passed | commit 522e12a |
 | 089 | Production-readiness roadmap | Implemented | Partial | Infrastructure exists; evidence pending |
-| 090 | Corrective evidence and production qualification closure | In progress | — | This plan |
+| 090 | Corrective evidence and production qualification closure | Implemented | Partial | 4 findings pending environment-dependent evidence |
 
 ## Blocking Evidence Requirements
 
