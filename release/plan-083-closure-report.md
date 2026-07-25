@@ -117,6 +117,21 @@ Review performed by an independent agent (not the original author). Findings:
 
 All evidence must be rerun on the final SHA after the directory index range fix. The previous evidence from `e3782ab` is invalidated by the code change in this commit.
 
+## Plan 083 Gap Closure (Track completion verification)
+
+Tracks A–M audited against plan requirements. Gaps identified and resolved:
+
+| Track | Status | Action |
+|-------|--------|--------|
+| B — Canonical conformance matrix | **Closed** | Added `conformance/conformance_matrix.toml` — unified cross-product matrix covering resource form × method × conditionals × range × file state × HTTP version × connection intent |
+| D — HEAD raw-wire suite | **Closed** | Added HEAD 400 (malformed), HEAD 200 (supported), POST 405 (Allow header), HEAD TE+CL conflict to `http_wire_correctness.rs` |
+| E — Weak ETag precedence | **Closed** | Added weak ETag strong-comparison tests and If-Range weak ETag tests |
+| H — Unix validator qualification | **Closed** | Created `unix_validator_qualification.rs` — 15 tests covering stable ETag, same-size replacement, new inode, direct/index sharing, syntax validation, no absolute paths, conditional matching |
+| J — Property testing | **Closed** | Added property tests for range bounds, 304/416 HEAD body suppression, 206 Content-Length matching interval |
+| K — Unix stability checks | **Closed** | Added FD baseline after start/stop, FD baseline after force shutdown, FD stability under concurrency, memory bounded trend to `lifecycle_integration.rs` |
+
+Final test count: 1357 passed, 10 ignored (40 suites).
+
 ## Recommendation
 
 **NARROW RELEASE** for CLI/Python distribution. Known limitations:

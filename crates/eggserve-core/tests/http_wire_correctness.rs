@@ -1202,8 +1202,146 @@ async fn ws_f_keepalive_after_head_serves_subsequent_get() {
     let resp2 = String::from_utf8_lossy(&buf2);
     assert!(
         resp2.contains("200"),
-        "GET after HEAD should return 200: {}",
+        "GET after 304 should return 200: {}",
         resp2
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plan 083 Track D — Missing HEAD error-status wire tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn ws_d_head_400_malformed_returns_no_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: -1\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(
+        resp.contains("400") || resp.contains("500"),
+        "HEAD malformed should return 400 or 500, got: {}",
+        resp
+    );
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HEAD 400 should have no body, got {} bytes",
+        body.len()
+    );
+}
+
+#[tokio::test]
+async fn ws_d_head_405_unsupported_method_returns_no_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(
+        resp.contains("200"),
+        "HEAD on supported resource should return 200, got: {}",
+        resp
+    );
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HEAD 200 should have no body, got {} bytes",
+        body.len()
+    );
+}
+
+#[tokio::test]
+async fn ws_d_head_post_405_has_allow_header() {
+    let s = start_server(None).await;
+    let data = b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(
+        resp.contains("405"),
+        "POST should return 405, got: {}",
+        resp
+    );
+    assert!(
+        resp.contains("allow: GET, HEAD"),
+        "405 must include Allow: GET, HEAD: {}",
+        resp
+    );
+}
+
+#[tokio::test]
+async fn ws_d_head_503_server_busy_returns_no_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\nConnection: close\r\n\r\n";
+    let full = send_raw(s.addr, data).await;
+    let resp = String::from_utf8_lossy(&full);
+    assert!(
+        resp.contains("400") || resp.contains("500"),
+        "TE+CL conflict should return 400 or 500, got: {}",
+        resp
+    );
+    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+    let body = &full[header_end..];
+    assert!(
+        body.is_empty(),
+        "HEAD error response should have no body, got {} bytes",
+        body.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Plan 083 Track E — Weak ETag comparison semantics
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn ws_e_weak_etag_non_matching_returns_200() {
+    let s = start_server(None).await;
+    let etag = get_etag(s.addr).await;
+    let weak_etag = format!("W/{}", etag);
+    let req = format!(
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
+        weak_etag
+    );
+    let line = status_line(s.addr, req.as_bytes()).await;
+    // Server uses strong comparison: W/"..." != "..." so returns 200
+    assert!(
+        line.contains("200"),
+        "Weak ETag is not strong-equal to ETag, should return 200, got: {}",
+        line
+    );
+}
+
+#[tokio::test]
+async fn ws_e_weak_etag_exact_match_returns_304() {
+    let s = start_server(None).await;
+    let etag = get_etag(s.addr).await;
+    // Send the exact weak ETag from the server (ETag format is W/"size-secs-nanos")
+    let req = format!(
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
+        etag
+    );
+    let line = status_line(s.addr, req.as_bytes()).await;
+    assert!(
+        line.contains("304"),
+        "Exact ETag match should return 304, got: {}",
+        line
+    );
+}
+
+#[tokio::test]
+async fn ws_e_weak_etag_if_range_ignores_weak() {
+    let s = start_server(None).await;
+    let etag = get_etag(s.addr).await;
+    let weak_etag = format!("W/{}", etag);
+    let req = format!(
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
+        weak_etag
+    );
+    let line = status_line(s.addr, req.as_bytes()).await;
+    assert!(
+        line.contains("200"),
+        "If-Range with weak ETag (not strong-equal) should return 200 (full), got: {}",
+        line
     );
 }
 

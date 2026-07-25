@@ -1,3 +1,4 @@
+use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1679,4 +1680,183 @@ async fn separate_connections_have_distinct_remote_ports() {
 
     handle.shutdown();
     let _ = handle.wait().await;
+}
+
+// ===== Plan 083 Track K — Unix stability checks =====
+
+#[cfg(unix)]
+fn count_open_fds() -> usize {
+    let fd_dir = fs::read_dir("/proc/self/fd").unwrap();
+    fd_dir.count()
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_fd_baseline_after_start_stop() {
+    let baseline = count_open_fds();
+    for _ in 0..10 {
+        let tmp = TempDir::new().unwrap();
+        let config = config_for("127.0.0.1:0");
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(make_serve_config(&tmp))
+            .build()
+            .unwrap();
+        let handle = server.start_with_service(simple_service()).await.unwrap();
+        let addr = handle.local_addr();
+
+        // Make a request
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf).await;
+
+        handle.shutdown();
+        let _ = handle.wait().await;
+    }
+    let after = count_open_fds();
+    // Allow small variance (up to 8 FDs) for library internals
+    assert!(
+        after <= baseline + 8,
+        "FD count must not grow unbounded: baseline={}, after={}",
+        baseline,
+        after
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_fd_baseline_after_force_shutdown() {
+    let baseline = count_open_fds();
+    for _ in 0..5 {
+        let tmp = TempDir::new().unwrap();
+        let config = config_for_with_timeout("127.0.0.1:0", Duration::from_millis(100));
+        let server = Server::builder()
+            .runtime(config)
+            .serve_config(make_serve_config(&tmp))
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(slow_service(Duration::from_secs(60)))
+            .await
+            .unwrap();
+        let addr = handle.local_addr();
+
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let _ = handle.force_shutdown(Duration::from_millis(50)).await;
+    }
+    let after = count_open_fds();
+    assert!(
+        after <= baseline + 8,
+        "FD count must not grow after forced shutdown: baseline={}, after={}",
+        baseline,
+        after
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_fd_stable_under_concurrent_requests() {
+    let baseline = count_open_fds();
+    let tmp = TempDir::new().unwrap();
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_connections(32)
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+    let addr = handle.local_addr();
+
+    // Fire many concurrent requests
+    for _ in 0..20 {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf).await;
+    }
+
+    let after = count_open_fds();
+    assert!(
+        after <= baseline + 8,
+        "FD count must not grow under concurrency: baseline={}, after={}",
+        baseline,
+        after
+    );
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn unix_memory_bounded_after_repeated_requests() {
+    // Read /proc/self/status for VmRSS (resident set size in kB)
+    fn get_rss_kb() -> Option<usize> {
+        let status = fs::read_to_string("/proc/self/status").ok()?;
+        for line in status.lines() {
+            if let Some(val) = line.strip_prefix("VmRSS:") {
+                let kb: usize = val.trim().trim_end_matches(" kB").trim().parse().ok()?;
+                return Some(kb);
+            }
+        }
+        None
+    }
+
+    let initial_rss = get_rss_kb();
+    let tmp = TempDir::new().unwrap();
+    let config = config_for("127.0.0.1:0");
+    let server = Server::builder()
+        .runtime(config)
+        .serve_config(make_serve_config(&tmp))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(simple_service()).await.unwrap();
+    let addr = handle.local_addr();
+
+    // Many requests to check for memory growth
+    for _ in 0..100 {
+        let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
+        stream
+            .write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        let _ = stream.read_to_end(&mut buf).await;
+    }
+
+    handle.shutdown();
+    let _ = handle.wait().await;
+
+    if let Some(initial) = initial_rss {
+        // Force GC and re-read
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        if let Some(final_rss) = get_rss_kb() {
+            let growth = final_rss.saturating_sub(initial);
+            // Allow up to 5MB growth (20MB is tokio stack overhead)
+            assert!(
+                growth < 5120,
+                "Memory must not grow unbounded: initial={}kB, final={}kB, growth={}kB",
+                initial,
+                final_rss,
+                growth
+            );
+        }
+    }
 }

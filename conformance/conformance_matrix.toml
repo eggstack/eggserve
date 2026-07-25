@@ -1,0 +1,552 @@
+# Plan 083 Track B — Unified Canonical Conformance Matrix
+#
+# Single source of truth for expected behavior across all supported dimensions.
+# Each entry defines expected status, headers, body behavior, and connection policy.
+#
+# Dimensions:
+#   resource: direct_file | directory_index | root_index | directory_listing | missing | denied
+#   method: GET | HEAD
+#   conditional: none | etag_match | etag_mismatch | ims_match | ims_mismatch | both_match | weak_etag
+#   range: none | exact | open_ended | suffix | unsatisfiable | malformed | if_range_match | if_range_mismatch
+#   file_state: normal | empty
+#   http_version: 1.0 | 1.1
+#   connection: close | keep_alive
+
+[global]
+file_size = 11          # "hello world" = 11 bytes
+empty_file_size = 0
+index_size = 15         # "<html>hi</html>" = 15 bytes
+
+# ===========================================================================
+# Direct file — GET
+# ===========================================================================
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+expected_content_type = "text/plain"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+expected_content_length = null
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "etag_mismatch"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "ims_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "ims_mismatch"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "weak_etag"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "exact"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+expected_content_length = 5
+expected_content_range = "bytes 0-4/11"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "open_ended"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+expected_content_length = 5
+expected_content_range = "bytes 6-10/11"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "suffix"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+expected_content_length = 5
+expected_content_range = "bytes 6-10/11"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "unsatisfiable"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 416
+expected_content_range = "bytes */11"
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "malformed"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "etag_match"
+range = "if_range_match"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "etag_mismatch"
+range = "if_range_mismatch"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = false
+connection_reuse = false
+
+# ===========================================================================
+# Direct file — HEAD
+# ===========================================================================
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "none"
+range = "exact"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+expected_content_length = 5
+expected_content_range = "bytes 0-4/11"
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "none"
+range = "unsatisfiable"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 416
+expected_content_range = "bytes */11"
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Directory index — GET
+# ===========================================================================
+
+[[matrix]]
+resource = "directory_index"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 15
+expected_content_type = "text/html"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_index"
+method = "GET"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_index"
+method = "GET"
+conditional = "none"
+range = "exact"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+expected_content_length = 5
+expected_content_range = "bytes 0-4/15"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_index"
+method = "GET"
+conditional = "none"
+range = "unsatisfiable"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 416
+expected_content_range = "bytes */15"
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Directory index — HEAD
+# ===========================================================================
+
+[[matrix]]
+resource = "directory_index"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 15
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_index"
+method = "HEAD"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_index"
+method = "HEAD"
+conditional = "none"
+range = "exact"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+expected_content_length = 5
+expected_content_range = "bytes 0-4/15"
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Missing resource
+# ===========================================================================
+
+[[matrix]]
+resource = "missing"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 404
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "missing"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 404
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Denied resource (dotfile)
+# ===========================================================================
+
+[[matrix]]
+resource = "denied"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 403
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "denied"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 403
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Empty file
+# ===========================================================================
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "empty"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 0
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "unsatisfiable"
+file_state = "empty"
+http_version = "1.1"
+connection = "close"
+expected_status = 416
+expected_content_range = "bytes */0"
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "empty"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_length = 0
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# HTTP/1.0 variants
+# ===========================================================================
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.0"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.0"
+connection = "close"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Keep-alive connection intent
+# ===========================================================================
+
+[[matrix]]
+resource = "direct_file"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "keep_alive"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = false
+connection_reuse = true
+
+[[matrix]]
+resource = "direct_file"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "keep_alive"
+expected_status = 200
+expected_content_length = 11
+body_forbidden = true
+connection_reuse = true
+
+# ===========================================================================
+# Error responses (method-independent)
+# ===========================================================================
+
+[[matrix]]
+resource = "missing"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "keep_alive"
+expected_status = 404
+body_forbidden = true
+connection_reuse = true
+
+[[matrix]]
+resource = "denied"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "keep_alive"
+expected_status = 403
+body_forbidden = true
+connection_reuse = true
+
+# ===========================================================================
+# Unsupported method
+# ===========================================================================
+
+[[matrix]]
+resource = "direct_file"
+method = "POST"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 405
+expected_allow = "GET, HEAD"
+body_forbidden = true
+connection_reuse = false

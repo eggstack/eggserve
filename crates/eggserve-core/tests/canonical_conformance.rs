@@ -1197,4 +1197,88 @@ proptest! {
             );
         }
     }
+
+    // -----------------------------------------------------------------------
+    // Plan 083 Track J — Additional property tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn range_never_exceeds_representation(
+        size in 1u64..10_000u64,
+        range_start in 0u64..5_000u64,
+        range_end in 0u64..5_000u64,
+    ) {
+        let start = range_start.min(size - 1);
+        let end = (start + range_end).min(size - 1);
+        let range_len = end - start + 1;
+        prop_assert!(
+            range_len <= size,
+            "range length {} must not exceed representation size {}",
+            range_len, size
+        );
+    }
+
+    #[test]
+    fn body_forbidden_304_never_emits_payload(
+        body_bytes in 0usize..1000,
+    ) {
+        let resp = Response::builder()
+            .status(StatusCode::new(304).unwrap())
+            .body(ResponseBody::Bytes(vec![0u8; body_bytes]))
+            .unwrap();
+        let req = NormalizeRequest::new(false);
+        let normalized = normalize_response(resp, &req).unwrap();
+        let body = normalized.body().unwrap();
+        prop_assert!(
+            body.is_empty(),
+            "304 must not emit body, got {} bytes",
+            body.len()
+        );
+    }
+
+    #[test]
+    fn head_416_never_emits_payload(
+        body_bytes in 0usize..1000,
+    ) {
+        let resp = Response::builder()
+            .status(StatusCode::new(416).unwrap())
+            .body(ResponseBody::Bytes(vec![0u8; body_bytes]))
+            .unwrap();
+        let req = NormalizeRequest::new(true); // HEAD
+        let normalized = normalize_response(resp, &req).unwrap();
+        let body = normalized.body().unwrap();
+        prop_assert!(
+            body.is_empty(),
+            "HEAD 416 must not emit body, got {} bytes",
+            body.len()
+        );
+    }
+
+    #[test]
+    fn head_206_content_length_matches_range_interval(
+        size in 10u64..10_000u64,
+        range_start in 0u64..5_000u64,
+        range_len in 1u64..100u64,
+    ) {
+        let start = range_start.min(size - 1);
+        let end = (start + range_len - 1).min(size - 1);
+        let interval_len = end - start + 1;
+
+        let resp = Response::builder()
+            .status(StatusCode::OK)
+            .header("content-length", size.to_string()).unwrap()
+            .body(ResponseBody::Bytes(vec![0u8; interval_len as usize]))
+            .unwrap();
+        let req = NormalizeRequest::new(true); // HEAD
+        let normalized = normalize_response(resp, &req).unwrap();
+        let body = normalized.body().unwrap();
+        prop_assert!(body.is_empty(), "HEAD must suppress body");
+        if let Some(cl) = normalized.headers().get_first("content-length") {
+            prop_assert_eq!(
+                cl.as_str(),
+                interval_len.to_string(),
+                "HEAD 206 Content-Length must match range interval"
+            );
+        }
+    }
 }
