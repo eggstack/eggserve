@@ -5,16 +5,19 @@
 //! ACL/sharing behavior, resource stability, and installed artifact parity
 //! for the Windows hardened static-serving path.
 //!
-//! Tests requiring Developer Mode, elevated privileges, or a dedicated VM are
-//! marked with `#[ignore]` and a reason string. They cannot run on standard
-//! GitHub-hosted runners and must be executed on a dedicated Windows
-//! qualification environment.
+//! # Qualification modes (Plan 090 Track D)
 //!
-//! Tests that cannot create a fixture report `blocked-fixture` rather than
-//! passing or skipping silently.
+//! - **Standard CI** (`EGGSERVE_WINDOWS_QUALIFY` not set): Tests that
+//!   require Developer Mode or elevated privileges are expected to be
+//!   blocked. The `blocked!` macro produces a `blocked-fixture:` message
+//!   on stderr and panics, which CI evidence collection interprets as a
+//!   blocked (non-failing) result.
 //!
-//! All tests are gated with `#![cfg(windows)]` and will not compile on
-//! other platforms.
+//! - **Qualification** (`EGGSERVE_WINDOWS_QUALIFY=1`): All tests run.
+//!   Fixtures that still cannot be created produce a real test failure.
+//!
+//! All tests are gated with `#![cfg(all(windows, feature = "windows-plan086"))]`
+//! and will not compile on other platforms.
 
 #![cfg(all(windows, feature = "windows-plan086"))]
 #![allow(
@@ -24,6 +27,8 @@
     clippy::unnecessary_map_or,
     clippy::single_match
 )]
+
+mod qualification;
 
 use std::ffi::c_void;
 use std::fs;
@@ -501,8 +506,7 @@ fn windows_reparse_file_symlink_denied_by_production_path() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -528,8 +532,7 @@ fn windows_reparse_directory_symlink_denied_by_production_path() {
     match std::os::windows::fs::symlink_dir(tmp.path().join("subdir"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -543,13 +546,26 @@ fn windows_reparse_directory_symlink_denied_by_production_path() {
 }
 
 #[test]
-#[ignore = "requires elevated privileges for junction creation"]
 fn windows_reparse_junction_denied_by_production_path() {
     let tmp = TempDir::new().unwrap();
     create_plan086_tree(tmp.path());
 
     let junction_path = tmp.path().join("junction_to_subdir");
     let target = tmp.path().join("subdir");
+
+    // Probe junction creation capability.
+    if !qualification::is_qualification_mode() {
+        let probe = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J", "NUL", "NUL"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        // If mklink isn't available or fails, block in standard CI.
+        if !probe.map(|s| s.success()).unwrap_or(false) {
+            blocked!("junction creation requires elevated privileges or Developer Mode");
+        }
+    }
+
     let status = std::process::Command::new("cmd")
         .args([
             "/C",
@@ -560,7 +576,9 @@ fn windows_reparse_junction_denied_by_production_path() {
         ])
         .status()
         .expect("should run mklink");
-    assert!(status.success(), "mklink /J should succeed");
+    if !status.success() {
+        blocked!("mklink /J failed — requires elevated privileges or Developer Mode");
+    }
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result = root.resolve(&parse("/junction_to_subdir"));
@@ -582,8 +600,7 @@ fn windows_reparse_intermediate_component_denied() {
     match std::os::windows::fs::symlink_dir(tmp.path().join("subdir/deep"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -610,8 +627,7 @@ fn windows_reparse_index_file_denied() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &index_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -642,8 +658,7 @@ fn windows_reparse_listing_entry_filtered() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -682,8 +697,7 @@ fn windows_reparse_dangling_denied() {
     ) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -704,8 +718,7 @@ fn windows_reparse_get_head_agree() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -730,8 +743,7 @@ fn windows_reparse_no_handle_leak() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -764,8 +776,7 @@ fn windows_reparse_target_inside_root_denied() {
     match std::os::windows::fs::symlink_file(tmp.path().join("visible.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -793,8 +804,7 @@ fn windows_reparse_target_outside_root_denied() {
     {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -951,8 +961,7 @@ fn windows_race_file_to_reparse_swap_denied() {
     match std::os::windows::fs::symlink_file(tmp.path().join("visible.txt"), &target_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -1004,8 +1013,7 @@ fn windows_race_same_name_reparse_to_file() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -1483,8 +1491,7 @@ fn windows_resource_stability_reparse_denials() {
     match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink creation requires Developer Mode: {e}");
-            return;
+            blocked!("symlink creation requires Developer Mode: {e}");
         }
         Err(e) => panic!("unexpected error creating symlink: {e}"),
     }
@@ -1913,16 +1920,14 @@ fn windows_reparse_nested_chain_denied() {
     match try_create_file_symlink(tmp.path().join("hello.txt"), &link2) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: nested symlink chain requires Developer Mode");
-            return;
+            blocked!("nested symlink chain requires Developer Mode");
         }
         Err(e) => panic!("unexpected error: {e}"),
     }
     match try_create_file_symlink(&link2, &link1) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: nested symlink chain requires Developer Mode");
-            return;
+            blocked!("nested symlink chain requires Developer Mode");
         }
         Err(e) => panic!("unexpected error: {e}"),
     }
@@ -1964,9 +1969,7 @@ fn windows_reparse_volume_mount_point_denied() {
             );
         }
         _ => {
-            eprintln!(
-                "blocked-fixture: junction creation requires elevated privileges or Developer Mode"
-            );
+            blocked!("junction creation requires elevated privileges or Developer Mode");
         }
     }
 }
@@ -1983,8 +1986,7 @@ fn windows_reparse_custom_tag_denied() {
     match try_create_file_symlink(tmp.path().join("hello.txt"), &link) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: custom reparse test requires Developer Mode");
-            return;
+            blocked!("custom reparse test requires Developer Mode");
         }
         Err(e) => panic!("unexpected error: {e}"),
     }
@@ -2462,7 +2464,7 @@ fn windows_file_identity_hard_links() {
             );
         }
         Err(e) => {
-            eprintln!("blocked-fixture: hard link creation failed: {e}");
+            blocked!("hard link creation failed: {e}");
         }
     }
 }
@@ -3191,8 +3193,7 @@ fn windows_reparse_target_path_not_leaked() {
     match try_create_file_symlink(&secret_target, &link) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink requires Developer Mode");
-            return;
+            blocked!("symlink requires Developer Mode");
         }
         Err(e) => panic!("unexpected error: {e}"),
     }
@@ -3235,8 +3236,7 @@ fn windows_reparse_denial_category_observable() {
     match try_create_file_symlink(tmp.path().join("hello.txt"), &link) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            eprintln!("blocked-fixture: symlink requires Developer Mode");
-            return;
+            blocked!("symlink requires Developer Mode");
         }
         Err(e) => panic!("unexpected error: {e}"),
     }
@@ -3361,7 +3361,7 @@ fn windows_race_directory_junction_swap() {
         // Junction creation failed — restore the original.
         fs::create_dir_all(tmp.path().join("subdir")).expect("restore subdir");
         fs::write(tmp.path().join("subdir/nested.txt"), "nested").expect("restore nested.txt");
-        eprintln!("blocked-fixture: junction creation requires elevated privileges");
+        blocked!("junction creation requires elevated privileges");
     }
 }
 
@@ -3815,7 +3815,7 @@ fn windows_artifact_parity_binary_sha_capture() {
             }
         }
         _ => {
-            eprintln!("blocked-fixture: cargo build failed (expected on non-Windows or missing toolchain)");
+            blocked!("cargo build failed (expected on non-Windows or missing toolchain)");
         }
     }
 }
@@ -3859,7 +3859,7 @@ fn windows_fuzz_corpus_replay_path_components() {
     // Replay the path_components fuzz corpus and verify safety invariants.
     let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/path_components");
     if !corpus_dir.exists() {
-        eprintln!("blocked-fixture: fuzz corpus directory not found");
+        blocked!("fuzz corpus directory not found");
         return;
     }
 
@@ -3908,7 +3908,7 @@ fn windows_fuzz_corpus_replay_platform_component() {
     let corpus_dir =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/platform_component");
     if !corpus_dir.exists() {
-        eprintln!("blocked-fixture: fuzz corpus directory not found");
+        blocked!("fuzz corpus directory not found");
         return;
     }
 
@@ -3964,7 +3964,7 @@ fn windows_fuzz_corpus_replay_percent_decode() {
     // Replay the percent_decode fuzz corpus.
     let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/percent_decode");
     if !corpus_dir.exists() {
-        eprintln!("blocked-fixture: fuzz corpus directory not found");
+        blocked!("fuzz corpus directory not found");
         return;
     }
 
@@ -4006,7 +4006,7 @@ fn windows_fuzz_corpus_replay_request_target() {
     // Replay the request_target fuzz corpus with Windows-specific validation.
     let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/request_target");
     if !corpus_dir.exists() {
-        eprintln!("blocked-fixture: fuzz corpus directory not found");
+        blocked!("fuzz corpus directory not found");
         return;
     }
 
@@ -4060,7 +4060,7 @@ fn windows_fuzz_corpus_replay_directory_buffer() {
     let corpus_dir =
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/fuzz_directory_buffer");
     if !corpus_dir.exists() {
-        eprintln!("blocked-fixture: fuzz corpus directory not found");
+        blocked!("fuzz corpus directory not found");
         return;
     }
 
@@ -4150,4 +4150,45 @@ fn windows_qualification_shutdown_timing() {
         drain_time < std::time::Duration::from_secs(5),
         "graceful drain took too long: {drain_time:?}"
     );
+}
+
+// ============================================================================
+// Track D — Capability preflight (Plan 090)
+// ============================================================================
+
+#[test]
+fn windows_qualification_capability_preflight() {
+    // Detect and record all environment capabilities. This test always
+    // passes but emits structured output for evidence collection.
+    let tmp = TempDir::new().unwrap();
+    create_plan086_tree(tmp.path());
+
+    let caps = qualification::detect_capabilities(tmp.path());
+    qualification::emit_capabilities(&caps);
+
+    // Record mode.
+    let mode = if qualification::is_qualification_mode() {
+        "qualification"
+    } else {
+        "standard-ci"
+    };
+    eprintln!("mode: {mode}");
+
+    // Validate minimum expectations for standard CI.
+    // Standard CI on GitHub-hosted Windows runners should have NTFS.
+    assert!(
+        caps.is_ntfs,
+        "standard CI must run on NTFS (got: {})",
+        caps.filesystem_type
+    );
+
+    // Record what's blocked in standard CI.
+    if !qualification::is_qualification_mode() {
+        if !caps.developer_mode {
+            eprintln!("BLOCKED: Developer Mode not available — symlink tests will be blocked");
+        }
+        if !caps.junction_creation {
+            eprintln!("BLOCKED: Junction creation not available — junction tests will be blocked");
+        }
+    }
 }

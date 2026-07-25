@@ -23,8 +23,9 @@ EGGSERVE_BIN="${REPO_ROOT}/target/debug/eggserve"
 NGINX_BIN="$(command -v nginx 2>/dev/null || echo "")"
 
 if [[ -z "$NGINX_BIN" ]]; then
-    echo "SKIP: nginx not found in PATH"
-    exit 0
+    echo "BLOCKED: nginx not found in PATH"
+    echo "blocked-fixture: nginx binary required for interop qualification"
+    exit 1
 fi
 
 if [[ ! -x "$EGGSERVE_BIN" ]]; then

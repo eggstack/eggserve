@@ -2073,6 +2073,25 @@ security_relevance = true
 release_stage = "qualification"
 
 [[gate]]
+id = "windows.qualification"
+title = "Windows adversarial qualification (Plan 086)"
+description = "Full Plan 086 adversarial test suite runs in qualification mode (EGGSERVE_WINDOWS_QUALIFY=1) on a dedicated NTFS VM with Developer Mode. Blocked fixtures in standard CI are recorded but do not satisfy this gate."
+required = true
+evidence_classes = ["ci-log", "test-output"]
+command = "EGGSERVE_WINDOWS_QUALIFY=1 cargo test -p eggserve-core --test windows_plan086 --features windows-plan086"
+workflow_job = "windows-qualification"
+platforms = ["windows"]
+features = ["windows-plan086"]
+artifacts = []
+triggers = ["push", "manual_dispatch"]
+max_age_days = 30
+invalidated_by = ["crates/eggserve-core/src/fs/windows.rs", "crates/eggserve-core/src/path/**", "crates/eggserve-core/tests/windows_plan086.rs", "crates/eggserve-core/tests/qualification.rs"]
+depends_on = []
+waiver_allowed = false
+security_relevance = true
+release_stage = "qualification"
+
+[[gate]]
 id = "windows.independent-safety-review"
 title = "Windows independent safety review"
 description = "A reviewer who did not author the implementation has inspected all Windows FFI declarations, struct layouts, unsafe blocks, ownership transfer, UTF-16 lengths, relative-open semantics, reparse detection timing, directory record parsing, path fallback reachability, and race harness methodology. No unresolved high or critical findings."
@@ -2577,10 +2596,10 @@ release_stage = "qualification"
 [[gate]]
 id = "artifact.installed-binaries"
 title = "Installed binary production-path validation"
-description = "Release binaries (default and TLS-enabled) pass production-path test suite and behave identically to source build"
+description = "Release binaries (default and TLS-enabled) pass installed-binary qualification tests and behave identically to source build"
 required = true
 evidence_classes = ["ci-log", "test-output"]
-command = "cargo test -p eggserve-bin --test production_path"
+command = "cargo test -p eggserve-bin --test production_path && bash tests/installed-binary-qual.sh"
 workflow_job = "production-path"
 platforms = ["linux"]
 features = []

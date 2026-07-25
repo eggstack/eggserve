@@ -5,6 +5,12 @@
 //! Windows, where `resolve_to_resource` and `resolve_child_relative` use
 //! handle-relative traversal via `NtOpenFile`.
 //!
+//! # Qualification modes (Plan 090 Track D)
+//!
+//! Tests requiring a dedicated Windows VM (e.g., NtQueryDirectoryFile
+//! with large directory buffers) use `blocked!()` in standard CI and
+//! run in qualification mode (`EGGSERVE_WINDOWS_QUALIFY=1`).
+//!
 //! All tests are gated with `#![cfg(windows)]` and will not compile on
 //! other platforms.
 
@@ -16,6 +22,8 @@
     clippy::unnecessary_map_or,
     clippy::single_match
 )]
+
+mod qualification;
 
 use std::ffi::c_void;
 use std::fs;
@@ -291,10 +299,13 @@ fn windows_repeated_child_resolution_returns_handle_count_to_baseline() {
 }
 
 #[test]
-#[ignore = "NtQueryDirectoryFile STATUS_INFO_LENGTH_MISMATCH on CI; needs Windows VM qualification"]
 fn windows_resolved_directory_retains_handle_after_resolve() {
     // After resolving a directory through SecureRoot, the resolved directory
     // retains a handle for handle-relative child resolution.
+    //
+    // This test requires NtQueryDirectoryFile with FileIdBothDirectoryInfo,
+    // which may fail with STATUS_INFO_LENGTH_MISMATCH on some CI runners.
+    // In qualification mode, failure is a real test failure.
     let tmp = TempDir::new().unwrap();
     create_plan084_tree(tmp.path());
 

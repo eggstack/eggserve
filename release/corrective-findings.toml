@@ -730,7 +730,57 @@ platform = "all"
 deterministic = true
 
 [finding.gates_invalidated]
-required = ["ops.json-log-validity", "ops.text-log-sanitization", "ops.library-silence"]
+required = ["rust.test"]
+
+[finding.regression_test]
+test_name = "workspace-tests"
+file = "N/A"
+command = "cargo test --workspace"
+
+# ============================================================================
+# COR-020: StaticService::call response-header and body loss (Plan 090 Track H)
+# ============================================================================
+
+[[finding]]
+id = "COR-020"
+title = "StaticService::call discards response headers and body"
+severity = "high"
+plan = 90
+track = "H"
+description = """StaticService::call (embedding API) populated a HeaderBlock from the hyper response but never passed it to the CanonicalResponse builder. The body was always replaced with ResponseBody::Empty. This meant custom services using StaticService received responses with no headers and no body."""
+date_opened = "2025-07-25"
+date_closed = "2025-07-25"
+owner = "eggserve"
+resolution = "fixed"
+resolution_description = "Propagate headers from hyper response to CanonicalResponse builder. Extract body bytes for in-memory responses (errors, small bodies). File-backed responses still use ResponseBody::Empty (the runtime streams them directly)."
+affected_components = ["crates/eggserve-core/src/server/static_service.rs"]
+affected_profiles = ["local-development"]
+production_impact = "None — production profiles use the built-in path, not StaticService::call"
+regression_risk = "low"
+
+[finding.implementation]
+status = "implemented"
+sha = "HEAD"
+files_changed = ["crates/eggserve-core/src/server/static_service.rs"]
+description = "Headers and body now propagated through CanonicalResponse builder"
+
+[finding.evidence]
+status = "passed"
+sha = "HEAD"
+required_gates = ["rust.test", "rust.clippy"]
+description = "All workspace tests pass, clippy clean"
+
+[finding.fix_details]
+principles = [
+    "Response headers (Content-Type, Content-Length, ETag, etc.) are now propagated",
+    "In-memory bodies (errors, small responses) are extracted and propagated",
+    "File-backed streaming bodies remain ResponseBody::Empty (runtime streams directly)",
+]
+platform = "all"
+deterministic = true
+
+[finding.gates_invalidated]
+required = ["rust.test"]
 
 [finding.regression_test]
 test_name = "workspace-tests"

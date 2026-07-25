@@ -23,8 +23,9 @@ EGGSERVE_BIN="${REPO_ROOT}/target/debug/eggserve"
 CADDY_BIN="$(command -v caddy 2>/dev/null || echo "")"
 
 if [[ -z "$CADDY_BIN" ]]; then
-    echo "SKIP: caddy not found in PATH"
-    exit 0
+    echo "BLOCKED: caddy not found in PATH"
+    echo "blocked-fixture: caddy binary required for interop qualification"
+    exit 1
 fi
 
 if [[ ! -x "$EGGSERVE_BIN" ]]; then

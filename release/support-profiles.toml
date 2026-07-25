@@ -273,6 +273,7 @@ required_gates = [
     "windows.resource-stability",
     "windows.installed-artifact",
     "windows.fuzz-corpus-replay",
+    "windows.qualification",
     "python.wheel.windows",
     "python.lifecycle-windows",
 ]

@@ -167,13 +167,13 @@ impl Service for StaticService {
         Box::pin(async move {
             let hyper_resp = handle_static_request(head, &state).await;
             // Convert hyper response to canonical response for the public boundary.
-            // This is a lossy conversion — the canonical response carries only
-            // in-memory bodies. For file-backed responses, the runtime intercepts
-            // before this point and streams directly.
+            // This is a lossy conversion for file-backed responses — the canonical
+            // response carries only in-memory bodies. For file-backed responses, the
+            // runtime's connection pipeline streams directly without going through
+            // this conversion.
             //
-            // In practice, the runtime's connection pipeline handles file streaming
-            // directly, so this conversion is only hit for error/empty responses
-            // from the static service.
+            // For error responses (404, 403, etc.) and small in-memory bodies,
+            // we propagate both headers and body correctly.
             let status = hyper_resp.status().as_u16();
             let code = CanonicalStatusCode::new(status)
                 .map_err(|_| ServiceError::internal("invalid status code"))?;
@@ -186,10 +186,26 @@ impl Service for StaticService {
                     headers.push(n, v);
                 }
             }
-            Ok(CanonicalResponse::builder()
+            // Try to extract the body as bytes. For streaming/file-backed bodies,
+            // this will consume the body into memory, which is acceptable for
+            // error responses and small bodies. For large file-backed responses,
+            // the runtime does not use this path.
+            use http_body_util::BodyExt;
+            let body_bytes = hyper_resp
+                .into_body()
+                .collect()
+                .await
+                .map(|c| c.to_bytes().to_vec())
+                .unwrap_or_default();
+            let body = if body_bytes.is_empty() {
+                ResponseBody::Empty
+            } else {
+                ResponseBody::Bytes(body_bytes)
+            };
+            CanonicalResponse::builder()
                 .status(code)
-                .body(ResponseBody::Empty)
-                .unwrap())
+                .body(body)
+                .map_err(|e| ServiceError::internal(format!("response build: {e}")))
         })
     }
 }

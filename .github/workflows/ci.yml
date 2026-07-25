@@ -62,11 +62,39 @@ jobs:
       - run: bash scripts/ci-gate-evidence.sh conformance.canonical-wire-interop test-output cargo test -p eggserve-core --test canonical_wire_interop
       - run: bash scripts/ci-gate-evidence.sh conformance.public-rust-compile-fixtures test-output cargo test -p eggserve-core --test public_api_consumers
       - run: bash scripts/ci-gate-evidence.sh conformance.perf-regression-report test-output cargo bench -p eggserve-core --bench canonical_types -- --test
+      - name: Windows Plan 086 qualification tests (standard CI — blocked fixtures expected)
+        if: runner.os == 'Windows'
+        run: bash scripts/ci-gate-evidence.sh windows.qualification-standard-ci test-output cargo test -p eggserve-core --test windows_plan086 --features windows-plan086
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: gate-evidence-rust-${{ matrix.os }}
+          path: |
+            target/release-evidence/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  windows-qualification:
+    name: gate/windows-qualification
+    if: github.event_name == 'push' && github.event.inputs qualification != 'false'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Run Windows qualification tests
+        env:
+          EGGSERVE_WINDOWS_QUALIFY: "1"
+        run: bash scripts/ci-gate-evidence.sh windows.qualification test-output cargo test -p eggserve-core --test windows_plan086 --features windows-plan086
+      - name: Upload gate evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: gate-evidence-windows-qualification
           path: |
             target/release-evidence/
           retention-days: 30
@@ -131,6 +159,7 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - run: bash scripts/ci-gate-evidence.sh http.production-path test-output cargo test -p eggserve-bin --test production_path
+      - run: bash scripts/ci-gate-evidence.sh artifact.installed-binaries test-output bash tests/installed-binary-qual.sh
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
@@ -267,7 +296,7 @@ jobs:
       - name: Run Caddy interop tests
         run: bash scripts/ci-gate-evidence.sh proxy.caddy-interop test-output bash tests/proxy/caddy_interop.sh
       - name: Run nginx interop tests
-        run: bash scripts/ci-gate-evidence.sh proxy.nginx-interop test-output bash tests/proxy/nginx_interop.sh || echo "::warning::nginx interop test failed (pre-existing)"
+        run: bash scripts/ci-gate-evidence.sh proxy.nginx-interop test-output bash tests/proxy/nginx_interop.sh
       - name: Run desync corpus tests
         run: bash scripts/ci-gate-evidence.sh proxy.desync-corpus test-output bash tests/proxy/desync_corpus.sh
       - name: Upload gate evidence
@@ -499,7 +528,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     if: always()
-    needs: [rust-check, supply-chain, wire-tests, production-path, corpus-replay, stateful-fuzz-replay, fault-injection, filesystem-race, proxy-interop, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke]
+    needs: [rust-check, supply-chain, wire-tests, production-path, corpus-replay, stateful-fuzz-replay, fault-injection, filesystem-race, proxy-interop, python-unit-tests, packaging-smoke, cargo-package, wheel-smoke, windows-qualification]
     permissions:
       contents: read
     steps:
