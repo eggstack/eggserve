@@ -1,4 +1,3 @@
-use std::fs;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -1686,7 +1685,7 @@ async fn separate_connections_have_distinct_remote_ports() {
 
 #[cfg(unix)]
 fn count_open_fds() -> usize {
-    let fd_dir = fs::read_dir("/proc/self/fd").unwrap();
+    let fd_dir = std::fs::read_dir("/proc/self/fd").unwrap();
     fd_dir.count()
 }
 
@@ -1809,7 +1808,7 @@ async fn unix_fd_stable_under_concurrent_requests() {
 async fn unix_memory_bounded_after_repeated_requests() {
     // Read /proc/self/status for VmRSS (resident set size in kB)
     fn get_rss_kb() -> Option<usize> {
-        let status = fs::read_to_string("/proc/self/status").ok()?;
+        let status = std::fs::read_to_string("/proc/self/status").ok()?;
         for line in status.lines() {
             if let Some(val) = line.strip_prefix("VmRSS:") {
                 let kb: usize = val.trim().trim_end_matches(" kB").trim().parse().ok()?;
