@@ -80,7 +80,7 @@ Implementation complete; qualification evidence requires dedicated environments:
 | 083 | HTTP conformance and raw-wire corrective closure | Implemented | Passed | Independent review, no critical defects |
 | 084 | Windows directory-handle retention | Implemented | Partial | Requires NTFS VM qualification |
 | 085 | Windows handle-relative enumeration | Implemented | Partial | Requires NTFS VM qualification |
-| 086 | Windows adversarial filesystem qualification | Implemented | Partial | 113 tests established; requires NTFS VM |
+| 086 | Windows adversarial filesystem qualification | Implemented | Partial | 114 tests established; requires NTFS VM |
 | 087 | Structured logging and operational error closure | Implemented | Passed | commit 522e12a |
 | 088 | Streaming allocation and buffer performance | Implemented | Passed | commit 522e12a |
 | 089 | Production-readiness roadmap | Implemented | Partial | Infrastructure exists; evidence pending |

@@ -185,7 +185,7 @@ Plan 084 completed the production implementation of Windows handle-relative file
 - **Handle ownership semantics**: `OwnedHandle` duplication is fallible and non-panicking; borrowed handles are never closed by owners.
 - **Hardened no-fallback**: Hardened Windows resolution never reconstructs filesystem authority from a path.
 
-Reparse-point hardening qualification test scaffold is established (Plan 086, 113 tests). Independent safety review and profile promotion decision awaited.
+Reparse-point hardening qualification test scaffold is established (Plan 086, 114 tests). Independent safety review and profile promotion decision awaited.
 
 ## Plan 085: Windows Handle-Relative Directory Enumeration
 
@@ -291,7 +291,7 @@ Positive NTSTATUS values (informational) are not expected from `NtQueryDirectory
 
 ### Test Scaffold
 
-113 tests in `crates/eggserve-core/tests/windows_plan086.rs` covering:
+114 tests in `crates/eggserve-core/tests/windows_plan086.rs` covering:
 
 - **Track A**: Environment metadata recording (OS, arch, filesystem, Developer Mode, symlink privileges, source SHA, artifact hash)
 - **Track B**: Reparse-point denial matrix — file/dir symlinks, junctions, intermediate, index, listing, dangling, inside/outside root, GET/HEAD parity, handle leak resistance, nested chains, volume mount points, custom reparse tags, target path leak check, denial category observability
@@ -322,5 +322,5 @@ Added to `release/criteria.toml`: `windows.reparse-matrix`, `windows.namespace-m
 - The existing `resolve_fallback()` path remains for non-hardened modes
 - Parser-level protections are retained as a first line of defense
 - Plan 085 implements handle-relative directory enumeration via `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` (class 10), replacing path-based enumeration in the hardened branch
-- Plan 086 adversarial qualification test scaffold is established (113 tests, all code-addressable gates passing). Independent safety review and profile promotion decision awaited.
+- Plan 086 adversarial qualification test scaffold is established (114 tests, all code-addressable gates passing). Independent safety review and profile promotion decision awaited.
 - Windows hardened profile promotion requires independent review with no unresolved high/critical findings and exact-SHA evidence from all preceding gates

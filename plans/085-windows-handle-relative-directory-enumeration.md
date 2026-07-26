@@ -287,7 +287,7 @@ Add gates such as:
 - `windows.directory-listing-resource-stability`;
 - `windows.directory-listing-installed-artifact`.
 
-These gates are required only for profiles that enable or rely on directory enumeration. Plan 086 adversarial qualification test scaffold is established (113 tests). Independent safety review and profile promotion decision awaited.
+These gates are required only for profiles that enable or rely on directory enumeration. Plan 086 adversarial qualification test scaffold is established (114 tests). Independent safety review and profile promotion decision awaited.
 
 ## Documentation changes
 
