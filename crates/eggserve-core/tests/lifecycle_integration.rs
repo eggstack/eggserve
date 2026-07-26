@@ -1683,13 +1683,13 @@ async fn separate_connections_have_distinct_remote_ports() {
 
 // ===== Plan 083 Track K — Unix stability checks =====
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 fn count_open_fds() -> usize {
     let fd_dir = std::fs::read_dir("/proc/self/fd").unwrap();
     fd_dir.count()
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn unix_fd_baseline_after_start_stop() {
     let baseline = count_open_fds();
@@ -1726,7 +1726,7 @@ async fn unix_fd_baseline_after_start_stop() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn unix_fd_baseline_after_force_shutdown() {
     let baseline = count_open_fds();
@@ -1762,7 +1762,7 @@ async fn unix_fd_baseline_after_force_shutdown() {
     );
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn unix_fd_stable_under_concurrent_requests() {
     let baseline = count_open_fds();
@@ -1803,7 +1803,7 @@ async fn unix_fd_stable_under_concurrent_requests() {
     let _ = handle.wait().await;
 }
 
-#[cfg(unix)]
+#[cfg(target_os = "linux")]
 #[tokio::test]
 async fn unix_memory_bounded_after_repeated_requests() {
     // Read /proc/self/status for VmRSS (resident set size in kB)
