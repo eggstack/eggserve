@@ -84,7 +84,7 @@ def my_observer(event):
 server = Server(root="/path", observer=my_observer)
 ```
 
-Observer callback errors are caught and printed to Python stderr. The observer runs with the GIL acquired, so long-running observers may block event processing. Observer errors are not counted.
+Observer callback errors are caught and printed to Python stderr, and the `dropped_log_events` counter is incremented. The observer runs with the GIL acquired, so long-running observers may block event processing.
 
 ## Operational Counters
 

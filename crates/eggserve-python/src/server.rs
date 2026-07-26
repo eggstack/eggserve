@@ -88,6 +88,9 @@ impl eggserve_core::ops::LogSink for PyLogObserver {
             }
             dict.set_item("fields", fields_dict).ok();
             if let Err(e) = self.callback.call1(py, (dict,)) {
+                eggserve_core::ops::global_counters()
+                    .dropped_log_events
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 e.print(py);
             }
         });
