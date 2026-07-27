@@ -7,7 +7,7 @@
 
 | Field | Value |
 |-------|-------|
-| SHA | `6b2c1ceec9549d3f1967a65726a95b13ae9575db` |
+| SHA | `f2bc0327aace419850bdb88b9c790fd4f20a5785` |
 | Branch | `main` |
 | Rust | stable |
 | Python | 3.12.3 (compat: `>=3.14,<3.15`) |

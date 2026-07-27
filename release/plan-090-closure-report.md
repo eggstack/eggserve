@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Starting SHA | `3a1837f7e2852ee415bced23683be1e098791b4e` |
-| Final SHA | `6b2c1ceec9549d3f1967a65726a95b13ae9575db` |
+| Final SHA | `f2bc0327aace419850bdb88b9c790fd4f20a5785` |
 | Branch | `main` |
 | Rust | 1.97.0 (stable) |
 | Python | 3.12.3 (compat: `>=3.14,<3.15`) |
@@ -217,6 +217,7 @@ All code-affecting tracks (A, B, C, D, E, G, H, I, J, M) are complete. The remai
 | `python3 scripts/check-contract-consistency.py` | PASS (13 checks) |
 | `python3 -m unittest scripts.test_corrective_tooling` | PASS (38 tests) |
 | `python3 -m unittest scripts.test_release_criteria` | PASS (86 tests, 16 new Track C) |
+| `bash scripts/release-validate.sh check-generated` | PASS (checklist, Cargo.lock, formatting clean) |
 
 ## Recommendation
 
