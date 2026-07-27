@@ -151,9 +151,12 @@ These rules are enforced at the raw HTTP/1.1 socket boundary and are regression-
 - Authority-form (`host:port`), asterisk-form (`*`) → 405 (method check fires before target-form check).
 - Empty or missing path → 400.
 - Paths containing NUL bytes, backslashes, or encoded separators (`%2f`, `%5c`) → 400.
-- Path traversal beyond root (`/../`) → 400 or 403.
+- Path traversal beyond root (`/../`) → 400 or 403 (path confinement denial).
+- Percent-encoded dot-dot traversal (`%2e%2e`, `%252e%252e`) → 400 or 403.
+- Root path (`/`) with directory listing disabled → 403.
+- Semicolons in paths are literal characters (not path separators) → 404 if no matching file.
 - `Content-Length > 0` on GET/HEAD → 413.
-- Invalid `Content-Length` (non-numeric, negative, overflow) → 400.
+- Invalid `Content-Length` (non-numeric, negative, overflow) → 400 or connection close.
 - `Transfer-Encoding` present on GET/HEAD → 400.
 - Both `Content-Length` and `Transfer-Encoding` present → 400.
 - `Transfer-Encoding` with unsupported codings (e.g. `chunked`) → 400.
@@ -162,6 +165,9 @@ These rules are enforced at the raw HTTP/1.1 socket boundary and are regression-
 - Comma-joined `Content-Length` values (e.g. `Content-Length: 0, 10`) → 400.
 - Request body bytes present without framing headers → connection closed (premature EOF).
 - Truncated body mid-stream → connection closed, no response sent.
+- Malformed chunk encoding → 400 or connection close.
+- Body limit exceeded mid-stream → 413 or connection close.
+- Body read timeout → 408 or connection close.
 
 ### Parser-level behavior (hyper)
 

@@ -79,7 +79,14 @@ async fn serve_resolved_file(
 
     let body_source = match file.into_body(&plan) {
         Ok(bs) => bs,
-        Err(_) => return planned_response(status, &plan.headers, false),
+        Err(e) => {
+            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                crate::ops::Severity::Warn,
+                crate::ops::EventKind::FileError,
+                format!("file body conversion failed: {e}"),
+            ));
+            return internal_error();
+        }
     };
     body_source_to_response(
         body_source,

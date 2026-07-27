@@ -291,7 +291,14 @@ async fn handle_static_request(
 
             let body_source = match file.into_body(&plan) {
                 Ok(bs) => bs,
-                Err(_) => return planned_response(status, &plan.headers, is_head),
+                Err(e) => {
+                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::FileError,
+                        format!("file body conversion failed: {e}"),
+                    ));
+                    return internal_error();
+                }
             };
             body_source_to_response(
                 body_source,
@@ -409,7 +416,14 @@ async fn handle_directory(
 
             let body_source = match file.into_body(&plan) {
                 Ok(bs) => bs,
-                Err(_) => return planned_response(status, &plan.headers, is_head),
+                Err(e) => {
+                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::FileError,
+                        format!("file body conversion failed: {e}"),
+                    ));
+                    return internal_error();
+                }
             };
             body_source_to_response(
                 body_source,

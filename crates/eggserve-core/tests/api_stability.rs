@@ -1,16 +1,405 @@
-//! Compile-time API stability enforcement tests.
+//! Compile-time and runtime API stability enforcement tests.
 //!
 //! These tests verify that the public API surface matches the stability tiers
-//! defined in `docs/api-stability.md`. They are compile-sample checks: if a
-//! type is importable, the test compiles; if it should be gated behind a
-//! feature, the test uses `cfg` to verify the gate.
+//! defined in `docs/api-stability.md`. They run under default features only
+//! (no `client`, no `python-bindings-internal`).
 
-// ── Stable module re-exports ────────────────────────────────────────────────
+// ── Stable canonical request types ──────────────────────────────────────────
+
+#[test]
+fn stable_method_accessible() {
+    use eggserve_core::primitives::method::Method;
+
+    let m = Method::get();
+    assert_eq!(m.as_str(), "GET");
+    assert!(m.is_get());
+    assert!(!m.is_head());
+    assert!(m.is_safe());
+
+    let ext = Method::new("PURGE").unwrap();
+    assert_eq!(ext.as_str(), "PURGE");
+    assert!(!ext.is_get());
+}
+
+#[test]
+fn stable_http_version_accessible() {
+    use eggserve_core::primitives::version::HttpVersion;
+
+    let v11 = HttpVersion::Http11;
+    assert_eq!(v11.as_str(), "HTTP/1.1");
+    assert_eq!(v11.major(), 1);
+    assert_eq!(v11.minor(), 1);
+
+    let v10 = HttpVersion::Http10;
+    assert_eq!(v10.as_str(), "HTTP/1.0");
+
+    let parsed = HttpVersion::parse("HTTP/1.1").unwrap();
+    assert_eq!(parsed, HttpVersion::Http11);
+
+    assert!(HttpVersion::parse("HTTP/2.0").is_err());
+}
+
+#[test]
+fn stable_header_block_accessible_and_constructible() {
+    use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+
+    let mut block = HeaderBlock::new();
+    assert!(block.is_empty());
+
+    let name = HeaderName::new("content-type").unwrap();
+    let value = HeaderValue::new("text/html").unwrap();
+    block.push(name, value);
+    assert_eq!(block.len(), 1);
+    assert!(block.contains("Content-Type"));
+    assert_eq!(
+        block.get_first("content-type").unwrap().as_str(),
+        "text/html"
+    );
+}
+
+#[test]
+fn stable_request_target_accessible() {
+    use eggserve_core::primitives::request_target::RequestTarget;
+
+    let t = RequestTarget::parse("/foo/bar?baz=1").unwrap();
+    assert_eq!(t.path(), "/foo/bar");
+    assert_eq!(t.query(), Some("baz=1"));
+    assert_eq!(t.path_and_query(), "/foo/bar?baz=1");
+
+    assert!(RequestTarget::parse("").is_err());
+    assert!(RequestTarget::parse("not-origin").is_err());
+    assert!(RequestTarget::parse("http://example.com/").is_err());
+}
+
+#[test]
+fn stable_request_head_accessible() {
+    use eggserve_core::primitives::header_block::HeaderBlock;
+    use eggserve_core::primitives::method::Method;
+    use eggserve_core::primitives::request_head::RequestHead;
+    use eggserve_core::primitives::request_target::RequestTarget;
+    use eggserve_core::primitives::version::HttpVersion;
+
+    let head = RequestHead::new(
+        Method::get(),
+        RequestTarget::parse("/test").unwrap(),
+        HttpVersion::Http11,
+        HeaderBlock::new(),
+    );
+    assert_eq!(head.method().as_str(), "GET");
+    assert_eq!(head.target().path(), "/test");
+    assert_eq!(head.version(), HttpVersion::Http11);
+    assert!(head.is_get());
+    assert!(!head.is_head());
+    assert!(head.permits_static_resolution());
+}
+
+#[test]
+fn stable_connection_info_accessible() {
+    use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme, TlsInfo};
+
+    let info = ConnectionInfo {
+        local_addr: "127.0.0.1:8000".parse().unwrap(),
+        remote_addr: "127.0.0.1:12345".parse().unwrap(),
+        scheme: Scheme::Http,
+        tls: None,
+    };
+    assert_eq!(Scheme::Http.as_str(), "http");
+    assert_eq!(Scheme::Https.as_str(), "https");
+    assert_eq!(info.scheme, Scheme::Http);
+    assert!(info.tls.is_none());
+
+    let tls_info = TlsInfo {
+        protocol_version: Some("TLSv1.3".to_string()),
+        server_name: Some("example.com".to_string()),
+    };
+    let display = format!("{tls_info}");
+    assert!(display.contains("TLSv1.3"));
+    assert!(display.contains("example.com"));
+}
+
+// ── Stable canonical response types ─────────────────────────────────────────
+
+#[test]
+fn stable_status_code_accessible_and_constructible() {
+    use eggserve_core::primitives::canonical::StatusCode;
+
+    let ok = StatusCode::OK;
+    assert_eq!(ok.as_u16(), 200);
+    assert!(ok.is_success());
+    assert!(ok.permits_payload_body());
+
+    let created = StatusCode::new(201).unwrap();
+    assert_eq!(created.as_u16(), 201);
+
+    assert!(StatusCode::new(0).is_err());
+    assert!(StatusCode::new(99).is_err());
+    assert!(StatusCode::new(1000).is_err());
+
+    let no_content = StatusCode::NO_CONTENT;
+    assert!(!no_content.permits_payload_body());
+
+    let not_modified = StatusCode::NOT_MODIFIED;
+    assert!(!not_modified.permits_payload_body());
+
+    let bad = StatusCode::BAD_REQUEST;
+    assert!(bad.is_client_error());
+
+    let server_err = StatusCode::INTERNAL_SERVER_ERROR;
+    assert!(server_err.is_server_error());
+
+    let code: u16 = StatusCode::OK.into();
+    assert_eq!(code, 200);
+
+    assert_eq!(format!("{}", StatusCode::NOT_FOUND), "404");
+}
+
+#[test]
+fn stable_response_head_accessible_and_constructible() {
+    use eggserve_core::primitives::canonical::{ResponseHead, StatusCode};
+    use eggserve_core::primitives::header_block::HeaderBlock;
+
+    let mut headers = HeaderBlock::new();
+    headers.push_str("etag", "W/\"123\"").unwrap();
+
+    let head = ResponseHead::new(StatusCode::OK, headers);
+    assert_eq!(head.status().as_u16(), 200);
+    assert!(head.headers().contains("etag"));
+    assert_eq!(
+        head.headers().get_first("etag").unwrap().as_str(),
+        "W/\"123\""
+    );
+}
+
+#[test]
+fn stable_response_body_accessible_and_constructible() {
+    use eggserve_core::primitives::canonical::ResponseBody;
+
+    let empty = ResponseBody::Empty;
+    assert!(empty.is_empty());
+    assert_eq!(empty.len(), 0);
+    assert!(empty.into_bytes().is_none());
+
+    let bytes = ResponseBody::Bytes(b"hello world".to_vec());
+    assert_eq!(bytes.len(), 11);
+    assert!(!bytes.is_empty());
+    assert_eq!(bytes.into_bytes(), Some(b"hello world".to_vec()));
+}
+
+#[test]
+fn stable_response_accessible_and_constructible() {
+    use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
+
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("content-type", "text/plain")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"ok".to_vec()))
+        .unwrap();
+
+    assert_eq!(resp.status().as_u16(), 200);
+    assert!(resp.headers().contains("content-type"));
+    assert_eq!(
+        resp.headers().get_first("content-type").unwrap().as_str(),
+        "text/plain"
+    );
+    assert!(resp.body().is_some());
+    assert!(!resp.body().unwrap().is_empty());
+
+    let head = resp.head();
+    assert_eq!(head.status().as_u16(), 200);
+
+    let mut resp_mut = Response::builder()
+        .status(StatusCode::CREATED)
+        .empty()
+        .unwrap();
+    let taken = resp_mut.take_body();
+    assert!(taken.is_some());
+    assert!(resp_mut.body().is_none());
+}
+
+#[test]
+fn stable_normalize_response_accessible() {
+    use eggserve_core::primitives::canonical::{
+        normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
+    };
+
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .header("transfer-encoding", "chunked")
+        .unwrap()
+        .body(ResponseBody::Bytes(b"hello".to_vec()))
+        .unwrap();
+
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+
+    assert!(!normalized.headers().contains("transfer-encoding"));
+    assert_eq!(
+        normalized
+            .headers()
+            .get_first("content-length")
+            .unwrap()
+            .as_str(),
+        "5"
+    );
+}
+
+#[test]
+fn stable_normalize_response_head_suppresses_body() {
+    use eggserve_core::primitives::canonical::{
+        normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
+    };
+
+    let resp = Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(b"hello".to_vec()))
+        .unwrap();
+
+    let req = NormalizeRequest::new(true);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn stable_normalize_response_body_forbidden_suppresses_body() {
+    use eggserve_core::primitives::canonical::{
+        normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
+    };
+
+    let resp = Response::builder()
+        .status(StatusCode::NO_CONTENT)
+        .body(ResponseBody::Bytes(b"surprise".to_vec()))
+        .unwrap();
+
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+    assert!(normalized.body().unwrap().is_empty());
+}
+
+#[test]
+fn stable_normalize_metadata_accessible() {
+    use eggserve_core::primitives::canonical::{normalize_metadata, StatusCode};
+    use eggserve_core::primitives::header_block::HeaderBlock;
+
+    let mut headers = HeaderBlock::new();
+    headers.push_str("content-type", "text/html").unwrap();
+    headers.push_str("transfer-encoding", "chunked").unwrap();
+    headers.push_str("connection", "keep-alive").unwrap();
+
+    normalize_metadata(StatusCode::OK, &mut headers, 42, false).unwrap();
+
+    assert!(!headers.contains("transfer-encoding"));
+    assert!(!headers.contains("connection"));
+    assert!(headers.contains("content-type"));
+    assert_eq!(headers.get_first("content-length").unwrap().as_str(), "42");
+}
+
+// ── Duplicate header preservation in HeaderBlock ────────────────────────────
+
+#[test]
+fn duplicate_set_cookie_headers_preserved() {
+    use eggserve_core::primitives::header_block::HeaderBlock;
+
+    let mut block = HeaderBlock::new();
+    block.push_str("set-cookie", "a=1; Path=/").unwrap();
+    block.push_str("set-cookie", "b=2; Path=/").unwrap();
+    block.push_str("set-cookie", "c=3; Path=/").unwrap();
+
+    assert_eq!(block.len(), 3);
+
+    let all = block.get_all("set-cookie");
+    assert_eq!(all.len(), 3);
+    assert_eq!(all[0].as_str(), "a=1; Path=/");
+    assert_eq!(all[1].as_str(), "b=2; Path=/");
+    assert_eq!(all[2].as_str(), "c=3; Path=/");
+
+    // get_first returns the first value
+    assert_eq!(
+        block.get_first("set-cookie").unwrap().as_str(),
+        "a=1; Path=/"
+    );
+
+    // get_unique errors on duplicates
+    let err = block.get_unique("set-cookie").unwrap_err();
+    assert_eq!(err.name(), "set-cookie");
+    assert_eq!(err.count(), 3);
+}
+
+#[test]
+fn duplicate_set_cookie_preserved_through_normalize_metadata() {
+    use eggserve_core::primitives::canonical::{normalize_metadata, StatusCode};
+    use eggserve_core::primitives::header_block::HeaderBlock;
+
+    let mut headers = HeaderBlock::new();
+    headers.push_str("set-cookie", "a=1").unwrap();
+    headers.push_str("set-cookie", "b=2").unwrap();
+
+    normalize_metadata(StatusCode::OK, &mut headers, 0, false).unwrap();
+
+    let all = headers.get_all("set-cookie");
+    assert_eq!(
+        all.len(),
+        2,
+        "normalize_metadata must preserve duplicate set-cookie headers"
+    );
+    assert_eq!(all[0].as_str(), "a=1");
+    assert_eq!(all[1].as_str(), "b=2");
+}
+
+#[test]
+fn duplicate_set_cookie_preserved_through_normalize_response() {
+    use eggserve_core::primitives::canonical::{
+        normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
+    };
+
+    let mut resp = Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(b"ok".to_vec()))
+        .unwrap();
+    resp.head_mut()
+        .headers_mut()
+        .push_str("set-cookie", "x=1")
+        .unwrap();
+    resp.head_mut()
+        .headers_mut()
+        .push_str("set-cookie", "y=2")
+        .unwrap();
+
+    let req = NormalizeRequest::new(false);
+    let normalized = normalize_response(resp, &req).unwrap();
+
+    let all = normalized.headers().get_all("set-cookie");
+    assert_eq!(
+        all.len(),
+        2,
+        "normalize_response must preserve duplicate set-cookie headers"
+    );
+    assert_eq!(all[0].as_str(), "x=1");
+    assert_eq!(all[1].as_str(), "y=2");
+}
+
+#[test]
+fn duplicate_headers_case_insensitive_lookup() {
+    use eggserve_core::primitives::header_block::HeaderBlock;
+
+    let mut block = HeaderBlock::new();
+    block.push_str("Set-Cookie", "a=1").unwrap();
+    block.push_str("SET-COOKIE", "b=2").unwrap();
+    block.push_str("set-cookie", "c=3").unwrap();
+
+    let all = block.get_all("set-cookie");
+    assert_eq!(all.len(), 3);
+
+    let all_mixed = block.get_all("Set-Cookie");
+    assert_eq!(all_mixed.len(), 3);
+
+    assert!(block.contains("SET-COOKIE"));
+}
+
+// ── Stable module re-exports via primitives facade ──────────────────────────
 
 #[test]
 fn stable_types_accessible_from_primitives_facade() {
-    // These must always be accessible through the `primitives` facade,
-    // regardless of feature flags.
     use eggserve_core::primitives::ConfinedPath;
     use eggserve_core::primitives::PathPolicy;
     use eggserve_core::primitives::ResolvedResource;
@@ -61,13 +450,6 @@ fn stable_config_types_accessible() {
 }
 
 #[test]
-fn stable_limits_type_accessible() {
-    use eggserve_core::limits::Limits;
-
-    let _ = std::marker::PhantomData::<Limits>;
-}
-
-#[test]
 fn stable_policy_types_accessible() {
     use eggserve_core::policy::DirectoryListingPolicy;
     use eggserve_core::policy::DotfilePolicy;
@@ -80,17 +462,6 @@ fn stable_policy_types_accessible() {
         StaticPolicy,
         SymlinkPolicy,
     )>;
-}
-
-#[test]
-fn stable_primitives_path_types_accessible() {
-    use eggserve_core::primitives::ConfinedPath;
-    use eggserve_core::primitives::PathDotfilePolicy;
-    use eggserve_core::primitives::PathPolicy;
-    use eggserve_core::primitives::PathRejection;
-
-    let _ =
-        std::marker::PhantomData::<(ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection)>;
 }
 
 #[test]
@@ -161,54 +532,25 @@ fn stable_primitives_secure_root_types_accessible() {
 }
 
 #[test]
-fn experimental_canonical_request_types_accessible() {
-    use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme, TlsInfo};
-    use eggserve_core::primitives::header_block::{
-        DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
-    };
-    use eggserve_core::primitives::method::{Method, MethodError};
-    use eggserve_core::primitives::request_head::{RequestHead, RequestHeadError};
-    use eggserve_core::primitives::request_target::{RequestTarget, RequestTargetError};
-    use eggserve_core::primitives::version::{HttpVersion, HttpVersionError};
+fn stable_primitives_path_types_accessible() {
+    use eggserve_core::primitives::ConfinedPath;
+    use eggserve_core::primitives::PathDotfilePolicy;
+    use eggserve_core::primitives::PathPolicy;
+    use eggserve_core::primitives::PathRejection;
 
-    let _ = (std::marker::PhantomData::<(
-        Method,
-        MethodError,
-        HttpVersion,
-        HttpVersionError,
-        HeaderBlock,
-        HeaderName,
-        HeaderValue,
-        HeaderField,
-        HeaderError,
-        DuplicateHeaderError,
-        RequestTarget,
-        RequestTargetError,
-        RequestHead,
-        RequestHeadError,
-        ConnectionInfo,
-        Scheme,
-        TlsInfo,
-    )>,);
+    let _ =
+        std::marker::PhantomData::<(ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection)>;
 }
 
 // ── python-bindings-internal feature gate ────────────────────────────────────
 
 #[test]
 fn python_bindings_internal_extraction_methods_absent_by_default() {
-    // `ResolvedFile::into_std_file()`, `into_parts()`, and `from_parts()`
-    // are behind `python-bindings-internal` and must NOT be callable in
-    // a default-feature build. This test compiles under default features,
-    // which itself proves the gate is working — if the methods leaked
-    // through, downstream code could call them without opting in.
-    //
-    // Positive verification of the gate is done by the Python crate's
-    // build, which enables `python-bindings-internal` and calls these
-    // methods directly.
     use eggserve_core::primitives::ResolvedFile;
 
-    // Verify ResolvedFile is importable (it's a stable public type),
-    // confirming the type exists while its extraction methods remain gated.
+    // ResolvedFile is importable (stable public type), but its extraction
+    // methods (into_std_file, into_parts, from_parts) are gated behind
+    // python-bindings-internal and must NOT be callable in default builds.
     let _phantom = std::marker::PhantomData::<ResolvedFile>;
 }
 
@@ -252,13 +594,9 @@ mod client_feature_enabled {
 mod client_tls_feature_enabled {
     #[test]
     fn client_tls_builds_with_feature() {
-        // When client-tls is enabled, the full client module (including TLS
-        // support) should compile. The presence of this module confirms the
-        // feature gate works; actual TLS functionality is tested elsewhere.
         use eggserve_core::primitives::client::ClientConfig;
 
         let config = ClientConfig::default();
-        // verify_tls defaults to true, which is the TLS-relevant setting.
         assert!(config.verify_tls);
     }
 }

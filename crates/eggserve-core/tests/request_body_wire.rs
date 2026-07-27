@@ -174,6 +174,8 @@ async fn malformed_chunking_returns_400() {
     let mut buf = Vec::new();
     conn.read_to_end(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf);
+    // Malformed chunk size causes body read error → 500 (runtime error mapping)
+    // or connection close without response.
     assert!(
         response.starts_with("HTTP/1.1 400")
             || response.starts_with("HTTP/1.1 500")
@@ -892,6 +894,7 @@ async fn body_read_timeout_before_service() {
     let mut buf = Vec::new();
     let _ = tokio::time::timeout(Duration::from_secs(2), conn.read_to_end(&mut buf)).await;
     let response = String::from_utf8_lossy(&buf);
+    // Normative: body timeout returns 408 or closes the connection.
     assert!(
         response.starts_with("HTTP/1.1 408") || response.is_empty(),
         "expected 408 or connection close for body timeout, got: {}",

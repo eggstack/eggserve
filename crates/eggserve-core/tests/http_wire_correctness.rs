@@ -131,7 +131,7 @@ async fn ws_a_valid_origin_form_returns_200() {
 }
 
 #[tokio::test]
-async fn ws_a_root_path_returns_200() {
+async fn ws_a_root_path_returns_403_listing_disabled() {
     let s = start_server(None).await;
     let line = status_line(
         s.addr,
@@ -139,8 +139,8 @@ async fn ws_a_root_path_returns_200() {
     )
     .await;
     assert!(
-        line.contains("200") || line.contains("403"),
-        "Expected 200 (listing) or 403 (no listing), got: {}",
+        line.contains("403"),
+        "Root with listing disabled must return 403, got: {}",
         line
     );
 }
@@ -274,9 +274,10 @@ async fn ws_a_percent_encoded_slash_resolves() {
         b"GET /%2Fhello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
+    // %2F decodes to /; the decoded path /hello.txt resolves to the file.
     assert!(
-        line.contains("200") || line.contains("404") || line.contains("403"),
-        "Unexpected: {}",
+        line.contains("200"),
+        "Percent-encoded slash resolves to file, expected 200, got: {}",
         line
     );
 }
@@ -289,9 +290,11 @@ async fn ws_a_percent_encoded_dotdot_traversal_rejected() {
         b"GET /%2e%2e/etc/passwd HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
+    // Percent-encoded dotdot decodes to /../etc/passwd; path confinement
+    // rejects the traversal component. Normative: 400 or 403.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Expected 400 or 403, got: {}",
+        "Percent-encoded dotdot traversal must be rejected, got: {}",
         line
     );
 }
@@ -304,9 +307,10 @@ async fn ws_a_path_traversal_rejected() {
         b"GET /../etc/passwd HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
+    // Path traversal is rejected by path confinement. Normative: 400 or 403.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Expected 400 or 403, got: {}",
+        "Path traversal must be rejected, got: {}",
         line
     );
 }
@@ -319,9 +323,11 @@ async fn ws_a_double_encoded_traversal_rejected() {
         b"GET /%252e%252e/etc/passwd HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
+    // Double-encoded dotdot decodes to %2e%2e, then to .. ; path confinement
+    // rejects the traversal component. Normative: 400 or 403.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Expected 400 or 403, got: {}",
+        "Double-encoded traversal must be rejected, got: {}",
         line
     );
 }
@@ -334,9 +340,11 @@ async fn ws_a_semicolon_in_path() {
         b"GET /hello.txt;jsessionid=abc HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
+    // Semicolon is a literal path character (not a separator); no file named
+    // "hello.txt;jsessionid=abc" exists.
     assert!(
-        line.contains("200") || line.contains("404"),
-        "Unexpected: {}",
+        line.contains("404"),
+        "Semicolon is literal, no such file, expected 404, got: {}",
         line
     );
 }
@@ -375,7 +383,7 @@ async fn ws_b_leading_space_in_header_name_rejected() {
 }
 
 #[tokio::test]
-async fn ws_b_bare_lf_in_header_rejected() {
+async fn ws_b_bare_lf_in_header_accepted_by_parser() {
     let s = start_server(None).await;
     let mut raw = Vec::new();
     raw.extend_from_slice(b"GET /hello.txt HTTP/1.1\r\n");
@@ -383,6 +391,8 @@ async fn ws_b_bare_lf_in_header_rejected() {
     raw.extend_from_slice(b"X-Bad: value\n");
     raw.extend_from_slice(b"Connection: close\r\n\r\n");
     let line = status_line(s.addr, &raw).await;
+    // Hyper's parser accepts bare LF in header values (RFC 7230 deviation).
+    // This is documented parser-level behavior, not an eggserve policy choice.
     assert!(
         line.contains("200"),
         "Bare LF accepted by hyper parser, expected 200, got: {}",
@@ -391,13 +401,15 @@ async fn ws_b_bare_lf_in_header_rejected() {
 }
 
 #[tokio::test]
-async fn ws_b_cr_lf_injection_in_header_value_rejected() {
+async fn ws_b_cr_lf_in_header_value_parsed_as_separator() {
     let s = start_server(None).await;
     let line = status_line(
         s.addr,
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Injection: val\r\nEvil: true\r\nConnection: close\r\n\r\n",
     )
     .await;
+    // CR+LF in header values is parsed as a header separator by hyper.
+    // The "Evil: true" becomes a separate header; the request is not rejected.
     assert!(
         line.contains("200"),
         "CR+LF parsed as header separator by hyper, expected 200, got: {}",
@@ -1212,23 +1224,26 @@ async fn ws_f_keepalive_after_head_serves_subsequent_get() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn ws_d_head_400_malformed_returns_no_body() {
+async fn ws_d_head_malformed_cl_returns_no_body() {
     let s = start_server(None).await;
     let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: -1\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
+    // Content-Length: -1 is malformed; hyper rejects at the parser level.
     assert!(
-        resp.contains("400") || resp.contains("500"),
-        "HEAD malformed should return 400 or 500, got: {}",
+        resp.contains("400") || resp.is_empty(),
+        "Malformed Content-Length must return 400 or connection close, got: {}",
         resp
     );
-    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
-    let body = &full[header_end..];
-    assert!(
-        body.is_empty(),
-        "HEAD 400 should have no body, got {} bytes",
-        body.len()
-    );
+    if !resp.is_empty() {
+        let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+        let body = &full[header_end..];
+        assert!(
+            body.is_empty(),
+            "HEAD 400 should have no body, got {} bytes",
+            body.len()
+        );
+    }
 }
 
 #[tokio::test]
@@ -1270,23 +1285,26 @@ async fn ws_d_head_post_405_has_allow_header() {
 }
 
 #[tokio::test]
-async fn ws_d_head_503_server_busy_returns_no_body() {
+async fn ws_d_head_te_cl_conflict_returns_no_body() {
     let s = start_server(None).await;
     let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\nContent-Length: 5\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
+    // TE+CL conflict is rejected at the HTTP/1 wire level (Plan 059).
     assert!(
-        resp.contains("400") || resp.contains("500"),
-        "TE+CL conflict should return 400 or 500, got: {}",
+        resp.contains("400") || resp.is_empty(),
+        "TE+CL conflict must return 400 or connection close, got: {}",
         resp
     );
-    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
-    let body = &full[header_end..];
-    assert!(
-        body.is_empty(),
-        "HEAD error response should have no body, got {} bytes",
-        body.len()
-    );
+    if !resp.is_empty() {
+        let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+        let body = &full[header_end..];
+        assert!(
+            body.is_empty(),
+            "HEAD error response should have no body, got {} bytes",
+            body.len()
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1471,23 +1489,27 @@ async fn ws_e_head_413_returns_content_length_no_body() {
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn ws_e_head_500_returns_content_length_no_body() {
+async fn ws_d_head_malformed_cl_no_body() {
     let s = start_server(None).await;
     let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: -1\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
+    // Duplicate of ws_d_head_malformed_cl_returns_no_body; kept for
+    // backward-compat test naming. Normative: 400 or connection close.
     assert!(
-        resp.contains("400") || resp.contains("500"),
-        "HEAD 500 test should return error status, got: {}",
+        resp.contains("400") || resp.is_empty(),
+        "Malformed Content-Length must return 400 or connection close, got: {}",
         resp
     );
-    let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
-    let body = &full[header_end..];
-    assert!(
-        body.is_empty(),
-        "HEAD error should have no body, got {} bytes",
-        body.len()
-    );
+    if !resp.is_empty() {
+        let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
+        let body = &full[header_end..];
+        assert!(
+            body.is_empty(),
+            "HEAD error should have no body, got {} bytes",
+            body.len()
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

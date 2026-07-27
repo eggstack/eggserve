@@ -2602,4 +2602,85 @@ mod tests {
             CloseHandle(root_handle);
         }
     }
+
+    #[test]
+    fn corpus_replay_directory_buffer() {
+        let corpus_dir = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../fuzz/corpus/fuzz_directory_buffer"
+        );
+        let dir = std::path::Path::new(corpus_dir);
+        if !dir.exists() {
+            return;
+        }
+        let mut inputs: Vec<(String, Vec<u8>)> = Vec::new();
+        for entry in std::fs::read_dir(dir).expect("read corpus dir") {
+            let entry = entry.expect("dir entry");
+            let path = entry.path();
+            let fname = path.file_name().unwrap().to_string_lossy().into_owned();
+            let data = std::fs::read(&path).expect("read corpus file");
+            inputs.push((fname, data));
+        }
+        inputs.sort_by(|a, b| a.0.cmp(&b.0));
+
+        for (name, data) in inputs {
+            let max_entries = if data.is_empty() {
+                0
+            } else {
+                (data[0] as usize % 64) + 1
+            };
+
+            let result = parse_directory_buffer(&data, max_entries);
+
+            match result {
+                Ok(entries) => {
+                    for entry in &entries {
+                        assert_eq!(
+                            entry.hidden_or_dot,
+                            entry.name.starts_with('.'),
+                            "[fuzz_directory_buffer/{name}] hidden_or_dot mismatch for {:?}",
+                            entry.name
+                        );
+                        assert!(
+                            matches!(
+                                entry.kind,
+                                DirectoryEntryKind::File
+                                    | DirectoryEntryKind::Directory
+                                    | DirectoryEntryKind::ReparsePoint
+                                    | DirectoryEntryKind::Other
+                            ),
+                            "[fuzz_directory_buffer/{name}] unexpected entry kind for {:?}",
+                            entry.name
+                        );
+                    }
+                    assert!(
+                        entries.len() <= max_entries,
+                        "[fuzz_directory_buffer/{name}] entries {} exceeds max {}",
+                        entries.len(),
+                        max_entries
+                    );
+                }
+                Err(e) => {
+                    assert!(
+                        matches!(
+                            e,
+                            DirBufParseError::BufferOverflow
+                                | DirBufParseError::TruncatedHeader
+                                | DirBufParseError::OddFileNameLength
+                                | DirBufParseError::FileNameOutOfRange
+                                | DirBufParseError::OffsetUnderflow
+                                | DirBufParseError::OffsetOverflow
+                                | DirBufParseError::OffsetLoop
+                                | DirBufParseError::InvalidUtf16
+                        ),
+                        "[fuzz_directory_buffer/{name}] unexpected error variant: {e:?}"
+                    );
+                }
+            }
+
+            let _ = parse_directory_buffer(&data, 0);
+            let _ = parse_directory_buffer(&data, 1);
+            let _ = parse_directory_buffer(&data, usize::MAX);
+        }
+    }
 }
