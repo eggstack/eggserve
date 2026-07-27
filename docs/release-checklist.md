@@ -3,7 +3,7 @@
 # Release Checklist
 
 Schema version: 1.0.0
-Total gates: 134
+Total gates: 135
 
 ## Preflight
 
@@ -131,6 +131,7 @@ Total gates: 134
 | `windows.installed-artifact` | Windows installed artifact parity | yes | ci-log, test-output | PENDING | TBD |
 | `windows.namespace-matrix` | Windows namespace and normalization matrix | yes | ci-log, test-output | PENDING | TBD |
 | `windows.profile-decision` | Windows profile promotion decision | yes | approval-record | PENDING | TBD |
+| `windows.qualification` | Windows adversarial qualification (Plan 086) | yes | ci-log, test-output | PENDING | TBD |
 | `windows.race-root-escape` | Windows concurrent mutation race harness | yes | ci-log, test-output | PENDING | TBD |
 | `windows.reparse-matrix` | Windows reparse-point denial matrix | yes | ci-log, test-output | PENDING | TBD |
 | `windows.resource-stability` | Windows resource stability | yes | ci-log, test-output | PENDING | TBD |
@@ -161,7 +162,7 @@ Total gates: 134
 
 ## Summary
 
-- PENDING: 134
+- PENDING: 135
 
 ## Platform Support
 
