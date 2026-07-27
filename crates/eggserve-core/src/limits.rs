@@ -131,6 +131,20 @@ impl Limits {
                 constraint: "> 0",
             });
         }
+        if self.stream_chunk_size < 64 {
+            errors.push(LimitsError {
+                field: "stream_chunk_size",
+                value: self.stream_chunk_size.to_string(),
+                constraint: ">= 64",
+            });
+        }
+        if self.stream_chunk_size > 1024 * 1024 {
+            errors.push(LimitsError {
+                field: "stream_chunk_size",
+                value: self.stream_chunk_size.to_string(),
+                constraint: "<= 1048576 (1 MiB)",
+            });
+        }
         if errors.is_empty() {
             Ok(())
         } else {
@@ -296,6 +310,54 @@ mod tests {
     }
 
     #[test]
+    fn zero_stream_chunk_size_is_invalid() {
+        let limits = Limits {
+            stream_chunk_size: 0,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+    }
+
+    #[test]
+    fn small_stream_chunk_size_below_minimum_is_invalid() {
+        let limits = Limits {
+            stream_chunk_size: 63,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+    }
+
+    #[test]
+    fn minimum_stream_chunk_size_is_valid() {
+        let limits = Limits {
+            stream_chunk_size: 64,
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
+    }
+
+    #[test]
+    fn excessive_stream_chunk_size_is_invalid() {
+        let limits = Limits {
+            stream_chunk_size: 1024 * 1024 + 1,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+    }
+
+    #[test]
+    fn maximum_stream_chunk_size_is_valid() {
+        let limits = Limits {
+            stream_chunk_size: 1024 * 1024,
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
+    }
+
+    #[test]
     fn validate_all_fields_simultaneously() {
         let limits = Limits {
             max_connections: 0,
@@ -305,10 +367,11 @@ mod tests {
             handler_timeout: Duration::ZERO,
             body_read_timeout: Duration::ZERO,
             graceful_shutdown_timeout: Duration::ZERO,
+            stream_chunk_size: 0,
             ..Default::default()
         };
         let errs = limits.validate().unwrap_err();
-        assert_eq!(errs.len(), 7);
+        assert_eq!(errs.len(), 8);
         let fields: Vec<&str> = errs.iter().map(|e| e.field).collect();
         assert!(fields.contains(&"max_connections"));
         assert!(fields.contains(&"max_file_streams"));
@@ -317,5 +380,6 @@ mod tests {
         assert!(fields.contains(&"handler_timeout"));
         assert!(fields.contains(&"body_read_timeout"));
         assert!(fields.contains(&"graceful_shutdown_timeout"));
+        assert!(fields.contains(&"stream_chunk_size"));
     }
 }

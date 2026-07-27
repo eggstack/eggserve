@@ -494,3 +494,112 @@ async fn head_request_does_not_acquire_stream_permits() {
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "1024");
 }
+
+// ---------------------------------------------------------------------------
+// Configurable stream_chunk_size tests
+// ---------------------------------------------------------------------------
+
+fn limits_with_chunk_size(chunk_size: usize) -> eggserve_core::limits::Limits {
+    let mut limits = eggserve_core::limits::Limits::default();
+    limits.stream_chunk_size = chunk_size;
+    limits
+}
+
+#[tokio::test]
+async fn custom_chunk_size_small_file() {
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("small.txt"), "hello world").unwrap();
+    let config = Arc::new(ServeConfig {
+        root: tmp.path().to_path_buf(),
+        limits: limits_with_chunk_size(64),
+        ..ServeConfig::default()
+    });
+    let state = ServeState::new(config).unwrap();
+    let resp = handle_request(get_req("/small.txt"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], b"hello world");
+}
+
+#[tokio::test]
+async fn custom_chunk_size_range_request() {
+    let tmp = TempDir::new().unwrap();
+    let data: Vec<u8> = (0..=255).cycle().take(256).collect();
+    fs::write(tmp.path().join("data.bin"), &data).unwrap();
+    let config = Arc::new(ServeConfig {
+        root: tmp.path().to_path_buf(),
+        limits: limits_with_chunk_size(32),
+        ..ServeConfig::default()
+    });
+    let state = ServeState::new(config).unwrap();
+    let resp = handle_request(
+        get_req_with_header("/data.bin", "range", "bytes=10-19"),
+        &state,
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], &data[10..20]);
+}
+
+#[tokio::test]
+async fn custom_chunk_size_crosses_boundary() {
+    // 100-byte file, chunk_size=32: requires 4 chunks to serve full file
+    let data: Vec<u8> = (0..=99).collect();
+    let tmp = TempDir::new().unwrap();
+    fs::write(tmp.path().join("data.bin"), &data).unwrap();
+    let config = Arc::new(ServeConfig {
+        root: tmp.path().to_path_buf(),
+        limits: limits_with_chunk_size(32),
+        ..ServeConfig::default()
+    });
+    let state = ServeState::new(config).unwrap();
+    let resp = handle_request(get_req("/data.bin"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], &data[..]);
+}
+
+#[tokio::test]
+async fn minimum_chunk_size_boundary() {
+    let tmp = TempDir::new().unwrap();
+    let data = vec![b'x'; 200];
+    fs::write(tmp.path().join("data.bin"), &data).unwrap();
+    let config = Arc::new(ServeConfig {
+        root: tmp.path().to_path_buf(),
+        limits: limits_with_chunk_size(64),
+        ..ServeConfig::default()
+    });
+    let state = ServeState::new(config).unwrap();
+    let resp = handle_request(get_req("/data.bin"), &state).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    assert_eq!(&body[..], &data[..]);
+}
+
+#[tokio::test]
+async fn stream_chunk_size_validation_zero() {
+    use eggserve_core::limits::Limits;
+    let mut limits = Limits::default();
+    limits.stream_chunk_size = 0;
+    let errs = limits.validate().unwrap_err();
+    assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+}
+
+#[tokio::test]
+async fn stream_chunk_size_validation_too_small() {
+    use eggserve_core::limits::Limits;
+    let mut limits = Limits::default();
+    limits.stream_chunk_size = 63;
+    let errs = limits.validate().unwrap_err();
+    assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+}
+
+#[tokio::test]
+async fn stream_chunk_size_validation_too_large() {
+    use eggserve_core::limits::Limits;
+    let mut limits = Limits::default();
+    limits.stream_chunk_size = 1024 * 1024 + 1;
+    let errs = limits.validate().unwrap_err();
+    assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+}

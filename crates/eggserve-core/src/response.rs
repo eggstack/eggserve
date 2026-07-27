@@ -17,6 +17,8 @@ use crate::primitives::response::HeaderMapPlan;
 /// This balances syscall overhead against memory pressure for typical
 /// static-file workloads. The constant is public so that benchmarks
 /// and external consumers can reference it without magic numbers.
+/// Runtime uses `stream_chunk_size` from `Limits`; this is the default value.
+#[allow(dead_code)]
 pub const DEFAULT_CHUNK_SIZE: usize = 8192;
 
 pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
@@ -102,6 +104,7 @@ pub fn file_response(
     last_modified: Option<SystemTime>,
     etag: Option<String>,
     permit: tokio::sync::OwnedSemaphorePermit,
+    chunk_size: usize,
 ) -> Response<BoxBodyInner> {
     let mut headers = HeaderBlock::new();
     headers.push_str("content-type", mime).unwrap();
@@ -129,11 +132,11 @@ pub fn file_response(
 
     let stream = futures_util::stream::unfold(
         (file, permit, false),
-        |(mut file, permit, failed)| async move {
+        move |(mut file, permit, failed)| async move {
             if failed {
                 return None;
             }
-            let mut buf = vec![0u8; DEFAULT_CHUNK_SIZE];
+            let mut buf = vec![0u8; chunk_size];
             match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
                 Ok(0) => None,
                 Ok(n) => {
@@ -206,6 +209,7 @@ pub async fn file_response_range(
     status: StatusCode,
     headers: &HeaderMapPlan,
     permit: tokio::sync::OwnedSemaphorePermit,
+    chunk_size: usize,
 ) -> Response<BoxBodyInner> {
     use std::io::SeekFrom;
     use tokio::io::AsyncSeekExt;
@@ -250,11 +254,11 @@ pub async fn file_response_range(
 
     let stream = futures_util::stream::unfold(
         (file, permit, len),
-        |(mut file, permit, remaining)| async move {
+        move |(mut file, permit, remaining)| async move {
             if remaining == 0 {
                 return None;
             }
-            let mut buf = vec![0u8; remaining.min(DEFAULT_CHUNK_SIZE as u64) as usize];
+            let mut buf = vec![0u8; remaining.min(chunk_size as u64) as usize];
             match tokio::io::AsyncReadExt::read(&mut file, &mut buf).await {
                 Ok(0) => None,
                 Ok(n) => {

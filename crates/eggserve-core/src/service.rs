@@ -395,7 +395,16 @@ pub(crate) async fn body_source_to_response(
                 Ok(p) => p,
                 Err(_) => return service_unavailable(),
             };
-            file_response(tokio_file, len, mime, last_modified, etag, permit)
+            let chunk_size = state.config.limits.stream_chunk_size;
+            file_response(
+                tokio_file,
+                len,
+                mime,
+                last_modified,
+                etag,
+                permit,
+                chunk_size,
+            )
         }
         BodySource::FileRange { file, range, .. } => {
             let tokio_file = tokio::fs::File::from_std(file);
@@ -403,6 +412,7 @@ pub(crate) async fn body_source_to_response(
                 Ok(p) => p,
                 Err(_) => return service_unavailable(),
             };
+            let chunk_size = state.config.limits.stream_chunk_size;
             file_response_range(
                 tokio_file,
                 range.start,
@@ -410,6 +420,7 @@ pub(crate) async fn body_source_to_response(
                 status,
                 headers,
                 permit,
+                chunk_size,
             )
             .await
         }

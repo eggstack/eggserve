@@ -71,7 +71,7 @@ A setting may be shared by reference, but only one validated value owns enforcem
 | `directory_listing` | `StaticPolicy` | Disabled | enum | `--directory-listing` | `directory_listing` (StaticPolicy) | Directory listing response |
 | `symlinks` | `StaticPolicy` | Denied | enum | `--follow-symlinks` | `follow_symlinks` (StaticPolicy) | Path traversal resolution |
 | `dotfiles` | `StaticPolicy` | Denied | enum | `--allow-dotfiles` | `allow_dotfiles` (StaticPolicy) | Dotfile path component check |
-| `stream_chunk_size` | `Limits` | 8192 | > 0 | N/A | N/A | File streaming read chunk |
+| `stream_chunk_size` | `Limits` | 8192 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size |
 
 ### TLS (feature-gated)
 

@@ -227,7 +227,7 @@ enforcing = "dotfile_check"
 name = "stream_chunk_size"
 owner = "Limits"
 default = 8192
-valid_range = "> 0"
+valid_range = ">= 64, <= 1048576 (1 MiB)"
 cli_flag = null
 python_param = null
 enforcing = "file_streaming_read"
