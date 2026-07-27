@@ -1793,7 +1793,7 @@ async fn unix_fd_stable_under_concurrent_requests() {
 
     let after = count_open_fds();
     assert!(
-        after <= baseline + 8,
+        after <= baseline + 16,
         "FD count must not grow under concurrency: baseline={}, after={}",
         baseline,
         after

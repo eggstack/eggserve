@@ -486,6 +486,71 @@ class TestServer(unittest.TestCase):
         finally:
             s.stop()
 
+    def test_observer_callback_failure_does_not_crash(self):
+        """Observer that raises on every call does not crash the server."""
+        call_count = [0]
+
+        def bad_observer(event):
+            call_count[0] += 1
+            raise RuntimeError("observer boom")
+
+        s = Server(root=self._td, port=0, handler=lambda req: Response.text(200, "ok"),
+                   observer=bad_observer)
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.html"
+        self.assertTrue(self._wait_for_server(url))
+        # Server must still be functional despite observer failures
+        resp = urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.read(), b"ok")
+        # Observer was called at least once (startup events)
+        self.assertGreater(call_count[0], 0)
+        s.stop()
+
+    def test_observer_receives_events(self):
+        """Observer callback receives structured event dicts."""
+        received_events = []
+
+        def capture_observer(event):
+            received_events.append(event)
+
+        s = Server(root=self._td, port=0, observer=capture_observer)
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.html"
+        self.assertTrue(self._wait_for_server(url))
+        resp = urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(resp.status, 200)
+        s.stop()
+
+        # Observer should have received events (startup, request, etc.)
+        self.assertGreater(len(received_events), 0)
+        # Each event must be a dict with required keys
+        for evt in received_events:
+            self.assertIsInstance(evt, dict)
+            self.assertIn("schema_version", evt)
+            self.assertIn("severity", evt)
+            self.assertIn("event", evt)
+            self.assertIn("message", evt)
+            self.assertIn("timestamp", evt)
+
+    def test_observer_failure_does_not_prevent_shutdown(self):
+        """Observer that panics does not prevent clean shutdown."""
+        def panic_observer(event):
+            raise ValueError("panic in observer")
+
+        s = Server(root=self._td, port=0, observer=panic_observer)
+        s.start()
+        addr = s.addr
+        url = f"http://{addr}/index.html"
+        self.assertTrue(self._wait_for_server(url))
+        resp = urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(resp.status, 200)
+        # Shutdown must complete cleanly
+        s.stop()
+        self.assertIsNone(s.addr)
+
 
 class TestServerConstructorValidation(unittest.TestCase):
     def test_zero_max_connections(self):

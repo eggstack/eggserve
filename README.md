@@ -213,8 +213,8 @@ eggserve defines explicit production deployment profiles. Every production claim
 
 | Profile | Status | Description |
 |---------|--------|-------------|
-| unix-reverse-proxy | Candidate | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment). Plan 089 qualification: proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review. |
-| unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform). Plan 089 qualification: native TLS abuse, 24h soak, installed artifacts, SBOM/provenance, independent review. |
+| unix-reverse-proxy | Candidate | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment). Plan 089 gates defined and infrastructure implemented; external qualification evidence (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) pending. |
+| unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform). Plan 089 gates defined; native TLS abuse, 24h soak, installed artifacts, SBOM/provenance, independent review pending. |
 | windows-reverse-proxy | Candidate | Windows behind reverse proxy; adversarial qualification scaffold established (Plan 086), awaiting independent review and profile decision |
 | windows-direct-https | Functional | Windows with native rustls (hardening in progress) |
 | local-development | Hardened | Any platform, loopback, safe defaults |
@@ -223,7 +223,7 @@ eggserve defines explicit production deployment profiles. Every production claim
 
 See `release/support-profiles.toml` for the machine-readable definitions and `docs/threat-model.md` for profile-specific security notes.
 
-**Production deployment recommendation:** Use a reverse proxy (Caddy, nginx, Traefik) for TLS termination. The `unix-reverse-proxy` profile is qualified for production use after Plan 089 gates pass. Native TLS is limited — no ACME, virtual hosting, HTTP/2, or edge platform features. See [docs/deployment.md](docs/deployment.md), [docs/tls.md](docs/tls.md), and [docs/release-runbook.md](docs/release-runbook.md).
+**Production deployment recommendation:** Use a reverse proxy (Caddy, nginx, Traefik) for TLS termination. The `unix-reverse-proxy` profile is the preferred public deployment; promotion to `supported-hardened` requires passing all Plan 089 qualification gates. Native TLS is limited — no ACME, virtual hosting, HTTP/2, or edge platform features. See [docs/deployment.md](docs/deployment.md), [docs/tls.md](docs/tls.md), and [docs/release-runbook.md](docs/release-runbook.md).
 
 ## Examples
 

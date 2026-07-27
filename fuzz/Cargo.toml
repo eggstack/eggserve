@@ -14,6 +14,7 @@ libfuzzer-sys = "0.4"
 tokio = { version = "1", features = ["rt", "macros"] }
 bytes = "1"
 futures-util = "0.3"
+serde_json = "1"
 
 [dependencies.eggserve-core]
 path = "../crates/eggserve-core"
@@ -135,5 +136,11 @@ doc = false
 [[bin]]
 name = "fuzz_directory_buffer"
 path = "fuzz_targets/fuzz_directory_buffer.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "fuzz_event_serialization"
+path = "fuzz_targets/fuzz_event_serialization.rs"
 test = false
 doc = false

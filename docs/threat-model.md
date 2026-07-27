@@ -93,7 +93,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 
 ### unix-reverse-proxy
 
-**Status:** supported-hardened (primary production profile)
+**Status:** candidate (preferred public deployment profile)
 
 - Linux or macOS;
 - eggserve bound to loopback or a private interface;
@@ -103,7 +103,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 - safe defaults remain enabled;
 - symlink-following mode is outside the hardened guarantee.
 
-This is the preferred public deployment profile. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement.
+This is the preferred public deployment profile. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement. Plan 089 gates are defined and infrastructure is implemented; external qualification evidence (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) is pending. Promotion to `supported-hardened` requires all gates to pass.
 
 ### unix-direct-https
 
@@ -171,7 +171,7 @@ These configurations are weaker than the hardened profile and are not production
 
 ### Unix reverse-proxy profile
 
-The origin communicates with the edge over HTTP/1.1 on loopback. The edge terminates TLS, handles client identity, and enforces connection policy. eggserve does not acquire edge-server responsibilities — it must not implicitly trust forwarding headers, provide certificate automation, or implement public client-identity policy. The edge should use its own logs for client attribution. eggserve logs sanitized request paths and headers, but these are not suitable for client attribution behind a proxy. Plan 089 proxy interop and desync corpus qualify the reverse-proxy profile for hardened status.
+The origin communicates with the edge over HTTP/1.1 on loopback. The edge terminates TLS, handles client identity, and enforces connection policy. eggserve does not acquire edge-server responsibilities — it must not implicitly trust forwarding headers, provide certificate automation, or implement public client-identity policy. The edge should use its own logs for client attribution. eggserve logs sanitized request paths and headers, but these are not suitable for client attribution behind a proxy. Plan 089 gates for this profile are defined; external qualification evidence (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) is pending.
 
 ### Unix direct-HTTPS profile
 
