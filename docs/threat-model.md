@@ -45,7 +45,7 @@ An attacker who opens many connections simultaneously and holds them open with s
 
 ### Malformed HTTP/framing attacker
 
-An attacker who sends HTTP requests that violate the HTTP/1.1 grammar or framing rules. This includes malformed percent-encoding, missing delimiters, invalid header syntax, and ambiguous content-length or transfer-encoding signals. eggserve rejects malformed input at the parser level before any filesystem access. Requests with TE+CL conflicts or duplicate Content-Length fields are rejected with 400 before the service is invoked.
+An attacker who sends HTTP requests that violate the HTTP/1.1 grammar or framing rules. This includes malformed percent-encoding, missing delimiters, invalid header syntax, and ambiguous content-length or transfer-encoding signals. eggserve rejects malformed input at the parser level before any filesystem access. Requests with TE+CL conflicts or duplicate Content-Length fields are rejected with 400 before the service is invoked (when both headers survive Hyper's parser normalization).
 
 ### Request-smuggling attacker operating through a reverse proxy
 

@@ -7,9 +7,9 @@
 
 | Field | Value |
 |-------|-------|
-| SHA | `3484ffad5d5411ec8954a0b74f163cd2085b3ba9` |
+| SHA | `6b2c1ceec9549d3f1967a65726a95b13ae9575db` |
 | Branch | `main` |
-| Rust | 1.97.0 (stable) |
+| Rust | stable |
 | Python | 3.12.3 (compat: `>=3.14,<3.15`) |
 | Platform | Ubuntu 24.04.4 LTS, x86_64 |
 
@@ -29,14 +29,14 @@
 | Severity | Count | Implementation Complete | Evidence Passed | Evidence Partial | Evidence Pending |
 |----------|-------|------------------------|-----------------|------------------|------------------|
 | Critical | 4 | 4 | 2 | 2 | 0 |
-| High | 8 | 8 | 6 | 2 | 0 |
+| High | 8 | 8 | 7 | 1 | 0 |
 | Medium | 6 | 6 | 5 | 1 | 0 |
 | Low | 1 | 1 | 0 | 1 | 0 |
-| **Total** | **19** | **19** | **13** | **6** | **0** |
+| **Total** | **19** | **19** | **14** | **5** | **0** |
 
 ## Evidence Status Detail
 
-### Evidence Passed (13 findings)
+### Evidence Passed (14 findings)
 
 These findings have both implementation and qualification evidence at the same SHA:
 
@@ -55,12 +55,12 @@ These findings have both implementation and qualification evidence at the same S
 - COR-019: PinnedRoot panic-capable clone (Plan 090 Track B; workspace tests)
 - COR-020: StaticService::call header/body loss (Plan 090 Track H; workspace tests)
 
-### Evidence Partial (6 findings)
+### Evidence Partial (5 findings)
 
 Implementation complete; qualification evidence requires dedicated environments:
 
 - COR-001: Windows Unicode string lengths (requires NTFS VM)
-- COR-002: Windows handle ownership (requires NTFS VM; Plan 090 Track B removes panic path)
+- COR-002: Windows handle ownership (requires NTFS VM)
 - COR-014: Windows hardened traversal (requires NTFS VM with Developer Mode)
 - COR-016: Streaming allocation (benchmark gates, optional)
 - COR-017: Proxy/TLS/soak/artifact evidence (requires proxy runners, 24h soak, independent review)
@@ -84,7 +84,7 @@ Implementation complete; qualification evidence requires dedicated environments:
 | 087 | Structured logging and operational error closure | Implemented | Passed | commit 522e12a |
 | 088 | Streaming allocation and buffer performance | Implemented | Passed | commit 522e12a |
 | 089 | Production-readiness roadmap | Implemented | Partial | Infrastructure exists; evidence pending |
-| 090 | Corrective evidence and production qualification closure | Implemented | Partial | 4 findings pending environment-dependent evidence |
+| 090 | Corrective evidence and production qualification closure | Implemented | Partial | Implementation/evidence state model, PinnedRoot panic removal, fail-closed aggregator tests, TE+CL doc reconciliation, COR-019/COR-020 SHA resolution. External qualification evidence pending. |
 
 ## Blocking Evidence Requirements
 

@@ -1156,5 +1156,492 @@ class TestEndToEndAggregation(unittest.TestCase):
         self.assertIn("NOT RELEASE READY", result.stderr)
 
 
+class TestCandidateValidation(unittest.TestCase):
+    """Tests for the candidate and validate-all subcommands (Plan 090 Track C)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.tmpdir = Path(self.tmp.name)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _run(self, *args: str) -> subprocess.CompletedProcess:
+        return subprocess.run(
+            [sys.executable, str(_RC_PATH)] + list(args),
+            capture_output=True,
+            text=True,
+        )
+
+    def _make_profile_toml(self, profile_name: str, required_gates: list[str]) -> str:
+        lines = [
+            "[metadata]",
+            'schema_version = "1"',
+            'description = "test"',
+            "",
+            "[[profile]]",
+            f'profile = "{profile_name}"',
+            f'status = "candidate"',
+            'corrective_program = "closed"',
+            'platform = ["linux-x86_64"]',
+            'filesystem = ["ext4"]',
+            'network_binding = "loopback"',
+            'tls_termination = "none"',
+            'http_version = "1.1"',
+            'security_defaults = ["loopback-bind"]',
+            "symlink_following_allowed = false",
+            "directory_listing_hardened = false",
+            "python_callbacks_in_profile = false",
+            "required_gates = [",
+        ]
+        for g in required_gates:
+            lines.append(f'    "{g}",')
+        lines.append("]")
+        lines.append('excluded_flags = []')
+        lines.append('evidence_max_age = "30d"')
+        lines.append('invalidation_paths = []')
+        lines.append('waivers_allowed = true')
+        lines.append('notes = "test"')
+        return "\n".join(lines) + "\n"
+
+    def _make_findings_toml(self, findings: list[dict] | None = None) -> str:
+        lines = [
+            "[meta]",
+            'schema_version = "2.0.0"',
+            'plan = 90',
+            'tracks = ["A"]',
+            'title = "Test"',
+            'baseline_sha = "abc123"',
+            "",
+        ]
+        for f in (findings or []):
+            lines.append("[[finding]]")
+            lines.append(f'id = "{f["id"]}"')
+            lines.append(f'title = "{f.get("title", "test")}"')
+            lines.append(f'severity = "{f.get("severity", "low")}"')
+            lines.append(f'subsystem = "{f.get("subsystem", "test")}"')
+            lines.append(f'affected_profiles = {json.dumps(f.get("affected_profiles", []))}')
+            lines.append('first_observed = "2025-01-01"')
+            lines.append("owning_plan = 90")
+            lines.append('release = "A"')
+            lines.append(f'status = "{f.get("status", "open")}"')
+            lines.append('closure_commit = ""')
+            lines.append('closure_plan = "090"')
+            lines.append('regression_evidence = ""')
+            lines.append(f'implementation_status = "{f.get("implementation_status", "implemented")}"')
+            lines.append(f'evidence_status = "{f.get("evidence_status", "passed")}"')
+            lines.append('implementation_sha = ""')
+            lines.append('evidence_sha = ""')
+            lines.append("required_gates = []")
+            lines.append('blocking_reason = ""')
+            lines.append('review_status = ""')
+            lines.append("")
+        return "\n".join(lines) + "\n"
+
+    def _setup(
+        self,
+        gate_ids: list[str],
+        *,
+        evidence_results: dict[str, str] | None = None,
+        profile_name: str = "test-profile",
+        profile_gates: list[str] | None = None,
+        findings: list[dict] | None = None,
+        candidate_sha: str = "abc123",
+        evidence_sha: str = "abc123",
+    ) -> tuple[Path, Path, Path, Path]:
+        """Set up criteria, profiles, findings, and evidence dirs."""
+        criteria_gates = [_make_gate(gid) for gid in gate_ids]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        profiles_path = self.tmpdir / "profiles.toml"
+        profiles_path.write_text(
+            self._make_profile_toml(profile_name, profile_gates or gate_ids),
+            encoding="utf-8",
+        )
+
+        findings_path = self.tmpdir / "findings.toml"
+        findings_path.write_text(
+            self._make_findings_toml(findings),
+            encoding="utf-8",
+        )
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+
+        if evidence_results:
+            for gid, result in evidence_results.items():
+                ev = _valid_evidence(gid, result=result, commit_sha=evidence_sha)
+                (gates_dir / f"{gid}.json").write_text(
+                    json.dumps(ev), encoding="utf-8"
+                )
+
+        return criteria_path, profiles_path, findings_path, evidence_dir
+
+    def _candidate(
+        self,
+        criteria: Path,
+        profiles: Path,
+        findings: Path,
+        evidence: Path,
+        profile: str,
+        sha: str,
+        fmt: str = "json",
+    ) -> subprocess.CompletedProcess:
+        return self._run(
+            "candidate",
+            "--criteria", str(criteria),
+            "--profiles", str(profiles),
+            "--findings", str(findings),
+            "--evidence", str(evidence),
+            "--profile", profile,
+            "--sha", sha,
+            "--format", fmt,
+        )
+
+    def test_all_gates_passed_profile_ready(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1", "g2", "g3"],
+            evidence_results={"g1": "passed", "g2": "passed", "g3": "passed"},
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 0)
+        data = json.loads(result.stdout)
+        self.assertTrue(data["profile_ready"])
+        self.assertEqual(data["failing_gates"], [])
+
+    def test_one_missing_gate_blocks_profile(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1", "g2", "g3"],
+            evidence_results={"g1": "passed", "g3": "passed"},
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 1)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["profile_ready"])
+        self.assertIn("g2", data["failing_gates"])
+
+    def test_one_failed_gate_blocks_profile(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1", "g2"],
+            evidence_results={"g1": "passed", "g2": "failed"},
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 1)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["profile_ready"])
+
+    def test_wrong_sha_blocks_profile(self):
+        criteria_gates = [_make_gate("g1", max_age_days=0)]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        profiles_path = self.tmpdir / "profiles.toml"
+        profiles_path.write_text(
+            self._make_profile_toml("test-profile", ["g1"]),
+            encoding="utf-8",
+        )
+
+        findings_path = self.tmpdir / "findings.toml"
+        findings_path.write_text(self._make_findings_toml(), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1", result="passed", commit_sha="wrong_sha")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._candidate(
+            criteria_path, profiles_path, findings_path, evidence_dir,
+            "test-profile", "abc123",
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_stale_record_detected(self):
+        criteria_gates = [_make_gate("g1", max_age_days=0)]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        profiles_path = self.tmpdir / "profiles.toml"
+        profiles_path.write_text(
+            self._make_profile_toml("test-profile", ["g1"]),
+            encoding="utf-8",
+        )
+
+        findings_path = self.tmpdir / "findings.toml"
+        findings_path.write_text(self._make_findings_toml(), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1", result="passed", commit_sha="wrong_sha")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._candidate(
+            criteria_path, profiles_path, findings_path, evidence_dir,
+            "test-profile", "abc123",
+        )
+        self.assertEqual(result.returncode, 1)
+
+    def test_malformed_evidence_blocks_profile(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1", "g2"],
+            evidence_results={"g1": "passed"},
+        )
+        gates_dir = evidence / "gates"
+        (gates_dir / "g2.json").write_text(
+            json.dumps({"gate_id": "g2", "schema_version": "1.0.0"}),
+            encoding="utf-8",
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 1)
+
+    def test_optional_gate_not_in_profile_does_not_block(self):
+        criteria_gates = [_make_gate("g1"), _make_gate("g2", required=False)]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        profiles_path = self.tmpdir / "profiles.toml"
+        profiles_path.write_text(
+            self._make_profile_toml("test-profile", ["g1"]),
+            encoding="utf-8",
+        )
+
+        findings_path = self.tmpdir / "findings.toml"
+        findings_path.write_text(self._make_findings_toml(), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1", result="passed")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._candidate(
+            criteria_path, profiles_path, findings_path, evidence_dir,
+            "test-profile", "abc123",
+        )
+        self.assertEqual(result.returncode, 0)
+
+    def test_open_high_finding_blocks_profile(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1"],
+            evidence_results={"g1": "passed"},
+            findings=[{
+                "id": "COR-TEST",
+                "title": "Test finding",
+                "severity": "high",
+                "affected_profiles": ["test-profile"],
+                "implementation_status": "implemented",
+                "evidence_status": "partial",
+            }],
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 1)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["profile_ready"])
+        self.assertTrue(len(data["open_blocking_findings"]) > 0)
+
+    def test_open_critical_finding_blocks_profile(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1"],
+            evidence_results={"g1": "passed"},
+            findings=[{
+                "id": "COR-CRIT",
+                "title": "Critical finding",
+                "severity": "critical",
+                "affected_profiles": ["test-profile"],
+                "implementation_status": "implemented",
+                "evidence_status": "partial",
+            }],
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 1)
+
+    def test_closed_finding_does_not_block(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1"],
+            evidence_results={"g1": "passed"},
+            findings=[{
+                "id": "COR-CLOSED",
+                "title": "Closed finding",
+                "severity": "high",
+                "affected_profiles": ["test-profile"],
+                "implementation_status": "implemented",
+                "evidence_status": "passed",
+            }],
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 0)
+
+    def test_finding_on_different_profile_does_not_block(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1"],
+            evidence_results={"g1": "passed"},
+            findings=[{
+                "id": "COR-OTHER",
+                "title": "Other profile finding",
+                "severity": "high",
+                "affected_profiles": ["other-profile"],
+                "implementation_status": "implemented",
+                "evidence_status": "partial",
+            }],
+        )
+        result = self._candidate(criteria, profiles, findings, evidence, "test-profile", "abc123")
+        self.assertEqual(result.returncode, 0)
+
+    def test_unknown_profile_returns_error(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1"],
+            evidence_results={"g1": "passed"},
+        )
+        result = self._candidate(
+            criteria, profiles, findings, evidence, "nonexistent", "abc123"
+        )
+        self.assertEqual(result.returncode, 2)
+
+    def test_validate_all_reports_per_profile(self):
+        criteria_gates = [_make_gate("g1")]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        profiles_path = self.tmpdir / "profiles.toml"
+        lines = [
+            "[metadata]",
+            'schema_version = "1"',
+            'description = "test"',
+            "",
+        ]
+        for pname in ["ready-profile", "blocked-profile"]:
+            lines.extend([
+                "[[profile]]",
+                f'profile = "{pname}"',
+                'status = "candidate"',
+                'corrective_program = "closed"',
+                'platform = ["linux-x86_64"]',
+                'filesystem = ["ext4"]',
+                'network_binding = "loopback"',
+                'tls_termination = "none"',
+                'http_version = "1.1"',
+                'security_defaults = ["loopback-bind"]',
+                "symlink_following_allowed = false",
+                "directory_listing_hardened = false",
+                "python_callbacks_in_profile = false",
+                'required_gates = ["g1"]',
+                "excluded_flags = []",
+                'evidence_max_age = "30d"',
+                "invalidation_paths = []",
+                "waivers_allowed = true",
+                'notes = "test"',
+                "",
+            ])
+        profiles_path.write_text("\n".join(lines), encoding="utf-8")
+
+        findings_path = self.tmpdir / "findings.toml"
+        findings_path.write_text(self._make_findings_toml(), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+        gates_dir = evidence_dir / "gates"
+        gates_dir.mkdir()
+        ev = _valid_evidence("g1", result="passed")
+        (gates_dir / "g1.json").write_text(json.dumps(ev), encoding="utf-8")
+
+        result = self._run(
+            "validate-all",
+            "--criteria", str(criteria_path),
+            "--profiles", str(profiles_path),
+            "--findings", str(findings_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
+        data = json.loads(result.stdout)
+        self.assertTrue(data["all_ready"])
+        self.assertTrue(data["profiles"]["ready-profile"]["ready"])
+        self.assertTrue(data["profiles"]["blocked-profile"]["ready"])
+
+    def test_validate_all_exits_nonzero_when_blocked(self):
+        criteria_gates = [_make_gate("g1")]
+        criteria_path = self.tmpdir / "criteria.toml"
+        criteria_path.write_text(_criteria_toml(criteria_gates), encoding="utf-8")
+
+        profiles_path = self.tmpdir / "profiles.toml"
+        lines = [
+            "[metadata]",
+            'schema_version = "1"',
+            'description = "test"',
+            "",
+            "[[profile]]",
+            'profile = "blocked"',
+            'status = "candidate"',
+            'corrective_program = "closed"',
+            'platform = ["linux-x86_64"]',
+            'filesystem = ["ext4"]',
+            'network_binding = "loopback"',
+            'tls_termination = "none"',
+            'http_version = "1.1"',
+            'security_defaults = ["loopback-bind"]',
+            "symlink_following_allowed = false",
+            "directory_listing_hardened = false",
+            "python_callbacks_in_profile = false",
+            'required_gates = ["g1"]',
+            "excluded_flags = []",
+            'evidence_max_age = "30d"',
+            "invalidation_paths = []",
+            "waivers_allowed = true",
+            'notes = "test"',
+            "",
+        ]
+        profiles_path.write_text("\n".join(lines), encoding="utf-8")
+
+        findings_path = self.tmpdir / "findings.toml"
+        findings_path.write_text(self._make_findings_toml(), encoding="utf-8")
+
+        evidence_dir = self.tmpdir / "evidence"
+        evidence_dir.mkdir()
+
+        result = self._run(
+            "validate-all",
+            "--criteria", str(criteria_path),
+            "--profiles", str(profiles_path),
+            "--findings", str(findings_path),
+            "--evidence", str(evidence_dir),
+            "--sha", "abc123",
+            "--format", "json",
+        )
+        self.assertEqual(result.returncode, 1)
+        data = json.loads(result.stdout)
+        self.assertFalse(data["all_ready"])
+        self.assertFalse(data["profiles"]["blocked"]["ready"])
+
+    def test_candidate_text_output(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1", "g2"],
+            evidence_results={"g1": "passed", "g2": "passed"},
+        )
+        result = self._candidate(
+            criteria, profiles, findings, evidence, "test-profile", "abc123", fmt="text"
+        )
+        self.assertEqual(result.returncode, 0)
+        self.assertIn("PROFILE READY", result.stdout)
+
+    def test_candidate_text_shows_failing(self):
+        criteria, profiles, findings, evidence = self._setup(
+            ["g1", "g2"],
+            evidence_results={"g1": "passed"},
+        )
+        result = self._candidate(
+            criteria, profiles, findings, evidence, "test-profile", "abc123", fmt="text"
+        )
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("NOT READY", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -8,7 +8,7 @@
 | Field | Value |
 |-------|-------|
 | Starting SHA | `3a1837f7e2852ee415bced23683be1e098791b4e` |
-| Final SHA | `3484ffad5d5411ec8954a0b74f163cd2085b3ba9` |
+| Final SHA | `6b2c1ceec9549d3f1967a65726a95b13ae9575db` |
 | Branch | `main` |
 | Rust | 1.97.0 (stable) |
 | Python | 3.12.3 (compat: `>=3.14,<3.15`) |
@@ -42,6 +42,8 @@
 - Both commands check the corrective findings registry for open critical/high findings
 - Fail-closed: MALFORMED > CONFLICTING > INVALIDATED > STALE > FAILED > MISSING
 - Exit nonzero when any required gate fails or blocking findings exist
+- **Fixed stdout suppression** in `validate-all` to prevent text output from polluting JSON results
+- **Added 16 unit tests** covering: all-pass, missing gate, failed gate, wrong SHA, stale record, malformed evidence, optional gate, open high/critical findings, closed findings, cross-profile isolation, unknown profile, validate-all per-profile, validate-all blocked exit, text output modes
 
 ### Track D — Windows qualification fixture semantics
 
@@ -104,8 +106,9 @@ No profiles promoted. Correct "correctly unpromoted release candidate" state.
 
 ### Track G — TE+CL parser-boundary reconciliation
 
-- Updated 6 docs: `security-policy.md`, `threat-model.md`, `release-contract.md`, `deployment.md`, `python-api.md`, `body-migration.md`
+- Updated 8 docs: `security-policy.md`, `threat-model.md`, `release-contract.md`, `deployment.md`, `python-api.md`, `body-migration.md`, `architecture/security-model.md`
 - All docs now accurately describe that eggserve validates after Hyper's parser extraction
+- Fixed unqualified TE+CL claims in `security-model.md`, `threat-model.md`, `deployment.md`
 
 ### Track M — Documentation reconciliation
 
@@ -138,7 +141,7 @@ No profiles promoted. Correct "correctly unpromoted release candidate" state.
 | COR-019 | high | implemented | passed | PinnedRoot panic-capable clone (Track B) |
 | COR-020 | high | implemented | passed | StaticService::call header/body loss (Track H) |
 
-**Summary:** 19 findings total. 15 evidence passed, 4 evidence partial (environment-dependent).
+**Summary:** 19 findings total. 14 evidence passed, 5 evidence partial (environment-dependent).
 
 ## Code Changes
 
@@ -186,15 +189,41 @@ All code-affecting tracks (A, B, C, D, E, G, H, I, J, M) are complete. The remai
 |-------|--------|
 | `cargo fmt --all -- --check` | PASS |
 | `cargo clippy --workspace --all-targets -- -D warnings` | PASS (0 errors, 2 pre-existing warnings) |
-| `cargo test --workspace` | PASS (1357 passed, 10 ignored) |
-| Installed binary qualification (9 tests) | PASS |
+| `cargo test --workspace` | PASS (1379 passed, 10 ignored) |
+| `cargo test --workspace --doc` | PASS |
+| `cargo test -p eggserve-core --features client` | PASS |
+| `cargo test -p eggserve-core --features client-tls` | PASS |
+| `cargo test -p eggserve-bin --features tls` | PASS |
+| `cargo clippy -p eggserve-core --features client-tls --all-targets -- -D warnings` | PASS |
+| `cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings` | PASS |
+| `cargo test -p eggserve-core --test http_wire_correctness` | PASS (99 tests) |
+| `cargo test -p eggserve-core --test http_primitives_integration` | PASS (15 tests) |
+| `cargo test -p eggserve-bin --test production_path` | PASS (27 tests) |
+| `cargo test -p eggserve-core --test canonical_conformance` | PASS (40 tests) |
+| `cargo test -p eggserve-core --test canonical_wire_interop` | PASS (7 tests) |
+| `cargo test -p eggserve-core --test request_body_integration` | PASS (9 tests) |
+| `cargo test -p eggserve-core --test request_body_wire` | PASS (29 tests) |
+| `cargo test -p eggserve-core --test corpus_replay` | PASS (8 tests) |
+| `cargo test -p eggserve-core --test stateful_fuzz_replay` | PASS (23 tests) |
+| `cargo test -p eggserve-core --test lifecycle_integration` | PASS (52 tests) |
+| `cargo test -p eggserve-core --test server_integration` | PASS (7 tests) |
+| `cargo test -p eggserve-core --test ops_integration` | PASS (63 tests) |
+| `cargo test -p eggserve-core --test filesystem_race_qualification` | PASS (15 tests) |
+| `cargo test -p eggserve-core --test fault_injection` | PASS (20 tests) |
+| `cargo test -p eggserve-core --test streaming_buffer_qualification` | PASS (27 tests) |
+| `cargo test -p eggserve-bin --features tls --test tls_abuse` | PASS (12 tests) |
+| `cargo audit` | PASS (1 allowed warning: rustls-pemfile unmaintained) |
+| `cargo deny check` | PASS |
+| `python3 scripts/check-contract-consistency.py` | PASS (13 checks) |
+| `python3 -m unittest scripts.test_corrective_tooling` | PASS (38 tests) |
+| `python3 -m unittest scripts.test_release_criteria` | PASS (86 tests, 16 new Track C) |
 
 ## Recommendation
 
 This plan's code and documentation changes are complete and pass CI validation. The repository is in a **correctly unpromoted release candidate** state:
 
 - **Implementation**: Complete for all 19 corrective findings (COR-001 through COR-020)
-- **Evidence**: 15/19 passed, 4 partial (Windows VM, soak, review — environment-dependent)
+- **Evidence**: 14/19 passed, 5 partial (Windows VM, soak, review — environment-dependent)
 - **Profiles**: All correctly unpromoted. No profile has been promoted.
 - **Next steps**: Run qualification tests on Windows NTFS VM, execute 24-hour soak tests, commission independent security review, then make evidence-based profile promotion decisions.
 

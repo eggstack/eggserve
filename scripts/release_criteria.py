@@ -1627,13 +1627,16 @@ def cmd_validate_all(args: argparse.Namespace) -> int:
             profile=profile_name,
             format="text",
         )
-        # Suppress stderr output for individual profiles
+        # Suppress stdout/stderr output for individual profiles
         import io
+        old_stdout = sys.stdout
         old_stderr = sys.stderr
+        sys.stdout = io.StringIO()
         sys.stderr = io.StringIO()
         try:
             rc = cmd_candidate(candidate_args)
         finally:
+            sys.stdout = old_stdout
             sys.stderr = old_stderr
         results[profile_name] = (rc == 0)
 
