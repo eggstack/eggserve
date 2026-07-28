@@ -70,7 +70,7 @@ jobs:
         working-directory: crates/eggserve-python
       - name: Install wheel
         run: pip install --force-reinstall crates/eggserve-python/dist/*.whl
-      - name: Run Python tests
+      - name: Run Python tests (installed wheel)
         env:
           PYTHONPATH: ""
         run: |
@@ -78,15 +78,22 @@ jobs:
             eggserve.test_primitives \
             eggserve.test_api_stability \
             eggserve.test_body_primitives \
-            eggserve.test_body_conformance \
             eggserve.test_body_wire \
-            eggserve.test_canonical_conformance \
             eggserve.test_canonical_request_types \
             eggserve.test_api_consumers \
-            eggserve.test_parity_matrix \
             eggserve.test_client_primitives \
             eggserve.test_server_primitives \
             eggserve.test_server_integration \
             eggserve.test_boundary_hardening \
+            eggserve.test_body_conformance \
             eggserve.test_server \
+            -v
+      - name: Run Python tests (source tree, needs repo files)
+        env:
+          PYTHONPATH: python
+        run: |
+          cd crates/eggserve-python
+          python -m unittest \
+            eggserve.test_canonical_conformance \
+            eggserve.test_parity_matrix \
             -v
