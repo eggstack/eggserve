@@ -159,7 +159,8 @@ jobs:
           toolchain: stable
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - run: bash scripts/ci-gate-evidence.sh http.production-path test-output cargo test -p eggserve-bin --test production_path
-      - run: bash scripts/ci-gate-evidence.sh artifact.installed-binaries test-output bash tests/installed-binary-qual.sh
+      - run: cargo build --release -p eggserve-bin
+      - run: bash scripts/ci-gate-evidence.sh artifact.installed-binaries test-output bash tests/installed-binary-qual.sh target/release/eggserve
       - name: Upload gate evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
