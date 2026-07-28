@@ -10,13 +10,18 @@
 
 set -euo pipefail
 
-echo "DEBUG: script started, args: $*" >&2
-echo "DEBUG: EUID=$(id -u)" >&2
-
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+trap cleanup EXIT
+
+cleanup() {
+    kill "$SERVER_PID" 2>/dev/null || true
+    wait "$SERVER_PID" 2>/dev/null || true
+    rm -rf "$WORK_DIR"
+}
+
+SERVER_PID=""
 
 PASS=0
 FAIL=0
@@ -36,10 +41,8 @@ run_test() {
 # --- Locate or build the binary ---
 if [[ -n "${1:-}" ]]; then
     EGGSERVE_BIN="$1"
-    echo "DEBUG: checking binary at $EGGSERVE_BIN, exists=$(test -f "$EGGSERVE_BIN" && echo yes || echo no), executable=$(test -x "$EGGSERVE_BIN" && echo yes || echo no)" >&2
     if [[ ! -x "$EGGSERVE_BIN" ]]; then
         echo "FAIL: binary not found at $EGGSERVE_BIN"
-        ls -la "$(dirname "$EGGSERVE_BIN")" >&2 2>/dev/null || true
         exit 1
     fi
 else
@@ -85,12 +88,8 @@ run_test "eggserve --version exits 0" "$ISOLATED_DIR/eggserve" --version
 # --- Test 3: Serve a directory ---
 echo "Test 3: Serve directory and fetch file"
 PORT=$(shuf -i 10000-60000 -n 1)
-echo "DEBUG: selected port $PORT" >&2
-echo "DEBUG: starting server..." >&2
 "$ISOLATED_DIR/eggserve" --bind "127.0.0.1:${PORT}" --directory "$ISOLATED_DIR/www" &
 SERVER_PID=$!
-echo "DEBUG: server PID=$SERVER_PID" >&2
-trap 'kill $SERVER_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
 sleep 1
 
 if kill -0 "$SERVER_PID" 2>/dev/null; then
@@ -167,9 +166,7 @@ else
     PASS=$((PASS + 1))
 fi
 
-# --- Cleanup ---
-kill $SERVER_PID 2>/dev/null || true
-wait $SERVER_PID 2>/dev/null || true
+# --- Cleanup handled by EXIT trap ---
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed"
@@ -180,3 +177,4 @@ if [[ $FAIL -gt 0 ]]; then
 fi
 
 echo "PASS: All installed binary qualification tests passed"
+exit 0
