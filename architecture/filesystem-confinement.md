@@ -232,6 +232,35 @@ The file streaming code in `response.rs` propagates read failures through the HT
 
 The semaphore permit remains owned by the stream state and is released when the stream completes or errors. Error responses do not expose local filesystem paths.
 
+## Filesystem Race Test Taxonomy (Plan CORRECTIVE-CLOSURE-PHASES-31-35, Track G)
+
+The filesystem confinement guarantee rests on two pillars: **proof by design** (the kernel enforces `O_NOFOLLOW`/`FILE_FLAG_OPEN_REPARSE_POINT`) and **stress evidence** (bounded adversarial scheduling under concurrent mutation). The test suite in `tests/filesystem_race_qualification.rs` is categorized by what each test proves.
+
+### Proof-by-design tests
+
+These tests exercise code paths that rely on kernel-enforced invariants. If the kernel returns `ELOOP`/`EMLINK` on `openat(O_NOFOLLOW)`, the request is denied — this is a structural guarantee, not a probabilistic one.
+
+- **Descriptor-relative traversal invariant** — verifies that a symlink swapped into the path between `statat` and `openat` causes `openat` to fail rather than follow the new target. Under safe defaults this is enforced by the kernel; the test proves the code path exercises it.
+- **Kernel-enforced `O_NOFOLLOW` behavior** — tests that rely on the kernel returning `ELOOP`/`EMLINK` when `openat` encounters a symlink with `O_NOFOLLOW`, proving the defense is not purely software-level.
+
+### Stress evidence tests
+
+These tests complement the structural argument by showing no outside-root bytes are served under bounded adversarial scheduling. They do not prove absence of all races — they demonstrate that the common mutation patterns do not leak.
+
+- **Sequential post-mutation regression** — single mutation then verify: serve old content, new content, or reject — never mixed or escaped. Proves resolution logic is consistent under single-writer mutation.
+- **Concurrent race stress** — concurrent reads and writes stress the resolution pipeline. Two bounded concurrent swap stress tests (`concurrent_symlink_swap_stress`, `concurrent_directory_swap_stress`) exercise repeated resolution under adversarial scheduling.
+
+### Invariant test matrix
+
+| Category | What it proves | Evidence type |
+|----------|---------------|---------------|
+| Descriptor-relative traversal invariant | `openat(O_NOFOLLOW)` rejects swapped symlinks | Proof by design (kernel-enforced) |
+| Kernel-enforced `O_NOFOLLOW` | `ELOOP`/`EMLINK` from kernel | Proof by design (kernel-enforced) |
+| Sequential post-mutation regression | Consistent outcome under single mutation | Structural correctness |
+| Concurrent race stress | No outside-root bytes under adversarial scheduling | Stress evidence (bounded) |
+
+**Key distinction**: proof-by-design tests fail deterministically if the kernel invariant is violated. Stress evidence tests demonstrate resilience under bounded adversarial scheduling but cannot prove absence of all races.
+
 ## See Also
 
 - [path-confinement.md](path-confinement.md) — Path validation before filesystem access

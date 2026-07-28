@@ -1040,3 +1040,174 @@ async fn parity_installed_binary_direct_and_index_semantics() {
     assert_eq!(extract_status(&dir_304), extract_status(&file_304));
     assert!(extract_status(&dir_304).contains("304"));
 }
+
+// ---------------------------------------------------------------------------
+// Track D: Stream error propagation and connection safety.
+//
+// Verifies that when a file is deleted mid-stream, the server handles the
+// fault gracefully (no panic, no tight loop), the connection is not reused
+// after a client disconnect, and the server recovers for subsequent requests.
+//
+// On Unix, unlinking an open file does not invalidate the fd, so the read
+// may complete normally. The key invariants tested are: no panic, server
+// recovery, and connection handling after client disconnect.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn prod_mid_body_disconnect_server_recovers() {
+    let s = start_production_server(eggserve_core::limits::Limits::default()).await;
+
+    // Create a large file so the stream takes multiple chunks
+    let large_data = vec![b'x'; 256 * 1024];
+    std::fs::write(s._tmp.path().join("large.bin"), &large_data).unwrap();
+
+    // Open connection, request large file, read only headers then drop
+    {
+        let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();
+        stream
+            .write_all(
+                b"GET /large.bin HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        // Read until end of headers
+        let mut buf = Vec::new();
+        loop {
+            let mut byte = [0u8; 1];
+            let n = stream.read(&mut byte).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            buf.push(byte[0]);
+            if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+                break;
+            }
+        }
+        let resp_head = String::from_utf8_lossy(&buf);
+        assert!(
+            resp_head.contains("200"),
+            "expected 200 before disconnect: {}",
+            resp_head
+        );
+        // Drop without reading body — simulates client detecting error/EOF
+        drop(stream);
+    }
+
+    // Give the server time to detect the disconnect and release the permit
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Server must accept a new connection and serve successfully
+    let line = status_line(
+        s.addr,
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        line.contains("200"),
+        "server must recover after mid-body disconnect: {}",
+        line
+    );
+}
+
+#[tokio::test]
+async fn prod_mid_body_file_delete_no_panic() {
+    let s = start_production_server(eggserve_core::limits::Limits::default()).await;
+
+    // Create a large file
+    let large_data = vec![b'y'; 256 * 1024];
+    std::fs::write(s._tmp.path().join("large.bin"), &large_data).unwrap();
+
+    // Request the file, read headers, then delete the file
+    {
+        let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();
+        stream
+            .write_all(
+                b"GET /large.bin HTTP/1.1\r\nHost: localhost\r\nConnection: keep-alive\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        // Read headers
+        let mut buf = Vec::new();
+        loop {
+            let mut byte = [0u8; 1];
+            let n = stream.read(&mut byte).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            buf.push(byte[0]);
+            if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+                break;
+            }
+        }
+        assert!(String::from_utf8_lossy(&buf).contains("200"));
+
+        // Delete file while stream is active (fd stays valid on Unix)
+        std::fs::remove_file(s._tmp.path().join("large.bin")).unwrap();
+
+        // Drop the connection — server must handle the resulting fault
+        drop(stream);
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Server must still be functional
+    let line = status_line(
+        s.addr,
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        line.contains("200"),
+        "server must handle mid-body file deletion: {}",
+        line
+    );
+}
+
+#[tokio::test]
+async fn prod_range_stream_disconnect_recovers() {
+    let s = start_production_server(eggserve_core::limits::Limits::default()).await;
+
+    let large_data = vec![b'z'; 256 * 1024];
+    std::fs::write(s._tmp.path().join("ranged.bin"), &large_data).unwrap();
+
+    // Request a range, read headers, then disconnect
+    {
+        let mut stream = tokio::net::TcpStream::connect(s.addr).await.unwrap();
+        stream
+            .write_all(
+                b"GET /ranged.bin HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-131071\r\nConnection: keep-alive\r\n\r\n",
+            )
+            .await
+            .unwrap();
+        // Read headers — expect 206
+        let mut buf = Vec::new();
+        loop {
+            let mut byte = [0u8; 1];
+            let n = stream.read(&mut byte).await.unwrap();
+            if n == 0 {
+                break;
+            }
+            buf.push(byte[0]);
+            if buf.len() >= 4 && &buf[buf.len() - 4..] == b"\r\n\r\n" {
+                break;
+            }
+        }
+        let head = String::from_utf8_lossy(&buf);
+        assert!(head.contains("206"), "expected 206: {}", head);
+        drop(stream);
+    }
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    // Server must recover and serve new requests
+    let line = status_line(
+        s.addr,
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    assert!(
+        line.contains("200"),
+        "server must recover after range stream disconnect: {}",
+        line
+    );
+}

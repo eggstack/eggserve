@@ -58,6 +58,15 @@ Each denial reason is preserved in the `ResolvedResource::Denied(PathRejection)`
 
 On macOS, `openat` with `O_DIRECTORY|O_NOFOLLOW` on a symlink-to-directory does not always return `ELOOP` (some filesystems return success and the kernel may follow the symlink). The implementation relies on `statat(AT_SYMLINK_NOFOLLOW)` before `openat` to detect symlinks explicitly and deny the request before reaching `openat`. The `openat` `O_NOFOLLOW` flag is a defense-in-depth backstop for swap attacks on platforms where it behaves correctly. A small TOCTOU window for swap attacks on intermediate directory components may remain on some macOS configurations; the final-component swap window is closed by the no-follow open.
 
+### Filesystem race test evidence classification
+
+The filesystem confinement guarantee rests on two pillars, reflected in the test suite (`tests/filesystem_race_qualification.rs`):
+
+- **Proof by design** — tests that exercise code paths relying on kernel-enforced invariants (`O_NOFOLLOW`, `ELOOP`/`EMLINK`). These fail deterministically if the kernel invariant is violated. The structural argument is: if the kernel rejects symlinks at `openat` time, no software-level TOCTOU can bypass it.
+- **Stress evidence** — bounded concurrent mutation tests that demonstrate no outside-root bytes are served under adversarial scheduling. These complement the structural argument but cannot prove absence of all races.
+
+See [architecture/filesystem-confinement.md](architecture/filesystem-confinement.md#filesystem-race-test-taxonomy-plan-corrective-closure-phases-31-35-track-g) for the full test taxonomy and invariant matrix.
+
 ## Request body policy
 
 For read-only methods (GET, HEAD), eggserve rejects any request that signals a body:
