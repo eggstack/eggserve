@@ -89,7 +89,7 @@ The following are explicitly out of scope:
 
 ## Production profiles
 
-eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Each profile specifies a security posture, supported platform, and required configuration. The production profiles are defined in `release/support-profiles.toml` and validated by contract consistency tests.
+eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Each profile specifies a security posture, supported platform, and required configuration. The production profiles are documented in README.md and `docs/deployment.md`, and validated by contract consistency tests.
 
 ### unix-reverse-proxy
 

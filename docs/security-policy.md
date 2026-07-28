@@ -50,7 +50,7 @@ Enables following symbolic links. When enabled, both final and intermediate syml
 
 ## Production Profiles
 
-eggserve defines production readiness through explicit profiles. Each profile specifies a security posture, supported platform, and required configuration. The full profile definitions are in `release/support-profiles.toml`.
+eggserve defines production readiness through explicit profiles. Each profile specifies a security posture, supported platform, and required configuration. The full profile definitions are documented in README.md and `docs/deployment.md`.
 
 | Profile | Status | Hardened |
 |---------|--------|----------|

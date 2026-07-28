@@ -457,7 +457,7 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 
 ## Production Profiles
 
-eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Every production claim must name a profile. The machine-readable profile definitions are in `release/support-profiles.toml`.
+eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Every production claim must name a profile. Production profiles are maintained by the maintainers and documented in README.md and `docs/deployment.md`.
 
 | Profile | Status | Description |
 |---------|--------|-------------|
@@ -469,7 +469,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 | windows-functional | functional | Windows SMB/non-NTFS/cloud filesystems |
 | link-following-compat | functional | Any platform with --follow-symlinks (weaker guarantee) |
 
-Production profile promotion requires passing all required CI gates defined in `release/criteria.toml`. No profile is promoted in this release contract version. This release contract only defines promotion criteria.
+Production profile promotion is maintained by the project maintainers and documented in README.md. No profile is promoted in this release contract version. This release contract only defines promotion criteria.
 
 - Reverse-proxy origin (Caddy, nginx, Traefik) is the preferred public deployment.
 - Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge parity.

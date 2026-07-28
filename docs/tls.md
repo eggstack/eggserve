@@ -16,7 +16,7 @@ For public-facing production deployments, a mature TLS terminator (Caddy, nginx,
 
 Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited HTTP/1.1 static-server deployment, not an edge platform. It does not imply ACME, virtual hosting, HTTP/2, or edge parity. Plan 089 gates (native TLS abuse/limits, 24h soak) are defined; external qualification evidence is pending. The profile remains candidate until full qualification passes.
 
-For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefik termination) is preferred. See `release/support-profiles.toml` for the full profile definitions and `docs/deployment.md` for deployment patterns.
+For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefik termination) is preferred. Production profiles are documented in README.md and `docs/deployment.md`.
 
 ## Building with TLS
 
@@ -82,7 +82,7 @@ The `tls` feature in `eggserve-bin` is **non-default**. This means:
 - **Published PyPI wheels** do not include TLS. The wheel bundles the platform-native CLI binary built without the `tls` feature.
 - To obtain a TLS-capable binary, build from source with `--features tls` or use a reverse proxy in front of the plaintext server.
 
-Release gates validate TLS functionality by explicitly enabling the feature during CI. The `rust.test.server-tls` and `rust.test.client-tls` gates in `release/criteria.toml` cover TLS correctness; they are not satisfied by a default (non-TLS) build.
+Release gates validate TLS functionality by explicitly enabling the feature during CI. TLS tests (`clippy` and `cargo test` with `--features tls`) cover TLS correctness; they are not satisfied by a default (non-TLS) build.
 
 ## Limitations
 

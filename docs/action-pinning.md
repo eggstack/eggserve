@@ -15,7 +15,6 @@ All third-party GitHub Actions used in CI/CD workflows are pinned to immutable c
 | `actions/upload-artifact` | `ea165f8d65b6e75b540449e92b4886f43607fa02` | v4.6.2 |
 | `actions/download-artifact` | `d3f86a106a0bac45b974a628896c90dbdf5c8093` | v4.3.0 |
 | `actions/cache` | `0057852bfaa89a56745cba8c7296529d2fc39830` | v4.3.0 |
-| `softprops/action-gh-release` | `c95fe1489396fe8a9eb87c0abf8aa5b2ef267fda` | v2.2.1 |
 
 ## Update procedure
 

@@ -14,7 +14,7 @@ eggserve/
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (31 files)
 ├── plans/                      # design plans (000–089, all complete)
-├── release/                    # machine-readable release criteria (criteria.toml)
+├── release/                    # release artifacts and criteria (historical)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora
 ├── scripts/                    # release validation, contract consistency, CI evidence
@@ -47,7 +47,7 @@ eggserve-python        → standalone, owns Python packaging
 | Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) |
 | HTTP client primitives | `eggserve-core::primitives::client` | [client.md](client.md) |
 | Security model | (cross-cutting) | [security-model.md](security-model.md) |
-| Release infrastructure | `release/`, `scripts/` | [release-infrastructure.md](release-infrastructure.md) |
+| Release process | `docs/release-process.md` | Manual crates.io release procedure (Plan 091) |
 | Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) |
 
 ## Data Flow
@@ -157,7 +157,7 @@ HTTP Request
 
 9. **Python immutability** — All PyO3 classes are `#[pyclass(frozen)]` and Python dataclasses use `frozen=True`. Immutability enforced at both layers.
 
-10. **Evidence-driven release process** — Release gates are defined in `release/criteria.toml` as a machine-readable source of truth. A Python validator checks criteria integrity, generates checklists, and produces structured evidence.
+10. **Manual release process** — Release is a manual crates.io procedure documented in `docs/release-process.md` (Plan 091). CI is a regression screen, not release certification.
 
 11. **Contract-driven documentation** — All public-facing documents are reconciled against a single capability matrix (`docs/library-capability-matrix.md`). Cross-document claims are validated for consistency.
 

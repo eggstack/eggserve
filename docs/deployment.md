@@ -1,6 +1,6 @@
 # Deployment Guide
 
-eggserve is a hardened static file server intended for local development, internal tools, and controlled environments. Production deployment is defined through explicit profiles — see `release/support-profiles.toml`. This guide covers common deployment patterns.
+eggserve is a hardened static file server intended for local development, internal tools, and controlled environments. Production deployment is defined through explicit profiles — see README.md for the full profile table. This guide covers common deployment patterns.
 
 ## Pattern 1: Local-only HTTP
 
@@ -58,11 +58,11 @@ eggserve rejects request bodies by default (safe default). When a reverse proxy 
 
 ### Production profile: unix-reverse-proxy
 
-The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. Plan 089 gates (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) are defined and infrastructure is implemented. External qualification evidence collection is pending; the profile remains `candidate` until all gates pass. See `release/support-profiles.toml` for the full specification.
+The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. Plan 089 gates (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) are defined and infrastructure is implemented. External qualification evidence collection is pending; the profile remains `candidate` until all gates pass. See README.md for the full specification.
 
 ### Production profile: unix-direct-https
 
-Native TLS is a candidate production profile for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. Plan 089 gates (native TLS abuse/limits, 24h soak) are defined; external qualification pending. See `release/support-profiles.toml` for the full specification.
+Native TLS is a candidate production profile for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. Plan 089 gates (native TLS abuse/limits, 24h soak) are defined; external qualification pending. See README.md for the full specification.
 
 ## Pattern 3: Native TLS
 
@@ -78,7 +78,7 @@ See [tls.md](tls.md) for details on the TLS feature, certificate requirements, a
 
 Windows implements handle-relative confinement (Plans 084–085) with parser-level protections rejecting Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. Plan 086 adversarial qualification test scaffold is established (114 tests covering reparse-point denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
 
-See `release/support-profiles.toml` for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
+See README.md for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
 
 ## Binding to all interfaces
 
@@ -104,7 +104,7 @@ A common setup for small deployments:
 - eggserve does **not** implement ACME. Use certbot, Caddy's built-in ACME, or your hosting provider's certificate management.
 - For production, always prefer a mature TLS terminator unless eggserve's native TLS is sufficient for your threat model.
 - Never expose eggserve directly to the public internet without proper TLS and access control.
-- Every production deployment must name a profile from `release/support-profiles.toml`. No document should claim production support without naming the profile.
+- Every production deployment must name a profile from the production profiles table in README.md. No document should claim production support without naming the profile.
 - **Directory listing is opt-in and disabled by default.** When enabled with `--directory-listing`, it exposes file names and directory structure. Listing responses are bounded (max 4096 entries, 1 MiB body, 255-byte filenames, 30s timeout). Symlink entries are hidden from listings by default. Do not enable directory listing for untrusted content without understanding the information disclosure implications.
 - **Connection metadata is transport-peer metadata.** `remote_addr` on the `Request` object reflects the TCP peer address (proxy address when behind a reverse proxy). Do not use it for end-client identification without proxy-header validation.
 

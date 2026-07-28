@@ -25,7 +25,7 @@
 //!
 //! Before 1.0, every public type or function in this crate is best-effort
 //! and may change without a major version bump. See
-//! `docs/release-criteria.md` for the 1.0 freeze plan.
+//! `docs/release-process.md` for the manual release procedure.
 
 pub mod config;
 pub(crate) mod error;

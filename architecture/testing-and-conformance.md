@@ -173,5 +173,5 @@ bash run_all.sh ../dist/*.whl python3.14
 - [overview.md](overview.md) — Architecture overview
 - [eggserve-core.md](eggserve-core.md) — Core library modules under test
 - [eggserve-python.md](eggserve-python.md) — Python test suites
-- [release-infrastructure.md](release-infrastructure.md) — CI gate definitions
+- [release-process.md](../docs/release-process.md) — Manual release procedure (Plan 091)
 - [../docs/fuzzing.md](../docs/fuzzing.md) — Fuzzing documentation

@@ -438,7 +438,7 @@ These methods:
 
 ## Production Profile API Classification
 
-Every production claim must name a profile. The production profiles are defined in `release/support-profiles.toml` and validated by contract consistency tests.
+Every production claim must name a profile. The production profiles are documented in README.md and validated by contract consistency tests.
 
 ### Scope boundary
 

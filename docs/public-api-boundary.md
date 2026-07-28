@@ -73,6 +73,6 @@ After 1.0:
 ## Migration guide
 
 When a type is removed or renamed:
-1. Check `docs/release-criteria.md` for the deprecation timeline.
+1. Check `docs/release-process.md` for the release timeline.
 2. Use the new type name or re-export path.
 3. Run `cargo clippy` — deprecated items emit warnings.

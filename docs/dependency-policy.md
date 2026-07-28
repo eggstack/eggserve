@@ -41,7 +41,7 @@ The following dependency categories are approved for initial development:
 - Plan 028 adds optional HTTP client dependencies behind the `client` feature flag in `eggserve-core`. Reuses `hyper` and `hyper-util` (already non-optional) with `client`/`client-legacy` features. Adds `rustls`, `tokio-rustls`, `webpki-roots` behind the `client-tls` feature. Default build remains server-only.
 - Plan 062 adds `windows-sys` as an optional Windows-only dependency behind a feature gate for handle-relative filesystem operations (reparse detection, file identity, directory enumeration). The dependency is feature-gated and only compiles on Windows targets.
 - No dependency is added without updating this document
-- `cargo audit` and `cargo deny` are run as part of the beta release gate (see [release-criteria.md](release-criteria.md))
+- `cargo audit` and `cargo deny` are run as part of CI validation (see `scripts/verify.sh`)
 
 ## Accepted maintenance-risk dependencies
 

@@ -306,7 +306,7 @@ Positive NTSTATUS values (informational) are not expected from `NtQueryDirectory
 
 ### Release Gates
 
-Added to `release/criteria.toml`: `windows.reparse-matrix`, `windows.namespace-matrix`, `windows.race-root-escape`, `windows.root-identity`, `windows.validator-identity`, `windows.resource-stability`, `windows.installed-artifact`, `windows.fuzz-corpus-replay`, `windows.independent-safety-review`, `windows.profile-decision`.
+Plan 089 defined Windows-specific release gates covering reparse-matrix, namespace-matrix, race-root-escape, root-identity, validator-identity, resource-stability, installed-artifact, fuzz-corpus-replay, independent-safety-review, and profile-decision.
 
 ### Human Gates Awaited
 
@@ -323,4 +323,4 @@ Added to `release/criteria.toml`: `windows.reparse-matrix`, `windows.namespace-m
 - Parser-level protections are retained as a first line of defense
 - Plan 085 implements handle-relative directory enumeration via `NtQueryDirectoryFile` with `FileIdBothDirectoryInfo` (class 10), replacing path-based enumeration in the hardened branch
 - Plan 086 adversarial qualification test scaffold is established (114 tests, all code-addressable gates passing). Independent safety review and profile promotion decision awaited.
-- Windows hardened profile promotion requires independent review with no unresolved high/critical findings and exact-SHA evidence from all preceding gates
+- Windows hardened profile promotion requires independent review with no unresolved high/critical findings and passing evidence from all preceding gates
