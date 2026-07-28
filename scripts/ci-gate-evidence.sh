@@ -113,6 +113,11 @@ EXIT_CODE=0
 RESULT="passed"
 OUTPUT=$("$@" 2>&1) || EXIT_CODE=$?
 
+# Log output for debugging (visible in CI logs)
+if [ "$EXIT_CODE" -ne 0 ]; then
+  echo "$OUTPUT"
+fi
+
 END_EPOCH="$(date +%s)"
 DURATION=$((END_EPOCH - START_EPOCH))
 END_ISO="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
