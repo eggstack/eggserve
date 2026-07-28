@@ -203,27 +203,19 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; handle-relative confinement (Plans 084–085). Adversarial qualification scaffold established (Plan 086, 114 tests). Awaiting independent safety review and profile promotion decision. |
+| Windows x86_64 | Functional; handle-relative confinement (Plans 084–085). Adversarial qualification test scaffold established (Plan 086, 114 tests). Awaiting independent safety review and profile promotion decision. Do not use with untrusted public content until those human gates complete. |
 
-Windows implements handle-relative confinement (Plans 084–085) with parser-level protections rejecting reserved names, ADS syntax, drive prefixes, and backslash. Plan 086 adversarial qualification test scaffold is established (reparse-point denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
+## Deployment
 
-## Production profiles
+**Production recommendation:** Use a reverse proxy (Caddy, nginx, Traefik) for TLS termination. Native TLS is limited — no ACME, virtual hosting, HTTP/2, or edge platform features. See [docs/deployment.md](docs/deployment.md) and [docs/tls.md](docs/tls.md).
 
-eggserve defines explicit production deployment profiles. Every production claim names a profile.
+## Verification
 
-| Profile | Status | Description |
-|---------|--------|-------------|
-| unix-reverse-proxy | Candidate | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment). Plan 089 gates defined and infrastructure implemented; external qualification evidence (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) pending. |
-| unix-direct-https | Candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform). Plan 089 gates defined; native TLS abuse, 24h soak, installed artifacts, SBOM/provenance, independent review pending. |
-| windows-reverse-proxy | Candidate | Windows behind reverse proxy; adversarial qualification scaffold established (Plan 086), awaiting independent review and profile decision |
-| windows-direct-https | Functional | Windows with native rustls (hardening in progress) |
-| local-development | Hardened | Any platform, loopback, safe defaults |
-| windows-functional | Functional | Windows SMB/non-NTFS/cloud filesystems |
-| link-following-compat | Functional | Any platform with --follow-symlinks (weaker guarantee) |
-
-See `release/support-profiles.toml` for the machine-readable definitions and `docs/threat-model.md` for profile-specific security notes.
-
-**Production deployment recommendation:** Use a reverse proxy (Caddy, nginx, Traefik) for TLS termination. The `unix-reverse-proxy` profile is the preferred public deployment; promotion to `supported-hardened` requires passing all Plan 089 qualification gates. Native TLS is limited — no ACME, virtual hosting, HTTP/2, or edge platform features. See [docs/deployment.md](docs/deployment.md), [docs/tls.md](docs/tls.md), and [docs/release-runbook.md](docs/release-runbook.md).
+```sh
+./scripts/verify.sh fast    # routine dev check: format, clippy, tests
+./scripts/verify.sh full    # pre-release: features, Python wheel, package dry-run
+./scripts/verify.sh deep    # expensive suites (manual): corpus replay, fault injection, etc.
+```
 
 ## Examples
 

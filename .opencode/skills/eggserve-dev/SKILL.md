@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (14 deep-dive docs), `docs/` (reference docs), `plans/` (000–059 plus roadmap and closure documents), `release/` (criteria.toml), `conformance/` (shared corpora), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–091 plus roadmap), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -33,24 +33,23 @@ Run before pushing:
 
 ```sh
 cargo fmt --all -- --check                                 # format check
-cargo clippy --workspace --all-targets -- -D warnings      # lint
+cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
 cargo test --workspace                                     # tests
 cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                  # TLS tests
-cargo test -p eggserve-core --features client              # client feature tests
-cargo test -p eggserve-core --test http_wire_correctness   # raw wire tests
-cargo test -p eggserve-core --test http_primitives_integration  # HTTP integration
-cargo test -p eggserve-bin --test production_path          # production path tests
-cargo test -p eggserve-core --test corpus_replay           # fuzz corpus replay
-cargo test -p eggserve-core --test canonical_conformance  # canonical HTTP type conformance
-cargo test -p eggserve-core --test canonical_wire_interop  # canonical wire interop
-cargo test -p eggserve-core --test request_body_integration  # request body ingestion integration
-cargo test -p eggserve-core --test request_body_wire  # request body wire tests
+cargo test -p eggserve-core --features client-tls          # client TLS feature tests
+bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
 cargo audit                                                # vulnerability check
 cargo deny check                                           # license/policy check
-bash scripts/verify-cargo-packages.sh                      # package and publish dry-run gates
-python3 scripts/check-contract-consistency.py              # contract consistency validation
-python3 -m unittest scripts.test_corrective_tooling -v     # corrective baseline/finding tests
+bash scripts/verify-cargo-packages.sh                      # package dry-run gates
+```
+
+Or use the local verification script:
+
+```sh
+./scripts/verify.sh fast                 # routine dev check
+./scripts/verify.sh full                 # pre-release validation
+./scripts/verify.sh deep                 # expensive suites (manual)
 ```
 
 ## Key conventions
@@ -61,10 +60,10 @@ python3 -m unittest scripts.test_corrective_tooling -v     # corrective baseline
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–089 are implementation-complete. Plan 090 establishes the implementation/evidence state model, removes the panic-capable PinnedRoot clone path, adds fail-closed profile-aware evidence aggregation, reconciles TE+CL parser-boundary documentation, and produces the closure report. Plan 055 verifies Milestone 3 final state. Plan 059 closes Milestone 4. Plans 075–083 establish the corrective roadmap (runtime timeout semantics, custom-service ownership, request-body rejection, configuration authority, directory-index conditional headers, HEAD/error-response correctness, HTTP conformance closure). Plan 078 corrects custom-service ownership and connection metadata. ADR-003 documents the ownership model decision. Plan 085 implements Windows handle-relative directory enumeration via `NtQueryDirectoryFile`, replacing the path-based fallback. Plan 089 closes the production-readiness roadmap: proxy interop qualification, native TLS abuse testing, stateful live-socket fuzzing, filesystem race qualification, fault injection, 24-hour soak, installed artifact matrix, SBOM/provenance, independent security review, and profile-specific release decisions. Production profiles are machine-readable in `release/support-profiles.toml`. Corrective Closure Pass (Phases 31–35) closes repository-hygiene and verification gaps: normative wire tests, API stability checks, corpus replay coverage, filesystem test taxonomy.
-- **Canonical HTTP types (stable)** — Plan 049 promotes all canonical HTTP types to stable. `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` (request types) and `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` (response types) are all stable.
-- **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()` for response metadata and framing.
-- **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `StaticServiceBuilder`. Lifecycle types: `LifecycleState` (Created, Starting, Running, Draining, Stopped, Failed). Custom services receive real connection metadata (local/remote addresses, scheme, TLS state) via the `Request` envelope. The module is experimental; API may change.
+- **Plan status** — Plans 000–090 are implementation-complete. Plan 091 establishes the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Historical plans are in `plans/`.
+- **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
+- **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
+- **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding. The module is experimental; API may change.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`.
 - **Python RequestBody** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive. `iter_chunks()` bridges async Rust body to synchronous Python via bounded channel with backpressure.
 - **Structured logging** — `eggserve-core::ops` provides the event model (`Event`, `EventKind`, `Severity`, `Logger`, `LogSink`, `OpsCounters`). The CLI initializes with `StderrLogSink`. Python server can add `PyLogObserver`. Library crates must not use `println!`/`eprintln!` — use `Logger::global().emit()` instead.
@@ -85,7 +84,6 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `runtime.md` — runtime service boundary, Server, Service trait, StaticService
 - `client.md` — HTTP client primitives, feature-gated substrate
 - `security-model.md` — trust boundaries, defensive layers, attacker model
-- `release-infrastructure.md` — release criteria, evidence aggregation, CI gates
 - `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
 
 ## Common pitfalls
@@ -104,10 +102,8 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Python Server has runtime hardening** — connection semaphore, header timeouts, connection total timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
-- **Release criteria** — `release/criteria.toml` is the single source of truth for release gates.
-- **Corrective baseline** — `release/corrective-baseline.toml` records the pinned SHA/toolchain. `release/corrective-findings.toml` has 19 findings (all closed). Gate IDs in findings must match `release/criteria.toml`. Run `python3 -m unittest scripts.test_corrective_tooling -v` to validate.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
-- **Production profiles** — `release/support-profiles.toml` defines 7 production profiles. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes. unix-reverse-proxy and unix-direct-https are candidates with Plan 089 gates defined; external qualification evidence is pending.
+- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output. The two `eprintln!` calls in `response.rs` have been replaced with structured logging.

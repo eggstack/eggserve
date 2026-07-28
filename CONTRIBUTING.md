@@ -13,7 +13,7 @@ Open issues on the GitHub repository. Use the appropriate template:
 - Keep PRs small and focused on a single change
 - All changes must be backed by a plan in `plans/`
 - Do not make broad changes without updating the relevant plan first
-- Ensure `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, and `cargo test --workspace` pass
+- Ensure `./scripts/verify.sh fast` passes (or manually: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`)
 
 ## Non-goal changes
 
