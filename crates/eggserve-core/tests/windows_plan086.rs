@@ -486,6 +486,29 @@ fn content_digest(data: &[u8]) -> u64 {
     data.iter().map(|&b| b as u64).sum()
 }
 
+/// Create a file symlink, blocking the test if Developer Mode is unavailable.
+///
+/// In standard CI without Developer Mode, any symlink creation error is
+/// treated as a blocked fixture. In qualification mode, errors are fatal.
+fn create_file_symlink(src: &Path, dst: &Path) {
+    match std::os::windows::fs::symlink_file(src, dst) {
+        Ok(()) => {}
+        Err(e) => {
+            blocked!("symlink creation failed (requires Developer Mode): {e}");
+        }
+    }
+}
+
+/// Create a directory symlink, blocking the test if Developer Mode is unavailable.
+fn create_dir_symlink(src: &Path, dst: &Path) {
+    match std::os::windows::fs::symlink_dir(src, dst) {
+        Ok(()) => {}
+        Err(e) => {
+            blocked!("symlink creation failed (requires Developer Mode): {e}");
+        }
+    }
+}
+
 // ============================================================================
 // Track B — Reparse-point denial matrix
 //
@@ -503,13 +526,7 @@ fn windows_reparse_file_symlink_denied_by_production_path() {
 
     // Create a file symlink (requires Developer Mode on Windows).
     let symlink_path = tmp.path().join("link_to_file");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result = root.resolve(&parse("/link_to_file"));
@@ -529,13 +546,7 @@ fn windows_reparse_directory_symlink_denied_by_production_path() {
     create_plan086_tree(tmp.path());
 
     let symlink_path = tmp.path().join("link_to_subdir");
-    match std::os::windows::fs::symlink_dir(tmp.path().join("subdir"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_dir_symlink(&tmp.path().join("subdir"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result = root.resolve(&parse("/link_to_subdir"));
@@ -597,13 +608,7 @@ fn windows_reparse_intermediate_component_denied() {
 
     // Create a symlink inside subdir pointing to deep.
     let symlink_path = tmp.path().join("subdir/link_to_deep");
-    match std::os::windows::fs::symlink_dir(tmp.path().join("subdir/deep"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_dir_symlink(&tmp.path().join("subdir/deep"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     // Try to resolve through the symlink as an intermediate component.
@@ -624,13 +629,7 @@ fn windows_reparse_index_file_denied() {
     // Replace index.html with a symlink to hello.txt.
     let index_path = tmp.path().join("subdir/index.html");
     fs::remove_file(&index_path).expect("remove index.html");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &index_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &index_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let dir = root
@@ -655,13 +654,7 @@ fn windows_reparse_listing_entry_filtered() {
 
     // Create a symlink in the directory.
     let symlink_path = tmp.path().join("link_in_dir");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let dir = root
@@ -691,16 +684,7 @@ fn windows_reparse_dangling_denied() {
     create_plan086_tree(tmp.path());
 
     let symlink_path = tmp.path().join("dangling_link");
-    match std::os::windows::fs::symlink_file(
-        tmp.path().join("nonexistent_target.txt"),
-        &symlink_path,
-    ) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("nonexistent_target.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result = root.resolve(&parse("/dangling_link"));
@@ -715,13 +699,7 @@ fn windows_reparse_get_head_agree() {
     create_plan086_tree(tmp.path());
 
     let symlink_path = tmp.path().join("link_to_file");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result_get = root.resolve(&parse("/link_to_file"));
@@ -740,13 +718,7 @@ fn windows_reparse_no_handle_leak() {
     create_plan086_tree(tmp.path());
 
     let symlink_path = tmp.path().join("link_to_file");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
 
@@ -773,13 +745,7 @@ fn windows_reparse_target_inside_root_denied() {
 
     // Create a symlink to a file inside the root.
     let symlink_path = tmp.path().join("internal_link");
-    match std::os::windows::fs::symlink_file(tmp.path().join("visible.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("visible.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result = root.resolve(&parse("/internal_link"));
@@ -800,14 +766,7 @@ fn windows_reparse_target_outside_root_denied() {
     fs::write(external_dir.path().join("secret.txt"), "secret").expect("write secret");
 
     let symlink_path = tmp.path().join("escape_link");
-    match std::os::windows::fs::symlink_file(external_dir.path().join("secret.txt"), &symlink_path)
-    {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&external_dir.path().join("secret.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
     let result = root.resolve(&parse("/escape_link"));
@@ -958,13 +917,7 @@ fn windows_race_file_to_reparse_swap_denied() {
     // Replace file with symlink.
     let target_path = tmp.path().join("hello.txt");
     fs::remove_file(&target_path).expect("remove original");
-    match std::os::windows::fs::symlink_file(tmp.path().join("visible.txt"), &target_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("visible.txt"), &target_path);
 
     // Second: resolution must now deny the reparse.
     let result2 = root.resolve(&parse("/hello.txt"));
@@ -1010,13 +963,7 @@ fn windows_race_same_name_reparse_to_file() {
 
     // Create a symlink.
     let symlink_path = tmp.path().join("swapping");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
 
@@ -1488,13 +1435,7 @@ fn windows_resource_stability_reparse_denials() {
     create_plan086_tree(tmp.path());
 
     let symlink_path = tmp.path().join("link_to_file");
-    match std::os::windows::fs::symlink_file(tmp.path().join("hello.txt"), &symlink_path) {
-        Ok(()) => {}
-        Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
-            blocked!("symlink creation requires Developer Mode: {e}");
-        }
-        Err(e) => panic!("unexpected error creating symlink: {e}"),
-    }
+    create_file_symlink(&tmp.path().join("hello.txt"), &symlink_path);
 
     let root = SecureRoot::new(tmp.path(), StaticPolicy::safe_default()).unwrap();
 
