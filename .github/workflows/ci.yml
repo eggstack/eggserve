@@ -45,7 +45,7 @@ jobs:
     name: python
     needs: [rust]
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
