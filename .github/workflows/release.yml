@@ -25,6 +25,8 @@ jobs:
     name: "Build wheel (Linux x86_64)"
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -60,6 +62,8 @@ jobs:
     name: "Build wheel (macOS arm64)"
     runs-on: macos-14
     timeout-minutes: 30
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -94,6 +98,8 @@ jobs:
     name: "Build wheel (Windows x86_64)"
     runs-on: windows-latest
     timeout-minutes: 30
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
