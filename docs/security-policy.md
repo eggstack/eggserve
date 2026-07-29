@@ -48,15 +48,15 @@ Enables following symbolic links. When enabled, both final and intermediate syml
 
 **This mode falls back to canonicalize-based resolution and is weaker than the safe-default descriptor-relative path.** It is **not** covered by the same TOCTOU-hardening guarantee that applies to safe-default symlink-denied mode on Unix. Avoid `--follow-symlinks` for untrusted mutable roots.
 
-## Production Profiles
+## Deployment Status
 
 eggserve defines production readiness through explicit profiles. Each profile specifies a security posture, supported platform, and required configuration. The full profile definitions are documented in README.md and `docs/deployment.md`.
 
 | Profile | Status | Hardened |
 |---------|--------|----------|
-| unix-reverse-proxy | candidate | Plan 089 gates defined; external qualification pending (proxy interop, fuzz, race, soak, review) |
-| unix-direct-https | candidate | Plan 089 gates defined; native TLS abuse and soak qualification pending |
-| windows-reverse-proxy | candidate | Adversarial qualification scaffold established (Plan 086); awaiting independent review and profile decision |
+| unix-reverse-proxy | functional; qualification pending | Plan 089 gates defined; external qualification pending (proxy interop, fuzz, race, soak, review) |
+| unix-direct-https | functional; qualification pending | Plan 089 gates defined; native TLS abuse and soak qualification pending |
+| windows-reverse-proxy | functional | Adversarial qualification scaffold established (Plan 086); independent adversarial review incomplete |
 | windows-direct-https | functional | No |
 | local-development | supported-hardened | Yes |
 | windows-functional | functional | No |
@@ -102,7 +102,7 @@ On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementatio
 
 The configured root is opened once at server startup via `PinnedRoot` and retained for the server lifetime. `RootGuard` borrows from the pinned root for request-scoped traversal. Renaming or replacing the configured pathname does not redirect a running server.
 
-Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Plan 086 adversarial qualification test scaffold is established (114 tests covering denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent safety review and profile promotion decision are awaited. Windows remains functional-only until those human gates complete.
+Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Plan 086 adversarial qualification test scaffold is established (114 tests covering denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed.
 
 ### `--directory-listing`
 

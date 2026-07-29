@@ -93,7 +93,7 @@ platform-limited as noted.
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Adversarial qualification scaffold established (114 tests). Awaiting independent safety review and profile promotion decision. Windows remains functional-only until those human gates complete. |
+| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Adversarial qualification scaffold established (114 tests). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed. |
 
 ## Notes
 
@@ -107,7 +107,7 @@ platform-limited as noted.
 
 - **Windows handle-relative confinement** is implemented (Plans 084–086) but
   awaiting independent safety review. Windows is functional-only. Do not use
-  with untrusted public content on Windows until the hardened profile is promoted.
+  with untrusted public content on Windows until independent adversarial review is completed.
 
 - **Python wheels** are CPython 3.14 only (`>=3.14,<3.15`) on the Linux,
   macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI

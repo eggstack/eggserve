@@ -15,27 +15,22 @@ import unittest
 import urllib.error
 import urllib.request
 
-try:
-    from eggserve._native import (
-        BodyChunkIterator,
-        EggserveError,
-        Request,
-        RequestBody,
-        RequestBodyCancelledError,
-        RequestBodyConsumedError,
-        RequestBodyDisconnectedError,
-        RequestBodyError,
-        RequestBodyIncompleteError,
-        RequestBodyRejectedError,
-        RequestBodyTimeoutError,
-        RequestBodyTooLargeError,
-        Response,
-        Server,
-    )
-
-    NATIVE_AVAILABLE = True
-except ImportError:
-    NATIVE_AVAILABLE = False
+from eggserve._native import (
+    BodyChunkIterator,
+    EggserveError,
+    Request,
+    RequestBody,
+    RequestBodyCancelledError,
+    RequestBodyConsumedError,
+    RequestBodyDisconnectedError,
+    RequestBodyError,
+    RequestBodyIncompleteError,
+    RequestBodyRejectedError,
+    RequestBodyTimeoutError,
+    RequestBodyTooLargeError,
+    Response,
+    Server,
+)
 
 
 def _wait_for_server(url, timeout=5.0):
@@ -122,7 +117,7 @@ def _read_response(sock):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyProperties(unittest.TestCase):
     """RequestBody properties: declared_length, bytes_received, complete."""
 
@@ -194,7 +189,7 @@ class TestRequestBodyProperties(unittest.TestCase):
         self.assertTrue(self._captured["after_read_complete"])
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyRead(unittest.TestCase):
     """RequestBody.read() returns the full body bytes."""
 
@@ -271,7 +266,7 @@ class TestRequestBodyRead(unittest.TestCase):
         self.assertEqual(self._captured["read_data"], body)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyIterChunks(unittest.TestCase):
     """RequestBody.iter_chunks() returns a BodyChunkIterator."""
 
@@ -342,7 +337,7 @@ class TestRequestBodyIterChunks(unittest.TestCase):
         self.assertNotIn("chunks", self._captured)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyOneShot(unittest.TestCase):
     """RequestBody enforces one-shot consumption."""
 
@@ -393,7 +388,7 @@ class TestRequestBodyOneShot(unittest.TestCase):
         self.assertIn("already consumed", self._captured["second_read_error"])
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyOneShotIterChunks(unittest.TestCase):
     """iter_chunks also consumes the body; second iter_chunks is rejected."""
 
@@ -445,7 +440,7 @@ class TestRequestBodyOneShotIterChunks(unittest.TestCase):
         self.assertIn("already consumed", self._captured["second_iter_error"])
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyOneShotReadThenIter(unittest.TestCase):
     """read() followed by iter_chunks() is rejected."""
 
@@ -495,7 +490,7 @@ class TestRequestBodyOneShotReadThenIter(unittest.TestCase):
         self.assertEqual(self._captured.get("error"), "consumed")
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestEmptyBody(unittest.TestCase):
     """GET requests (no body) result in has_body=False, body=None."""
 
@@ -536,7 +531,7 @@ class TestEmptyBody(unittest.TestCase):
         self.assertIsNone(self._captured["body"])
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyErrorHierarchy(unittest.TestCase):
     """All body error types form a proper exception hierarchy."""
 
@@ -587,7 +582,7 @@ class TestRequestBodyErrorHierarchy(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestServerBodyPolicyConstructor(unittest.TestCase):
     """Server constructor accepts and validates body policy parameters."""
 
@@ -705,7 +700,7 @@ class TestServerBodyPolicyConstructor(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestHasBody(unittest.TestCase):
     """Request.has_body property is True when a body is present."""
 
@@ -758,7 +753,7 @@ class TestRequestHasBody(unittest.TestCase):
         self.assertIsNone(self._captured["body"])
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyNoneWhenNoBody(unittest.TestCase):
     """Request.body is None when there is no body."""
 
@@ -805,7 +800,7 @@ class TestRequestBodyNoneWhenNoBody(unittest.TestCase):
         self.assertTrue(self._captured["has_body"])
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyIsRequestObjectType(unittest.TestCase):
     """Request.body returns a RequestBody when a body is available."""
 
@@ -855,7 +850,7 @@ class TestRequestBodyIsRequestObjectType(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyChunkIteratorProtocol(unittest.TestCase):
     """BodyChunkIterator implements the Python iterator protocol."""
 
@@ -921,7 +916,7 @@ class TestBodyChunkIteratorProtocol(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyRejection(unittest.TestCase):
     """Body exceeding max_request_body_bytes is rejected."""
 
@@ -968,7 +963,7 @@ class TestRequestBodyRejection(unittest.TestCase):
         self.assertEqual(status, 413)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestRequestBodyRejectionMode(unittest.TestCase):
     """Reject mode blocks all bodies."""
 
@@ -1011,7 +1006,7 @@ class TestRequestBodyRejectionMode(unittest.TestCase):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestIteratorDrop(unittest.TestCase):
     """Iterator can be dropped without resource leaks."""
 
@@ -1053,7 +1048,7 @@ class TestIteratorDrop(unittest.TestCase):
         self.assertTrue(self._captured.get("iterator_created"))
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestIteratorDropAfterOneChunk(unittest.TestCase):
     """Iterator can be dropped after partial consumption."""
 
@@ -1098,7 +1093,7 @@ class TestIteratorDropAfterOneChunk(unittest.TestCase):
         self.assertTrue(self._captured.get("dropped_after_one"))
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestIteratorRepeatedAbandon(unittest.TestCase):
     """Repeated iterator abandonment does not leak threads."""
 

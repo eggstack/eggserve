@@ -851,7 +851,6 @@ class TestFileResponseStreaming(unittest.TestCase):
         self.assertEqual(body.length, 1000)
 
 
-@unittest.skip("Server runtime is dropped in start(); accept loop never runs")
 class TestCallbackOverSockets(unittest.TestCase):
     """Canonical type conformance at the callback boundary over real sockets."""
 
@@ -1016,7 +1015,6 @@ class TestCallbackOverSockets(unittest.TestCase):
         self.assertEqual(hb.get_all("set-cookie"), ["a=1", "b=2"])
 
 
-@unittest.skip("Server runtime is dropped in start(); accept loop never runs")
 class TestExternalClientWireBehavior(unittest.TestCase):
     """Tests using Python http.client to verify wire-level behavior."""
 
@@ -1040,7 +1038,7 @@ class TestExternalClientWireBehavior(unittest.TestCase):
         import http.client
 
         def handler(req):
-            return {"status": 200, "headers": {"content-type": "text/plain"}, "body": b"ok"}
+            return Response.text(200, "ok", content_type="text/plain")
 
         server, t = self._start_server(handler)
         try:
@@ -1065,7 +1063,7 @@ class TestExternalClientWireBehavior(unittest.TestCase):
         import http.client
 
         def handler(req):
-            return {"status": 200, "headers": {"content-type": "text/plain"}, "body": b"hello world"}
+            return Response.text(200, "hello world", content_type="text/plain")
 
         server, t = self._start_server(handler)
         try:
@@ -1089,7 +1087,7 @@ class TestExternalClientWireBehavior(unittest.TestCase):
 
         for expected_status in [200, 204, 301, 404, 500]:
             def handler(req, s=expected_status):
-                return {"status": s, "headers": {}, "body": b""}
+                return Response.empty(s)
 
             server, t = self._start_server(handler)
             try:
@@ -1107,15 +1105,11 @@ class TestExternalClientWireBehavior(unittest.TestCase):
         import http.client
 
         def handler(req):
-            return {
-                "status": 200,
-                "headers": [
-                    ("x-first", "1"),
-                    ("x-second", "2"),
-                    ("x-third", "3"),
-                ],
-                "body": b"",
-            }
+            return Response.text(200, "", headers=[
+                ("x-first", "1"),
+                ("x-second", "2"),
+                ("x-third", "3"),
+            ])
 
         server, t = self._start_server(handler)
         try:

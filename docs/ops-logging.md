@@ -19,13 +19,10 @@ All output goes to **stderr**. stdout is reserved for serving content.
 ```python
 from eggserve.server import Server
 
-def my_observer(event):
-    print(f"[{event['severity']}] {event['event']}: {event['message']}")
-
-server = Server(root="/path", observer=my_observer)
+server = Server(root="/path")
 ```
 
-The observer receives a dict with the same schema as the JSON Lines output. Observer errors are caught and printed to stderr; they do not crash the server.
+The Python `Server` logs to stderr via the CLI's structured logging. The Python `Server` does not accept observer callbacks; operational events are emitted to stderr by the Rust runtime.
 
 ## JSON Lines Schema
 
@@ -153,9 +150,9 @@ Repeated accept errors (e.g., file descriptor exhaustion) are rate-limited:
 - Subsequent identical errors emit a summary every 10 occurrences
 - Counter resets on successful accept or different error kind
 
-### Python observer blocking
+### Python server logging
 
-The observer callback runs with the GIL acquired. Long-running observers block event processing. Keep observer logic minimal or offload to a background thread.
+The Python `Server` delegates logging to the Rust runtime's stderr log sink. There is no Python observer callback; operational events are emitted to stderr in the same structured format as the CLI.
 
 ### Log sink failures
 

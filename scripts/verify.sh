@@ -10,6 +10,7 @@ set -euo pipefail
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+PYTHON="${PYTHON:-python3.14}"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -63,11 +64,11 @@ cmd_full() {
   run cargo test -p eggserve-bin --features tls
 
   # Python wheel tests
-  if command_exists python3 && command_exists maturin; then
+  if command_exists "$PYTHON" && "$PYTHON" -m maturin --version >/dev/null 2>&1; then
     header "Python wheel tests"
-    run bash "$SCRIPT_DIR/test-python-wheel.sh"
+    run env PYTHON="$PYTHON" bash "$SCRIPT_DIR/test-python-wheel.sh"
   else
-    die "Python 3.14 and maturin 1.14.1 are required for 'verify.sh full'.
+    die "Python 3.14 and maturin are required for 'verify.sh full'.
 Use 'verify.sh fast' for Rust-only development checks."
   fi
 

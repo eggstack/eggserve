@@ -75,12 +75,12 @@ The wheel bundles the platform-native `eggserve` CLI binary in the `bin/` packag
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. Pinned root identity. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Adversarial qualification scaffold established (114 tests). Awaiting independent safety review and profile promotion decision. Windows remains functional-only until those human gates complete. |
+| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Adversarial qualification scaffold established (114 tests). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed. |
 
 ### Classification Definitions
 
 - **supported-hardened**: Full security hardening is active. Descriptor-relative traversal on Unix provides TOCTOU-resistant symlink denial. The serving root is pinned at startup (`PinnedRoot`), so renaming or replacing the configured pathname does not redirect the running server. These platforms are suitable for serving untrusted content with safe defaults.
-- **supported-functional**: The server is functional and tested in CI, but the platform has not yet passed independent safety review for production hardened status. Windows has handle-relative confinement implemented but awaits independent review and profile promotion. These platforms are suitable only for trusted local content.
+- **supported-functional**: The server is functional and tested in CI, but the platform has not yet passed independent safety review for production hardened status. Windows has handle-relative confinement implemented but independent adversarial review is incomplete. These platforms are suitable only for trusted local content.
 
 See [security-policy.md](security-policy.md) and [non-goals.md](non-goals.md) for the full Windows hardening statement and deferred scope.
 

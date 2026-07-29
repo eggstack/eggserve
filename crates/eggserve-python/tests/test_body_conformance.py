@@ -16,12 +16,7 @@ import time
 import unittest
 import urllib.request
 
-try:
-    from eggserve._native import Response, Server
-
-    NATIVE_AVAILABLE = True
-except ImportError:
-    NATIVE_AVAILABLE = False
+from eggserve._native import Response, Server
 
 
 from _repo import body_conformance_corpus
@@ -191,7 +186,7 @@ def _build_request(fixture, addr):
 # ---------------------------------------------------------------------------
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformancePolicySelection(unittest.TestCase):
     """Body policy selection: reject, buffer, stream, static."""
 
@@ -266,7 +261,7 @@ class TestBodyConformancePolicySelection(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceEmptyBody(unittest.TestCase):
     """Empty body handling."""
 
@@ -321,7 +316,7 @@ class TestBodyConformanceEmptyBody(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceFixedLength(unittest.TestCase):
     """Fixed-length body within limit."""
 
@@ -383,7 +378,7 @@ class TestBodyConformanceFixedLength(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceOverLimit(unittest.TestCase):
     """Fixed-length body exceeding limit."""
 
@@ -439,7 +434,7 @@ class TestBodyConformanceOverLimit(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceChunked(unittest.TestCase):
     """Chunked transfer-encoding body."""
 
@@ -546,7 +541,7 @@ class TestBodyConformanceChunked(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceOneShot(unittest.TestCase):
     """One-shot consumption enforcement."""
 
@@ -609,7 +604,7 @@ class TestBodyConformanceOneShot(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceGetWithBody(unittest.TestCase):
     """GET requests with body are rejected."""
 
@@ -663,7 +658,7 @@ class TestBodyConformanceGetWithBody(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceConflictingContentLength(unittest.TestCase):
     """Conflicting Content-Length handling."""
 
@@ -719,7 +714,7 @@ class TestBodyConformanceConflictingContentLength(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceChunkedMalformed(unittest.TestCase):
     """Malformed chunked transfer-encoding handling."""
 
@@ -781,7 +776,7 @@ class TestBodyConformanceChunkedMalformed(unittest.TestCase):
                 )
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyConformanceChunkedExactLimit(unittest.TestCase):
     """Chunked body at exact limit and one byte over."""
 

@@ -203,7 +203,7 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; handle-relative confinement (Plans 084–085). Adversarial qualification test scaffold established (Plan 086, 114 tests). Awaiting independent safety review and profile promotion decision. Do not use with untrusted public content until those human gates complete. |
+| Windows x86_64 | Functional; handle-relative confinement (Plans 084–085). Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete. Do not use with untrusted public content until that review is completed. |
 
 ## Deployment
 

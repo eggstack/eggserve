@@ -105,7 +105,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 
 **All server module items are experimental.** API is subject to change without notice.
 
-**Milestone 3 promotion decision:** The `server` module remains experimental for the initial release. While the lifecycle state machine, `Service` trait, and `StaticService` are implemented and tested, the following factors justify keeping the module experimental:
+**Milestone 3 decision:** The `server` module remains experimental for the initial release. While the lifecycle state machine, `Service` trait, and `StaticService` are implemented and tested, the following factors justify keeping the module experimental:
 
 1. No production-path consumer fixtures exist yet (only test consumers)
 2. The `Service` trait signature may evolve to support request bodies or HTTP/2

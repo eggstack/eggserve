@@ -8,6 +8,8 @@
 set -euo pipefail
 
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
+export PYTHONNOUSERSITE=1
+unset PYTHONPATH
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -31,7 +33,12 @@ cleanup() {
         rm -rf "$DIST_DIR"
     fi
     if [[ "$STAGED" -eq 1 ]]; then
-        rm -rf "$REPO_ROOT/crates/eggserve-python/python/eggserve/bin"
+        # Remove only the binary we created, preserving any pre-existing content
+        rm -f "$BIN_DIR/$BINARY_NAME"
+        # Remove the directory only if it's now empty
+        if [[ -d "$BIN_DIR" && -z "$(ls -A "$BIN_DIR")" ]]; then
+            rmdir "$BIN_DIR"
+        fi
     fi
     find "$REPO_ROOT/crates/eggserve-python" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
     find "$REPO_ROOT/crates/eggserve-python" -name '*.pyc' -delete 2>/dev/null || true
@@ -41,8 +48,13 @@ trap cleanup EXIT
 
 # Prerequisites
 command -v "$PYTHON" >/dev/null 2>&1 || die "$PYTHON not found."
-"$PYTHON" -c "import sys; assert sys.version_info >= (3, 14)" || die "Python 3.14+ required."
-command -v maturin >/dev/null 2>&1 || die "maturin not found. Install: pip install maturin==1.14.1"
+"$PYTHON" -c "
+import sys
+v = sys.version_info
+assert v >= (3, 14), f'Python {v.major}.{v.minor} < 3.14'
+assert v < (3, 15), f'Python {v.major}.{v.minor}.{v.micro} >= 3.15 (package requires <3.15)'
+" || die "Python >=3.14,<3.15 required."
+"$PYTHON" -m maturin --version >/dev/null 2>&1 || die "maturin not found. Install: pip install maturin==1.14.1"
 command -v cargo >/dev/null 2>&1 || die "cargo not found."
 
 # Build CLI binary
@@ -51,22 +63,33 @@ cargo build --release --locked -p eggserve-bin
 
 # Stage CLI into package
 info "Staging CLI binary into package"
-mkdir -p "$REPO_ROOT/crates/eggserve-python/python/eggserve/bin"
+BIN_DIR="$REPO_ROOT/crates/eggserve-python/python/eggserve/bin"
+STAGED_BINARY=""
+if [[ -d "$BIN_DIR" ]]; then
+    # Preserve any existing binary before we overwrite
+    for f in "$BIN_DIR"/eggserve "$BIN_DIR"/eggserve.exe; do
+        if [[ -f "$f" ]]; then
+            STAGED_BINARY="$f"
+            break
+        fi
+    done
+fi
+mkdir -p "$BIN_DIR"
 if [[ "$(uname -s)" == *"MINGW"* || "$(uname -s)" == *"MSYS"* || "$(uname -s)" == *"CYGWIN"* ]]; then
     BINARY_NAME="eggserve.exe"
 else
     BINARY_NAME="eggserve"
 fi
 cp "$REPO_ROOT/target/release/$BINARY_NAME" \
-    "$REPO_ROOT/crates/eggserve-python/python/eggserve/bin/$BINARY_NAME"
-chmod +x "$REPO_ROOT/crates/eggserve-python/python/eggserve/bin/$BINARY_NAME"
+    "$BIN_DIR/$BINARY_NAME"
+chmod +x "$BIN_DIR/$BINARY_NAME"
 STAGED=1
 
 # Build wheel
 DIST_DIR="$(mktemp -d)"
 info "Building wheel into $DIST_DIR"
 (cd "$REPO_ROOT/crates/eggserve-python" && \
-    maturin build --release --interpreter "$PYTHON" -o "$DIST_DIR")
+    "$PYTHON" -m maturin build --release --interpreter "$PYTHON" -o "$DIST_DIR")
 
 # Create venv and install wheel
 VENV_DIR="$(mktemp -d)"

@@ -206,7 +206,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Path traversal, NUL bytes, ambiguous separators, Windows prefixes, reserved names, and ADS syntax are rejected.
 - On Unix with safe defaults (symlinks denied): descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`. A symlink swapped between check and open is refused rather than followed.
 - With `--follow-symlinks`: component-wise `symlink_metadata` checks. Weaker than descriptor-relative; explicitly outside the hardening guarantee.
-- On Windows: parser-level checks plus handle-relative child resolution (Plan 084) and directory enumeration (Plan 085). `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained handle. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent safety review and profile promotion decision awaited.
+- On Windows: parser-level checks plus handle-relative child resolution (Plan 084) and directory enumeration (Plan 085). `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained handle. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete.
 
 ### Resource Limits
 
@@ -453,23 +453,23 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 | Linux aarch64 | Supported | Manual | Full (descriptor-relative) |
 | macOS arm64 | Supported | Manual | Full (descriptor-relative) |
 | macOS x86_64 | Supported | Manual | Full (descriptor-relative) |
-| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration implemented; adversarial qualification scaffold established, awaiting independent review and profile decision) |
+| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration implemented; adversarial qualification scaffold established, independent adversarial review incomplete) |
 
-## Production Profiles
+## Deployment Status
 
 eggserve defines production readiness through explicit profiles rather than one undifferentiated claim. Every production claim must name a profile. Production profiles are maintained by the maintainers and documented in README.md and `docs/deployment.md`.
 
 | Profile | Status | Description |
 |---------|--------|-------------|
-| unix-reverse-proxy | candidate | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; Plan 089 gates defined: proxy.caddy-interop, proxy.nginx-interop, proxy.desync-corpus, stateful.fuzz-replay, filesystem.unix-race, fault.injection, soak.unix-reverse-proxy, artifact.installed-binaries, supply-chain.sbom, release.independent-review, release.profile-decision) |
-| unix-direct-https | candidate | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; Plan 089 gates defined: native-tls.abuse-limits, soak.unix-direct-https) |
-| windows-reverse-proxy | candidate | Windows behind reverse proxy (adversarial qualification scaffold established, awaiting independent review and profile decision) |
+| unix-reverse-proxy | functional; qualification pending | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; Plan 089 gates defined: proxy.caddy-interop, proxy.nginx-interop, proxy.desync-corpus, stateful.fuzz-replay, filesystem.unix-race, fault.injection, soak.unix-reverse-proxy, artifact.installed-binaries, supply-chain.sbom, release.independent-review) |
+| unix-direct-https | functional; qualification pending | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; Plan 089 gates defined: native-tls.abuse-limits, soak.unix-direct-https) |
+| windows-reverse-proxy | functional | Windows behind reverse proxy (adversarial qualification scaffold established, independent adversarial review incomplete) |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |
 | local-development | supported-hardened | Any platform, loopback, safe defaults |
 | windows-functional | functional | Windows SMB/non-NTFS/cloud filesystems |
 | link-following-compat | functional | Any platform with --follow-symlinks (weaker guarantee) |
 
-Production profile promotion is maintained by the project maintainers and documented in README.md. No profile is promoted in this release contract version. This release contract only defines promotion criteria.
+Production profile status is maintained by the project maintainers and documented in README.md. No profile has achieved hardened status in this release contract version. This release contract only defines hardened status criteria.
 
 - Reverse-proxy origin (Caddy, nginx, Traefik) is the preferred public deployment.
 - Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge parity.

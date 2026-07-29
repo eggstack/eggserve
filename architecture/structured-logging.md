@@ -73,18 +73,9 @@ Every operational event has:
 - Sensitive headers (Authorization, Cookie) are never logged
 - Absolute filesystem paths are startup-only diagnostics
 
-## Python Observer
+## Python Server Logging
 
-The Python `Server` accepts an optional `observer` callback that receives structured event dictionaries:
-
-```python
-def my_observer(event):
-    print(f"[{event['severity']}] {event['event']}: {event['message']}")
-
-server = Server(root="/path", observer=my_observer)
-```
-
-Observer callback errors are caught and printed to Python stderr, and the `dropped_log_events` counter is incremented. The observer runs with the GIL acquired, so long-running observers may block event processing.
+The Python `Server` delegates logging to the Rust runtime's stderr log sink. Operational events are emitted to stderr in the same structured format as the CLI. The Python `Server` does not accept observer callbacks; the `observer` parameter has been removed from the API due to the global `OnceLock` logger architecture preventing per-instance observer registration.
 
 ## Operational Counters
 

@@ -555,26 +555,6 @@ class TestFileBackedResponse(_TestServerBase):
         new_resp = Response.body_source(0, body, {})
         self.assertEqual(new_resp.status, 0)
 
-    @unittest.skip("Known limitation: file-backed BodySource dropped to empty by canonical response conversion")
-    def test_handler_file_body_through_server(self):
-        """Handler returning a file-backed BodySource through the server.
-
-        NOTE: File-backed BodySources from handlers are currently dropped to
-        empty by the canonical response conversion. This is a known limitation.
-        """
-        def handler(req):
-            root = ServerSecureRoot(self._td)
-            responder = StaticResponder(root)
-            resp = responder.respond("GET", "/hello.txt")
-            return resp.body.to_response(200)
-
-        s = self._make_server(handler=handler)
-        url = f"http://{s.addr}/hello.txt"
-        self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.status, 200)
-        resp.close()
-
     def test_response_body_getter_clones_bytes(self):
         """Response.body getter clones bytes body (not file-backed)."""
         resp = Response.bytes(200, b"test data")

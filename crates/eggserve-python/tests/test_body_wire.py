@@ -18,12 +18,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-try:
-    from eggserve._native import Response, Server
-
-    NATIVE_AVAILABLE = True
-except ImportError:
-    NATIVE_AVAILABLE = False
+from eggserve._native import Response, Server
 
 
 def _wait_for_tcp(addr, timeout=5.0):
@@ -71,7 +66,7 @@ def _parse_status(data):
     return None
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestFixedLengthEcho(unittest.TestCase):
     """Fixed-length body echo via raw socket."""
 
@@ -162,7 +157,7 @@ class TestFixedLengthEcho(unittest.TestCase):
         self.assertEqual(self._captured["body"], body)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestChunkedBody(unittest.TestCase):
     """Chunked transfer-encoding body via raw socket."""
 
@@ -251,7 +246,7 @@ class TestChunkedBody(unittest.TestCase):
         self.assertEqual(all_data, b"hello")
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestBodyLimitExceeded(unittest.TestCase):
     """Body exceeding limit returns 413."""
 
@@ -303,7 +298,7 @@ class TestBodyLimitExceeded(unittest.TestCase):
         self.assertEqual(status, 413)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestGetWithBodyRejected(unittest.TestCase):
     """GET requests with body are rejected."""
 
@@ -343,7 +338,7 @@ class TestGetWithBodyRejected(unittest.TestCase):
         self.assertEqual(status, 400)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestStaticServiceBodyRejection(unittest.TestCase):
     """Static service returns 405 for POST."""
 
@@ -402,7 +397,7 @@ class TestStaticServiceBodyRejection(unittest.TestCase):
         self.assertEqual(status, 405)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestHttpClientFixedLength(unittest.TestCase):
     """Fixed-length body via http.client."""
 
@@ -476,7 +471,7 @@ class TestHttpClientFixedLength(unittest.TestCase):
         conn.close()
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestDisconnectMidBody(unittest.TestCase):
     """Disconnecting mid-body should not crash the server."""
 
@@ -532,7 +527,7 @@ class TestDisconnectMidBody(unittest.TestCase):
         self.assertEqual(status, 200)
 
 
-@unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
+
 class TestPartialConsumption(unittest.TestCase):
     """Partial body consumption with close policy."""
 

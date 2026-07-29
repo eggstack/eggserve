@@ -288,7 +288,7 @@ with Server(root=root, handler=handler) as server:
     print(f"Serving on {server.addr}")
 ```
 
-Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, observer=None, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close")`
+Constructor: `Server(root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=False, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close")`
 
 Parameters:
 - `root` — server root directory path (string)
@@ -297,7 +297,6 @@ Parameters:
 - `policy` — optional `StaticPolicyWrapper` for filesystem policy
 - `handler` — optional Python callable `(Request) -> Response` for dynamic responses
 - `public` — must be `True` to bind to 0.0.0.0 or ::
-- `observer` — optional callback `fn(event: dict) -> None` for structured logging; receives event dictionaries with keys: `schema_version`, `severity`, `event`, `message`, `timestamp`, `connection_id`, `request_seq`, `fields`. Observer errors are caught and printed to stderr. Long-running observers may block event processing (GIL acquired).
 - `max_connections` — maximum concurrent connections (default: 64)
 - `max_file_streams` — maximum concurrent file streams (default: 32)
 - `max_python_callbacks` — maximum concurrent handler callbacks (default: 8)
@@ -331,7 +330,7 @@ The server enforces connection limits, header read timeouts, and connection tota
 
 **Framing strictness:** The server enforces hardened HTTP/1 framing before any handler invocation. Requests containing both `Transfer-Encoding` and `Content-Length` are rejected with 400 (when both headers survive Hyper's parser normalization). Duplicate `Content-Length` fields are rejected with 400, even when values are identical. Malformed `Content-Length` values (non-numeric, negative, overflowing) are rejected at the HTTP/1 wire level by Hyper. These checks prevent HTTP request smuggling attacks where front-end and back-end servers disagree on message boundaries.
 
-**Observability hooks:** The `Server` provides minimal observability via `state` and `addr` properties. The `observer` parameter receives structured event dictionaries matching the Rust/CLI event semantics (see `architecture/structured-logging.md`). Events include process lifecycle, connection errors, filesystem denials, and operational faults. Observer errors are caught, printed to Python stderr, and counted in `dropped_log_events` without crashing the server.
+**Observability hooks:** The `Server` provides minimal observability via `state` and `addr` properties. The CLI emits structured operational events to stderr (see `architecture/structured-logging.md`). Events include process lifecycle, connection errors, filesystem denials, and operational faults.
 
 ### `ServerSecureRoot`
 

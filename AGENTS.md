@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–092 are implementation-complete. Plan 091 establishes the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–093 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps.
 
 ## Non-negotiables
 
@@ -92,7 +92,7 @@ Routine CI is a small regression screen, not release certification:
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel bundles the platform-native CLI binary.
-- **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). `OwnedHandle::try_clone()` is fallible (not `Clone`), so `ResolvedDirectory` on Windows retains an owned `dir_handle` for handle-relative child resolution. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent safety review and profile promotion decision awaited. Do not use with untrusted public content on Windows until those human gates complete.
+- **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). `OwnedHandle::try_clone()` is fallible (not `Clone`), so `ResolvedDirectory` on Windows retains an owned `dir_handle` for handle-relative child resolution. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
 - **Two Method types**: `ReadOnlyMethod` (GET/HEAD only, stable) and `Method` (standard + extension, experimental). `ReadOnlyMethod` is used by the response planner. `Method` is the canonical type for new code.
@@ -115,11 +115,11 @@ Routine CI is a small regression screen, not release certification:
 - **Python RequestBody is one-shot** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive and consume the body. Second use raises `RequestBodyConsumedError`. `iter_chunks()` bridges async Rust body to synchronous Python via a bounded channel with backpressure. Body objects are only present when `has_body` is True (non-empty bodies with allowed policy). Empty bodies and rejected bodies produce `body=None`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary (`Server`, `Service` trait, `StaticService`, etc.) for embedding. Includes lifecycle state machine (`LifecycleState`), listener abstraction, readiness signaling, and graceful/forced shutdown with drain deadline. Python `Server` stores the tokio runtime in `PyServer` (not as a temporary), `start()` blocks until Running state, and callback handlers use `start_with_service()`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Custom services receive real connection metadata (local/remote addresses, scheme, TLS state) via the `Request` envelope. Its API is subject to change without notice. Do not depend on it for stable integrations. Verified by Plan 055.
 - **Production profiles** — Production deployment profiles are documented in README.md and `docs/deployment.md`. Profiles are: unix-reverse-proxy (candidate), unix-direct-https (candidate), windows-reverse-proxy (candidate), windows-direct-https (functional), local-development (supported-hardened), windows-functional (functional), link-following-compat (functional).
-- **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. The Python server can add a `PyLogObserver` callback. Library code must not use `println!`/`eprintln!`.
+- **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. The Python `Server` delegates logging to the Rust runtime's stderr sink. Library code must not use `println!`/`eprintln!`.
 
 ## Plan status
 
-Historical plans are in `plans/`. Plans 000–092 are implementation-complete. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–092 are historical records; their infrastructure requirements no longer control current CI or release policy.
+Historical plans are in `plans/`. Plans 000–093 are implementation-complete. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–093 are historical records; their infrastructure requirements no longer control current CI or release policy.
 
 ## Pointers to docs/
 
