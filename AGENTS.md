@@ -21,11 +21,15 @@ eggserve/
 │   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │   └── eggserve-python/    # Python wheel packaging (maturin)
 ├── architecture/           # deep-dive docs for each subsystem
+├── benchmarks/             # benchmark baselines (Plan 088)
+├── conformance/            # test corpora and conformance matrix
 ├── docs/                   # project documentation
-├── plans/                  # design plans and roadmap
 ├── examples/               # usage examples (Python, Rust)
 ├── fuzz/                   # fuzz targets, seed corpora, fuzz README
-└── .github/workflows/      # CI workflows
+├── plans/                  # design plans and roadmap
+├── release/                # release artifacts
+├── scripts/                # verify.sh, test-python-wheel.sh, install-cargo-tools.sh
+└── tests/                  # integration tests (proxy interop, soak, installed-binary qual)
 ```
 
 ## Common commands
@@ -46,6 +50,8 @@ cargo test -p eggserve-core --features client-tls          # client TLS feature 
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
+
+The `tests/` directory at the repo root holds integration tests (proxy interop, soak, installed-binary qual) that are distinct from in-crate unit/integration tests.
 
 ### Local verification script
 
