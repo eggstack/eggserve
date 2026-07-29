@@ -1,0 +1,143 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (build wheels but do not publish)"
+        required: false
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHON: "3.14"
+
+jobs:
+  build-linux:
+    name: "Build wheel (Linux x86_64)"
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON }}
+      - name: Install Maturin
+        run: python -m pip install maturin==1.14.1
+      - name: Build release binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage binary into package
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
+      - name: Build wheel
+        run: |
+          python -m maturin build --release \
+            --interpreter python${{ env.PYTHON }} \
+            --auditwheel \
+            --out dist
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wheel-linux-x86_64
+          path: dist/*.whl
+
+  build-macos:
+    name: "Build wheel (macOS arm64)"
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON }}
+      - name: Install Maturin
+        run: python -m pip install maturin==1.14.1
+      - name: Build release binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage binary into package
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
+      - name: Build wheel
+        run: |
+          python -m maturin build --release \
+            --interpreter python${{ env.PYTHON }} \
+            --out dist
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wheel-macos-arm64
+          path: dist/*.whl
+
+  build-windows:
+    name: "Build wheel (Windows x86_64)"
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON }}
+      - name: Install Maturin
+        run: python -m pip install maturin==1.14.1
+      - name: Build release binary
+        run: cargo build --release --locked -p eggserve-bin
+      - name: Stage binary into package
+        shell: bash
+        run: |
+          mkdir -p crates/eggserve-python/python/eggserve/bin
+          cp target/release/eggserve.exe crates/eggserve-python/python/eggserve/bin/eggserve.exe
+      - name: Build wheel
+        run: |
+          python -m maturin build --release `
+            --interpreter python${{ env.PYTHON }} `
+            --out dist
+      - name: Upload wheel artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: wheel-windows-x86_64
+          path: dist/*.whl
+
+  publish:
+    name: Publish to PyPI
+    needs: [build-linux, build-macos, build-windows]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    if: inputs.dry_run == 'false'
+    environment: release
+    steps:
+      - name: Download all wheels
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          pattern: wheel-*
+          merge-multiple: true
+          path: dist
+      - name: List wheels
+        run: ls -la dist/
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@76f52bc884231f62b5fbf0b8492b684e32e6f3b0 # v1.12.4
+        with:
+          packages-dir: dist/
