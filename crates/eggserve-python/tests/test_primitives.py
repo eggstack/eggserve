@@ -1056,11 +1056,5 @@ class TestBodySource(unittest.TestCase):
         self.assertEqual(plan.range, (0, 4))
 
 
-class TestControlledFailure(unittest.TestCase):
-    def test_controlled_failure(self):
-        """Deliberate failure to verify CI blocks on Python test failure."""
-        self.fail("controlled failure — revert after CI red verification")
-
-
 if __name__ == "__main__":
     unittest.main()

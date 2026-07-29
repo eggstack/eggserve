@@ -33,6 +33,8 @@ cleanup() {
     if [[ "$STAGED" -eq 1 ]]; then
         rm -rf "$REPO_ROOT/crates/eggserve-python/python/eggserve/bin"
     fi
+    find "$REPO_ROOT/crates/eggserve-python" -type d -name '__pycache__' -exec rm -rf {} + 2>/dev/null || true
+    find "$REPO_ROOT/crates/eggserve-python" -name '*.pyc' -delete 2>/dev/null || true
     exit "$rc"
 }
 trap cleanup EXIT

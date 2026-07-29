@@ -89,9 +89,10 @@ The wheel is platform-specific because it contains a native binary. maturin auto
 - **OS**: linux, macos, windows
 - **Architecture**: x86_64, aarch64, arm64 (Apple Silicon)
 
-CI and release validation build and install wheels on Linux, macOS, and
-Windows runners with CPython 3.14. The wheel smoke suite runs outside the
-checkout with `PYTHONPATH` unset and requires the bundled CLI to be found.
+Routine CI builds and tests the Linux wheel with CPython 3.14. macOS and
+Windows wheels are built and tested manually. The wheel smoke suite runs
+outside the checkout with `PYTHONPATH` unset and requires the bundled CLI
+to be found.
 
 ## Versioning
 

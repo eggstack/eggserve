@@ -418,7 +418,7 @@ Plan 049 establishes a conformance corpus for canonical HTTP type behavior. The 
 
 The corpus is run by:
 - `tests/canonical_conformance.rs` (Rust side)
-- `python/eggserve/test_canonical_conformance.py` (Python side)
+- `crates/eggserve-python/tests/test_canonical_conformance.py` (Python side)
 
 ## API Stability Tiers
 
@@ -447,13 +447,13 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 
 ## Platforms
 
-| Platform | Status | Security Level |
-|----------|--------|---------------|
-| Linux x86_64 | Supported, CI-tested | Full (descriptor-relative) |
-| Linux aarch64 | Supported, CI-tested | Full (descriptor-relative) |
-| macOS arm64 | Supported, CI-tested | Full (descriptor-relative) |
-| macOS x86_64 | Supported, CI-tested | Full (descriptor-relative) |
-| Windows x86_64 | Supported, CI-tested | Partial (handle-relative child resolution + directory enumeration implemented; adversarial qualification scaffold established, awaiting independent review and profile decision) |
+| Platform | Status | CI | Security Level |
+|----------|--------|-----|---------------|
+| Linux x86_64 | Supported | Routine CI | Full (descriptor-relative) |
+| Linux aarch64 | Supported | Manual | Full (descriptor-relative) |
+| macOS arm64 | Supported | Manual | Full (descriptor-relative) |
+| macOS x86_64 | Supported | Manual | Full (descriptor-relative) |
+| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration implemented; adversarial qualification scaffold established, awaiting independent review and profile decision) |
 
 ## Production Profiles
 
