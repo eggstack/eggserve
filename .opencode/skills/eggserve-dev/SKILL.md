@@ -29,27 +29,38 @@ Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `
 
 ## CI validation sequence
 
-Run before pushing:
+Routine CI runs these in two concurrent jobs (`rust` and `python`):
 
 ```sh
+# Rust job
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
 cargo test --workspace                                     # tests
 cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                  # TLS tests
 cargo test -p eggserve-core --features client-tls          # client TLS feature tests
-bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
-cargo audit                                                # vulnerability check
-cargo deny check                                           # license/policy check
-bash scripts/verify-cargo-packages.sh                      # package dry-run gates
+
+# Python job (via scripts/test-python-wheel.sh)
+# Builds CLI, stages binary, builds wheel, installs in venv, runs smoke + tests
 ```
 
 Or use the local verification script:
 
 ```sh
-./scripts/verify.sh fast                 # routine dev check
-./scripts/verify.sh full                 # pre-release validation
+./scripts/verify.sh fast                 # routine dev check (Rust only)
+./scripts/verify.sh full                 # pre-release validation (Rust + Python wheel)
 ./scripts/verify.sh deep                 # expensive suites (manual)
+```
+
+### Optional manual security/package checks
+
+Not run in routine CI. Run manually when preparing a release:
+
+```sh
+bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation
+cargo audit                             # vulnerability check
+cargo deny check                        # license/policy check
+bash scripts/verify-cargo-packages.sh   # package dry-run gates
 ```
 
 ## Key conventions
@@ -60,7 +71,7 @@ Or use the local verification script:
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–091 are implementation-complete. Plan 091 establishes the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Historical plans are in `plans/`.
+- **Plan status** — Plans 000–091 are implementation-complete. Plan 091 establishes the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plan 092 closes the remaining Python CI correctness gaps. Historical plans are in `plans/`.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
 - **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding. The module is experimental; API may change.
@@ -100,7 +111,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
 - **Python Server has runtime hardening** — connection semaphore, header timeouts, connection total timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
-- **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix.
+- **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.

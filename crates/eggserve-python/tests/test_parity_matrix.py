@@ -22,7 +22,7 @@ import unittest
 import urllib.error
 import urllib.request
 
-from eggserve import Response, Server
+from eggserve._native import Response, Server
 
 
 def _raw_request(addr: str, request: bytes, timeout: float = 5.0) -> bytes:

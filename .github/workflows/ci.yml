@@ -43,12 +43,11 @@ jobs:
 
   python:
     name: python
-    needs: [rust]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    continue-on-error: true  # pre-existing test issues; wheel build/install is the gate
+    timeout-minutes: 20
     env:
       PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+      PYTHONNOUSERSITE: "1"
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -58,22 +57,7 @@ jobs:
         with:
           python-version: "3.14"
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - run: pip install maturin==1.14.1
-      - name: Build packaged CLI binary
-        run: cargo build --release --locked -p eggserve-bin
-      - name: Stage packaged CLI binary
-        run: |
-          mkdir -p crates/eggserve-python/python/eggserve/bin
-          cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-          chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
-      - name: Build wheel
-        run: maturin build --release --interpreter python -o dist
-        working-directory: crates/eggserve-python
-      - name: Install wheel
-        run: pip install --force-reinstall crates/eggserve-python/dist/*.whl
-      - name: Run Python tests
-        env:
-          PYTHONPATH: ""
-        run: |
-          cd crates/eggserve-python
-          python -m unittest discover -s python -p 'test_*.py' -v
+      - name: Install Maturin
+        run: python -m pip install maturin==1.14.1
+      - name: Build, install, smoke, and test wheel
+        run: bash scripts/test-python-wheel.sh

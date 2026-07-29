@@ -37,4 +37,4 @@ include = [
     { path = "python/eggserve/bin/eggserve", format = "wheel" },
     { path = "python/eggserve/bin/eggserve.exe", format = "wheel" },
 ]
-exclude = ["python/**/__pycache__/**", "python/**/*.pyc"]
+exclude = ["python/**/__pycache__/**", "python/**/*.pyc", "tests/**"]

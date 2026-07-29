@@ -65,26 +65,17 @@ cmd_full() {
   # Python wheel tests
   if command_exists python3 && command_exists maturin; then
     header "Python wheel tests"
-    (
-      cd "$REPO_ROOT"
-      cargo build --release --locked -p eggserve-bin
-      mkdir -p crates/eggserve-python/python/eggserve/bin
-      cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-      chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
-      cd crates/eggserve-python
-      maturin build --release --interpreter python -o dist
-      pip install --force-reinstall dist/*.whl
-      PYTHONPATH="" python -m unittest discover -s python -p 'test_*.py' -v
-    )
+    run bash "$SCRIPT_DIR/test-python-wheel.sh"
   else
-    info "Python/maturin not available — skipping wheel tests"
+    die "Python 3.14 and maturin 1.14.1 are required for 'verify.sh full'.
+Use 'verify.sh fast' for Rust-only development checks."
   fi
 
   # Package dry-run
   if [ -f "$SCRIPT_DIR/verify-cargo-packages.sh" ]; then
     header "Package dry-run"
-    run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode core
-    run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode bin
+    ALLOW_DIRTY=true run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode core
+    ALLOW_DIRTY=true run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode bin
   fi
 }
 

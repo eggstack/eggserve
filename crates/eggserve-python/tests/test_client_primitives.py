@@ -4,9 +4,9 @@ import unittest
 from eggserve._native import (
     ClientConfig,
     ClientError,
+    ClientMethod,
     EggserveError,
     HttpClient,
-    Method,
 )
 
 
@@ -84,17 +84,17 @@ class TestClientConfigValidation(unittest.TestCase):
         self.assertEqual(config.max_response_body_bytes, 1)
 
 
-class TestMethod(unittest.TestCase):
-    def test_method_variants_exist(self):
-        self.assertIsNotNone(Method.Get)
-        self.assertIsNotNone(Method.Head)
-        self.assertIsNotNone(Method.Post)
-        self.assertIsNotNone(Method.Put)
-        self.assertIsNotNone(Method.Delete)
-        self.assertIsNotNone(Method.Patch)
+class TestClientMethod(unittest.TestCase):
+    def test_client_method_variants_exist(self):
+        self.assertIsNotNone(ClientMethod.Get)
+        self.assertIsNotNone(ClientMethod.Head)
+        self.assertIsNotNone(ClientMethod.Post)
+        self.assertIsNotNone(ClientMethod.Put)
+        self.assertIsNotNone(ClientMethod.Delete)
+        self.assertIsNotNone(ClientMethod.Patch)
 
-    def test_method_repr(self):
-        self.assertIn("Get", repr(Method.Get))
+    def test_client_method_repr(self):
+        self.assertIn("Get", repr(ClientMethod.Get))
 
 
 class TestHttpClient(unittest.TestCase):

@@ -30,19 +30,19 @@ eggserve/
 
 ## Common commands
 
-CI runs these in order; match it locally before pushing:
+Routine CI runs these in two concurrent jobs (`rust` and `python`):
 
 ```sh
+# Rust job
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
 cargo test --workspace                                     # tests
 cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                  # TLS tests
 cargo test -p eggserve-core --features client-tls          # client TLS feature tests
-bash scripts/install-cargo-tools.sh                        # deterministic audit/deny installation
-cargo audit                                                # vulnerability check
-cargo deny check                                           # license/policy check
-bash scripts/verify-cargo-packages.sh                      # package dry-run gates
+
+# Python job (via scripts/test-python-wheel.sh)
+# Builds CLI, stages binary, builds wheel, installs in venv, runs smoke + tests
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
@@ -50,9 +50,20 @@ Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
 ### Local verification script
 
 ```sh
-./scripts/verify.sh fast                 # routine dev check
-./scripts/verify.sh full                 # pre-release validation
+./scripts/verify.sh fast                 # routine dev check (Rust only)
+./scripts/verify.sh full                 # pre-release validation (Rust + Python wheel)
 ./scripts/verify.sh deep                 # expensive suites (manual)
+```
+
+### Optional manual security/package checks
+
+Not run in routine CI. Run manually when preparing a release:
+
+```sh
+bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation
+cargo audit                             # vulnerability check
+cargo deny check                        # license/policy check
+bash scripts/verify-cargo-packages.sh   # package dry-run gates
 ```
 
 ## CI policy (Plan 091)
@@ -80,7 +91,7 @@ Routine CI is a small regression screen, not release certification:
 - **Manual argument parsing** in `args.rs` — no clap dependency.
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
-- **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`) on the Linux, macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI binary.
+- **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel bundles the platform-native CLI binary.
 - **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). `OwnedHandle::try_clone()` is fallible (not `Clone`), so `ResolvedDirectory` on Windows retains an owned `dir_handle` for handle-relative child resolution. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent safety review and profile promotion decision awaited. Do not use with untrusted public content on Windows until those human gates complete.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
@@ -108,7 +119,7 @@ Routine CI is a small regression screen, not release certification:
 
 ## Plan status
 
-Historical plans are in `plans/`. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–090 are historical records; their infrastructure requirements no longer control current CI or release policy.
+Historical plans are in `plans/`. Plan 091 defines current CI and release policy. Plan 092 closes the remaining Python CI correctness gaps. Implementation decisions remain in code and architecture documents. Plans 000–091 are historical records; their infrastructure requirements no longer control current CI or release policy.
 
 ## Pointers to docs/
 

@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
-# Installed-binary qualification test (Plan 090 Track I).
+# Installed-binary qualification smoke test.
 #
 # Tests the built binary in an isolated environment, simulating an
-# installed artifact. This satisfies the artifact.installed-binaries gate.
+# installed artifact. Retained after Plan 091 as a manual deep check.
 #
 # Usage: bash tests/installed-binary-qual.sh [binary-path]
 #

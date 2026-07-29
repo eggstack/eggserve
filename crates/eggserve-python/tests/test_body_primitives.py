@@ -131,18 +131,25 @@ class TestRequestBodyProperties(unittest.TestCase):
         with open(os.path.join(self._td, "index.txt"), "w") as f:
             f.write("ok")
         self._captured = {}
-        self._server_ready = threading.Event()
+        self._handler_done = threading.Event()
+        self._handler_error = None
 
         def handler(req):
-            if req.method == "POST" and req.has_body:
-                body = req.body
-                self._captured["declared_length"] = body.declared_length
-                self._captured["bytes_received"] = body.bytes_received
-                self._captured["complete"] = body.complete
-                data = body.read()
-                self._captured["read_data"] = data
-                self._captured["after_read_bytes"] = body.bytes_received
-                self._captured["after_read_complete"] = body.complete
+            try:
+                if req.method == "POST" and req.has_body:
+                    body = req.body
+                    self._captured["declared_length"] = body.declared_length
+                    self._captured["bytes_received"] = body.bytes_received
+                    self._captured["complete"] = body.complete
+                    data = body.read()
+                    self._captured["read_data"] = data
+                    self._captured["after_read_bytes"] = body.bytes_received
+                    self._captured["after_read_complete"] = body.complete
+            except BaseException as exc:
+                self._handler_error = exc
+                raise
+            finally:
+                self._handler_done.set()
             return Response.text(200, "ok")
 
         self._server = Server(
@@ -163,22 +170,27 @@ class TestRequestBodyProperties(unittest.TestCase):
             pass
         shutil.rmtree(self._td, ignore_errors=True)
 
+    def _send_and_wait(self, body=b"hello world"):
+        self._handler_done.clear()
+        self._captured.clear()
+        self._handler_error = None
+        _send_post(self._addr, "/index.txt", body)
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
+        self.assertIsNone(self._handler_error, f"Handler raised: {self._handler_error}")
+
     def test_declared_length_matches_content_length(self):
         body = b"hello world"
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.2)
+        self._send_and_wait(body)
         self.assertEqual(self._captured["declared_length"], len(body))
 
     def test_bytes_received_after_read(self):
         body = b"hello world"
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.2)
+        self._send_and_wait(body)
         self.assertEqual(self._captured["after_read_bytes"], len(body))
 
     def test_complete_after_read(self):
         body = b"hello world"
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.2)
+        self._send_and_wait(body)
         self.assertTrue(self._captured["after_read_complete"])
 
 
@@ -191,11 +203,19 @@ class TestRequestBodyRead(unittest.TestCase):
         with open(os.path.join(self._td, "index.txt"), "w") as f:
             f.write("ok")
         self._captured = {}
+        self._handler_done = threading.Event()
+        self._handler_error = None
 
         def handler(req):
-            if req.method == "POST" and req.has_body:
-                data = req.body.read()
-                self._captured["read_data"] = data
+            try:
+                if req.method == "POST" and req.has_body:
+                    data = req.body.read()
+                    self._captured["read_data"] = data
+            except BaseException as exc:
+                self._handler_error = exc
+                raise
+            finally:
+                self._handler_done.set()
             return Response.text(200, "ok")
 
         self._server = Server(
@@ -216,27 +236,38 @@ class TestRequestBodyRead(unittest.TestCase):
             pass
         shutil.rmtree(self._td, ignore_errors=True)
 
+    def _send_and_wait(self, body=b"hello world"):
+        self._handler_done.clear()
+        self._captured.clear()
+        self._handler_error = None
+        _send_post(self._addr, "/index.txt", body)
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
+        self.assertIsNone(self._handler_error, f"Handler raised: {self._handler_error}")
+
     def test_read_returns_body_bytes(self):
         body = b"hello world"
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.2)
+        self._send_and_wait(body)
         self.assertEqual(self._captured["read_data"], body)
 
     def test_read_returns_empty_bytes_for_empty_body(self):
+        # Content-Length: 0 means has_body=False, so handler won't set read_data
+        # This is correct empty-body semantics
+        self._handler_done.clear()
+        self._captured.clear()
+        self._handler_error = None
         _send_post(self._addr, "/index.txt", b"")
-        time.sleep(0.2)
-        self.assertEqual(self._captured["read_data"], b"")
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
+        self.assertIsNone(self._handler_error, f"Handler raised: {self._handler_error}")
+        self.assertNotIn("read_data", self._captured)
 
     def test_read_returns_unicode_body(self):
         body = "hello \u00e9\u00e8\u00ea".encode("utf-8")
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.2)
+        self._send_and_wait(body)
         self.assertEqual(self._captured["read_data"], body)
 
     def test_read_returns_binary_body(self):
         body = bytes(range(256))
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.2)
+        self._send_and_wait(body)
         self.assertEqual(self._captured["read_data"], body)
 
 
@@ -249,15 +280,23 @@ class TestRequestBodyIterChunks(unittest.TestCase):
         with open(os.path.join(self._td, "index.txt"), "w") as f:
             f.write("ok")
         self._captured = {}
+        self._handler_done = threading.Event()
+        self._handler_error = None
 
         def handler(req):
-            if req.method == "POST" and req.has_body:
-                chunks = []
-                it = req.body.iter_chunks()
-                for chunk in it:
-                    chunks.append(chunk)
-                self._captured["chunks"] = chunks
-                self._captured["complete"] = req.body.complete
+            try:
+                if req.method == "POST" and req.has_body:
+                    chunks = []
+                    it = req.body.iter_chunks()
+                    for chunk in it:
+                        chunks.append(chunk)
+                    self._captured["chunks"] = chunks
+                    self._captured["complete"] = req.body.complete
+            except BaseException as exc:
+                self._handler_error = exc
+                raise
+            finally:
+                self._handler_done.set()
             return Response.text(200, "ok")
 
         self._server = Server(
@@ -278,18 +317,29 @@ class TestRequestBodyIterChunks(unittest.TestCase):
             pass
         shutil.rmtree(self._td, ignore_errors=True)
 
+    def _send_and_wait(self, body=b"hello world"):
+        self._handler_done.clear()
+        self._captured.clear()
+        self._handler_error = None
+        _send_post(self._addr, "/index.txt", body)
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
+        self.assertIsNone(self._handler_error, f"Handler raised: {self._handler_error}")
+
     def test_iter_chunks_yields_full_body(self):
         body = b"hello world"
-        _send_post(self._addr, "/index.txt", body)
-        time.sleep(0.3)
+        self._send_and_wait(body)
         chunks = self._captured.get("chunks", [])
         self.assertEqual(b"".join(chunks), body)
 
     def test_iter_chunks_yields_empty_for_empty_body(self):
+        # Content-Length: 0 means has_body=False, so handler won't set chunks
+        self._handler_done.clear()
+        self._captured.clear()
+        self._handler_error = None
         _send_post(self._addr, "/index.txt", b"")
-        time.sleep(0.3)
-        chunks = self._captured.get("chunks", [])
-        self.assertEqual(chunks, [])
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
+        self.assertIsNone(self._handler_error, f"Handler raised: {self._handler_error}")
+        self.assertNotIn("chunks", self._captured)
 
 
 @unittest.skipUnless(NATIVE_AVAILABLE, "Native module not available")
@@ -301,16 +351,20 @@ class TestRequestBodyOneShot(unittest.TestCase):
         with open(os.path.join(self._td, "index.txt"), "w") as f:
             f.write("ok")
         self._captured = {}
+        self._handler_done = threading.Event()
 
         def handler(req):
-            if req.method == "POST" and req.has_body:
-                body = req.body
-                body.read()
-                try:
+            try:
+                if req.method == "POST" and req.has_body:
+                    body = req.body
                     body.read()
-                    self._captured["second_read_error"] = None
-                except RequestBodyConsumedError as e:
-                    self._captured["second_read_error"] = str(e)
+                    try:
+                        body.read()
+                        self._captured["second_read_error"] = None
+                    except RequestBodyConsumedError as e:
+                        self._captured["second_read_error"] = str(e)
+            finally:
+                self._handler_done.set()
             return Response.text(200, "ok")
 
         self._server = Server(
@@ -332,8 +386,9 @@ class TestRequestBodyOneShot(unittest.TestCase):
         shutil.rmtree(self._td, ignore_errors=True)
 
     def test_second_read_raises_consumed_error(self):
+        self._handler_done.clear()
         _send_post(self._addr, "/index.txt", b"data")
-        time.sleep(0.3)
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
         self.assertIsNotNone(self._captured.get("second_read_error"))
         self.assertIn("already consumed", self._captured["second_read_error"])
 
@@ -347,17 +402,21 @@ class TestRequestBodyOneShotIterChunks(unittest.TestCase):
         with open(os.path.join(self._td, "index.txt"), "w") as f:
             f.write("ok")
         self._captured = {}
+        self._handler_done = threading.Event()
 
         def handler(req):
-            if req.method == "POST" and req.has_body:
-                body = req.body
-                it1 = body.iter_chunks()
-                list(it1)
-                try:
-                    body.iter_chunks()
-                    self._captured["second_iter_error"] = None
-                except RequestBodyConsumedError as e:
-                    self._captured["second_iter_error"] = str(e)
+            try:
+                if req.method == "POST" and req.has_body:
+                    body = req.body
+                    it1 = body.iter_chunks()
+                    list(it1)
+                    try:
+                        body.iter_chunks()
+                        self._captured["second_iter_error"] = None
+                    except RequestBodyConsumedError as e:
+                        self._captured["second_iter_error"] = str(e)
+            finally:
+                self._handler_done.set()
             return Response.text(200, "ok")
 
         self._server = Server(
@@ -379,8 +438,9 @@ class TestRequestBodyOneShotIterChunks(unittest.TestCase):
         shutil.rmtree(self._td, ignore_errors=True)
 
     def test_second_iter_chunks_raises_consumed_error(self):
+        self._handler_done.clear()
         _send_post(self._addr, "/index.txt", b"data")
-        time.sleep(0.3)
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
         self.assertIsNotNone(self._captured.get("second_iter_error"))
         self.assertIn("already consumed", self._captured["second_iter_error"])
 
@@ -394,16 +454,20 @@ class TestRequestBodyOneShotReadThenIter(unittest.TestCase):
         with open(os.path.join(self._td, "index.txt"), "w") as f:
             f.write("ok")
         self._captured = {}
+        self._handler_done = threading.Event()
 
         def handler(req):
-            if req.method == "POST" and req.has_body:
-                body = req.body
-                body.read()
-                try:
-                    body.iter_chunks()
-                    self._captured["error"] = None
-                except RequestBodyConsumedError:
-                    self._captured["error"] = "consumed"
+            try:
+                if req.method == "POST" and req.has_body:
+                    body = req.body
+                    body.read()
+                    try:
+                        body.iter_chunks()
+                        self._captured["error"] = None
+                    except RequestBodyConsumedError:
+                        self._captured["error"] = "consumed"
+            finally:
+                self._handler_done.set()
             return Response.text(200, "ok")
 
         self._server = Server(
@@ -425,8 +489,9 @@ class TestRequestBodyOneShotReadThenIter(unittest.TestCase):
         shutil.rmtree(self._td, ignore_errors=True)
 
     def test_iter_chunks_after_read_raises_consumed_error(self):
+        self._handler_done.clear()
         _send_post(self._addr, "/index.txt", b"data")
-        time.sleep(0.3)
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
         self.assertEqual(self._captured.get("error"), "consumed")
 
 

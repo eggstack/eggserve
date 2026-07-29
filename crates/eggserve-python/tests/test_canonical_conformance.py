@@ -37,10 +37,9 @@ from eggserve._native import (
     StaticPolicy,
 )
 
-_WORKSPACE_ROOT = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..")
-)
-_CORPUS_PATH = os.path.join(_WORKSPACE_ROOT, "conformance", "corpus.json")
+from _repo import repo_root, conformance_corpus
+
+_CORPUS_PATH = str(conformance_corpus())
 
 
 def _load_corpus():
