@@ -60,7 +60,7 @@ Or use the local verification script:
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–090 are implementation-complete. Plan 091 establishes the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Historical plans are in `plans/`.
+- **Plan status** — Plans 000–091 are implementation-complete. Plan 091 establishes the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Historical plans are in `plans/`.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
 - **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding. The module is experimental; API may change.
