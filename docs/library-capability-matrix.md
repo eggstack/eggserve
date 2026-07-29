@@ -1,8 +1,7 @@
 # Library Capability Matrix
 
-This document is for Plan 043 — contract/scope reconciliation. It maps every
-eggserve capability across all surfaces and indicates its status using a
-constrained vocabulary.
+This document maps every eggserve capability across all surfaces and indicates
+its status using a constrained vocabulary.
 
 ## Vocabulary
 
@@ -52,8 +51,8 @@ constrained vocabulary.
 | service_fn | — | — | — | experimental | — | — | — | — | — |
 | RuntimeConfig | — | — | — | experimental | — | — | — | — | — |
 | Conformance corpus and parity testing | — | — | experimental | — | — | experimental | — | — | — |
-| Bounded request-body support | — | experimental | experimental | experimental | experimental | — | planned | experimental | — |
-| Request-body framing strictness | — | experimental | experimental | experimental | experimental | — | planned | experimental | — |
+| Bounded request-body support | — | experimental | experimental | experimental | experimental | — | — | experimental | — |
+| Request-body framing strictness | — | experimental | experimental | experimental | experimental | — | — | experimental | — |
 | `normalize_metadata()` | — | stable | stable | experimental | — | — | stable | stable | — |
 | StatusCode range (100–999) | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Secure root resolution | stable | stable | stable | experimental | stable | — | stable | stable | — |

@@ -157,6 +157,9 @@ Historical plans are in `plans/`. Plans 000–093 are implementation-complete. P
 - [docs/public-api-boundary.md](docs/public-api-boundary.md) — public API boundary definition
 - [docs/python-api.md](docs/python-api.md) — Python API reference
 - [docs/python-packaging.md](docs/python-packaging.md) — Python packaging details
+- [docs/ops-logging.md](docs/ops-logging.md) — operations logging guide, event model, counters
+- [docs/timeout-reference.md](docs/timeout-reference.md) — timeout defaults, semantics, and configuration
+- [docs/release-criteria.md](docs/release-criteria.md) — historical release criteria (superseded by Plan 091)
 
 ## Architecture deep dives
 
@@ -173,3 +176,7 @@ Historical plans are in `plans/`. Plans 000–093 are implementation-complete. P
 - [architecture/security-model.md](architecture/security-model.md) — trust boundaries, defensive layers, attacker model
 - [architecture/testing-and-conformance.md](architecture/testing-and-conformance.md) — test layers, conformance corpora, fuzzing
 - [architecture/runtime.md](architecture/runtime.md) — runtime service boundary, Server, Service trait, StaticService
+- [architecture/configuration.md](architecture/configuration.md) — configuration inventory, ownership model, field inventory
+- [architecture/structured-logging.md](architecture/structured-logging.md) — event model, event kinds, operational counters, log sinks
+- [architecture/adr-002-windows-handle-relative-filesystem.md](architecture/adr-002-windows-handle-relative-filesystem.md) — Windows handle-relative confinement design
+- [architecture/adr-003-custom-service-ownership.md](architecture/adr-003-custom-service-ownership.md) — custom service ownership model

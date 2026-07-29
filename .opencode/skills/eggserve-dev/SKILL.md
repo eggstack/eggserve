@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–091 plus roadmap), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–093 plus roadmap), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -96,6 +96,10 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `client.md` — HTTP client primitives, feature-gated substrate
 - `security-model.md` — trust boundaries, defensive layers, attacker model
 - `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
+- `configuration.md` — configuration inventory, ownership model, field inventory
+- `structured-logging.md` — event model, event kinds, operational counters, log sinks
+- `adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
+- `adr-003-custom-service-ownership.md` — custom service ownership model
 
 ## Common pitfalls
 
@@ -113,7 +117,6 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Python Server has runtime hardening** — connection semaphore, header timeouts, connection total timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
-- **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.

@@ -93,7 +93,11 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `tls_handshake_success` | DEBUG | TLS handshake completed |
 | `tls_handshake_failure` | WARN | TLS handshake failed |
 | `tls_handshake_timeout` | WARN | TLS handshake timed out |
+| `header_timeout` | WARN | Header read timed out |
+| `body_read_timeout` | WARN | Body read timed out |
+| `parser_rejection` | DEBUG | HTTP framing rejection |
 | `keep_alive_closed` | DEBUG | Keep-alive connection closed cleanly |
+| `connection_total_timeout` | WARN | Total connection lifetime exceeded |
 | `client_disconnect` | DEBUG | Client disconnected |
 | `connection_panic` | ERROR | Handler panic contained |
 
@@ -108,9 +112,10 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `symlink_denied` | DEBUG | Symlink access denied |
 | `root_escape_denied` | WARN | Path escapes root |
 | `body_policy_rejection` | DEBUG | Request body rejected by policy |
+| `incomplete_body_close` | DEBUG | Connection closed with unconsumed body |
+| `service_invocation_suppressed` | WARN | Service call skipped (e.g., timeout already fired) |
 | `service_timeout` | WARN | Handler timed out (504) |
 | `service_error` | ERROR | Handler returned error |
-| `parser_rejection` | DEBUG | HTTP framing rejection |
 
 ### Operational faults
 
@@ -132,6 +137,7 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `active_connections` | Currently active |
 | `active_file_streams` | Currently streaming file responses |
 | `parser_rejects` | HTTP parsing failures |
+| `body_rejections` | Request bodies rejected by policy |
 | `header_timeouts` | Header read timeouts |
 | `body_read_timeouts` | Body read timeouts |
 | `connection_total_timeouts` | Total connection lifetime timeouts |
