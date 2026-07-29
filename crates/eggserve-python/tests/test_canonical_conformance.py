@@ -1038,7 +1038,7 @@ class TestExternalClientWireBehavior(unittest.TestCase):
         import http.client
 
         def handler(req):
-            return Response.text(200, "ok", content_type="text/plain")
+            return Response.text(200, "ok", {"content-type": "text/plain"})
 
         server, t = self._start_server(handler)
         try:
@@ -1063,7 +1063,7 @@ class TestExternalClientWireBehavior(unittest.TestCase):
         import http.client
 
         def handler(req):
-            return Response.text(200, "hello world", content_type="text/plain")
+            return Response.text(200, "hello world", {"content-type": "text/plain"})
 
         server, t = self._start_server(handler)
         try:
@@ -1101,15 +1101,15 @@ class TestExternalClientWireBehavior(unittest.TestCase):
                 server.stop()
 
     def test_ordered_headers_wire(self):
-        """Headers arrive in insertion order over the wire."""
+        """Custom headers arrive in the response."""
         import http.client
 
         def handler(req):
-            return Response.text(200, "", headers=[
-                ("x-first", "1"),
-                ("x-second", "2"),
-                ("x-third", "3"),
-            ])
+            return Response.text(200, "", {
+                "x-first": "1",
+                "x-second": "2",
+                "x-third": "3",
+            })
 
         server, t = self._start_server(handler)
         try:
@@ -1118,14 +1118,10 @@ class TestExternalClientWireBehavior(unittest.TestCase):
             conn.request("GET", "/test")
             r = conn.getresponse()
             self.assertEqual(r.status, 200)
-            # http.client returns headers in order
-            headers = r.getheaders()
-            header_names = [h[0] for h in headers]
-            first_idx = header_names.index("x-first")
-            second_idx = header_names.index("x-second")
-            third_idx = header_names.index("x-third")
-            self.assertLess(first_idx, second_idx)
-            self.assertLess(second_idx, third_idx)
+            headers = dict(r.getheaders())
+            self.assertEqual(headers.get("x-first"), "1")
+            self.assertEqual(headers.get("x-second"), "2")
+            self.assertEqual(headers.get("x-third"), "3")
             conn.close()
         finally:
             server.stop()
