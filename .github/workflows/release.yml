@@ -45,10 +45,11 @@ jobs:
           chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
       - name: Build wheel
         run: |
+          cd crates/eggserve-python
           python -m maturin build --release \
             --interpreter python${{ env.PYTHON }} \
             --auditwheel repair \
-            --out dist
+            --out "$GITHUB_WORKSPACE/dist"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -79,9 +80,10 @@ jobs:
           chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
       - name: Build wheel
         run: |
+          cd crates/eggserve-python
           python -m maturin build --release \
             --interpreter python${{ env.PYTHON }} \
-            --out dist
+            --out "$GITHUB_WORKSPACE/dist"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -111,10 +113,12 @@ jobs:
           mkdir -p crates/eggserve-python/python/eggserve/bin
           cp target/release/eggserve.exe crates/eggserve-python/python/eggserve/bin/eggserve.exe
       - name: Build wheel
+        shell: bash
         run: |
-          python -m maturin build --release `
-            --interpreter python${{ env.PYTHON }} `
-            --out dist
+          cd crates/eggserve-python
+          python -m maturin build --release \
+            --interpreter python${{ env.PYTHON }} \
+            --out "$GITHUB_WORKSPACE/dist"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
