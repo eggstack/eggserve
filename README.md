@@ -193,6 +193,12 @@ eggserve ships with secure defaults. Every option that weakens security requires
 - **Logs sanitized** — paths/headers are sanitized before logging
 - **Resource limits enabled** — connection and file stream limits are active
 
+Responses follow the shared RFC 9110 response rules: status codes are limited
+to 100–599, 205 responses carry no content, weak metadata ETags are not valid
+`If-Range` validators, and the runtime adds one authoritative `Date` header.
+HEAD responses preserve the equivalent GET representation metadata, including
+directory-listing `Content-Length`, while sending no body.
+
 See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
 
 ## Supported platforms

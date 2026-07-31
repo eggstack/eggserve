@@ -227,7 +227,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Handler receives a `Request` object and must return a `Response` object.
 - Coroutine handlers (functions returning a coroutine object) are rejected with a 500 response.
 - Invalid return types produce a generic 500 Internal Server Error.
-- Invalid status codes (outside 100–999, non-three-digit) produce 500.
+- Invalid status codes (outside 100–599, non-three-digit) produce 500.
 - Invalid header names (empty) or values (containing NUL, CR, LF) produce 500.
 - Handler exceptions produce 500 without leaking tracebacks.
 - Handler timeout (`handler_timeout_secs`, default 30s): Python callbacks use the actual Rust runtime's handler timeout mechanism. The timeout is enforced at the transport level by the Rust server, not by a Python-side timer.
@@ -330,7 +330,7 @@ The canonical response types provide transport-independent, Hyper-independent va
 
 | Type | Module | Description |
 |------|--------|-------------|
-| `StatusCode` | `primitives::canonical` | Validated HTTP status code (100–999, three-digit only). |
+| `StatusCode` | `primitives::canonical` | Validated HTTP status code (100–599, three-digit only). |
 | `ResponseHead` | `primitives::canonical` | Status + validated `HeaderBlock`. |
 | `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`. |
 | `Response` | `primitives::canonical` | Complete response: head + body. One-shot consumption. |

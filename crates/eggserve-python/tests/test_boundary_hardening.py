@@ -113,7 +113,7 @@ class TestResponseValidation(_TestServerBase):
     """A: Python handler responses are validated before wire serialization."""
 
     def test_invalid_status_code_returns_500(self):
-        """Handler returning invalid status (0) produces 500."""
+        """Handler returning invalid statuses produces 500."""
         def handler(req):
             return Response.empty(0)
 
@@ -125,6 +125,16 @@ class TestResponseValidation(_TestServerBase):
             self.fail("Expected HTTPError")
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 500)
+
+        def high_handler(req):
+            return Response.empty(600)
+
+        srv = self._make_server(handler=high_handler)
+        url = f"http://{srv.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
 
     def test_1xx_status_returns_500(self):
         """Handler returning 1xx status produces 500."""

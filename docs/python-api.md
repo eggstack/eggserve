@@ -254,6 +254,12 @@ r = Response.body_source(200, body_source)
 
 Properties: `status` (int), `headers` (dict of string → string).
 
+Handler statuses must be standard HTTP values from 100 through 599; invalid
+values are rejected by Rust and become a controlled 500 response. The runtime
+removes any handler-supplied `Date` and adds exactly one authoritative date.
+205 Reset Content responses never transmit a body. `If-Range` uses strong
+entity-tag comparison, so generated weak ETags do not authorize ranges.
+
 Factory methods:
 - `Response.empty(status)` — zero-length body
 - `Response.bytes(status, data, headers=None)` — in-memory bytes body

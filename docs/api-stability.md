@@ -257,7 +257,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `StatusCode` | stable | Validated HTTP status code (100–999, three-digit only) |
+| `StatusCode` | stable | Validated HTTP status code (100–599, three-digit only) |
 | `ResponseHead` | stable | Status + `HeaderBlock`; transport-independent response metadata |
 | `ResponseBody` | stable | Body representation: Empty, Bytes |
 | `Response` | stable | Complete response: head + body; one-shot consumption |

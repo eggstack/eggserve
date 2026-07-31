@@ -84,9 +84,12 @@ Under the default zero-body policy (`max_request_body_bytes: 0`):
 
 ### If-Range
 
-- If the validator (ETag or Last-Modified) matches the current resource, the range is served.
-- If it does not match, a full `200 OK` is returned.
-- Malformed `If-Range` values are treated as absent (full response).
+- Entity-tags are compared strongly. Weak ETags are not eligible for
+  `If-Range`, even when their opaque value matches; they remain valid for
+  `If-None-Match`.
+- A valid date exactly matching the selected `Last-Modified` validator serves
+  the range. Stale, malformed, empty, and nonmatching values serve a full
+  `200 OK`; absence of `If-Range` leaves a satisfiable range enabled.
 
 ## HEAD parity
 
@@ -96,6 +99,10 @@ HEAD responses use the same status and headers as GET, but with an empty body:
 - `304 Not Modified` with validator headers but no body.
 - `206 Partial Content` with range headers but no body.
 - `416 Range Not Satisfiable` with `Content-Range` header but no body.
+
+All origin responses receive exactly one runtime-owned `Date` header during
+final response construction. Directory-listing HEAD preserves the GET
+representation's `Content-Length`.
 
 ## ETag generation
 

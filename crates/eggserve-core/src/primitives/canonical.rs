@@ -21,7 +21,7 @@ use super::header_block::{HeaderBlock, HeaderError, HeaderName, HeaderValue};
 /// Errors from response construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ResponseConstructionError {
-    /// The status code is outside the valid 100–999 range.
+    /// The status code is outside the valid 100–599 range.
     InvalidStatus(u16),
     /// A header name or value failed validation.
     InvalidHeader(HeaderError),
@@ -62,7 +62,7 @@ impl From<HeaderError> for ResponseConstructionError {
     }
 }
 
-/// A validated HTTP status code (100–999).
+/// A validated HTTP status code (100–599).
 ///
 /// Wraps a `u16` with range enforcement at construction time. Reason phrases
 /// are not stored — they are not authoritative application data per HTTP/1.1.
@@ -75,6 +75,7 @@ impl StatusCode {
     pub const OK: Self = Self(200);
     pub const CREATED: Self = Self(201);
     pub const NO_CONTENT: Self = Self(204);
+    pub const RESET_CONTENT: Self = Self(205);
     pub const NOT_MODIFIED: Self = Self(304);
     pub const BAD_REQUEST: Self = Self(400);
     pub const FORBIDDEN: Self = Self(403);
@@ -91,9 +92,9 @@ impl StatusCode {
     /// # Errors
     ///
     /// Returns [`ResponseConstructionError::InvalidStatus`] if the code is
-    /// outside 100–999. Only three-digit HTTP status codes are accepted.
+    /// outside 100–599. Only standard three-digit HTTP status codes are accepted.
     pub fn new(code: u16) -> Result<Self, ResponseConstructionError> {
-        if !(100..=999).contains(&code) {
+        if !(100..=599).contains(&code) {
             return Err(ResponseConstructionError::InvalidStatus(code));
         }
         Ok(Self(code))
@@ -131,10 +132,10 @@ impl StatusCode {
 
     /// Returns `true` if this status permits a payload body per RFC 9110.
     ///
-    /// Informational (1xx), 204 No Content, and 304 Not Modified must not
-    /// carry a payload body.
+    /// Informational (1xx), 204 No Content, 205 Reset Content, and 304 Not
+    /// Modified must not carry a payload body.
     pub fn permits_payload_body(&self) -> bool {
-        !self.is_informational() && self.0 != 204 && self.0 != 304
+        !self.is_informational() && self.0 != 204 && self.0 != 205 && self.0 != 304
     }
 }
 
@@ -535,9 +536,11 @@ pub fn to_hyper_response(
             .boxed(),
     };
 
-    builder
+    let mut response = builder
         .body(body)
-        .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue))
+        .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue))?;
+    crate::response::finalize_origin_headers(&mut response, std::time::SystemTime::now());
+    Ok(response)
 }
 
 #[cfg(test)]
@@ -548,7 +551,7 @@ mod tests {
     fn status_code_valid_range() {
         assert!(StatusCode::new(100).is_ok());
         assert!(StatusCode::new(200).is_ok());
-        assert!(StatusCode::new(999).is_ok());
+        assert!(StatusCode::new(600).is_err());
     }
 
     #[test]
@@ -564,7 +567,8 @@ mod tests {
     }
 
     #[test]
-    fn status_code_over_999_rejected() {
+    fn status_code_over_599_rejected() {
+        assert!(StatusCode::new(600).is_err());
         assert!(StatusCode::new(1000).is_err());
     }
 
@@ -574,7 +578,6 @@ mod tests {
         assert!(StatusCode::new(199).is_ok());
         assert!(StatusCode::new(200).is_ok());
         assert!(StatusCode::new(599).is_ok());
-        assert!(StatusCode::new(999).is_ok());
     }
 
     #[test]
@@ -592,6 +595,7 @@ mod tests {
         assert!(!StatusCode::CONTINUE.permits_payload_body());
         assert!(!StatusCode::NO_CONTENT.permits_payload_body());
         assert!(!StatusCode::NOT_MODIFIED.permits_payload_body());
+        assert!(!StatusCode::new(205).unwrap().permits_payload_body());
         assert!(StatusCode::OK.permits_payload_body());
         assert!(StatusCode::RANGE_NOT_SATISFIABLE.permits_payload_body());
     }
@@ -702,6 +706,17 @@ mod tests {
         let req = NormalizeRequest::new(false);
         let normalized = normalize_response(resp, &req).unwrap();
         assert!(normalized.body().unwrap().is_empty());
+    }
+
+    #[test]
+    fn normalize_205_suppresses_body_and_content_length() {
+        let resp = Response::builder()
+            .status(StatusCode::RESET_CONTENT)
+            .body(ResponseBody::Bytes(b"unexpected".to_vec()))
+            .unwrap();
+        let normalized = normalize_response(resp, &NormalizeRequest::new(false)).unwrap();
+        assert!(normalized.body().unwrap().is_empty());
+        assert!(!normalized.headers().contains("content-length"));
     }
 
     #[test]

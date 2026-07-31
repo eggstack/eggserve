@@ -218,10 +218,12 @@ Request with conditional headers
 
 ### If-Range
 
-- Validates against current ETag or Last-Modified.
-- If validator matches, the range is served (206).
-- If validator mismatches, full 200 OK is returned.
-- Malformed If-Range is treated as absent (range proceeds normally).
+- Entity-tags use strong comparison. Weak ETags (including eggserve's generated
+  metadata ETags) never authorize a range; they remain valid for
+  `If-None-Match`.
+- A matching valid `Last-Modified` date authorizes the range (206); stale,
+  malformed, empty, or nonmatching values produce a full 200 OK response.
+- With no `If-Range`, a satisfiable range is served normally.
 
 ## HEAD/GET parity
 
@@ -232,6 +234,10 @@ HEAD responses produce the same `StaticResponsePlan` as GET but with `BodyPlan::
 - No body transfer
 
 This is mechanically enforced by the planner: `ReadOnlyMethod::Head` produces `BodyPlan::Empty` while `ReadOnlyMethod::Get` produces `BodyPlan::FileFull` or `BodyPlan::FileRange`.
+
+Directory-listing HEAD responses retain the nonzero `Content-Length` of the
+equivalent GET representation while transmitting no body. Origin responses
+receive one runtime-generated IMF-fixdate `Date` header at finalization.
 
 ## Error mapping
 

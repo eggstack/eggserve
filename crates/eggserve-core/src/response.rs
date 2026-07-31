@@ -23,6 +23,22 @@ pub const DEFAULT_CHUNK_SIZE: usize = 8192;
 
 pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 
+/// Add the origin server's single authoritative Date header at the final
+/// response-construction boundary. A handler cannot spoof or duplicate it.
+pub(crate) fn finalize_origin_headers(response: &mut Response<BoxBodyInner>, now: SystemTime) {
+    response.headers_mut().remove(hyper::header::DATE);
+    response.headers_mut().insert(
+        hyper::header::DATE,
+        hyper::header::HeaderValue::from_str(&httpdate::fmt_http_date(now))
+            .expect("httpdate output is a valid header value"),
+    );
+}
+
+fn finalize(mut response: Response<BoxBodyInner>) -> Response<BoxBodyInner> {
+    finalize_origin_headers(&mut response, SystemTime::now());
+    response
+}
+
 pub(crate) fn canonical_error(
     status: StatusCode,
     body: &'static str,
@@ -46,11 +62,12 @@ pub(crate) fn canonical_error(
     }
     // For HEAD, suppress the body per the canonical contract: no payload bytes
     // are transmitted, and the application response should reflect this.
-    if is_head {
+    let response = if is_head {
         builder.body(full_body("")).unwrap()
     } else {
         builder.body(full_body(body)).unwrap()
-    }
+    };
+    finalize(response)
 }
 
 pub fn not_found(is_head: bool) -> Response<BoxBodyInner> {
@@ -161,7 +178,7 @@ pub fn file_response(
     let body = StreamBody::new(stream);
     let body: BoxBodyInner = BodyExt::boxed(body);
 
-    builder.body(body.boxed()).unwrap()
+    finalize(builder.body(body.boxed()).unwrap())
 }
 
 pub fn planned_response(
@@ -199,7 +216,7 @@ pub fn planned_response(
     for field in canonical_headers.iter() {
         builder = builder.header(field.name.as_str(), field.value.as_str());
     }
-    builder.body(full_body("")).unwrap()
+    finalize(builder.body(full_body("")).unwrap())
 }
 
 pub async fn file_response_range(
@@ -285,7 +302,7 @@ pub async fn file_response_range(
     let body = StreamBody::new(stream);
     let body: BoxBodyInner = BodyExt::boxed(body);
 
-    builder.body(body.boxed()).unwrap()
+    finalize(builder.body(body.boxed()).unwrap())
 }
 
 pub fn directory_listing_response(
@@ -330,14 +347,8 @@ pub fn directory_listing_response(
     headers.push_str("referrer-policy", "no-referrer").unwrap();
 
     let status = crate::primitives::canonical::StatusCode::OK;
-    let body_len = if is_head { 0 } else { len };
-    crate::primitives::canonical::normalize_metadata(
-        status,
-        &mut headers,
-        body_len as u64,
-        is_head,
-    )
-    .unwrap();
+    crate::primitives::canonical::normalize_metadata(status, &mut headers, len as u64, is_head)
+        .unwrap();
 
     let mut builder = Response::builder().status(StatusCode::OK);
     for field in headers.iter() {
@@ -345,13 +356,13 @@ pub fn directory_listing_response(
     }
 
     if is_head {
-        return builder.body(full_body("")).unwrap();
+        return finalize(builder.body(full_body("")).unwrap());
     }
 
     let body = Full::new(Bytes::from(body_bytes));
     let body = body.map_err(|never| match never {});
 
-    builder.body(body.boxed()).unwrap()
+    finalize(builder.body(body.boxed()).unwrap())
 }
 
 fn html_escape(s: &str) -> String {
@@ -461,8 +472,42 @@ mod tests {
     #[test]
     fn directory_listing_head_has_no_body() {
         let entries = vec![("file.txt".to_string(), false)];
-        let resp = directory_listing_response(&entries, true);
-        assert_eq!(resp.status(), StatusCode::OK);
+        let get = directory_listing_response(&entries, false);
+        let head = directory_listing_response(&entries, true);
+        assert_eq!(get.status(), StatusCode::OK);
+        assert_eq!(
+            get.headers().get("content-length"),
+            head.headers().get("content-length")
+        );
+        assert_ne!(
+            head.headers()
+                .get("content-length")
+                .and_then(|value| value.to_str().ok()),
+            Some("0")
+        );
+    }
+
+    #[test]
+    fn date_finalization_replaces_supplied_date_without_duplicates() {
+        let mut response = not_found(false);
+        response.headers_mut().insert(
+            hyper::header::DATE,
+            hyper::header::HeaderValue::from_static("Thu, 01 Jan 1970 00:00:00 GMT"),
+        );
+        finalize_origin_headers(
+            &mut response,
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000),
+        );
+        let values: Vec<_> = response
+            .headers()
+            .get_all(hyper::header::DATE)
+            .iter()
+            .collect();
+        assert_eq!(values.len(), 1);
+        assert_eq!(
+            httpdate::parse_http_date(values[0].to_str().unwrap()).unwrap(),
+            SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000)
+        );
     }
 
     #[test]

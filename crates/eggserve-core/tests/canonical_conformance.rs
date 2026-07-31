@@ -699,7 +699,7 @@ fn status_code_rejects_below_100() {
 
 #[test]
 fn status_code_accepts_all_hundreds() {
-    for code in [100u16, 200, 300, 400, 500, 599, 999] {
+    for code in [100u16, 200, 300, 400, 500, 599] {
         assert!(
             StatusCode::new(code).is_ok(),
             "StatusCode::new({code}) should be accepted"
@@ -708,8 +708,8 @@ fn status_code_accepts_all_hundreds() {
 }
 
 #[test]
-fn status_code_rejects_above_999() {
-    for code in [1000u16, 65535] {
+fn status_code_rejects_above_599() {
+    for code in [600u16, 999, 1000, 65535] {
         assert!(
             StatusCode::new(code).is_err(),
             "StatusCode::new({code}) should be rejected"

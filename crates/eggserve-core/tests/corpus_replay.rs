@@ -797,8 +797,8 @@ fn corpus_replay_status_code() {
         match result {
             Ok(status) => {
                 assert!(
-                    (100..=999).contains(&code),
-                    "[fuzz_status_code/{name}] valid status outside 100..=999: {code}"
+                    (100..=599).contains(&code),
+                    "[fuzz_status_code/{name}] valid status outside 100..=599: {code}"
                 );
                 assert_eq!(
                     status.as_u16(),

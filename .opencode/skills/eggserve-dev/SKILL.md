@@ -73,6 +73,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
 - **Plan status** — Plans 000–093 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps. Historical plans are in `plans/`.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
+- **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
 - **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding. The module is experimental; API may change.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`.

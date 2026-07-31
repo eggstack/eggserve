@@ -54,10 +54,7 @@ pub fn plan_file_response(
         let range_valid = match &range_outcome {
             RangeRequestOutcome::Satisfiable(_) => {
                 if let Some(if_range) = if_range {
-                    !matches!(
-                        evaluate_if_range(if_range, etag.as_deref(), last_modified_str.as_deref()),
-                        ConditionalRequestOutcome::FullResponse
-                    )
+                    if_range_allows_range(if_range, etag.as_deref(), last_modified_str.as_deref())
                 } else {
                     true
                 }
@@ -201,11 +198,13 @@ pub fn evaluate_if_range(
     }
 
     if trimmed.starts_with('"') || trimmed.starts_with("W/") {
-        // ETag
-        if let Some(etag) = current_etag {
-            if evaluate_if_none_match(trimmed, etag) {
-                return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
-            }
+        // If-Range requires strong comparison. The generated metadata ETag is
+        // deliberately weak, so it cannot authorize a range response.
+        if is_strong_entity_tag(trimmed)
+            && current_etag.is_some_and(is_strong_entity_tag)
+            && current_etag == Some(trimmed)
+        {
+            return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
         }
         return ConditionalRequestOutcome::FullResponse;
     }
@@ -222,6 +221,27 @@ pub fn evaluate_if_range(
     }
 
     ConditionalRequestOutcome::FullResponse
+}
+
+fn if_range_allows_range(
+    if_range: &str,
+    current_etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> bool {
+    matches!(
+        evaluate_if_range(if_range, current_etag, last_modified),
+        ConditionalRequestOutcome::NotModified(_)
+    )
+}
+
+fn is_strong_entity_tag(value: &str) -> bool {
+    let bytes = value.as_bytes();
+    bytes.len() >= 2
+        && bytes[0] == b'"'
+        && bytes[bytes.len() - 1] == b'"'
+        && bytes[1..bytes.len() - 1]
+            .iter()
+            .all(|byte| *byte == b'!' || (0x23..=0x7e).contains(byte))
 }
 
 /// Generate a weak ETag from file metadata.
@@ -720,7 +740,7 @@ mod tests {
     }
 
     #[test]
-    fn plan_file_response_if_range_matching_206() {
+    fn plan_file_response_if_range_weak_etag_ignored_200() {
         let tmp = make_file_with_size(100);
         let meta = std::fs::metadata(tmp.path()).unwrap();
         let etag = generate_etag(&meta).unwrap();
@@ -735,7 +755,7 @@ mod tests {
             Some(&etag),
         );
 
-        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.status.as_u16(), 200);
     }
 
     #[test]
@@ -1444,7 +1464,7 @@ mod tests {
     }
 
     #[test]
-    fn parity_if_range_match_206() {
+    fn parity_if_range_weak_etag_ignored_200() {
         let tmp = make_file_with_size(100);
         let meta = std::fs::metadata(tmp.path()).unwrap();
         let etag = generate_etag(&meta).unwrap();
@@ -1456,7 +1476,7 @@ mod tests {
             Some("bytes=0-49"),
             Some(&etag),
         );
-        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status.as_u16(), 200);
         assert_eq!(d.status, i.status);
     }
 

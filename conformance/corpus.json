@@ -350,6 +350,16 @@
           }
         },
         {
+          "id": "status-205",
+          "description": "205 Reset Content",
+          "input": 205,
+          "expected": {
+            "as_u16": 205,
+            "is_success": true,
+            "permits_payload_body": false
+          }
+        },
+        {
           "id": "status-304",
           "description": "304 Not Modified",
           "input": 304,
@@ -430,18 +440,10 @@
           }
         },
         {
-          "id": "status-999-accepted",
-          "description": "Status code 999 is valid (upper boundary)",
-          "input": 999,
-          "expected": {
-            "as_u16": 999,
-            "is_informational": false,
-            "is_success": false,
-            "is_redirection": false,
-            "is_client_error": false,
-            "is_server_error": false,
-            "permits_payload_body": true
-          }
+          "id": "status-600-rejected",
+          "description": "Status code 600 is outside the HTTP status range",
+          "input": 600,
+          "expected_error": "ResponseConstructionError::InvalidStatus"
         }
       ]
     },

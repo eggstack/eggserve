@@ -117,7 +117,10 @@ Parses `Range: bytes=START-END` header:
 
 ### `evaluate_if_range()`
 
-Validates `If-Range` validator against current ETag/Last-Modified. If mismatch → serve full response.
+Validates `If-Range` with strong entity-tag comparison or an exact valid
+`Last-Modified` date. Weak, malformed, empty, stale, and nonmatching values
+serve the full response. The generated metadata ETag is weak and therefore
+cannot authorize `If-Range`, though it remains valid for `If-None-Match`.
 
 ### `generate_etag()`
 
@@ -188,7 +191,7 @@ The canonical response types (`primitives::canonical`) provide a transport-indep
 
 ### Key Types
 
-- `StatusCode` — validated HTTP status code (100–999, three-digit only) with classification helpers
+- `StatusCode` — validated HTTP status code (100–599, three-digit only) with classification helpers; 205 is body-forbidden
 - `ResponseHead` — status + `HeaderBlock` (duplicate-preserving headers)
 - `ResponseBody` — `Empty` or `Bytes` body representation
 - `Response` — complete response with one-shot body consumption

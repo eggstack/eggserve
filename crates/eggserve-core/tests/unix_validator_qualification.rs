@@ -374,11 +374,11 @@ async fn h7_conditional_head_match_uses_emitted_etag() {
 }
 
 #[tokio::test]
-async fn h7_if_range_uses_emitted_etag() {
+async fn h7_if_range_rejects_emitted_weak_etag() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr, "/hello.txt").await;
 
-    // If-Range with matching ETag → 206
+    // The emitted metadata ETag is weak and cannot authorize If-Range.
     let req = format!(
         "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
         etag
@@ -389,8 +389,8 @@ async fn h7_if_range_uses_emitted_etag() {
         .unwrap()
         .to_string();
     assert!(
-        line.contains("206"),
-        "If-Range with matching ETag must return 206, got: {}",
+        line.contains("200"),
+        "If-Range with emitted weak ETag must return 200, got: {}",
         line
     );
 

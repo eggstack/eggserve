@@ -54,7 +54,7 @@ its status using a constrained vocabulary.
 | Bounded request-body support | — | experimental | experimental | experimental | experimental | — | — | experimental | — |
 | Request-body framing strictness | — | experimental | experimental | experimental | experimental | — | — | experimental | — |
 | `normalize_metadata()` | — | stable | stable | experimental | — | — | stable | stable | — |
-| StatusCode range (100–999) | — | stable | stable | experimental | stable | — | stable | stable | — |
+| StatusCode range (100–599) | — | stable | stable | experimental | stable | — | stable | stable | — |
 | Secure root resolution | stable | stable | stable | experimental | stable | — | stable | stable | — |
 | Symlink policy | stable | stable | stable | experimental | stable | — | stable | stable | — |
 | Dotfile policy | stable | stable | stable | experimental | stable | — | stable | stable | — |

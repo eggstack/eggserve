@@ -501,14 +501,14 @@ class TestResolvedFile(unittest.TestCase):
         self.assertEqual(headers.get("accept-ranges"), "bytes")
         self.assertEqual(headers.get("content-range"), "bytes */100")
 
-    def test_plan_if_range_match(self):
+    def test_plan_if_range_weak_etag_is_ignored(self):
         f = self._make_file("x" * 100)
         etag = generate_etag(f)
         plan = f.plan_conditional_response("GET", headers=[
             ("range", "bytes=0-0"),
             ("if-range", etag),
         ])
-        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.status, 200)
 
     def test_plan_if_range_mismatch(self):
         f = self._make_file("x" * 100)

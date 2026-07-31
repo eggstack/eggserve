@@ -954,12 +954,33 @@ async fn ws_e_head_with_range_returns_206_no_body() {
 }
 
 #[tokio::test]
-async fn ws_e_if_range_matching_etag_returns_206() {
+async fn ws_e_if_range_weak_etag_returns_200() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
     let req = format!(
         "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
         etag
+    );
+    let line = status_line(s.addr, req.as_bytes()).await;
+    assert!(line.contains("200"), "Expected 200, got: {}", line);
+}
+
+#[tokio::test]
+async fn ws_e_if_range_matching_date_returns_206() {
+    let s = start_server(None).await;
+    let headers = response_headers(
+        s.addr,
+        b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let last_modified = headers
+        .iter()
+        .find(|(name, _)| name == "last-modified")
+        .map(|(_, value)| value)
+        .expect("static response should include Last-Modified");
+    let req = format!(
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
+        last_modified
     );
     let line = status_line(s.addr, req.as_bytes()).await;
     assert!(line.contains("206"), "Expected 206, got: {}", line);
