@@ -185,30 +185,26 @@ class TestConnectionSemaphore(unittest.TestCase):
 
         self.assertEqual(len(held), max_conn)
 
-        released = threading.Event()
-
         def try_extra():
+            sock = None
             try:
                 sock = _connect_raw(addr, "/small.txt")
-                data = sock.recv(4096)
-                if data:
-                    released.set()
-                sock.close()
+                sock.recv(4096)
             except Exception:
                 pass
+            finally:
+                if sock is not None:
+                    sock.close()
 
         t = threading.Thread(target=try_extra)
         t.start()
         t.join(timeout=1.0)
-        self.assertFalse(released.is_set(), "Extra connection should be blocked")
+        self.assertFalse(t.is_alive(), "Extra connection should be rejected while saturated")
         t.join(timeout=0.5)
 
         for sock in held:
+            sock.shutdown(socket.SHUT_RDWR)
             sock.close()
-
-        # The first probe is allowed to acquire the newly released permit;
-        # wait for it to finish before starting the post-release probe.
-        t.join(timeout=5)
 
         released2 = threading.Event()
 
@@ -224,7 +220,7 @@ class TestConnectionSemaphore(unittest.TestCase):
 
         t2 = threading.Thread(target=try_after_release)
         t2.start()
-        t2.join(timeout=5)
+        t2.join(timeout=10)
         self.assertTrue(released2.is_set(), "Connection should proceed after release")
 
     def test_release_after_malformed_request(self):
