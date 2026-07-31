@@ -14,6 +14,7 @@ from __future__ import annotations
 import ipaddress
 import inspect
 import io
+import os
 import socket
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from http import HTTPStatus
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
+from functools import partial
 
 from eggserve._bin import _find_binary
 
@@ -31,6 +33,7 @@ __all__ = [
     "HTTPServer",
     "ThreadingHTTPServer",
     "BaseHTTPRequestHandler",
+    "SimpleHTTPRequestHandler",
     "StaticPolicy",
     "ServeConfig",
     "ServerProcess",
@@ -187,7 +190,7 @@ class BaseHTTPRequestHandler:
             result = callback()
             if inspect.isawaitable(result):
                 raise TypeError("coroutine handlers are not supported")
-            if self._response_status is None:
+            if self._response_status is None and not hasattr(self, "_native_response"):
                 raise RuntimeError("handler did not send a response")
         except Exception:
             self.log_error("handler failed")
@@ -250,6 +253,9 @@ class BaseHTTPRequestHandler:
         return None
 
     def _result(self) -> _HandlerResponse:
+        native_response = getattr(self, "_native_response", None)
+        if native_response is not None:
+            return native_response
         if self._response_status is None or not self._headers_ended:
             raise RuntimeError("handler returned without a complete response")
         return _HandlerResponse(self._response_status, self._response_headers, self.wfile.bytes())
@@ -271,11 +277,14 @@ class HTTPServer:
         host, port = server_address
         if not isinstance(host, str) or not isinstance(port, int) or not 0 <= port <= 65535:
             raise OSError("invalid server address")
-        if not isinstance(handler_class, type) or not issubclass(handler_class, BaseHTTPRequestHandler):
+        factory = handler_class.func if isinstance(handler_class, partial) else handler_class
+        if not isinstance(factory, type) or not issubclass(factory, BaseHTTPRequestHandler):
             raise TypeError("RequestHandlerClass must subclass BaseHTTPRequestHandler")
         if max_request_body_bytes <= 0 or max_handler_response_bytes <= 0:
             raise ValueError("body and response limits must be greater than zero")
         self.RequestHandlerClass = handler_class
+        self._handler_type = factory
+        self._static_config = self._static_handler_config(handler_class, factory)
         self.allow_reuse_address = False
         self.max_handler_response_bytes = max_handler_response_bytes
         self._closed = False
@@ -294,25 +303,64 @@ class HTTPServer:
             self.server_bind()
             self.server_activate()
 
+    @staticmethod
+    def _static_handler_config(handler_class, handler_type):
+        if not issubclass(handler_type, SimpleHTTPRequestHandler):
+            return None
+        keywords = handler_class.keywords if isinstance(handler_class, partial) else {}
+        directory = keywords.get("directory", getattr(handler_type, "directory", None))
+        if directory is None:
+            directory = os.getcwd()
+        root = os.fspath(directory)
+        if not os.path.isdir(root):
+            raise NotADirectoryError(root)
+        return {
+            "root": root,
+            "directory_listing": bool(getattr(handler_type, "directory_listing", False)),
+            "follow_symlinks": bool(getattr(handler_type, "follow_symlinks", False)),
+            "allow_dotfiles": bool(getattr(handler_type, "allow_dotfiles", False)),
+            "index_pages": tuple(getattr(handler_type, "index_pages", ("index.html", "index.htm"))),
+            "extensions_map": dict(getattr(handler_type, "extensions_map", {})),
+        }
+
     def server_bind(self):
         return None
 
     def server_activate(self):
         if self._native is None:
             from eggserve._native import Server as _NativeServer
+            root = "."
+            if self._static_config is not None:
+                from eggserve._native import (
+                    ServerSecureRoot,
+                    StaticPolicyWrapper,
+                    StaticResponder,
+                )
+                config = self._static_config
+                secure_root = ServerSecureRoot(
+                    config["root"],
+                    policy=StaticPolicyWrapper(
+                        directory_listing=config["directory_listing"],
+                        follow_symlinks=config["follow_symlinks"],
+                        allow_dotfiles=config["allow_dotfiles"],
+                    ),
+                )
+                self._static_responder = StaticResponder(secure_root)
+                root = config["root"]
             callback = self._handle_request
             self._native = _NativeServer(
-                ".", bind=self._bind, port=self._requested_port, handler=callback,
+                root, bind=self._bind, port=self._requested_port, handler=callback,
                 public=ipaddress.ip_address(self._bind).is_unspecified,
                 max_python_callbacks=self._max_workers,
-                request_body_mode="buffer", max_request_body_bytes=self._max_request_body_bytes,
+                request_body_mode="reject" if self._static_config is not None else "buffer",
+                max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,
             )
 
     def _handle_request(self, request):
         client = (request.remote_addr or "", 0)
         handler = self.RequestHandlerClass(request, client, self)
         result = handler._result()
-        return _HandlerResponse(result.status, result.headers, result.body)
+        return result
 
     def _start(self):
         if self._closed:
@@ -376,6 +424,78 @@ class ThreadingHTTPServer(HTTPServer):
         self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
                           max_workers=max_workers, max_request_body_bytes=max_request_body_bytes,
                           max_handler_response_bytes=max_handler_response_bytes)
+
+
+class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
+    """Secure static handler with a familiar stdlib-compatible shape.
+
+    Filesystem resolution and response construction are delegated to the Rust
+    ``SecureRoot``/``StaticResponder``. Policies are captured when the server
+    is configured; later class-attribute mutation does not affect serving.
+    """
+
+    directory = None
+    index_pages = ("index.html", "index.htm")
+    directory_listing = False
+    follow_symlinks = False
+    allow_dotfiles = False
+    extensions_map = {}
+
+    def __init__(self, request, client_address, server, directory=None):
+        # ``directory`` is captured by the server configuration. Accepting it
+        # here preserves the standard constructor shape without allowing a
+        # request to choose a root.
+        del directory
+        super().__init__(request, client_address, server)
+
+    def _static_response(self):
+        headers = {name.lower(): value for name, value in self.headers.items()}
+        return self.server._static_responder.respond(
+            self.command,
+            self.path,
+            headers=headers,
+            has_body=bool(getattr(self.request, "has_body", False)),
+            index_pages=list(self.server._static_config["index_pages"]),
+            mime_overrides=self.server._static_config["extensions_map"],
+        )
+
+    def do_GET(self):
+        self._native_response = self._static_response()
+
+    def do_HEAD(self):
+        self._native_response = self._static_response()
+
+    def send_head(self):
+        return self._static_response()
+
+    def guess_type(self, path):
+        suffix = os.fspath(path).rsplit("/", 1)[-1].rsplit(".", 1)[-1]
+        key = f".{suffix.lower()}" if suffix else ""
+        if key in self.extensions_map:
+            return self.extensions_map[key]
+        return {
+            ".html": "text/html; charset=utf-8",
+            ".htm": "text/html; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".js": "application/javascript; charset=utf-8",
+            ".json": "application/json; charset=utf-8",
+            ".txt": "text/plain; charset=utf-8",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".svg": "image/svg+xml",
+        }.get(key, "application/octet-stream")
+
+    def list_directory(self, path):
+        raise NotImplementedError(
+            "EggServe listings are generated from resolver-filtered entries; "
+            "raw filesystem paths are not exposed"
+        )
+
+    def translate_path(self, path):
+        raise NotImplementedError(
+            "EggServe does not expose an authoritative translated filesystem path"
+        )
 
 
 @dataclass(frozen=True)

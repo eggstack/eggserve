@@ -5,8 +5,8 @@
 eggserve aims for **practical** compatibility with `python -m http.server`, not behavioral identity:
 
 This document describes the command-line/static-serving compatibility. The
-subclass-based Python library facade (`HTTPServer`, `ThreadingHTTPServer`, and
-`BaseHTTPRequestHandler`) has a separate contract in
+subclass-based Python library facade (`HTTPServer`, `ThreadingHTTPServer`,
+`BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`) has a separate contract in
 [python-http-server-compatibility.md](python-http-server-compatibility.md).
 
 - **Similar command shape** — `eggserve [DIR]` works like `python -m http.server [DIR]`
@@ -31,6 +31,12 @@ The goal is that a user familiar with `python -m http.server` can switch to `egg
 | Dotfiles | served | denied | `--allow-dotfiles` |
 | Percent encoding | single-pass decode | conservative single-pass decode | — |
 | `python -m` invocation | `python -m http.server` | `python -m eggserve` | supported |
+
+The installed-wheel static facade supports the familiar
+`partial(SimpleHTTPRequestHandler, directory=...)` construction. It adds
+safe trailing-slash redirects, ordered `index.html`/`index.htm` selection,
+single-range and conditional requests, and optional filtered listings. Its
+deliberate divergences are documented in the focused contract.
 
 ### Percent encoding behavior
 

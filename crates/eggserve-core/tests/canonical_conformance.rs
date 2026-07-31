@@ -856,6 +856,8 @@ fn response_normalization_rules() {
             let actual = normalized.body().and_then(|b| match b {
                 ResponseBody::Empty => Some(""),
                 ResponseBody::Bytes(v) => std::str::from_utf8(v).ok(),
+                ResponseBody::File(_) => None,
+                ResponseBody::EmptyWithLength(_) => Some(""),
             });
             assert_eq!(actual, Some(expected_body.as_str()), "{}: body", f.id);
         }

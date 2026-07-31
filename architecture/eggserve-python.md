@@ -2,13 +2,14 @@
 
 Python wheel packaging via maturin. Provides three API layers: native Rust primitives via PyO3, server primitives for building HTTP servers with Rust-owned I/O, and subprocess lifecycle management for full HTTP serving.
 
-The Python module also exposes `HTTPServer`, `ThreadingHTTPServer`, and
-`BaseHTTPRequestHandler` as a narrow `http.server`-shaped adapter over the
+The Python module also exposes `HTTPServer`, `ThreadingHTTPServer`,
+`BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler` as narrow
+`http.server`-shaped adapters over the
 native `Server`. Hyper remains the parser and Rust remains responsible for
 accepting connections, callback limits, timeout handling, canonical response
 normalization, and wire framing. Python handlers receive duplicate-aware
 headers and bounded `rfile`/`wfile` objects; they never receive a socket.
-Static-file and TLS subclasses are separate plans.
+The static subclass delegates to `StaticResponder`; TLS classes are separate plans.
 
 ## Structure
 
@@ -25,7 +26,7 @@ crates/eggserve-python/
     ├── __main__.py     # python -m eggserve
     ├── _bin.py         # locates packaged binary or PATH fallback
     ├── bin/            # staged platform-native eggserve binary included in wheels
-    ├── server.py       # Python API: ServeConfig, ServerProcess, serve_directory
+    ├── server.py       # Python API: compatibility handlers, ServeConfig, ServerProcess
     ├── test_primitives.py
     ├── test_server_primitives.py
     ├── test_server_integration.py
@@ -77,7 +78,7 @@ PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for th
 |---|---|---|
 | `Request` | parsed HTTP request | `method`, `path`, `query`, `headers`, `remote_addr`, `local_addr`, `scheme`, `http_version`, `has_body` |
 | `Response` | response builder | `empty(status)`, `bytes(status, data, headers=None)`, `text(status, text, headers=None)`, `body_source(status, source, headers=None)` |
-| `StaticResponder` | `SecureRoot` + `resolve_and_plan` | `respond(method, target, headers=None)` → `Response` |
+| `StaticResponder` | `SecureRoot` + resolver/planner | `respond(method, target, headers=None, index_pages=None)` → `Response` |
 | `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(directory_listing, follow_symlinks, allow_dotfiles)`, getters |
 | `ServerSecureRoot` | `primitives::SecureRoot` | `new(path, policy)`, `root_path` getter |
 | `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response(status=200)` |

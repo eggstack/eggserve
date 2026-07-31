@@ -7,7 +7,22 @@ eggserve provides a Python API with three layers: the `http.server`-shaped compa
 ## `http.server`-shaped server
 
 Use `HTTPServer`, `ThreadingHTTPServer`, and `BaseHTTPRequestHandler` for
-subclass-based custom responses. See the focused [compatibility contract](python-http-server-compatibility.md).
+subclass-based custom responses. Use `SimpleHTTPRequestHandler` for secure
+static compatibility. See the focused [compatibility contract](python-http-server-compatibility.md).
+
+```python
+from functools import partial
+from eggserve.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+Handler = partial(SimpleHTTPRequestHandler, directory="public")
+with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
+    server.serve_forever()
+```
+
+The static handler defaults to no listing, no dotfiles, no symlink following,
+and `index.html` before `index.htm`. It supports conditional requests and
+single byte ranges. `translate_path()` is not an authoritative path API;
+resolution and streaming stay in Rust.
 
 ## Quick start
 

@@ -17,7 +17,23 @@
 eggserve fixes these by making the safe choice the only default. Every unsafe behavior is available but requires explicit opt-in.
 
 For subclass-based custom handlers, eggserve also provides a bounded,
-Rust-backed `http.server`-shaped facade:
+Rust-backed `http.server`-shaped facade. Secure static serving uses the
+source-familiar `SimpleHTTPRequestHandler` form:
+
+```python
+from functools import partial
+from eggserve.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+
+Handler = partial(SimpleHTTPRequestHandler, directory="public")
+with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
+    server.serve_forever()
+```
+
+Directory listing is disabled, dotfiles and symlinks are denied, and the
+default index order is `index.html`, then `index.htm`. Rust pins the root,
+resolves paths, and streams files; Python never reopens a translated path.
+
+For subclass-based custom responses:
 
 ```python
 from eggserve.server import BaseHTTPRequestHandler, HTTPServer

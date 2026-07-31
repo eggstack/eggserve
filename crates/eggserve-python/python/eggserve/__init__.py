@@ -9,6 +9,7 @@ __version__ = "0.1.0"
 
 from eggserve.server import (
     BaseHTTPRequestHandler,
+    SimpleHTTPRequestHandler,
     HTTPServer,
     ServeConfig,
     ServerProcess,
@@ -89,6 +90,7 @@ __all__ = [
     "HTTPServer",
     "ThreadingHTTPServer",
     "BaseHTTPRequestHandler",
+    "SimpleHTTPRequestHandler",
     "ResponsePlan",
     "NATIVE_AVAILABLE",
 ]

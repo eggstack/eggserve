@@ -86,6 +86,14 @@ These framing checks are applied in `validate_body_framing()` in the connection 
 
 The in-process Python `Server` uses the actual Rust runtime (`Server`/`ServerHandle` from `eggserve-core::server`) rather than implementing its own accept loop. It applies the same framing checks before invoking a handler or static responder. Its `Request.has_body` field reflects a positive `Content-Length` or non-empty `Transfer-Encoding` signal for methods that are allowed to carry bodies.
 
+The Python `SimpleHTTPRequestHandler` facade follows these same invariants.
+Its `directory=` root is validated and pinned at server construction; class
+policy attributes are captured at startup. Directory listing, dotfiles, and
+symlink following remain disabled unless explicitly enabled on the handler.
+The facade does not expose an authoritative `translate_path()` result and
+never reopens request-derived paths in Python. Resolved files remain Rust-owned
+streams, including range responses.
+
 ### Pre-service body rejection
 
 When `RequestBodyPolicy::Reject` is active (the default for GET/HEAD), bodies are rejected before any service code is invoked. `Expect: 100-continue` is rejected early — the runtime never sends an invitation to send a body that will be refused. Handler side effects never occur for rejected requests.

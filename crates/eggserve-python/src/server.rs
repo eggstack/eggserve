@@ -394,7 +394,7 @@ pub struct PyResponse {
     status: u16,
     #[pyo3(get)]
     headers: HashMap<String, String>,
-    pub(crate) body: PyResponseBody,
+    pub(crate) body: std::sync::Mutex<PyResponseBody>,
 }
 
 #[derive(Debug)]
@@ -411,7 +411,7 @@ impl PyResponse {
         Self {
             status,
             headers: HashMap::new(),
-            body: PyResponseBody::Empty,
+            body: std::sync::Mutex::new(PyResponseBody::Empty),
         }
     }
 
@@ -421,7 +421,7 @@ impl PyResponse {
         Self {
             status,
             headers: headers.unwrap_or_default(),
-            body: PyResponseBody::Bytes(data),
+            body: std::sync::Mutex::new(PyResponseBody::Bytes(data)),
         }
     }
 
@@ -434,7 +434,7 @@ impl PyResponse {
         Self {
             status,
             headers: h,
-            body: PyResponseBody::Bytes(text.into_bytes()),
+            body: std::sync::Mutex::new(PyResponseBody::Bytes(text.into_bytes())),
         }
     }
 
@@ -454,13 +454,14 @@ impl PyResponse {
         Ok(Self {
             status,
             headers: headers.unwrap_or_default(),
-            body: PyResponseBody::BodySource(source),
+            body: std::sync::Mutex::new(PyResponseBody::BodySource(source)),
         })
     }
 
     #[getter]
     fn body(&self) -> ServerBodySource {
-        let source = match &self.body {
+        let body = self.body.lock().expect("response body lock poisoned");
+        let source = match &*body {
             PyResponseBody::Empty => BodySource::Empty,
             PyResponseBody::Bytes(data) => BodySource::Bytes(data.clone()),
             PyResponseBody::BodySource(source) => match source {
@@ -517,7 +518,7 @@ impl PyStaticResponder {
         }
     }
 
-    #[pyo3(signature = (method, target, headers=None, has_body=false, remote_addr=None, http_version=None))]
+    #[pyo3(signature = (method, target, headers=None, has_body=false, remote_addr=None, http_version=None, index_pages=None, mime_overrides=None))]
     fn respond(
         &self,
         method: &str,
@@ -526,6 +527,8 @@ impl PyStaticResponder {
         has_body: bool,
         remote_addr: Option<String>,
         http_version: Option<String>,
+        index_pages: Option<Vec<String>>,
+        mime_overrides: Option<HashMap<String, String>>,
     ) -> PyResult<PyResponse> {
         let _ = remote_addr;
         let _http_version = http_version.unwrap_or_else(|| "1.1".to_string());
@@ -558,7 +561,8 @@ impl PyStaticResponder {
             },
             reject_backslash: true,
         };
-        let path = match ConfinedPath::parse(target, &path_policy) {
+        let (raw_path, query) = target.split_once('?').unwrap_or((target, ""));
+        let path = match ConfinedPath::parse(raw_path, &path_policy) {
             Ok(p) => p,
             Err(e) => {
                 let is_malformed = matches!(
@@ -586,6 +590,93 @@ impl PyStaticResponder {
         let range = hdrs.get("range").map(|s| s.as_str());
         let if_range = hdrs.get("if-range").map(|s| s.as_str());
 
+        let plan_file = |file: eggserve_core::primitives::ResolvedFile| {
+            let plan =
+                file.plan_response(ro_method, if_none_match, if_modified_since, range, if_range);
+            file.into_body(&plan).map(|body| build_response(plan, body))
+        };
+
+        if let eggserve_core::primitives::ResolvedResource::Directory(dir) =
+            self.root.resolve(&path)
+        {
+            // Keep the low-level StaticResponder contract (directories are
+            // not responses) unless the compatibility facade explicitly
+            // supplies index metadata.
+            if index_pages.is_none() {
+                return build_error_response(403, "Forbidden");
+            }
+            if !raw_path.ends_with('/') {
+                let mut location = path.as_str().to_string();
+                if !location.ends_with('/') {
+                    location.push('/');
+                }
+                if !query.is_empty() {
+                    location.push('?');
+                    location.push_str(query);
+                }
+                let mut response = PyResponse::empty(301);
+                response.headers.insert("location".to_string(), location);
+                return Ok(response);
+            }
+
+            for index in index_pages.expect("checked above") {
+                match dir.resolve_child(&index, &self.root) {
+                    eggserve_core::primitives::ResolvedResource::File(file) => {
+                        if let Ok(response) = plan_file(file) {
+                            let mut response = response?;
+                            if let Some(overrides) = &mime_overrides {
+                                let suffix = file_suffix(&index);
+                                if let Some(mime) = overrides.get(&suffix) {
+                                    response.headers.insert("content-type".into(), mime.clone());
+                                }
+                            }
+                            return Ok(response);
+                        }
+                    }
+                    eggserve_core::primitives::ResolvedResource::Denied(_)
+                    | eggserve_core::primitives::ResolvedResource::NotFound
+                    | eggserve_core::primitives::ResolvedResource::Directory(_) => continue,
+                }
+            }
+
+            if matches!(
+                self.policy.directory_listing,
+                policy::DirectoryListingPolicy::Enabled
+            ) {
+                let entries = dir.list(&self.root, 1000).map_err(|e| {
+                    pyo3::exceptions::PyRuntimeError::new_err(format!(
+                        "directory listing failed: {e}"
+                    ))
+                })?;
+                let body = directory_listing_bytes(&entries);
+                let body_len = body.len();
+                let mut response = PyResponse::bytes(200, body, None);
+                response
+                    .headers
+                    .insert("content-type".into(), "text/html; charset=utf-8".into());
+                response
+                    .headers
+                    .insert("x-content-type-options".into(), "nosniff".into());
+                response.headers.insert(
+                    "content-security-policy".into(),
+                    "default-src 'none'; base-uri 'none'; form-action 'none'".into(),
+                );
+                response
+                    .headers
+                    .insert("referrer-policy".into(), "no-referrer".into());
+                if ro_method == ReadOnlyMethod::Head {
+                    response
+                        .headers
+                        .insert("content-length".into(), body_len.to_string());
+                    *response.body.lock().map_err(|_| {
+                        pyo3::exceptions::PyRuntimeError::new_err("lock poisoned")
+                    })? = PyResponseBody::Empty;
+                }
+                return Ok(response);
+            }
+            return build_error_response(403, "Forbidden");
+        }
+
         match resolve_and_plan(
             &self.root,
             &path,
@@ -595,7 +686,15 @@ impl PyStaticResponder {
             range,
             if_range,
         ) {
-            Ok((plan, body_source)) => build_response(plan, body_source),
+            Ok((plan, body_source)) => {
+                let mut response = build_response(plan, body_source)?;
+                if let Some(overrides) = &mime_overrides {
+                    if let Some(mime) = overrides.get(&file_suffix(raw_path)) {
+                        response.headers.insert("content-type".into(), mime.clone());
+                    }
+                }
+                Ok(response)
+            }
             Err(ResolveAndPlanError::NotFound) => build_error_response(404, "Not Found"),
             Err(ResolveAndPlanError::IsDirectory) => build_error_response(403, "Forbidden"),
             Err(ResolveAndPlanError::Denied(_)) => build_error_response(403, "Forbidden"),
@@ -604,6 +703,16 @@ impl PyStaticResponder {
             )),
         }
     }
+}
+
+fn file_suffix(path: &str) -> String {
+    path.rsplit('/')
+        .next()
+        .unwrap_or(path)
+        .rsplit_once('.')
+        .map(|(_, suffix)| format!(".{suffix}"))
+        .unwrap_or_default()
+        .to_ascii_lowercase()
 }
 
 fn build_response(
@@ -618,7 +727,7 @@ fn build_response(
     Ok(PyResponse {
         status: plan.status.as_u16(),
         headers,
-        body: PyResponseBody::BodySource(body_source),
+        body: std::sync::Mutex::new(PyResponseBody::BodySource(body_source)),
     })
 }
 
@@ -631,8 +740,52 @@ fn build_error_response(status: u16, reason: &str) -> PyResult<PyResponse> {
     Ok(PyResponse {
         status,
         headers,
-        body: PyResponseBody::Bytes(reason.as_bytes().to_vec()),
+        body: std::sync::Mutex::new(PyResponseBody::Bytes(reason.as_bytes().to_vec())),
     })
+}
+
+fn directory_listing_bytes(entries: &[(String, bool)]) -> Vec<u8> {
+    fn escape(value: &str) -> String {
+        value
+            .chars()
+            .filter(|c| !c.is_control())
+            .fold(String::new(), |mut out, c| {
+                match c {
+                    '&' => out.push_str("&amp;"),
+                    '<' => out.push_str("&lt;"),
+                    '>' => out.push_str("&gt;"),
+                    '"' => out.push_str("&quot;"),
+                    '\'' => out.push_str("&#x27;"),
+                    _ => out.push(c),
+                }
+                out
+            })
+    }
+    fn segment(value: &str) -> String {
+        value.bytes().fold(String::new(), |mut out, byte| {
+            if byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'.' | b'_' | b'~') {
+                out.push(byte as char);
+            } else {
+                out.push_str(&format!("%{byte:02X}"));
+            }
+            out
+        })
+    }
+
+    let mut html = String::from(
+        "<!DOCTYPE html>\n<html>\n<head><meta charset=\"utf-8\"><title>Directory listing</title></head>\n<body><h1>Directory listing</h1><ul>\n",
+    );
+    for (name, is_dir) in entries {
+        let visible = escape(name);
+        let href = escape(&segment(name));
+        if *is_dir {
+            html.push_str(&format!("<li><a href=\"{href}/\">{visible}/</a></li>\n"));
+        } else {
+            html.push_str(&format!("<li><a href=\"{href}\">{visible}</a></li>\n"));
+        }
+    }
+    html.push_str("</ul>\n</body>\n</html>\n");
+    html.into_bytes()
 }
 
 #[pyclass(frozen, name = "StaticPolicyWrapper")]
@@ -727,7 +880,7 @@ impl ServerBodySource {
         Ok(PyResponse {
             status,
             headers: HashMap::new(),
-            body: PyResponseBody::BodySource(source),
+            body: std::sync::Mutex::new(PyResponseBody::BodySource(source)),
         })
     }
 
@@ -899,10 +1052,8 @@ impl PythonCallbackService {
             // Empty bodies (Content-Length: 0 or no Content-Length with no
             // Transfer-Encoding) are treated as bodyless for the Python
             // handler, regardless of method.
-            let has_content = body
-                .declared_length()
-                .map_or(false, |len| len > 0)
-                || body.bytes_received() > 0;
+            let has_content =
+                body.declared_length().map_or(false, |len| len > 0) || body.bytes_received() > 0;
             if has_content {
                 let declared_length = body.declared_length();
                 let py_body = PyRequestBody {
@@ -958,14 +1109,31 @@ fn convert_python_response_to_canonical<'py>(
         .unwrap_or_default();
 
     let body = if let Ok(py_resp) = obj.extract::<pyo3::Bound<'_, PyResponse>>() {
-        match &py_resp.borrow().body {
-            PyResponseBody::Empty => ResponseBody::Empty,
-            PyResponseBody::Bytes(data) => ResponseBody::Bytes(data.clone()),
-            PyResponseBody::BodySource(BodySource::Bytes(data)) => {
-                ResponseBody::Bytes(data.clone())
-            }
-            PyResponseBody::BodySource(BodySource::Empty) => ResponseBody::Empty,
-            _ => ResponseBody::Empty,
+        let response = py_resp.borrow();
+        let mut body = response
+            .body
+            .lock()
+            .map_err(|_| ServiceError::internal("response body lock poisoned"))?;
+        match std::mem::replace(&mut *body, PyResponseBody::Empty) {
+            PyResponseBody::Empty => response
+                .headers
+                .get("content-length")
+                .and_then(|value| value.parse::<u64>().ok())
+                .map(ResponseBody::EmptyWithLength)
+                .unwrap_or(ResponseBody::Empty),
+            PyResponseBody::Bytes(data) => ResponseBody::Bytes(data),
+            PyResponseBody::BodySource(source) => match source {
+                BodySource::Empty => response
+                    .headers
+                    .get("content-length")
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .map(ResponseBody::EmptyWithLength)
+                    .unwrap_or(ResponseBody::Empty),
+                BodySource::Bytes(data) => ResponseBody::Bytes(data),
+                file @ BodySource::FileFull { .. } | file @ BodySource::FileRange { .. } => {
+                    ResponseBody::File(file)
+                }
+            },
         }
     } else if let Ok(data) = obj.getattr("body").and_then(|b| b.extract::<Vec<u8>>()) {
         ResponseBody::Bytes(data)
@@ -1293,106 +1461,109 @@ impl PyServer {
             ..eggserve_core::config::ServeConfig::default()
         });
 
-        let (server_handle, rt) = py.allow_threads(|| -> PyResult<(ServerHandle, tokio::runtime::Runtime)> {
-            let rt = tokio::runtime::Runtime::new()
-                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let (server_handle, rt) =
+            py.allow_threads(|| -> PyResult<(ServerHandle, tokio::runtime::Runtime)> {
+                let rt = tokio::runtime::Runtime::new()
+                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-            let server_handle = rt.block_on(async {
-                if let Some(handler_arc) = &self.handler {
-                    let cloned_handler = handler_arc
-                        .lock()
-                        .map_err(|_| {
-                            pyo3::exceptions::PyRuntimeError::new_err("handler lock poisoned")
-                        })?
-                        .as_ref()
-                        .map(|h| Python::with_gil(|py| h.clone_ref(py)))
-                        .ok_or_else(|| {
-                            pyo3::exceptions::PyRuntimeError::new_err("handler already consumed")
-                        })?;
+                let server_handle = rt.block_on(async {
+                    if let Some(handler_arc) = &self.handler {
+                        let cloned_handler = handler_arc
+                            .lock()
+                            .map_err(|_| {
+                                pyo3::exceptions::PyRuntimeError::new_err("handler lock poisoned")
+                            })?
+                            .as_ref()
+                            .map(|h| Python::with_gil(|py| h.clone_ref(py)))
+                            .ok_or_else(|| {
+                                pyo3::exceptions::PyRuntimeError::new_err(
+                                    "handler already consumed",
+                                )
+                            })?;
 
-                    let shared_handler = Arc::new(std::sync::Mutex::new(Some(cloned_handler)));
-                    let service = PythonCallbackService {
-                        handler: shared_handler,
-                        callback_semaphore: Arc::new(Semaphore::new(self.max_python_callbacks)),
-                        body_policy: self.body_policy,
-                    };
+                        let shared_handler = Arc::new(std::sync::Mutex::new(Some(cloned_handler)));
+                        let service = PythonCallbackService {
+                            handler: shared_handler,
+                            callback_semaphore: Arc::new(Semaphore::new(self.max_python_callbacks)),
+                            body_policy: self.body_policy,
+                        };
 
-                    let server = Server::builder()
-                        .runtime(runtime_config)
-                        .serve_config(serve_config)
-                        .bind(bind_addr)
-                        .build()
-                        .map_err(|e| {
+                        let server = Server::builder()
+                            .runtime(runtime_config)
+                            .serve_config(serve_config)
+                            .bind(bind_addr)
+                            .build()
+                            .map_err(|e| {
+                                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                                    "failed to build server: {e}"
+                                ))
+                            })?;
+
+                        let handle = server.start_with_service(service).await.map_err(|e| {
                             pyo3::exceptions::PyRuntimeError::new_err(format!(
-                                "failed to build server: {e}"
+                                "failed to start server: {e}"
                             ))
                         })?;
+                        let start_time = std::time::Instant::now();
+                        loop {
+                            let state = handle.state();
+                            if state == LifecycleState::Running {
+                                break;
+                            }
+                            if state == LifecycleState::Failed {
+                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                    "server failed during startup",
+                                ));
+                            }
+                            if start_time.elapsed() > STARTUP_TIMEOUT {
+                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                    "server failed to start: timed out waiting for readiness",
+                                ));
+                            }
+                            tokio::time::sleep(Duration::from_millis(5)).await;
+                        }
+                        Ok::<ServerHandle, PyErr>(handle)
+                    } else {
+                        let server = Server::builder()
+                            .runtime(runtime_config)
+                            .serve_config(serve_config)
+                            .bind(bind_addr)
+                            .build()
+                            .map_err(|e| {
+                                pyo3::exceptions::PyRuntimeError::new_err(format!(
+                                    "failed to build server: {e}"
+                                ))
+                            })?;
 
-                    let handle = server.start_with_service(service).await.map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "failed to start server: {e}"
-                        ))
-                    })?;
-                    let start_time = std::time::Instant::now();
-                    loop {
-                        let state = handle.state();
-                        if state == LifecycleState::Running {
-                            break;
-                        }
-                        if state == LifecycleState::Failed {
-                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                "server failed during startup",
-                            ));
-                        }
-                        if start_time.elapsed() > STARTUP_TIMEOUT {
-                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                "server failed to start: timed out waiting for readiness",
-                            ));
-                        }
-                        tokio::time::sleep(Duration::from_millis(5)).await;
-                    }
-                    Ok::<ServerHandle, PyErr>(handle)
-                } else {
-                    let server = Server::builder()
-                        .runtime(runtime_config)
-                        .serve_config(serve_config)
-                        .bind(bind_addr)
-                        .build()
-                        .map_err(|e| {
+                        let handle = server.start().await.map_err(|e| {
                             pyo3::exceptions::PyRuntimeError::new_err(format!(
-                                "failed to build server: {e}"
+                                "failed to start server: {e}"
                             ))
                         })?;
-
-                    let handle = server.start().await.map_err(|e| {
-                        pyo3::exceptions::PyRuntimeError::new_err(format!(
-                            "failed to start server: {e}"
-                        ))
-                    })?;
-                    let start_time = std::time::Instant::now();
-                    loop {
-                        let state = handle.state();
-                        if state == LifecycleState::Running {
-                            break;
+                        let start_time = std::time::Instant::now();
+                        loop {
+                            let state = handle.state();
+                            if state == LifecycleState::Running {
+                                break;
+                            }
+                            if state == LifecycleState::Failed {
+                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                    "server failed during startup",
+                                ));
+                            }
+                            if start_time.elapsed() > STARTUP_TIMEOUT {
+                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                                    "server failed to start: timed out waiting for readiness",
+                                ));
+                            }
+                            tokio::time::sleep(Duration::from_millis(5)).await;
                         }
-                        if state == LifecycleState::Failed {
-                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                "server failed during startup",
-                            ));
-                        }
-                        if start_time.elapsed() > STARTUP_TIMEOUT {
-                            return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                "server failed to start: timed out waiting for readiness",
-                            ));
-                        }
-                        tokio::time::sleep(Duration::from_millis(5)).await;
+                        Ok::<ServerHandle, PyErr>(handle)
                     }
-                    Ok::<ServerHandle, PyErr>(handle)
-                }
+                })?;
+
+                Ok((server_handle, rt))
             })?;
-
-            Ok((server_handle, rt))
-        })?;
 
         let local_addr = server_handle.local_addr();
 
@@ -1473,8 +1644,7 @@ impl PyServer {
                 if let Some(rt) = runtime_guard.as_ref() {
                     py.allow_threads(|| {
                         rt.block_on(async {
-                            let _ =
-                                tokio::time::timeout(STARTUP_TIMEOUT, handle.ready()).await;
+                            let _ = tokio::time::timeout(STARTUP_TIMEOUT, handle.ready()).await;
                         });
                         Ok::<(), PyErr>(())
                     })?;

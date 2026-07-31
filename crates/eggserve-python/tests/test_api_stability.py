@@ -321,7 +321,7 @@ class TestServerModuleAll(unittest.TestCase):
     def test_server_all_length(self) -> None:
         from eggserve.server import __all__ as server_all
 
-        self.assertEqual(len(server_all), 7)
+        self.assertEqual(len(server_all), 8)
 
 
 class TestVersionFormat(unittest.TestCase):

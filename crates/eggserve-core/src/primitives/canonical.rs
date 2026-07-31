@@ -16,6 +16,7 @@
 
 use std::fmt;
 
+use super::body::BodySource;
 use super::header_block::{HeaderBlock, HeaderError, HeaderName, HeaderValue};
 
 /// Errors from response construction.
@@ -196,6 +197,12 @@ pub enum ResponseBody {
     Empty,
     /// In-memory byte buffer.
     Bytes(Vec<u8>),
+    /// An already-resolved file capability. The transport consumes the
+    /// capability directly; it is never reopened by path.
+    File(BodySource),
+    /// No bytes are sent, but metadata must retain this representation length
+    /// (used for HEAD responses crossing an adapter boundary).
+    EmptyWithLength(u64),
 }
 
 impl ResponseBody {
@@ -204,6 +211,8 @@ impl ResponseBody {
         match self {
             Self::Empty => 0,
             Self::Bytes(b) => b.len() as u64,
+            Self::File(source) => source.len(),
+            Self::EmptyWithLength(len) => *len,
         }
     }
 
@@ -219,6 +228,8 @@ impl ResponseBody {
         match self {
             Self::Empty => None,
             Self::Bytes(b) => Some(b),
+            Self::File(_) => None,
+            Self::EmptyWithLength(_) => None,
         }
     }
 }
@@ -531,6 +542,10 @@ pub fn to_hyper_response(
         Some(ResponseBody::Bytes(b)) => Full::new(Bytes::from(b))
             .map_err(|never| match never {})
             .boxed(),
+        Some(ResponseBody::File(source)) => file_body(source),
+        Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
+            .map_err(|never| match never {})
+            .boxed(),
         None => Full::new(Bytes::new())
             .map_err(|never| match never {})
             .boxed(),
@@ -541,6 +556,61 @@ pub fn to_hyper_response(
         .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue))?;
     crate::response::finalize_origin_headers(&mut response, std::time::SystemTime::now());
     Ok(response)
+}
+
+fn file_body(
+    source: BodySource,
+) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
+    use bytes::Bytes;
+    use futures_util::stream;
+    use http_body_util::{BodyExt, StreamBody};
+    use hyper::body::Frame;
+    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+
+    let (file, start, remaining) = match source {
+        BodySource::FileFull { file, len, .. } => (tokio::fs::File::from_std(file), 0, len),
+        BodySource::FileRange { file, range, .. } => {
+            (tokio::fs::File::from_std(file), range.start, range.len())
+        }
+        BodySource::Empty => {
+            return http_body_util::Full::new(Bytes::new())
+                .map_err(|never| match never {})
+                .boxed();
+        }
+        BodySource::Bytes(bytes) => {
+            return http_body_util::Full::new(Bytes::from(bytes))
+                .map_err(|never| match never {})
+                .boxed();
+        }
+    };
+
+    let stream = stream::unfold(
+        (file, start, remaining),
+        |(mut file, offset, remaining)| async move {
+            if remaining == 0 {
+                return None;
+            }
+            if offset > 0 {
+                if let Err(error) = file.seek(std::io::SeekFrom::Start(offset)).await {
+                    return Some((Err(error), (file, offset, 0)));
+                }
+            }
+            let chunk_len = remaining.min(64 * 1024) as usize;
+            let mut buffer = vec![0; chunk_len];
+            match file.read_exact(&mut buffer).await {
+                Ok(_) => Some((
+                    Ok(Frame::data(Bytes::from(buffer))),
+                    (
+                        file,
+                        offset + chunk_len as u64,
+                        remaining - chunk_len as u64,
+                    ),
+                )),
+                Err(error) => Some((Err(error), (file, offset, 0))),
+            }
+        },
+    );
+    StreamBody::new(stream).boxed()
 }
 
 #[cfg(test)]

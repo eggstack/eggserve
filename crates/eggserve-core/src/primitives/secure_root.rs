@@ -86,6 +86,27 @@ impl ResolvedFile {
         crate::mime::mime_for_path(&path)
     }
 
+    /// Plan a response using the metadata of this already-resolved file.
+    /// This keeps directory-index resolution on the originating capability.
+    pub fn plan_response(
+        &self,
+        method: ReadOnlyMethod,
+        if_none_match: Option<&str>,
+        if_modified_since: Option<&str>,
+        range_header: Option<&str>,
+        if_range: Option<&str>,
+    ) -> StaticResponsePlan {
+        crate::primitives::planner::plan_file_response(
+            method,
+            &self.inner.metadata,
+            self.content_type(),
+            if_none_match,
+            if_modified_since,
+            range_header,
+            if_range,
+        )
+    }
+
     #[allow(dead_code)]
     pub fn safe_relative_components(&self) -> &[String] {
         &self.inner.safe_relative_components
