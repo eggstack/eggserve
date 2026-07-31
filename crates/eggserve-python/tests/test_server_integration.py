@@ -206,6 +206,10 @@ class TestConnectionSemaphore(unittest.TestCase):
         for sock in held:
             sock.close()
 
+        # The first probe is allowed to acquire the newly released permit;
+        # wait for it to finish before starting the post-release probe.
+        t.join(timeout=5)
+
         released2 = threading.Event()
 
         def try_after_release():
