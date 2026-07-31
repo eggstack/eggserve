@@ -16,6 +16,27 @@
 
 eggserve fixes these by making the safe choice the only default. Every unsafe behavior is available but requires explicit opt-in.
 
+For subclass-based custom handlers, eggserve also provides a bounded,
+Rust-backed `http.server`-shaped facade:
+
+```python
+from eggserve.server import BaseHTTPRequestHandler, HTTPServer
+
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        body = b"ok\n"
+        self.send_response(200)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+with HTTPServer(("127.0.0.1", 8000), Handler) as server:
+    server.serve_forever()
+```
+
+This facade uses the existing Rust runtime; it does not expose raw sockets or
+Python's thread-per-connection implementation. See [the compatibility contract](docs/python-http-server-compatibility.md).
+
 ## Installation
 
 ```sh

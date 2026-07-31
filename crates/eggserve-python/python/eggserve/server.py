@@ -5,16 +5,21 @@ The Rust binary is the source of truth for all serving logic. This module
 translates Python config objects to CLI arguments and manages the binary
 process lifecycle.
 
-This is NOT an ASGI/WSGI server, a web framework, or a request callback
-system. It is a hardened static-serving primitive.
+The compatibility classes in this module are a narrow, bounded facade over
+the Rust-owned runtime. They are not an ASGI/WSGI server or web framework.
 """
 
 from __future__ import annotations
 
 import ipaddress
+import inspect
+import io
+import socket
 import subprocess
 import sys
+import threading
 import time
+from http import HTTPStatus
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
@@ -23,11 +28,354 @@ from eggserve._bin import _find_binary
 
 
 __all__ = [
+    "HTTPServer",
+    "ThreadingHTTPServer",
+    "BaseHTTPRequestHandler",
     "StaticPolicy",
     "ServeConfig",
     "ServerProcess",
     "serve_directory",
 ]
+
+
+class _HTTPMessage:
+    """Small, immutable-ish, duplicate-preserving request header view."""
+
+    def __init__(self, fields: list[tuple[str, str]]) -> None:
+        self._fields = tuple((name, value) for name, value in fields)
+
+    def get(self, name: str, default: str | None = None) -> str | None:
+        values = self.get_all(name)
+        return values[0] if values else default
+
+    def get_all(self, name: str) -> list[str]:
+        lowered = name.lower()
+        return [value for key, value in self._fields if key.lower() == lowered]
+
+    def items(self) -> list[tuple[str, str]]:
+        return list(self._fields)
+
+    def __contains__(self, name: object) -> bool:
+        return isinstance(name, str) and bool(self.get_all(name))
+
+    def __iter__(self):
+        return (name for name, _ in self._fields)
+
+    def __len__(self) -> int:
+        return len(self._fields)
+
+
+class _BodyReader(io.RawIOBase):
+    def __init__(self, body: object | None) -> None:
+        self._body = body
+        self._data: bytes | None = None
+        self._offset = 0
+
+    def _read_all(self) -> bytes:
+        if self._data is None:
+            self._data = b"" if self._body is None else bytes(self._body.read())
+        return self._data
+
+    def read(self, size: int = -1) -> bytes:
+        data = self._read_all()
+        if size is None or size < 0:
+            result = data[self._offset:]
+            self._offset = len(data)
+        else:
+            result = data[self._offset:self._offset + size]
+            self._offset += len(result)
+        return result
+
+    def readinto(self, buffer) -> int:
+        data = self.read(len(buffer))
+        buffer[:len(data)] = data
+        return len(data)
+
+    def readline(self, limit: int = -1) -> bytes:
+        data = self._read_all()
+        end = data.find(b"\n", self._offset)
+        stop = len(data) if end < 0 else end + 1
+        if limit >= 0:
+            stop = min(stop, self._offset + limit)
+        result = data[self._offset:stop]
+        self._offset = stop
+        return result
+
+    def readable(self) -> bool:
+        return True
+
+    def __iter__(self):
+        return self
+
+    def __next__(self) -> bytes:
+        line = self.readline()
+        if not line:
+            raise StopIteration
+        return line
+
+
+class _BodyWriter(io.RawIOBase):
+    def __init__(self, limit: int) -> None:
+        self._limit = limit
+        self._data = bytearray()
+
+    def write(self, data) -> int:
+        value = bytes(data)
+        if len(self._data) + len(value) > self._limit:
+            raise ValueError("handler response exceeds max_handler_response_bytes")
+        self._data.extend(value)
+        return len(value)
+
+    def writelines(self, lines) -> None:
+        for line in lines:
+            self.write(line)
+
+    def flush(self) -> None:
+        return None
+
+    def writable(self) -> bool:
+        return True
+
+    def bytes(self) -> bytes:
+        return bytes(self._data)
+
+
+class _HandlerResponse:
+    def __init__(self, status: int, headers: list[tuple[str, str]], body: bytes) -> None:
+        self.status = status
+        self.headers = headers
+        self.body = body
+
+
+class BaseHTTPRequestHandler:
+    """Bounded ``http.server``-shaped handler over EggServe's Rust runtime."""
+
+    server_version = "eggserve"
+    sys_version = ""
+    protocol_version = "HTTP/1.1"
+    error_message_format = "%(code)d - %(message)s"
+    error_content_type = "text/plain; charset=utf-8"
+    responses = {status.value: (status.phrase, status.description) for status in HTTPStatus}
+
+    def __init__(self, request, client_address, server) -> None:
+        self.request = request
+        self.client_address = client_address
+        self.server = server
+        self.command = request.method
+        self.path = request.path + (f"?{request.query}" if request.query else "")
+        self.request_version = request.http_version
+        self.headers = _HTTPMessage(getattr(request, "header_items", []))
+        self.rfile = _BodyReader(request.body)
+        self.wfile = _BodyWriter(server.max_handler_response_bytes)
+        self.close_connection = False
+        self.requestline = f"{self.command} {self.path} {self.request_version}"
+        self._response_status: int | None = None
+        self._response_headers: list[tuple[str, str]] = []
+        self._headers_ended = False
+        self._dispatch()
+
+    def _dispatch(self) -> None:
+        method = self.command
+        if not method.isascii() or not method.replace("_", "A").isalnum():
+            self.send_error(501, "Unsupported method")
+            return
+        callback = getattr(self, f"do_{method}", None)
+        if callback is None:
+            self.send_error(501, "Unsupported method")
+            return
+        try:
+            result = callback()
+            if inspect.isawaitable(result):
+                raise TypeError("coroutine handlers are not supported")
+            if self._response_status is None:
+                raise RuntimeError("handler did not send a response")
+        except Exception:
+            self.log_error("handler failed")
+            self._response_status = 500
+            self._response_headers = [("Content-Type", self.error_content_type)]
+            self._headers_ended = True
+            self.wfile = _BodyWriter(self.server.max_handler_response_bytes)
+            self.wfile.write(b"Internal Server Error")
+
+    def send_response(self, code: int, message: str | None = None) -> None:
+        self.send_response_only(code, message)
+        self.log_request(code, "-")
+
+    def send_response_only(self, code: int, message: str | None = None) -> None:
+        if not isinstance(code, int) or not 100 <= code <= 599:
+            raise ValueError("status code must be between 100 and 599")
+        self._response_status = code
+
+    def send_header(self, keyword: str, value: str) -> None:
+        if self._headers_ended:
+            raise ValueError("response headers are already ended")
+        if keyword.lower() in {"connection", "keep-alive", "upgrade", "transfer-encoding"}:
+            raise ValueError(f"runtime-owned header is not permitted: {keyword}")
+        if any(c in keyword or c in value for c in ("\x00", "\r", "\n")):
+            raise ValueError("header contains prohibited control characters")
+        self._response_headers.append((keyword, value))
+
+    def end_headers(self) -> None:
+        if self._response_status is None:
+            raise ValueError("send_response must precede end_headers")
+        self._headers_ended = True
+
+    def flush_headers(self) -> None:
+        self.end_headers()
+
+    def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
+        reason = message or HTTPStatus(code).phrase if code in HTTPStatus._value2member_map_ else "Error"
+        self.send_response_only(code, reason)
+        self.send_header("Content-Type", self.error_content_type)
+        self.end_headers()
+        self.wfile.write(f"{code} {reason}\n".encode("utf-8"))
+
+    def version_string(self) -> str:
+        return self.server_version if not self.sys_version else f"{self.server_version} {self.sys_version}"
+
+    def date_time_string(self, timestamp: float | None = None) -> str:
+        from email.utils import formatdate
+        return formatdate(timestamp, usegmt=True)
+
+    def address_string(self) -> str:
+        return str(self.client_address[0])
+
+    def log_request(self, code="-", size="-") -> None:
+        return None
+
+    def log_error(self, format, *args) -> None:
+        self.log_message(format, *args)
+
+    def log_message(self, format, *args) -> None:
+        return None
+
+    def _result(self) -> _HandlerResponse:
+        if self._response_status is None or not self._headers_ended:
+            raise RuntimeError("handler returned without a complete response")
+        return _HandlerResponse(self._response_status, self._response_headers, self.wfile.bytes())
+
+
+class HTTPServer:
+    """Serial ``http.server.HTTPServer``-compatible facade."""
+
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True,
+                 *, max_request_body_bytes=1024 * 1024, max_handler_response_bytes=16 * 1024 * 1024):
+        self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
+                          max_workers=1, max_request_body_bytes=max_request_body_bytes,
+                          max_handler_response_bytes=max_handler_response_bytes)
+
+    def _init_compat(self, server_address, handler_class, bind_and_activate, *, max_workers,
+                     max_request_body_bytes, max_handler_response_bytes):
+        if not isinstance(server_address, tuple) or len(server_address) != 2:
+            raise OSError("server_address must be a (host, port) tuple")
+        host, port = server_address
+        if not isinstance(host, str) or not isinstance(port, int) or not 0 <= port <= 65535:
+            raise OSError("invalid server address")
+        if not isinstance(handler_class, type) or not issubclass(handler_class, BaseHTTPRequestHandler):
+            raise TypeError("RequestHandlerClass must subclass BaseHTTPRequestHandler")
+        if max_request_body_bytes <= 0 or max_handler_response_bytes <= 0:
+            raise ValueError("body and response limits must be greater than zero")
+        self.RequestHandlerClass = handler_class
+        self.allow_reuse_address = False
+        self.max_handler_response_bytes = max_handler_response_bytes
+        self._closed = False
+        self._stop_event = threading.Event()
+        self._serve_done = threading.Event()
+        self._serve_done.set()
+        self._native = None
+        self._bind = host
+        self._requested_port = port
+        self._max_workers = max_workers
+        self._max_request_body_bytes = max_request_body_bytes
+        self.server_address = (host, port)
+        self.server_name = socket.getfqdn(host)
+        self.server_port = port
+        if bind_and_activate:
+            self.server_bind()
+            self.server_activate()
+
+    def server_bind(self):
+        return None
+
+    def server_activate(self):
+        if self._native is None:
+            from eggserve._native import Server as _NativeServer
+            callback = self._handle_request
+            self._native = _NativeServer(
+                ".", bind=self._bind, port=self._requested_port, handler=callback,
+                public=ipaddress.ip_address(self._bind).is_unspecified,
+                max_python_callbacks=self._max_workers,
+                request_body_mode="buffer", max_request_body_bytes=self._max_request_body_bytes,
+            )
+
+    def _handle_request(self, request):
+        client = (request.remote_addr or "", 0)
+        handler = self.RequestHandlerClass(request, client, self)
+        result = handler._result()
+        return _HandlerResponse(result.status, result.headers, result.body)
+
+    def _start(self):
+        if self._closed:
+            raise RuntimeError("server is closed")
+        self.server_activate()
+        if self._native.state == "created":
+            self._native.start()
+            self._native.wait_ready()
+            host, port = self._native.addr.rsplit(":", 1)
+            self.server_address = (host.strip("[]"), int(port))
+            self.server_name = socket.getfqdn(self.server_address[0])
+            self.server_port = self.server_address[1]
+
+    def serve_forever(self, poll_interval=0.5):
+        del poll_interval
+        self._start()
+        native = self._native
+        stop_event = self._stop_event
+        self._serve_done.clear()
+        try:
+            stop_event.wait()
+            if native is not None:
+                native.wait()
+        finally:
+            self._serve_done.set()
+
+    def shutdown(self):
+        if self._native is not None:
+            self._native.shutdown()
+        self._stop_event.set()
+
+    def server_close(self):
+        if self._native is not None:
+            self._native.shutdown()
+            self._stop_event.set()
+            self._serve_done.wait(5)
+            self._native = None
+        self._stop_event.set()
+        self._closed = True
+
+    def handle_request(self):
+        raise NotImplementedError("one-request mode is not exposed by the Rust runtime")
+
+    def fileno(self):
+        raise OSError("the native listener descriptor is not exposed")
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.server_close()
+        return False
+
+
+class ThreadingHTTPServer(HTTPServer):
+    """Concurrent bounded-handler variant of :class:`HTTPServer`."""
+
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True,
+                 *, max_workers=8, max_request_body_bytes=1024 * 1024,
+                 max_handler_response_bytes=16 * 1024 * 1024):
+        self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
+                          max_workers=max_workers, max_request_body_bytes=max_request_body_bytes,
+                          max_handler_response_bytes=max_handler_response_bytes)
 
 
 @dataclass(frozen=True)

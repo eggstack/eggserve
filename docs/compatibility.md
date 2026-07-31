@@ -4,6 +4,11 @@
 
 eggserve aims for **practical** compatibility with `python -m http.server`, not behavioral identity:
 
+This document describes the command-line/static-serving compatibility. The
+subclass-based Python library facade (`HTTPServer`, `ThreadingHTTPServer`, and
+`BaseHTTPRequestHandler`) has a separate contract in
+[python-http-server-compatibility.md](python-http-server-compatibility.md).
+
 - **Similar command shape** — `eggserve [DIR]` works like `python -m http.server [DIR]`
 - **Similar simple local serving workflow** — serve a directory with one command
 - **Similar directory argument semantics where safe** — a positional argument selects the root

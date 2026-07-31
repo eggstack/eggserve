@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–093 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–096 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps. Plan 096 adds the bounded subclass-based Python `http.server` foundation; Plans 097–098 cover static-handler and TLS completion.
 
 ## Non-negotiables
 
@@ -135,6 +135,7 @@ Historical plans are in `plans/`. Plans 000–093 are implementation-complete. P
 - [docs/architecture.md](docs/architecture.md) — workspace and module responsibilities
 - [docs/dependency-policy.md](docs/dependency-policy.md) — dependency rules and allowed categories
 - [docs/compatibility.md](docs/compatibility.md) — compatibility with `python -m http.server`
+- [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md) — subclass-based Python `http.server` compatibility boundary
 - [docs/release-process.md](docs/release-process.md) — manual release procedure
 - [docs/security-review.md](docs/security-review.md) — alpha security posture and known limitations
 - [docs/tls.md](docs/tls.md) — optional TLS feature, certificate requirements, limitations

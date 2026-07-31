@@ -2,6 +2,14 @@
 
 Python wheel packaging via maturin. Provides three API layers: native Rust primitives via PyO3, server primitives for building HTTP servers with Rust-owned I/O, and subprocess lifecycle management for full HTTP serving.
 
+The Python module also exposes `HTTPServer`, `ThreadingHTTPServer`, and
+`BaseHTTPRequestHandler` as a narrow `http.server`-shaped adapter over the
+native `Server`. Hyper remains the parser and Rust remains responsible for
+accepting connections, callback limits, timeout handling, canonical response
+normalization, and wire framing. Python handlers receive duplicate-aware
+headers and bounded `rfile`/`wfile` objects; they never receive a socket.
+Static-file and TLS subclasses are separate plans.
+
 ## Structure
 
 ```

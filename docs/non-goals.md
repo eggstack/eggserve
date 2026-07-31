@@ -20,6 +20,7 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No Windows hardened profile** — Plans 084–086 have implemented handle-relative confinement (directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`) and established the adversarial filesystem qualification test scaffold (114 tests) covering reparse-point denial, namespace normalization, race harness, and more. Independent adversarial review is incomplete. Windows remains functional-only until that review is completed. See [security-policy.md](security-policy.md) for the full statement.
 - **No HTTP trailers** — Trailers are deferred; the canonical response model does not include trailer support
 - **No raw socket response writers** — All responses go through the canonical normalization path
+- **No socketserver implementation identity** — The Python `http.server` facade uses Rust-managed listeners, bounded file-like request/response buffers, and event-driven shutdown; raw sockets, `fileno()`, and exact one-request polling are not compatibility promises
 - **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
 - **No WebSocket or upgrade support** — The runtime does not support protocol upgrades.
 - **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.

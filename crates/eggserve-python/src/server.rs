@@ -357,6 +357,7 @@ pub struct PyRequest {
     query: String,
     #[pyo3(get)]
     headers: HashMap<String, String>,
+    header_items: Vec<(String, String)>,
     #[pyo3(get)]
     remote_addr: Option<String>,
     #[pyo3(get)]
@@ -371,6 +372,11 @@ pub struct PyRequest {
 
 #[pymethods]
 impl PyRequest {
+    #[getter]
+    fn header_items(&self) -> Vec<(String, String)> {
+        self.header_items.clone()
+    }
+
     #[getter]
     fn has_body(&self) -> bool {
         self.body.is_some()
@@ -868,10 +874,14 @@ impl PythonCallbackService {
         let method_str = head.method().as_str().to_string();
         let target = head.target().path().to_string();
         let query = head.target().query().unwrap_or("").to_string();
-        let headers: HashMap<String, String> = head
+        let header_items: Vec<(String, String)> = head
             .headers()
             .iter()
             .map(|f| (f.name.to_string(), f.value.to_string()))
+            .collect();
+        let headers: HashMap<String, String> = header_items
+            .iter()
+            .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
             .collect();
         let http_version = head.version().to_string();
 
@@ -913,6 +923,7 @@ impl PythonCallbackService {
             path: target,
             query,
             headers,
+            header_items,
             remote_addr,
             local_addr,
             scheme,
@@ -936,9 +947,14 @@ fn convert_python_response_to_canonical<'py>(
         500
     };
 
-    let headers: HashMap<String, String> = obj
+    let headers: Vec<(String, String)> = obj
         .getattr("headers")
         .and_then(|v| v.extract())
+        .or_else(|_| {
+            obj.getattr("headers")
+                .and_then(|v| v.extract::<HashMap<String, String>>())
+                .map(|map| map.into_iter().collect())
+        })
         .unwrap_or_default();
 
     let body = if let Ok(py_resp) = obj.extract::<pyo3::Bound<'_, PyResponse>>() {
@@ -951,6 +967,8 @@ fn convert_python_response_to_canonical<'py>(
             PyResponseBody::BodySource(BodySource::Empty) => ResponseBody::Empty,
             _ => ResponseBody::Empty,
         }
+    } else if let Ok(data) = obj.getattr("body").and_then(|b| b.extract::<Vec<u8>>()) {
+        ResponseBody::Bytes(data)
     } else {
         match obj.getattr("body") {
             Ok(b) => {

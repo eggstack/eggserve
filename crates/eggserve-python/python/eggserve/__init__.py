@@ -8,8 +8,11 @@ from typing import Any, List, Tuple, Optional
 __version__ = "0.1.0"
 
 from eggserve.server import (
+    BaseHTTPRequestHandler,
+    HTTPServer,
     ServeConfig,
     ServerProcess,
+    ThreadingHTTPServer,
     serve_directory,
 )
 
@@ -83,6 +86,9 @@ __all__ = [
     "ServeConfig",
     "ServerProcess",
     "serve_directory",
+    "HTTPServer",
+    "ThreadingHTTPServer",
+    "BaseHTTPRequestHandler",
     "ResponsePlan",
     "NATIVE_AVAILABLE",
 ]

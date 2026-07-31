@@ -39,6 +39,7 @@ from eggserve._native import (
     SecureRootError,
     StaticPolicy,
 )
+from eggserve.server import BaseHTTPRequestHandler, HTTPServer, ThreadingHTTPServer
 
 __version__: str
 

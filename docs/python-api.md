@@ -1,8 +1,13 @@
 # Python API
 
-eggserve provides a Python API with two layers: native primitives (PyO3-backed Rust bindings) and a subprocess lifecycle wrapper. The native layer exposes hardened path parsing, policy enforcement, resource resolution, and response planning without launching the server binary. Server primitives allow Python code to build HTTP servers while Rust owns socket I/O, HTTP parsing, response serialization, file streaming, and timeout enforcement. The subprocess layer manages the Rust binary for full HTTP serving.
+eggserve provides a Python API with three layers: the `http.server`-shaped compatibility facade, native primitives (PyO3-backed Rust bindings), and a subprocess lifecycle wrapper. The compatibility facade is documented in [python-http-server-compatibility.md](python-http-server-compatibility.md). The native layer exposes hardened path parsing, policy enforcement, resource resolution, and response planning without launching the server binary.
 
 **This is NOT an ASGI/WSGI server, a web framework, or a request callback system.** It is a hardened static-serving primitive.
+
+## `http.server`-shaped server
+
+Use `HTTPServer`, `ThreadingHTTPServer`, and `BaseHTTPRequestHandler` for
+subclass-based custom responses. See the focused [compatibility contract](python-http-server-compatibility.md).
 
 ## Quick start
 
