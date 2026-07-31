@@ -948,14 +948,15 @@ class TestResponsePlanExtended(unittest.TestCase):
         plan = f.plan_conditional_response("GET", headers=[("range", "bytes=50-10")])
         self.assertEqual(plan.status, 416)
 
-    def test_plan_if_range_matching_etag_206(self):
+    def test_plan_if_range_weak_etag_200(self):
         f = self._make_file("x" * 100)
         etag = generate_etag(f)
         plan = f.plan_conditional_response("GET", headers=[
             ("range", "bytes=0-0"),
             ("if-range", etag),
         ])
-        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.status, 200)
+        self.assertEqual(plan.body_kind, "file_full")
 
     def test_plan_if_range_mismatched_etag_200(self):
         f = self._make_file("x" * 100)
