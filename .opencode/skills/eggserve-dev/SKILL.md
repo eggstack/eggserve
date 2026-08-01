@@ -71,7 +71,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–096 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps; Plan 096 adds the bounded Python `http.server` foundation. Historical plans are in `plans/`.
+- **Plan status** — Plans 000–098 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps; Plans 096–098 define the bounded Python `http.server` façade, static compatibility, TLS classes, and narrowed namespaces. Historical plans are in `plans/`.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
@@ -115,7 +115,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python Server has runtime hardening** — connection semaphore, header timeouts, connection total timeouts, graceful shutdown, optional handler callback, callback concurrency limit.
+- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. `eggserve.lowlevel` contains advanced primitives and `eggserve.subprocess` contains optional CLI lifecycle helpers. The Python wheel does not compile the experimental HTTP client.
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.

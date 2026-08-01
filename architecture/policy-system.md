@@ -117,7 +117,7 @@ Users must explicitly opt-in to less restrictive behavior via CLI flags or Pytho
 ## Python API Mapping
 
 ```python
-from eggserve import StaticPolicy
+from eggserve.lowlevel import StaticPolicy
 
 policy = StaticPolicy(
     directory_listing=True,   # → DirectoryListingPolicy::Allow

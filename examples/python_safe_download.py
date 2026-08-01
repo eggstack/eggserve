@@ -8,7 +8,7 @@ to a filesystem root.
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import unquote
-from eggserve import SecureRoot, StaticPolicy
+from eggserve.lowlevel import SecureRoot, StaticPolicy
 
 # eggserve enforces: path confinement, symlink denial, dotfile denial
 root = SecureRoot("downloads", policy=StaticPolicy())

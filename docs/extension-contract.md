@@ -38,7 +38,7 @@ Dynamic applications (frameworks, CMS backends, API servers) may use `SecureRoot
 
 ```python
 # Python example: dynamic endpoint + static assets
-from eggserve import SecureRoot, StaticPolicy
+from eggserve.lowlevel import SecureRoot, StaticPolicy
 
 root = SecureRoot("public", StaticPolicy())
 resource = root.resolve_path(request_path)
@@ -97,7 +97,7 @@ See [public-api-boundary.md](public-api-boundary.md) for the stable API surface 
 When `eggserve.NATIVE_AVAILABLE is True`, use the Rust-backed primitives directly:
 
 ```python
-from eggserve import SecureRoot, StaticPolicy, validate_method
+from eggserve.lowlevel import SecureRoot, StaticPolicy, validate_method
 
 root = SecureRoot("public", StaticPolicy())
 resource = root.resolve_path("/assets/style.css")
@@ -111,7 +111,7 @@ Native primitives provide full path confinement, descriptor-relative hardening (
 When native primitives are unavailable, use `ServeConfig` and `ServerProcess` to manage the Rust binary:
 
 ```python
-from eggserve import ServeConfig, ServerProcess
+from eggserve.subprocess import ServeConfig, ServerProcess
 
 config = ServeConfig(directory="public", port=9000)
 proc = ServerProcess(config)

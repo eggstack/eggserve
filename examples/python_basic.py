@@ -4,7 +4,8 @@ This example demonstrates the safe-by-default Python API for serving
 static files. It is NOT an ASGI/WSGI server or a request callback system.
 """
 
-from eggserve import ServeConfig, ServerProcess, StaticPolicy, serve_directory
+from eggserve.subprocess import ServeConfig, ServerProcess, StaticPolicy
+from eggserve import serve_directory
 
 
 def main():

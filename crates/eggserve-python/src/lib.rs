@@ -16,7 +16,6 @@ use eggserve_core::primitives::{
     ResolvedResource as RustResolvedResource, ResourceDeniedReason, SecureRoot as RustSecureRoot,
 };
 
-mod client;
 mod server;
 
 // ---------------------------------------------------------------------------
@@ -1630,13 +1629,6 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<server::ServerBodySource>()?;
     m.add_class::<server::ServerRequestError>()?;
     m.add_class::<server::PyServer>()?;
-
-    m.add_class::<client::PyClientError>()?;
-    m.add_class::<client::PyMethod>()?;
-    m.add_class::<client::PyClientConfig>()?;
-    m.add_class::<client::PyClientRequest>()?;
-    m.add_class::<client::PyClientResponse>()?;
-    m.add_class::<client::PyHttpClient>()?;
 
     Ok(())
 }

@@ -11,7 +11,13 @@ a body mode.
 ### Before (no body support)
 
 ```python
-from eggserve import Server
+The historical native callback examples below are internal implementation
+material. New Python code should use `eggserve.server` handler classes;
+advanced embedding types are under `eggserve.lowlevel`.
+
+```python
+from eggserve._native import Server
+```
 
 def handler(req):
     return Response.text(200, "ok")
@@ -22,7 +28,7 @@ Server(root=".", handler=handler).start()
 ### After (with body support)
 
 ```python
-from eggserve import Server, Response
+from eggserve._native import Server, Response
 
 def handler(req):
     if req.has_body:

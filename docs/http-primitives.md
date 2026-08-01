@@ -280,7 +280,7 @@ let plan = plan_file_response(
 ### Python embedding
 
 ```python
-from eggserve import SecureRoot, StaticPolicy
+from eggserve.lowlevel import SecureRoot, StaticPolicy
 
 root = SecureRoot("public", policy=StaticPolicy())
 resource = root.resolve_path("/assets/app.css")

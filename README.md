@@ -124,94 +124,42 @@ See [docs/cli.md](docs/cli.md) for full details.
 
 ## Python API
 
-eggserve provides a Python API with two layers: a native primitives library (PyO3-backed Rust bindings) and a server API for building HTTP servers with Rust-owned I/O.
-
-**This is NOT an ASGI/WSGI server or a web framework.** It is a hardened static-serving primitive.
-
-### Native primitives
-
-Use these for path confinement, policy enforcement, and response planning without launching the server binary:
+The canonical API is a narrow, synchronous `http.server`-shaped façade. Rust
+owns sockets, parsing, framing, timeouts, and file streaming; handlers never
+receive raw sockets and their in-memory bodies are bounded.
 
 ```python
-from eggserve import SecureRoot, StaticPolicy
+from eggserve.server import BaseHTTPRequestHandler, HTTPServer
 
-root = SecureRoot("public", policy=StaticPolicy())
-resource = root.resolve_path("/assets/app.css")
-if resource.is_file:
-    plan = resource.file.plan_response("GET")
-    print(plan.status, plan.body_kind)  # 200 file_full
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"ok\n")
+
+with HTTPServer(("127.0.0.1", 8000), Handler) as server:
+    server.serve_forever()
 ```
 
-### Server primitives
-
-Build HTTP servers with Rust-owned I/O. Rust handles socket accept, HTTP parsing, file streaming, and timeout enforcement:
+Use `SimpleHTTPRequestHandler` for secure static files. `HTTPSServer` and
+`ThreadingHTTPSServer` use the same rustls runtime with PEM certificate/key
+paths, HTTP/1.1 ALPN only, no SNI certificate selection, and no client
+certificates:
 
 ```python
-from eggserve import Server, ServerSecureRoot
+from functools import partial
+from eggserve.server import HTTPSServer, SimpleHTTPRequestHandler
 
-root = ServerSecureRoot(".")
-with Server(root=root) as server:
-    print(f"Serving on {server.addr}")
+Handler = partial(SimpleHTTPRequestHandler, directory="public")
+with HTTPSServer(("127.0.0.1", 8443), Handler,
+                 certfile="cert.pem", keyfile="key.pem") as server:
+    server.serve_forever()
 ```
 
-### Handler callbacks
-
-Intercept requests with a Python handler:
-
-```python
-from eggserve import Server, ServerSecureRoot, Request, Response
-
-root = ServerSecureRoot(".")
-
-def handler(request: Request) -> Response:
-    if request.path == "/health":
-        return Response.text(200, "ok")
-    return Response.empty(404)
-
-with Server(root=root, handler=handler) as server:
-    print(f"Serving on {server.addr}")
-```
-
-Handler callbacks support bounded request body consumption (`buffer` or `stream` mode) via constructor parameters. See [docs/body-migration.md](docs/body-migration.md) for details.
-
-### Lifecycle control
-
-Programmatic server lifecycle for tests and embedding:
-
-```python
-from eggserve import Server, ServerSecureRoot
-
-root = ServerSecureRoot(".")
-server = Server(root=root)
-server.start()          # blocks until Running state
-print(server.state)     # "running"
-server.shutdown()       # non-blocking graceful shutdown
-server.wait()           # blocks until stopped
-print(server.state)     # "stopped"
-```
-
-### Subprocess API
-
-Full HTTP serving via the Rust binary:
-
-```python
-from eggserve import serve_directory
-
-# Serve current directory (blocking, safe defaults)
-serve_directory(".")
-```
-
-For lifecycle control (tests, embedding):
-
-```python
-from eggserve import ServeConfig, ServerProcess
-
-config = ServeConfig(directory="public", port=9000)
-proc = ServerProcess(config)
-proc.start()
-proc.wait()
-proc.stop()
-```
+The advanced primitives are under `eggserve.lowlevel`; the optional bundled
+CLI lifecycle helpers are under `eggserve.subprocess`. `serve_directory()`
+remains available at the package root. EggServe is not an ASGI/WSGI runtime,
+framework, proxy, or HTTP client library.
 
 Full API reference: [docs/python-api.md](docs/python-api.md)
 

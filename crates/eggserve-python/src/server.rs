@@ -1242,13 +1242,14 @@ pub struct PyServer {
     max_request_body_bytes: u64,
     body_read_timeout: Duration,
     incomplete_body_policy: IncompleteBodyPolicy,
+    tls_config: Option<std::sync::Arc<rustls::ServerConfig>>,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close"))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close", tls_certfile=None, tls_keyfile=None))]
     fn new(
         root: String,
         bind: &str,
@@ -1267,7 +1268,13 @@ impl PyServer {
         max_request_body_bytes: u64,
         body_timeout_secs: u64,
         incomplete_body_policy: &str,
+        tls_certfile: Option<String>,
+        tls_keyfile: Option<String>,
     ) -> PyResult<Self> {
+        // rustls can be built with more than one provider through the
+        // workspace's feature-unified dependency graph. Select the same
+        // ring provider used by the CLI before constructing TLS config.
+        let _ = rustls::crypto::ring::default_provider().install_default();
         let bind_addr: SocketAddr = format!("{bind}:{port}")
             .parse()
             .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid bind address"))?;
@@ -1368,6 +1375,22 @@ impl PyServer {
             policy: static_policy,
         };
 
+        let tls_config = match (tls_certfile, tls_keyfile) {
+            (None, None) => None,
+            (Some(cert), Some(key)) => Some(
+                eggserve_core::tls::load_tls_config(
+                    std::path::Path::new(&cert),
+                    std::path::Path::new(&key),
+                )
+                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("TLS configuration failed: {e}")))?,
+            ),
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "TLS requires both tls_certfile and tls_keyfile",
+                ));
+            }
+        };
+
         Ok(Self {
             bind: bind.to_string(),
             port,
@@ -1389,6 +1412,7 @@ impl PyServer {
             max_request_body_bytes,
             body_read_timeout: Duration::from_secs(body_timeout_secs),
             incomplete_body_policy: inc_policy,
+            tls_config,
         })
     }
 
@@ -1440,7 +1464,7 @@ impl PyServer {
             .parse()
             .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid bind address"))?;
 
-        let runtime_config = RuntimeConfig::builder()
+        let mut runtime_builder = RuntimeConfig::builder()
             .bind(bind_addr)
             .max_connections(self.max_connections)
             .max_file_streams(self.max_file_streams)
@@ -1451,7 +1475,11 @@ impl PyServer {
             .max_request_body_bytes(self.max_request_body_bytes)
             .request_body_policy(self.body_policy)
             .body_read_timeout(self.body_read_timeout)
-            .incomplete_body_policy(self.incomplete_body_policy)
+            .incomplete_body_policy(self.incomplete_body_policy);
+        if let Some(tls_config) = &self.tls_config {
+            runtime_builder = runtime_builder.tls_config(tls_config.clone());
+        }
+        let runtime_config = runtime_builder
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 

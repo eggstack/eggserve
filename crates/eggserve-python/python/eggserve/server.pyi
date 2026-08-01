@@ -53,3 +53,9 @@ class HTTPServer:
 
 class ThreadingHTTPServer(HTTPServer):
     def __init__(self, server_address: tuple[str, int], RequestHandlerClass: type[BaseHTTPRequestHandler], bind_and_activate: bool = True, *, max_workers: int = 8, max_request_body_bytes: int = ..., max_handler_response_bytes: int = ...) -> None: ...
+
+class HTTPSServer(HTTPServer):
+    def __init__(self, server_address: tuple[str, int], RequestHandlerClass: type[BaseHTTPRequestHandler], bind_and_activate: bool = True, *, certfile: str, keyfile: str | None = ..., password: str | None = ..., alpn_protocols: list[str] | None = ..., max_request_body_bytes: int = ..., max_handler_response_bytes: int = ...) -> None: ...
+
+class ThreadingHTTPSServer(HTTPSServer):
+    def __init__(self, server_address: tuple[str, int], RequestHandlerClass: type[BaseHTTPRequestHandler], bind_and_activate: bool = True, *, certfile: str, keyfile: str | None = ..., password: str | None = ..., alpn_protocols: list[str] | None = ..., max_workers: int = 8, max_request_body_bytes: int = ..., max_handler_response_bytes: int = ...) -> None: ...

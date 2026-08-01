@@ -12,7 +12,7 @@ readme = "../../README.md"
 default = []
 client = ["hyper/client", "hyper-util/client-legacy"]
 client-tls = ["client", "dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
-tls = ["dep:rustls", "dep:tokio-rustls"]
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 python-bindings-internal = []
 windows-plan086 = []
 
@@ -30,6 +30,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "signal
 # Client dependencies (feature-gated)
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true }
+rustls-pemfile = { version = "2", optional = true }
 webpki-roots = { version = "0.26", optional = true }
 
 [target.'cfg(unix)'.dependencies]

@@ -777,25 +777,12 @@ class TestApiConsistency(unittest.TestCase):
         self.assertEqual(r.headers, {})
 
     def test_init_all_exports(self):
-        """eggserve.__all__ includes all expected names."""
+        """eggserve.__all__ contains only the supported façade."""
         import eggserve
         expected = [
-            "EggserveError",
-            "PathPolicyError",
-            "RequestTargetError",
-            "SecureRootError",
-            "RequestValidationError",
-            "BodySourceError",
-            "ResponseConstructionError",
-            "LifecycleError",
-            "Request",
-            "Response",
-            "Server",
-            "StaticResponder",
-            "StaticPolicyWrapper",
-            "ServerSecureRoot",
-            "ServerBodySource",
-            "ServerRequestError",
+            "__version__", "serve_directory", "HTTPServer", "ThreadingHTTPServer",
+            "HTTPSServer", "ThreadingHTTPSServer", "BaseHTTPRequestHandler",
+            "SimpleHTTPRequestHandler",
         ]
         for name in expected:
             self.assertIn(name, eggserve.__all__, f"{name} missing from __all__")

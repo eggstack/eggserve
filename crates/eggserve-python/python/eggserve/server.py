@@ -32,12 +32,10 @@ from eggserve._bin import _find_binary
 __all__ = [
     "HTTPServer",
     "ThreadingHTTPServer",
+    "HTTPSServer",
+    "ThreadingHTTPSServer",
     "BaseHTTPRequestHandler",
     "SimpleHTTPRequestHandler",
-    "StaticPolicy",
-    "ServeConfig",
-    "ServerProcess",
-    "serve_directory",
 ]
 
 
@@ -268,10 +266,12 @@ class HTTPServer:
                  *, max_request_body_bytes=1024 * 1024, max_handler_response_bytes=16 * 1024 * 1024):
         self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
                           max_workers=1, max_request_body_bytes=max_request_body_bytes,
-                          max_handler_response_bytes=max_handler_response_bytes)
+                          max_handler_response_bytes=max_handler_response_bytes,
+                          tls_certfile=None, tls_keyfile=None)
 
     def _init_compat(self, server_address, handler_class, bind_and_activate, *, max_workers,
-                     max_request_body_bytes, max_handler_response_bytes):
+                     max_request_body_bytes, max_handler_response_bytes,
+                     tls_certfile, tls_keyfile):
         if not isinstance(server_address, tuple) or len(server_address) != 2:
             raise OSError("server_address must be a (host, port) tuple")
         host, port = server_address
@@ -296,6 +296,8 @@ class HTTPServer:
         self._requested_port = port
         self._max_workers = max_workers
         self._max_request_body_bytes = max_request_body_bytes
+        self._tls_certfile = tls_certfile
+        self._tls_keyfile = tls_keyfile
         self.server_address = (host, port)
         self.server_name = socket.getfqdn(host)
         self.server_port = port
@@ -354,6 +356,8 @@ class HTTPServer:
                 max_python_callbacks=self._max_workers,
                 request_body_mode="reject" if self._static_config is not None else "buffer",
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,
+                tls_certfile=self._tls_certfile,
+                tls_keyfile=self._tls_keyfile,
             )
 
     def _handle_request(self, request):
@@ -423,7 +427,54 @@ class ThreadingHTTPServer(HTTPServer):
                  max_handler_response_bytes=16 * 1024 * 1024):
         self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
                           max_workers=max_workers, max_request_body_bytes=max_request_body_bytes,
-                          max_handler_response_bytes=max_handler_response_bytes)
+                          max_handler_response_bytes=max_handler_response_bytes,
+                          tls_certfile=None, tls_keyfile=None)
+
+
+class HTTPSServer(HTTPServer):
+    """HTTP/1.1 TLS server using EggServe's rustls runtime."""
+
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True,
+                 *, certfile, keyfile=None, password=None, alpn_protocols=None,
+                 max_request_body_bytes=1024 * 1024,
+                 max_handler_response_bytes=16 * 1024 * 1024):
+        if password is not None:
+            raise ValueError("encrypted private-key passwords are not supported")
+        protocols = ["http/1.1"] if alpn_protocols is None else list(alpn_protocols)
+        if protocols != ["http/1.1"]:
+            raise ValueError("only the 'http/1.1' ALPN protocol is supported")
+        if not isinstance(certfile, (str, os.PathLike)):
+            raise TypeError("certfile must be a path")
+        key_path = certfile if keyfile is None else keyfile
+        if not isinstance(key_path, (str, os.PathLike)):
+            raise TypeError("keyfile must be a path")
+        self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
+                          max_workers=1, max_request_body_bytes=max_request_body_bytes,
+                          max_handler_response_bytes=max_handler_response_bytes,
+                          tls_certfile=os.fspath(certfile), tls_keyfile=os.fspath(key_path))
+
+
+class ThreadingHTTPSServer(HTTPSServer):
+    """Bounded-concurrency TLS variant of :class:`HTTPSServer`."""
+
+    def __init__(self, server_address, RequestHandlerClass, bind_and_activate=True,
+                 *, certfile, keyfile=None, password=None, alpn_protocols=None,
+                 max_workers=8, max_request_body_bytes=1024 * 1024,
+                 max_handler_response_bytes=16 * 1024 * 1024):
+        if password is not None:
+            raise ValueError("encrypted private-key passwords are not supported")
+        protocols = ["http/1.1"] if alpn_protocols is None else list(alpn_protocols)
+        if protocols != ["http/1.1"]:
+            raise ValueError("only the 'http/1.1' ALPN protocol is supported")
+        if not isinstance(certfile, (str, os.PathLike)):
+            raise TypeError("certfile must be a path")
+        key_path = certfile if keyfile is None else keyfile
+        if not isinstance(key_path, (str, os.PathLike)):
+            raise TypeError("keyfile must be a path")
+        self._init_compat(server_address, RequestHandlerClass, bind_and_activate,
+                          max_workers=max_workers, max_request_body_bytes=max_request_body_bytes,
+                          max_handler_response_bytes=max_handler_response_bytes,
+                          tls_certfile=os.fspath(certfile), tls_keyfile=os.fspath(key_path))
 
 
 class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):

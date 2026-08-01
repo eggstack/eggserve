@@ -71,34 +71,11 @@ println!("Content-Type: {}", response.content_type());
 let text = response.text()?;
 ```
 
-## Python API
+## Python surface
 
-```python
-from eggserve import HttpClient, ClientConfig, Method
-
-client = HttpClient(ClientConfig())
-response = client.get("http://localhost:8080/index.html")
-print(response.status)       # 200
-print(response.content_type()) # text/html
-print(response.text())       # "<html>..."
-
-# With custom config
-config = ClientConfig(
-    connect_timeout=5.0,
-    request_timeout=15.0,
-    max_response_body_bytes=5 * 1024 * 1024,
-    verify_tls=True,
-)
-client = HttpClient(config)
-
-# Custom request
-request = ClientRequest(
-    method=Method.Get,
-    url="http://localhost:8080/data",
-    headers={"Accept": "application/json"},
-)
-response = client.send(request)
-```
+The Python wheel does not expose this experimental client and does not enable
+the core `client` feature. Use the Rust API directly under its opt-in feature,
+or use an external Python HTTP client library.
 
 ## URL grammar
 
@@ -186,7 +163,7 @@ All 12 variants map to Python `EggserveError` with the same structure.
 ## Tests
 
 - **Rust**: `crates/eggserve-core/tests/client_integration.rs` — 23 tests for core client behavior. `crates/eggserve-core/tests/client_interop.rs` — 48 tests for interoperability edge cases. `crates/eggserve-core/tests/client_tls.rs` — 7 tests for TLS correctness (behind `client-tls`). No internet required.
-- **Python**: `crates/eggserve-python/python/eggserve/test_client_primitives.py` — 10 tests for bindings and error handling.
+- **Python**: no client binding is shipped; the installed-wheel suite verifies that client names are absent.
 
 ## Stability
 

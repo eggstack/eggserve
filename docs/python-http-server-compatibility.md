@@ -19,8 +19,9 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
     server.serve_forever()
 ```
 
-The supported classes are `HTTPServer`, `ThreadingHTTPServer`, and
-`BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. `HTTPServer` serializes handler callbacks;
+The supported classes are `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`,
+`ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and
+`SimpleHTTPRequestHandler`. `HTTPServer` serializes handler callbacks;
 `ThreadingHTTPServer` uses bounded Rust-managed callback concurrency and does
 not create one Python thread per connection.
 
@@ -62,9 +63,11 @@ native resolver.
 
 `poll_interval` is accepted for source compatibility but the runtime uses
 event-driven shutdown. Raw sockets, `fileno()`, exact one-request
-`handle_request()`, socketserver internals, directory serving, TLS classes,
-and async handlers are outside this foundation. Static file compatibility is
-defined separately by Plan 097; TLS compatibility by Plan 098.
+`handle_request()`, socketserver internals, and async handlers are outside
+this foundation. TLS uses rustls and accepts only HTTP/1.1 ALPN; it does not
+accept `ssl.SSLContext`, expose wrapped sockets, select multiple certificates,
+or manage certificates. Static file compatibility is defined separately by
+Plan 097; TLS compatibility by Plan 098.
 
-This API is distinct from the lower-level native `eggserve.Server`, which
-accepts callback functions and exposes the Rust runtime directly.
+Low-level Rust-backed primitives remain available only through the explicitly
+advanced `eggserve.lowlevel` namespace.

@@ -23,11 +23,11 @@ its status using a constrained vocabulary.
 | **Rust stable** | `eggserve-core::primitives` module — the intended public Rust boundary. |
 | **Rust experimental** | `eggserve-core::service` (HTTP handler) and `client` module (feature-gated). |
 | **Runtime experimental** | `eggserve-core::server` — transport-owning runtime: `Server`, `Service` trait, `StaticService`. |
-| **Python stable** | Python types wrapping core primitives: `ServeConfig`, `ServerProcess`, `serve_directory`, `StaticPolicy`, `PathPolicy`, `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, `Request`, `Response`, `StaticResponder`, `Server`, `ServerSecureRoot`, `ServerBodySource`. |
-| **Python experimental** | Python client types: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse`, `ClientError`, `Method`. |
+| **Python stable** | `eggserve.server` compatibility classes and `serve_directory`; advanced wrappers are under `eggserve.lowlevel`, subprocess helpers under `eggserve.subprocess`. |
+| **Python experimental** | No default Python client surface. The internal callback engine and native bridge types are not supported imports. |
 | **Built-in static service** | The `handle_request` function used by CLI and Python Server (GET/HEAD only, no request bodies, path confinement, conditional/range responses). |
 | **Generic callback server** | Python `Server` with a user-provided handler callback; bounded concurrency via `max_python_callbacks`. |
-| **Experimental client** | `HttpClient` — synchronous, buffered, no connection pooling, no redirect following, no streaming. |
+| **Experimental client** | Rust-only opt-in core feature; not compiled into the Python wheel. |
 
 ## Capability Matrix
 

@@ -76,10 +76,12 @@ Listening: http://127.0.0.1:8000
 
 ## Published binaries and wheels
 
-The `tls` feature in `eggserve-bin` is **non-default**. This means:
+The `tls` feature in `eggserve-bin` is **non-default**. The Python extension
+uses the same Rust TLS loader for `HTTPSServer` and `ThreadingHTTPSServer`.
+This means:
 
 - **`cargo install eggserve`** installs a plaintext-only binary unless you pass `--features tls`.
-- **Published PyPI wheels** do not include TLS. The wheel bundles the platform-native CLI binary built without the `tls` feature.
+- **Published PyPI wheels** can provide Python HTTPS classes; the bundled CLI binary remains plaintext unless built with its `tls` feature.
 - To obtain a TLS-capable binary, build from source with `--features tls` or use a reverse proxy in front of the plaintext server.
 
 Release gates validate TLS functionality by explicitly enabling the feature during CI. TLS tests (`clippy` and `cargo test` with `--features tls`) cover TLS correctness; they are not satisfied by a default (non-TLS) build.
@@ -92,7 +94,7 @@ eggserve's TLS support is intentionally minimal:
 - No certificate renewal
 - No SNI virtual hosting
 - No client certificate authentication
-- No HTTP/2
+- No HTTP/2 (ALPN is restricted to `http/1.1`)
 - No OCSP stapling
 - No hot certificate reload
 - No multi-cert routing

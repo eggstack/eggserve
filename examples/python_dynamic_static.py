@@ -8,7 +8,7 @@ acceptance and response writing.
 
 import json
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from eggserve import SecureRoot, StaticPolicy
+from eggserve.lowlevel import SecureRoot, StaticPolicy
 
 # eggserve handles: path validation, confinement, response planning
 root = SecureRoot("public", policy=StaticPolicy())

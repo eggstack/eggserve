@@ -1,312 +1,65 @@
 # eggserve-python — Deep Dive
 
-Python wheel packaging via maturin. Provides three API layers: native Rust primitives via PyO3, server primitives for building HTTP servers with Rust-owned I/O, and subprocess lifecycle management for full HTTP serving.
+The Python wheel is built by maturin and contains a PyO3 extension plus the
+Python façade and bundled CLI. The supported programming surface is
+`eggserve.server`; advanced primitives and CLI lifecycle helpers are kept in
+separate namespaces.
 
-The Python module also exposes `HTTPServer`, `ThreadingHTTPServer`,
-`BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler` as narrow
-`http.server`-shaped adapters over the
-native `Server`. Hyper remains the parser and Rust remains responsible for
-accepting connections, callback limits, timeout handling, canonical response
-normalization, and wire framing. Python handlers receive duplicate-aware
-headers and bounded `rfile`/`wfile` objects; they never receive a socket.
-The static subclass delegates to `StaticResponder`; TLS classes are separate plans.
+## Supported modules
+
+`eggserve.server` exports exactly:
+
+- `HTTPServer` and `ThreadingHTTPServer`;
+- `HTTPSServer` and `ThreadingHTTPSServer`;
+- `BaseHTTPRequestHandler` and `SimpleHTTPRequestHandler`.
+
+The classes use the Rust runtime for socket ownership, HTTP/1.1 parsing,
+timeouts, response framing, static path resolution, and file streaming.
+Handlers are synchronous and receive bounded `rfile`/`wfile` adapters, never
+raw sockets. HTTPS uses the shared core rustls PEM loader, requires certificate
+and key paths, and restricts ALPN to `http/1.1`.
+
+`eggserve.lowlevel` contains the advanced PyO3 wrappers (`SecureRoot`,
+`StaticPolicy`, `RequestTarget`, canonical HTTP types, and body/response
+primitives). `eggserve.subprocess` contains `ServeConfig`, `ServerProcess`,
+`StaticPolicy`, and the `serve_directory` convenience. The top-level package
+only re-exports the version, `serve_directory`, and the six façade classes.
+
+The native callback `Server`, `StaticResponder`, `ServerSecureRoot`, and
+`ServerBodySource` remain internal implementation/test types. The Python
+extension does not compile the experimental HTTP client; the Rust client is
+still an opt-in core feature.
 
 ## Structure
 
 ```
 crates/eggserve-python/
-├── Cargo.toml          # cdylib, depends on eggserve-core + pyo3 + tokio + hyper + futures-util
-├── pyproject.toml      # maturin build backend, module-name = "eggserve._native"
+├── Cargo.toml          # cdylib and feature-scoped Rust dependencies
+├── pyproject.toml      # maturin metadata and bundled CLI files
 ├── src/
-│   ├── lib.rs          # PyO3 native module (_native): primitives bindings
-│   ├── server.rs       # Server primitives: PyRequest, PyResponse, StaticResponder, Server
-│   └── client.rs       # HTTP client primitives: PyHttpClient, PyClientConfig, PyClientRequest, PyClientResponse
+│   ├── lib.rs          # PyO3 module registration
+│   └── server.rs       # internal runtime bridge and response primitives
 └── python/eggserve/
-    ├── __init__.py     # exports all public symbols
-    ├── __main__.py     # python -m eggserve
-    ├── _bin.py         # locates packaged binary or PATH fallback
-    ├── bin/            # staged platform-native eggserve binary included in wheels
-    ├── server.py       # Python API: compatibility handlers, ServeConfig, ServerProcess
-    ├── test_primitives.py
-    ├── test_server_primitives.py
-    ├── test_server_integration.py
-    ├── test_boundary_hardening.py
-    ├── test_parity_matrix.py
-    ├── test_canonical_conformance.py
-    ├── test_canonical_request_types.py
-    ├── test_client_primitives.py
-    ├── test_api_consumers.py
-    ├── test_api_stability.py
-    └── test_server.py
-└── packaging-tests/
-    ├── run_all.sh              # installs wheel in fresh venv, runs all smoke tests
-    ├── test_imports.py         # import validation, version metadata, no source-tree shadowing
-    ├── test_server_smoke.py    # server lifecycle, callback, HEAD, range, public-bind
-    ├── test_client_smoke.py    # HTTP client local request
-    ├── test_cli_smoke.py       # CLI help, binary discovery, version consistency
-    ├── test_lifecycle_smoke.py # lifecycle methods: start, shutdown, force_shutdown, wait, state
-    └── test_body_smoke.py      # request body: buffer/stream modes, chunked reading, error taxonomy
+    ├── __init__.py     # small supported top-level namespace
+    ├── server.py       # compatibility façade and internal subprocess code
+    ├── lowlevel.py     # advanced native exports
+    ├── subprocess.py   # optional CLI lifecycle exports
+    └── bin/             # staged platform-native CLI in wheels
 ```
 
-**Important:** `eggserve-python` is excluded from the workspace and has its own `Cargo.lock`. It is built independently via `maturin`. Release wheels support CPython 3.14 only (`>=3.14,<3.15`) and bundle the platform-native CLI binary.
-
-## Native Primitives (`src/lib.rs`)
-
-PyO3 bindings wrapping `eggserve-core` types. All classes are **frozen** (`#[pyclass(frozen)]`).
-
-| Python Class | Wraps | Key Methods |
-|---|---|---|
-| `PathPolicy` | `path::PathPolicy` | `__init__(allow_dotfiles, reject_backslash)` |
-| `StaticPolicy` | `policy::StaticPolicy` | `__init__(directory_listing, follow_symlinks, allow_dotfiles)` |
-| `RequestTarget` | `ConfinedPath` | `parse(raw, policy=None)` → `decoded_path`, `components` |
-| `SecureRoot` | `primitives::SecureRoot` | `__init__(path, policy)`, `resolve(target)`, `resolve_path(raw_path)` |
-| `ResolvedResource` | `primitives::ResolvedResource` | `kind` getter, `file`, `directory`, `denied_reason` |
-| `ResolvedFile` | `primitives::ResolvedFile` | `length`, `modified`, `content_type`, `plan_response()`, `plan_conditional_response()`, `body_for_plan(plan)` |
-| `ResolvedDirectory` | `primitives::ResolvedDirectory` | `list()`, `resolve_child(child)` |
-| `BodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range(start, end)` |
-| `ResponsePlan` | `primitives::StaticResponsePlan` | `status`, `headers`, `body_kind`, `range` |
-
-Functions: `validate_method()`, `validate_request_body()`, `validate_request_target()`, `generate_etag()`.
-
-Exceptions: `EggserveError` (base), `PathPolicyError`, `RequestTargetError`, `SecureRootError`, `RequestValidationError`, `BodySourceError`, `ResponseConstructionError`, `LifecycleError`.
-
-## Server Primitives (`src/server.rs`)
-
-PyO3 bindings for building HTTP servers with Rust-owned I/O. Uses `tokio` for the async runtime, `hyper` for HTTP/1.1, and `futures-util` for streaming.
-
-| Python Class | Wraps | Key Methods |
-|---|---|---|
-| `Request` | parsed HTTP request | `method`, `path`, `query`, `headers`, `remote_addr`, `local_addr`, `scheme`, `http_version`, `has_body` |
-| `Response` | response builder | `empty(status)`, `bytes(status, data, headers=None)`, `text(status, text, headers=None)`, `body_source(status, source, headers=None)` |
-| `StaticResponder` | `SecureRoot` + resolver/planner | `respond(method, target, headers=None, index_pages=None)` → `Response` |
-| `StaticPolicyWrapper` | `policy::StaticPolicy` | `new(directory_listing, follow_symlinks, allow_dotfiles)`, getters |
-| `ServerSecureRoot` | `primitives::SecureRoot` | `new(path, policy)`, `root_path` getter |
-| `ServerBodySource` | `primitives::BodySource` | `kind`, `length`, `range`, `read_all()`, `read_range()`, `to_response(status=200)` |
-| `Server` | Rust `Server`/`ServerHandle` (`eggserve-core::server`) | `start()`, `stop()`, `addr`, context manager, optional `handler` callback, `max_python_callbacks` concurrency limit |
-
-Exceptions: `ServerRequestError` (method not allowed, target invalid, body not allowed).
-
-### Lifecycle methods (Plan 053, verified Plan 055)
-
-| Method | Behavior |
-|--------|----------|
-| `start()` | Creates a `tokio::runtime::Runtime`, builds and starts the Rust server, calls `handle.ready().await` so the server is in Running state when `start()` returns. For callback handlers, uses `start_with_service()`. |
-| `stop()` | Calls `ServerHandle::shutdown()`, then waits with a deadline. Idempotent. |
-| `wait_ready()` | Returns `Ok(())` if Running; raises `LifecycleError` otherwise. |
-| `shutdown()` | Calls `ServerHandle::shutdown()`, returns immediately (non-blocking). |
-| `force_shutdown(timeout_secs)` | Calls `ServerHandle::force_shutdown()` with deadline. Returns `"clean"` or `"timeout"`. |
-| `wait()` | Blocks until thread joins. Returns `"stopped"`. |
-| `state` (property) | Reads `ServerHandle::state()` when a handle exists; returns `"stopped"` if the server was started but the handle is gone; falls back to the lifecycle state tracker otherwise. |
-
-The tokio runtime is stored in the `PyServer` struct (not created as a temporary), ensuring the runtime lives as long as the server instance.
-
-### Callback model (Plan 053, verified Plan 055)
-
-- When a handler callback is provided, `start()` uses `start_with_service()` to wire the callback into the Rust server.
-- Handler timeout (`handler_timeout_secs`, default 30s): best-effort in Python; enforced at transport level by Rust server.
-- Coroutine rejection: handlers returning coroutine objects are rejected with a 500 response.
-- GIL released during network/file I/O via `py.allow_threads`.
-- Callback concurrency bounded by `max_python_callbacks` semaphore.
-
-### Response Validation
-
-Every Python-produced `Response` passes through `validate_handler_response()` in Rust before being sent to the client:
-
-- Status must be 200–999 (1xx informational responses rejected)
-- Header values must not contain NUL, CR, or LF
-- Hop-by-hop headers (connection, transfer-encoding, te, etc.) are blocked — Hyper manages these
-- 204 and 304 responses must have empty bodies (body is stripped regardless of handler return)
-- HEAD responses have body suppressed automatically
-- Invalid responses fall back to 500 Internal Server Error
-
-Handler exceptions produce a generic 500 with no traceback, filesystem path, or Python repr leakage.
-
-### Architecture
-
-```
-Python handler code
-    ↓ respond(method, target, headers)
-StaticResponder
-    ↓ resolve_and_plan() [eggserve-core]
-    ↓ returns (StaticResponsePlan, BodySource)
-PyResponse constructed
-    ↓ returned to ServerService
-convert_to_hyper_response()
-    ↓ streams file body via futures_util::stream::unfold
-Hyper Response sent to client
-```
-
-- **GIL management:** `tokio::task::spawn_blocking` + `Python::with_gil` ensures tokio is never blocked by Python. Callback concurrency is bounded by a semaphore (`max_python_callbacks`), preventing handler overload.
-- **File streaming:** File bodies retain their Rust-owned `BodySource` capability and stream directly to the socket without an eager Python-memory copy.
-- **Error handling:** Handler exceptions → 500 Internal Server Error without leaking tracebacks. Python-produced responses are validated in Rust via `validate_handler_response()` (plan 037) — hop-by-hop headers, 204/304 body prohibition, status range checks.
-- **Runtime storage:** The tokio runtime is stored in `PyServer.runtime` (not created as a temporary). `start()` calls `handle.ready().await` so the server is in Running state when `start()` returns. Policy (`StaticPolicy`) is forwarded to the Rust `ServeConfig`.
-
-## Python Wrapper Layer (`server.py`)
-
-High-level Python API that translates config to CLI arguments and manages the binary subprocess.
-
-### `StaticPolicy` (frozen dataclass)
-
-Mirrors the Rust policy. All fields default to `False` (most restrictive):
-- `directory_listing: bool`
-- `follow_symlinks: bool`
-- `allow_dotfiles: bool`
-
-### `ServeConfig` (frozen dataclass)
-
-Configuration for the server. Includes validation in `__post_init__`:
-- Port range check (1–65535)
-- Public-bind guard (requires `public_bind=True` for `0.0.0.0`)
-
-### `ServerProcess`
-
-Subprocess lifecycle manager:
-- `start()` — Spawns the `eggserve` binary with CLI arguments derived from `ServeConfig`
-- `stop()` — Sends SIGTERM, waits for graceful shutdown
-- `wait()` — Blocks until process exits
-- `is_running` — Property checking process status
-- `pid` — Property returning process ID
-
-### `serve_directory()`
-
-Blocking convenience function: starts a server and waits.
-
-## Binary Location (`_bin.py`)
-
-Searches for the `eggserve` binary in:
-1. Package `bin/` directory
-2. Parent `bin/` directory
-3. `PATH` fallback, including `eggserve.exe` on Windows
-
-`python -m eggserve` forwards all args to the located binary.
-
-## Body Support Architecture (Plan 058)
-
-The Python body surface projects the Rust `RequestBody` contract through PyO3, without introducing Python-owned socket I/O or unbounded buffering.
-
-### Request Body (`src/server.rs`)
-
-| Python Class | Wraps | Key Methods |
-|---|---|---|
-| `RequestBody` | `Arc<Mutex<Option<RequestBody>>>` | `read()`, `iter_chunks(chunk_size)`, `declared_length`, `bytes_received`, `complete` |
-| `BodyChunkIterator` | bounded channel consumer | `__next__()` yields `bytes` chunks; `__iter__()` returns self |
-
-- **One-shot consumption**: `read()` and `iter_chunks()` are mutually exclusive. Mixing raises `RequestBodyConsumedError`.
-- **GIL release**: Both `read()` and `iter_chunks()` release the GIL while awaiting Rust-owned I/O via `py.allow_threads`.
-- **Backpressure**: `iter_chunks()` uses a bounded channel between the async producer and the synchronous Python consumer. Slow Python iteration stops socket reads.
-- **Empty bodies**: `read()` returns `b""` and `iter_chunks()` yields no chunks.
-
-### Error Hierarchy
-
-```
-EggserveError
-└── RequestBodyError          # base body error
-    ├── RequestBodyRejectedError      # policy rejection
-    ├── RequestBodyTooLargeError      # byte limit exceeded
-    ├── RequestBodyTimeoutError       # body read timeout
-    ├── RequestBodyDisconnectedError  # client disconnected
-    ├── RequestBodyIncompleteError    # body incomplete
-    ├── RequestBodyConsumedError      # one-shot violation
-    └── RequestBodyCancelledError     # consumption cancelled
-```
-
-All error messages are sanitized — no internal parser or Hyper details are exposed.
-
-### Body Policy Configuration
-
-The Python `Server` constructor accepts body policy parameters:
-
-- `request_body_mode`: `"reject"` (default), `"buffer"`, or `"stream"`
-- `max_request_body_bytes`: hard byte ceiling (default 0)
-- `body_read_timeout_secs`: total body read deadline (default 30)
-- `incomplete_body_policy`: `"close"` (default)
-
-Static mode always rejects bodies regardless of callback defaults. Buffer/stream require explicit finite limits.
-
-### Interaction with Callback Model
-
-- Body rejection occurs before Python callback invocation when policy is `Reject`.
-- For `Buffer`/`Stream` modes, the body is ingested by the Rust runtime before the callback receives the `Request`.
-- Handler timeout wraps the entire callback including body reads. A timed-out callback continues executing in the background and still counts against the concurrency limit until it returns.
-- Partial body consumption triggers `IncompleteBodyPolicy` (default: close connection).
-
-## Key Design Decisions
-
-1. **No serving logic in Python** — The Python layer is purely a lifecycle manager and config translator. All serving happens in the Rust binary or via Rust-owned I/O in the server primitives.
-
-2. **Subprocess, not FFI** — The binary is spawned as a subprocess rather than linked as a shared library. This isolates the Python process from the server's memory and lifecycle.
-
-3. **Server primitives use Rust-owned I/O** — The `Server` type delegates to the Rust `Server`/`ServerHandle` from `eggserve-core::server`. When a handler callback is provided, Python code receives parsed `Request` objects and returns `Response` values. When no handler is provided, the server serves static files. Socket I/O, HTTP parsing, and file streaming are handled by Rust. Connection limits, header timeouts, connection total timeouts, and callback concurrency are enforced. The GIL is released during I/O. The tokio runtime is stored in `PyServer`, and `start()` waits for Running state before returning. Callback handlers use `start_with_service()`. Custom `StaticPolicy` is forwarded to `ServeConfig`. Coroutine handlers are rejected with a 500 response.
-
-4. **Frozen immutability** — All PyO3 classes use `#[pyclass(frozen)]`. All Python dataclasses use `frozen=True`. This prevents mutation at both layers.
-
-5. **Independent build** — The Python crate has its own `Cargo.lock` and is built via `maturin`, not the workspace. This avoids pulling workspace dependencies into the Python wheel.
-
-6. **File streaming bypasses Python** — File bodies are streamed directly from Rust to the socket. The handler boundary clones the file capability when necessary but does not read the file into Python memory, keeping memory usage low and avoiding GIL contention.
-
-7. **Flat constructor API (Track A decision)** — The Python `Server` uses a flat constructor signature (`root`, `bind`, `port`, `policy`, `handler`, `public`, `max_connections`, ...) rather than a `ServerConfig` + `StaticService` composition pattern. This was a deliberate decision for Plan 053:
-   - **Simpler API surface** — one class with explicit parameters is more Pythonic than nested config objects
-   - **No naming confusion** — `ServerSecureRoot`, `StaticResponder`, and `Response` are retained rather than renamed to `SecureRoot`/`StaticService`
-   - **Backward compatible** — existing code continues to work without migration
-   - **Validation at construction** — all parameter validation happens in `__init__`, not deferred to `start()`
-   - **Defaults match Rust/CLI** — every default value corresponds to the Rust `RuntimeConfig` default
-
-## Build & Test
-
-```sh
-# Build wheel after staging target/release/eggserve under python/eggserve/bin/
-cd crates/eggserve-python
-maturin build --release --interpreter python3.14 --target x86_64-apple-darwin -o dist
-
-# Install
-python -m pip install --force-reinstall dist/*.whl
-
-# Run native primitives tests (requires built wheel)
-PYTHONPATH=python python -m unittest eggserve.test_primitives -v
-
-# Run server primitives tests (requires built wheel)
-PYTHONPATH=python python -m unittest eggserve.test_server_primitives -v
-
-# Run subprocess API tests (no wheel needed, uses mocks)
-PYTHONPATH=python python -m unittest eggserve.test_server -v
-
-# Run boundary hardening tests (requires built wheel)
-PYTHONPATH=python python -m unittest eggserve.test_boundary_hardening -v
-
-# Run server integration tests (requires built wheel)
-PYTHONPATH=python python -m unittest eggserve.test_server_integration -v
-
-# Run packaging smoke tests (installed-wheel validation, no source-tree imports)
-cd packaging-tests
-bash run_all.sh ../dist/*.whl python3.14
-```
-
-## Packaging Smoke Tests
-
-Standalone tests in `packaging-tests/` validate the wheel works independently of the source checkout:
-
-- `test_imports.py` — all `__all__` names importable, version metadata valid, native extension loads, no source-tree shadowing
-- `test_server_smoke.py` — server lifecycle, callback handler, HEAD/range responses, public-bind guard
-- `test_client_smoke.py` — HTTP client local request against a running server
-- `test_cli_smoke.py` — `python -m eggserve --help`, binary discovery, version consistency
-- `test_lifecycle_smoke.py` — lifecycle methods: start, shutdown, force_shutdown, wait, state transitions
-- `test_body_smoke.py` — request body modes: buffer/stream, chunked reading, error taxonomy, one-shot enforcement
-- `run_all.sh` — creates fresh venv, installs wheel, copies scripts to temp dir, runs all tests
-
-These tests run from a temporary directory with `PYTHONPATH` unset to ensure no source-tree contamination.
-
-## See Also
-
-- [eggserve-core.md](eggserve-core.md) — Core library (native types)
-- [primitives-api.md](primitives-api.md) — Public API boundary
-
-## API Stability
-
-Python API stability follows the same tiers as the Rust core. See [api-stability.md](../docs/api-stability.md) for the full classification and [release-contract.md](../docs/release-contract.md) for the product surface.
-
-Key points:
-- `ServeConfig`, `ServerProcess`, `serve_directory`, and all native primitives are **stable**.
-- `Server`, `Request`, `Response`, `StaticResponder`, and server primitives are **stable**.
-- `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse`, `ClientError`, and `ClientMethod` are **experimental** (client-specific types).
-- `Method` (canonical HTTP method type from `primitives::method`) is **experimental** and distinct from `ClientMethod`.
-- Internal names (`_bin.py`, `_parse_bind`, `_config_to_argv`) are **internal** and not exported.
+## Security boundary
+
+Python cannot choose a filesystem path per request, reopen translated paths,
+provide a raw socket, or override runtime-owned framing. Static handler roots
+and policy flags are captured during server construction. Invalid TLS
+configuration fails before the native server reports readiness; key material
+is never logged. The platform qualifications in `docs/security-review.md`,
+especially the incomplete independent Windows adversarial review, continue to
+apply.
+
+## Verification
+
+The installed-wheel harness is `scripts/test-python-wheel.sh`. It builds the
+wheel, installs it into a clean CPython 3.14 environment, checks the import
+boundary, and runs the focused compatibility, TLS, low-level, lifecycle, and
+boundary tests with `unittest`. No Python client test suite is shipped.

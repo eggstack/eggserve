@@ -10,7 +10,8 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from eggserve.server import ServeConfig, ServerProcess, StaticPolicy, _config_to_argv
+from eggserve.server import _config_to_argv
+from eggserve.subprocess import ServeConfig, ServerProcess, StaticPolicy
 
 
 class TestStaticPolicy(unittest.TestCase):

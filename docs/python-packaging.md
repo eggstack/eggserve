@@ -41,7 +41,8 @@ The binary is a standalone process (Tokio runtime, TCP listener, signal handling
 In addition to CLI usage, eggserve exposes a minimal Python API:
 
 ```python
-from eggserve import ServeConfig, StaticPolicy, serve_directory
+from eggserve.subprocess import ServeConfig, StaticPolicy
+from eggserve import serve_directory
 
 # Blocking serve with config
 config = ServeConfig(directory="public", port=9000)

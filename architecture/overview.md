@@ -288,7 +288,7 @@ Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 19 fuzz targets,
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
 | Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS (24 files) |
-| Python test suites | `crates/eggserve-python/python/eggserve/test_*.py` | Native primitives, server, canonical conformance, body, client, boundary hardening |
+| Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility façade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (19 targets) |

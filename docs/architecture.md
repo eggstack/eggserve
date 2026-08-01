@@ -73,7 +73,7 @@ This crate is the entrypoint for `eggserve` as a command-line tool. It owns the 
 
 ### `eggserve-python`
 
-Python wheel packaging via maturin. Contains PyO3 native bindings (`src/lib.rs`) that expose `eggserve-core` primitives (path parsing, policy, secure root, resolved resources, response planning) as `eggserve._native`, and Python wrapper code (`python/eggserve/`) that re-exports primitives alongside the subprocess lifecycle API (`ServeConfig`, `ServerProcess`, `serve_directory`).
+Python wheel packaging via maturin. Contains PyO3 native bindings (`src/lib.rs`) and a narrow `eggserve.server` compatibility façade. Advanced wrappers live in `eggserve.lowlevel`; subprocess lifecycle helpers live in `eggserve.subprocess`. The Python wheel does not compile the experimental client feature.
 
 The Python package provides two API layers:
 1. **Native primitives** — Rust-backed path parsing, policy enforcement, secure root resolution, and response planning, available without launching the binary

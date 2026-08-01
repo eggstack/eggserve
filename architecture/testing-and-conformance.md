@@ -19,7 +19,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python body conformance | `python/eggserve/test_body_conformance.py` | Body corpus parity, 11 tests | 11 |
 | Python body wire | `python/eggserve/test_body_wire.py` | Wire-level body tests, 19 tests | 19 |
 | Python boundary hardening | `python/eggserve/test_boundary_hardening.py` | Security hardening, 67 tests | 67 |
-| Python client primitives | `python/eggserve/test_client_primitives.py` | HTTP client, 19 tests | 19 |
+| Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
 | Python API consumers | `python/eggserve/test_api_consumers.py` | API surface validation, 59 tests | 59 |
 | Python API stability | `python/eggserve/test_api_stability.py` | Snapshot/import safety, 61 tests | 61 |
 | Python parity matrix | `python/eggserve/test_parity_matrix.py` | Real-socket Rust/Python parity, 28 tests | 28 |
@@ -155,7 +155,7 @@ PYTHONPATH=python python -m unittest eggserve.test_body_primitives -v
 PYTHONPATH=python python -m unittest eggserve.test_body_conformance -v
 PYTHONPATH=python python -m unittest eggserve.test_body_wire -v
 PYTHONPATH=python python -m unittest eggserve.test_boundary_hardening -v
-PYTHONPATH=python python -m unittest eggserve.test_client_primitives -v
+PYTHONPATH=python python -m unittest discover -s crates/eggserve-python/tests -p 'test_*.py' -v
 PYTHONPATH=python python -m unittest eggserve.test_api_consumers -v
 PYTHONPATH=python python -m unittest eggserve.test_api_stability -v
 PYTHONPATH=python python -m unittest eggserve.test_parity_matrix -v
