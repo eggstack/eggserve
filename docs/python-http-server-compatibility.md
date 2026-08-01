@@ -61,6 +61,19 @@ Unlike the stdlib handler, `translate_path()` is intentionally unavailable,
 Backslashes, traversal, dotfiles, and denied symlinks remain protected by the
 native resolver.
 
+`client_address` and `server_address` are `(host, port)` tuples, including for
+IPv6 (the host is unbracketed). Empty-host, localhost, IPv4, and supported
+IPv6 constructor forms are resolved by the native listener. Port `0` is
+published after native activation. `server_bind()`/`server_activate()` are a
+bounded lifecycle façade; raw socket ownership and exact `socketserver`
+internals are intentionally not exposed.
+
+`SimpleHTTPRequestHandler.extensions_map` and subclass `guess_type()`
+overrides affect the Content-Type of the already-resolved native response.
+Unknown suffixes remain `application/octet-stream`; static responses retain
+`X-Content-Type-Options: nosniff`. File-stream limits apply to built-in and
+compatibility static responses.
+
 `poll_interval` is accepted for source compatibility but the runtime uses
 event-driven shutdown. Raw sockets, `fileno()`, exact one-request
 `handle_request()`, socketserver internals, and async handlers are outside

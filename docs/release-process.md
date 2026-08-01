@@ -36,7 +36,7 @@ Versions are immutable on crates.io. If a version has been successfully
 published and needs correction, a new version number is required. Do not retry
 publication of changed contents under an existing version.
 
-## Python publication (if retained)
+## Python artifact build and manual publication
 
 Build the platform wheel after staging the matching CLI binary:
 
@@ -57,8 +57,10 @@ pip install twine
 twine upload dist/*.whl
 ```
 
-Python publication is independent of crates.io publication and is not required
-to happen in the same transaction.
+GitHub Actions only builds and uploads wheel artifacts; it has no publication
+credentials or publish job. A maintainer may upload a reviewed wheel manually
+with `twine`. Python publication is independent of crates.io publication and
+is not required to happen in the same transaction.
 
 ## Post-publication
 

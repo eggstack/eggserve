@@ -126,7 +126,7 @@ pub async fn serve_connection_with_service<I, S>(
     io: TokioIo<I>,
     service: S,
     config: &RuntimeConfig,
-    _state: &ServeState,
+    state: &ServeState,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
     local_addr: std::net::SocketAddr,
@@ -142,10 +142,12 @@ pub async fn serve_connection_with_service<I, S>(
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
     let tls_info = std::sync::Arc::new(tls_info);
+    let file_stream_semaphore = state.file_stream_semaphore().clone();
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
         let service = service.clone();
         let tls_info = tls_info.clone();
+        let file_stream_semaphore = file_stream_semaphore.clone();
         async move {
             // Convert Hyper request to canonical RequestHead.
             let head = match convert_request_head(&req) {
@@ -301,8 +303,9 @@ pub async fn serve_connection_with_service<I, S>(
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response(canonical) {
+                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(canonical, &file_stream_semaphore) {
                                 Ok(r) => r,
+                                Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
                                 Err(_) => crate::response::internal_error(),
                             }
                         }
@@ -373,8 +376,9 @@ pub async fn serve_connection_with_service<I, S>(
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response(canonical) {
+                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(canonical, &file_stream_semaphore) {
                                 Ok(r) => r,
+                                Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
                                 Err(_) => crate::response::internal_error(),
                             }
                         }
@@ -420,8 +424,9 @@ pub async fn serve_connection_with_service<I, S>(
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response(canonical) {
+                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(canonical, &file_stream_semaphore) {
                                 Ok(r) => r,
+                                Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
                                 Err(_) => crate::response::internal_error(),
                             }
                         }

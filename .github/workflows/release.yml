@@ -2,19 +2,9 @@ name: Release
 
 on:
   workflow_dispatch:
-    inputs:
-      dry_run:
-        description: "Dry run (build wheels but do not publish)"
-        required: false
-        default: "true"
-        type: choice
-        options:
-          - "true"
-          - "false"
 
 permissions:
   contents: read
-  id-token: write
 
 env:
   CARGO_TERM_COLOR: always
@@ -130,24 +120,3 @@ jobs:
         with:
           name: wheel-windows-x86_64
           path: dist/*.whl
-
-  publish:
-    name: Publish to PyPI
-    needs: [build-linux, build-macos, build-windows]
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    if: inputs.dry_run == 'false'
-    environment: release
-    steps:
-      - name: Download all wheels
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          pattern: wheel-*
-          merge-multiple: true
-          path: dist
-      - name: List wheels
-        run: ls -la dist/
-      - name: Publish to PyPI
-        uses: pypa/gh-action-pypi-publish@v1.12.4
-        with:
-          packages-dir: dist/

@@ -48,6 +48,28 @@ class CompatTests(unittest.TestCase):
         self.assertTrue(response.endswith(b"ok"))
         self.assertEqual(seen, [("/hello?q=1", ["a", "b"])])
 
+    def test_localhost_and_peer_addresses_are_structured(self):
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.client_address)
+                self.send_response(200)
+                self.end_headers()
+
+        server = HTTPServer(("localhost", 0), Handler)
+        self.assertNotEqual(server.server_address[1], 0)
+        thread = threading.Thread(target=server.serve_forever)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
+        response = request(server, b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        self.assertIn(b"200 OK", response)
+        self.assertEqual(len(server.server_address), 2)
+        self.assertIsInstance(server.server_address[1], int)
+        self.assertEqual(len(seen[-1]), 2)
+        self.assertIsInstance(seen[-1][1], int)
+
     def test_post_reads_bounded_body(self):
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):

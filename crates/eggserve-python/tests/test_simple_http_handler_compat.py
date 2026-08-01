@@ -61,6 +61,43 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
         self.assertEqual(response.getheader("Content-Type"), "application/octet-stream")
         self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
 
+    def test_extensions_map_and_guess_type_overrides(self):
+        with open(os.path.join(self.tmp.name, "custom.blob"), "wb") as stream:
+            stream.write(b"custom")
+
+        class MapHandler(SimpleHTTPRequestHandler):
+            extensions_map = {".blob": "application/x-map"}
+
+        self.server.server_close()
+        self.thread.join(5)
+        self.server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), functools.partial(MapHandler, directory=self.tmp.name)
+        )
+        self.server._start()
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.address = self.server.server_address
+        response, _ = self.request("GET", "/custom.blob")
+        self.assertEqual(response.getheader("Content-Type"), "application/x-map")
+
+        class GuessHandler(SimpleHTTPRequestHandler):
+            def guess_type(self, path):
+                if path.endswith(".blob"):
+                    return "application/x-guess"
+                return super().guess_type(path)
+
+        self.server.server_close()
+        self.thread.join(5)
+        self.server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), functools.partial(GuessHandler, directory=self.tmp.name)
+        )
+        self.server._start()
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.address = self.server.server_address
+        response, _ = self.request("GET", "/custom.blob")
+        self.assertEqual(response.getheader("Content-Type"), "application/x-guess")
+
     def test_directory_redirect_index_and_safe_defaults(self):
         response, body = self.request("GET", "/docs?x=1")
         self.assertEqual(response.status, 301)

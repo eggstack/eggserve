@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -361,7 +361,11 @@ pub struct PyRequest {
     #[pyo3(get)]
     remote_addr: Option<String>,
     #[pyo3(get)]
+    remote_address: Option<(String, u16)>,
+    #[pyo3(get)]
     local_addr: Option<String>,
+    #[pyo3(get)]
+    local_address: Option<(String, u16)>,
     #[pyo3(get)]
     scheme: Option<String>,
     #[pyo3(get)]
@@ -1040,6 +1044,8 @@ impl PythonCallbackService {
 
         let remote_addr = Some(connection.remote_addr.to_string());
         let local_addr = Some(connection.local_addr.to_string());
+        let remote_address = Some((connection.remote_addr.ip().to_string(), connection.remote_addr.port()));
+        let local_address = Some((connection.local_addr.ip().to_string(), connection.local_addr.port()));
         let scheme = Some(match connection.scheme {
             Scheme::Http => "http".to_string(),
             Scheme::Https => "https".to_string(),
@@ -1076,7 +1082,9 @@ impl PythonCallbackService {
             headers,
             header_items,
             remote_addr,
+            remote_address,
             local_addr,
+            local_address,
             scheme,
             http_version,
             body: if has_body { py_body } else { None },
@@ -1090,23 +1098,22 @@ fn convert_python_response_to_canonical<'py>(
 ) -> Result<CanonicalResponse, ServiceError> {
     let status: u16 = obj
         .getattr("status")
-        .and_then(|v| v.extract())
-        .unwrap_or(500);
-    let status = if CanonicalStatusCode::new(status).is_ok() {
-        status
-    } else {
-        500
-    };
+        .map_err(|_| ServiceError::internal("response status is missing"))?
+        .extract()
+        .map_err(|_| ServiceError::internal("response status is not an integer"))?;
+    CanonicalStatusCode::new(status)
+        .map_err(|_| ServiceError::internal("response status is outside 100-599"))?;
 
     let headers: Vec<(String, String)> = obj
         .getattr("headers")
-        .and_then(|v| v.extract())
+        .map_err(|_| ServiceError::internal("response headers are missing"))?
+        .extract()
         .or_else(|_| {
             obj.getattr("headers")
                 .and_then(|v| v.extract::<HashMap<String, String>>())
                 .map(|map| map.into_iter().collect())
         })
-        .unwrap_or_default();
+        .map_err(|_| ServiceError::internal("response headers must be string fields"))?;
 
     let body = if let Ok(py_resp) = obj.extract::<pyo3::Bound<'_, PyResponse>>() {
         let response = py_resp.borrow();
@@ -1159,6 +1166,7 @@ fn convert_python_response_to_canonical<'py>(
         }
     };
 
+    let body_len = body.len();
     let code = CanonicalStatusCode::new(status)
         .map_err(|e| ServiceError::internal(format!("invalid status code: {e}")))?;
 
@@ -1168,12 +1176,22 @@ fn convert_python_response_to_canonical<'py>(
         .map_err(|e| ServiceError::internal(format!("failed to build response: {e}")))?;
 
     for (name, value) in &headers {
-        if let (Ok(n), Ok(v)) = (
-            HeaderName::new(name.as_str()),
-            HeaderValue::new(value.as_str()),
-        ) {
-            response.head_mut().headers_mut().push(n, v);
+        if eggserve_core::primitives::canonical::is_hop_by_hop_header(name) {
+            return Err(ServiceError::internal("hop-by-hop response header rejected"));
         }
+        let n = HeaderName::new(name.as_str())
+            .map_err(|_| ServiceError::internal("invalid response header name"))?;
+        let v = HeaderValue::new(value.as_str())
+            .map_err(|_| ServiceError::internal("invalid response header value"))?;
+        if name.eq_ignore_ascii_case("content-length") {
+            let declared = value
+                .parse::<u64>()
+                .map_err(|_| ServiceError::internal("invalid response content length"))?;
+            if declared != body_len {
+                return Err(ServiceError::internal("response content length mismatch"));
+            }
+        }
+        response.head_mut().headers_mut().push(n, v);
     }
 
     let norm_req = NormalizeRequest::new(false);
@@ -1224,6 +1242,7 @@ impl Service for PythonCallbackService {
 pub struct PyServer {
     bind: String,
     port: u16,
+    bind_address: SocketAddr,
     public: bool,
     addr: std::sync::Mutex<Option<String>>,
     responder: PyStaticResponder,
@@ -1275,9 +1294,11 @@ impl PyServer {
         // workspace's feature-unified dependency graph. Select the same
         // ring provider used by the CLI before constructing TLS config.
         let _ = rustls::crypto::ring::default_provider().install_default();
-        let bind_addr: SocketAddr = format!("{bind}:{port}")
-            .parse()
-            .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid bind address"))?;
+        let bind_addr: SocketAddr = (bind, port)
+            .to_socket_addrs()
+            .map_err(|_| pyo3::exceptions::PyOSError::new_err("invalid or unresolved bind address"))?
+            .next()
+            .ok_or_else(|| pyo3::exceptions::PyOSError::new_err("bind address did not resolve"))?;
         if !public && bind_addr.ip().is_unspecified() {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "binding to 0.0.0.0 or :: requires public=True",
@@ -1394,6 +1415,7 @@ impl PyServer {
         Ok(Self {
             bind: bind.to_string(),
             port,
+            bind_address: bind_addr,
             public,
             addr: std::sync::Mutex::new(None),
             responder,
@@ -1460,9 +1482,7 @@ impl PyServer {
             return Err(crate::LifecycleError::new_err("Server already started"));
         }
 
-        let bind_addr: SocketAddr = format!("{}:{}", self.bind, self.port)
-            .parse()
-            .map_err(|_| pyo3::exceptions::PyValueError::new_err("invalid bind address"))?;
+        let bind_addr = self.bind_address;
 
         let mut runtime_builder = RuntimeConfig::builder()
             .bind(bind_addr)

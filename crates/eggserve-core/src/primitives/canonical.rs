@@ -33,6 +33,8 @@ pub enum ResponseConstructionError {
     BodyAlreadyConsumed,
     /// The content-length header does not match the actual body length.
     ContentLengthMismatch { declared: u64, actual: u64 },
+    /// No file-stream admission permit was available.
+    FileStreamLimit,
 }
 
 impl fmt::Display for ResponseConstructionError {
@@ -51,6 +53,7 @@ impl fmt::Display for ResponseConstructionError {
                     declared, actual
                 )
             }
+            Self::FileStreamLimit => write!(f, "file stream admission limit reached"),
         }
     }
 }
@@ -521,6 +524,28 @@ pub fn to_hyper_response(
     hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
 > {
+    to_hyper_response_with_optional_file_stream_semaphore(response, None)
+}
+
+/// Convert a canonical response while enforcing the runtime file-stream
+/// admission limit for every file-backed body.
+pub fn to_hyper_response_with_file_stream_semaphore(
+    response: Response,
+    semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    ResponseConstructionError,
+> {
+    to_hyper_response_with_optional_file_stream_semaphore(response, Some(semaphore))
+}
+
+fn to_hyper_response_with_optional_file_stream_semaphore(
+    response: Response,
+    semaphore: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    ResponseConstructionError,
+> {
     use bytes::Bytes;
     use http_body_util::BodyExt;
     use http_body_util::Full;
@@ -542,7 +567,13 @@ pub fn to_hyper_response(
         Some(ResponseBody::Bytes(b)) => Full::new(Bytes::from(b))
             .map_err(|never| match never {})
             .boxed(),
-        Some(ResponseBody::File(source)) => file_body(source),
+        Some(ResponseBody::File(source)) => {
+            let permit = semaphore
+                .map(|s| s.clone().try_acquire_owned())
+                .transpose()
+                .map_err(|_| ResponseConstructionError::FileStreamLimit)?;
+            file_body(source, permit)
+        }
         Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
             .map_err(|never| match never {})
             .boxed(),
@@ -560,6 +591,7 @@ pub fn to_hyper_response(
 
 fn file_body(
     source: BodySource,
+    permit: Option<tokio::sync::OwnedSemaphorePermit>,
 ) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
     use bytes::Bytes;
     use futures_util::stream;
@@ -585,14 +617,14 @@ fn file_body(
     };
 
     let stream = stream::unfold(
-        (file, start, remaining),
-        |(mut file, offset, remaining)| async move {
+        (file, start, remaining, permit),
+        |(mut file, offset, remaining, permit)| async move {
             if remaining == 0 {
                 return None;
             }
             if offset > 0 {
                 if let Err(error) = file.seek(std::io::SeekFrom::Start(offset)).await {
-                    return Some((Err(error), (file, offset, 0)));
+                    return Some((Err(error), (file, offset, 0, permit)));
                 }
             }
             let chunk_len = remaining.min(64 * 1024) as usize;
@@ -604,9 +636,10 @@ fn file_body(
                         file,
                         offset + chunk_len as u64,
                         remaining - chunk_len as u64,
+                        permit,
                     ),
                 )),
-                Err(error) => Some((Err(error), (file, offset, 0))),
+                Err(error) => Some((Err(error), (file, offset, 0, permit))),
             }
         },
     );

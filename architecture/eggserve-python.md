@@ -41,7 +41,7 @@ crates/eggserve-python/
 │   └── server.rs       # internal runtime bridge and response primitives
 └── python/eggserve/
     ├── __init__.py     # small supported top-level namespace
-    ├── server.py       # compatibility façade and internal subprocess code
+    ├── server.py       # six-class Rust-runtime compatibility façade
     ├── lowlevel.py     # advanced native exports
     ├── subprocess.py   # optional CLI lifecycle exports
     └── bin/             # staged platform-native CLI in wheels
@@ -62,4 +62,5 @@ apply.
 The installed-wheel harness is `scripts/test-python-wheel.sh`. It builds the
 wheel, installs it into a clean CPython 3.14 environment, checks the import
 boundary, and runs the focused compatibility, TLS, low-level, lifecycle, and
-boundary tests with `unittest`. No Python client test suite is shipped.
+boundary tests with `unittest`. The Python client is not shipped; subprocess
+helpers are isolated in `eggserve.subprocess`.

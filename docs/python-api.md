@@ -55,8 +55,9 @@ client certificates, ACME, or certificate reload is provided.
 `SecureRoot`, `StaticPolicy`, `RequestTarget`, and canonical HTTP types live
 in `eggserve.lowlevel`.
 
-The bespoke native callback `Server` and the experimental Python HTTP client
-are not part of the supported default package surface. The Rust client may
+The six-class `eggserve.server` façade is the primary supported Python server
+surface. The bespoke native callback `Server` and the experimental Python HTTP
+client are not part of the supported default package surface. The Rust client may
 remain an opt-in core feature, but the Python wheel does not compile it.
 
 ## Compatibility boundary

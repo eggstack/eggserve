@@ -219,6 +219,9 @@ class Request:
     query: str
     headers: dict[str, str]
     remote_addr: str | None
+    remote_address: tuple[str, int] | None
+    local_addr: str | None
+    local_address: tuple[str, int] | None
     http_version: str
     @property
     def has_body(self) -> bool: ...

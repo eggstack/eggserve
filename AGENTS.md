@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–098 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps. Plan 096 added the bounded subclass-based Python `http.server` foundation; Plan 097 adds secure static-handler compatibility; Plan 098 closes TLS and Python API scope.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–099 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps. Plans 096–099 close the bounded subclass-based Python `http.server` compatibility workstream.
 
 ## Non-negotiables
 
@@ -104,7 +104,7 @@ Routine CI is a small regression screen, not release certification:
 - **Two Method types**: `ReadOnlyMethod` (GET/HEAD only, stable) and `Method` (standard + extension, experimental). `ReadOnlyMethod` is used by the response planner. `Method` is the canonical type for new code.
 - **ClientMethod vs Method**: `ClientMethod` (Python name for `client::PyMethod`) is the client-specific HTTP method enum with standard methods (GET, HEAD, POST, PUT, DELETE, PATCH). `Method` (from `primitives::method`) is the canonical HTTP method type supporting standard + extension methods. They are distinct types with different scopes.
 - **HeaderBlock is a list, not a map**: `HeaderBlock` stores headers as an ordered `Vec<HeaderField>`, preserving duplicates. `get_unique()` returns `DuplicateHeaderError` on duplicates. Python `HeaderBlock` is frozen/immutable.
-- **Response validation boundary**: Python handler-returned `Response` objects are validated in Rust via `validate_handler_response()` — status 200–999, no hop-by-hop headers, 204/304 empty bodies, no NUL/CR/LF in header values. Invalid responses fall back to 500.
+- **Response validation boundary**: Python handler-returned `Response` objects are validated atomically in Rust — status 100–599, no hop-by-hop headers, body-forbidden statuses (including 205) are empty, and no NUL/CR/LF in header values. Invalid responses fall back to a generic 500.
 - **Typed lifecycle/response exceptions**: `LifecycleError` (double start, stop before start) and `ResponseConstructionError` (response validation failure) are typed exceptions, not generic `PyValueError`.
 - **Canonical HTTP types (stable)** — Plan 049 promotes all canonical HTTP types to stable. `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` (request types) and `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` (response types) are all stable. `ReadOnlyMethod` (GET/HEAD only) remains stable for existing consumers.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()` for response metadata and framing. `normalize_response()` applies HEAD suppression, body-forbidden enforcement, and hop-by-hop stripping for in-memory bodies. `normalize_metadata()` applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) for file-backed bodies without consuming the body. `to_hyper_response()` converts to Hyper after normalization.
@@ -126,7 +126,7 @@ Routine CI is a small regression screen, not release certification:
 
 ## Plan status
 
-Historical plans are in `plans/`. Plans 000–093 are implementation-complete. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–093 are historical records; their infrastructure requirements no longer control current CI or release policy.
+Historical plans are in `plans/`. Plans 000–099 are implementation-complete. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–099 are historical records; their infrastructure requirements no longer control current CI or release policy.
 
 ## Pointers to docs/
 

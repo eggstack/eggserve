@@ -1,9 +1,9 @@
 """Python API for eggserve.
 
-Provides a programmatic interface to the eggserve static file server.
-The Rust binary is the source of truth for all serving logic. This module
-translates Python config objects to CLI arguments and manages the binary
-process lifecycle.
+Provides the supported six-class ``http.server``-shaped façade over the
+Rust-owned runtime, plus the separate subprocess convenience helpers exposed
+from ``eggserve.subprocess``. Static resolution, socket ownership, framing,
+and streaming remain native operations.
 
 The compatibility classes in this module are a narrow, bounded facade over
 the Rust-owned runtime. They are not an ASGI/WSGI server or web framework.
@@ -259,6 +259,21 @@ class BaseHTTPRequestHandler:
         return _HandlerResponse(self._response_status, self._response_headers, self.wfile.bytes())
 
 
+def _is_wildcard_host(host):
+    try:
+        return ipaddress.ip_address(host).is_unspecified
+    except ValueError:
+        return False
+
+
+def _split_native_address(value):
+    if value.startswith("["):
+        host, port = value[1:].rsplit("]:", 1)
+        return host, int(port)
+    host, port = value.rsplit(":", 1)
+    return host, int(port)
+
+
 class HTTPServer:
     """Serial ``http.server.HTTPServer``-compatible facade."""
 
@@ -288,6 +303,7 @@ class HTTPServer:
         self.allow_reuse_address = False
         self.max_handler_response_bytes = max_handler_response_bytes
         self._closed = False
+        self._bind_and_activate = bind_and_activate
         self._stop_event = threading.Event()
         self._serve_done = threading.Event()
         self._serve_done.set()
@@ -352,16 +368,20 @@ class HTTPServer:
             callback = self._handle_request
             self._native = _NativeServer(
                 root, bind=self._bind, port=self._requested_port, handler=callback,
-                public=ipaddress.ip_address(self._bind).is_unspecified,
+                public=_is_wildcard_host(self._bind),
                 max_python_callbacks=self._max_workers,
                 request_body_mode="reject" if self._static_config is not None else "buffer",
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,
                 tls_certfile=self._tls_certfile,
                 tls_keyfile=self._tls_keyfile,
             )
+            if self._bind_and_activate:
+                self._native.start()
+                self._native.wait_ready()
+                self._publish_native_address()
 
     def _handle_request(self, request):
-        client = (request.remote_addr or "", 0)
+        client = request.remote_address or ("", 0)
         handler = self.RequestHandlerClass(request, client, self)
         result = handler._result()
         return result
@@ -373,10 +393,13 @@ class HTTPServer:
         if self._native.state == "created":
             self._native.start()
             self._native.wait_ready()
-            host, port = self._native.addr.rsplit(":", 1)
-            self.server_address = (host.strip("[]"), int(port))
-            self.server_name = socket.getfqdn(self.server_address[0])
-            self.server_port = self.server_address[1]
+            self._publish_native_address()
+
+    def _publish_native_address(self):
+        host, port = _split_native_address(self._native.addr)
+        self.server_address = (host, port)
+        self.server_name = socket.getfqdn(host)
+        self.server_port = port
 
     def serve_forever(self, poll_interval=0.5):
         del poll_interval
@@ -501,13 +524,20 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
 
     def _static_response(self):
         headers = {name.lower(): value for name, value in self.headers.items()}
+        # MIME selection is display metadata only; Rust retains ownership of
+        # path resolution, opening, and streaming.
+        overrides = dict(self.server._static_config["extensions_map"])
+        display_path = self.path.split("?", 1)[0]
+        suffix = os.path.splitext(display_path.rsplit("/", 1)[-1])[1].lower()
+        if suffix:
+            overrides[suffix] = self.guess_type(display_path)
         return self.server._static_responder.respond(
             self.command,
             self.path,
             headers=headers,
             has_body=bool(getattr(self.request, "has_body", False)),
             index_pages=list(self.server._static_config["index_pages"]),
-            mime_overrides=self.server._static_config["extensions_map"],
+            mime_overrides=overrides,
         )
 
     def do_GET(self):

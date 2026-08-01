@@ -202,65 +202,65 @@ class TestResponseValidation(_TestServerBase):
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 304)
 
-    def test_hop_by_hop_connection_header_stripped(self):
-        """Handler returning 'connection' hop-by-hop header — silently stripped."""
+    def test_hop_by_hop_connection_header_fails_closed(self):
+        """Handler returning a hop-by-hop header receives a generic 500."""
         def handler(req):
             return Response.bytes(200, b"ok", headers={"connection": "keep-alive"})
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.status, 200)
-        resp.close()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
 
-    def test_hop_by_hop_transfer_encoding_stripped(self):
-        """Handler returning 'transfer-encoding' hop-by-hop header — silently stripped."""
+    def test_hop_by_hop_transfer_encoding_fails_closed(self):
+        """Handler returning Transfer-Encoding receives a generic 500."""
         def handler(req):
             return Response.bytes(200, b"ok", headers={"transfer-encoding": "chunked"})
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.status, 200)
-        resp.close()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
 
-    def test_hop_by_hop_upgrade_stripped(self):
-        """Handler returning 'upgrade' hop-by-hop header — silently stripped."""
+    def test_hop_by_hop_upgrade_fails_closed(self):
+        """Handler returning Upgrade receives a generic 500."""
         def handler(req):
             return Response.bytes(200, b"ok", headers={"upgrade": "websocket"})
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.status, 200)
-        resp.close()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
 
-    def test_hop_by_hop_te_stripped(self):
-        """Handler returning 'te' hop-by-hop header — silently stripped."""
+    def test_hop_by_hop_te_fails_closed(self):
+        """Handler returning TE receives a generic 500."""
         def handler(req):
             return Response.bytes(200, b"ok", headers={"te": "chunked"})
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.status, 200)
-        resp.close()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
 
     def test_hop_by_hop_header_names_are_case_insensitive(self):
-        """Header policy strips hop-by-hop names regardless of casing."""
+        """Hop-by-hop rejection is case-insensitive."""
         def handler(req):
             return Response.bytes(200, b"ok", headers={"Connection": "keep-alive"})
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
         self.assertTrue(_wait_for_server(url))
-        resp = urllib.request.urlopen(url, timeout=2)
-        self.assertEqual(resp.status, 200)
-        resp.close()
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
 
     def test_valid_status_codes_accepted(self):
         """Handler returning valid status codes (200, 201, 206, 400, 404, 500) work."""

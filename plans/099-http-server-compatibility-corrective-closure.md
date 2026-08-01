@@ -2,6 +2,9 @@
 
 ## Status
 
+Implementation complete and locally verified. The hosted `rust` and `python`
+jobs remain the final publication check for the commit carrying this closure.
+
 Corrective closure plan for Plans 094–098.
 
 Plans 094–098 established the intended product direction and implemented most of the required work: RFC 9110 response corrections, the Python `http.server`-shaped facade, secure static integration, TLS classes, namespace cleanup, and test consolidation.
@@ -770,3 +773,24 @@ The implementation handoff must include:
 - same-commit `rust` and `python` CI results.
 
 Do not mark this plan complete while any acceptance criterion is only documented but not implemented and verified.
+
+## Closure record
+
+- Canonical custom-service and Python file bodies acquire the shared
+  `ServeState::file_stream_semaphore` permit at transport conversion; the
+  owned permit lives in the stream state and is released by normal completion,
+  read/seek error, disconnect, cancellation, or shutdown.
+- Python binding resolves hostnames and IPv4/IPv6 forms once, publishes the
+  actual activated address, and exposes structured `remote_address` and
+  `local_address` values to the façade.
+- `extensions_map` and `guess_type()` customization are applied to native
+  static responses without Python path translation or file reopening.
+- Handler status, headers, framing, and body length are validated atomically;
+  invalid responses return a sanitized generic 500.
+- HTTPS tests use `crates/eggserve-python/tests/fixtures/localhost-test.*`;
+  no external certificate generator is required.
+- The release workflow only builds wheel artifacts; publication remains a
+  manual maintainer action.
+- `./scripts/verify.sh fast` and `./scripts/verify.sh full` passed locally;
+  the installed-wheel suite passed 662 tests. Hosted CI is checked on the
+  final pushed commit.

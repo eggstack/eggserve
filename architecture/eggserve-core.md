@@ -42,7 +42,7 @@ pub struct ServeConfig {
 
 ### `ServeState` (`config.rs`)
 
-Runtime state wrapping `ServeConfig` with a Tokio `Semaphore` for file-stream limiting. Created once at startup, shared across all requests.
+Runtime state wrapping `ServeConfig` with a Tokio `Semaphore` for file-stream limiting. Created once at startup, shared across all requests and enforced both by the built-in static path and by canonical custom-service/Python response conversion.
 
 ```rust
 pub struct ServeState {

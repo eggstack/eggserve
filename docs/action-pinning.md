@@ -39,7 +39,7 @@ Any output indicates an action not pinned to a SHA digest.
 
 Release tooling is kept deterministic separately from action pinning:
 `scripts/install-cargo-tools.sh` installs and verifies the pinned
-`cargo-audit 0.22.2` and `cargo-deny 0.19.0` versions. The manual release
-workflow's default `dry_run=true` input runs validation, cross-platform wheel
-smoke tests, package checks, artifact inspection, checksum generation, and
-provenance without entering the protected publication job.
+`cargo-audit 0.22.2` and `cargo-deny 0.19.0` versions. The manually dispatched
+release workflow only builds cross-platform wheel artifacts for maintainer
+review; it has no publication input, credentials, or publish job. PyPI and
+crates.io publication remain local maintainer actions.

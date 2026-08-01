@@ -3,7 +3,6 @@
 import os
 import socket
 import ssl
-import subprocess
 import tempfile
 import threading
 import unittest
@@ -31,15 +30,9 @@ def _request(server, payload):
 class HttpsCompatTests(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
-        self.cert = os.path.join(self.tmp.name, "cert.pem")
-        self.key = os.path.join(self.tmp.name, "key.pem")
-        result = subprocess.run(
-            ["openssl", "req", "-x509", "-newkey", "rsa:2048", "-keyout", self.key,
-             "-out", self.cert, "-days", "1", "-nodes", "-subj", "/CN=localhost"],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
-        )
-        if result.returncode:
-            self.skipTest("openssl is unavailable")
+        fixture_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+        self.cert = os.path.join(fixture_dir, "localhost-test.crt")
+        self.key = os.path.join(fixture_dir, "localhost-test.key")
 
     def tearDown(self):
         self.tmp.cleanup()

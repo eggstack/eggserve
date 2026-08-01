@@ -127,7 +127,7 @@ Listener errors are classified by `io::ErrorKind` into transient, resource-exhau
 - Each accepted connection spawns a tokio task, tracked in a `JoinSet` with bounded concurrency
 - Graceful drain waits for each task up to the configured deadline; remaining tasks are dropped (aborted)
 - Forced shutdown abandons remaining tasks immediately
-- RAII permits ensure connection and file-stream permits are released on drop, even under cancellation
+- RAII permits ensure connection and file-stream permits are released on drop, even under cancellation. Canonical file-backed responses acquire the shared file-stream permit at transport conversion, so custom Rust services and the Python static façade share the same ceiling.
 - Normal peer resets do not terminate the server; only fatal runtime errors transition to Failed
 
 ## Shutdown Semantics
