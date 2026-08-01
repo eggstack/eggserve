@@ -34,7 +34,7 @@ Python exception classes and their field names are stable. Exception message str
 
 ### Header ordering and duplicate preservation
 
-Rust `HeaderMapPlan` preserves insertion order and duplicate headers. This behavior is stable. Python `Response.headers` uses a `HashMap` and does not preserve duplicates — this is a known limitation, not a bug.
+Rust `HeaderMapPlan` and canonical Python `HeaderBlock` preserve insertion order and duplicate headers. This behavior is stable. Legacy Python response dictionaries are not part of the current compatibility façade.
 
 ### Denial/error taxonomy variants
 
@@ -110,7 +110,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 1. No production-path consumer fixtures exist yet (only test consumers)
 2. The `Service` trait signature may evolve to support request bodies or HTTP/2
 3. `RuntimeConfig` field set may change as more transport options are added
-4. The Python `Server` projects onto this API but uses its own transport layer, not the Rust `Server` directly
+4. The Python compatibility façade uses this Rust runtime through the native bridge; its public surface is documented separately in `docs/python-api.md`
 
 Promotion to stable requires: production-path consumer fixtures, real-socket parity matrix passing, installed-wheel matrix passing, and lifecycle stress tests showing no leaks.
 
@@ -293,7 +293,21 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `Scheme` | experimental | Http, Https |
 | `ParsedUrl` | experimental | Hand-parsed URL |
 
-## Python API — `eggserve` Package
+## Python API — current contract
+
+Plan 098 supersedes the historical Python stability tables formerly maintained in this document. The supported public façade is intentionally small:
+
+| Module | Public names | Tier |
+|--------|--------------|------|
+| `eggserve.server` | `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, `SimpleHTTPRequestHandler` | experimental |
+| `eggserve` | the six server classes above, `serve_directory`, `__version__` | experimental/stable as individually documented |
+| `eggserve.lowlevel` | advanced Rust-backed primitives | experimental |
+| `eggserve.subprocess` | `ServeConfig`, `ServerProcess`, `StaticPolicy`, `serve_directory` | experimental |
+
+The Python client API is not shipped. Rust client primitives remain feature-gated and Rust-only. Internal native names are not part of the Python compatibility contract.
+
+<details>
+<summary>Historical Python API tables (superseded; retained only for migration history)</summary>
 
 ### `eggserve.__init__` — Always Available
 
@@ -419,6 +433,8 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `_config_to_argv()` | `server.py` | internal |
 | `_VALID_LOG_FORMATS` | `server.py` | internal |
 
+</details>
+
 ## Internal Bridge APIs
 
 The `python-bindings-internal` feature gate enables:
@@ -467,8 +483,8 @@ Every production claim must name a profile. The production profiles are document
 ### Header Representation
 
 - **Rust**: `HeaderMapPlan` is an ordered `Vec<ResponseHeader>`. Duplicates are preserved.
-- **Python**: `Response.headers` is `HashMap<String, String>`. Duplicates are lost.
-- **Decision**: The Rust core preserves duplicates. The Python surface uses a flat dict for simplicity. This is an acceptable trade-off for the initial release. A future revision may add ordered-pair support if duplicate headers become a common use case.
+- **Python**: canonical `HeaderBlock` is an ordered list of validated fields and preserves duplicates.
+  - **Decision**: Rust and the canonical Python low-level surface preserve duplicates. Legacy flat-dictionary response APIs are historical and are not part of the current façade.
 
 ### Response Contract
 

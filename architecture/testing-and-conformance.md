@@ -10,23 +10,22 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 24 files |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 1 file |
 | Python native primitives | `python/eggserve/test_primitives.py` | PyO3 bindings, 143 tests | 143 |
-| Python server primitives | `python/eggserve/test_server_primitives.py` | Server types, 68 tests | 68 |
-| Python subprocess API | `python/eggserve/test_server.py` | CLI subprocess, 43 tests | 43 |
-| Python server integration | `python/eggserve/test_server_integration.py` | Live concurrency/shutdown, 61 tests | 61 |
-| Python canonical conformance | `python/eggserve/test_canonical_conformance.py` | Rust/Python parity, 92 tests | 92 |
-| Python canonical request types | `python/eggserve/test_canonical_request_types.py` | Request type correctness, 61 tests | 61 |
-| Python body primitives | `python/eggserve/test_body_primitives.py` | Body consumption, 52 tests | 52 |
-| Python body conformance | `python/eggserve/test_body_conformance.py` | Body corpus parity, 11 tests | 11 |
-| Python body wire | `python/eggserve/test_body_wire.py` | Wire-level body tests, 19 tests | 19 |
-| Python boundary hardening | `python/eggserve/test_boundary_hardening.py` | Security hardening, 67 tests | 67 |
+| Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py` and façade tests | HTTP server compatibility, TLS, and policy behavior | current suite |
+| Python native primitives | `crates/eggserve-python/tests/test_primitives.py` and focused suites | PyO3 bindings and canonical types | current suite |
+| Python subprocess API | `crates/eggserve-python/tests/test_server.py` | CLI subprocess lifecycle | current suite |
+| Python server integration | `crates/eggserve-python/tests/test_server_integration.py` | Live concurrency and shutdown | current suite |
+| Python canonical conformance | `crates/eggserve-python/tests/test_canonical_conformance.py` | Rust/Python parity | current suite |
+| Python canonical request types | `crates/eggserve-python/tests/test_canonical_request_types.py` | Request type correctness | current suite |
+| Python body primitives | `crates/eggserve-python/tests/test_body_primitives.py` | Body consumption | current suite |
+| Python body conformance | `crates/eggserve-python/tests/test_body_conformance.py` | Body corpus parity | current suite |
+| Python body wire | `crates/eggserve-python/tests/test_body_wire.py` | Wire-level body tests | current suite |
+| Python boundary hardening | `crates/eggserve-python/tests/test_boundary_hardening.py` | Security hardening and namespace boundaries | current suite |
 | Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
-| Python API consumers | `python/eggserve/test_api_consumers.py` | API surface validation, 59 tests | 59 |
-| Python API stability | `python/eggserve/test_api_stability.py` | Snapshot/import safety, 61 tests | 61 |
-| Python parity matrix | `python/eggserve/test_parity_matrix.py` | Real-socket Rust/Python parity, 28 tests | 28 |
+| Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 19 targets |
 | Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
 
-**Total: ~824 Python tests, ~200+ Rust tests, 19 fuzz targets, 2 conformance corpora.**
+The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
 
 ## Rust Integration Test Files
 
