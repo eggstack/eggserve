@@ -19,6 +19,12 @@ Handlers are synchronous and receive bounded `rfile`/`wfile` adapters, never
 raw sockets. HTTPS uses the shared core rustls PEM loader, requires certificate
 and key paths, and restricts ALPN to `http/1.1`.
 
+Compatibility addresses are normalized in the Python façade only at the API
+boundary: `""` becomes `0.0.0.0`, and literal unspecified IPv4/IPv6 addresses
+carry explicit wildcard intent to the existing native server. Hostname and
+literal resolution remains native, and the published `server_address` is the
+actual native `(host, port)` tuple.
+
 `eggserve.lowlevel` contains the advanced PyO3 wrappers (`SecureRoot`,
 `StaticPolicy`, `RequestTarget`, canonical HTTP types, and body/response
 primitives). `eggserve.subprocess` contains `ServeConfig`, `ServerProcess`,
@@ -56,6 +62,13 @@ configuration fails before the native server reports readiness; key material
 is never logged. The platform qualifications in `docs/security-review.md`,
 especially the incomplete independent Windows adversarial review, continue to
 apply.
+
+The callback bridge stages status, ordered headers, body ownership, and
+`Content-Length` validation before constructing a canonical response. Native
+file and byte bodies are one-shot; consumed or malformed structural bodies are
+errors rather than empty-body fallbacks. Handler failures are logged with
+fixed categories only. MIME hooks provide metadata to the native responder;
+they never perform Python path translation, `stat`, open, or reopen operations.
 
 ## Verification
 

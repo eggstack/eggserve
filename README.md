@@ -32,6 +32,10 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
 Directory listing is disabled, dotfiles and symlinks are denied, and the
 default index order is `index.html`, then `index.htm`. Rust pins the root,
 resolves paths, and streams files; Python never reopens a translated path.
+The compatibility server accepts stdlib-shaped `(host, port)` tuples: an empty
+host is normalized to the explicit IPv4 wildcard `0.0.0.0`, literal wildcard
+addresses are accepted by this façade, and port `0` publishes the actual native
+port. The CLI continues to require `--public` for wildcard binds.
 
 For subclass-based custom responses:
 
@@ -52,6 +56,14 @@ with HTTPServer(("127.0.0.1", 8000), Handler) as server:
 
 This facade uses the existing Rust runtime; it does not expose raw sockets or
 Python's thread-per-connection implementation. See [the compatibility contract](docs/python-http-server-compatibility.md).
+
+Static MIME customization is bounded to response metadata. `extensions_map`
+applies to direct files and native-selected index files; subclass
+`guess_type()` applies to direct file targets. GET, HEAD, range, and conditional
+responses retain the selected type, while invalid values fail closed. Handler
+response conversion is also fail-closed: malformed bodies, invalid headers, and
+one-shot body reuse produce a generic 500 without logging untrusted exception
+text or response data.
 
 ## Installation
 

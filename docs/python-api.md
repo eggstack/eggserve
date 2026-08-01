@@ -15,6 +15,12 @@ static-file streaming. Handlers receive no raw socket. `rfile` and `wfile`
 are bounded in-memory adapters, coroutine handlers are rejected, and framing
 headers such as `Connection` and `Transfer-Encoding` are runtime-owned.
 
+Compatibility server addresses use `(host, port)` tuples. `""` is normalized
+to `"0.0.0.0"` and treated as explicit wildcard intent; literal wildcard
+addresses are accepted by this façade, while the CLI still requires
+`--public`. `server_address` reports the native bound tuple, including the
+actual port selected for port `0`, with unbracketed IPv6 hosts.
+
 ## Static files
 
 ```python
@@ -30,6 +36,13 @@ The root is validated and captured at construction. Safe defaults deny
 directory listings, dotfiles, and symlinks; `directory_listing`,
 `allow_dotfiles`, and `follow_symlinks` are explicit opt-ins. GET and HEAD
 retain Rust-native conditional, range, and streaming behavior.
+
+`extensions_map` values and `guess_type()` results are response metadata, not
+filesystem operations. They must be strings without prohibited header
+characters; invalid values fail closed with a generic 500. `extensions_map`
+also applies to native-selected index files. A subclass `guess_type()` hook is
+defined for direct file targets with a suffix, not for index names resolved
+only inside Rust.
 
 ## HTTPS
 
@@ -68,3 +81,9 @@ internals, `fileno()`, authoritative `translate_path()`, or one-request
 `handle_request()` mode. Platform security qualifications, especially the
 unfinished independent Windows adversarial review, remain in
 [`README.md`](../README.md) and [`security-review.md`](security-review.md).
+
+Python handler responses are validated in one Rust-owned conversion boundary.
+Malformed structural bodies, failed body reads, consumed one-shot bodies,
+invalid headers, and length mismatches produce a generic 500; malformed state
+is never treated as an empty successful response. Operational diagnostics use
+bounded categories and do not include handler exception text or response data.

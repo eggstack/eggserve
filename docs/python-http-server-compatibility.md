@@ -64,15 +64,32 @@ native resolver.
 `client_address` and `server_address` are `(host, port)` tuples, including for
 IPv6 (the host is unbracketed). Empty-host, localhost, IPv4, and supported
 IPv6 constructor forms are resolved by the native listener. Port `0` is
-published after native activation. `server_bind()`/`server_activate()` are a
-bounded lifecycle façade; raw socket ownership and exact `socketserver`
-internals are intentionally not exposed.
+published after native activation. In the compatibility façade only, `""` is
+normalized to the explicit IPv4 wildcard `"0.0.0.0"`; literal `0.0.0.0` and
+`::` are also accepted. This does not change the CLI rule that wildcard binds
+require `--public`. `server_bind()`/`server_activate()` are a bounded lifecycle
+façade; raw socket ownership and exact `socketserver` internals are intentionally
+not exposed.
 
 `SimpleHTTPRequestHandler.extensions_map` and subclass `guess_type()`
 overrides affect the Content-Type of the already-resolved native response.
-Unknown suffixes remain `application/octet-stream`; static responses retain
-`X-Content-Type-Options: nosniff`. File-stream limits apply to built-in and
-compatibility static responses.
+The selected value is retained for GET, HEAD, range, and conditional metadata.
+Values must be valid response metadata; invalid strings or non-string results
+fail closed with a generic 500. Unknown suffixes remain
+`application/octet-stream`; static responses retain
+`X-Content-Type-Options: nosniff`. `extensions_map` applies to native-selected
+index files. A subclass `guess_type()` override is promised for direct request
+targets with a suffix, but not for an index filename Python never resolves.
+File-stream limits apply to built-in and compatibility static responses.
+
+Handler responses are converted atomically at the Rust callback boundary. The
+supported native `Response`/`BodySource` forms and the internal handler
+response form must provide an explicit body; unknown body kinds, failed
+`read_all()` calls, non-byte results, consumed one-shot bodies, invalid headers,
+and mismatched `Content-Length` values become a generic 500. Deliberate empty
+responses remain valid. Handler exception and response-validation logs contain
+fixed failure categories, not exception text, response reprs, or raw header
+values.
 
 `poll_interval` is accepted for source compatibility but the runtime uses
 event-driven shutdown. Raw sockets, `fileno()`, exact one-request

@@ -4,6 +4,27 @@
 
 Corrective implementation follow-up to Plan 099.
 
+Implementation complete in commit `4d3c212`.
+
+Plan 100 handoff:
+
+- Compatibility `""` binds normalize to `0.0.0.0`; explicit IPv4/IPv6
+  wildcard and loopback forms remain supported by the native resolver, with
+  actual port publication and structured Python tuples.
+- Native and structural response bodies now have explicit extraction paths;
+  unknown kinds, failed reads, missing bodies, consumed bodies, and length
+  mismatches fail closed instead of becoming empty successful responses.
+- Handler failures and response-validation failures use fixed operational
+  categories without exception text, response reprs, or raw invalid metadata.
+- `extensions_map` covers direct files and native-selected indexes;
+  `guess_type()` is bounded to direct file targets, and invalid MIME values
+  fail closed while GET, HEAD, and range metadata remains consistent.
+- Focused installed-wheel coverage was added for address normalization,
+  lifecycle, strict body conversion, atomic header validation, and MIME
+  behavior. Local verification passed formatting, workspace lint/tests,
+  client-TLS tests, TLS binary tests, the installed-wheel harness, and the
+  full verification/package gates. Plan 101 owns hosted CI and final closure.
+
 Baseline reviewed commit:
 
 ```text
