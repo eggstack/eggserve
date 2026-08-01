@@ -259,11 +259,28 @@ class BaseHTTPRequestHandler:
         return _HandlerResponse(self._response_status, self._response_headers, self.wfile.bytes())
 
 
-def _is_wildcard_host(host):
+def _normalize_compat_server_address(server_address):
+    """Validate and normalize a stdlib-shaped compatibility address.
+
+    The empty host is the conventional IPv4 wildcard spelling used by
+    ``http.server``. It is normalized before entering the native binding
+    layer, where it also carries explicit wildcard intent. Other hostnames
+    and literals remain untouched so Rust performs the only resolution.
+    """
+    if not isinstance(server_address, tuple) or len(server_address) != 2:
+        raise OSError("server_address must be a (host, port) tuple")
+    host, port = server_address
+    if not isinstance(host, str) or isinstance(port, bool) or not isinstance(port, int):
+        raise OSError("invalid server address")
+    if not 0 <= port <= 65535:
+        raise OSError("invalid server address")
+    if host == "":
+        return "0.0.0.0", port, True
     try:
-        return ipaddress.ip_address(host).is_unspecified
+        wildcard = ipaddress.ip_address(host).is_unspecified
     except ValueError:
-        return False
+        wildcard = False
+    return host, port, wildcard
 
 
 def _split_native_address(value):
@@ -287,11 +304,7 @@ class HTTPServer:
     def _init_compat(self, server_address, handler_class, bind_and_activate, *, max_workers,
                      max_request_body_bytes, max_handler_response_bytes,
                      tls_certfile, tls_keyfile):
-        if not isinstance(server_address, tuple) or len(server_address) != 2:
-            raise OSError("server_address must be a (host, port) tuple")
-        host, port = server_address
-        if not isinstance(host, str) or not isinstance(port, int) or not 0 <= port <= 65535:
-            raise OSError("invalid server address")
+        host, port, wildcard = _normalize_compat_server_address(server_address)
         factory = handler_class.func if isinstance(handler_class, partial) else handler_class
         if not isinstance(factory, type) or not issubclass(factory, BaseHTTPRequestHandler):
             raise TypeError("RequestHandlerClass must subclass BaseHTTPRequestHandler")
@@ -309,6 +322,7 @@ class HTTPServer:
         self._serve_done.set()
         self._native = None
         self._bind = host
+        self._wildcard_bind = wildcard
         self._requested_port = port
         self._max_workers = max_workers
         self._max_request_body_bytes = max_request_body_bytes
@@ -368,7 +382,7 @@ class HTTPServer:
             callback = self._handle_request
             self._native = _NativeServer(
                 root, bind=self._bind, port=self._requested_port, handler=callback,
-                public=_is_wildcard_host(self._bind),
+                public=self._wildcard_bind,
                 max_python_callbacks=self._max_workers,
                 request_body_mode="reject" if self._static_config is not None else "buffer",
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,

@@ -406,6 +406,7 @@ pub(crate) enum PyResponseBody {
     Empty,
     Bytes(Vec<u8>),
     BodySource(BodySource),
+    Consumed,
 }
 
 #[pymethods]
@@ -463,8 +464,10 @@ impl PyResponse {
     }
 
     #[getter]
-    fn body(&self) -> ServerBodySource {
-        let body = self.body.lock().expect("response body lock poisoned");
+    fn body(&self) -> PyResult<ServerBodySource> {
+        let body = self.body.lock().map_err(|_| {
+            pyo3::exceptions::PyRuntimeError::new_err("response body lock poisoned")
+        })?;
         let source = match &*body {
             PyResponseBody::Empty => BodySource::Empty,
             PyResponseBody::Bytes(data) => BodySource::Bytes(data.clone()),
@@ -477,7 +480,11 @@ impl PyResponse {
                         len: *len,
                         mime,
                     },
-                    Err(_) => BodySource::Empty,
+                    Err(_) => {
+                        return Err(pyo3::exceptions::PyIOError::new_err(
+                            "response file body could not be cloned",
+                        ))
+                    }
                 },
                 BodySource::FileRange {
                     file,
@@ -491,13 +498,22 @@ impl PyResponse {
                         total_len: *total_len,
                         mime,
                     },
-                    Err(_) => BodySource::Empty,
+                    Err(_) => {
+                        return Err(pyo3::exceptions::PyIOError::new_err(
+                            "response file body could not be cloned",
+                        ))
+                    }
                 },
             },
+            PyResponseBody::Consumed => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "response body already consumed",
+                ))
+            }
         };
-        ServerBodySource {
+        Ok(ServerBodySource {
             inner: std::sync::Mutex::new(Some(source)),
-        }
+        })
     }
 
     fn __repr__(&self) -> String {
@@ -997,26 +1013,30 @@ impl PythonCallbackService {
                 .clone_ref(py);
             drop(handler_gil);
 
+            let is_head = py_request.method == "HEAD";
             let py_req_obj = py_request
                 .into_pyobject(py)
                 .map_err(|e| ServiceError::internal(format!("failed to create request: {e}")))?;
 
-            let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|e| {
+            let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|_| {
                 eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
                     eggserve_core::ops::Severity::Error,
                     eggserve_core::ops::EventKind::ServiceError,
-                    format!("handler error: {e}"),
+                    "Python handler raised an exception",
                 ));
                 ServiceError::internal("handler raised an exception")
             })?;
 
-            if result.hasattr("__await__").unwrap_or(false) {
+            if result
+                .hasattr("__await__")
+                .map_err(|_| ServiceError::internal("Python handler response inspection failed"))?
+            {
                 return Err(ServiceError::internal(
                     "handler returned a coroutine; async handlers are not supported",
                 ));
             }
 
-            convert_python_response_to_canonical(py, &result)
+            convert_python_response_to_canonical(py, &result, is_head)
         })
     }
 
@@ -1044,8 +1064,14 @@ impl PythonCallbackService {
 
         let remote_addr = Some(connection.remote_addr.to_string());
         let local_addr = Some(connection.local_addr.to_string());
-        let remote_address = Some((connection.remote_addr.ip().to_string(), connection.remote_addr.port()));
-        let local_address = Some((connection.local_addr.ip().to_string(), connection.local_addr.port()));
+        let remote_address = Some((
+            connection.remote_addr.ip().to_string(),
+            connection.remote_addr.port(),
+        ));
+        let local_address = Some((
+            connection.local_addr.ip().to_string(),
+            connection.local_addr.port(),
+        ));
         let scheme = Some(match connection.scheme {
             Scheme::Http => "http".to_string(),
             Scheme::Https => "https".to_string(),
@@ -1095,108 +1121,159 @@ impl PythonCallbackService {
 fn convert_python_response_to_canonical<'py>(
     _py: Python<'py>,
     obj: &Bound<'py, PyAny>,
+    is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
     let status: u16 = obj
         .getattr("status")
-        .map_err(|_| ServiceError::internal("response status is missing"))?
+        .map_err(|_| ServiceError::internal("Python handler response status is missing"))?
         .extract()
-        .map_err(|_| ServiceError::internal("response status is not an integer"))?;
-    CanonicalStatusCode::new(status)
-        .map_err(|_| ServiceError::internal("response status is outside 100-599"))?;
+        .map_err(|_| ServiceError::internal("Python handler response status is invalid"))?;
+    let code = CanonicalStatusCode::new(status)
+        .map_err(|_| ServiceError::internal("Python handler response status is outside 100-599"))?;
 
     let headers: Vec<(String, String)> = obj
         .getattr("headers")
-        .map_err(|_| ServiceError::internal("response headers are missing"))?
+        .map_err(|_| ServiceError::internal("Python handler response headers are missing"))?
         .extract()
         .or_else(|_| {
             obj.getattr("headers")
                 .and_then(|v| v.extract::<HashMap<String, String>>())
                 .map(|map| map.into_iter().collect())
         })
-        .map_err(|_| ServiceError::internal("response headers must be string fields"))?;
+        .map_err(|_| ServiceError::internal("Python handler response headers are invalid"))?;
 
-    let body = if let Ok(py_resp) = obj.extract::<pyo3::Bound<'_, PyResponse>>() {
-        let response = py_resp.borrow();
-        let mut body = response
-            .body
-            .lock()
-            .map_err(|_| ServiceError::internal("response body lock poisoned"))?;
-        match std::mem::replace(&mut *body, PyResponseBody::Empty) {
-            PyResponseBody::Empty => response
-                .headers
-                .get("content-length")
-                .and_then(|value| value.parse::<u64>().ok())
-                .map(ResponseBody::EmptyWithLength)
-                .unwrap_or(ResponseBody::Empty),
-            PyResponseBody::Bytes(data) => ResponseBody::Bytes(data),
-            PyResponseBody::BodySource(source) => match source {
-                BodySource::Empty => response
-                    .headers
-                    .get("content-length")
-                    .and_then(|value| value.parse::<u64>().ok())
-                    .map(ResponseBody::EmptyWithLength)
-                    .unwrap_or(ResponseBody::Empty),
-                BodySource::Bytes(data) => ResponseBody::Bytes(data),
-                file @ BodySource::FileFull { .. } | file @ BodySource::FileRange { .. } => {
-                    ResponseBody::File(file)
-                }
-            },
+    // Validate every header into temporary canonical values before constructing
+    // a response. This keeps a later body or framing failure from exposing a
+    // partially validated response.
+    let mut validated_headers = Vec::with_capacity(headers.len());
+    for (name, value) in headers {
+        if eggserve_core::primitives::canonical::is_hop_by_hop_header(&name) {
+            return Err(ServiceError::internal(
+                "Python handler response header validation failed",
+            ));
         }
-    } else if let Ok(data) = obj.getattr("body").and_then(|b| b.extract::<Vec<u8>>()) {
-        ResponseBody::Bytes(data)
-    } else {
-        match obj.getattr("body") {
-            Ok(b) => {
-                let kind: String = b
-                    .getattr("kind")
-                    .and_then(|v| v.extract())
-                    .unwrap_or_default();
-                match kind.as_str() {
-                    "bytes" => {
-                        let data: Vec<u8> = b
-                            .call_method0("read_all")
-                            .and_then(|v| v.extract())
-                            .unwrap_or_default();
-                        ResponseBody::Bytes(data)
-                    }
-                    _ => ResponseBody::Empty,
-                }
-            }
-            Err(_) => ResponseBody::Empty,
-        }
-    };
+        let n = HeaderName::new(name.as_str()).map_err(|_| {
+            ServiceError::internal("Python handler response header validation failed")
+        })?;
+        let v = HeaderValue::new(value.as_str()).map_err(|_| {
+            ServiceError::internal("Python handler response header validation failed")
+        })?;
+        let content_length = if name.eq_ignore_ascii_case("content-length") {
+            Some(value.parse::<u64>().map_err(|_| {
+                ServiceError::internal("Python handler response length validation failed")
+            })?)
+        } else {
+            None
+        };
+        validated_headers.push((n, v, content_length));
+    }
+
+    let representation_length = validated_headers
+        .iter()
+        .find_map(|(_, _, declared)| *declared);
+    let body = extract_python_response_body(obj, is_head, representation_length)?;
 
     let body_len = body.len();
-    let code = CanonicalStatusCode::new(status)
-        .map_err(|e| ServiceError::internal(format!("invalid status code: {e}")))?;
+    for (_, _, declared) in &validated_headers {
+        if let Some(declared) = declared {
+            if *declared != body_len {
+                return Err(ServiceError::internal(
+                    "Python handler response length validation failed",
+                ));
+            }
+        }
+    }
 
     let mut response = CanonicalResponse::builder()
         .status(code)
         .body(body)
-        .map_err(|e| ServiceError::internal(format!("failed to build response: {e}")))?;
+        .map_err(|_| ServiceError::internal("Python handler response construction failed"))?;
 
-    for (name, value) in &headers {
-        if eggserve_core::primitives::canonical::is_hop_by_hop_header(name) {
-            return Err(ServiceError::internal("hop-by-hop response header rejected"));
-        }
-        let n = HeaderName::new(name.as_str())
-            .map_err(|_| ServiceError::internal("invalid response header name"))?;
-        let v = HeaderValue::new(value.as_str())
-            .map_err(|_| ServiceError::internal("invalid response header value"))?;
-        if name.eq_ignore_ascii_case("content-length") {
-            let declared = value
-                .parse::<u64>()
-                .map_err(|_| ServiceError::internal("invalid response content length"))?;
-            if declared != body_len {
-                return Err(ServiceError::internal("response content length mismatch"));
-            }
-        }
+    for (n, v, _) in validated_headers {
         response.head_mut().headers_mut().push(n, v);
     }
 
-    let norm_req = NormalizeRequest::new(false);
+    let norm_req = NormalizeRequest::new(is_head);
     normalize_response(response, &norm_req)
-        .map_err(|e| ServiceError::internal(format!("response normalization failed: {e}")))
+        .map_err(|_| ServiceError::internal("Python handler response normalization failed"))
+}
+
+fn extract_python_response_body<'py>(
+    obj: &Bound<'py, PyAny>,
+    is_head: bool,
+    representation_length: Option<u64>,
+) -> Result<ResponseBody, ServiceError> {
+    if let Ok(py_resp) = obj.extract::<pyo3::Bound<'py, PyResponse>>() {
+        let response = py_resp.borrow();
+        let mut body = response.body.lock().map_err(|_| {
+            ServiceError::internal("Python handler response body conversion failed")
+        })?;
+        return match std::mem::replace(&mut *body, PyResponseBody::Consumed) {
+            PyResponseBody::Consumed => Err(ServiceError::internal(
+                "Python handler response body conversion failed",
+            )),
+            PyResponseBody::Empty => {
+                if is_head {
+                    if let Some(length) = representation_length {
+                        Ok(ResponseBody::EmptyWithLength(length))
+                    } else {
+                        Ok(ResponseBody::Empty)
+                    }
+                } else {
+                    Ok(ResponseBody::Empty)
+                }
+            }
+            PyResponseBody::Bytes(data) => Ok(ResponseBody::Bytes(data)),
+            PyResponseBody::BodySource(source) => match source {
+                BodySource::Empty => {
+                    if is_head {
+                        if let Some(length) = representation_length {
+                            Ok(ResponseBody::EmptyWithLength(length))
+                        } else {
+                            Ok(ResponseBody::Empty)
+                        }
+                    } else {
+                        Ok(ResponseBody::Empty)
+                    }
+                }
+                BodySource::Bytes(data) => Ok(ResponseBody::Bytes(data)),
+                file @ BodySource::FileFull { .. } | file @ BodySource::FileRange { .. } => {
+                    Ok(ResponseBody::File(file))
+                }
+            },
+        };
+    }
+
+    let body = obj
+        .getattr("body")
+        .map_err(|_| ServiceError::internal("Python handler response body is missing"))?;
+    if let Ok(data) = body.extract::<Vec<u8>>() {
+        return Ok(ResponseBody::Bytes(data));
+    }
+
+    let kind: String = body
+        .getattr("kind")
+        .map_err(|_| ServiceError::internal("Python handler response body is unsupported"))?
+        .extract()
+        .map_err(|_| ServiceError::internal("Python handler response body kind is invalid"))?;
+    match kind.as_str() {
+        "empty" => Ok(ResponseBody::Empty),
+        "bytes" => {
+            let data = body
+                .call_method0("read_all")
+                .map_err(|_| {
+                    ServiceError::internal("Python handler response body conversion failed")
+                })?
+                .extract::<Vec<u8>>()
+                .map_err(|_| {
+                    ServiceError::internal("Python handler response body conversion failed")
+                })?;
+            Ok(ResponseBody::Bytes(data))
+        }
+        _ => Err(ServiceError::internal(
+            "Python handler response body kind is unsupported",
+        )),
+    }
 }
 
 impl Service for PythonCallbackService {
@@ -1296,7 +1373,9 @@ impl PyServer {
         let _ = rustls::crypto::ring::default_provider().install_default();
         let bind_addr: SocketAddr = (bind, port)
             .to_socket_addrs()
-            .map_err(|_| pyo3::exceptions::PyOSError::new_err("invalid or unresolved bind address"))?
+            .map_err(|_| {
+                pyo3::exceptions::PyOSError::new_err("invalid or unresolved bind address")
+            })?
             .next()
             .ok_or_else(|| pyo3::exceptions::PyOSError::new_err("bind address did not resolve"))?;
         if !public && bind_addr.ip().is_unspecified() {
@@ -1403,7 +1482,11 @@ impl PyServer {
                     std::path::Path::new(&cert),
                     std::path::Path::new(&key),
                 )
-                .map_err(|e| pyo3::exceptions::PyValueError::new_err(format!("TLS configuration failed: {e}")))?,
+                .map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "TLS configuration failed: {e}"
+                    ))
+                })?,
             ),
             _ => {
                 return Err(pyo3::exceptions::PyValueError::new_err(

@@ -119,7 +119,7 @@ class TestResponseValidation(_TestServerBase):
 
         s = self._make_server(handler=handler)
         url = f"http://{s.addr}/index.txt"
-        self.assertTrue(_wait_for_server(url))
+        self.assertTrue(_wait_for_tcp(s.addr))
         try:
             urllib.request.urlopen(url, timeout=2)
             self.fail("Expected HTTPError")
@@ -977,6 +977,90 @@ class TestHandlerInvalidResponse(_TestServerBase):
             self.fail("Expected HTTPError")
         except urllib.error.HTTPError as e:
             self.assertEqual(e.code, 500)
+
+    def _assert_handler_500(self, handler):
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
+        ctx.exception.close()
+
+    def test_unknown_structural_body_kind_fails_closed(self):
+        class Body:
+            kind = "mystery"
+
+        class Structural:
+            status = 200
+            headers = []
+            body = Body()
+
+        self._assert_handler_500(lambda req: Structural())
+
+    def test_structural_body_read_failure_fails_closed(self):
+        class Body:
+            kind = "bytes"
+
+            def read_all(self):
+                raise RuntimeError("body secret")
+
+        class Structural:
+            status = 200
+            headers = []
+            body = Body()
+
+        self._assert_handler_500(lambda req: Structural())
+
+    def test_structural_body_non_bytes_result_fails_closed(self):
+        class Body:
+            kind = "bytes"
+
+            def read_all(self):
+                return "not bytes"
+
+        class Structural:
+            status = 200
+            headers = []
+            body = Body()
+
+        self._assert_handler_500(lambda req: Structural())
+
+    def test_missing_structural_body_fails_closed(self):
+        class Structural:
+            status = 200
+            headers = []
+
+        self._assert_handler_500(lambda req: Structural())
+
+    def test_consumed_native_body_fails_closed(self):
+        response = Response.bytes(200, b"one shot")
+
+        def handler(req):
+            return response
+
+        s = self._make_server(handler=handler)
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_tcp(s.addr))
+        self.assertEqual(urllib.request.urlopen(url, timeout=2).read(), b"one shot")
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(url, timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
+        ctx.exception.close()
+
+    def test_mismatched_content_length_fails_closed(self):
+        self._assert_handler_500(
+            lambda req: Response.bytes(200, b"two", headers={"Content-Length": "99"})
+        )
+
+    def test_invalid_header_after_valid_header_has_no_partial_response(self):
+        self._assert_handler_500(
+            lambda req: Response.bytes(
+                200,
+                b"ok",
+                headers={"X-Valid": "yes", "Bad Header": "no"},
+            )
+        )
 
 
 class TestConnectionMetadata(_TestServerBase):

@@ -70,6 +70,81 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(len(seen[-1]), 2)
         self.assertIsInstance(seen[-1][1], int)
 
+    def test_empty_host_is_explicit_ipv4_wildcard(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        server = HTTPServer(("", 0), Handler)
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.server_address[0], "0.0.0.0")
+        self.assertGreater(server.server_port, 0)
+        self.assertIsInstance(server.server_address, tuple)
+
+    def test_explicit_ipv4_wildcard_is_accepted(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        server = HTTPServer(("0.0.0.0", 0), Handler)
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.server_address[0], "0.0.0.0")
+        self.assertGreater(server.server_address[1], 0)
+
+    def test_ipv6_loopback_is_structured_when_supported(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        try:
+            server = HTTPServer(("::1", 0), Handler)
+        except OSError as exc:
+            self.skipTest(f"IPv6 loopback unavailable: {exc}")
+        self.addCleanup(server.server_close)
+        self.assertNotIn("[", server.server_address[0])
+        self.assertNotIn("]", server.server_address[0])
+        self.assertGreater(server.server_port, 0)
+
+    def test_ipv6_wildcard_is_accepted_when_supported(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        try:
+            server = HTTPServer(("::", 0), Handler)
+        except OSError as exc:
+            self.skipTest(f"IPv6 wildcard unavailable: {exc}")
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.server_address[0], "::")
+        self.assertGreater(server.server_address[1], 0)
+
+    def test_invalid_hostname_fails_during_activation(self):
+        class Handler(BaseHTTPRequestHandler):
+            pass
+
+        with self.assertRaises(OSError):
+            HTTPServer(("does-not-exist.invalid", 0), Handler)
+
+    def test_deferred_activation_and_close_lifecycle(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        server = HTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
+        self.assertEqual(server.server_port, 0)
+        server.server_activate()
+        self.assertEqual(server.server_port, 0)
+        server._start()
+        self.assertGreater(server.server_port, 0)
+        server.server_close()
+        with self.assertRaises(RuntimeError):
+            server._start()
+
     def test_post_reads_bounded_body(self):
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
