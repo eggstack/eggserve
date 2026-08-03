@@ -20,7 +20,7 @@ eggserve/
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (31 files)
-├── plans/                      # design plans (000–101; Plan 101 pending hosted closure)
+├── plans/                      # design plans (000–101, all complete)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (19 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)

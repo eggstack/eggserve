@@ -734,10 +734,10 @@ Are Plans 094–101 now closed?
 
 Do not answer the last question affirmatively until every final acceptance criterion is satisfied.
 
-## Local verification checkpoint (hosted verification pending)
+## Final closure record
 
 The implementation and documentation changes for this plan pass the required
-local checks on the pre-commit worktree:
+local checks on the final implementation commit `e1f83086ba715fa3ddd9e40aed3aeecea5cde1a5`:
 
 - `cargo fmt --all -- --check` and workspace clippy pass with `-D warnings`.
 - `cargo test --workspace` passes: 1,419 tests passed, 10 ignored.
@@ -749,7 +749,23 @@ local checks on the pre-commit worktree:
 - `./scripts/verify.sh fast` and `./scripts/verify.sh full` pass, including
   both cargo package dry-run modes. The dry-run package checks do not upload.
 
-Hosted `rust` and `python` checks on the final pushed SHA remain pending. The
-active project and skill guidance therefore continue to describe Plan 101 as
-the owner of final hosted closure evidence; Plans 094–101 are not yet marked
-closed.
+Hosted CI passed on the same final implementation SHA in run
+[`30854551452`](https://github.com/eggstack/eggserve/actions/runs/30854551452):
+
+- [`rust`](https://github.com/eggstack/eggserve/actions/runs/30854551452/job/91822359285)
+  passed format, clippy, workspace tests, client-TLS tests, and server-TLS
+  lint/tests.
+- [`python`](https://github.com/eggstack/eggserve/actions/runs/30854551452/job/91822359275)
+  passed the installed-wheel build, smoke checks, and Python suite.
+
+Final handoff answers:
+
+- Plan 100 landed correctly; Plan 101’s custom-service saturation, canonical
+  permit-lifetime, compatibility, boundary, and TLS checks passed.
+- Every required Plan 101 local check passed, including `verify.sh fast` and
+  `verify.sh full`.
+- Rust CI and Python CI both passed on the same final implementation SHA.
+- No GitHub workflow can publish: CI has `contents: read`, and `release.yml`
+  only builds and uploads wheel artifacts; crates.io and PyPI publication
+  remain manual.
+- Plans 094–101 are closed.

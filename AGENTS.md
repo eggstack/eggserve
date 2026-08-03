@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–100 are implementation-complete. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps. Plans 096–100 close the bounded subclass-based Python `http.server` implementation workstream; Plan 101 owns final verification and closure evidence.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–101 are implementation-complete and closed. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps. Plans 096–101 close the bounded subclass-based Python `http.server` implementation and verification workstream.
 
 ## Non-negotiables
 
@@ -126,7 +126,7 @@ Routine CI is a small regression screen, not release certification:
 
 ## Plan status
 
-Historical plans are in `plans/`. Plans 000–100 are implementation-complete. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–100 are historical/implementation records; Plan 101 owns final verification evidence and their infrastructure requirements no longer control current CI or release policy.
+Historical plans are in `plans/`. Plans 000–101 are implementation-complete. Plan 091 defines current CI and release policy. Implementation decisions remain in code and architecture documents. Plans 000–101 are historical/implementation records; Plan 091 and the final Plan 101 record define current CI, release policy, and closure evidence. Their superseded infrastructure requirements no longer control current CI and release policy.
 
 ## Pointers to docs/
 
