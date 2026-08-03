@@ -52,7 +52,11 @@ Integration tests may use request validation (`validate_method`, `validate_reque
 
 ### Server primitives
 
-Python code may use `StaticResponder`, `Server`, and `Response` to build HTTP servers while Rust owns socket I/O, connection management, and file streaming. The server can dispatch to a Python handler callback for dynamic responses, or serve static files via `StaticResponder`. Python never touches sockets directly.
+Python applications should use the six-class `eggserve.server` façade for
+HTTP serving. Rust owns socket I/O, connection management, response framing,
+and file streaming; Python handlers never receive raw sockets. The low-level
+native callback engine and responder types are implementation details, while
+Rust embedders may use the experimental `eggserve_core::server` service API.
 
 ### HTTP client substrate
 

@@ -186,7 +186,7 @@ Plan 081 requires that `/x/` and `/x/index.html` produce identical conditional a
 - Full HTTP/2 or HTTP/3 semantics.
 - General cache policy framework.
 - ASGI/WSGI adapters.
-- Request callback server.
+- General-purpose request callback server or application runtime.
 - Middleware or routing.
 - Reverse proxy behavior.
 - Multi-range MIME responses.

@@ -63,7 +63,9 @@ applies to direct files and native-selected index files; subclass
 responses retain the selected type, while invalid values fail closed. Handler
 response conversion is also fail-closed: malformed bodies, invalid headers, and
 one-shot body reuse produce a generic 500 without logging untrusted exception
-text or response data.
+text or response data. Every native file-backed response uses the shared
+`max_file_streams` admission limit for its transport lifetime; byte, empty, and
+HEAD responses do not consume a file-stream permit.
 
 ## Installation
 

@@ -24,7 +24,8 @@ All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `Hea
 
 Error types (`MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
 
-`ResponseBody` implements `Send` (contains `Vec<u8>`). `Response` (head + body) implements `Send`.
+`ResponseBody` and `Response` implement `Send`; file-backed bodies carry an
+already-opened file capability rather than a path to reopen.
 
 Python wrapper types (`#[pyclass(frozen)]`) are frozen/immutable but are not `Send`/`Sync` in the Rust sense — Python GIL constraints apply.
 
@@ -259,7 +260,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 |------|------|-------|
 | `StatusCode` | stable | Validated HTTP status code (100–599, three-digit only) |
 | `ResponseHead` | stable | Status + `HeaderBlock`; transport-independent response metadata |
-| `ResponseBody` | stable | Body representation: Empty, Bytes |
+| `ResponseBody` | stable | Body representation: Empty, Bytes, File, EmptyWithLength |
 | `Response` | stable | Complete response: head + body; one-shot consumption |
 | `ResponseBuilder` | stable | Validated builder for Response |
 | `NormalizeRequest` | stable | Context for response normalization (is_head flag) |
@@ -491,8 +492,10 @@ Every production claim must name a profile. The production profiles are document
 - Python handlers must return a `Response` object (or duck-typed equivalent).
 - Invalid returns produce 500 without leaking tracebacks.
 - HEAD is not special-cased in the Python handler path.
-- 204 and informational statuses are not special-cased — the handler is responsible.
-- Hop-by-hop headers are not filtered — the handler should not emit them.
+- Informational statuses and 204/205/304 are body-forbidden and are normalized
+  to empty responses.
+- Hop-by-hop headers are rejected at the Python boundary and stripped from
+  canonical metadata where the runtime owns them.
 - File-backed responses retain their Rust-owned capability and stream without an eager Python-memory copy.
 
 ### Client Stability

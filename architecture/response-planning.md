@@ -193,7 +193,7 @@ The canonical response types (`primitives::canonical`) provide a transport-indep
 
 - `StatusCode` — validated HTTP status code (100–599, three-digit only) with classification helpers; 205 is body-forbidden
 - `ResponseHead` — status + `HeaderBlock` (duplicate-preserving headers)
-- `ResponseBody` — `Empty` or `Bytes` body representation
+- `ResponseBody` — `Empty`, `Bytes`, `File`, or `EmptyWithLength` body representation
 - `Response` — complete response with one-shot body consumption
 
 ### Normalization Algorithm
@@ -256,8 +256,9 @@ in-memory and file-backed response producers. It applies the same framing rules
 as `normalize_response()` but without consuming a `Response` value:
 
 1. Strip runtime-owned `Transfer-Encoding`
-2. HEAD responses: suppress `Content-Length`
-3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`
+2. HEAD responses: suppress `Content-Length` only for an empty
+   representation; retain the equivalent GET length for non-empty bodies
+3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`
 4. Normal payloads: set `Content-Length` to actual body length
 5. Preserve all other headers (including duplicates)
 

@@ -649,6 +649,104 @@ fn file_body(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::primitives::FileRange;
+    use http_body_util::BodyExt;
+    use std::fs::File;
+    use std::sync::Arc;
+    use tempfile::TempDir;
+
+    fn file_response(path: &std::path::Path, range: Option<FileRange>) -> Response {
+        let file = File::open(path).unwrap();
+        let metadata = file.metadata().unwrap();
+        let source = match range {
+            Some(range) => BodySource::FileRange {
+                file,
+                range,
+                total_len: metadata.len(),
+                mime: "application/octet-stream",
+            },
+            None => BodySource::FileFull {
+                file,
+                len: metadata.len(),
+                mime: "application/octet-stream",
+            },
+        };
+        Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::File(source))
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn full_file_transport_body_owns_permit_until_drop() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("full.bin");
+        std::fs::write(&path, b"full body").unwrap();
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+
+        let first =
+            to_hyper_response_with_file_stream_semaphore(file_response(&path, None), &semaphore)
+                .unwrap();
+        assert!(matches!(
+            to_hyper_response_with_file_stream_semaphore(file_response(&path, None), &semaphore),
+            Err(ResponseConstructionError::FileStreamLimit)
+        ));
+
+        drop(first);
+        assert!(to_hyper_response_with_file_stream_semaphore(
+            file_response(&path, None),
+            &semaphore
+        )
+        .is_ok());
+    }
+
+    #[tokio::test]
+    async fn range_file_transport_body_releases_permit_on_completion() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("range.bin");
+        std::fs::write(&path, b"range body").unwrap();
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+
+        let response = to_hyper_response_with_file_stream_semaphore(
+            file_response(&path, Some(FileRange::new(0, 4))),
+            &semaphore,
+        )
+        .unwrap();
+        let body = response.into_body().collect().await.unwrap().to_bytes();
+        assert_eq!(&body[..], b"range");
+        assert!(to_hyper_response_with_file_stream_semaphore(
+            file_response(&path, Some(FileRange::new(5, 9))),
+            &semaphore
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn non_file_and_normalized_head_bodies_bypass_file_admission() {
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let held = semaphore.clone().try_acquire_owned().unwrap();
+
+        for body in [
+            ResponseBody::Bytes(b"bytes".to_vec()),
+            ResponseBody::Empty,
+            ResponseBody::EmptyWithLength(5),
+        ] {
+            let response = Response::builder()
+                .status(StatusCode::OK)
+                .body(body)
+                .unwrap();
+            assert!(to_hyper_response_with_file_stream_semaphore(response, &semaphore).is_ok());
+        }
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("head.bin");
+        std::fs::write(&path, b"head body").unwrap();
+        let normalized =
+            normalize_response(file_response(&path, None), &NormalizeRequest::new(true)).unwrap();
+        assert!(to_hyper_response_with_file_stream_semaphore(normalized, &semaphore).is_ok());
+
+        drop(held);
+    }
 
     #[test]
     fn status_code_valid_range() {

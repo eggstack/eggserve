@@ -733,3 +733,23 @@ Are Plans 094–101 now closed?
 ```
 
 Do not answer the last question affirmatively until every final acceptance criterion is satisfied.
+
+## Local verification checkpoint (hosted verification pending)
+
+The implementation and documentation changes for this plan pass the required
+local checks on the pre-commit worktree:
+
+- `cargo fmt --all -- --check` and workspace clippy pass with `-D warnings`.
+- `cargo test --workspace` passes: 1,419 tests passed, 10 ignored.
+- `cargo test -p eggserve-core --features client-tls` passes: 1,507 tests
+  passed, 10 ignored.
+- TLS binary clippy passes; `cargo test -p eggserve-bin --features tls`
+  passes: 81 tests passed.
+- `bash scripts/test-python-wheel.sh` passes: 682 Python tests passed.
+- `./scripts/verify.sh fast` and `./scripts/verify.sh full` pass, including
+  both cargo package dry-run modes. The dry-run package checks do not upload.
+
+Hosted `rust` and `python` checks on the final pushed SHA remain pending. The
+active project and skill guidance therefore continue to describe Plan 101 as
+the owner of final hosted closure evidence; Plans 094–101 are not yet marked
+closed.

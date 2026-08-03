@@ -1,8 +1,10 @@
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+use std::{fs::File, path::PathBuf};
 
 use eggserve_core::config::{ServeConfig, ServeState};
+use eggserve_core::primitives::body::BodySource;
 use eggserve_core::primitives::canonical::{
     normalize_response, NormalizeRequest, Response, ResponseBody, StatusCode,
 };
@@ -243,6 +245,91 @@ async fn custom_service_bytes_through_pipeline() {
         response.contains("hello"),
         "response body should contain 'hello': {}",
         response
+    );
+}
+
+async fn request_custom_file(state: Arc<ServeState>, path: PathBuf) -> Vec<u8> {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let addr = listener.local_addr().unwrap();
+    let (tx, _rx) = broadcast::channel::<()>(1);
+    let config = RuntimeConfig::default();
+
+    let server = tokio::spawn(async move {
+        let (stream, peer_addr) = listener.accept().await.unwrap();
+        let io = TokioIo::new(stream);
+        let mut shutdown_rx = tx.subscribe();
+        let path = path.clone();
+        let svc = service_fn(move |_req: Request| {
+            let path = path.clone();
+            async move {
+                let file = File::open(&path).unwrap();
+                let len = file.metadata().unwrap().len();
+                let body = BodySource::FileFull {
+                    file,
+                    len,
+                    mime: "application/octet-stream",
+                };
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::File(body))
+                    .unwrap())
+            }
+        });
+        serve_connection_with_service(
+            io,
+            svc,
+            &config,
+            &state,
+            &mut shutdown_rx,
+            1,
+            addr,
+            peer_addr,
+            false,
+            None,
+        )
+        .await;
+    });
+
+    let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
+    client
+        .write_all(b"GET /file HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut response = Vec::new();
+    client.read_to_end(&mut response).await.unwrap();
+    server.await.unwrap();
+    response
+}
+
+#[tokio::test]
+async fn custom_service_file_stream_saturation_maps_503_and_recovers() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("custom.bin");
+    std::fs::write(&path, b"custom file").unwrap();
+    let mut serve_config = ServeConfig {
+        root: tmp.path().to_path_buf(),
+        ..ServeConfig::default()
+    };
+    serve_config.limits.max_file_streams = 1;
+    let config = Arc::new(serve_config);
+    let state = Arc::new(ServeState::new(config).unwrap());
+    let held = state
+        .file_stream_semaphore()
+        .clone()
+        .try_acquire_owned()
+        .unwrap();
+
+    let saturated = request_custom_file(state.clone(), path.clone()).await;
+    assert!(saturated.starts_with(b"HTTP/1.1 503"), "{saturated:?}");
+
+    drop(held);
+    let recovered = request_custom_file(state, path).await;
+    assert!(recovered.starts_with(b"HTTP/1.1 200"), "{recovered:?}");
+    assert!(
+        recovered
+            .windows(b"custom file".len())
+            .any(|window| window == b"custom file"),
+        "{recovered:?}"
     );
 }
 

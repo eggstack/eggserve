@@ -70,6 +70,23 @@ class CompatTests(unittest.TestCase):
         self.assertEqual(len(seen[-1]), 2)
         self.assertIsInstance(seen[-1][1], int)
 
+    def test_ipv4_loopback_publishes_structured_addresses(self):
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append(self.client_address)
+                self.send_response(200)
+                self.end_headers()
+
+        server, _ = self.run_server(Handler)
+        response = request(server, b"GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        self.assertIn(b"200 OK", response)
+        self.assertIsInstance(server.server_address[0], str)
+        self.assertIsInstance(server.server_address[1], int)
+        self.assertIsInstance(seen[-1][0], str)
+        self.assertIsInstance(seen[-1][1], int)
+
     def test_empty_host_is_explicit_ipv4_wildcard(self):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self):
@@ -128,6 +145,15 @@ class CompatTests(unittest.TestCase):
 
         with self.assertRaises(OSError):
             HTTPServer(("does-not-exist.invalid", 0), Handler)
+
+    def test_empty_host_can_publish_an_ephemeral_listener(self):
+        class Handler(BaseHTTPRequestHandler):
+            pass
+
+        server = HTTPServer(("", 0), Handler)
+        self.addCleanup(server.server_close)
+        self.assertEqual(server.server_address[0], "0.0.0.0")
+        self.assertGreater(server.server_port, 0)
 
     def test_deferred_activation_and_close_lifecycle(self):
         class Handler(BaseHTTPRequestHandler):

@@ -999,18 +999,25 @@ class TestHandlerInvalidResponse(_TestServerBase):
         self._assert_handler_500(lambda req: Structural())
 
     def test_structural_body_read_failure_fails_closed(self):
+        sentinel = "BODY_SENTINEL_MUST_NOT_ESCAPE"
+
         class Body:
             kind = "bytes"
 
             def read_all(self):
-                raise RuntimeError("body secret")
+                raise RuntimeError(sentinel)
 
         class Structural:
             status = 200
             headers = []
             body = Body()
 
-        self._assert_handler_500(lambda req: Structural())
+        s = self._make_server(handler=lambda req: Structural())
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(f"http://{s.addr}/index.txt", timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
+        self.assertNotIn(sentinel, ctx.exception.read().decode("utf-8", errors="replace"))
+        ctx.exception.close()
 
     def test_structural_body_non_bytes_result_fails_closed(self):
         class Body:
@@ -1054,13 +1061,21 @@ class TestHandlerInvalidResponse(_TestServerBase):
         )
 
     def test_invalid_header_after_valid_header_has_no_partial_response(self):
-        self._assert_handler_500(
-            lambda req: Response.bytes(
+        sentinel = "HEADER_SENTINEL_MUST_NOT_ESCAPE"
+        s = self._make_server(
+            handler=lambda req: Response.bytes(
                 200,
                 b"ok",
-                headers={"X-Valid": "yes", "Bad Header": "no"},
+                headers={"X-Valid": "yes", "Bad Header": sentinel},
             )
         )
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            urllib.request.urlopen(f"http://{s.addr}/index.txt", timeout=2)
+        self.assertEqual(ctx.exception.code, 500)
+        body = ctx.exception.read().decode("utf-8", errors="replace")
+        self.assertNotIn(sentinel, body)
+        self.assertNotIn("X-Valid", body)
+        ctx.exception.close()
 
 
 class TestConnectionMetadata(_TestServerBase):

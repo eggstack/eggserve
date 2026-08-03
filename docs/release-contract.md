@@ -332,7 +332,7 @@ The canonical response types provide transport-independent, Hyper-independent va
 |------|--------|-------------|
 | `StatusCode` | `primitives::canonical` | Validated HTTP status code (100–599, three-digit only). |
 | `ResponseHead` | `primitives::canonical` | Status + validated `HeaderBlock`. |
-| `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`. |
+| `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`, `File`, and `EmptyWithLength`. |
 | `Response` | `primitives::canonical` | Complete response: head + body. One-shot consumption. |
 | `ResponseBuilder` | `primitives::canonical` | Validated builder for `Response`. |
 | `NormalizeRequest` | `primitives::canonical` | Context for response normalization. |
@@ -342,7 +342,7 @@ The canonical response types provide transport-independent, Hyper-independent va
 
 - `normalize_response(response, request)` applies the following rules before transport conversion:
   1. HEAD suppression — body discarded, representation headers preserved.
-  2. Body-forbidden statuses — 1xx, 204, 304 bodies discarded.
+  2. Body-forbidden statuses — 1xx, 204, 205, and 304 bodies discarded.
   3. Hop-by-hop header stripping — `Transfer-Encoding` removed.
   4. Content-Length computation — set to actual body length.
   5. Duplicate end-to-end headers preserved.
@@ -356,8 +356,9 @@ The canonical response types provide transport-independent, Hyper-independent va
 All response producers converge on `normalize_metadata()` for metadata normalization. This function is the shared normalization entry point for both in-memory and file-backed response producers. It applies:
 
 1. Strip runtime-owned `Transfer-Encoding` — always removed regardless of status.
-2. HEAD responses: suppress `Content-Length`.
-3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`.
+2. HEAD responses: suppress `Content-Length` only for an empty
+   representation; retain the equivalent GET length for non-empty bodies.
+3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`.
 4. Normal payloads: set `Content-Length` to actual body length.
 5. Preserve all other headers (including duplicates).
 
