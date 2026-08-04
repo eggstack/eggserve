@@ -2,12 +2,27 @@
 
 eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
 
+## What eggserve Is
+
+- **A hardened static file server** — serves files from a directory with security guarantees
+- **A CLI tool** — `eggserve` binary with `--directory`, `--bind`, `--port`, TLS, and policy flags
+- **A Python package** — `eggserve` wheel with `python -m eggserve` and `http.server`-compatible API
+- **A reusable Rust library** — `eggserve-core` for embedding path confinement and policy enforcement
+
+## What eggserve Is Not
+
+- Not an ASGI/WSGI server, CGI executor, or web framework
+- Not a reverse proxy, ACME client, or plugin host
+- Not a file upload handler, auth system, or template engine
+
 ## Core Invariants
 
 1. **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag.
 2. **No serving outside the configured root.** Path traversal and symlink escape are denied at the library level. On Unix with safe defaults, symlink denial is *descriptor-relative* — `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`.
 3. **No broad dependencies.** Every dependency has an explicit purpose. No framework dependencies beyond Hyper.
 4. **Plan-driven development.** Every change traces to a plan in `plans/`. No ad-hoc feature additions.
+
+---
 
 ## Workspace Layout
 
@@ -19,16 +34,18 @@ eggserve/
 │   ├── eggserve-bin/           # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
-├── docs/                       # reference docs (31 files)
+├── docs/                       # reference docs (32 files)
 ├── plans/                      # design plans (000–101, all complete)
 ├── conformance/                # shared Rust/Python conformance corpora
-├── fuzz/                       # fuzzing targets and seed corpora (19 targets)
+├── fuzz/                       # fuzzing targets and seed corpora (21 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
 ├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
 ├── scripts/                    # verify.sh, test-python-wheel.sh, install-cargo-tools.sh
 ├── release/                    # release artifacts and closure reports
 └── examples/                   # Python usage examples
 ```
+
+---
 
 ## Crate Architecture
 
@@ -47,26 +64,62 @@ eggserve-python        → standalone, owns Python packaging
 
 The Python subprocess layer communicates with the binary via CLI arguments — no shared memory, no FFI to the bin crate.
 
+### Feature Flags
+
+| Feature | Crate | Purpose |
+|---------|-------|---------|
+| `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
+| `client` | `eggserve-core` | Hyper client support |
+| `client-tls` | `eggserve-core` | Client TLS via rustls/webpki-roots |
+| `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
+| `windows-plan086` | `eggserve-core` | Windows adversarial qualification |
+
+---
+
 ## Component Index
 
-Each component links to a deep-dive document in this directory:
+Each component links to a deep-dive document in this directory. Use this as your starting point for understanding any subsystem.
 
-| Component | Location | Deep Dive |
-|-----------|----------|-----------|
-| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) |
-| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) |
-| Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) |
-| Path confinement | `eggserve-core::path` | [path-confinement.md](path-confinement.md) |
-| Filesystem confinement | `eggserve-core::fs` | [filesystem-confinement.md](filesystem-confinement.md) |
-| Policy system | `eggserve-core::policy` | [policy-system.md](policy-system.md) |
-| Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) |
-| HTTP response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) |
-| Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) |
-| HTTP client primitives | `eggserve-core::primitives::client` | [client.md](client.md) |
-| Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) |
-| Configuration model | cross-cutting | [configuration.md](configuration.md) |
-| Security model | cross-cutting | [security-model.md](security-model.md) |
-| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) |
+### Core Crates
+
+| Component | Location | Deep Dive | What It Does |
+|-----------|----------|-----------|--------------|
+| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | The heart of the project — all security-critical logic, path confinement, policy enforcement, HTTP serving, response construction |
+| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, signal handling, tokio runtime, graceful shutdown |
+| Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
+
+### Security Subsystems
+
+| Component | Location | Deep Dive | What It Does |
+|-----------|----------|-----------|--------------|
+| Path confinement | `eggserve-core::path` | [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parse, decode, normalize, validate, platform checks. 16 rejection variants |
+| Filesystem confinement | `eggserve-core::fs` | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows). Prevents symlink escape and TOCTOU |
+| Policy system | `eggserve-core::policy` | [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`. Safe defaults enforced |
+| Security model | cross-cutting | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries |
+
+### HTTP Subsystems
+
+| Component | Location | Deep Dive | What It Does |
+|-----------|----------|-----------|--------------|
+| Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) | Canonical types for embedding — `SecureRoot`, `ResolvedResource`, HTTP validation, request/response types |
+| Response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
+| Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
+| HTTP client primitives | `eggserve-core::primitives::client` | [client.md](client.md) | Low-level HTTP client for Python (`http.client`-like), TLS support, timeout semantics |
+
+### Operational Subsystems
+
+| Component | Location | Deep Dive | What It Does |
+|-----------|----------|-----------|--------------|
+| Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines output, operational counters, sanitized fields |
+| Configuration model | cross-cutting | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — field inventory, ownership model, CLI/Python/Rust convergence |
+| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 7 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError`, `ClientError` |
+| TLS support | `eggserve-core::tls` | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS#1/8/SEC1 key formats, feature-gated |
+
+### Testing and Quality
+
+| Component | Location | Deep Dive | What It Does |
+|-----------|----------|-----------|--------------|
+| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) | Multi-layer test strategy — Rust unit/integration, Python suites, 21 fuzz targets, conformance corpora |
 
 ### Decision Records
 
@@ -75,7 +128,11 @@ Each component links to a deep-dive document in this directory:
 | [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted (Plans 084–086) |
 | [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted (Plan 078) |
 
-## Data Flow
+---
+
+## How It All Works Together
+
+### Request Lifecycle
 
 A request travels through these stages:
 
@@ -145,6 +202,51 @@ HTTP Request
          HTTP Response
 ```
 
+### Security Layers
+
+Defense in depth across seven layers:
+
+| Layer | What it defends against | Deep Dive |
+|-------|------------------------|-----------|
+| Path confinement | Traversal, encoding abuse, NUL bytes | [path-confinement.md](path-confinement.md) |
+| Policy enforcement | Symlinks, dotfiles, directory listing | [policy-system.md](policy-system.md) |
+| Filesystem confinement | Symlink escape, root traversal, TOCTOU | [filesystem-confinement.md](filesystem-confinement.md) |
+| Input validation | Double-encoding, method abuse, body framing | [security-model.md](security-model.md) |
+| Resource limits | Slowloris, exhaustion, file stream contention | [configuration.md](configuration.md) |
+| Response normalization | Hop-by-hop smuggling, content-length manipulation | [response-planning.md](response-planning.md) |
+| Sanitized logging | Log injection, path/header leakage | [structured-logging.md](structured-logging.md) |
+
+Safe defaults are not advisory — the code rejects non-conforming requests before any filesystem access.
+
+### Configuration Flow
+
+Configuration is split between runtime-owned (transport) and static-service-owned (filesystem) concerns:
+
+```
+CLI flags / Python params / Rust structs
+         │
+         ▼
+┌─────────────────────────────────────────┐
+│ Limits (validated subset)               │
+│  • 14 fields: connections, streams,     │
+│    timeouts, body sizes, chunk size     │
+└────────┬───────────────┬────────────────┘
+         │               │
+         ▼               ▼
+┌────────────────┐  ┌────────────────────┐
+│ RuntimeConfig  │  │ ServeConfig        │
+│ (transport)    │  │ (filesystem)       │
+│ • bind addr    │  │ • root directory   │
+│ • timeouts     │  │ • static policy    │
+│ • TLS          │  │ • file streams     │
+│ • keep-alive   │  │ • bind address     │
+└────────────────┘  └────────────────────┘
+```
+
+CLI flags, Python constructor params, and Rust struct fields all converge on the same underlying configuration. See [configuration.md](configuration.md) for the full field inventory and ownership model.
+
+---
+
 ## Core Library Module Map (`eggserve-core`)
 
 | Module | Visibility | Purpose | Stability |
@@ -161,6 +263,7 @@ HTTP Request
 | `ops.rs` | **pub** | Structured logging, operational events, counters | Stable-ish |
 | `primitives/` | **pub** | Public facade — all canonical types for embedding consumers | Stable |
 | `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle | Experimental |
+| `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |
 
 ### `path/` submodules
 
@@ -199,7 +302,7 @@ HTTP Request
 | `request_body.rs` | `RequestBody` — one-shot transport-independent body |
 | `request_body_error.rs` | `RequestBodyError` — 12-variant body error taxonomy |
 | `request_body_policy.rs` | `RequestBodyPolicy` — Reject/Buffer/Stream |
-| `incomplete_body_policy.rs` | `IncompleteBodyPolicy` — Close |
+| `incomplete_body_policy.rs` | `IncompleteBodyPolicy` — Close/Discard |
 | `body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
 | `planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
@@ -219,48 +322,11 @@ HTTP Request
 | `service.rs` | `Service` trait, `service_fn` adapter |
 | `static_service.rs` | `StaticService` — hardened static file service |
 
-## Security Architecture
-
-Defense in depth across seven layers:
-
-| Layer | What it defends against | Deep Dive |
-|-------|------------------------|-----------|
-| Path confinement | Traversal, encoding abuse, NUL bytes | [path-confinement.md](path-confinement.md) |
-| Policy enforcement | Symlinks, dotfiles, directory listing | [policy-system.md](policy-system.md) |
-| Filesystem confinement | Symlink escape, root traversal, TOCTOU | [filesystem-confinement.md](filesystem-confinement.md) |
-| Input validation | Double-encoding, method abuse, body framing | [security-model.md](security-model.md) |
-| Resource limits | Slowloris, exhaustion, file stream contention | [configuration.md](configuration.md) |
-| Response normalization | Hop-by-hop smuggling, content-length manipulation | [response-planning.md](response-planning.md) |
-| Sanitized logging | Log injection, path/header leakage | [structured-logging.md](structured-logging.md) |
-
-Safe defaults are not advisory — the code rejects non-conforming requests before any filesystem access.
-
-## Configuration Model
-
-Configuration is split between runtime-owned (transport) and static-service-owned (filesystem) concerns:
-
-| Owner | Fields | Enforcement |
-|-------|--------|-------------|
-| **Runtime** (`RuntimeConfig`) | Connection limits, timeouts, keep-alive, body policy | Accept loop, Hyper, tokio timeouts |
-| **Static service** (`ServeConfig`) | Root directory, bind address, static policy, file streams | `PinnedRoot`, `StaticPolicy`, semaphore |
-| **Limits** (validated subset) | Connection/stream counts, header/body sizes, chunk size | Feeds into both `RuntimeConfig` and `ServeConfig` |
-
-CLI flags, Python constructor params, and Rust struct fields all converge on the same underlying configuration. Cross-frontend naming differences are documented in [configuration.md](configuration.md#naming-drift-cross-boundary).
-
-See [configuration.md](configuration.md) for the full field inventory and ownership model.
-
-## Module Visibility Model
-
-| Tier | Modules | Stability |
-|------|---------|-----------|
-| **Stable** | `primitives` (facade), all `primitives::*` submodules | Intended public boundary for embedding consumers |
-| **Stable-ish** | `config`, `limits`, `policy`, `ops` | Field shapes may evolve before 1.0 |
-| **Experimental** | `service` (`handle_request`), `server` (all types), `primitives::client` | API may change without notice |
-| **Internal** | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
+---
 
 ## Error Taxonomy
 
-eggserve uses six distinct error layers:
+eggserve uses seven distinct error layers:
 
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
@@ -272,6 +338,19 @@ eggserve uses six distinct error layers:
 | `RequestBodyError` | Body consumption | 12 variants: `RejectedByPolicy`, `LimitExceeded`, `ReadTimeout`, `PrematureEof`, `AlreadyConsumed`, ... |
 | `ClientError` | HTTP client | 12 variants: `InvalidUrl`, `UnsupportedScheme`, `Timeout`, `TlsError`, `ResponseBodyTooLarge`, ... |
 
+---
+
+## Module Visibility Model
+
+| Tier | Modules | Stability |
+|------|---------|-----------|
+| **Stable** | `primitives` (facade), all `primitives::*` submodules | Intended public boundary for embedding consumers |
+| **Stable-ish** | `config`, `limits`, `policy`, `ops` | Field shapes may evolve before 1.0 |
+| **Experimental** | `service` (`handle_request`), `server` (all types), `primitives::client` | API may change without notice |
+| **Internal** | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
+
+---
+
 ## Platform Support
 
 | Platform | Status | Security Model |
@@ -280,21 +359,25 @@ eggserve uses six distinct error layers:
 | **macOS** (x86_64, aarch64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
 | **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + adversarial qualification scaffold (Plan 086, 114 tests). Independent safety review awaited. Not for untrusted public content until human gates complete. |
 
+---
+
 ## Testing Strategy
 
-Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 19 fuzz targets, and 2 conformance corpora:
+Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 21 fuzz targets, and 2 conformance corpora:
 
 | Layer | Location | Scope |
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
 | Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS (24 files) |
-| Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility façade, TLS, low-level primitives, conformance, body, boundary hardening |
+| Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
-| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (19 targets) |
+| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (21 targets) |
 | Repo-level tests | `tests/` | Proxy interop, soak, installed-binary qual |
 
 See [testing-and-conformance.md](testing-and-conformance.md) for the full test matrix.
+
+---
 
 ## Release Process
 
@@ -307,15 +390,20 @@ Release is a manual crates.io procedure. CI is a regression screen, not release 
 
 See [docs/release-process.md](../docs/release-process.md) for the full procedure (Plan 091).
 
-## Non-Goals
+---
 
-eggserve explicitly does **not** aim to be:
+## Plan History
 
-- An ASGI/WSGI server
-- A CGI executor
-- A file upload handler
-- A reverse proxy
-- An ACME client
-- A plugin host
-- A template engine
-- An auth system
+Plans 000–101 are all implementation-complete. Major feature tracks:
+
+| Plans | Theme | Key Outcomes |
+|-------|-------|--------------|
+| 000–009 | Foundation & core | Security contract, path confinement, static serving MVP, TLS, Python packaging |
+| 010–022 | Python API & primitives | PyO3 bindings, `SecureRoot`, HTTP validation, response planning, invariant tests |
+| 023–030 | HTTP primitives production | Correctness primitives, body streaming, client substrate, server primitives |
+| 031–046 | Release infrastructure | Evidence framework, CI gates, machine-readable criteria (simplified in 091) |
+| 047–059 | Canonical HTTP types & runtime | `Method`, `StatusCode`, `HeaderBlock`, `Response`, runtime/service boundary, request body |
+| 060–073 | Production internet & Windows | Windows handle-relative, internet deployment, reverse-proxy qualification, soak testing |
+| 074–090 | Corrective passes | Runtime timeouts, Windows unicode, configuration authority, structured logging, performance |
+| 091–093 | CI simplification | Reduced to proportionate two-job CI, manual release |
+| 094–101 | `http.server` compatibility | RFC 9110 corrections, `SimpleHTTPRequestHandler`, `HTTPSServer`, final verification |
