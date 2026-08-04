@@ -379,7 +379,8 @@ async fn handle_directory(
 ) -> hyper::Response<BoxBodyInner> {
     let guard = RootGuard::new(state.pinned_root());
 
-    match guard.resolve_child(dir, "index.html", &config.static_policy) {
+    // Try index.html first, then index.htm as fallback.
+    let index_candidate = match guard.resolve_child(dir, "index.html", &config.static_policy) {
         ResolvedResource::File(file) => {
             let etag = generate_etag(&file.metadata);
             let last_modified = file.metadata.modified().ok();
@@ -425,7 +426,7 @@ async fn handle_directory(
                     return internal_error();
                 }
             };
-            body_source_to_response(
+            return body_source_to_response(
                 body_source,
                 status,
                 &plan.headers,
@@ -433,8 +434,73 @@ async fn handle_directory(
                 last_modified,
                 state,
             )
-            .await
+            .await;
         }
+        ResolvedResource::NotFound => {
+            // Try index.htm
+            match guard.resolve_child(dir, "index.htm", &config.static_policy) {
+                ResolvedResource::File(file) => {
+                    let etag = generate_etag(&file.metadata);
+                    let last_modified = file.metadata.modified().ok();
+                    let safe_path: PathBuf = file.safe_relative_components.iter().collect();
+                    let content_type = mime_for_path(&safe_path);
+
+                    let method = if is_head {
+                        ReadOnlyMethod::Head
+                    } else {
+                        ReadOnlyMethod::Get
+                    };
+
+                    let plan = plan_file_response(
+                        method,
+                        &file.metadata,
+                        content_type,
+                        if_none_match,
+                        if_modified_since,
+                        range,
+                        if_range,
+                    );
+
+                    let status = match plan.status.as_u16() {
+                        200 => hyper::StatusCode::OK,
+                        206 => hyper::StatusCode::PARTIAL_CONTENT,
+                        304 => hyper::StatusCode::NOT_MODIFIED,
+                        416 => hyper::StatusCode::RANGE_NOT_SATISFIABLE,
+                        _ => return internal_error(),
+                    };
+
+                    if is_head {
+                        return planned_response(status, &plan.headers, true);
+                    }
+
+                    let body_source = match file.into_body(&plan) {
+                        Ok(bs) => bs,
+                        Err(e) => {
+                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::FileError,
+                                format!("file body conversion failed: {e}"),
+                            ));
+                            return internal_error();
+                        }
+                    };
+                    return body_source_to_response(
+                        body_source,
+                        status,
+                        &plan.headers,
+                        etag,
+                        last_modified,
+                        state,
+                    )
+                    .await;
+                }
+                other => other,
+            }
+        }
+        other => other,
+    };
+
+    match index_candidate {
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
                 let entries = match guard.list_directory(
@@ -445,12 +511,17 @@ async fn handle_directory(
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };
-                directory_listing_response(&entries, is_head)
+                directory_listing_response(
+                    &entries,
+                    is_head,
+                    config.limits.max_listing_response_bytes,
+                )
             }
             DirectoryListingPolicy::Disabled => forbidden(is_head),
         },
         ResolvedResource::Denied(_) => forbidden(is_head),
         ResolvedResource::Directory(_) => internal_error(),
+        ResolvedResource::File(_) => unreachable!(),
     }
 }
 

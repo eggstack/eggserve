@@ -122,7 +122,7 @@ Options:
   --follow-symlinks        Follow symlinks
   --allow-dotfiles         Serve dotfiles
   --log-format FORMAT      text, json, or none (default: text)
-  --quiet                  Suppress startup banner
+  --quiet                  Suppress routine informational output (warn/error only)
   --max-connections N      Max concurrent connections (default: 64)
   --max-file-streams N     Max concurrent file streams (default: 32)
   --header-timeout SECS    Header read timeout (default: 10)

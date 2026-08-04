@@ -96,7 +96,7 @@ streams, including range responses.
 
 ### Pre-service body rejection
 
-When `RequestBodyPolicy::Reject` is active (the default for GET/HEAD), bodies are rejected before any service code is invoked. `Expect: 100-continue` is rejected early — the runtime never sends an invitation to send a body that will be refused. Handler side effects never occur for rejected requests.
+When `RequestBodyPolicy::Reject` is active (the default for GET/HEAD), bodies are rejected before any service code is invoked. `Expect: 100-continue` is rejected early — the runtime never sends an invitation to send a body that will be refused. Rejected bodies receive `Connection: close` to prevent unread bytes from being interpreted as a subsequent request. Handler side effects never occur for rejected requests.
 
 ### Incomplete body handling
 

@@ -185,6 +185,7 @@ pub(crate) fn resolve_child_fd(
 pub(crate) fn list_directory_fd(
     dir_fd: &fs::File,
     policy: &StaticPolicy,
+    max_entries: usize,
 ) -> Result<Vec<(String, bool)>, io::Error> {
     let mut entries = Vec::new();
     let dir = rustix::fs::Dir::read_from(dir_fd)?;
@@ -214,6 +215,10 @@ pub(crate) fn list_directory_fd(
 
         let is_dir = (mode & S_IFMT) == S_IFDIR;
         entries.push((name, is_dir));
+
+        if entries.len() >= max_entries {
+            break;
+        }
     }
 
     entries.sort_by(|a, b| a.0.cmp(&b.0));

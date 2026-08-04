@@ -6,7 +6,7 @@ use std::time::SystemTime;
 
 pub const SCHEMA_VERSION: u32 = 1;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd)]
 pub enum Severity {
     Debug,
     Info,
@@ -280,6 +280,34 @@ pub struct NopLogSink;
 impl LogSink for NopLogSink {
     fn emit(&self, _event: &Event) {}
     fn flush(&self) {}
+}
+
+/// A log sink that wraps another sink and only forwards events at or above
+/// a minimum severity level. Used for `--quiet` mode.
+pub struct FilteredLogSink {
+    inner: Box<dyn LogSink>,
+    min_severity: Severity,
+}
+
+impl FilteredLogSink {
+    pub fn new(inner: Box<dyn LogSink>, min_severity: Severity) -> Self {
+        Self {
+            inner,
+            min_severity,
+        }
+    }
+}
+
+impl LogSink for FilteredLogSink {
+    fn emit(&self, event: &Event) {
+        if event.severity >= self.min_severity {
+            self.inner.emit(event);
+        }
+    }
+
+    fn flush(&self) {
+        self.inner.flush();
+    }
 }
 
 pub struct CompositeLogSink {

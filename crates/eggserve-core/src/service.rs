@@ -307,8 +307,24 @@ async fn handle_directory(
 
     let is_head = input.method == ReadOnlyMethod::Head;
 
-    match guard.resolve_child(dir, "index.html", &config.static_policy) {
-        ResolvedResource::File(file) => serve_resolved_file(file, input, state).await,
+    // Try index.html first, then index.htm as fallback.
+    let index_candidate = match guard.resolve_child(dir, "index.html", &config.static_policy) {
+        ResolvedResource::File(file) => {
+            return serve_resolved_file(file, input, state).await;
+        }
+        ResolvedResource::NotFound => {
+            // Try index.htm
+            match guard.resolve_child(dir, "index.htm", &config.static_policy) {
+                ResolvedResource::File(file) => {
+                    return serve_resolved_file(file, input, state).await;
+                }
+                other => other,
+            }
+        }
+        other => other,
+    };
+
+    match index_candidate {
         ResolvedResource::NotFound => match config.static_policy.directory_listing {
             DirectoryListingPolicy::Enabled => {
                 let entries = match guard.list_directory(
@@ -319,12 +335,17 @@ async fn handle_directory(
                     Ok(e) => e,
                     Err(_) => return internal_error(),
                 };
-                directory_listing_response(&entries, is_head)
+                directory_listing_response(
+                    &entries,
+                    is_head,
+                    config.limits.max_listing_response_bytes,
+                )
             }
             DirectoryListingPolicy::Disabled => forbidden(is_head),
         },
         ResolvedResource::Denied(_) => forbidden(is_head),
         ResolvedResource::Directory(_) => internal_error(),
+        ResolvedResource::File(_) => unreachable!(),
     }
 }
 

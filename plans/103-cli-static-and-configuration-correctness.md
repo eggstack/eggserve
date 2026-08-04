@@ -2,7 +2,7 @@
 
 ## Status
 
-First execution plan under Plan 102.
+First execution plan under Plan 102. **COMPLETE.**
 
 This plan closes independently actionable correctness defects in the CLI, static-serving path, limits model, directory-listing configuration, index fallback, and Python package metadata. It must not redesign the generic service runtime; that work belongs to Plan 104.
 

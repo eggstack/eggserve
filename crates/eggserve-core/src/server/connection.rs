@@ -18,7 +18,6 @@
 
 use std::convert::Infallible;
 
-use http_body_util::BodyExt;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::service::service_fn;
@@ -263,15 +262,15 @@ pub async fn serve_connection_with_service<I, S>(
                     )
                     .connection_id(conn_id),
                 );
-                let response = crate::response::payload_too_large(false);
-                // Drain the body with a bounded timeout to keep the connection
-                // clean. This is a pre-service drain: it happens before any
-                // user code invocation and is bounded by a fixed timeout.
-                let mut body = body;
-                let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-                    while let Some(Ok(_)) = body.frame().await {}
-                })
-                .await;
+                let mut response = crate::response::payload_too_large(false);
+                // Do not drain the body — drop it and close the connection to
+                // prevent unread bytes from being interpreted as a subsequent
+                // request. Hyper handles cleanup of the unconsumed body when
+                // the connection is dropped.
+                response.headers_mut().insert(
+                    hyper::header::CONNECTION,
+                    hyper::header::HeaderValue::from_static("close"),
+                );
                 return Ok::<_, Infallible>(response);
             }
 

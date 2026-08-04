@@ -283,17 +283,17 @@ impl<'a> RootGuard<'a> {
         &self,
         dir: &ResolvedDirectory,
         policy: &StaticPolicy,
-        #[allow(unused_variables)] max_entries: usize,
+        max_entries: usize,
     ) -> Result<Vec<(String, bool)>, std::io::Error> {
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
-            return unix::list_directory_fd(&dir.dir_fd, policy);
+            return unix::list_directory_fd(&dir.dir_fd, policy, max_entries);
         }
         #[cfg(windows)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return windows::list_directory_handle(dir.dir_handle.raw(), policy, max_entries);
         }
-        build_listing_entries_fallback(&dir.canonical_path, policy)
+        build_listing_entries_fallback(&dir.canonical_path, policy, max_entries)
     }
 
     /// Path-based fallback — permitted only in the link-following compatibility profile.
@@ -403,6 +403,7 @@ impl<'a> RootGuard<'a> {
 fn build_listing_entries_fallback(
     dir: &Path,
     policy: &crate::policy::StaticPolicy,
+    max_entries: usize,
 ) -> Result<Vec<(String, bool)>, std::io::Error> {
     let mut entries = Vec::new();
     for entry in fs::read_dir(dir)? {
@@ -424,6 +425,10 @@ fn build_listing_entries_fallback(
 
         let is_dir = meta.is_dir();
         entries.push((name, is_dir));
+
+        if entries.len() >= max_entries {
+            break;
+        }
     }
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(entries)

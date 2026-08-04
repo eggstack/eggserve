@@ -17,8 +17,8 @@ configuration field, its owner, enforcement path, and cross-frontend mapping.
 - `ServeConfig` fields — root directory, bind address, static policy
 - `StaticPolicy` fields — symlink, dotfile, directory listing policies
 - `Limits::max_file_streams` — feeds into `ServeState` file-stream semaphore
-- `Limits::max_listing_entries`, `max_listing_response_bytes`, `max_listing_filename_bytes`
-- `Limits::listing_enumeration_timeout`, `stream_chunk_size`
+- `Limits::max_listing_entries`, `max_listing_response_bytes`
+- `Limits::stream_chunk_size`
 
 A setting may be shared by reference, but only one validated value owns enforcement.
 
@@ -34,7 +34,6 @@ A setting may be shared by reference, but only one validated value owns enforcem
 | `max_in_flight_requests` | `RuntimeConfig` | None | Option\<usize\> | N/A | N/A | HTTP/1.1 pipelining limit (hyper) |
 | `max_listing_entries` | `Limits` | 4096 | > 0 | N/A | N/A | Directory listing enumeration |
 | `max_listing_response_bytes` | `Limits` | 1 MiB | > 0 | N/A | N/A | Directory listing response body cap |
-| `max_listing_filename_bytes` | `Limits` | 255 | > 0 | N/A | N/A | Single filename cap in listing |
 
 ### Timeouts
 
@@ -45,7 +44,6 @@ A setting may be shared by reference, but only one validated value owns enforcem
 | `handler_timeout` | `RuntimeConfig` | 30s | > 0 | `--handler-timeout` | `handler_timeout_secs` | `tokio::time::timeout` around service call |
 | `body_read_timeout` | `RuntimeConfig` | 30s | > 0 | `--body-read-timeout` | `body_timeout_secs` | Total body consumption deadline |
 | `graceful_shutdown_timeout` | `RuntimeConfig` | 10s | > 0 | N/A | `graceful_shutdown_timeout_secs` | Drain deadline after SIGTERM |
-| `listing_enumeration_timeout` | `Limits` | 30s | > 0 | N/A | N/A | Directory enumeration timeout |
 
 ### Body policy
 

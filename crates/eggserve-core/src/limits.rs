@@ -14,7 +14,7 @@ pub struct LimitsError {
     /// The rejected value.
     pub value: String,
     /// Human-readable constraint description.
-    pub constraint: &'static str,
+    pub constraint: String,
 }
 
 impl fmt::Display for LimitsError {
@@ -47,10 +47,6 @@ pub struct Limits {
     pub max_listing_entries: usize,
     /// Maximum size in bytes for a directory listing response body.
     pub max_listing_response_bytes: usize,
-    /// Maximum size in bytes for a single encoded filename in a listing.
-    pub max_listing_filename_bytes: usize,
-    /// Timeout for directory enumeration operations.
-    pub listing_enumeration_timeout: Duration,
     /// Chunk size in bytes for file streaming reads.
     pub stream_chunk_size: usize,
 }
@@ -68,8 +64,6 @@ impl Default for Limits {
             graceful_shutdown_timeout: Duration::from_secs(10),
             max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
             max_listing_response_bytes: 1024 * 1024, // 1 MiB
-            max_listing_filename_bytes: 255,
-            listing_enumeration_timeout: Duration::from_secs(30),
             stream_chunk_size: 8192,
         }
     }
@@ -82,67 +76,80 @@ impl Limits {
     /// with one [`LimitsError`] per violated field.
     pub fn validate(&self) -> Result<(), Vec<LimitsError>> {
         let mut errors = Vec::new();
+        let max_semaphore_permits = tokio::sync::Semaphore::MAX_PERMITS;
         if self.max_connections == 0 {
             errors.push(LimitsError {
                 field: "max_connections",
                 value: "0".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
+            });
+        } else if self.max_connections > max_semaphore_permits {
+            errors.push(LimitsError {
+                field: "max_connections",
+                value: self.max_connections.to_string(),
+                constraint: format!("<= {} (Semaphore::MAX_PERMITS)", max_semaphore_permits),
             });
         }
         if self.max_file_streams == 0 {
             errors.push(LimitsError {
                 field: "max_file_streams",
                 value: "0".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
+            });
+        } else if self.max_file_streams > max_semaphore_permits {
+            errors.push(LimitsError {
+                field: "max_file_streams",
+                value: self.max_file_streams.to_string(),
+                constraint: format!("<= {} (Semaphore::MAX_PERMITS)", max_semaphore_permits),
             });
         }
         if self.header_read_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "header_read_timeout",
                 value: "0s".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
             });
         }
         if self.connection_total_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "connection_total_timeout",
                 value: "0s".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
             });
         }
         if self.handler_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "handler_timeout",
                 value: "0s".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
             });
         }
         if self.body_read_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "body_read_timeout",
                 value: "0s".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
             });
         }
         if self.graceful_shutdown_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "graceful_shutdown_timeout",
                 value: "0s".into(),
-                constraint: "> 0",
+                constraint: "> 0".into(),
             });
         }
         if self.stream_chunk_size < 64 {
             errors.push(LimitsError {
                 field: "stream_chunk_size",
                 value: self.stream_chunk_size.to_string(),
-                constraint: ">= 64",
+                constraint: ">= 64".into(),
             });
         }
         if self.stream_chunk_size > 1024 * 1024 {
             errors.push(LimitsError {
                 field: "stream_chunk_size",
                 value: self.stream_chunk_size.to_string(),
-                constraint: "<= 1048576 (1 MiB)",
+                constraint: "<= 1048576 (1 MiB)".into(),
             });
         }
         if errors.is_empty() {
@@ -265,7 +272,7 @@ mod tests {
         let err = LimitsError {
             field: "max_connections",
             value: "0".into(),
-            constraint: "> 0",
+            constraint: "> 0".into(),
         };
         let msg = err.to_string();
         assert!(msg.contains("max_connections"));
@@ -275,12 +282,35 @@ mod tests {
 
     #[test]
     fn large_concurrency_values_are_valid() {
+        let max = tokio::sync::Semaphore::MAX_PERMITS;
+        let limits = Limits {
+            max_connections: max,
+            max_file_streams: max,
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
+    }
+
+    #[test]
+    fn exceeding_semaphore_max_permits_is_invalid() {
+        let limits = Limits {
+            max_connections: tokio::sync::Semaphore::MAX_PERMITS + 1,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "max_connections"));
+    }
+
+    #[test]
+    fn usizemax_concurrency_is_invalid() {
         let limits = Limits {
             max_connections: usize::MAX,
             max_file_streams: usize::MAX,
             ..Default::default()
         };
-        assert!(limits.validate().is_ok());
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "max_connections"));
+        assert!(errs.iter().any(|e| e.field == "max_file_streams"));
     }
 
     #[test]

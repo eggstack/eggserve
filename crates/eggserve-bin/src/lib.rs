@@ -2,7 +2,8 @@ use std::sync::Arc;
 
 use eggserve_core::config::ServeConfig;
 use eggserve_core::ops::{
-    Event, EventKind, Field, LogFormat as OpsLogFormat, Logger, Severity, StderrLogSink,
+    Event, EventKind, Field, FilteredLogSink, LogFormat as OpsLogFormat, Logger, NopLogSink,
+    Severity, StderrLogSink,
 };
 use eggserve_core::server::{try_from_serve_config, Server};
 use tokio::sync::broadcast;
@@ -37,16 +38,33 @@ pub fn run() {
             std::process::exit(1);
         }
     };
-    let _quiet = args.quiet || args.log_format == args::LogFormat::None;
+    let quiet = args.quiet || args.log_format == args::LogFormat::None;
 
     // Initialize structured logger.
-    let ops_log_format = match args.log_format {
-        args::LogFormat::Json => OpsLogFormat::Json,
-        _ => OpsLogFormat::Text,
+    let sink: Box<dyn eggserve_core::ops::LogSink> = match args.log_format {
+        args::LogFormat::None => Box::new(NopLogSink),
+        args::LogFormat::Json => {
+            let json_sink = Box::new(StderrLogSink {
+                log_format: OpsLogFormat::Json,
+            });
+            if quiet {
+                Box::new(FilteredLogSink::new(json_sink, Severity::Warn))
+            } else {
+                json_sink
+            }
+        }
+        args::LogFormat::Text => {
+            let text_sink = Box::new(StderrLogSink {
+                log_format: OpsLogFormat::Text,
+            });
+            if quiet {
+                Box::new(FilteredLogSink::new(text_sink, Severity::Warn))
+            } else {
+                text_sink
+            }
+        }
     };
-    Logger::init(Box::new(StderrLogSink {
-        log_format: ops_log_format,
-    }));
+    Logger::init(sink);
 
     #[cfg(feature = "tls")]
     let tls_config = match (&args.tls_cert, &args.tls_key) {

@@ -308,25 +308,53 @@ pub async fn file_response_range(
 pub fn directory_listing_response(
     entries: &[(String, bool)],
     is_head: bool,
+    max_response_bytes: usize,
 ) -> Response<BoxBodyInner> {
-    let mut html = String::from(
-        "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Directory listing</title>\n</head>\n<body>\n<h1>Directory listing</h1>\n<ul>\n",
-    );
+    let prefix = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Directory listing</title>\n</head>\n<body>\n<h1>Directory listing</h1>\n<ul>\n";
+    let suffix = "</ul>\n</body>\n</html>\n";
+
+    // Check if prefix alone exceeds the limit.
+    if prefix.len() + suffix.len() > max_response_bytes {
+        return canonical_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "500 Internal Server Error\n",
+            is_head,
+        );
+    }
+
+    let mut html = String::from(prefix);
+    let mut total_len = html.len();
 
     for (name, is_dir) in entries {
         let visible = html_escape(name);
         let href = html_escape(&percent_encode_path_segment(name));
-        if *is_dir {
-            html.push_str(&format!(
-                "<li><a href=\"{}/\">{}/</a></li>\n",
-                href, visible
-            ));
+        let entry_str = if *is_dir {
+            format!("<li><a href=\"{}/\">{}/</a></li>\n", href, visible)
         } else {
-            html.push_str(&format!("<li><a href=\"{}\">{}</a></li>\n", href, visible));
+            format!("<li><a href=\"{}\">{}</a></li>\n", href, visible)
+        };
+
+        let entry_len = entry_str.len();
+        if total_len + entry_len > max_response_bytes {
+            // Entry would exceed limit — reject with error rather than partial listing.
+            return canonical_error(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "500 Internal Server Error\n",
+                is_head,
+            );
         }
+        html.push_str(&entry_str);
+        total_len += entry_len;
     }
 
-    html.push_str("</ul>\n</body>\n</html>\n");
+    if total_len + suffix.len() > max_response_bytes {
+        return canonical_error(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "500 Internal Server Error\n",
+            is_head,
+        );
+    }
+    html.push_str(suffix);
 
     let body_bytes = html.into_bytes();
     let len = body_bytes.len();
@@ -461,7 +489,7 @@ mod tests {
             ("file.txt".to_string(), false),
             ("subdir".to_string(), true),
         ];
-        let resp = directory_listing_response(&entries, false);
+        let resp = directory_listing_response(&entries, false, usize::MAX);
         assert_eq!(resp.status(), StatusCode::OK);
         assert_eq!(
             resp.headers().get("content-type").unwrap(),
@@ -472,8 +500,8 @@ mod tests {
     #[test]
     fn directory_listing_head_has_no_body() {
         let entries = vec![("file.txt".to_string(), false)];
-        let get = directory_listing_response(&entries, false);
-        let head = directory_listing_response(&entries, true);
+        let get = directory_listing_response(&entries, false, usize::MAX);
+        let head = directory_listing_response(&entries, true, usize::MAX);
         assert_eq!(get.status(), StatusCode::OK);
         assert_eq!(
             get.headers().get("content-length"),
@@ -513,7 +541,7 @@ mod tests {
     #[test]
     fn directory_listing_has_security_headers() {
         let entries = vec![];
-        let resp = directory_listing_response(&entries, false);
+        let resp = directory_listing_response(&entries, false, usize::MAX);
         assert_eq!(
             resp.headers().get("content-security-policy").unwrap(),
             "default-src 'none'; base-uri 'none'; form-action 'none'"
@@ -669,7 +697,7 @@ mod tests {
             ("<script>".to_string(), false),
             ("file with spaces.txt".to_string(), false),
         ];
-        let resp = directory_listing_response(&entries, false);
+        let resp = directory_listing_response(&entries, false, usize::MAX);
         assert_eq!(resp.status(), StatusCode::OK);
 
         // Security headers present

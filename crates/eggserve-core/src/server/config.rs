@@ -272,15 +272,28 @@ impl RuntimeConfigBuilder {
     pub fn build(self) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
         let max_connections = self.max_connections.unwrap_or(64);
         let max_file_streams = self.max_file_streams.unwrap_or(32);
+        let max_semaphore_permits = tokio::sync::Semaphore::MAX_PERMITS;
         if max_connections == 0 {
             return Err(crate::server::errors::ServerError::Config(
                 "max_connections must be > 0".into(),
             ));
         }
+        if max_connections > max_semaphore_permits {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_connections must be <= {} (Semaphore::MAX_PERMITS): got {}",
+                max_semaphore_permits, max_connections
+            )));
+        }
         if max_file_streams == 0 {
             return Err(crate::server::errors::ServerError::Config(
                 "max_file_streams must be > 0".into(),
             ));
+        }
+        if max_file_streams > max_semaphore_permits {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_file_streams must be <= {} (Semaphore::MAX_PERMITS): got {}",
+                max_semaphore_permits, max_file_streams
+            )));
         }
 
         let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
@@ -662,13 +675,24 @@ mod tests {
 
     #[test]
     fn large_concurrency_valuesaccepted() {
+        let max = tokio::sync::Semaphore::MAX_PERMITS;
         let config = RuntimeConfig::builder()
-            .max_connections(usize::MAX)
-            .max_file_streams(usize::MAX)
+            .max_connections(max)
+            .max_file_streams(max)
             .build()
             .unwrap();
-        assert_eq!(config.max_connections, usize::MAX);
-        assert_eq!(config.max_file_streams, usize::MAX);
+        assert_eq!(config.max_connections, max);
+        assert_eq!(config.max_file_streams, max);
+    }
+
+    #[test]
+    fn exceeding_semaphore_max_permits_rejected() {
+        let result = RuntimeConfig::builder()
+            .max_connections(tokio::sync::Semaphore::MAX_PERMITS + 1)
+            .build();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.to_string().contains("Semaphore::MAX_PERMITS"));
     }
 
     #[test]

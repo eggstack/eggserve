@@ -55,8 +55,8 @@ Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 
 | Flag | Description | Default |
 |------|-------------|---------|
-| `--log-format FORMAT` | Log format: `text` (default), `json` (JSON Lines), `none` — `json` outputs valid JSON Lines to stderr; `none` suppresses non-fatal operational logs | `text` |
-| `--quiet` | Suppress startup banner | off |
+| `--log-format FORMAT` | Log format: `text` (default), `json` (JSON Lines), `none` — `json` outputs valid JSON Lines to stderr; `none` suppresses all operational logs | `text` |
+| `--quiet` | Suppress routine informational output (warn/error only) | off |
 | `-h`, `--help` | Print help and exit | |
 | `-V`, `--version` | Print version and exit | |
 
@@ -75,7 +75,7 @@ eggserve --public --addr 0.0.0.0:8080
 # Enable directory listing and dotfiles
 eggserve --directory-listing --allow-dotfiles
 
-# JSON logging, quiet startup
+# JSON logging, suppress info events
 eggserve --log-format json --quiet
 
 # Custom resource limits
