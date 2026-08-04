@@ -15,7 +15,18 @@ Fuzz targets for eggserve's path confinement, request parsing, URL parsing, resp
 | `platform_component` | Windows reserved names, drive prefixes, alternate data streams |
 | `validate_request_target` | Request target validation: starts-with-/no-whitespace |
 | `validate_method` | Method validation and request body rejection for read-only methods |
-| `fuzz_directory_buffer` | Windows directory buffer parser: FILE_ID_BOTH_DIR_INFO parsing, offset validation, UTF-16 decoding (Windows-only) |
+| `fuzz_method` | Canonical `Method` construction, valid method names |
+| `fuzz_status_code` | `StatusCode` validation, range 100–599 |
+| `fuzz_header_block` | `HeaderBlock` operations, no NUL in names/values |
+| `fuzz_header_name` | `HeaderName` validation, token-only bytes |
+| `fuzz_header_value` | `HeaderValue` validation, no NUL/CR/LF |
+| `fuzz_normalize_response` | Response normalization, body-forbidden enforcement |
+| `fuzz_request_body` | `RequestBody` state machine, one-shot enforcement |
+| `fuzz_request_head` | `RequestHead` construction, valid method/target/version |
+| `fuzz_response_builder` | Response builder validation, status in range |
+| `fuzz_content_length_reconciliation` | Content-Length consistency with body |
+| `fuzz_directory_buffer` | Directory listing buffer, HTML well-formedness |
+| `fuzz_event_serialization` | Ops event JSON roundtrip |
 
 ## Running
 
@@ -31,7 +42,18 @@ cargo fuzz run if_none_match
 cargo fuzz run platform_component
 cargo fuzz run validate_request_target
 cargo fuzz run validate_method
-cargo fuzz run fuzz_directory_buffer  # Windows-only
+cargo fuzz run fuzz_method
+cargo fuzz run fuzz_status_code
+cargo fuzz run fuzz_header_block
+cargo fuzz run fuzz_header_name
+cargo fuzz run fuzz_header_value
+cargo fuzz run fuzz_normalize_response
+cargo fuzz run fuzz_request_body
+cargo fuzz run fuzz_request_head
+cargo fuzz run fuzz_response_builder
+cargo fuzz run fuzz_content_length_reconciliation
+cargo fuzz run fuzz_directory_buffer
+cargo fuzz run fuzz_event_serialization
 ```
 
 To run with a time limit:
@@ -67,5 +89,5 @@ Deterministic property tests using proptest run in normal CI via `cargo test`. S
 
 ## CI integration
 
-- **Normal CI**: Property tests run as part of `cargo test`. Corpus regression tests in `.github/workflows/fuzz-replay.yml` replay every committed seed on every PR and push to main.
-- **Scheduled fuzz**: `.github/workflows/fuzz.yml` runs weekly (Monday 3:00 UTC) or on manual dispatch, 60s per target, crash artifacts uploaded
+- **Normal CI**: Property tests run as part of `cargo test`. Corpus regression tests via `cargo test -p eggserve-core --test corpus_replay` replay every committed seed.
+- **Manual fuzzing**: `cargo fuzz run <target>` for extended fuzzing sessions

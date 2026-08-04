@@ -7,12 +7,12 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 24 files |
-| Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 1 file |
-| Python native primitives | `python/eggserve/test_primitives.py` | PyO3 bindings, 143 tests | 143 |
-| Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py` and façade tests | HTTP server compatibility, TLS, and policy behavior | current suite |
-| Python native primitives | `crates/eggserve-python/tests/test_primitives.py` and focused suites | PyO3 bindings and canonical types | current suite |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 34 files |
+| Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 3 files |
+| Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
+| Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
 | Python subprocess API | `crates/eggserve-python/tests/test_server.py` | CLI subprocess lifecycle | current suite |
+| Python server primitives | `crates/eggserve-python/tests/test_server_primitives.py` | Server primitive bindings | current suite |
 | Python server integration | `crates/eggserve-python/tests/test_server_integration.py` | Live concurrency and shutdown | current suite |
 | Python canonical conformance | `crates/eggserve-python/tests/test_canonical_conformance.py` | Rust/Python parity | current suite |
 | Python canonical request types | `crates/eggserve-python/tests/test_canonical_request_types.py` | Request type correctness | current suite |
@@ -22,7 +22,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python boundary hardening | `crates/eggserve-python/tests/test_boundary_hardening.py` | Security hardening and namespace boundaries | current suite |
 | Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
 | Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
-| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 19 targets |
+| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 21 targets |
 | Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
@@ -55,6 +55,17 @@ The installed-wheel script is the authoritative Python test entry point; its cou
 | `api_stability.rs` | — | API stability snapshot checks |
 | `no_hyper_in_public_api.rs` | — | Ensures no Hyper types leak into public API |
 | `production_path.rs` (bin) | — | Binary production path validation |
+| `cli_validation.rs` (bin) | — | CLI argument validation |
+| `tls_abuse.rs` (bin) | `tls` | TLS error handling and abuse resistance |
+| `fault_injection.rs` | — | Fault injection for filesystem and I/O error paths |
+| `filesystem_race_qualification.rs` | — | Filesystem race condition qualification |
+| `ops_integration.rs` | — | Structured logging integration |
+| `qualification.rs` | — | Qualification test harness |
+| `stateful_fuzz_replay.rs` | — | Stateful fuzz corpus replay |
+| `unix_validator_qualification.rs` | — | Unix path validator qualification |
+| `windows_feasibility.rs` | `windows-plan086` | Windows feasibility spike |
+| `windows_plan084.rs` | `windows-plan086` | Windows handle-relative directory retention |
+| `windows_plan086.rs` | `windows-plan086` | Windows adversarial filesystem qualification |
 | `streaming_buffer_qualification.rs` | — | Plan 088: exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
 
 ## Conformance Corpora
@@ -83,7 +94,7 @@ Consumed by both Rust (`tests/body_conformance.rs`) and Python (`test_body_confo
 
 ## Fuzzing
 
-### Fuzz Targets (19)
+### Fuzz Targets (21)
 
 | Target | What it fuzzes |
 |--------|---------------|
@@ -106,16 +117,17 @@ Consumed by both Rust (`tests/body_conformance.rs`) and Python (`test_body_confo
 | `fuzz_request_head` | RequestHead construction |
 | `fuzz_response_builder` | Response builder validation |
 | `fuzz_content_length_reconciliation` | Content-Length consistency |
+| `fuzz_directory_buffer` | Directory listing buffer behavior |
+| `fuzz_event_serialization` | Ops event serialization roundtrip |
 
 ### Seed Corpora
 
-19 corpus directories under `fuzz/corpus/` providing initial inputs for each fuzz target. Coverage includes canonical HTTP types, response normalization, request body, header operations, method validation, status codes, and content-length reconciliation.
+20 corpus directories under `fuzz/corpus/` providing initial inputs for each fuzz target. Coverage includes canonical HTTP types, response normalization, request body, header operations, method validation, status codes, and content-length reconciliation.
 
 ### CI Integration
 
 - **Property tests** run in normal `cargo test` (assertions on arbitrary input)
-- **Weekly scheduled fuzz runs** (60s per target) via `.github/workflows/fuzz.yml`
-- **Corpus regression replay** on every PR/push via `.github/workflows/fuzz-replay.yml`
+- **Corpus regression replay** via `cargo test -p eggserve-core --test corpus_replay`
 
 ### Fuzzing Invariants
 
@@ -142,6 +154,8 @@ cargo test -p eggserve-bin --test production_path             # production path 
 
 ### Python tests
 
+The authoritative Python test entry point is `scripts/test-python-wheel.sh` (builds CLI, builds wheel, installs in venv, runs tests). Manual test commands:
+
 ```sh
 cd crates/eggserve-python
 PYTHONPATH=python python -m unittest eggserve.test_primitives -v
@@ -155,8 +169,6 @@ PYTHONPATH=python python -m unittest eggserve.test_body_conformance -v
 PYTHONPATH=python python -m unittest eggserve.test_body_wire -v
 PYTHONPATH=python python -m unittest eggserve.test_boundary_hardening -v
 PYTHONPATH=python python -m unittest discover -s crates/eggserve-python/tests -p 'test_*.py' -v
-PYTHONPATH=python python -m unittest eggserve.test_api_consumers -v
-PYTHONPATH=python python -m unittest eggserve.test_api_stability -v
 PYTHONPATH=python python -m unittest eggserve.test_parity_matrix -v
 ```
 

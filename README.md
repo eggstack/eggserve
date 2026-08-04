@@ -128,6 +128,8 @@ Options:
   --header-timeout SECS    Header read timeout (default: 10)
   --connection-total-timeout SECS
                             Total connection lifetime timeout (default: 60)
+  --handler-timeout SECS   Handler invocation timeout (default: 30)
+  --body-read-timeout SECS Request body read timeout (default: 30)
 
 TLS options (requires tls feature):
   --tls-cert PATH          PEM certificate chain (requires --tls-key)

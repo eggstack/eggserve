@@ -260,7 +260,7 @@ CLI flags, Python constructor params, and Rust struct fields all converge on the
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing, error responses) | Internal |
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map (~60 extensions) | Internal |
-| `ops.rs` | **pub** | Structured logging, operational events, counters | Stable-ish |
+| `ops/` | **pub** | Structured logging, operational events, counters | Stable-ish |
 | `primitives/` | **pub** | Public facade — all canonical types for embedding consumers | Stable |
 | `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle | Experimental |
 | `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |
@@ -368,7 +368,7 @@ Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 21 fuzz targets,
 | Layer | Location | Scope |
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS (24 files) |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS (34 files) |
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |

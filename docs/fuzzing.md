@@ -25,7 +25,7 @@ cargo test -p eggserve-core
 
 ## Fuzz targets
 
-Nine fuzz targets in `fuzz/fuzz_targets/`:
+21 fuzz targets in `fuzz/fuzz_targets/`:
 
 | Target | What it exercises | Key invariants |
 |--------|------------------|----------------|
@@ -38,6 +38,18 @@ Nine fuzz targets in `fuzz/fuzz_targets/`:
 | `platform_component` | `check_component`/`has_windows_drive_prefix`/`is_windows_reserved_name` | Drive prefix requires `X:` pattern, clean components pass |
 | `validate_request_target` | `validate_request_target` | Starts with `/`, no whitespace |
 | `validate_method` | `validate_method`/`validate_request_body` | GET/HEAD only, bodies rejected for read-only methods |
+| `fuzz_method` | Canonical `Method` construction | Valid method names, no panic |
+| `fuzz_status_code` | `StatusCode` validation | Range 100–599, three-digit only, no panic |
+| `fuzz_header_block` | `HeaderBlock` operations | No NUL in names/values, valid header names |
+| `fuzz_header_name` | `HeaderName` validation | Token-only bytes, no NUL |
+| `fuzz_header_value` | `HeaderValue` validation | No NUL/CR/LF, valid obs-text |
+| `fuzz_normalize_response` | Response normalization | Body-forbidden statuses empty, hop-by-hop stripped |
+| `fuzz_request_body` | `RequestBody` state machine | One-shot enforcement, no double-consume |
+| `fuzz_request_head` | `RequestHead` construction | Valid method/target/version, no panic |
+| `fuzz_response_builder` | Response builder validation | Status in range, headers valid |
+| `fuzz_content_length_reconciliation` | Content-Length consistency | Exact byte count matches body |
+| `fuzz_directory_buffer` | Directory listing buffer | HTML well-formed, correct link encoding |
+| `fuzz_event_serialization` | Ops event JSON roundtrip | Valid JSON, no panic on arbitrary fields |
 
 Run a single target:
 ```sh
@@ -67,18 +79,11 @@ Property tests run as part of `cargo test` in the standard CI workflow (`.github
 
 ### Corpus regression
 
-`.github/workflows/fuzz-replay.yml` runs on every push to `main` and every PR:
-- Replays every committed corpus input through its target logic deterministically
-- Fails on panic or invariant violation
-- Runs on stable Rust
-- Covers all 9 fuzz targets (url_parse requires the `client` feature)
+Corpus regression is part of the standard CI workflow. `cargo test -p eggserve-core --test corpus_replay` replays every committed corpus input through its target logic deterministically, failing on panic or invariant violation.
 
-### Scheduled fuzz runs
+### Fuzzing workflow
 
-`.github/workflows/fuzz.yml` runs weekly (Monday 3:00 UTC) or on manual dispatch:
-- Each target runs for 60 seconds (configurable via workflow dispatch)
-- Crash artifacts are uploaded and retained for 30 days
-- Manual dispatch can target a specific target and duration
+Fuzzing is run manually (not in CI). Each target can be run via `cargo fuzz run <target>` for 60 seconds or longer.
 
 ## Failure handling
 
@@ -97,4 +102,4 @@ When a fuzz target finds a crash:
 3. Call the target function and assert invariants on the output
 4. Add a `[[bin]]` section to `fuzz/Cargo.toml`
 5. Create `fuzz/corpus/<name>/` with seed files
-6. Add the target to `.github/workflows/fuzz.yml` matrix
+6. Verify the new target works with `cargo fuzz run <name>`
