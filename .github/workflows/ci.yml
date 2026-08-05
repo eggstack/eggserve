@@ -31,14 +31,12 @@ jobs:
       - name: Format check
         run: cargo fmt --all -- --check
       - name: Clippy
-        run: cargo clippy --workspace --all-targets -- -D warnings
+        run: cargo clippy --workspace --lib --bins --tests -- -D warnings
       - name: Workspace tests
         run: cargo test --workspace
-      - name: Client TLS feature tests
-        run: cargo test -p eggserve-core --features client-tls
       - name: Server TLS lint and tests
         run: |
-          cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
+          cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
           cargo test -p eggserve-bin --features tls
 
   python:

@@ -37,7 +37,7 @@ eggserve/
 ├── docs/                       # reference docs (32 files)
 ├── plans/                      # design plans (000–101, all complete)
 ├── conformance/                # shared Rust/Python conformance corpora
-├── fuzz/                       # fuzzing targets and seed corpora (21 targets)
+├── fuzz/                       # fuzzing targets and seed corpora (12 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
 ├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
 ├── scripts/                    # verify.sh, test-python-wheel.sh, install-cargo-tools.sh
@@ -372,7 +372,7 @@ Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 21 fuzz targets,
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
-| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (21 targets) |
+| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (12 targets) |
 | Repo-level tests | `tests/` | Proxy interop, soak, installed-binary qual |
 
 See [testing-and-conformance.md](testing-and-conformance.md) for the full test matrix.

@@ -25,31 +25,22 @@ cargo test -p eggserve-core
 
 ## Fuzz targets
 
-21 fuzz targets in `fuzz/fuzz_targets/`:
+12 fuzz targets in `fuzz/fuzz_targets/`:
 
 | Target | What it exercises | Key invariants |
 |--------|------------------|----------------|
-| `request_target` | `ConfinedPath::parse` origin-form parsing | No `..`/`.` components, no NUL, starts with `/` |
+| `request_target` | `ConfinedPath::parse`, `validate_request_target`, `RequestHead` construction | No `..`/`.` components, no NUL, starts with `/`, valid request target, valid method/target/version |
 | `percent_decode` | `percent_decode` | No NUL in output, bounded decoded length, valid UTF-8 |
 | `path_components` | `split_components`/`validate_components` | No `..`/`.` accepted, no slash/backslash in component, starts with `/` |
-| `url_parse` | `ParsedUrl::parse` | Scheme is http/https, non-empty host, valid port, path starts with `/`, no fragment |
+| `validate_method` | `Method::new`, `validate_method`/`validate_request_body` | Valid method names, GET/HEAD only for read-only, bodies rejected for read-only methods |
 | `range_header` | `evaluate_range_header` | Satisfiable range within file size, start ≤ end, end < file_size |
 | `if_none_match` | `evaluate_if_none_match` | Wildcard always matches, matching ETag returns true |
 | `platform_component` | `check_component`/`has_windows_drive_prefix`/`is_windows_reserved_name` | Drive prefix requires `X:` pattern, clean components pass |
-| `validate_request_target` | `validate_request_target` | Starts with `/`, no whitespace |
-| `validate_method` | `validate_method`/`validate_request_body` | GET/HEAD only, bodies rejected for read-only methods |
-| `fuzz_method` | Canonical `Method` construction | Valid method names, no panic |
-| `fuzz_status_code` | `StatusCode` validation | Range 100–599, three-digit only, no panic |
-| `fuzz_header_block` | `HeaderBlock` operations | No NUL in names/values, valid header names |
-| `fuzz_header_name` | `HeaderName` validation | Token-only bytes, no NUL |
-| `fuzz_header_value` | `HeaderValue` validation | No NUL/CR/LF, valid obs-text |
-| `fuzz_normalize_response` | Response normalization | Body-forbidden statuses empty, hop-by-hop stripped |
+| `url_parse` | `ParsedUrl::parse` | Scheme is http/https, non-empty host, valid port, path starts with `/`, no fragment |
+| `fuzz_header_block` | `HeaderName`, `HeaderValue`, `HeaderBlock` operations | Token-only names, no NUL/CR/LF in values, valid header operations |
+| `fuzz_normalize_response` | `StatusCode`, `Response` builder, `normalize_response`, Content-Length reconciliation | Range 100–599, body-forbidden empty, HEAD no body, TE stripped, CL correct |
 | `fuzz_request_body` | `RequestBody` state machine | One-shot enforcement, no double-consume |
-| `fuzz_request_head` | `RequestHead` construction | Valid method/target/version, no panic |
-| `fuzz_response_builder` | Response builder validation | Status in range, headers valid |
-| `fuzz_content_length_reconciliation` | Content-Length consistency | Exact byte count matches body |
 | `fuzz_directory_buffer` | Directory listing buffer | HTML well-formed, correct link encoding |
-| `fuzz_event_serialization` | Ops event JSON roundtrip | Valid JSON, no panic on arbitrary fields |
 
 Run a single target:
 ```sh

@@ -22,7 +22,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python boundary hardening | `crates/eggserve-python/tests/test_boundary_hardening.py` | Security hardening and namespace boundaries | current suite |
 | Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
 | Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
-| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 21 targets |
+| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 12 targets |
 | Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
@@ -94,35 +94,26 @@ Consumed by both Rust (`tests/body_conformance.rs`) and Python (`test_body_confo
 
 ## Fuzzing
 
-### Fuzz Targets (21)
+### Fuzz Targets (12)
 
 | Target | What it fuzzes |
 |--------|---------------|
-| `request_target` | HTTP origin-form parsing |
+| `request_target` | HTTP origin-form parsing, path confinement, request target validation, request head construction |
 | `percent_decode` | Single-pass percent decoding |
 | `path_components` | Path normalization and component validation |
-| `validate_request_target` | Full request target validation pipeline |
-| `validate_method` | HTTP method validation |
-| `url_parse` | Client URL parsing |
+| `validate_method` | HTTP method construction and validation, body rejection for read-only methods |
 | `range_header` | Range header parsing |
 | `if_none_match` | If-None-Match ETag comparison |
 | `platform_component` | Windows platform-specific checks |
-| `fuzz_method` | Canonical Method construction |
-| `fuzz_status_code` | StatusCode validation |
-| `fuzz_header_block` | HeaderBlock operations |
-| `fuzz_header_name` | HeaderName validation |
-| `fuzz_header_value` | HeaderValue validation |
-| `fuzz_normalize_response` | Response normalization |
+| `url_parse` | Client URL parsing |
+| `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
+| `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine |
-| `fuzz_request_head` | RequestHead construction |
-| `fuzz_response_builder` | Response builder validation |
-| `fuzz_content_length_reconciliation` | Content-Length consistency |
 | `fuzz_directory_buffer` | Directory listing buffer behavior |
-| `fuzz_event_serialization` | Ops event serialization roundtrip |
 
 ### Seed Corpora
 
-20 corpus directories under `fuzz/corpus/` providing initial inputs for each fuzz target. Coverage includes canonical HTTP types, response normalization, request body, header operations, method validation, status codes, and content-length reconciliation.
+12 corpus directories under `fuzz/corpus/` providing initial inputs for each fuzz target. Coverage includes canonical HTTP types, response normalization, request body, header operations, method validation, and content-length reconciliation.
 
 ### CI Integration
 

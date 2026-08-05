@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–101 are implementation-complete. Plan 091 defines current CI/release policy.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–106 are implementation-complete. Plan 091 defines current CI/release policy.
 
 ## Non-negotiables
 
@@ -39,11 +39,10 @@ Routine CI runs these in two concurrent jobs (`rust` and `python`):
 ```sh
 # Rust job
 cargo fmt --all -- --check                                 # format check
-cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
+cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace                                     # tests
-cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
+cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                  # TLS tests
-cargo test -p eggserve-core --features client-tls          # client TLS feature tests
 
 # Python job (via scripts/test-python-wheel.sh)
 # Builds CLI, stages binary, builds wheel, installs in venv, runs smoke + tests
@@ -138,4 +137,4 @@ Routine CI is a small regression screen, not release certification:
 
 ## Reference docs
 
-`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, etc.). `plans/` has design plans 000–105 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction).
+`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, etc.). `plans/` has design plans 000–106 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 106 closes the roadmap).

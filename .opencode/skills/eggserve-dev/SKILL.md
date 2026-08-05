@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–101, all complete), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–106, all complete), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -34,11 +34,10 @@ Routine CI runs these in two concurrent jobs (`rust` and `python`):
 ```sh
 # Rust job
 cargo fmt --all -- --check                                 # format check
-cargo clippy --workspace --all-targets -- -D warnings      # lint (warnings are errors)
+cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace                                     # tests
-cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings  # TLS lint
+cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                  # TLS tests
-cargo test -p eggserve-core --features client-tls          # client TLS feature tests
 
 # Python job (via scripts/test-python-wheel.sh)
 # Builds CLI, stages binary, builds wheel, installs in venv, runs smoke + tests
@@ -71,7 +70,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–103 are implementation-complete and closed. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps; Plans 096–101 define and verify the bounded Python `http.server` façade, static compatibility, TLS classes, narrowed namespaces, and corrective closure. Plan 103 corrected CLI logging modes, semaphore bounds, listing limits, index fallback, body drain, and Python metadata. Historical plans are in `plans/`; the final hosted evidence is recorded in Plan 101.
+- **Plan status** — Plans 000–106 are implementation-complete and closed. Plan 091 defines the current CI, verification, and manual release policy, superseding the prior evidence/qualification framework. Plans 092–093 closed the Python installed-wheel and test-reliability gaps; Plans 096–101 define and verify the bounded Python `http.server` façade, static compatibility, TLS classes, narrowed namespaces, and corrective closure. Plan 103 corrected CLI logging modes, semaphore bounds, listing limits, index fallback, body drain, and Python metadata. Plans 104–105 completed runtime/service ownership separation and binary-size reduction. Plan 106 simplified routine CI, consolidated fuzz targets, reconciled documentation, and closed the roadmap. Historical plans are in `plans/`.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.

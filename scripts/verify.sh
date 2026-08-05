@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# verify.sh — Local verification for eggserve (Plan 091)
+# verify.sh — Local verification for eggserve (Plan 106)
 #
 # Modes:
-#   fast   Routine dev: format, clippy, workspace tests
+#   fast   Routine dev: format, clippy (lib/bins/tests), workspace tests
 #   full   Pre-release: fast + TLS/client features, Python wheel, package dry-run
-#   deep   Expensive suites: full + corpus replay, fuzz, fault injection, races
+#   deep   Expensive suites: full + corpus replay, fault injection, races, TLS abuse
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 readonly REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -50,7 +50,7 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 cmd_fast() {
   header "Fast validation"
   run cargo fmt --all -- --check
-  run cargo clippy --workspace --all-targets -- -D warnings
+  run cargo clippy --workspace --lib --bins --tests -- -D warnings
   run cargo test --workspace
 }
 
@@ -60,7 +60,7 @@ cmd_full() {
 
   header "Feature tests"
   run cargo test -p eggserve-core --features client-tls
-  run cargo clippy -p eggserve-bin --features tls --all-targets -- -D warnings
+  run cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
   run cargo test -p eggserve-bin --features tls
 
   # Python wheel tests

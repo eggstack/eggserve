@@ -14,7 +14,6 @@ libfuzzer-sys = "0.4"
 tokio = { version = "1", features = ["rt", "macros"] }
 bytes = "1"
 futures-util = "0.3"
-serde_json = "1"
 
 [dependencies.eggserve-core]
 path = "../crates/eggserve-core"
@@ -62,44 +61,8 @@ test = false
 doc = false
 
 [[bin]]
-name = "validate_request_target"
-path = "fuzz_targets/validate_request_target.rs"
-test = false
-doc = false
-
-[[bin]]
 name = "validate_method"
 path = "fuzz_targets/validate_method.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_header_name"
-path = "fuzz_targets/fuzz_header_name.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_header_value"
-path = "fuzz_targets/fuzz_header_value.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_status_code"
-path = "fuzz_targets/fuzz_status_code.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_normalize_response"
-path = "fuzz_targets/fuzz_normalize_response.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_method"
-path = "fuzz_targets/fuzz_method.rs"
 test = false
 doc = false
 
@@ -110,20 +73,8 @@ test = false
 doc = false
 
 [[bin]]
-name = "fuzz_request_head"
-path = "fuzz_targets/fuzz_request_head.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_response_builder"
-path = "fuzz_targets/fuzz_response_builder.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_content_length_reconciliation"
-path = "fuzz_targets/fuzz_content_length_reconciliation.rs"
+name = "fuzz_normalize_response"
+path = "fuzz_targets/fuzz_normalize_response.rs"
 test = false
 doc = false
 
@@ -136,11 +87,5 @@ doc = false
 [[bin]]
 name = "fuzz_directory_buffer"
 path = "fuzz_targets/fuzz_directory_buffer.rs"
-test = false
-doc = false
-
-[[bin]]
-name = "fuzz_event_serialization"
-path = "fuzz_targets/fuzz_event_serialization.rs"
 test = false
 doc = false

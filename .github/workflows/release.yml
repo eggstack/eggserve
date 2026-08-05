@@ -42,6 +42,48 @@ jobs:
             --interpreter python${{ env.PYTHON }} \
             --auditwheel repair \
             --out "$GITHUB_WORKSPACE/dist"
+      - name: Smoke test wheel
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/python -m pip install --disable-pip-version-check -q dist/*.whl
+          /tmp/smoke-venv/bin/python -c "
+          import eggserve
+          from eggserve._bin import _find_binary
+          import subprocess, urllib.request, time, signal, os, sys
+
+          # Locate bundled binary
+          binary = _find_binary()
+          assert os.path.isfile(binary), f'binary not found: {binary}'
+          print(f'  binary: {binary}')
+
+          # Run --version
+          result = subprocess.run([binary, '--version'], capture_output=True, text=True)
+          assert result.returncode == 0, f'--version failed: {result.stderr}'
+          print(f'  version: {result.stdout.strip()}')
+
+          # Start server on ephemeral port
+          import socket
+          s = socket.socket()
+          s.bind(('127.0.0.1', 0))
+          port = s.getsockname()[1]
+          s.close()
+
+          proc = subprocess.Popen(
+              [binary, '--port', str(port)],
+              stdout=subprocess.PIPE, stderr=subprocess.PIPE
+          )
+          time.sleep(1)
+
+          # GET one static file
+          try:
+              resp = urllib.request.urlopen(f'http://127.0.0.1:{port}/')
+              assert resp.status == 200, f'GET failed: {resp.status}'
+              print(f'  GET / => {resp.status}')
+          finally:
+              proc.terminate()
+              proc.wait(timeout=5)
+              print('  server stopped')
+          "
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -78,6 +120,44 @@ jobs:
           python -m maturin build --release \
             --interpreter python${{ env.PYTHON }} \
             --out "$GITHUB_WORKSPACE/dist"
+      - name: Smoke test wheel
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/bin/python -m pip install --disable-pip-version-check -q dist/*.whl
+          /tmp/smoke-venv/bin/python -c "
+          import eggserve
+          from eggserve._bin import _find_binary
+          import subprocess, urllib.request, time, os
+
+          binary = _find_binary()
+          assert os.path.isfile(binary), f'binary not found: {binary}'
+          print(f'  binary: {binary}')
+
+          result = subprocess.run([binary, '--version'], capture_output=True, text=True)
+          assert result.returncode == 0, f'--version failed: {result.stderr}'
+          print(f'  version: {result.stdout.strip()}')
+
+          import socket
+          s = socket.socket()
+          s.bind(('127.0.0.1', 0))
+          port = s.getsockname()[1]
+          s.close()
+
+          proc = subprocess.Popen(
+              [binary, '--port', str(port)],
+              stdout=subprocess.PIPE, stderr=subprocess.PIPE
+          )
+          time.sleep(1)
+
+          try:
+              resp = urllib.request.urlopen(f'http://127.0.0.1:{port}/')
+              assert resp.status == 200, f'GET failed: {resp.status}'
+              print(f'  GET / => {resp.status}')
+          finally:
+              proc.terminate()
+              proc.wait(timeout=5)
+              print('  server stopped')
+          "
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -115,6 +195,45 @@ jobs:
           python -m maturin build --release \
             --interpreter python${{ env.PYTHON }} \
             --out "$GITHUB_WORKSPACE/dist"
+      - name: Smoke test wheel
+        shell: bash
+        run: |
+          python -m venv /tmp/smoke-venv
+          /tmp/smoke-venv/Scripts/python -m pip install --disable-pip-version-check -q dist/*.whl
+          /tmp/smoke-venv/Scripts/python -c "
+          import eggserve
+          from eggserve._bin import _find_binary
+          import subprocess, urllib.request, time, os
+
+          binary = _find_binary()
+          assert os.path.isfile(binary), f'binary not found: {binary}'
+          print(f'  binary: {binary}')
+
+          result = subprocess.run([binary, '--version'], capture_output=True, text=True)
+          assert result.returncode == 0, f'--version failed: {result.stderr}'
+          print(f'  version: {result.stdout.strip()}')
+
+          import socket
+          s = socket.socket()
+          s.bind(('127.0.0.1', 0))
+          port = s.getsockname()[1]
+          s.close()
+
+          proc = subprocess.Popen(
+              [binary, '--port', str(port)],
+              stdout=subprocess.PIPE, stderr=subprocess.PIPE
+          )
+          time.sleep(1)
+
+          try:
+              resp = urllib.request.urlopen(f'http://127.0.0.1:{port}/')
+              assert resp.status == 200, f'GET failed: {resp.status}'
+              print(f'  GET / => {resp.status}')
+          finally:
+              proc.terminate()
+              proc.wait(timeout=5)
+              print('  server stopped')
+          "
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
