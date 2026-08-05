@@ -9,16 +9,17 @@ were solely code-size change.
 
 - Target: `x86_64-unknown-linux-gnu`
 - Toolchain: `rustc 1.97.1 (8bab26f4f 2026-07-14)`
-- Candidate SHA: record from `git rev-parse HEAD` after the implementation commit
+- Candidate SHA: `0379a3d` (`fix: close static metadata and runtime ownership gaps`)
+- Maturin: 1.14.1
 
 ## CLI artifacts
 
 | Artifact | Profile | Stripped | Size (bytes) |
 |----------|---------|----------|-------------:|
-| Default CLI | release | no | 1,972,360 |
-| Default CLI | dist | yes | 857,536 |
-| TLS CLI | release | no | 3,072,440 |
-| TLS CLI | dist | yes | 1,218,568 |
+| Default CLI | release | no | 1,964,616 |
+| Default CLI | dist | yes | 857,400 |
+| TLS CLI | release | no | 3,077,856 |
+| TLS CLI | dist | yes | 1,218,464 |
 
 The `dist` profile is approximately 56.6% smaller than this snapshot's
 unstripped default release artifact and 60.3% smaller for TLS. The comparison
@@ -32,9 +33,9 @@ Measured from the CPython 3.14 Linux wheel built by
 
 | Artifact | Measurement | Size (bytes) |
 |----------|-------------|-------------:|
-| Bundled CLI | on-disk `dist` binary | 857,536 |
-| Native extension | uncompressed wheel member | 5,131,760 |
-| Wheel | `.whl` file on disk | 2,314,426 |
+| Bundled CLI | on-disk `dist` binary | 1,218,464 |
+| Native extension | uncompressed wheel member | 2,256,096 |
+| Wheel | `.whl` file on disk | 1,747,905 |
 
 The wheel also contains Python sources, metadata, and the bundled CLI. The
 native-extension value is uncompressed while the wheel value is compressed;
@@ -53,9 +54,11 @@ and 1,000 fresh HTTP/1.1 requests, repeated three times:
 | 3 | 0.4924 | 2,030.8 |
 
 This is a suitability smoke measurement, not a release gate or a cross-machine
-benchmark. A current-thread versus multi-thread comparison and representative
-large-file/range measurements must be recorded for the final Plan 108
-candidate; these values are not inferred from the earlier snapshot.
+benchmark. The standalone CLI has no multi-thread runtime build variant; the
+embedded runtime's current-thread and multi-thread lifecycle coverage passes in
+`lifecycle_integration.rs`. Large-file and range correctness are covered by
+the streaming and wire suites rather than treated as a permanent performance
+gate.
 
 ## Reproduction commands
 
