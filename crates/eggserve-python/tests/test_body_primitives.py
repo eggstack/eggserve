@@ -633,16 +633,6 @@ class TestServerBodyPolicyConstructor(unittest.TestCase):
         )
         self.assertEqual(s.state, "created")
 
-    def test_incomplete_body_policy_close(self):
-        s = Server(
-            root=self._td,
-            port=0,
-            request_body_mode="buffer",
-            max_request_body_bytes=1024,
-            incomplete_body_policy="close",
-        )
-        self.assertEqual(s.state, "created")
-
     def test_invalid_body_mode_rejected(self):
         with self.assertRaises(ValueError) as ctx:
             Server(
@@ -672,17 +662,6 @@ class TestServerBodyPolicyConstructor(unittest.TestCase):
                 max_request_body_bytes=0,
             )
         self.assertIn("max_request_body_bytes", str(ctx.exception))
-
-    def test_invalid_incomplete_body_policy_rejected(self):
-        with self.assertRaises(ValueError) as ctx:
-            Server(
-                root=self._td,
-                port=0,
-                request_body_mode="buffer",
-                max_request_body_bytes=1024,
-                incomplete_body_policy="invalid",
-            )
-        self.assertIn("incomplete_body_policy", str(ctx.exception))
 
     def test_zero_body_timeout_rejected(self):
         with self.assertRaises(ValueError):

@@ -745,6 +745,17 @@ fn convert_request_head(
         .path_and_query()
         .map(|pq| pq.as_str())
         .unwrap_or("/");
+
+    // Reject absolute-form URIs (authority present in raw target).
+    // Hyper strips scheme/authority from path_and_query, so we must check
+    // the full URI string.
+    if req.uri().scheme_str().is_some() {
+        return Err(ServiceError::rejected(
+            400,
+            "absolute-form request target not allowed",
+        ));
+    }
+
     let target = RequestTarget::parse(raw_target)
         .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?;
 
