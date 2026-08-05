@@ -2,6 +2,11 @@
 
 The response planner produces framework-independent response descriptions. It handles conditional requests, range requests, ETag generation, and directory listing planning — all without depending on Hyper types.
 
+Plan 108 requires every static planner header to be copied into the canonical
+response builder before normalization. This preserves validators,
+`Content-Range`, listing security headers, and `Allow`; the transport boundary
+remains responsible for runtime-owned headers.
+
 ## Module Location
 
 `eggserve-core::primitives::planner` — exposed via `primitives` public facade.

@@ -9,6 +9,15 @@ description = "Python native bindings for eggserve hardened primitives"
 name = "_native"
 crate-type = ["cdylib"]
 
+# Maturin builds this excluded crate independently from the workspace. Keep
+# its distribution profile explicit and equivalent to the workspace profile.
+[profile.dist]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
+
 [dependencies]
 eggserve-core = { path = "../eggserve-core", features = ["tls", "python-bindings-internal"] }
 pyo3 = { version = "0.24", features = ["extension-module"] }

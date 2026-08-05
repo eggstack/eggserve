@@ -8,10 +8,8 @@
 //! - **Stable-ish (semver-considered)**: [`config`], [`limits`], [`policy`].
 //!   Field shapes here may still evolve before 1.0, but breaking changes will
 //!   be accompanied by a major version bump and a migration note.
-//! - **Experimental**: [`service`]. The HTTP handler signature is exposed for
-//!   integration users that want to embed `handle_request` in their own
-//!   accept loop, but the body type (`BoxBodyInner`) and async surface are
-//!   not stable. Breaking changes may occur in minor releases.
+//! - **Experimental**: [`server`]. The runtime and service boundary is
+//!   exposed for Rust embedders and may change before 1.0.
 //! - **Internal**: [`fs`], [`path`], [`response`], MIME detection, and the
 //!   error taxonomy. These are not part of the public API and are not
 //!   re-exported. External callers should not depend on them.
@@ -38,6 +36,7 @@ pub mod policy;
 pub mod primitives;
 pub(crate) mod response;
 pub mod server;
+#[doc(hidden)]
 pub mod service;
 #[cfg(feature = "tls")]
 pub mod tls;

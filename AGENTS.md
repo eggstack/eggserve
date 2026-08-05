@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–106 are implementation-complete. Plan 091 defines current CI/release policy.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–107 are historical implementation records; Plan 108 is the active corrective follow-up. Plan 091 defines current CI/release policy.
 
 ## Non-negotiables
 
@@ -108,7 +108,7 @@ Routine CI is a small regression screen, not release certification:
 - **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel bundles the platform-native CLI binary.
 - **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). `OwnedHandle::try_clone()` is fallible (not `Clone`), so `ResolvedDirectory` on Windows retains an owned `dir_handle` for handle-relative child resolution. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
 - **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
-- **Plan 107 runtime ownership** — `StaticService::call()` returns canonical file/range bodies without collection; one `RuntimeState` file-stream semaphore is created per running server; static state owns no transport admission; custom Rust/Python startup has no root dependency; service body policy governs GET/HEAD/DELETE/OPTIONS/extension content within the runtime ceiling; TRACE content is rejected; incomplete streamed bodies close the connection.
+- **Plan 108 runtime closure** — Plan 107's streaming architecture remains the target, but Plan 108 is the active corrective pass for planner metadata attachment, rootless Python custom startup, legacy static/admission removal, conditional Stream connection closure, and distribution-profile evidence. Do not claim Plan 107 or Plans 102–106 are fully revalidated until Plan 108 closes with hosted CI.
 - **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
 - **Two Method types**: `ReadOnlyMethod` (GET/HEAD only, stable) and `Method` (standard + extension, experimental). `ReadOnlyMethod` is used by the response planner. `Method` is the canonical type for new code.
 - **Client vs Method**: Rust client method types are feature-gated and Rust-only; they are not part of the shipped Python surface. `Method` (from `primitives::method`) is the canonical HTTP method type supporting standard + extension methods.

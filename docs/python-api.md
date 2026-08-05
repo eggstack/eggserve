@@ -1,6 +1,6 @@
 # Python API
 
-Plan 107 ownership contract: custom Python handlers start with runtime-only
+Plan 108 ownership correction: custom Python handlers start with runtime-only
 configuration and do not pin or otherwise depend on a static responder root.
 Static handlers construct one confined static service. Both paths use the
 running server's single file-stream admission pool for canonical file bodies.

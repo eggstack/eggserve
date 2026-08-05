@@ -47,7 +47,7 @@ cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
 chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 
 cd crates/eggserve-python
-maturin build --release --interpreter python -o dist
+maturin build --profile dist --interpreter python -o dist
 ```
 
 ## crates.io publication
@@ -74,13 +74,13 @@ publication of changed contents under an existing version.
 Build the platform wheel after staging the matching CLI binary:
 
 ```sh
-cargo build --release --locked -p eggserve-bin
+cargo build --profile dist --locked -p eggserve-bin
 mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
 chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 
 cd crates/eggserve-python
-maturin build --release --interpreter python -o dist
+maturin build --profile dist --interpreter python -o dist
 ```
 
 Upload to PyPI manually:

@@ -65,12 +65,12 @@ The wheel bundles the platform-native `eggserve` CLI. Stage the binary before
 calling maturin; the release and CI workflows do this on each OS runner.
 
 ```sh
-cargo build --release --locked -p eggserve-bin
+cargo build --profile dist --locked -p eggserve-bin
 mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
 chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --release --interpreter python3.14 -o dist
+maturin build --profile dist --interpreter python3.14 -o dist
 ```
 
 This produces a platform-specific wheel in `target/wheels/`.
@@ -131,12 +131,12 @@ Standalone tests in `packaging-tests/` validate the wheel works independently of
 ### Running packaging smoke tests
 
 ```sh
-cargo build --release --locked -p eggserve-bin
+cargo build --profile dist --locked -p eggserve-bin
 mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
 chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --release --interpreter python3.14 -o dist
+maturin build --profile dist --interpreter python3.14 -o dist
 cd packaging-tests
 bash run_all.sh ../dist/*.whl python3.14
 ```

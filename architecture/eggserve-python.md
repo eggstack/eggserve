@@ -5,9 +5,10 @@ Python façade and bundled CLI. The supported programming surface is
 `eggserve.server`; advanced primitives and CLI lifecycle helpers are kept in
 separate namespaces.
 
-Custom-handler startup is runtime-only: it constructs a Python callback
+Plan 108 correction: custom-handler startup is runtime-only: it constructs a Python callback
 service and `RuntimeConfig` without a `ServeConfig`, responder root, or pinned
-filesystem state. `SimpleHTTPRequestHandler` is the separate static branch and
+filesystem state. Its compatibility `root` argument is inactive and is not
+opened or validated. `SimpleHTTPRequestHandler` is the separate static branch and
 constructs one confined `StaticService`. Both branches use the server-wide
 runtime file-stream semaphore for canonical file responses.
 

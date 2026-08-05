@@ -1,5 +1,11 @@
 # Runtime Architecture
 
+Plan 108 correction: custom startup is filesystem-agnostic, static planner
+metadata is attached to canonical responses, and the only production file
+stream admission pool is created by `RuntimeState` once per running server.
+Fully consumed streamed request bodies remain keep-alive eligible; an
+incompletely consumed body causes the response and connection to close.
+
 ## Overview
 
 > **Status: Experimental.** The `server` module API is subject to change without notice.

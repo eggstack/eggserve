@@ -18,7 +18,7 @@ use crate::primitives::body::BodySource;
 use crate::primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody, StatusCode,
 };
-use crate::primitives::header_block::HeaderBlock;
+use crate::primitives::header_block::{HeaderName, HeaderValue};
 use crate::primitives::http::ReadOnlyMethod;
 use crate::primitives::planner::plan_file_response;
 use crate::primitives::request::Request;
@@ -82,17 +82,6 @@ impl StaticService {
     #[allow(dead_code)]
     pub(crate) fn from_state(state: Arc<ServeState>) -> Self {
         Self { state }
-    }
-
-    /// Handle a request through the canonical planner, converting to Hyper
-    /// only at this explicit legacy adapter boundary.
-    pub async fn handle(
-        &self,
-        request: Request,
-    ) -> Result<hyper::Response<crate::response::BoxBodyInner>, ServiceError> {
-        let response = self.call(request).await?;
-        crate::primitives::canonical::to_hyper_response(response)
-            .map_err(|e| ServiceError::internal(format!("response conversion failed: {e}")))
     }
 }
 
@@ -317,11 +306,12 @@ fn canonical_response(
     is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
     let status = StatusCode::new(status).map_err(|e| ServiceError::internal(e.to_string()))?;
-    let mut headers = HeaderBlock::new();
+    let mut builder = CanonicalResponse::builder().status(status);
     for header in planned_headers.iter() {
-        headers
-            .push_str(&header.name, &header.value)
-            .map_err(|e| ServiceError::internal(e.to_string()))?;
+        builder = builder.push_header(
+            HeaderName::new(&header.name).map_err(|e| ServiceError::internal(e.to_string()))?,
+            HeaderValue::new(&header.value).map_err(|e| ServiceError::internal(e.to_string()))?,
+        );
     }
     let response_body = match body {
         BodySource::Empty if is_head && status.permits_payload_body() => planned_headers
@@ -335,8 +325,7 @@ fn canonical_response(
             ResponseBody::File(body)
         }
     };
-    let response = CanonicalResponse::builder()
-        .status(status)
+    let response = builder
         .body(response_body)
         .map_err(|e| ServiceError::internal(e.to_string()))?;
     normalize_response(response, &NormalizeRequest::new(is_head))
@@ -471,12 +460,16 @@ mod tests {
     use tempfile::TempDir;
 
     fn request(method: Method, path: &str) -> Request {
+        request_with_headers(method, path, HeaderBlock::new())
+    }
+
+    fn request_with_headers(method: Method, path: &str, headers: HeaderBlock) -> Request {
         Request::new(
             RequestHead::new(
                 method,
                 RequestTarget::parse(path).unwrap(),
                 HttpVersion::Http11,
-                HeaderBlock::new(),
+                headers,
             ),
             crate::primitives::request_body::RequestBody::empty(),
             crate::primitives::connection_info::ConnectionInfo {
@@ -540,6 +533,186 @@ mod tests {
             head.headers().get_first("content-length").unwrap().as_str(),
             "5"
         );
+    }
+
+    #[tokio::test]
+    async fn canonical_response_preserves_planner_metadata() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), b"0123456789").unwrap();
+        let service = StaticService::builder(tmp.path()).build().unwrap();
+
+        let full = service
+            .call(request(Method::get(), "/file.txt"))
+            .await
+            .unwrap();
+        assert_eq!(full.status().as_u16(), 200);
+        assert_eq!(
+            full.headers().get_first("content-type").unwrap().as_str(),
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            full.headers().get_first("content-length").unwrap().as_str(),
+            "10"
+        );
+        assert_eq!(
+            full.headers().get_first("accept-ranges").unwrap().as_str(),
+            "bytes"
+        );
+        let etag = full
+            .headers()
+            .get_first("etag")
+            .unwrap()
+            .as_str()
+            .to_owned();
+        assert!(full.headers().contains("last-modified"));
+
+        let mut range_headers = HeaderBlock::new();
+        range_headers.push_str("range", "bytes=2-4").unwrap();
+        let range = service
+            .call(request_with_headers(
+                Method::get(),
+                "/file.txt",
+                range_headers,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(range.status().as_u16(), 206);
+        assert_eq!(
+            range.headers().get_first("content-range").unwrap().as_str(),
+            "bytes 2-4/10"
+        );
+        assert_eq!(
+            range
+                .headers()
+                .get_first("content-length")
+                .unwrap()
+                .as_str(),
+            "3"
+        );
+
+        let mut unsatisfiable_headers = HeaderBlock::new();
+        unsatisfiable_headers
+            .push_str("range", "bytes=20-30")
+            .unwrap();
+        let unsatisfiable = service
+            .call(request_with_headers(
+                Method::get(),
+                "/file.txt",
+                unsatisfiable_headers,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(unsatisfiable.status().as_u16(), 416);
+        assert_eq!(
+            unsatisfiable
+                .headers()
+                .get_first("content-range")
+                .unwrap()
+                .as_str(),
+            "bytes */10"
+        );
+        assert!(!matches!(unsatisfiable.body(), Some(ResponseBody::File(_))));
+
+        let mut conditional_headers = HeaderBlock::new();
+        conditional_headers
+            .push_str("if-none-match", &etag)
+            .unwrap();
+        let conditional = service
+            .call(request_with_headers(
+                Method::get(),
+                "/file.txt",
+                conditional_headers,
+            ))
+            .await
+            .unwrap();
+        assert_eq!(conditional.status().as_u16(), 304);
+        assert_eq!(
+            conditional.headers().get_first("etag").unwrap().as_str(),
+            etag
+        );
+        assert!(!matches!(conditional.body(), Some(ResponseBody::File(_))));
+
+        let head = service
+            .call(request(Method::head(), "/file.txt"))
+            .await
+            .unwrap();
+        assert_eq!(head.status().as_u16(), full.status().as_u16());
+        assert_eq!(
+            head.headers().get_first("content-type").unwrap().as_str(),
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            head.headers().get_first("content-length").unwrap().as_str(),
+            "10"
+        );
+        assert!(!matches!(head.body(), Some(ResponseBody::File(_))));
+    }
+
+    #[tokio::test]
+    async fn canonical_response_preserves_listing_and_error_metadata() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("dir")).unwrap();
+        std::fs::write(tmp.path().join("dir/file.txt"), b"file").unwrap();
+        let mut config = ServeConfig {
+            root: tmp.path().to_path_buf(),
+            ..ServeConfig::default()
+        };
+        config.static_policy.directory_listing = DirectoryListingPolicy::Enabled;
+        let service = StaticService::from_serve_config(Arc::new(config)).unwrap();
+
+        let listing = service.call(request(Method::get(), "/dir/")).await.unwrap();
+        assert_eq!(
+            listing
+                .headers()
+                .get_first("content-type")
+                .unwrap()
+                .as_str(),
+            "text/html; charset=utf-8"
+        );
+        assert_eq!(
+            listing
+                .headers()
+                .get_first("content-security-policy")
+                .unwrap()
+                .as_str(),
+            "default-src 'none'; base-uri 'none'; form-action 'none'"
+        );
+        assert_eq!(
+            listing
+                .headers()
+                .get_first("referrer-policy")
+                .unwrap()
+                .as_str(),
+            "no-referrer"
+        );
+        assert_eq!(
+            listing
+                .headers()
+                .get_first("x-content-type-options")
+                .unwrap()
+                .as_str(),
+            "nosniff"
+        );
+        assert!(listing.headers().contains("content-length"));
+
+        let not_allowed = service
+            .call(request(Method::post(), "/dir/"))
+            .await
+            .unwrap();
+        assert_eq!(not_allowed.status().as_u16(), 405);
+        assert_eq!(
+            not_allowed.headers().get_first("allow").unwrap().as_str(),
+            "GET, HEAD"
+        );
+        assert_eq!(
+            not_allowed
+                .headers()
+                .get_first("content-type")
+                .unwrap()
+                .as_str(),
+            "text/plain; charset=utf-8"
+        );
+        assert!(not_allowed.headers().contains("content-length"));
     }
 
     #[tokio::test]

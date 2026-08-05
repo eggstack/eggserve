@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–106, all complete), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–107 historical; Plan 108 active), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -70,7 +70,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plans 000–107 are implementation records; Plan 107 revalidated the earlier closure claims for canonical static streaming, one runtime-owned file semaphore, body-policy layering, rootless custom startup, authoritative runtime headers, wire-visible incomplete-body closure, release smoke fixtures, and truthful size evidence. Historical plans remain in `plans/`.
+- **Plan status** — Plan 108 is the active corrective follow-up. Plan 107's closure claims for canonical static metadata, rootless Python custom startup, duplicate static/admission removal, conditional Stream keep-alive, and distribution-profile evidence remain open until Plan 108's focused tests, local checks, and hosted CI pass.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.

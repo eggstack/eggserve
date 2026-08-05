@@ -1,6 +1,6 @@
 # Binary Size Tracking
 
-This is the Plan 107 corrective-pass measurement snapshot. Sizes are recorded
+This is the Plan 108 corrective-pass measurement snapshot. Sizes are recorded
 separately for the unstripped `release` profile and the stripped `dist`
 distribution profile; those profiles must not be compared as if the difference
 were solely code-size change.
@@ -53,8 +53,9 @@ and 1,000 fresh HTTP/1.1 requests, repeated three times:
 | 3 | 0.4924 | 2,030.8 |
 
 This is a suitability smoke measurement, not a release gate or a cross-machine
-benchmark. The required functional suites additionally cover ranges, large
-file streams, connection admission, timeouts, TLS, and shutdown.
+benchmark. A current-thread versus multi-thread comparison and representative
+large-file/range measurements must be recorded for the final Plan 108
+candidate; these values are not inferred from the earlier snapshot.
 
 ## Reproduction commands
 

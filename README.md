@@ -209,6 +209,11 @@ request-body policy controls GET/HEAD/DELETE/OPTIONS/extension content within
 the runtime ceiling; TRACE content is rejected, and incomplete streamed bodies
 close the connection.
 
+Plan 108 is the active corrective follow-up validating static metadata
+attachment, rootless custom-handler construction, conditional stream closure,
+and distribution-profile consistency before the earlier closure records are
+revalidated.
+
 See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
 
 ## Supported platforms

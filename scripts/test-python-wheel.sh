@@ -89,7 +89,7 @@ STAGED=1
 DIST_DIR="$(mktemp -d)"
 info "Building wheel into $DIST_DIR"
 (cd "$REPO_ROOT/crates/eggserve-python" && \
-    "$PYTHON" -m maturin build --release --interpreter "$PYTHON" -o "$DIST_DIR")
+    "$PYTHON" -m maturin build --profile dist --interpreter "$PYTHON" -o "$DIST_DIR")
 WHEEL_PATH="$(printf '%s\n' "$DIST_DIR"/*.whl)"
 info "Wheel size: $(stat --printf='%s' "$WHEEL_PATH") bytes"
 

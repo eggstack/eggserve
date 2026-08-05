@@ -1,6 +1,7 @@
 # Architecture Overview
 
-The current runtime ownership contract is defined by Plan 107: one
+Plan 108 is the active corrective follow-up to Plan 107. The runtime
+ownership contract is: one
 `RuntimeState` per running server, one transport file-stream semaphore, and
 canonical static file/range bodies preserved until Hyper conversion. Static
 state owns confinement only; custom Rust/Python services are rootless.

@@ -1321,7 +1321,8 @@ pub struct PyServer {
     bind_address: SocketAddr,
     public: bool,
     addr: std::sync::Mutex<Option<String>>,
-    responder: PyStaticResponder,
+    static_root: Option<std::path::PathBuf>,
+    static_policy: StaticPolicy,
     handler: Option<std::sync::Mutex<Option<Py<PyAny>>>>,
     handle: std::sync::Mutex<Option<ServerHandle>>,
     runtime: std::sync::Mutex<Option<tokio::runtime::Runtime>>,
@@ -1454,13 +1455,6 @@ impl PyServer {
         let static_policy = policy
             .map(|p| p.inner)
             .unwrap_or_else(StaticPolicy::safe_default);
-        let secure_root = SecureRoot::new(root, static_policy.clone()).map_err(|e| {
-            pyo3::exceptions::PyValueError::new_err(format!("failed to create secure root: {e}"))
-        })?;
-        let responder = PyStaticResponder {
-            root: secure_root,
-            policy: static_policy,
-        };
 
         let tls_config = match (tls_certfile, tls_keyfile) {
             (None, None) => None,
@@ -1488,7 +1482,12 @@ impl PyServer {
             bind_address: bind_addr,
             public,
             addr: std::sync::Mutex::new(None),
-            responder,
+            static_root: if handler.is_none() {
+                Some(std::path::PathBuf::from(root))
+            } else {
+                None
+            },
+            static_policy,
             handler: handler.map(|h| std::sync::Mutex::new(Some(h))),
             handle: std::sync::Mutex::new(None),
             runtime: std::sync::Mutex::new(None),
@@ -1633,8 +1632,12 @@ impl PyServer {
                         Ok::<ServerHandle, PyErr>(handle)
                     } else {
                         let serve_config = Arc::new(eggserve_core::config::ServeConfig {
-                            root: self.responder.root.root_path().to_path_buf(),
-                            static_policy: self.responder.policy.clone(),
+                            root: self.static_root.as_ref().ok_or_else(|| {
+                                pyo3::exceptions::PyRuntimeError::new_err(
+                                    "static configuration is unavailable for custom handler",
+                                )
+                            })?.clone(),
+                            static_policy: self.static_policy.clone(),
                             ..eggserve_core::config::ServeConfig::default()
                         });
                         let server = Server::builder()

@@ -38,7 +38,7 @@ jobs:
       - name: Build wheel
         run: |
           cd crates/eggserve-python
-          python -m maturin build --release \
+          python -m maturin build --profile dist \
             --interpreter python${{ env.PYTHON }} \
             --auditwheel repair \
             --out "$GITHUB_WORKSPACE/dist"
@@ -80,7 +80,7 @@ jobs:
       - name: Build wheel
         run: |
           cd crates/eggserve-python
-          python -m maturin build --release \
+          python -m maturin build --profile dist \
             --interpreter python${{ env.PYTHON }} \
             --out "$GITHUB_WORKSPACE/dist"
       - name: Smoke test wheel
@@ -122,7 +122,7 @@ jobs:
         shell: bash
         run: |
           cd crates/eggserve-python
-          python -m maturin build --release \
+          python -m maturin build --profile dist \
             --interpreter python${{ env.PYTHON }} \
             --out "$GITHUB_WORKSPACE/dist"
       - name: Smoke test wheel

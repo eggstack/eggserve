@@ -61,12 +61,13 @@ impl ServeConfig {
     }
 }
 
+#[derive(Clone)]
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
     pub(crate) pinned_root: Arc<PinnedRoot>,
-    // Kept only for the legacy `crate::service::handle_request` adapter.
-    // Runtime-owned services use `server::RuntimeState` instead.
-    pub(crate) legacy_file_stream_semaphore: Arc<Semaphore>,
+    // Compatibility state for the pre-runtime handler adapter. New servers
+    // never use this pool; transport admission is owned by RuntimeState.
+    pub(crate) compatibility_file_stream_semaphore: Arc<Semaphore>,
 }
 
 impl ServeState {
@@ -82,11 +83,12 @@ impl ServeState {
                 ),
             ));
         }
-        let max_file_streams = config.limits.max_file_streams;
         Ok(Self {
+            compatibility_file_stream_semaphore: Arc::new(Semaphore::new(
+                config.limits.max_file_streams,
+            )),
             config,
             pinned_root,
-            legacy_file_stream_semaphore: Arc::new(Semaphore::new(max_file_streams)),
         })
     }
 
@@ -99,15 +101,13 @@ impl ServeState {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn legacy_file_stream_semaphore(&self) -> &Arc<Semaphore> {
-        &self.legacy_file_stream_semaphore
+    pub(crate) fn compatibility_file_stream_semaphore(&self) -> &Arc<Semaphore> {
+        &self.compatibility_file_stream_semaphore
     }
 
-    /// Legacy direct-adapter semaphore. Running servers use
-    /// `server::RuntimeState::file_stream_semaphore` instead.
     #[allow(dead_code)]
     pub fn file_stream_semaphore(&self) -> &Arc<Semaphore> {
-        &self.legacy_file_stream_semaphore
+        &self.compatibility_file_stream_semaphore
     }
 }
 

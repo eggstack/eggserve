@@ -2,7 +2,7 @@
 
 ## Status
 
-**COMPLETE — REVALIDATED BY PLAN 107.**
+**IMPLEMENTED — FINAL REVALIDATION REOPENED BY PLAN 108.**
 
 This plan corrects the generic Rust/Python service runtime without expanding EggServe into an application server. It is intentionally the only API-breaking phase in the roadmap.
 

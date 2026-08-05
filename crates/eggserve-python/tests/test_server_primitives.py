@@ -354,8 +354,30 @@ class TestServer(unittest.TestCase):
         self.assertIn("not started", repr(s))
 
     def test_invalid_root_raises(self):
-        with self.assertRaises(ValueError):
-            Server(root="/nonexistent_root_xyz_12345")
+        s = Server(root="/nonexistent_root_xyz_12345", port=0)
+        with self.assertRaises((ValueError, RuntimeError)):
+            s.start()
+
+    def test_custom_handler_does_not_touch_inactive_root(self):
+        calls = []
+
+        def handler(request):
+            calls.append(request.path)
+            return Response.text(200, "custom")
+
+        s = Server(
+            root="/nonexistent_root_xyz_12345",
+            bind="127.0.0.1",
+            port=0,
+            handler=handler,
+        )
+        s.start()
+        try:
+            resp = urllib.request.urlopen(f"http://{s.addr}/", timeout=2)
+            self.assertEqual(resp.read(), b"custom")
+            self.assertEqual(calls, ["/"])
+        finally:
+            s.stop()
 
     def test_custom_policy(self):
         policy = StaticPolicyWrapper(allow_dotfiles=True)

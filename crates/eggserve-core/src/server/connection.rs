@@ -490,9 +490,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                         }
                     };
 
-                    // Check if body was fully consumed via the shared flag.
-                    // If not, apply incomplete_body_policy.
-                    if !consumed_flag.load(std::sync::atomic::Ordering::Acquire) {
+                    // A stream that is not consumed to EOF cannot safely leave
+                    // unread bytes on an HTTP/1.1 connection. Close only in
+                    // that case; fully consumed streams remain reusable.
+                    let incomplete = !consumed_flag.load(std::sync::atomic::Ordering::Acquire);
+                    if incomplete {
                         crate::ops::Logger::global().emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
@@ -504,10 +506,12 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     }
 
                     let mut response = finalize_runtime_response(response, &config);
-                    response.headers_mut().insert(
-                        hyper::header::CONNECTION,
-                        hyper::header::HeaderValue::from_static("close"),
-                    );
+                    if incomplete {
+                        response.headers_mut().insert(
+                            hyper::header::CONNECTION,
+                            hyper::header::HeaderValue::from_static("close"),
+                        );
+                    }
                     Ok::<_, Infallible>(response)
                 }
             }
@@ -517,9 +521,10 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
 }
 
-/// Compatibility wrapper for direct connection tests and older embedders.
-/// Production servers use [`serve_connection_with_runtime_state`], which
-/// receives the single server-wide state created by `Server`.
+/// Compatibility wrapper for pre-runtime direct connection tests. Production
+/// servers must use `serve_connection_with_runtime_state` so one pool is
+/// shared across all connections.
+#[doc(hidden)]
 #[allow(clippy::too_many_arguments)]
 pub async fn serve_connection_with_service<I, S>(
     io: TokioIo<I>,
@@ -539,7 +544,7 @@ pub async fn serve_connection_with_service<I, S>(
     let runtime_state = legacy_state
         .map(|state| {
             Arc::new(RuntimeState {
-                file_stream_semaphore: state.legacy_file_stream_semaphore().clone(),
+                file_stream_semaphore: state.compatibility_file_stream_semaphore().clone(),
             })
         })
         .unwrap_or_else(|| Arc::new(RuntimeState::new(config)));

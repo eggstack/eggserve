@@ -2,7 +2,7 @@
 
 ## Status
 
-**COMPLETE — HOSTED CI PASSING.**
+**CORRECTIVE FOLLOW-UP REQUIRED — SEE PLAN 108.**
 
 This is a bounded corrective pass against repository state:
 
