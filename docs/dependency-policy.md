@@ -32,6 +32,15 @@ The following dependency categories are approved for initial development:
 | HTTP client TLS | `webpki-roots` (optional, behind `client-tls`) | Mozilla CA root certificates for TLS verification |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 
+### Tokio feature ownership (Plan 105)
+
+| Crate | Tokio features (production) | Notes |
+|-------|---------------------------|-------|
+| `eggserve-core` | `macros`, `net`, `time`, `fs`, `io-util`, `sync` | No `signal`, no `rt-multi-thread` in default |
+| `eggserve-core` (client) | + `rt-multi-thread` | Gated behind `client` feature for `http_client.rs` |
+| `eggserve-bin` | `macros`, `net`, `signal`, `time`, `sync` | Signal handling for graceful shutdown |
+| `eggserve-python` | `rt-multi-thread`, `net`, `io-util`, `sync`, `time` | Python GIL scheduling requires multi-thread |
+
 ## Notes
 
 - The first milestone (plan 000) added initial dependencies
@@ -40,6 +49,7 @@ The following dependency categories are approved for initial development:
 - Plan 009 adds optional TLS dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`) behind the `tls` feature flag in `eggserve-bin`. The default build remains TLS-free.
 - Plan 028 adds optional HTTP client dependencies behind the `client` feature flag in `eggserve-core`. Reuses `hyper` and `hyper-util` (already non-optional) with `client`/`client-legacy` features. Adds `rustls`, `tokio-rustls`, `webpki-roots` behind the `client-tls` feature. Default build remains server-only.
 - Plan 062 adds `windows-sys` as an optional Windows-only dependency behind a feature gate for handle-relative filesystem operations (reparse detection, file identity, directory enumeration). The dependency is feature-gated and only compiles on Windows targets.
+- Plan 105 narrows Tokio feature ownership: `eggserve-core` enables only `macros`, `net`, `time`, `fs`, `io-util`, `sync` (no `signal`, no `rt-multi-thread` in default). `rt-multi-thread` is gated behind the `client` feature for `http_client.rs`. The CLI runtime uses current-thread (`Builder::new_current_thread()`). A `dist` profile is added for size-optimized release builds.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run as part of CI validation (see `scripts/verify.sh`)
 

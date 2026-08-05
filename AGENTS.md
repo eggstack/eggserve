@@ -72,6 +72,15 @@ cargo deny check                        # license/policy check
 bash scripts/verify-cargo-packages.sh   # package dry-run gates
 ```
 
+### Distribution builds (Plan 105)
+
+The `dist` profile produces stripped, size-optimized release artifacts:
+
+```sh
+cargo build --profile dist --locked -p eggserve-bin              # default CLI
+cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
+```
+
 ## CI policy (Plan 091)
 
 Routine CI is a small regression screen, not release certification:
@@ -124,8 +133,9 @@ Routine CI is a small regression screen, not release certification:
 - **Python RequestBody is one-shot** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive and consume the body. Second use raises `RequestBodyConsumedError`. `iter_chunks()` bridges async Rust body to synchronous Python via a bounded channel with backpressure. Body objects are only present when `has_body` is True (non-empty bodies with allowed policy). Empty bodies and rejected bodies produce `body=None`.
 - **Advanced runtime remains internal** — `eggserve-core::server` remains the Rust embedding boundary. Python users should use the six-class facade; advanced primitives are grouped under `eggserve.lowlevel`, and CLI subprocess helpers under `eggserve.subprocess`.
 - **Production profiles** — Production deployment profiles are documented in README.md and `docs/deployment.md`. Profiles are: unix-reverse-proxy (candidate), unix-direct-https (candidate), windows-reverse-proxy (candidate), windows-direct-https (functional), local-development (supported-hardened), windows-functional (functional), link-following-compat (functional).
+- **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()` (Plan 105). The Python facade uses `rt-multi-thread` for GIL scheduling. The library is runtime-agnostic.
 - **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). The Python `Server` delegates logging to the Rust runtime's stderr sink. Python handler failures use fixed categories and never interpolate exception text, response reprs, or raw response headers. Library code must not use `println!`/`eprintln!`.
 
 ## Reference docs
 
-`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, etc.). `plans/` has design plans 000–103 (historical/implementation records; Plan 091 defines current CI/release policy).
+`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, etc.). `plans/` has design plans 000–105 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction).

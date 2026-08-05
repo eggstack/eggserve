@@ -7,3 +7,10 @@ exclude = [
     "crates/eggserve-python",
 ]
 resolver = "2"
+
+[profile.dist]
+inherits = "release"
+opt-level = "z"
+lto = "fat"
+codegen-units = 1
+strip = "symbols"

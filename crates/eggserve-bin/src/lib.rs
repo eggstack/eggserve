@@ -135,7 +135,10 @@ pub fn run() {
         ));
     }
 
-    let rt = tokio::runtime::Runtime::new().unwrap();
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
 
     #[cfg(not(feature = "tls"))]
     {

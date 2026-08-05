@@ -17,6 +17,32 @@ git status --short                           # must be empty
 ./scripts/verify.sh full                     # or at minimum: cargo fmt/check/test + features
 ```
 
+## Distribution builds
+
+The `dist` profile produces stripped, size-optimized release artifacts for
+distribution. Use it for manual release builds only — not for routine CI or
+development:
+
+```sh
+cargo build --profile dist --locked -p eggserve-bin              # default CLI (no TLS)
+cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
+```
+
+The dist profile uses `opt-level = "z"`, fat LTO, single codegen unit,
+and symbol stripping. See `Cargo.toml` for the exact configuration.
+
+For Python wheels, use the same profile through Maturin:
+
+```sh
+cargo build --profile dist --locked -p eggserve-bin
+mkdir -p crates/eggserve-python/python/eggserve/bin
+cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
+chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
+
+cd crates/eggserve-python
+maturin build --release --interpreter python -o dist
+```
+
 ## crates.io publication
 
 Core crate must be published before the binary crate, because the binary
