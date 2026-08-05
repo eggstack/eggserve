@@ -42,12 +42,15 @@ pub struct ServeConfig {
 
 ### `ServeState` (`config.rs`)
 
-Runtime state wrapping `ServeConfig` with a Tokio `Semaphore` for file-stream limiting. Created once at startup, shared across all requests and enforced both by the built-in static path and by canonical custom-service/Python response conversion.
+Static state wrapping `ServeConfig` with one pinned root. It does not own
+transport admission. A running `server::Server` creates `RuntimeState` once;
+that runtime state owns the shared Tokio semaphore for all file-backed
+responses, including custom-service responses.
 
 ```rust
 pub struct ServeState {
     pub config: ServeConfig,
-    file_stream_semaphore: Semaphore,
+    pinned_root: PinnedRoot,
 }
 ```
 
@@ -59,7 +62,7 @@ Resource limits with safe defaults:
 |-------|---------|---------|
 | `max_connections` | 64 | Concurrent TCP connections |
 | `max_file_streams` | 32 | Concurrent file streams (body transfer) |
-| `max_request_body_bytes` | 0 | Request body size (rejected unconditionally) |
+| `max_request_body_bytes` | 0 | Runtime hard ceiling; services may opt into bodies only when greater than zero |
 | `header_read_timeout` | 10s | Time to read full request headers |
 | `connection_total_timeout` | 60s | Total connection lifetime timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
@@ -68,13 +71,14 @@ Resource limits with safe defaults:
 
 The HTTP request handler. Steps:
 
-1. Match Hyper `Method` directly against `GET` and `HEAD` (non-read-only methods return 405)
-2. Reject request body (metadata-only) via `Content-Length` and `Transfer-Encoding` checks
+1. The legacy adapter delegates to `StaticService`'s canonical planner; the
+   runtime service boundary handles request conversion and body policy
+2. Static body-bearing requests are rejected by the service's `Reject` policy
 3. Parse request target → `ConfinedPath`
 4. Resolve via the internal `RootGuard` → `ResolvedResource` (the public `SecureRoot` primitive is the embedding-consumer facade; the service uses `RootGuard` directly)
 5. Construct a `StaticRequestInput` bundling the method and conditional/range headers (`If-None-Match`, `If-Modified-Since`, `Range`, `If-Range`)
 6. For both direct files and directory index files, call `serve_resolved_file()` — the single entry point that applies conditional/range planning via `plan_file_response()`, constructs the body from the opened handle, and normalizes the response through the canonical path (200 / 206 / 304 / 416)
-7. Stream the file body via `body_source_to_response()`, render a directory listing, or return the appropriate error
+7. Return a canonical file-backed response, render a directory listing, or return the appropriate error; runtime transport performs streaming
 
 Returns `Response<BoxBody<Bytes, Infallible>>`.
 

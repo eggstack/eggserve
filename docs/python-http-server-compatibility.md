@@ -1,5 +1,10 @@
 # Python `http.server` compatibility
 
+Custom-handler startup is rootless: only `SimpleHTTPRequestHandler` creates
+static filesystem state. Request-body policy is applied to the actual method,
+and incomplete streamed bodies close the HTTP connection before another
+request can run.
+
 eggserve provides a narrow `http.server`-shaped API over the Rust-owned
 listener, Hyper parser, response validator, and shutdown machinery:
 

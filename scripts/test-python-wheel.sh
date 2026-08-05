@@ -2,7 +2,7 @@
 # test-python-wheel.sh — Single installed-wheel verification harness.
 #
 # Used by both routine Python CI and `scripts/verify.sh full`.
-# Builds the release CLI, stages it, builds a wheel, installs into a
+# Builds the distribution-profile CLI, stages it, builds a wheel, installs into a
 # fresh venv, runs smoke checks, and executes the test suite.
 
 set -euo pipefail
@@ -58,8 +58,8 @@ assert v < (3, 15), f'Python {v.major}.{v.minor}.{v.micro} >= 3.15 (package requ
 command -v cargo >/dev/null 2>&1 || die "cargo not found."
 
 # Build CLI binary
-info "Building release CLI binary"
-cargo build --release --locked -p eggserve-bin
+info "Building distribution CLI binary"
+cargo build --profile dist --locked -p eggserve-bin
 
 # Stage CLI into package
 info "Staging CLI binary into package"
@@ -80,7 +80,7 @@ if [[ "$(uname -s)" == *"MINGW"* || "$(uname -s)" == *"MSYS"* || "$(uname -s)" =
 else
     BINARY_NAME="eggserve"
 fi
-cp "$REPO_ROOT/target/release/$BINARY_NAME" \
+cp "$REPO_ROOT/target/dist/$BINARY_NAME" \
     "$BIN_DIR/$BINARY_NAME"
 chmod +x "$BIN_DIR/$BINARY_NAME"
 STAGED=1
@@ -90,6 +90,8 @@ DIST_DIR="$(mktemp -d)"
 info "Building wheel into $DIST_DIR"
 (cd "$REPO_ROOT/crates/eggserve-python" && \
     "$PYTHON" -m maturin build --release --interpreter "$PYTHON" -o "$DIST_DIR")
+WHEEL_PATH="$(printf '%s\n' "$DIST_DIR"/*.whl)"
+info "Wheel size: $(stat --printf='%s' "$WHEEL_PATH") bytes"
 
 # Create venv and install wheel
 VENV_DIR="$(mktemp -d)"
@@ -133,6 +135,9 @@ b = _find_binary()
 assert os.path.isfile(b), f'binary not found: {b}'
 print(f'  bundled binary: {b}')
 "
+
+info "Running bundled CLI fixture smoke"
+"$VENV_PYTHON" "$REPO_ROOT/scripts/release_smoke.py" "$BIN_DIR/$BINARY_NAME"
 
 # Python test suite
 info "Running Python test suite"

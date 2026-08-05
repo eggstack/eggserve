@@ -11,7 +11,7 @@ eggserve defends against:
 - **Dotfile exposure** — hidden files are excluded unless explicitly opted in
 - **Directory listing leakage** — directory contents are not exposed unless explicitly enabled
 - **Method abuse** — only GET and HEAD are allowed; all other methods return 405
-- **Request body abuse** — request bodies on GET/HEAD are rejected (Content-Length > 0 returns 413, malformed framing returns 400)
+- **Request body abuse** — the built-in static service rejects body-bearing requests; custom services are bounded by their declared policy and the runtime ceiling
 - **Resource exhaustion** — connection limits, file-stream concurrency limits, header size limits, and timeouts prevent resource exhaustion
 - **Log injection** — paths and headers are sanitized before logging
 
@@ -23,7 +23,7 @@ Every security default is enforced at the library level in `eggserve-core`. See 
 |---------|-------------|
 | Loopback bind | `127.0.0.1` unless `--public` |
 | GET/HEAD only | 405 for other methods |
-| No request bodies | 413/400 for body signals |
+| Static body rejection | 413/400 for body signals |
 | No symlinks | Descriptor-relative `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)` on Unix; component-wise `symlink_metadata` on non-Unix |
 | No dotfiles | Component-level dotfile check |
 | No directory listing | Explicit opt-in required |
@@ -102,7 +102,7 @@ When directory listing is enabled:
 4. **Single-range requests only** — multi-range requests are not supported
 5. **No HTTP/2** — HTTP/1.1 only
 6. **No native TLS by default** — requires `tls` feature flag
-7. **No request body processing** — all bodies rejected on GET/HEAD
+7. **Declared request-body policy** — static bodies are rejected; custom services may buffer or stream within configured limits
 8. **No authentication** — access control is network-level only (loopback bind)
 
 ## Reporting process

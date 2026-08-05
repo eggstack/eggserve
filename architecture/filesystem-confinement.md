@@ -169,7 +169,7 @@ This section traces every path from HTTP request target to response body, provin
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
 | 7. Response plan | `service.rs` → `primitives/planner.rs` | `plan_file_response()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
 | 8. Body conversion | `fs/mod.rs: ResolvedFile::into_body` | Consumes `self.file` into `BodySource::FileFull` or `BodySource::FileRange` | `file` moved into `BodySource` |
-| 9. Streaming | `service.rs: body_source_to_response` → `response.rs: file_response` / `file_response_range` | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires semaphore permit, streams via `AsyncReadExt::read` in 8KB chunks | `tokio::fs::File` + semaphore permit owned by stream closure |
+| 9. Streaming | Runtime canonical transport conversion → `response.rs: file_response` / `file_response_range` | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, streams via `AsyncReadExt::read` | `tokio::fs::File` + semaphore permit owned by stream closure |
 
 ### Key invariant
 
@@ -192,7 +192,7 @@ Evidence:
 | `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:945` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
 | `windows::list_directory_handle` | `NtQueryDirectoryFile` on retained handle | `fs/windows.rs:1662` | Buffer owned by call; no handle transfer |
 | `ResolvedFile::into_body` | No new open | `fs/mod.rs:40-76` | Moves `self.file` into `BodySource` |
-| `body_source_to_response` | No new open | `service.rs:317,330` | `file` → `tokio::fs::File::from_std()` |
+| canonical runtime transport conversion | No new open | `server/connection.rs` | `file` → `tokio::fs::File::from_std()` |
 | `file_response` / `file_response_range` | No new open | `response.rs:93,143` | File + semaphore permit owned by stream unfold closure |
 
 ### Non-regular file rejection

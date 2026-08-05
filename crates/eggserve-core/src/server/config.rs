@@ -267,6 +267,15 @@ impl RuntimeConfigBuilder {
                 "graceful_shutdown_timeout must be > 0".into(),
             ));
         }
+        if let Some(server_header) = &self.server_header {
+            crate::primitives::header_block::HeaderValue::new(server_header.clone()).map_err(
+                |e| {
+                    crate::server::errors::ServerError::Config(format!(
+                        "invalid server_header: {e}"
+                    ))
+                },
+            )?;
+        }
         Ok(RuntimeConfig {
             bind: self
                 .bind
@@ -366,6 +375,15 @@ mod tests {
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(5));
         assert_eq!(config.server_header.as_deref(), Some("eggserve/0.1"));
         assert_eq!(config.max_request_body_bytes, 1024 * 1024);
+    }
+
+    #[test]
+    fn invalid_server_header_is_rejected() {
+        let err = RuntimeConfig::builder()
+            .server_header("bad\r\nvalue".into())
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("invalid server_header"));
     }
 
     #[test]

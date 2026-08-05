@@ -282,7 +282,7 @@ StaticResponsePlan { status, headers, body: BodyPlan }
 file.into_body(&plan)  →  BodySource
     │
     ▼
-body_source_to_response(status, headers, body_source, semaphore)
+canonical response → runtime transport conversion (shared semaphore)
     │
     ▼
 Hyper Response<BoxBody>
@@ -295,7 +295,10 @@ The `into_body()` conversion is consuming — it takes ownership of the `Resolve
 - `BodyPlan::FileFull` → `BodySource::FileFull { file, len, mime }`
 - `BodyPlan::FileRange { start, end_inclusive }` → `BodySource::FileRange { file, range, total_len, mime }`
 
-The service layer's `body_source_to_response()` async function then converts the `BodySource` into a Hyper streaming body, acquiring a semaphore permit for file-backed variants to enforce `max_file_streams`.
+`StaticService::call()` returns the canonical response without collecting or
+acquiring transport state. The runtime's single Hyper conversion boundary turns
+file-backed variants into streams and acquires the server-wide
+`max_file_streams` permit.
 
 ## Unified Service-Layer Entry Point (Plan 081)
 
@@ -325,7 +328,9 @@ This async function is the single entry point for serving any resolved file — 
 2. Calls `plan_file_response()` with the `StaticRequestInput` fields
 3. Maps the plan status to a Hyper `StatusCode`
 4. For HEAD requests, returns the planned response without a body
-5. For GET requests, converts the resolved file into a `BodySource` via `into_body(&plan)` and streams it through `body_source_to_response()`
+5. For GET requests, converts the resolved file into a canonical file-backed
+   response via `into_body(&plan)`; runtime transport performs streaming and
+   admission
 
 This guarantees that `/directory/index.html` and `/directory/` (resolving to the same file) share identical metadata, validators, conditional handling, range handling, content headers, and streaming behavior.
 

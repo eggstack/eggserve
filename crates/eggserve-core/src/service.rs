@@ -419,7 +419,11 @@ pub(crate) async fn body_source_to_response(
         }
         BodySource::FileFull { file, len, mime } => {
             let tokio_file = tokio::fs::File::from_std(file);
-            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
+            let permit = match state
+                .legacy_file_stream_semaphore()
+                .clone()
+                .try_acquire_owned()
+            {
                 Ok(p) => p,
                 Err(_) => return service_unavailable(),
             };
@@ -436,7 +440,11 @@ pub(crate) async fn body_source_to_response(
         }
         BodySource::FileRange { file, range, .. } => {
             let tokio_file = tokio::fs::File::from_std(file);
-            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
+            let permit = match state
+                .legacy_file_stream_semaphore()
+                .clone()
+                .try_acquire_owned()
+            {
                 Ok(p) => p,
                 Err(_) => return service_unavailable(),
             };
@@ -638,7 +646,7 @@ mod tests {
         for _ in 0..max {
             permits.push(
                 state
-                    .file_stream_semaphore
+                    .legacy_file_stream_semaphore
                     .clone()
                     .try_acquire_owned()
                     .unwrap(),

@@ -229,7 +229,7 @@ async fn empty_post_with_content_length_zero() {
 }
 
 #[tokio::test]
-async fn get_with_body_is_rejected() {
+async fn get_with_body_follows_service_policy() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
@@ -238,8 +238,13 @@ async fn get_with_body_is_rejected() {
 
     let (handle, _tmp) = start_server_with_service(
         config,
-        |_req: eggserve_core::primitives::request::Request| async move {
-            unreachable!("service should not be called for GET with body");
+        |req: eggserve_core::primitives::request::Request| async move {
+            let (_head, body) = req.into_head_and_body();
+            assert_eq!(&body.read_all().await.unwrap()[..], b"hello");
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(b"ok".to_vec()))
+                .unwrap())
         },
         RequestBodyPolicy::Buffer { max_bytes: 1024 },
     )
@@ -254,8 +259,8 @@ async fn get_with_body_is_rejected() {
     conn.read_to_end(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf);
     assert!(
-        response.starts_with("HTTP/1.1 400"),
-        "expected 400, got: {}",
+        response.starts_with("HTTP/1.1 200"),
+        "expected 200, got: {}",
         response
     );
     handle.shutdown();
@@ -313,7 +318,7 @@ async fn stream_mode_chunked_body() {
 }
 
 #[tokio::test]
-async fn static_service_post_returns_405() {
+async fn static_service_post_body_is_rejected_before_method_dispatch() {
     let tmp = TempDir::new().unwrap();
     std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let config = RuntimeConfig::builder()
@@ -340,8 +345,8 @@ async fn static_service_post_returns_405() {
     conn.read_to_end(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf);
     assert!(
-        response.starts_with("HTTP/1.1 405"),
-        "expected 405 for POST to static service, got: {}",
+        response.starts_with("HTTP/1.1 413"),
+        "expected 413 for POST body to static service, got: {}",
         response
     );
     handle.shutdown();

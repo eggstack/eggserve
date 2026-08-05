@@ -1,59 +1,81 @@
 # Binary Size Tracking
 
-Active document tracking artifact sizes across profiles. Updated by Plan 105.
+This is the Plan 107 corrective-pass measurement snapshot. Sizes are recorded
+separately for the unstripped `release` profile and the stripped `dist`
+distribution profile; those profiles must not be compared as if the difference
+were solely code-size change.
 
 ## Environment
 
 - Target: `x86_64-unknown-linux-gnu`
 - Toolchain: `rustc 1.97.1 (8bab26f4f 2026-07-14)`
-- Commit: `d5f873a1e66191b97692711e946cf4a687edb5b4`
+- Candidate SHA: record from `git rev-parse HEAD` after the implementation commit
 
-## Baseline (before Plan 105)
+## CLI artifacts
 
 | Artifact | Profile | Stripped | Size (bytes) |
-|----------|---------|----------|-------------|
-| Default CLI | release | no | 2,219,904 |
-| TLS CLI | release | no | 3,324,096 |
+|----------|---------|----------|-------------:|
+| Default CLI | release | no | 1,972,360 |
+| Default CLI | dist | yes | 857,536 |
+| TLS CLI | release | no | 3,072,440 |
+| TLS CLI | dist | yes | 1,218,568 |
 
-## Final (after Plan 105)
+The `dist` profile is approximately 56.6% smaller than this snapshot's
+unstripped default release artifact and 60.3% smaller for TLS. The comparison
+is profile-aware: `dist` uses size optimization, single-unit LTO, one codegen
+unit, and symbol stripping.
 
-| Artifact | Profile | Stripped | Size (bytes) | Change |
-|----------|---------|----------|-------------|--------|
-| Default CLI | release | no | 2,052,240 | -7.6% |
-| Default CLI | dist (opt-level=z) | yes | 885,760 | -60.1% |
-| TLS CLI | release | no | 3,155,944 | -5.1% |
-| TLS CLI | dist (opt-level=z) | yes | 1,246,184 | -62.5% |
+## Python wheel artifacts
 
-## Changes applied
+Measured from the CPython 3.14 Linux wheel built by
+`scripts/test-python-wheel.sh`:
 
-| Change | Acceptance | Notes |
-|--------|-----------|-------|
-| `profile.dist` (opt-level=z, fat LTO, codegen-units=1, strip=symbols) | accepted | >50% reduction on dist builds |
-| Current-thread CLI runtime (`Builder::new_current_thread()`) | accepted | 5-8% reduction, no behavioral regression |
-| Tokio feature narrowing (remove `signal`, gate `rt-multi-thread` behind `client`) | accepted | Dependency hygiene, no byte savings measured in isolation |
-| PHF MIME map retained | accepted | Simple, correct, no build machinery |
-| Error strings retained | accepted | Auditability > micro-optimization |
+| Artifact | Measurement | Size (bytes) |
+|----------|-------------|-------------:|
+| Bundled CLI | on-disk `dist` binary | 857,536 |
+| Native extension | uncompressed wheel member | 5,131,760 |
+| Wheel | `.whl` file on disk | 2,314,426 |
 
-## Rejected experiments
+The wheel also contains Python sources, metadata, and the bundled CLI. The
+native-extension value is uncompressed while the wheel value is compressed;
+they are intentionally reported as different measurements.
 
-None. All experiments were accepted.
+## Current-thread runtime evidence
+
+The standalone CLI uses Tokio's current-thread runtime. A bounded local smoke
+measurement on this candidate served an exact 1 KiB file with 16 client workers
+and 1,000 fresh HTTP/1.1 requests, repeated three times:
+
+| Sample | Elapsed (s) | Requests/s |
+|--------|------------:|-----------:|
+| 1 | 0.4987 | 2,005.3 |
+| 2 | 0.5501 | 1,818.0 |
+| 3 | 0.4924 | 2,030.8 |
+
+This is a suitability smoke measurement, not a release gate or a cross-machine
+benchmark. The required functional suites additionally cover ranges, large
+file streams, connection admission, timeouts, TLS, and shutdown.
 
 ## Reproduction commands
 
 ```sh
-# Baseline
-cargo clean && cargo build --release --locked -p eggserve-bin
+cargo build --release --locked -p eggserve-bin
 stat --printf='%s\n' target/release/eggserve
 
-# Dist build
 cargo build --profile dist --locked -p eggserve-bin
 stat --printf='%s\n' target/dist/eggserve
 
-# TLS dist
+cargo build --release --locked -p eggserve-bin --features tls
+stat --printf='%s\n' target/release/eggserve
+
 cargo build --profile dist --locked -p eggserve-bin --features tls
 stat --printf='%s\n' target/dist/eggserve
 
-# Feature graph check
+PYTHON=python3.14 bash scripts/test-python-wheel.sh
 cargo tree -e features -p eggserve-bin --no-default-features
 cargo tree -e features -p eggserve-core --no-default-features
 ```
+
+The wheel script uses a controlled temporary fixture for its bundled CLI
+smoke, so release verification does not depend on a repository directory
+listing.

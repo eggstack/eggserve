@@ -1,5 +1,11 @@
 # Security Model — Deep Dive
 
+Plan 107 runtime boundary: static file capabilities remain handle-backed until
+transport conversion, which owns the single server-wide file-stream pool.
+Static and custom services share that admission point; custom startup has no
+implicit static root. Body policy is service-declared per actual method, while
+TRACE content and incomplete streamed bodies close at the transport boundary.
+
 eggserve is designed as a hardened replacement for `python -m http.server`. Security is not a feature — it is the foundational constraint that shapes every architectural decision.
 
 ## Central Invariant
@@ -15,8 +21,8 @@ Every security default is enforced at the library level unless the user explicit
 | Default | Behavior | Opt-out Flag |
 |---------|----------|-------------|
 | Bind to loopback | `127.0.0.1` only | `--public` |
-| GET/HEAD only | Other methods → 405 | N/A (hardcoded) |
-| Request bodies rejected | Discarded without processing | Body policy config |
+| GET/HEAD only (static) | Other methods → 405 | N/A (hardcoded) |
+| Request bodies rejected (static) | Body-bearing requests rejected before dispatch | Custom service body policy |
 | No symlink following | Denied at path + filesystem layers | `--follow-symlinks` |
 | No dotfile serving | `.` components rejected | `--allow-dotfiles` |
 | No directory listing | Directories → 404 | `--directory-listing` |
@@ -125,7 +131,7 @@ See [filesystem-confinement.md](filesystem-confinement.md) for the full traversa
 - **Percent decoding** — single-pass only; double-encoded traversal becomes literal
 - **Method validation** — only GET/HEAD for static serving; other methods return 405
 - **Body framing** — TE+CL conflict → 400 (when both headers survive Hyper's parser normalization); duplicate CL → 400; malformed CL → wire-level rejection
-- **Request body rejection** — bodies on GET/HEAD discarded before service invocation
+- **Request body policy** — static bodies are rejected before dispatch; custom services declare buffering or streaming for the actual method
 
 ### 5. Resource Limits
 

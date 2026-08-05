@@ -87,10 +87,18 @@ Shared Rust/Python conformance corpus for request body integration. Groups:
 - **fixed/chunked length accounting**: byte-accurate body size tracking
 - **limit enforcement**: oversized bodies → 413
 - **one-shot consumption**: second read raises error
-- **GET-with-body rejection**: bodies on GET/HEAD rejected
+- **service-defined method bodies**: GET/HEAD/DELETE/OPTIONS/extension bodies
+  are accepted when the service declares Buffer/Stream; static serving declares
+  Reject
 - **partial consumption**: incomplete body → Close policy
 
 Consumed by both Rust (`tests/body_conformance.rs`) and Python (`test_body_conformance.py`).
+
+Runtime corrective coverage also proves canonical static file/range variants,
+single-server file-stream saturation, rootless custom startup, authoritative
+`Server` headers, and wire-visible close behavior after partial stream-body
+consumption. Release smoke tests use a temporary fixture file rather than the
+repository root.
 
 ## Fuzzing
 

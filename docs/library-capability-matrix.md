@@ -25,7 +25,7 @@ its status using a constrained vocabulary.
 | **Runtime experimental** | `eggserve-core::server` — transport-owning runtime: `Server`, `Service` trait, `StaticService`. |
 | **Python stable** | `eggserve.server` compatibility classes and `serve_directory`; advanced wrappers are under `eggserve.lowlevel`, subprocess helpers under `eggserve.subprocess`. |
 | **Python experimental** | No default Python client surface. The internal callback engine and native bridge types are not supported imports. |
-| **Built-in static service** | The `handle_request` function used by CLI and Python Server (GET/HEAD only, no request bodies, path confinement, conditional/range responses). |
+| **Built-in static service** | The static service used by CLI and Python Server (GET/HEAD only, body rejection, path confinement, conditional/range responses). |
 | **Generic callback server** | Python `Server` with a user-provided handler callback; bounded concurrency via `max_python_callbacks`. |
 | **Experimental client** | Rust-only opt-in core feature; not compiled into the Python wheel. |
 
@@ -39,7 +39,7 @@ its status using a constrained vocabulary.
 | TLS client | — | — | stable | — | — | stable | — | — | stable |
 | GET/HEAD static serving | stable | stable | stable | experimental | stable | — | stable | — | — |
 | Request-target validation | stable | stable | stable | experimental | stable | — | stable | — | — |
-| Request-body rejection | stable | stable | stable | experimental | stable | — | stable | stable | — |
+| Request-body policy | stable | stable | stable | experimental | stable | — | stable | stable | — |
 | Canonical request types | — | stable | stable | experimental | stable | stable | — | — | — |
 | Canonical response types | — | stable | stable | experimental | stable | stable | — | — | — |
 | Duplicate-preserving headers | — | stable | stable | experimental | — | experimental | stable | stable | — |

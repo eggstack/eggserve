@@ -518,3 +518,65 @@ async fn connection_metadata_propagated_to_service() {
         "connection metadata should be visible to the service"
     );
 }
+
+#[tokio::test]
+async fn runtime_file_admission_is_shared_across_connections() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("shared.bin");
+    std::fs::write(&path, vec![b'x'; 16 * 1024 * 1024]).unwrap();
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse().unwrap())
+        .max_file_streams(1)
+        .build()
+        .unwrap();
+    let server = Server::builder().runtime(config).build().unwrap();
+    let service = service_fn(move |_request: Request| {
+        let path = path.clone();
+        async move {
+            let file = File::open(&path).unwrap();
+            let len = file.metadata().unwrap().len();
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::File(BodySource::FileFull {
+                    file,
+                    len,
+                    mime: "application/octet-stream",
+                }))
+                .unwrap())
+        }
+    });
+    let handle = server.start_with_service(service).await.unwrap();
+    let addr = handle.local_addr();
+
+    let mut first = tokio::net::TcpStream::connect(addr).await.unwrap();
+    first
+        .write_all(b"GET /first HTTP/1.1\r\nHost: localhost\r\n\r\n")
+        .await
+        .unwrap();
+    let mut first_headers = Vec::new();
+    loop {
+        let mut byte = [0u8; 1];
+        first.read_exact(&mut byte).await.unwrap();
+        first_headers.push(byte[0]);
+        if first_headers.ends_with(b"\r\n\r\n") {
+            break;
+        }
+    }
+    assert!(String::from_utf8_lossy(&first_headers).starts_with("HTTP/1.1 200"));
+
+    let mut second = tokio::net::TcpStream::connect(addr).await.unwrap();
+    second
+        .write_all(b"GET /second HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut second_response = Vec::new();
+    second.read_to_end(&mut second_response).await.unwrap();
+    assert!(
+        String::from_utf8_lossy(&second_response).starts_with("HTTP/1.1 503"),
+        "expected shared file admission to reject second stream: {:?}",
+        String::from_utf8_lossy(&second_response)
+    );
+
+    drop(first);
+    handle.shutdown();
+}

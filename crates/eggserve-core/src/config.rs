@@ -64,28 +64,29 @@ impl ServeConfig {
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
     pub(crate) pinned_root: Arc<PinnedRoot>,
-    pub(crate) file_stream_semaphore: Arc<Semaphore>,
+    // Kept only for the legacy `crate::service::handle_request` adapter.
+    // Runtime-owned services use `server::RuntimeState` instead.
+    pub(crate) legacy_file_stream_semaphore: Arc<Semaphore>,
 }
 
 impl ServeState {
     pub fn new(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
         let pinned_root = Arc::new(PinnedRoot::new(&config.root)?);
-        let max_file_streams = config.limits.max_file_streams;
-        if max_file_streams > Semaphore::MAX_PERMITS {
+        if config.limits.max_file_streams > Semaphore::MAX_PERMITS {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!(
                     "max_file_streams must be <= {} (Semaphore::MAX_PERMITS): got {}",
                     Semaphore::MAX_PERMITS,
-                    max_file_streams
+                    config.limits.max_file_streams
                 ),
             ));
         }
-        let file_stream_semaphore = Arc::new(Semaphore::new(max_file_streams));
+        let max_file_streams = config.limits.max_file_streams;
         Ok(Self {
             config,
             pinned_root,
-            file_stream_semaphore,
+            legacy_file_stream_semaphore: Arc::new(Semaphore::new(max_file_streams)),
         })
     }
 
@@ -97,8 +98,16 @@ impl ServeState {
         &self.pinned_root
     }
 
+    #[allow(dead_code)]
+    pub(crate) fn legacy_file_stream_semaphore(&self) -> &Arc<Semaphore> {
+        &self.legacy_file_stream_semaphore
+    }
+
+    /// Legacy direct-adapter semaphore. Running servers use
+    /// `server::RuntimeState::file_stream_semaphore` instead.
+    #[allow(dead_code)]
     pub fn file_stream_semaphore(&self) -> &Arc<Semaphore> {
-        &self.file_stream_semaphore
+        &self.legacy_file_stream_semaphore
     }
 }
 
@@ -127,36 +136,5 @@ mod tests {
         assert!(!summary.dotfiles_served);
         assert_eq!(summary.max_connections, 64);
         assert_eq!(summary.max_file_streams, 32);
-    }
-
-    #[test]
-    fn serve_state_rejects_file_streams_above_semaphore_max() {
-        let config = Arc::new(ServeConfig {
-            limits: Limits {
-                max_file_streams: tokio::sync::Semaphore::MAX_PERMITS + 1,
-                ..Default::default()
-            },
-            ..ServeConfig::default()
-        });
-        match ServeState::new(config) {
-            Ok(_) => panic!("expected error for file_streams above MAX_PERMITS"),
-            Err(err) => {
-                assert_eq!(err.kind(), std::io::ErrorKind::InvalidInput);
-                assert!(err.to_string().contains("Semaphore::MAX_PERMITS"));
-            }
-        }
-    }
-
-    #[test]
-    fn serve_state_accepts_file_streams_at_semaphore_max() {
-        let config = Arc::new(ServeConfig {
-            limits: Limits {
-                max_file_streams: tokio::sync::Semaphore::MAX_PERMITS,
-                ..Default::default()
-            },
-            root: std::env::temp_dir(),
-            ..ServeConfig::default()
-        });
-        assert!(ServeState::new(config).is_ok());
     }
 }

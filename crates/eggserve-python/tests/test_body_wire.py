@@ -299,8 +299,8 @@ class TestBodyLimitExceeded(unittest.TestCase):
 
 
 
-class TestGetWithBodyRejected(unittest.TestCase):
-    """GET requests with body are rejected."""
+class TestGetWithBodyAccepted(unittest.TestCase):
+    """GET request bodies follow the custom service policy."""
 
     def setUp(self):
         self._td = tempfile.mkdtemp()
@@ -335,12 +335,12 @@ class TestGetWithBodyRejected(unittest.TestCase):
         ).encode()
         resp = _raw_request(self._addr, req)
         status = _parse_status(resp)
-        self.assertEqual(status, 400)
+        self.assertEqual(status, 200)
 
 
 
 class TestStaticServiceBodyRejection(unittest.TestCase):
-    """Static service returns 405 for POST."""
+    """Static service rejects non-empty bodies before method dispatch."""
 
     def setUp(self):
         self._td = tempfile.mkdtemp()
@@ -358,7 +358,7 @@ class TestStaticServiceBodyRejection(unittest.TestCase):
             pass
         shutil.rmtree(self._td, ignore_errors=True)
 
-    def test_post_to_static_returns_405(self):
+    def test_post_to_static_returns_413(self):
         body = b"hello"
         req = (
             f"POST /test.txt HTTP/1.1\r\n"
@@ -369,9 +369,9 @@ class TestStaticServiceBodyRejection(unittest.TestCase):
         ).encode() + body
         resp = _raw_request(self._addr, req)
         status = _parse_status(resp)
-        self.assertEqual(status, 405)
+        self.assertEqual(status, 413)
 
-    def test_put_to_static_returns_405(self):
+    def test_put_to_static_returns_413(self):
         body = b"hello"
         req = (
             f"PUT /test.txt HTTP/1.1\r\n"
@@ -382,7 +382,7 @@ class TestStaticServiceBodyRejection(unittest.TestCase):
         ).encode() + body
         resp = _raw_request(self._addr, req)
         status = _parse_status(resp)
-        self.assertEqual(status, 405)
+        self.assertEqual(status, 413)
 
     def test_delete_to_static_returns_405(self):
         req = (

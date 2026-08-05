@@ -363,7 +363,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `StaticResponsePlan` / `ResponsePlan` | Rust, Python | Implemented and stable-ish | Framework-independent value object; status, headers, body plan | Response construction |
 | `HeaderMapPlan` | Rust | Implemented and stable-ish | Case-insensitive header storage | Response header construction |
 | `validate_method` | Rust, Python | Implemented and stable-ish | Only GET/HEAD allowed; all others rejected | Request method validation |
-| `validate_request_body` | Rust, Python | Implemented and stable-ish | Rejects non-empty bodies on GET/HEAD, invalid Content-Length, Transfer-Encoding | Body framing validation |
+| `validate_request_body` | Rust, Python | Implemented and stable-ish | Validates body framing and limits; service policy decides whether the actual method accepts content | Body framing validation |
 | `validate_request_target` | Rust, Python | Implemented and provisional | Coarse origin-form check (starts with `/`, no whitespace) | Pre-validation before full path parsing |
 | `BodyPlan` | Rust | Implemented and provisional | Variants: Empty, FullBytes, FileFull, FileRange | Body source selection |
 | `BodySource` | Rust, Python | Implemented | Owns resolved file handle; converts to Hyper body without path reopening | Safe body streaming for downstream servers |

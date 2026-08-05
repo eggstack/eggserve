@@ -1,4 +1,8 @@
-# Plan 102–106 Closure Record
+# Superseded historical record: Plans 102–106
+
+Plan 107 reopens the runtime streaming, ownership, request-body, release-smoke,
+and evidence claims recorded below. This file is retained as history; the
+current truth is the implementation and hosted checks for Plan 107.
 
 ## Final commit
 

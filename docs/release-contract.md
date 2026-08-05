@@ -4,6 +4,11 @@ This document defines the exact product surface, behavioral guarantees, and comp
 
 Version: 0.1.0 (pre-release)
 
+Plan 107 corrective boundary: request-body behavior is service-owned. The
+built-in static service rejects body-bearing requests, while custom services may
+declare buffering or streaming for the actual method. The runtime owns one
+server-wide file-stream admission pool and closes incomplete streamed requests.
+
 The Python wheel compatibility declaration is CPython 3.14 only
 (`>=3.14,<3.15`) on Linux, macOS, and Windows. The wheel bundles the matching
 platform-native CLI binary; PyPy and free-threaded CPython are not supported.
@@ -135,7 +140,9 @@ Key properties:
 - **HTTP/1.1 only** — no HTTP/2 or HTTP/3.
 - **Read-only methods**: GET and HEAD. All other methods return 405.
 - **Request target**: origin-form only (`/path?query`). Authority-form and absolute-form are rejected.
-- **No request bodies**: GET and HEAD reject `Content-Length > 0`, invalid `Content-Length`, and any `Transfer-Encoding`.
+- **Static request bodies**: the built-in static service rejects body-bearing
+  requests before method dispatch. Custom services may accept bodies through
+  their declared policy; TRACE content remains rejected globally.
 - **Conditional requests**: `If-None-Match`, `If-Modified-Since`, `If-Range` are supported.
 - **Range requests**: `Range` header with single byte ranges. Multi-range returns the full response.
 - **HEAD parity**: HEAD responses include the same headers as GET with an empty body.
@@ -155,9 +162,9 @@ These rules are enforced at the raw HTTP/1.1 socket boundary and are regression-
 - Percent-encoded dot-dot traversal (`%2e%2e`, `%252e%252e`) → 400 or 403.
 - Root path (`/`) with directory listing disabled → 403.
 - Semicolons in paths are literal characters (not path separators) → 404 if no matching file.
-- `Content-Length > 0` on GET/HEAD → 413.
+- Positive content on the static service → 413.
 - Invalid `Content-Length` (non-numeric, negative, overflow) → 400 or connection close.
-- `Transfer-Encoding` present on GET/HEAD → 400.
+- `Transfer-Encoding` on the static service → 400.
 - Both `Content-Length` and `Transfer-Encoding` present → 400.
 - `Transfer-Encoding` with unsupported codings (e.g. `chunked`) → 400.
 - Duplicate `Content-Length` with conflicting values → 400.

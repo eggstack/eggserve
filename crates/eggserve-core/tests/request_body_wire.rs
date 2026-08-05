@@ -331,7 +331,7 @@ async fn connection_close_after_rejected_body() {
 }
 
 #[tokio::test]
-async fn get_with_body_wire_rejected() {
+async fn get_with_body_wire_follows_service_policy() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
@@ -356,8 +356,8 @@ async fn get_with_body_wire_rejected() {
     conn.read_to_end(&mut buf).await.unwrap();
     let response = String::from_utf8_lossy(&buf);
     assert!(
-        response.starts_with("HTTP/1.1 400"),
-        "expected 400 for GET with body, got: {}",
+        response.starts_with("HTTP/1.1 200"),
+        "expected 200 for GET with body, got: {}",
         response
     );
     handle.shutdown();

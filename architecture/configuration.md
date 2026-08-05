@@ -16,7 +16,8 @@ configuration field, its owner, enforcement path, and cross-frontend mapping.
 
 - `ServeConfig` fields — root directory, bind address, static policy
 - `StaticPolicy` fields — symlink, dotfile, directory listing policies
-- `Limits::max_file_streams` — feeds into `ServeState` file-stream semaphore
+- `Limits::max_file_streams` — translated once into `RuntimeConfig` and the
+  one runtime-owned file-stream semaphore
 - `Limits::max_listing_entries`, `max_listing_response_bytes`
 - `Limits::stream_chunk_size`
 
@@ -29,7 +30,7 @@ A setting may be shared by reference, but only one validated value owns enforcem
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
 | `max_connections` | `RuntimeConfig` | 64 | > 0 | `--max-connections` | `max_connections` | Connection semaphore in accept loop |
-| `max_file_streams` | `RuntimeConfig` / `ServeState` | 32 | > 0 | `--max-file-streams` | `max_file_streams` | File-stream semaphore in transport |
+| `max_file_streams` | `RuntimeConfig` | 32 | > 0 | `--max-file-streams` | `max_file_streams` | One file-stream semaphore per running server |
 | `max_python_callbacks` | `PyServer` | 8 | > 0 | N/A | `max_python_callbacks` | Callback semaphore in `PythonCallbackService` |
 | `max_listing_entries` | `Limits` | 4096 | > 0 | N/A | N/A | Directory listing enumeration |
 | `max_listing_response_bytes` | `Limits` | 1 MiB | > 0 | N/A | N/A | Directory listing response body cap |

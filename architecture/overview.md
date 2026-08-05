@@ -1,5 +1,10 @@
 # Architecture Overview
 
+The current runtime ownership contract is defined by Plan 107: one
+`RuntimeState` per running server, one transport file-stream semaphore, and
+canonical static file/range bodies preserved until Hyper conversion. Static
+state owns confinement only; custom Rust/Python services are rootless.
+
 eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
 
 ## What eggserve Is

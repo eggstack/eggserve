@@ -1,5 +1,11 @@
 # Migration Guide: Request Body Support
 
+Plan 107 correction: body policy is evaluated for the actual request method.
+GET/HEAD/DELETE/OPTIONS and extension-method bodies are accepted by custom
+services that declare Buffer/Stream and remain bounded by the runtime ceiling.
+StaticService declares Reject; TRACE content is still rejected and incomplete
+stream bodies close the connection.
+
 ## Overview
 
 Request body support is **experimental** and opt-in. The default body policy is

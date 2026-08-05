@@ -2,7 +2,7 @@
 
 ## Status
 
-**Pending implementation.**
+**IMPLEMENTATION COMPLETE — HOSTED CI PENDING.**
 
 This is a bounded corrective pass against repository state:
 
@@ -1140,3 +1140,21 @@ Commits may be combined where necessary to keep the tree buildable. Do not combi
 The primary implementation risk is not filesystem confinement itself; it is preserving handle-backed static responses while moving all transport concerns out of static state. Keep the resolver and planner behavior stable, change the response ownership boundary, and prove the result through canonical-body and cross-connection admission tests.
 
 After Plan 107 passes, return to ordinary issue-scale maintenance. Do not create another broad closure roadmap for residual documentation polish.
+
+## Candidate closure record
+
+Implementation satisfies the corrective requirements locally:
+
+- static file and range responses remain canonical file-backed bodies until transport;
+- one server-wide runtime file-admission pool is shared by static and custom services;
+- custom Rust and Python services start without an implicit static root;
+- body policy is selected for the actual method, with global TRACE-content rejection and wire-enforced incomplete-stream closure;
+- `server_header` is runtime-authoritative;
+- release smoke uses a controlled temporary fixture and `dist` artifacts;
+- current artifact sizes and a bounded current-thread workload measurement are recorded in `benchmarks/binary-size.md`.
+
+Local `verify.sh fast`, `verify.sh full`, workspace/TLS/client-TLS tests, selected
+body/cancellation/fault/replay/race/TLS-abuse suites, package dry-runs, and the
+installed CPython 3.14 wheel suite pass. Hosted Rust and Python jobs remain
+pending for the candidate commit; this plan must not be marked complete until
+those jobs pass on that exact commit.

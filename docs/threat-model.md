@@ -1,5 +1,11 @@
 # Threat Model
 
+Plan 107 updates the runtime trust boundary: static state contains confinement
+capabilities only, while transport owns the one file-stream pool and final
+response headers. A custom Rust or Python service cannot cause static-root
+construction merely by starting. Partial request-body consumption closes the
+HTTP/1 connection to prevent pipelined reuse.
+
 ## Assets
 
 eggserve protects the following assets:
@@ -67,7 +73,7 @@ An attacker who can place reparse points (NTFS junctions, symbolic links, mount 
 
 ### Resource-exhaustion attacker
 
-An attacker who sends requests designed to consume excessive server resources (memory, CPU, file descriptors, file streams). The server enforces resource limits including: connection count (64 max), file-stream count (32 max), header read timeout (10s), connection total timeout (60s), request target size limits, header count/size limits, and directory listing entry/byte limits (4096 entries max, 1 MiB response body max, 255-byte filenames max, 30s enumeration timeout). Request bodies are rejected by default on GET/HEAD.
+An attacker who sends requests designed to consume excessive server resources (memory, CPU, file descriptors, file streams). The server enforces resource limits including: connection count (64 max), one server-wide file-stream pool (32 max), header read timeout (10s), connection total timeout (60s), request target size limits, header count/size limits, and directory listing entry/byte limits (4096 entries max, 1 MiB response body max, 255-byte filenames max, 30s enumeration timeout). The built-in static service rejects request bodies by default; custom services may opt into bodies within the runtime ceiling.
 
 ### Log-injection attacker
 
@@ -184,10 +190,10 @@ Parser-level protections reject Windows reserved names, ADS syntax, drive prefix
 ## Defensive layers
 
 1. **Path confinement** — all request paths are parsed, percent-decoded, validated, and resolved against the configured root. The `ConfinedPath` parser rejects traversal (`..`), absolute paths, NUL bytes, malformed percent-encoding, backslash ambiguity, and platform-specific attacks (Windows reserved names, ADS, drive prefixes). The `RootGuard` canonicalizes the final path and verifies it remains within the root.
-2. **Policy enforcement** — a security policy object controls what is allowed (methods, symlink following, dotfiles, directory listing). Defaults deny everything except direct file GET/HEAD.
+2. **Policy enforcement** — a security policy object controls what is allowed (methods, symlink following, dotfiles, directory listing). The static service defaults to direct file GET/HEAD and body rejection.
 3. **Input validation** — malformed request targets are rejected before path resolution. Percent-encoding is decoded exactly once. Double-encoded traversal is caught by per-component decode checks.
 4. **Filesystem checks** — when symlink policy denies symlinks, on Unix, descriptor-relative traversal uses `statat(AT_SYMLINK_NOFOLLOW)` before each `openat(..., O_NOFOLLOW)` to detect symlinks at each path component and to refuse to follow them at open time. Intermediate components are opened with `O_DIRECTORY|O_NOFOLLOW`, final components with `O_RDONLY|O_NOFOLLOW`. On non-Unix or when `--follow-symlinks` is enabled, `symlink_metadata` is checked per component and the final canonical path is verified against the root; this fallback is **weaker** than the descriptor-relative path and is explicitly outside the hardened guarantee. Plans 084–086 have implemented handle-relative confinement on Windows including child resolution (Plan 084) and handle-relative directory enumeration using `NtQueryDirectoryFile` (Plan 085); Plan 086 adversarial qualification test scaffold is established (114 tests). Files are opened during resolution — never re-opened later by absolute path. Canonical root escape is rejected with `PathRejection::RootEscapeDenied`. Dotfile policy checks components at both the path-validation and filesystem-resolution layers. Directory listings also respect symlink policy and hide symlink entries when denied.
-5. **Resource limits** — connection count (64 max), file-stream count (32 max), header read timeout (10s), connection total timeout (60s), and request body metadata rejection (`Content-Length > 0`, invalid `Content-Length`, or any `Transfer-Encoding` on GET/HEAD) are enforced to prevent resource exhaustion.
+5. **Resource limits** — connection count (64 max), one server-wide file-stream pool (32 max), header read timeout (10s), connection total timeout (60s), and service-declared request-body limits are enforced to prevent resource exhaustion.
 6. **Sanitized logging** — all logged paths and headers are sanitized to prevent log injection.
 7. **Framing enforcement** — TE+CL conflict, duplicate Content-Length, and malformed Content-Length are rejected before the service is invoked. When Hyper's HTTP parser normalizes headers (stripping Content-Length when Transfer-Encoding is present), the rejection occurs if both headers survive parser extraction. Duplicate Content-Length fields are always rejected. This prevents request smuggling where front-end and back-end servers disagree on message boundaries.
 
@@ -227,7 +233,9 @@ Extracting paths from `safe_relative_components()` and reopening them manually b
 
 ## Request-body policy risk
 
-eggserve rejects non-empty request bodies on GET/HEAD. Downstream adapters must enforce the same policy or explicitly document the difference.
+The built-in static service rejects non-empty request bodies before method
+dispatch. Downstream services may declare a different policy; the runtime still
+enforces the global body ceiling and closes connections for incomplete streams.
 
 ## Request-body framing risk
 

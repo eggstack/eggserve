@@ -675,15 +675,19 @@ class TestRequestRepresentation(_TestServerBase):
         urllib.request.urlopen(url, timeout=2)
         self.assertFalse(captured[-1])
 
-    def test_get_body_metadata_is_rejected_before_handler(self):
-        """GET body framing is rejected before callback execution."""
+    def test_get_body_metadata_follows_service_policy(self):
+        """GET body framing reaches a callback that opts into buffering."""
         called = []
 
         def handler(req):
             called.append(True)
-            return Response.text(200, "unexpected")
+            return Response.text(200, "ok")
 
-        s = self._make_server(handler=handler)
+        s = self._make_server(
+            handler=handler,
+            request_body_mode="buffer",
+            max_request_body_bytes=1024,
+        )
         self.assertTrue(_wait_for_tcp(s.addr))
         status = _raw_status(
             s.addr,
@@ -691,8 +695,8 @@ class TestRequestRepresentation(_TestServerBase):
             + f"Host: {s.addr}\r\n".encode()
             + b"Content-Length: 1\r\nConnection: close\r\n\r\nx",
         )
-        self.assertEqual(status, 400)
-        self.assertEqual(called, [])
+        self.assertEqual(status, 200)
+        self.assertEqual(called, [True])
 
     def test_request_http_version(self):
         """Handler receives http_version string."""

@@ -17,7 +17,9 @@ The main entry point. Created via `Server::builder()`, configured with a `Runtim
 Configures and constructs a `Server` via a fluent builder API:
 
 - `runtime(config)` — set the `RuntimeConfig`
-- `serve_config(config)` — set a pre-built `ServeConfig` (bridges CLI/Python config)
+- `serve_config(config)` — compatibility convenience for `start()`; it is
+  converted into one `StaticService` at static startup and is ignored by
+  `start_with_service()` custom-service startup
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
 - `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically
 - `build()` — build with the built-in `StaticService`
@@ -60,8 +62,10 @@ Hardened static file service implementing `Service`:
 - GET/HEAD-only semantics
 - Conditional and range request handling
 - ETag and Last-Modified generation
-- File-stream semaphore-gated concurrency
-- Method-aware body policy: Buffer for GET/HEAD, Reject for unsupported methods
+- Canonical file/range bodies retained as opened capabilities until transport
+- Static-service body policy is `Reject` for every request; bodyless unsupported
+  methods reach the service and return 405, while body-bearing requests are
+  rejected before invocation
 
 ### ServerHandle
 
@@ -132,6 +136,20 @@ Listener errors are classified by `io::ErrorKind` into transient, resource-exhau
 - RAII permits ensure connection and file-stream permits are released on drop, even under cancellation. Canonical file-backed responses acquire the shared file-stream permit at transport conversion, so custom Rust services and the Python static façade share the same ceiling.
 - Normal peer resets do not terminate the server; only fatal runtime errors transition to Failed
 - Python callback failures are converted to generic service errors with fixed diagnostic categories; handler exception text and response data are not logged.
+
+### Runtime ownership corrective contract
+
+Each running server creates exactly one `RuntimeState`, including one
+`max_file_streams` semaphore. The accept loop clones that state into every
+connection; `StaticService` owns only its pinned root, policy, and listing
+limits. All canonical file and range responses acquire the same permit at the
+single Hyper conversion boundary. Custom Rust and Python services have no
+implicit root or static state.
+
+The runtime asks the service for the body policy for the actual request. GET,
+HEAD, DELETE, OPTIONS, and extension methods are not globally body-forbidden;
+TRACE content remains rejected. An unconsumed streamed body marks the response
+`Connection: close`, drops the body, and prevents connection reuse.
 
 ## Shutdown Semantics
 
@@ -233,7 +251,9 @@ pub trait Service: Send + Sync + 'static {
 
 ### Static service
 
-The built-in `StaticService` uses method-aware body policy: `Buffer { max_bytes: 0 }` for GET/HEAD (allowing the request to reach the service) and `Reject` for unsupported methods (causing the runtime to return 405). The service returns 405 for methods it does not support.
+The built-in `StaticService` declares `Reject` for request bodies. Its
+canonical planner still returns `ResponseBody::File` for full and range
+responses; the runtime performs admission and streaming.
 
 ### Python body policy mapping
 

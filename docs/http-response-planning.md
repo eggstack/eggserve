@@ -1,5 +1,10 @@
 # HTTP Response Planning
 
+Plan 107 corrective contract: canonical static planning returns opened-handle
+file/range bodies directly. The runtime performs the only file admission and
+transport conversion. Static request bodies are rejected by service policy;
+custom service body policy remains method-aware.
+
 ## Overview
 
 The response planner (`primitives::planner`) is a pure, Hyper-independent planning layer that determines what response to send for a given request. It produces `StaticResponsePlan` value objects that can be mapped into Hyper, Python stdlib server responses, test assertions, or later adapter layers.

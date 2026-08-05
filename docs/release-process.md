@@ -1,5 +1,12 @@
 # Release Process
 
+Manual wheel smoke tests use a temporary directory containing a deterministic
+fixture file, pass the explicit directory and loopback bind to the bundled
+CLI, poll readiness with bounded retries, verify the exact response body, and
+confirm clean termination. Distribution artifacts use the workspace `dist`
+profile; size comparisons distinguish profile/stripping effects from code
+changes.
+
 eggserve releases are performed manually by a maintainer from a trusted local
 environment. GitHub Actions never publishes to crates.io, PyPI, or GitHub
 Releases. The release cadence is a maintainer decision and is not triggered by

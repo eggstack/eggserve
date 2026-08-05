@@ -1,5 +1,9 @@
 # Dependency Policy
 
+Plan 107 adds no runtime or release-framework dependency. The release smoke
+fixture uses only Python's standard library, and the existing Hyper/Tokio
+transport remains the sole file-stream conversion boundary.
+
 ## Rules
 
 Every dependency must have an explicit purpose. The following rules apply to all dependencies:

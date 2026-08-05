@@ -1570,12 +1570,6 @@ impl PyServer {
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-        let serve_config = Arc::new(eggserve_core::config::ServeConfig {
-            root: self.responder.root.root_path().to_path_buf(),
-            static_policy: self.responder.policy.clone(),
-            ..eggserve_core::config::ServeConfig::default()
-        });
-
         let (server_handle, rt) =
             py.allow_threads(|| -> PyResult<(ServerHandle, tokio::runtime::Runtime)> {
                 let rt = tokio::runtime::Runtime::new()
@@ -1605,7 +1599,6 @@ impl PyServer {
 
                         let server = Server::builder()
                             .runtime(runtime_config)
-                            .serve_config(serve_config)
                             .bind(bind_addr)
                             .build()
                             .map_err(|e| {
@@ -1639,6 +1632,11 @@ impl PyServer {
                         }
                         Ok::<ServerHandle, PyErr>(handle)
                     } else {
+                        let serve_config = Arc::new(eggserve_core::config::ServeConfig {
+                            root: self.responder.root.root_path().to_path_buf(),
+                            static_policy: self.responder.policy.clone(),
+                            ..eggserve_core::config::ServeConfig::default()
+                        });
                         let server = Server::builder()
                             .runtime(runtime_config)
                             .serve_config(serve_config)

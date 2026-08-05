@@ -185,7 +185,8 @@ eggserve ships with secure defaults. Every option that weakens security requires
 
 - **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
 - **GET and HEAD only** — all other methods are rejected
-- **No request bodies** — bodies on GET/HEAD are rejected (413 for size limits, 400 for malformed framing)
+- **Static service rejects request bodies** — custom services may opt into
+  buffered/streamed bodies within the runtime ceiling
 - **No symlink following** — denied unless `--follow-symlinks` is passed. On Unix, descriptor-relative traversal (`statat` + `openat`) prevents symlink swap attacks
 - **No dotfiles served** — hidden files are excluded
 - **No directory listing** — unless `--directory-listing` is passed
@@ -199,6 +200,14 @@ to 100–599, 205 responses carry no content, weak metadata ETags are not valid
 `If-Range` validators, and the runtime adds one authoritative `Date` header.
 HEAD responses preserve the equivalent GET representation metadata, including
 directory-listing `Content-Length`, while sending no body.
+
+Static files and ranges remain canonical, opened-handle-backed bodies until the
+runtime transport boundary. One file-stream admission pool is created per
+running server and is shared by static, Rust custom, and Python custom file
+responses. Custom services have no implicit filesystem root. Their declared
+request-body policy controls GET/HEAD/DELETE/OPTIONS/extension content within
+the runtime ceiling; TRACE content is rejected, and incomplete streamed bodies
+close the connection.
 
 See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
 

@@ -26,11 +26,11 @@ use hyper::{Request, Response};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::broadcast;
 
-use crate::config::ServeState;
 use crate::primitives::request_body_policy::RequestBodyPolicy;
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 use crate::server::service::{Service, ServiceError};
+use crate::server::RuntimeState;
 
 /// Serve a single HTTP/1.1 connection.
 ///
@@ -122,11 +122,11 @@ pub async fn serve_connection<I, S>(
 /// caught by the `JoinSet` in the accept loop. The connection is dropped
 /// and a `ConnectionPanic` event is emitted.
 #[allow(clippy::too_many_arguments)]
-pub async fn serve_connection_with_service<I, S>(
+pub async fn serve_connection_with_runtime_state<I, S>(
     io: TokioIo<I>,
     service: S,
     config: &RuntimeConfig,
-    state: Option<&ServeState>,
+    runtime_state: Arc<RuntimeState>,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
     local_addr: std::net::SocketAddr,
@@ -138,65 +138,49 @@ pub async fn serve_connection_with_service<I, S>(
     S: Service,
 {
     let service = std::sync::Arc::new(service);
+    let config = Arc::new(config.clone());
     let handler_timeout = config.handler_timeout;
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
     let tls_info = std::sync::Arc::new(tls_info);
-    let file_stream_semaphore = state
-        .map(|s| s.file_stream_semaphore().clone())
-        .unwrap_or_else(|| {
-            // Custom service without filesystem state: create a runtime-owned semaphore.
-            Arc::new(tokio::sync::Semaphore::new(config.max_file_streams))
-        });
+    let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+    let response_config = config.clone();
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
         let service = service.clone();
         let tls_info = tls_info.clone();
         let file_stream_semaphore = file_stream_semaphore.clone();
+        let config = response_config.clone();
         async move {
             // Convert Hyper request to canonical RequestHead.
             let head = match convert_request_head(&req) {
                 Ok(h) => h,
                 Err(e) => {
-                    return Ok::<_, Infallible>(e.to_response());
+                    return Ok::<_, Infallible>(finalize_runtime_response(
+                        e.to_response(),
+                        &config,
+                    ));
                 }
             };
 
-            // Runtime-level request policy validation (body-forbidden methods).
-            if let Err(e) = validate_request_policy(&head) {
-                return Ok::<_, Infallible>(e.to_response());
-            }
-
-            // Method support check: if the service's body policy is Reject
-            // for the current method but would be non-Reject for GET, the
-            // service does not support this method. Return 405 instead of
-            // 413 to distinguish method rejection from body size rejection.
-            let declared_length_for_method = req
-                .headers()
-                .get(hyper::header::CONTENT_LENGTH)
-                .and_then(|v| v.to_str().ok())
-                .and_then(|s| s.parse::<u64>().ok());
-            let has_body_for_method = declared_length_for_method.is_some_and(|len| len > 0)
-                || req.headers().contains_key(hyper::header::TRANSFER_ENCODING);
-            if has_body_for_method && service.request_body_policy(&head).is_reject() {
-                // Check if the service's policy differs for GET — if so,
-                // this method is not supported (policy is method-dependent).
-                let is_get_or_head = matches!(head.method().as_str(), "GET" | "HEAD");
-                if !is_get_or_head {
-                    // Check if the service supports GET by constructing a
-                    // minimal GET request head.
-                    let get_head = crate::primitives::request_head::RequestHead::new(
-                        crate::primitives::method::Method::get(),
-                        crate::primitives::request_target::RequestTarget::parse("/").unwrap(),
-                        head.version(),
-                        crate::primitives::header_block::HeaderBlock::new(),
-                    );
-                    if !service.request_body_policy(&get_head).is_reject() {
-                        return Ok::<_, Infallible>(crate::response::method_not_allowed(
-                            head.method().is_head(),
-                        ));
-                    }
-                }
+            // TRACE content remains a transport-level rejection. Other
+            // methods, including GET, HEAD, and DELETE, are governed by the
+            // service-declared policy below.
+            if head.method().as_str() == "TRACE"
+                && (req
+                    .headers()
+                    .get(hyper::header::CONTENT_LENGTH)
+                    .and_then(|value| value.to_str().ok())
+                    .and_then(|value| value.parse::<u64>().ok())
+                    .is_some_and(|length| length > 0)
+                    || req.headers().contains_key(hyper::header::TRANSFER_ENCODING))
+            {
+                let mut response = crate::response::bad_request(false);
+                response.headers_mut().insert(
+                    hyper::header::CONNECTION,
+                    hyper::header::HeaderValue::from_static("close"),
+                );
+                return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
             }
 
             // Select effective body policy.
@@ -219,7 +203,7 @@ pub async fn serve_connection_with_service<I, S>(
                     )
                     .connection_id(conn_id),
                 );
-                return Ok::<_, Infallible>(e.to_response());
+                return Ok::<_, Infallible>(finalize_runtime_response(e.to_response(), &config));
             }
 
             let declared_length = parts
@@ -249,7 +233,10 @@ pub async fn serve_connection_with_service<I, S>(
                             declared: len,
                             limit,
                         };
-                        return Ok::<_, Infallible>(body_error_to_response(err, &head));
+                        return Ok::<_, Infallible>(finalize_runtime_response(
+                            body_error_to_response(err, &head),
+                            &config,
+                        ));
                     }
                 }
             }
@@ -270,8 +257,12 @@ pub async fn serve_connection_with_service<I, S>(
                             )
                             .connection_id(conn_id),
                         );
-                        let response = crate::response::payload_too_large(false);
-                        return Ok::<_, Infallible>(response);
+                        let mut response = crate::response::payload_too_large(false);
+                        response.headers_mut().insert(
+                            hyper::header::CONNECTION,
+                            hyper::header::HeaderValue::from_static("close"),
+                        );
+                        return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
                     }
                 }
             }
@@ -309,7 +300,7 @@ pub async fn serve_connection_with_service<I, S>(
                     hyper::header::CONNECTION,
                     hyper::header::HeaderValue::from_static("close"),
                 );
-                return Ok::<_, Infallible>(response);
+                return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
             }
 
             // For Buffer/Stream policies, create RequestBody with proper limits.
@@ -372,7 +363,7 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                     };
 
-                    Ok::<_, Infallible>(response)
+                    Ok::<_, Infallible>(finalize_runtime_response(response, &config))
                 }
                 RequestBodyPolicy::Buffer { .. } => {
                     // Buffer: body is fully consumed during pre-buffering.
@@ -388,7 +379,10 @@ pub async fn serve_connection_with_service<I, S>(
                             body_limit,
                         ),
                         Ok(Err(err)) => {
-                            return Ok::<_, Infallible>(body_error_to_response(err, &head));
+                            return Ok::<_, Infallible>(finalize_runtime_response(
+                                body_error_to_response(err, &head),
+                                &config,
+                            ));
                         }
                         Err(_elapsed) => {
                             crate::ops::global_counters()
@@ -400,7 +394,10 @@ pub async fn serve_connection_with_service<I, S>(
                                 "body read timeout",
                             ));
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
-                            return Ok::<_, Infallible>(body_error_to_response(err, &head));
+                            return Ok::<_, Infallible>(finalize_runtime_response(
+                                body_error_to_response(err, &head),
+                                &config,
+                            ));
                         }
                     };
 
@@ -445,7 +442,7 @@ pub async fn serve_connection_with_service<I, S>(
                         }
                     };
 
-                    Ok::<_, Infallible>(response)
+                    Ok::<_, Infallible>(finalize_runtime_response(response, &config))
                 }
                 RequestBodyPolicy::Stream { .. } => {
                     // For Stream mode, enforce body_read_timeout as a total deadline
@@ -496,11 +493,6 @@ pub async fn serve_connection_with_service<I, S>(
                     // Check if body was fully consumed via the shared flag.
                     // If not, apply incomplete_body_policy.
                     if !consumed_flag.load(std::sync::atomic::Ordering::Acquire) {
-                        // Close: connection will close after response.
-                        // Hyper handles cleanup of unconsumed body bytes.
-                        // Active drain is not safely implementable because
-                        // the body stream is consumed into the Request envelope
-                        // by value and is no longer accessible from this pipeline.
                         crate::ops::Logger::global().emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
@@ -511,13 +503,59 @@ pub async fn serve_connection_with_service<I, S>(
                         );
                     }
 
+                    let mut response = finalize_runtime_response(response, &config);
+                    response.headers_mut().insert(
+                        hyper::header::CONNECTION,
+                        hyper::header::HeaderValue::from_static("close"),
+                    );
                     Ok::<_, Infallible>(response)
                 }
             }
         }
     });
 
-    serve_connection(io, hyper_service, config, shutdown_rx, conn_id).await;
+    serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
+}
+
+/// Compatibility wrapper for direct connection tests and older embedders.
+/// Production servers use [`serve_connection_with_runtime_state`], which
+/// receives the single server-wide state created by `Server`.
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_connection_with_service<I, S>(
+    io: TokioIo<I>,
+    service: S,
+    config: &RuntimeConfig,
+    legacy_state: Option<&crate::config::ServeState>,
+    shutdown_rx: &mut broadcast::Receiver<()>,
+    conn_id: u64,
+    local_addr: std::net::SocketAddr,
+    remote_addr: std::net::SocketAddr,
+    tls: bool,
+    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
+) where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    let runtime_state = legacy_state
+        .map(|state| {
+            Arc::new(RuntimeState {
+                file_stream_semaphore: state.legacy_file_stream_semaphore().clone(),
+            })
+        })
+        .unwrap_or_else(|| Arc::new(RuntimeState::new(config)));
+    serve_connection_with_runtime_state(
+        io,
+        service,
+        config,
+        runtime_state,
+        shutdown_rx,
+        conn_id,
+        local_addr,
+        remote_addr,
+        tls,
+        tls_info,
+    )
+    .await;
 }
 
 /// Select the effective body policy from service preference and runtime ceiling.
@@ -599,50 +637,18 @@ fn build_connection_info(
     }
 }
 
-/// Validate request policy at the runtime level.
-///
-/// This checks for transport-level correctness that the service should
-/// never be responsible for:
-/// - Methods that must not have a request body (GET, HEAD, DELETE, TRACE)
-///   must not carry Content-Length > 0 or Transfer-Encoding headers.
-///
-/// Method-level body policy (e.g., allowing POST bodies for custom
-/// services) is the service's responsibility via `request_body_policy()`.
-/// The runtime enforces that body-forbidden methods never carry content,
-/// regardless of the service's declared policy.
-fn validate_request_policy(
-    head: &crate::primitives::request_head::RequestHead,
-) -> Result<(), ServiceError> {
-    let method = head.method().as_str();
-
-    // These methods must not have a request body per RFC 9110 section 6.4.
-    // TRACE is also included because HTTP semantics prohibit TRACE content.
-    let body_forbidden = matches!(method, "GET" | "HEAD" | "DELETE" | "TRACE");
-
-    if body_forbidden {
-        // Reject Transfer-Encoding — chunked is not supported.
-        if head.headers().contains("transfer-encoding") {
-            return Err(ServiceError::rejected(
-                400,
-                "transfer-encoding not allowed for this method",
-            ));
-        }
-
-        // Reject Content-Length > 0.
-        if let Some(content_length) = head.headers().get_first("content-length") {
-            let len_str = content_length.as_str().trim();
-            if let Ok(len) = len_str.parse::<u64>() {
-                if len > 0 {
-                    return Err(ServiceError::rejected(
-                        400,
-                        "request body not allowed for this method",
-                    ));
-                }
-            }
+/// Apply runtime-owned response fields at the one final Hyper boundary.
+fn finalize_runtime_response(
+    mut response: hyper::Response<BoxBodyInner>,
+    config: &RuntimeConfig,
+) -> hyper::Response<BoxBodyInner> {
+    response.headers_mut().remove(hyper::header::SERVER);
+    if let Some(value) = &config.server_header {
+        if let Ok(value) = hyper::header::HeaderValue::from_str(value) {
+            response.headers_mut().insert(hyper::header::SERVER, value);
         }
     }
-
-    Ok(())
+    response
 }
 
 /// Validate body framing for ALL methods.
@@ -837,6 +843,32 @@ mod tests {
             response.starts_with("HTTP/1.1 200 OK"),
             "unexpected response: {}",
             response
+        );
+    }
+
+    #[test]
+    fn runtime_server_header_replaces_service_value() {
+        let config = RuntimeConfig::builder()
+            .server_header("eggserve-test".into())
+            .build()
+            .unwrap();
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().insert(
+            hyper::header::SERVER,
+            hyper::header::HeaderValue::from_static("spoofed"),
+        );
+        let response = finalize_runtime_response(response, &config);
+        assert_eq!(
+            response.headers().get(hyper::header::SERVER).unwrap(),
+            "eggserve-test"
+        );
+        assert_eq!(
+            response
+                .headers()
+                .get_all(hyper::header::SERVER)
+                .iter()
+                .count(),
+            1
         );
     }
 }

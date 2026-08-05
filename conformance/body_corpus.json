@@ -54,7 +54,7 @@
         },
         {
           "id": "static-service-rejects-post",
-          "description": "Static service returns 405 for POST",
+          "description": "Static service rejects POST content before invocation",
           "input": {
             "method": "POST",
             "body": "hello",
@@ -63,7 +63,7 @@
             "max_body_bytes": 1024
           },
           "expected": {
-            "status": 405,
+            "status": 413,
             "handler_called": false
           }
         }
@@ -372,11 +372,11 @@
       ]
     },
     "get_with_body_rejected": {
-      "description": "GET requests with body are rejected at HTTP level",
+      "description": "GET request bodies follow the service-declared policy",
       "fixtures": [
         {
           "id": "get-with-content-length",
-          "description": "GET with Content-Length header and body",
+          "description": "GET with Content-Length header and body reaches a buffering service",
           "input": {
             "method": "GET",
             "body": "hello",
@@ -385,8 +385,8 @@
             "max_body_bytes": 1024
           },
           "expected": {
-            "status": 400,
-            "handler_called": false
+            "status": 200,
+            "handler_called": true
           }
         }
       ]

@@ -1,5 +1,11 @@
 # Security Policy
 
+Runtime corrective boundary (Plan 107): static file capabilities remain opened
+and canonical until transport, where one server-wide file-stream semaphore is
+applied. Custom services have no implicit root. Service-declared request-body
+policy controls non-TRACE methods within the configured ceiling; incomplete
+streamed bodies close the connection.
+
 ## Safe defaults
 
 eggserve ships with the following safe defaults. These are not configurable without explicit CLI flags:
@@ -7,15 +13,15 @@ eggserve ships with the following safe defaults. These are not configurable with
 | Default | Behavior |
 |---------|----------|
 | **bind to loopback** | Server binds to `127.0.0.1` unless `--public` is passed |
-| **GET and HEAD only** | All other HTTP methods are rejected with 405 |
-| **request bodies rejected** | Incoming request bodies are discarded without processing |
+| **GET and HEAD only (static service)** | The built-in static service rejects other methods with 405 |
+| **request bodies rejected (static service)** | Body-bearing requests are rejected before method dispatch; custom services declare their own policy |
 | **no symlink following** | Symlinks are denied unless `--follow-symlinks` is passed |
 | **no dotfile serving** | Files starting with `.` are not served |
 | **no directory listing** | Directory contents are not listed unless `--directory-listing` is passed |
 | **unknown MIME as application/octet-stream** | Unrecognized file extensions are served with a safe binary MIME type |
 | **malformed request targets rejected** | Invalid paths (traversal, encoding abuse, null bytes) return 400 |
 | **logs sanitized** | Paths and headers are sanitized before writing to logs |
-| **resource limits enabled** | Max 64 concurrent connections, 32 file streams, 10s header timeout, 60s connection total timeout, request bodies rejected |
+| **resource limits enabled** | Max 64 concurrent connections, 32 server-wide file streams, 10s header timeout, 60s connection total timeout |
 | **directory listing bounded** | Max 4096 entries, 1 MiB response body, 255-byte filenames, 30s enumeration timeout |
 
 These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access.
@@ -66,7 +72,7 @@ No document should claim production support without naming a profile. Windows ha
 
 ## Request body metadata handling
 
-For read-only methods (`GET`, `HEAD`), eggserve rejects any request that signals a body:
+The built-in static service rejects any request that signals a body:
 
 - `Content-Length: 0` — allowed
 - `Content-Length: <positive integer>` — rejected with `413 Payload Too Large` under the default zero-body policy
@@ -76,7 +82,9 @@ For read-only methods (`GET`, `HEAD`), eggserve rejects any request that signals
 
 This closes the previous behavior where malformed `Content-Length` values were silently ignored and `Transfer-Encoding` was not checked at all.
 
-For methods that accept bodies (`POST`, `PUT`, `DELETE`, `PATCH`), eggserve enforces the following framing rules before body ingestion:
+Custom services may opt into buffering or streaming bodies for the actual request
+method. Regardless of service policy, eggserve enforces the following framing
+rules before body ingestion:
 
 - **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 Bad Request before the service is invoked. No body is constructed. When Hyper's HTTP parser normalizes the headers first (e.g., stripping `Content-Length` when `Transfer-Encoding: chunked` is present), the rejection occurs if both headers survive parser extraction. Duplicate `Content-Length` fields are always rejected.
 - **Duplicate Content-Length rejection**: Requests with more than one `Content-Length` field are rejected with 400 Bad Request, even when values are identical. This minimizes intermediary disagreement and simplifies auditability.
@@ -96,7 +104,7 @@ streams, including range responses.
 
 ### Pre-service body rejection
 
-When `RequestBodyPolicy::Reject` is active (the default for GET/HEAD), bodies are rejected before any service code is invoked. `Expect: 100-continue` is rejected early — the runtime never sends an invitation to send a body that will be refused. Rejected bodies receive `Connection: close` to prevent unread bytes from being interpreted as a subsequent request. Handler side effects never occur for rejected requests.
+When `RequestBodyPolicy::Reject` is active (the default for the static service), bodies are rejected before any service code is invoked. `Expect: 100-continue` is rejected early — the runtime never sends an invitation to send a body that will be refused. Rejected bodies receive `Connection: close` to prevent unread bytes from being interpreted as a subsequent request. Handler side effects never occur for rejected requests.
 
 ### Incomplete body handling
 

@@ -1,5 +1,11 @@
 # HTTP Primitives Contract
 
+Runtime corrective note (Plan 107): the static service still accepts only
+GET/HEAD semantics and rejects request content, but the reusable runtime does
+not globally reject GET/HEAD/DELETE/OPTIONS/extension content. Custom services
+declare Buffer or Stream policy for the actual method within the runtime body
+ceiling. TRACE content remains transport-rejected.
+
 eggserve exposes a documented, reusable HTTP/1.1 primitive contract for downstream projects. This document defines the supported server-side HTTP subset and the behavior guarantees that embedding consumers can depend on.
 
 ## Supported protocol subset

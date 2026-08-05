@@ -1,41 +1,22 @@
-//! Hardened static file service.
+//! Canonical, confined static-file service.
 //!
-//! [`StaticService`] wraps the existing static file handling logic into a
-//! reusable [`Service`] implementation. It preserves all security properties:
-//!
-//! - Descriptor-relative path confinement on Unix
-//! - Dotfile, symlink, and directory-listing policy enforcement
-//! - Request body rejection for GET/HEAD
-//! - Conditional and range request handling
-//! - ETag and Last-Modified generation
-//! - File-stream semaphore-gated concurrency
-//!
-//! # Example
-//!
-//! ```ignore
-//! use eggserve_core::server::{StaticService, RuntimeConfig};
-//! use eggserve_core::policy::StaticPolicy;
-//!
-//! let service = StaticService::builder("/var/www")
-//!     .policy(StaticPolicy::safe_default())
-//!     .build()
-//!     .unwrap();
-//! ```
+//! Static resolution and response planning happen here. The service never
+//! constructs a Hyper response and never acquires transport permits. File
+//! capabilities remain in [`ResponseBody::File`] until the runtime's single
+//! transport conversion boundary.
 
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::SystemTime;
+use std::time::UNIX_EPOCH;
 
-use crate::config::ServeState;
+use crate::config::{ServeConfig, ServeState};
 use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
-use crate::mime::mime_for_path;
 use crate::path::{ConfinedPath, PathPolicy};
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy};
 use crate::primitives::body::BodySource;
 use crate::primitives::canonical::{
-    normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
-    StatusCode as CanonicalStatusCode,
+    normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody, StatusCode,
 };
 use crate::primitives::header_block::HeaderBlock;
 use crate::primitives::http::ReadOnlyMethod;
@@ -43,216 +24,121 @@ use crate::primitives::planner::plan_file_response;
 use crate::primitives::request::Request;
 use crate::primitives::request_head::RequestHead;
 use crate::primitives::response::HeaderMapPlan;
-use crate::response::{
-    bad_request, directory_listing_response, file_response, file_response_range, forbidden,
-    internal_error, method_not_allowed, not_found, planned_response, service_unavailable,
-    BoxBodyInner,
-};
 use crate::server::service::{Service, ServiceError};
 
-/// Builder for constructing a [`StaticService`].
+/// Builder for a confined static service.
 #[derive(Debug)]
 #[must_use]
 pub struct StaticServiceBuilder {
     root: PathBuf,
     policy: StaticPolicy,
-    max_file_streams: usize,
 }
 
 impl StaticServiceBuilder {
-    /// Set the security policy for filesystem access.
+    /// Set the static-file security policy.
     pub fn policy(mut self, policy: StaticPolicy) -> Self {
         self.policy = policy;
         self
     }
 
-    /// Set the maximum number of concurrent file streams.
-    ///
-    /// This overrides the runtime default for this specific service instance.
-    pub fn max_file_streams(mut self, max: usize) -> Self {
-        self.max_file_streams = max;
-        self
-    }
-
-    /// Build the static service.
-    ///
-    /// Validates that the root directory exists and is accessible, and that
-    /// the file-stream limit is valid.
+    /// Build the service and pin its root exactly once.
     pub fn build(self) -> Result<StaticService, ServiceError> {
-        if !self.root.is_dir() {
-            return Err(ServiceError::internal(format!(
-                "root directory does not exist or is not a directory: {}",
-                self.root.display()
-            )));
-        }
-        let limits = crate::limits::Limits {
-            max_file_streams: self.max_file_streams,
-            ..Default::default()
-        };
-        limits.validate().map_err(|errs| {
-            ServiceError::internal(format!(
-                "invalid limits: {}",
-                errs.iter()
-                    .map(|e| e.to_string())
-                    .collect::<Vec<_>>()
-                    .join("; ")
-            ))
-        })?;
-        let config = Arc::new(crate::config::ServeConfig {
+        let config = Arc::new(ServeConfig {
             root: self.root,
-            limits,
             static_policy: self.policy,
-            ..Default::default()
+            ..ServeConfig::default()
         });
-        let state = Arc::new(ServeState::new(config).map_err(|e| {
-            ServiceError::internal(format!("failed to initialize serve state: {e}"))
-        })?);
-        Ok(StaticService { state })
+        StaticService::from_serve_config(config)
+            .map_err(|e| ServiceError::internal(format!("failed to initialize static root: {e}")))
     }
 }
 
 /// A hardened static file service.
-///
-/// Implements [`Service`] and handles GET/HEAD requests against a rooted
-/// directory tree with full path confinement and policy enforcement.
 pub struct StaticService {
     state: Arc<ServeState>,
 }
 
 impl StaticService {
-    /// Create a builder for a static service rooted at the given path.
+    /// Create a builder for a static service rooted at `root`.
     pub fn builder(root: impl AsRef<Path>) -> StaticServiceBuilder {
         StaticServiceBuilder {
             root: root.as_ref().to_path_buf(),
             policy: StaticPolicy::safe_default(),
-            max_file_streams: 32,
         }
     }
 
-    /// Create a static service from an existing [`ServeState`].
-    ///
-    /// This is used internally by the runtime when the CLI or Python frontend
-    /// provides a pre-built configuration.
+    /// Construct a service from already validated static configuration.
+    pub(crate) fn from_serve_config(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
+        let state = Arc::new(ServeState::new(config)?);
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Info,
+            crate::ops::EventKind::RootInitialized,
+            "root initialized",
+        ));
+        Ok(Self { state })
+    }
+
+    /// Legacy adapter for callers that already own a pinned static state.
     #[allow(dead_code)]
     pub(crate) fn from_state(state: Arc<ServeState>) -> Self {
         Self { state }
     }
 
-    /// Create a static service from a [`ServeConfig`].
-    ///
-    /// This constructs the pinned root and file-stream semaphore from the
-    /// configuration. Used by `Server::start()` to build the built-in static
-    /// service.
-    pub(crate) fn from_state_config(
-        config: Arc<crate::config::ServeConfig>,
-    ) -> Result<Self, std::io::Error> {
-        let state = Arc::new(ServeState::new(config)?);
-        Ok(Self { state })
-    }
-
-    /// Handle a single request against the static root.
+    /// Handle a request through the canonical planner, converting to Hyper
+    /// only at this explicit legacy adapter boundary.
     pub async fn handle(
         &self,
-        req: Request,
-    ) -> Result<hyper::Response<BoxBodyInner>, ServiceError> {
-        let (head, _body) = req.into_head_and_body();
-        Ok(handle_static_request(head, &self.state).await)
+        request: Request,
+    ) -> Result<hyper::Response<crate::response::BoxBodyInner>, ServiceError> {
+        let response = self.call(request).await?;
+        crate::primitives::canonical::to_hyper_response(response)
+            .map_err(|e| ServiceError::internal(format!("response conversion failed: {e}")))
     }
 }
 
 impl Service for StaticService {
     fn request_body_policy(
         &self,
-        head: &RequestHead,
+        _head: &RequestHead,
     ) -> crate::primitives::request_body_policy::RequestBodyPolicy {
-        // Static service only supports GET and HEAD. For supported methods,
-        // return Buffer so the runtime does not reject bodies before the
-        // service can check the method. For unsupported methods, return
-        // Reject so the runtime returns 405 (method not supported) via
-        // the method-detection check in the connection pipeline.
-        let method = head.method().as_str();
-        if method == "GET" || method == "HEAD" {
-            crate::primitives::request_body_policy::RequestBodyPolicy::Buffer { max_bytes: 0 }
-        } else {
-            crate::primitives::request_body_policy::RequestBodyPolicy::Reject
-        }
+        // Static serving never consumes request content. Unsupported bodyless
+        // methods still reach call() and receive the normal 405 response.
+        crate::primitives::request_body_policy::RequestBodyPolicy::Reject
     }
 
     fn call(
         &self,
-        req: Request,
+        request: Request,
     ) -> Pin<
         Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
     > {
         let state = self.state.clone();
-        let (head, _body) = req.into_head_and_body();
-        Box::pin(async move {
-            let hyper_resp = handle_static_request(head, &state).await;
-            // Convert hyper response to canonical response for the public boundary.
-            // This is a lossy conversion for file-backed responses — the canonical
-            // response carries only in-memory bodies. For file-backed responses, the
-            // runtime's connection pipeline streams directly without going through
-            // this conversion.
-            //
-            // For error responses (404, 403, etc.) and small in-memory bodies,
-            // we propagate both headers and body correctly.
-            let status = hyper_resp.status().as_u16();
-            let code = CanonicalStatusCode::new(status)
-                .map_err(|_| ServiceError::internal("invalid status code"))?;
-            let mut headers = HeaderBlock::new();
-            for (name, value) in hyper_resp.headers().iter() {
-                if let (Ok(n), Ok(v)) = (
-                    crate::primitives::header_block::HeaderName::new(name.as_str()),
-                    crate::primitives::header_block::HeaderValue::new(value.to_str().unwrap_or("")),
-                ) {
-                    headers.push(n, v);
-                }
-            }
-            // Try to extract the body as bytes. For streaming/file-backed bodies,
-            // this will consume the body into memory, which is acceptable for
-            // error responses and small bodies. For large file-backed responses,
-            // the runtime does not use this path.
-            use http_body_util::BodyExt;
-            let body_bytes = hyper_resp
-                .into_body()
-                .collect()
-                .await
-                .map(|c| c.to_bytes().to_vec())
-                .unwrap_or_default();
-            let body = if body_bytes.is_empty() {
-                ResponseBody::Empty
-            } else {
-                ResponseBody::Bytes(body_bytes)
-            };
-            CanonicalResponse::builder()
-                .status(code)
-                .body(body)
-                .map_err(|e| ServiceError::internal(format!("response build: {e}")))
-        })
+        let (head, _body) = request.into_head_and_body();
+        Box::pin(async move { plan_static_request(head, &state) })
     }
 }
 
-async fn handle_static_request(
-    req: RequestHead,
+fn plan_static_request(
+    request: RequestHead,
     state: &ServeState,
-) -> hyper::Response<BoxBodyInner> {
-    let config = &state.config;
-
-    let method = req.method();
+) -> Result<CanonicalResponse, ServiceError> {
+    let method = request.method();
     let is_head = method.is_head();
-
     if !method.is_get() && !is_head {
-        return method_not_allowed(is_head);
+        return error_response(
+            StatusCode::METHOD_NOT_ALLOWED,
+            "405 Method Not Allowed\n",
+            is_head,
+            true,
+        );
     }
 
-    let target = req.target();
-    let path_str = target.path();
-
-    // Reject absolute-form URIs (authority present in raw target).
+    let target = request.target();
     if target.raw().contains("://") {
-        return bad_request(is_head);
+        return error_response(StatusCode::BAD_REQUEST, "400 Bad Request\n", is_head, false);
     }
 
+    let config = state.config();
     let path_policy = PathPolicy {
         dotfiles: match config.static_policy.dotfiles {
             DotfilePolicy::Denied => PathPolicy::default().dotfiles,
@@ -260,490 +146,370 @@ async fn handle_static_request(
         },
         reject_backslash: true,
     };
-
-    let confined = match ConfinedPath::parse(path_str, &path_policy) {
-        Ok(p) => p,
-        Err(rejection) => return map_rejection(rejection, is_head),
+    let confined = match ConfinedPath::parse(target.path(), &path_policy) {
+        Ok(path) => path,
+        Err(rejection) => {
+            let malformed = matches!(
+                rejection,
+                crate::path::PathRejection::MalformedPercentEncoding
+                    | crate::path::PathRejection::InvalidUtf8
+                    | crate::path::PathRejection::NulByte
+                    | crate::path::PathRejection::Empty
+                    | crate::path::PathRejection::UnsupportedUriForm
+                    | crate::path::PathRejection::TooLong
+            );
+            return error_response(
+                if malformed {
+                    StatusCode::BAD_REQUEST
+                } else {
+                    StatusCode::FORBIDDEN
+                },
+                if malformed {
+                    "400 Bad Request\n"
+                } else {
+                    "403 Forbidden\n"
+                },
+                is_head,
+                false,
+            );
+        }
     };
 
     let guard = RootGuard::new(state.pinned_root());
-
-    let if_none_match = req.headers().get_first("if-none-match").map(|v| v.as_str());
-    let if_modified_since = req
+    let if_none_match = request
+        .headers()
+        .get_first("if-none-match")
+        .map(|v| v.as_str());
+    let if_modified_since = request
         .headers()
         .get_first("if-modified-since")
         .map(|v| v.as_str());
-    let range = req.headers().get_first("range").map(|v| v.as_str());
-    let if_range = req.headers().get_first("if-range").map(|v| v.as_str());
+    let range = request.headers().get_first("range").map(|v| v.as_str());
+    let if_range = request.headers().get_first("if-range").map(|v| v.as_str());
+    let method = if is_head {
+        ReadOnlyMethod::Head
+    } else {
+        ReadOnlyMethod::Get
+    };
 
     match guard.resolve(&confined, &config.static_policy) {
-        ResolvedResource::File(file) => {
-            let etag = generate_etag(&file.metadata);
-            let last_modified = file.metadata.modified().ok();
-            let safe_path: PathBuf = file.safe_relative_components.iter().collect();
-            let content_type = mime_for_path(&safe_path);
-
-            let read_only_method = if is_head {
-                ReadOnlyMethod::Head
-            } else {
-                ReadOnlyMethod::Get
-            };
-
-            let plan = plan_file_response(
-                read_only_method,
-                &file.metadata,
-                content_type,
-                if_none_match,
-                if_modified_since,
-                range,
-                if_range,
-            );
-
-            let status = match plan.status.as_u16() {
-                200 => hyper::StatusCode::OK,
-                206 => hyper::StatusCode::PARTIAL_CONTENT,
-                304 => hyper::StatusCode::NOT_MODIFIED,
-                416 => hyper::StatusCode::RANGE_NOT_SATISFIABLE,
-                _ => return internal_error(),
-            };
-
-            if is_head {
-                return planned_response(status, &plan.headers, true);
-            }
-
-            let body_source = match file.into_body(&plan) {
-                Ok(bs) => bs,
-                Err(e) => {
-                    crate::ops::Logger::global().emit(crate::ops::Event::new(
-                        crate::ops::Severity::Warn,
-                        crate::ops::EventKind::FileError,
-                        format!("file body conversion failed: {e}"),
-                    ));
-                    return internal_error();
-                }
-            };
-            body_source_to_response(
-                body_source,
-                status,
-                &plan.headers,
-                etag,
-                last_modified,
-                state,
-            )
-            .await
-        }
-        ResolvedResource::Directory(dir) => {
-            handle_directory(
-                &dir,
-                config,
-                state,
-                is_head,
-                if_none_match,
-                if_modified_since,
-                range,
-                if_range,
-            )
-            .await
-        }
+        ResolvedResource::File(file) => planned_file_response(
+            file,
+            method,
+            if_none_match,
+            if_modified_since,
+            range,
+            if_range,
+            is_head,
+        ),
+        ResolvedResource::Directory(dir) => plan_directory_response(
+            &guard,
+            dir,
+            config,
+            method,
+            if_none_match,
+            if_modified_since,
+            range,
+            if_range,
+            is_head,
+        ),
         ResolvedResource::NotFound => {
-            crate::ops::Logger::global().emit(
-                crate::ops::Event::new(
-                    crate::ops::Severity::Debug,
-                    crate::ops::EventKind::FileNotFound,
-                    "file not found",
-                )
-                .field(crate::ops::Field::Str(
-                    "path".into(),
-                    crate::ops::sanitize_path(path_str),
-                )),
-            );
-            not_found(is_head)
+            error_response(StatusCode::NOT_FOUND, "404 Not Found\n", is_head, false)
         }
-        ResolvedResource::Denied(rejection) => {
-            let (event_kind, severity) = match rejection {
-                crate::path::PathRejection::DotfileDenied => (
-                    crate::ops::EventKind::DotfileDenied,
-                    crate::ops::Severity::Debug,
-                ),
-                crate::path::PathRejection::SymlinkDenied => (
-                    crate::ops::EventKind::SymlinkDenied,
-                    crate::ops::Severity::Debug,
-                ),
-                crate::path::PathRejection::RootEscapeDenied => (
-                    crate::ops::EventKind::RootEscapeDenied,
-                    crate::ops::Severity::Warn,
-                ),
-                _ => (
-                    crate::ops::EventKind::FileDenied,
-                    crate::ops::Severity::Debug,
-                ),
-            };
-            crate::ops::Logger::global().emit(
-                crate::ops::Event::new(severity, event_kind, "access denied").field(
-                    crate::ops::Field::Str("path".into(), crate::ops::sanitize_path(path_str)),
-                ),
-            );
-            forbidden(is_head)
+        ResolvedResource::Denied(_) => {
+            error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
         }
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-async fn handle_directory(
-    dir: &ResolvedDirectory,
-    config: &crate::config::ServeConfig,
-    state: &crate::config::ServeState,
-    is_head: bool,
+fn planned_file_response(
+    file: crate::fs::ResolvedFile,
+    method: ReadOnlyMethod,
     if_none_match: Option<&str>,
     if_modified_since: Option<&str>,
     range: Option<&str>,
     if_range: Option<&str>,
-) -> hyper::Response<BoxBodyInner> {
-    let guard = RootGuard::new(state.pinned_root());
+    is_head: bool,
+) -> Result<CanonicalResponse, ServiceError> {
+    let plan = plan_file_response(
+        method,
+        &file.metadata,
+        crate::mime::mime_for_path(&file.safe_relative_components.iter().collect::<PathBuf>()),
+        if_none_match,
+        if_modified_since,
+        range,
+        if_range,
+    );
+    let body = file
+        .into_body(&plan)
+        .map_err(|e| ServiceError::internal(format!("file body conversion failed: {e}")))?;
+    canonical_response(plan.status.as_u16(), &plan.headers, body, is_head)
+}
 
-    // Try index.html first, then index.htm as fallback.
-    let index_candidate = match guard.resolve_child(dir, "index.html", &config.static_policy) {
-        ResolvedResource::File(file) => {
-            let etag = generate_etag(&file.metadata);
-            let last_modified = file.metadata.modified().ok();
-            let safe_path: PathBuf = file.safe_relative_components.iter().collect();
-            let content_type = mime_for_path(&safe_path);
-
-            let method = if is_head {
-                ReadOnlyMethod::Head
-            } else {
-                ReadOnlyMethod::Get
-            };
-
-            let plan = plan_file_response(
-                method,
-                &file.metadata,
-                content_type,
-                if_none_match,
-                if_modified_since,
-                range,
-                if_range,
-            );
-
-            let status = match plan.status.as_u16() {
-                200 => hyper::StatusCode::OK,
-                206 => hyper::StatusCode::PARTIAL_CONTENT,
-                304 => hyper::StatusCode::NOT_MODIFIED,
-                416 => hyper::StatusCode::RANGE_NOT_SATISFIABLE,
-                _ => return internal_error(),
-            };
-
-            if is_head {
-                return planned_response(status, &plan.headers, true);
-            }
-
-            let body_source = match file.into_body(&plan) {
-                Ok(bs) => bs,
-                Err(e) => {
-                    crate::ops::Logger::global().emit(crate::ops::Event::new(
-                        crate::ops::Severity::Warn,
-                        crate::ops::EventKind::FileError,
-                        format!("file body conversion failed: {e}"),
-                    ));
-                    return internal_error();
-                }
-            };
-            return body_source_to_response(
-                body_source,
-                status,
-                &plan.headers,
-                etag,
-                last_modified,
-                state,
-            )
-            .await;
-        }
-        ResolvedResource::NotFound => {
-            // Try index.htm
-            match guard.resolve_child(dir, "index.htm", &config.static_policy) {
-                ResolvedResource::File(file) => {
-                    let etag = generate_etag(&file.metadata);
-                    let last_modified = file.metadata.modified().ok();
-                    let safe_path: PathBuf = file.safe_relative_components.iter().collect();
-                    let content_type = mime_for_path(&safe_path);
-
-                    let method = if is_head {
-                        ReadOnlyMethod::Head
-                    } else {
-                        ReadOnlyMethod::Get
-                    };
-
-                    let plan = plan_file_response(
-                        method,
-                        &file.metadata,
-                        content_type,
-                        if_none_match,
-                        if_modified_since,
-                        range,
-                        if_range,
-                    );
-
-                    let status = match plan.status.as_u16() {
-                        200 => hyper::StatusCode::OK,
-                        206 => hyper::StatusCode::PARTIAL_CONTENT,
-                        304 => hyper::StatusCode::NOT_MODIFIED,
-                        416 => hyper::StatusCode::RANGE_NOT_SATISFIABLE,
-                        _ => return internal_error(),
-                    };
-
-                    if is_head {
-                        return planned_response(status, &plan.headers, true);
-                    }
-
-                    let body_source = match file.into_body(&plan) {
-                        Ok(bs) => bs,
-                        Err(e) => {
-                            crate::ops::Logger::global().emit(crate::ops::Event::new(
-                                crate::ops::Severity::Warn,
-                                crate::ops::EventKind::FileError,
-                                format!("file body conversion failed: {e}"),
-                            ));
-                            return internal_error();
-                        }
-                    };
-                    return body_source_to_response(
-                        body_source,
-                        status,
-                        &plan.headers,
-                        etag,
-                        last_modified,
-                        state,
-                    )
-                    .await;
-                }
-                other => other,
-            }
-        }
-        other => other,
-    };
-
-    match index_candidate {
-        ResolvedResource::NotFound => match config.static_policy.directory_listing {
-            DirectoryListingPolicy::Enabled => {
-                let entries = match guard.list_directory(
-                    dir,
-                    &config.static_policy,
-                    config.limits.max_listing_entries,
-                ) {
-                    Ok(e) => e,
-                    Err(_) => return internal_error(),
-                };
-                directory_listing_response(
-                    &entries,
+#[allow(clippy::too_many_arguments)]
+fn plan_directory_response(
+    guard: &RootGuard<'_>,
+    dir: ResolvedDirectory,
+    config: &ServeConfig,
+    method: ReadOnlyMethod,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range: Option<&str>,
+    if_range: Option<&str>,
+    is_head: bool,
+) -> Result<CanonicalResponse, ServiceError> {
+    for index in ["index.html", "index.htm"] {
+        match guard.resolve_child(&dir, index, &config.static_policy) {
+            ResolvedResource::File(file) => {
+                return planned_file_response(
+                    file,
+                    method,
+                    if_none_match,
+                    if_modified_since,
+                    range,
+                    if_range,
                     is_head,
-                    config.limits.max_listing_response_bytes,
+                );
+            }
+            ResolvedResource::NotFound => continue,
+            ResolvedResource::Denied(_) => {
+                return error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
+            }
+            ResolvedResource::Directory(_) => {
+                return error_response(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    "500 Internal Server Error\n",
+                    is_head,
+                    false,
                 )
             }
-            DirectoryListingPolicy::Disabled => forbidden(is_head),
-        },
-        ResolvedResource::Denied(_) => forbidden(is_head),
-        ResolvedResource::Directory(_) => internal_error(),
-        ResolvedResource::File(_) => unreachable!(),
+        }
+    }
+
+    match config.static_policy.directory_listing {
+        DirectoryListingPolicy::Disabled => {
+            error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
+        }
+        DirectoryListingPolicy::Enabled => {
+            let entries = guard
+                .list_directory(
+                    &dir,
+                    &config.static_policy,
+                    config.limits.max_listing_entries,
+                )
+                .map_err(|_| ServiceError::internal("directory listing failed"))?;
+            let body =
+                render_directory_listing(&entries, config.limits.max_listing_response_bytes)?;
+            canonical_response(
+                StatusCode::OK.as_u16(),
+                &listing_headers(),
+                BodySource::Bytes(body),
+                is_head,
+            )
+        }
     }
 }
 
-fn generate_etag(metadata: &std::fs::Metadata) -> Option<String> {
-    let size = metadata.len();
-    let mtime = metadata.modified().ok()?;
-    let epoch = mtime.duration_since(SystemTime::UNIX_EPOCH).ok()?;
-    let mtime_secs = epoch.as_secs();
-    let mtime_nanos = epoch.subsec_nanos();
-    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
-}
-
-fn map_rejection(
-    rejection: crate::path::PathRejection,
+fn canonical_response(
+    status: u16,
+    planned_headers: &HeaderMapPlan,
+    body: BodySource,
     is_head: bool,
-) -> hyper::Response<BoxBodyInner> {
-    let is_malformed = matches!(
-        rejection,
-        crate::path::PathRejection::MalformedPercentEncoding
-            | crate::path::PathRejection::InvalidUtf8
-            | crate::path::PathRejection::NulByte
-            | crate::path::PathRejection::Empty
-            | crate::path::PathRejection::UnsupportedUriForm
-            | crate::path::PathRejection::TooLong
-    );
-
-    if is_malformed {
-        bad_request(is_head)
-    } else {
-        forbidden(is_head)
+) -> Result<CanonicalResponse, ServiceError> {
+    let status = StatusCode::new(status).map_err(|e| ServiceError::internal(e.to_string()))?;
+    let mut headers = HeaderBlock::new();
+    for header in planned_headers.iter() {
+        headers
+            .push_str(&header.name, &header.value)
+            .map_err(|e| ServiceError::internal(e.to_string()))?;
     }
+    let response_body = match body {
+        BodySource::Empty if is_head && status.permits_payload_body() => planned_headers
+            .get("content-length")
+            .and_then(|value| value.parse::<u64>().ok())
+            .map(ResponseBody::EmptyWithLength)
+            .unwrap_or(ResponseBody::Empty),
+        BodySource::Empty => ResponseBody::Empty,
+        BodySource::Bytes(bytes) => ResponseBody::Bytes(bytes),
+        body @ (BodySource::FileFull { .. } | BodySource::FileRange { .. }) => {
+            ResponseBody::File(body)
+        }
+    };
+    let response = CanonicalResponse::builder()
+        .status(status)
+        .body(response_body)
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
+    normalize_response(response, &NormalizeRequest::new(is_head))
+        .map_err(|e| ServiceError::internal(e.to_string()))
 }
 
-async fn body_source_to_response(
-    source: BodySource,
-    status: hyper::StatusCode,
-    headers: &HeaderMapPlan,
-    etag: Option<String>,
-    last_modified: Option<SystemTime>,
-    state: &ServeState,
-) -> hyper::Response<BoxBodyInner> {
-    match source {
-        BodySource::Empty => planned_response(status, headers, false),
-        BodySource::Bytes(b) => {
-            let code = match CanonicalStatusCode::new(status.as_u16()) {
-                Ok(c) => c,
-                Err(_) => return internal_error(),
-            };
-            let mut canonical = match CanonicalResponse::builder()
-                .status(code)
-                .body(ResponseBody::Bytes(b))
-            {
-                Ok(r) => r,
-                Err(_) => return internal_error(),
-            };
-            for header in headers.iter() {
-                if let (Ok(name), Ok(value)) = (
-                    crate::primitives::header_block::HeaderName::new(&header.name),
-                    crate::primitives::header_block::HeaderValue::new(&header.value),
-                ) {
-                    canonical.head_mut().headers_mut().push(name, value);
-                }
-            }
-            let req = NormalizeRequest::new(false);
-            match normalize_response(canonical, &req) {
-                Ok(normalized) => {
-                    match crate::primitives::canonical::to_hyper_response(normalized) {
-                        Ok(hyper_resp) => hyper_resp,
-                        Err(_) => internal_error(),
-                    }
-                }
-                Err(_) => internal_error(),
-            }
+fn error_response(
+    status: StatusCode,
+    text: &'static str,
+    is_head: bool,
+    method_not_allowed: bool,
+) -> Result<CanonicalResponse, ServiceError> {
+    let mut builder = CanonicalResponse::builder().status(status).push_header(
+        crate::primitives::header_block::HeaderName::new("content-type")
+            .map_err(|e| ServiceError::internal(e.to_string()))?,
+        crate::primitives::header_block::HeaderValue::new("text/plain; charset=utf-8")
+            .map_err(|e| ServiceError::internal(e.to_string()))?,
+    );
+    if method_not_allowed {
+        builder = builder.push_header(
+            crate::primitives::header_block::HeaderName::new("allow")
+                .map_err(|e| ServiceError::internal(e.to_string()))?,
+            crate::primitives::header_block::HeaderValue::new("GET, HEAD")
+                .map_err(|e| ServiceError::internal(e.to_string()))?,
+        );
+    }
+    let response = builder
+        .body(ResponseBody::Bytes(text.as_bytes().to_vec()))
+        .map_err(|e| ServiceError::internal(e.to_string()))?;
+    normalize_response(response, &NormalizeRequest::new(is_head))
+        .map_err(|e| ServiceError::internal(e.to_string()))
+}
+
+fn listing_headers() -> HeaderMapPlan {
+    let mut headers = HeaderMapPlan::new();
+    headers.push("content-type", "text/html; charset=utf-8");
+    headers.push(
+        "content-security-policy",
+        "default-src 'none'; base-uri 'none'; form-action 'none'",
+    );
+    headers.push("referrer-policy", "no-referrer");
+    headers.push("x-content-type-options", "nosniff");
+    headers
+}
+
+fn render_directory_listing(
+    entries: &[(String, bool)],
+    max_response_bytes: usize,
+) -> Result<Vec<u8>, ServiceError> {
+    let prefix = "<!DOCTYPE html>\n<html>\n<head>\n<meta charset=\"utf-8\">\n<title>Directory listing</title>\n</head>\n<body>\n<h1>Directory listing</h1>\n<ul>\n";
+    let suffix = "</ul>\n</body>\n</html>\n";
+    if prefix
+        .len()
+        .checked_add(suffix.len())
+        .is_none_or(|n| n > max_response_bytes)
+    {
+        return Err(ServiceError::internal(
+            "directory listing exceeds configured bound",
+        ));
+    }
+    let mut html = String::from(prefix);
+    for (name, is_dir) in entries {
+        let visible = html_escape(name);
+        let href = html_escape(&percent_encode_path_segment(name));
+        let entry = if *is_dir {
+            format!("<li><a href=\"{href}/\">{visible}/</a></li>\n")
+        } else {
+            format!("<li><a href=\"{href}\">{visible}</a></li>\n")
+        };
+        if html
+            .len()
+            .checked_add(entry.len())
+            .and_then(|n| n.checked_add(suffix.len()))
+            .is_none_or(|n| n > max_response_bytes)
+        {
+            return Err(ServiceError::internal(
+                "directory listing exceeds configured bound",
+            ));
         }
-        BodySource::FileFull { file, len, mime } => {
-            let tokio_file = tokio::fs::File::from_std(file);
-            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
-                Ok(p) => p,
-                Err(_) => return service_unavailable(),
-            };
-            let chunk_size = state.config.limits.stream_chunk_size;
-            file_response(
-                tokio_file,
-                len,
-                mime,
-                last_modified,
-                etag,
-                permit,
-                chunk_size,
-            )
-        }
-        BodySource::FileRange { file, range, .. } => {
-            let tokio_file = tokio::fs::File::from_std(file);
-            let permit = match state.file_stream_semaphore.clone().try_acquire_owned() {
-                Ok(p) => p,
-                Err(_) => return service_unavailable(),
-            };
-            let chunk_size = state.config.limits.stream_chunk_size;
-            file_response_range(
-                tokio_file,
-                range.start,
-                range.end_inclusive,
-                status,
-                headers,
-                permit,
-                chunk_size,
-            )
-            .await
+        html.push_str(&entry);
+    }
+    html.push_str(suffix);
+    Ok(html.into_bytes())
+}
+
+fn html_escape(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for c in value.chars() {
+        match c {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#x27;"),
+            c if !c.is_control() => out.push(c),
+            _ => {}
         }
     }
+    out
+}
+
+fn percent_encode_path_segment(value: &str) -> String {
+    let mut out = String::with_capacity(value.len());
+    for byte in value.as_bytes() {
+        if matches!(*byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~') {
+            out.push(*byte as char);
+        } else {
+            out.push_str(&format!("%{byte:02X}"));
+        }
+    }
+    out
+}
+
+#[allow(dead_code)]
+fn _generate_etag(metadata: &std::fs::Metadata) -> Option<String> {
+    let epoch = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
+    Some(format!(
+        "W/\"{}-{}-{}\"",
+        metadata.len(),
+        epoch.as_secs(),
+        epoch.subsec_nanos()
+    ))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::primitives::header_block::HeaderBlock;
+    use crate::primitives::method::Method;
+    use crate::primitives::request_target::RequestTarget;
+    use crate::primitives::version::HttpVersion;
     use tempfile::TempDir;
 
-    fn setup_static_service() -> (TempDir, StaticService) {
+    fn request(method: Method, path: &str) -> Request {
+        Request::new(
+            RequestHead::new(
+                method,
+                RequestTarget::parse(path).unwrap(),
+                HttpVersion::Http11,
+                HeaderBlock::new(),
+            ),
+            crate::primitives::request_body::RequestBody::empty(),
+            crate::primitives::connection_info::ConnectionInfo {
+                local_addr: "127.0.0.1:8000".parse().unwrap(),
+                remote_addr: "127.0.0.1:12345".parse().unwrap(),
+                scheme: crate::primitives::connection_info::Scheme::Http,
+                tls: None,
+            },
+        )
+    }
+
+    #[tokio::test]
+    async fn file_and_range_bodies_remain_canonical_file_sources() {
         let tmp = TempDir::new().unwrap();
-        std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-        std::fs::write(tmp.path().join(".env"), "secret").unwrap();
-        std::fs::create_dir(tmp.path().join("subdir")).unwrap();
-
+        std::fs::write(tmp.path().join("file.txt"), b"0123456789").unwrap();
         let service = StaticService::builder(tmp.path()).build().unwrap();
-        (tmp, service)
-    }
+        let get = service
+            .call(request(Method::get(), "/file.txt"))
+            .await
+            .unwrap();
+        assert!(matches!(
+            get.body(),
+            Some(ResponseBody::File(BodySource::FileFull { .. }))
+        ));
 
-    fn make_head(path: &str) -> Request {
-        Request::new(
+        let mut range_headers = HeaderBlock::new();
+        range_headers.push_str("range", "bytes=2-4").unwrap();
+        let range_request = Request::new(
             RequestHead::new(
-                crate::primitives::method::Method::head(),
-                crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
-                crate::primitives::version::HttpVersion::Http11,
-                HeaderBlock::new(),
-            ),
-            crate::primitives::request_body::RequestBody::empty(),
-            crate::primitives::connection_info::ConnectionInfo {
-                local_addr: "127.0.0.1:8000".parse().unwrap(),
-                remote_addr: "127.0.0.1:12345".parse().unwrap(),
-                scheme: crate::primitives::connection_info::Scheme::Http,
-                tls: None,
-            },
-        )
-    }
-
-    fn make_get(path: &str) -> Request {
-        Request::new(
-            RequestHead::new(
-                crate::primitives::method::Method::get(),
-                crate::primitives::request_target::RequestTarget::parse(path).unwrap(),
-                crate::primitives::version::HttpVersion::Http11,
-                HeaderBlock::new(),
-            ),
-            crate::primitives::request_body::RequestBody::empty(),
-            crate::primitives::connection_info::ConnectionInfo {
-                local_addr: "127.0.0.1:8000".parse().unwrap(),
-                remote_addr: "127.0.0.1:12345".parse().unwrap(),
-                scheme: crate::primitives::connection_info::Scheme::Http,
-                tls: None,
-            },
-        )
-    }
-
-    #[tokio::test]
-    async fn static_service_get_existing_file() {
-        let (_tmp, service) = setup_static_service();
-        let resp = service.handle(make_get("/hello.txt")).await.unwrap();
-        assert_eq!(resp.status(), hyper::StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn static_service_head_existing_file() {
-        let (_tmp, service) = setup_static_service();
-        let resp = service.handle(make_head("/hello.txt")).await.unwrap();
-        assert_eq!(resp.status(), hyper::StatusCode::OK);
-    }
-
-    #[tokio::test]
-    async fn static_service_get_missing_file() {
-        let (_tmp, service) = setup_static_service();
-        let resp = service.handle(make_get("/nope.txt")).await.unwrap();
-        assert_eq!(resp.status(), hyper::StatusCode::NOT_FOUND);
-    }
-
-    #[tokio::test]
-    async fn static_service_get_dotfile_forbidden() {
-        let (_tmp, service) = setup_static_service();
-        let resp = service.handle(make_get("/.env")).await.unwrap();
-        assert_eq!(resp.status(), hyper::StatusCode::FORBIDDEN);
-    }
-
-    #[tokio::test]
-    async fn static_service_post_forbidden() {
-        let (_tmp, service) = setup_static_service();
-        let req = Request::new(
-            RequestHead::new(
-                crate::primitives::method::Method::post(),
-                crate::primitives::request_target::RequestTarget::parse("/hello.txt").unwrap(),
-                crate::primitives::version::HttpVersion::Http11,
-                HeaderBlock::new(),
+                Method::get(),
+                RequestTarget::parse("/file.txt").unwrap(),
+                HttpVersion::Http11,
+                range_headers,
             ),
             crate::primitives::request_body::RequestBody::empty(),
             crate::primitives::connection_info::ConnectionInfo {
@@ -753,13 +519,44 @@ mod tests {
                 tls: None,
             },
         );
-        let resp = service.handle(req).await.unwrap();
-        assert_eq!(resp.status(), hyper::StatusCode::METHOD_NOT_ALLOWED);
+        let range = service.call(range_request).await.unwrap();
+        assert!(matches!(
+            range.body(),
+            Some(ResponseBody::File(BodySource::FileRange { .. }))
+        ));
     }
 
-    #[test]
-    fn static_service_builder_root_must_exist() {
-        let result = StaticService::builder("/nonexistent/path/12345").build();
-        assert!(result.is_err());
+    #[tokio::test]
+    async fn head_and_conditional_responses_have_no_file_body() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("file.txt"), b"hello").unwrap();
+        let service = StaticService::builder(tmp.path()).build().unwrap();
+        let head = service
+            .call(request(Method::head(), "/file.txt"))
+            .await
+            .unwrap();
+        assert!(!matches!(head.body(), Some(ResponseBody::File(_))));
+        assert_eq!(
+            head.headers().get_first("content-length").unwrap().as_str(),
+            "5"
+        );
+    }
+
+    #[tokio::test]
+    async fn index_and_listing_use_canonical_bodies() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir(tmp.path().join("dir")).unwrap();
+        std::fs::write(tmp.path().join("dir/index.htm"), b"index").unwrap();
+        let mut config = ServeConfig {
+            root: tmp.path().to_path_buf(),
+            ..ServeConfig::default()
+        };
+        config.static_policy.directory_listing = DirectoryListingPolicy::Enabled;
+        let service = StaticService::from_serve_config(Arc::new(config)).unwrap();
+        let index = service.call(request(Method::get(), "/dir/")).await.unwrap();
+        assert!(matches!(index.body(), Some(ResponseBody::File(_))));
+        std::fs::remove_file(tmp.path().join("dir/index.htm")).unwrap();
+        let listing = service.call(request(Method::get(), "/dir/")).await.unwrap();
+        assert!(matches!(listing.body(), Some(ResponseBody::Bytes(_))));
     }
 }

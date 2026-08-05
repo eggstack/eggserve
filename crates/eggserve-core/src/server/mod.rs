@@ -74,7 +74,7 @@ use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
-use crate::config::{ServeConfig, ServeState};
+use crate::config::ServeConfig;
 use crate::server::lifecycle::Lifecycle;
 
 /// A reusable HTTP runtime server.
@@ -119,6 +119,28 @@ pub struct Server {
     serve_config: Option<Arc<ServeConfig>>,
     lifecycle: Arc<Lifecycle>,
     listener_source: Option<ListenerSource>,
+}
+
+/// Transport state shared by every connection in one running server.
+///
+/// In particular, file-stream admission is created once here and cloned into
+/// connection tasks. Static services never own or acquire this semaphore.
+#[derive(Debug)]
+pub struct RuntimeState {
+    pub(crate) file_stream_semaphore: Arc<tokio::sync::Semaphore>,
+}
+
+impl RuntimeState {
+    fn new(config: &RuntimeConfig) -> Self {
+        Self {
+            file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
+        }
+    }
+
+    /// Return the server-wide file-stream admission pool.
+    pub fn file_stream_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
+        &self.file_stream_semaphore
+    }
 }
 
 /// Source for the TCP listener.
@@ -264,7 +286,7 @@ impl Server {
             ServerError::Config("serve configuration required for static service".into())
         })?;
 
-        let service = StaticService::from_state_config(serve_config)
+        let service = StaticService::from_serve_config(serve_config)
             .map_err(|e| ServerError::Config(e.to_string()))?;
 
         self.start_with_service(service).await
@@ -293,25 +315,9 @@ impl Server {
 
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
-        // Create ServeState only if we have a serve config (static service).
-        // Custom services do not need filesystem state.
-        let state = match self.serve_config {
-            Some(sc) => Some(Arc::new(
-                ServeState::new(sc).map_err(|e| ServerError::Config(e.to_string()))?,
-            )),
-            None => None,
-        };
-
-        if state.is_some() {
-            crate::ops::Logger::global().emit(crate::ops::Event::new(
-                crate::ops::Severity::Info,
-                crate::ops::EventKind::RootInitialized,
-                "root initialized",
-            ));
-        }
-
         let config = Arc::new(self.config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
+        let runtime_state = Arc::new(RuntimeState::new(&config));
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let shutdown_tx_clone = shutdown_tx.clone();
@@ -323,7 +329,7 @@ impl Server {
                 accept_loop_generic(
                     listener,
                     config,
-                    state,
+                    runtime_state,
                     connection_semaphore,
                     service,
                     shutdown_rx,
@@ -344,12 +350,10 @@ impl Server {
 
 /// Unified accept loop for both static and custom services.
 ///
-/// When `state` is `Some`, filesystem state is available for static serving.
-/// When `state` is `None`, only transport state is used (custom services).
 async fn accept_loop_generic<S: Service>(
     listener: TcpListener,
     config: Arc<RuntimeConfig>,
-    state: Option<Arc<ServeState>>,
+    runtime_state: Arc<RuntimeState>,
     connection_semaphore: Arc<tokio::sync::Semaphore>,
     service: S,
     mut shutdown_rx: broadcast::Receiver<()>,
@@ -417,7 +421,7 @@ async fn accept_loop_generic<S: Service>(
                         };
 
                         let mut shutdown_rx = shutdown_rx.resubscribe();
-                        let state = state.clone();
+                        let runtime_state = runtime_state.clone();
                         let config = config.clone();
                         let service = service.clone();
                         let remote_addr = peer_addr;
@@ -441,11 +445,11 @@ async fn accept_loop_generic<S: Service>(
                                                 .connection_id(conn_id),
                                             );
                                             let io = TokioIo::new(tls_stream);
-                                            connection::serve_connection_with_service(
+                                            connection::serve_connection_with_runtime_state(
                                                 io,
                                                 ArcService(service),
                                                 &config,
-                                                state.as_deref(),
+                                                runtime_state.clone(),
                                                 &mut shutdown_rx,
                                                 conn_id,
                                                 local_addr_pre_tls,
@@ -465,11 +469,11 @@ async fn accept_loop_generic<S: Service>(
                             }
 
                             let io = TokioIo::new(stream);
-                            connection::serve_connection_with_service(
+                            connection::serve_connection_with_runtime_state(
                                 io,
                                 ArcService(service),
                                 &config,
-                                state.as_deref(),
+                                runtime_state.clone(),
                                 &mut shutdown_rx,
                                 conn_id,
                                 local_addr_pre_tls,

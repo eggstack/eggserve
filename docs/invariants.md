@@ -1,5 +1,9 @@
 # Invariant Test Matrix
 
+Plan 107 supersedes the earlier global GET/HEAD body prohibition and static
+semaphore ownership claims: service policy controls the actual method within
+the runtime ceiling, and transport owns one file-stream pool per server.
+
 This document enumerates the security and behavioral invariants enforced by eggserve, organized by category. Each invariant maps to specific test coverage in the Rust and Python test suites.
 
 ## Request target invariants
@@ -54,7 +58,7 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Other methods map to 405-equivalent result | `integration.rs` — method not allowed tests |
 | Positive Content-Length rejected under zero-body policy | `integration.rs` — body validation tests |
 | Invalid Content-Length rejected | `integration.rs` — body validation tests |
-| Transfer-Encoding rejected for GET/HEAD | `integration.rs` — body validation tests |
+| Transfer-Encoding rejected for static service | `integration.rs` — body validation tests |
 | Conflicting Content-Length and Transfer-Encoding rejected | `integration.rs` — body validation tests |
 
 ## Response planning invariants
