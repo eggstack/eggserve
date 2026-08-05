@@ -2,7 +2,7 @@
 
 ## Final commit
 
-SHA: (pending — recorded after push)
+SHA: 45aaefa
 
 ## Plans implemented
 
@@ -85,7 +85,8 @@ cargo test -p eggserve-bin --features tls                   # 88 passed
 
 ## Hosted job results
 
-(pending — recorded after CI passes on final commit)
+- **rust** job: ✓ PASS in 3m28s (format, clippy, workspace tests, TLS lint and tests)
+- **python** job: ✓ PASS in 3m46s (build CLI, stage binary, build wheel, install, import boundary, smoke, test suite)
 
 ## Remaining documented limitations
 
