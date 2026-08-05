@@ -225,11 +225,7 @@ fn bench_conditional_requests(c: &mut Criterion) {
     let state = make_state(&tmp);
 
     // Get ETag from a real response
-    let resp = rt.block_on(handle_request(
-        get_req("/file.bin"),
-        &state,
-        &runtime_state,
-    ));
+    let resp = rt.block_on(handle_request(get_req("/file.bin"), &state, &runtime_state));
     let etag = resp
         .headers()
         .get("etag")
@@ -314,11 +310,7 @@ fn bench_error_paths(c: &mut Criterion) {
                 .uri("/file.bin")
                 .body(Empty::<Bytes>::new())
                 .unwrap();
-            let resp = rt.block_on(handle_request(
-                req,
-                black_box(&state),
-                &runtime_state,
-            ));
+            let resp = rt.block_on(handle_request(req, black_box(&state), &runtime_state));
             assert_eq!(resp.status(), 405);
             black_box(resp);
         })
