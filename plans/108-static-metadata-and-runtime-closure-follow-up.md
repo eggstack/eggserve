@@ -2,13 +2,12 @@
 
 ## Status
 
-**CORRECTIVE FOLLOW-UP REQUIRED — SEE PLAN 109.**
+**REOPENED CORRECTIVE FOLLOW-UP — CLOSED BY VERIFIED PLAN 109.**
 
 Plan 108 remains a historical implementation and hosted-CI record. Its
-broader closure claims are reopened because final admission ownership,
+broader closure claims were reopened because final admission ownership,
 server-side static-service consumption, exact Stream wire proof, and parts of
-the release evidence were not complete. Plan 109 is the active bounded
-correction; do not treat this plan as the current closure authority.
+the release evidence were not complete; verified Plan 109 closed those gaps.
 
 This is a narrow corrective follow-up against repository state:
 

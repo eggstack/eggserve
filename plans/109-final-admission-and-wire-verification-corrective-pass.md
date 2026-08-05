@@ -2,7 +2,10 @@
 
 ## Status
 
-**Pending implementation.**
+**COMPLETE — VERIFIED 2026-08-05.**
+
+The functional candidate and final formatting correction are committed on
+`main`; hosted CI run `31035414453` passed both `rust` and `python` jobs.
 
 This is a narrow corrective pass against repository state:
 
@@ -1136,64 +1139,103 @@ Commits 2–4 may be combined if required to keep the tree compiling. Do not com
 
 ### Admission ownership
 
-- [ ] `ServeState` contains no semaphore;
-- [ ] `ServeState` exposes no file-admission accessor;
-- [ ] no public static adapter owns or creates a file pool;
-- [ ] no connection helper creates `RuntimeState`;
-- [ ] no connection helper creates a semaphore;
-- [ ] one `RuntimeState` is created per running server;
-- [ ] all connection tasks share the same runtime state;
-- [ ] all file-backed transport uses runtime admission;
-- [ ] static, custom Rust, and Python file responses share the production pool.
+- [x] `ServeState` contains no semaphore;
+- [x] `ServeState` exposes no file-admission accessor;
+- [x] no public static adapter owns or creates a file pool;
+- [x] no connection helper creates `RuntimeState`;
+- [x] no connection helper creates a semaphore;
+- [x] one `RuntimeState` is created per running server;
+- [x] all connection tasks share the same runtime state;
+- [x] all file-backed transport uses runtime admission;
+- [x] static, custom Rust, and Python file responses share the production pool.
 
 ### Server/static ownership
 
-- [ ] `Server` contains no `ServeConfig` field;
-- [ ] static configuration is consumed during `build()`;
-- [ ] one static root is pinned per static server;
-- [ ] custom server construction retains no static state;
-- [ ] `start_with_service()` is filesystem-agnostic;
-- [ ] no second server abstraction was added.
+- [x] `Server` contains no `ServeConfig` field;
+- [x] static configuration is consumed during `build()`;
+- [x] one static root is pinned per static server;
+- [x] custom server construction retains no static state;
+- [x] `start_with_service()` is filesystem-agnostic;
+- [x] no second server abstraction was added.
 
 ### Stream wire behavior
 
-- [ ] fully consumed fixed-length Stream reuses one connection;
-- [ ] fully consumed chunked Stream reuses one connection;
-- [ ] empty Stream reuses one connection;
-- [ ] incomplete fixed-length Stream closes and suppresses a pipelined second invocation;
-- [ ] incomplete chunked Stream closes and suppresses a pipelined second invocation;
-- [ ] rejected body closes and suppresses pipelined reuse;
-- [ ] Buffer reuse remains correct;
-- [ ] invocation counters prove service-call behavior;
-- [ ] no test accepts the opposite behavior.
+- [x] fully consumed fixed-length Stream reuses one connection;
+- [x] fully consumed chunked Stream reuses one connection;
+- [x] empty Stream reuses one connection;
+- [x] incomplete fixed-length Stream closes and suppresses a pipelined second invocation;
+- [x] incomplete chunked Stream closes and suppresses a pipelined second invocation;
+- [x] rejected body closes and suppresses pipelined reuse;
+- [x] Buffer reuse remains correct;
+- [x] invocation counters prove service-call behavior;
+- [x] no test accepts the opposite behavior.
 
 ### Release evidence
 
-- [ ] default release and dist CLI sizes are measured from unique captured artifacts;
-- [ ] TLS release and dist CLI sizes are measured from unique captured artifacts;
-- [ ] staged bundled CLI matches default dist by SHA-256;
-- [ ] wheel-extracted bundled CLI matches staged CLI by SHA-256;
-- [ ] native extension and wheel sizes are recorded;
-- [ ] full candidate SHA is recorded;
-- [ ] no stale artifact can contaminate measurements;
-- [ ] no unperformed scheduler comparison is claimed;
-- [ ] no permanent benchmark gate was added.
+- [x] default release and dist CLI sizes are measured from unique captured artifacts;
+- [x] TLS release and dist CLI sizes are measured from unique captured artifacts;
+- [x] staged bundled CLI matches default dist by SHA-256;
+- [x] wheel-extracted bundled CLI matches staged CLI by SHA-256;
+- [x] native extension and wheel sizes are recorded;
+- [x] full candidate SHA is recorded;
+- [x] no stale artifact can contaminate measurements;
+- [x] no unperformed scheduler comparison is claimed;
+- [x] no permanent benchmark gate was added.
 
 ### Verification and closure
 
-- [ ] focused admission tests pass;
-- [ ] focused Stream wire tests pass;
-- [ ] workspace tests pass;
-- [ ] TLS tests pass;
-- [ ] package dry-runs pass;
-- [ ] installed-wheel suite passes on supported CPython;
-- [ ] routine CI remains two jobs;
-- [ ] publication remains manual;
-- [ ] hosted Rust and Python jobs pass on the functional candidate;
-- [ ] Plans 102, 107, and 108 are reclosed only after Plan 109 passes;
-- [ ] active documentation contains no known-false closure claim.
+- [x] focused admission tests pass;
+- [x] focused Stream wire tests pass;
+- [x] workspace tests pass;
+- [x] TLS tests pass;
+- [x] package dry-runs pass;
+- [x] installed-wheel suite passes on supported CPython;
+- [x] routine CI remains two jobs;
+- [x] publication remains manual;
+- [x] hosted Rust and Python jobs pass on the functional candidate;
+- [x] Plans 102, 107, and 108 are reclosed only after Plan 109 passes;
+- [x] active documentation contains no known-false closure claim.
 
 ---
+
+## Verified closure — 2026-08-05
+
+Implementation completed in:
+
+- `cea39f779b4f6b828c92ff8bd9332bd0d2d1d99d` — final admission ownership,
+  server/static construction, exact wire tests, and documentation correction;
+- `d273134` — artifact measurements and scheduler claim correction;
+- `49ecb712be1677a027891ad373b6951d7b916182` — rustfmt correction for the
+  compatibility benchmark call sites.
+
+The final `main` head is `49ecb712be1677a027891ad373b6951d7b916182`.
+
+Verified locally:
+
+- `cargo fmt --all -- --check` and `git diff --check`;
+- `cargo clippy --workspace --lib --bins --tests -- -D warnings`;
+- `cargo test --workspace` — 1,366 passed, 9 ignored;
+- TLS clippy and `cargo test -p eggserve-bin --features tls` — 88 passed;
+- exact Stream wire tests for fixed-length, chunked, empty, incomplete
+  fixed/chunked pipelining, rejected-body closure, and Buffer reuse;
+- `PYTHON=python3.14 bash scripts/test-python-wheel.sh`;
+- `bash scripts/verify-cargo-packages.sh`.
+
+Artifact evidence is recorded in `benchmarks/binary-size.md`. The staged
+bundled CLI, wheel-extracted bundled CLI, and default `dist` CLI all have SHA
+`f7b69951e629796672073bc110f7f968d8479d482b3a578bac2f69a1eeb669b9`. No
+current-thread versus multi-thread performance comparison was performed or
+claimed.
+
+Hosted verification: [CI run 31035414453](https://github.com/eggstack/eggserve/actions/runs/31035414453)
+passed `rust` (format, clippy, workspace tests, TLS lint/tests) and `python`
+(wheel build, installation, smoke checks, and test suite). The only retry was
+for a rustfmt-only benchmark correction; the preceding run's Python job also
+passed.
+
+Plans 102, 107, and 108 are historical records reclosed by this verified Plan
+109 pass. Routine CI remains the existing two-job workflow, publication remains
+manual, and no permanent scheduler benchmark or new CI job was added.
 
 ## Handoff note
 

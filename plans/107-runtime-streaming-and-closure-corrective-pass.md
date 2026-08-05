@@ -2,11 +2,10 @@
 
 ## Status
 
-**IMPLEMENTED — FINAL ADMISSION VERIFICATION DEFERRED TO PLAN 109.**
+**IMPLEMENTED — RECLOSED BY VERIFIED PLAN 109.**
 
-The implementation and hosted-CI record remain historical. Plan 109 performs
-the final ownership and wire-verification correction before this runtime
-contract is considered fully closed.
+The implementation and hosted-CI record are historical; Plan 109 completed the
+final ownership and wire-verification correction.
 
 This is a bounded corrective pass against repository state:
 

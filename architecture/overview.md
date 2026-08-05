@@ -1,8 +1,7 @@
 # Architecture Overview
 
-Plan 108 is a historical corrective follow-up to Plan 107. Plan 109 is the
-active bounded correction before the runtime ownership contract is considered
-fully closed. The intended contract is: one
+Plan 108 is a historical corrective follow-up to Plan 107. Verified Plan 109
+closed the final runtime ownership contract. The intended contract is: one
 `RuntimeState` per running server, one transport file-stream semaphore, and
 canonical static file/range bodies preserved until Hyper conversion. Static
 state owns confinement only; custom Rust/Python services are rootless.
@@ -404,7 +403,7 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–108 are historical implementation records; Plan 109 is the active
+Plans 000–109 are historical implementation records; Plan 109 is the verified
 final admission and wire-verification corrective pass. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |

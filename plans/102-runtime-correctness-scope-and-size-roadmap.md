@@ -2,10 +2,9 @@
 
 ## Status
 
-**IMPLEMENTED — FINAL CORRECTIVE CLOSURE DEFERRED TO PLAN 109.** Plans 102–108
-implemented the roadmap, but Plan 109 reopens the bounded admission ownership,
-wire-verification, and evidence claims before this roadmap can be treated as
-fully closed.
+**IMPLEMENTED — RECLOSED BY VERIFIED PLAN 109.** Plans 102–108 implemented the
+roadmap; Plan 109 completed the bounded admission ownership, wire-verification,
+and evidence correction.
 
 Corrective roadmap for the repository state at:
 

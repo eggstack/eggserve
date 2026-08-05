@@ -9,7 +9,7 @@ were solely code-size change.
 
 - Target: `x86_64-unknown-linux-gnu`
 - Toolchain: `rustc 1.97.1 (8bab26f4f 2026-07-14)`
-- Candidate SHA: `cea39f7` (`fix: close final admission and wire verification gaps`)
+- Candidate SHA: `cea39f779b4f6b828c92ff8bd9332bd0d2d1d99d` (`fix: close final admission and wire verification gaps`)
 - Maturin: 1.14.1
 
 ## CLI artifacts

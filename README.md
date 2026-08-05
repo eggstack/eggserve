@@ -210,9 +210,9 @@ the runtime ceiling; TRACE content is rejected, and incomplete streamed bodies
 close the connection.
 
 Plan 108 is retained as a historical corrective implementation and hosted-CI
-record. Plan 109 is the active bounded correction for final admission
-ownership, build-time static-service consumption, exact Stream wire closure,
-and truthful distribution evidence. The pre-runtime Rust `service` module is a
+record. Verified Plan 109 completed the final admission ownership, build-time
+static-service consumption, exact Stream wire closure, and truthful
+distribution evidence. The pre-runtime Rust `service` module is a
 deprecated compatibility adapter requiring an explicit caller-owned runtime
 context; production servers use a single runtime-owned file-stream admission
 pool.
