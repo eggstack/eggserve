@@ -138,6 +138,18 @@ impl StaticService {
         Self { state }
     }
 
+    /// Create a static service from a [`ServeConfig`].
+    ///
+    /// This constructs the pinned root and file-stream semaphore from the
+    /// configuration. Used by `Server::start()` to build the built-in static
+    /// service.
+    pub(crate) fn from_state_config(
+        config: Arc<crate::config::ServeConfig>,
+    ) -> Result<Self, std::io::Error> {
+        let state = Arc::new(ServeState::new(config)?);
+        Ok(Self { state })
+    }
+
     /// Handle a single request against the static root.
     pub async fn handle(
         &self,
@@ -151,9 +163,19 @@ impl StaticService {
 impl Service for StaticService {
     fn request_body_policy(
         &self,
-        _head: &RequestHead,
+        head: &RequestHead,
     ) -> crate::primitives::request_body_policy::RequestBodyPolicy {
-        crate::primitives::request_body_policy::RequestBodyPolicy::Reject
+        // Static service only supports GET and HEAD. For supported methods,
+        // return Buffer so the runtime does not reject bodies before the
+        // service can check the method. For unsupported methods, return
+        // Reject so the runtime returns 405 (method not supported) via
+        // the method-detection check in the connection pipeline.
+        let method = head.method().as_str();
+        if method == "GET" || method == "HEAD" {
+            crate::primitives::request_body_policy::RequestBodyPolicy::Buffer { max_bytes: 0 }
+        } else {
+            crate::primitives::request_body_policy::RequestBodyPolicy::Reject
+        }
     }
 
     fn call(

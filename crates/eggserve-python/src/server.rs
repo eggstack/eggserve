@@ -18,7 +18,6 @@ use eggserve_core::primitives::canonical::{
 };
 use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
 use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy;
 use eggserve_core::primitives::request_body::RequestBody;
 use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
 use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
@@ -1337,7 +1336,6 @@ pub struct PyServer {
     body_policy: RequestBodyPolicy,
     max_request_body_bytes: u64,
     body_read_timeout: Duration,
-    incomplete_body_policy: IncompleteBodyPolicy,
     tls_config: Option<std::sync::Arc<rustls::ServerConfig>>,
 }
 
@@ -1345,7 +1343,7 @@ pub struct PyServer {
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, incomplete_body_policy="close", tls_certfile=None, tls_keyfile=None))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None))]
     fn new(
         root: String,
         bind: &str,
@@ -1363,7 +1361,6 @@ impl PyServer {
         request_body_mode: &str,
         max_request_body_bytes: u64,
         body_timeout_secs: u64,
-        incomplete_body_policy: &str,
         tls_certfile: Option<String>,
         tls_keyfile: Option<String>,
     ) -> PyResult<Self> {
@@ -1454,16 +1451,6 @@ impl PyServer {
             }
         };
 
-        // Parse incomplete body policy
-        let inc_policy = match incomplete_body_policy {
-            "close" => IncompleteBodyPolicy::Close,
-            _ => {
-                return Err(pyo3::exceptions::PyValueError::new_err(
-                    "incomplete_body_policy must be 'close'",
-                ));
-            }
-        };
-
         let static_policy = policy
             .map(|p| p.inner)
             .unwrap_or_else(StaticPolicy::safe_default);
@@ -1516,7 +1503,6 @@ impl PyServer {
             body_policy,
             max_request_body_bytes,
             body_read_timeout: Duration::from_secs(body_timeout_secs),
-            incomplete_body_policy: inc_policy,
             tls_config,
         })
     }
@@ -1576,9 +1562,7 @@ impl PyServer {
             .handler_timeout(self.handler_timeout)
             .graceful_shutdown_timeout(self.graceful_shutdown_timeout)
             .max_request_body_bytes(self.max_request_body_bytes)
-            .request_body_policy(self.body_policy)
-            .body_read_timeout(self.body_read_timeout)
-            .incomplete_body_policy(self.incomplete_body_policy);
+            .body_read_timeout(self.body_read_timeout);
         if let Some(tls_config) = &self.tls_config {
             runtime_builder = runtime_builder.tls_config(tls_config.clone());
         }

@@ -116,7 +116,7 @@ use crate::server::lifecycle::Lifecycle;
 /// ```
 pub struct Server {
     config: RuntimeConfig,
-    serve_config: Arc<ServeConfig>,
+    serve_config: Option<Arc<ServeConfig>>,
     lifecycle: Arc<Lifecycle>,
     listener_source: Option<ListenerSource>,
 }
@@ -213,16 +213,20 @@ impl ServerBuilder {
     /// Creates a [`StaticService`] from the serve configuration's root and
     /// policy. The serve config must have been set via [`ServerBuilder::serve_config`].
     pub fn build(self) -> Result<Server, ServerError> {
-        let serve_config = self.serve_config.ok_or_else(|| {
-            ServerError::Config("serve configuration required for static service".into())
-        })?;
         let config = match self.runtime_config {
             Some(c) => c,
-            None => config::try_from_serve_config(&serve_config)?,
+            None => match &self.serve_config {
+                Some(sc) => config::try_from_serve_config(sc)?,
+                None => {
+                    return Err(ServerError::Config(
+                        "runtime configuration or serve configuration required".into(),
+                    ))
+                }
+            },
         };
         Ok(Server {
             config,
-            serve_config,
+            serve_config: self.serve_config,
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
         })
@@ -242,7 +246,7 @@ impl ServerBuilder {
         };
         Ok(Server {
             config,
-            serve_config,
+            serve_config: Some(serve_config),
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
         })
@@ -252,65 +256,25 @@ impl ServerBuilder {
 impl Server {
     /// Start the server with the built-in static file service.
     ///
-    /// Binds the TCP listener (or uses the provided pre-bound listener) and
-    /// begins accepting connections. Returns a [`ServerHandle`] for
-    /// controlling the running server.
+    /// Constructs a [`StaticService`] from the serve configuration's root and
+    /// policy, then starts the server using the shared generic accept loop.
+    /// The serve config must have been set via [`ServerBuilder::serve_config`].
     pub async fn start(self) -> Result<ServerHandle, ServerError> {
-        self.lifecycle.start()?;
+        let serve_config = self.serve_config.clone().ok_or_else(|| {
+            ServerError::Config("serve configuration required for static service".into())
+        })?;
 
-        let listener = match self.listener_source {
-            Some(ListenerSource::Listener(l)) => l,
-            Some(ListenerSource::Bind(addr)) => {
-                TcpListener::bind(addr).await.map_err(ServerError::Bind)?
-            }
-            None => TcpListener::bind(self.config.bind)
-                .await
-                .map_err(ServerError::Bind)?,
-        };
+        let service = StaticService::from_state_config(serve_config)
+            .map_err(|e| ServerError::Config(e.to_string()))?;
 
-        let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
-
-        let state = Arc::new(
-            ServeState::new(self.serve_config).map_err(|e| ServerError::Config(e.to_string()))?,
-        );
-
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
-            crate::ops::Severity::Info,
-            crate::ops::EventKind::RootInitialized,
-            "root initialized",
-        ));
-
-        let config = Arc::new(self.config);
-        let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
-
-        let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
-        let shutdown_tx_clone = shutdown_tx.clone();
-        let lifecycle = self.lifecycle.clone();
-
-        let join = tokio::spawn({
-            let lifecycle = lifecycle.clone();
-            async move {
-                accept_loop(
-                    listener,
-                    config,
-                    state,
-                    connection_semaphore,
-                    shutdown_rx,
-                    lifecycle,
-                )
-                .await
-            }
-        });
-
-        Ok(ServerHandle::new(
-            local_addr,
-            shutdown_tx_clone,
-            join,
-            lifecycle,
-        ))
+        self.start_with_service(service).await
     }
 
     /// Start the server with a custom service.
+    ///
+    /// The custom service does not require a static root or serve configuration.
+    /// The runtime creates only transport state (semaphores, lifecycle) and
+    /// passes it to the accept loop and connection pipeline.
     pub async fn start_with_service<S: Service>(
         self,
         service: S,
@@ -329,15 +293,23 @@ impl Server {
 
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
-        let state = Arc::new(
-            ServeState::new(self.serve_config).map_err(|e| ServerError::Config(e.to_string()))?,
-        );
+        // Create ServeState only if we have a serve config (static service).
+        // Custom services do not need filesystem state.
+        let state = match self.serve_config {
+            Some(sc) => Some(Arc::new(
+                ServeState::new(sc).map_err(|e| ServerError::Config(e.to_string()))?,
+            )),
+            None => None,
+        };
 
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
-            crate::ops::Severity::Info,
-            crate::ops::EventKind::RootInitialized,
-            "root initialized",
-        ));
+        if state.is_some() {
+            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                crate::ops::Severity::Info,
+                crate::ops::EventKind::RootInitialized,
+                "root initialized",
+            ));
+        }
+
         let config = Arc::new(self.config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
 
@@ -348,7 +320,7 @@ impl Server {
         let join = tokio::spawn({
             let lifecycle = lifecycle.clone();
             async move {
-                accept_loop_with_service(
+                accept_loop_generic(
                     listener,
                     config,
                     state,
@@ -370,17 +342,21 @@ impl Server {
     }
 }
 
-/// Accept loop for the built-in static file service.
+/// Unified accept loop for both static and custom services.
 ///
-/// Tracks spawned connection tasks for graceful drain and cleanup.
-async fn accept_loop(
+/// When `state` is `Some`, filesystem state is available for static serving.
+/// When `state` is `None`, only transport state is used (custom services).
+async fn accept_loop_generic<S: Service>(
     listener: TcpListener,
     config: Arc<RuntimeConfig>,
-    state: Arc<ServeState>,
+    state: Option<Arc<ServeState>>,
     connection_semaphore: Arc<tokio::sync::Semaphore>,
+    service: S,
     mut shutdown_rx: broadcast::Receiver<()>,
     lifecycle: Arc<Lifecycle>,
 ) -> ShutdownResult {
+    let service = Arc::new(service);
+
     // Signal that we're running (listener bound, accept loop about to poll).
     if lifecycle.mark_running().is_err() {
         return ShutdownResult::Clean;
@@ -396,239 +372,6 @@ async fn accept_loop(
     let counters = crate::ops::global_counters();
 
     // Track spawned connection tasks for graceful drain.
-    let mut tasks = tokio::task::JoinSet::new();
-    let mut backoff_idx: usize = 0;
-    let mut error_repeat_count: usize = 0;
-    let mut last_error_kind: Option<String> = None;
-
-    loop {
-        tokio::select! {
-            result = listener.accept() => {
-                match result {
-                    Ok((stream, peer_addr)) => {
-                        backoff_idx = 0;
-                        error_repeat_count = 0;
-                        last_error_kind = None;
-                        let conn_id = correlation.next();
-                        counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                        crate::ops::Logger::global().emit(
-                            crate::ops::Event::new(
-                                crate::ops::Severity::Debug,
-                                crate::ops::EventKind::ConnectionAccepted,
-                                "connection accepted",
-                            )
-                            .connection_id(conn_id),
-                        );
-
-                        let permit = match connection_semaphore.clone().try_acquire_owned() {
-                            Ok(p) => p,
-                            Err(_) => {
-                                counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                                crate::ops::Logger::global().emit(
-                                    crate::ops::Event::new(
-                                        crate::ops::Severity::Debug,
-                                        crate::ops::EventKind::ConnectionRejected,
-                                        "connection rejected: admission limit",
-                                    )
-                                    .connection_id(conn_id),
-                                );
-                                drop(stream);
-                                continue;
-                            }
-                        };
-
-                        let mut shutdown_rx = shutdown_rx.resubscribe();
-                        let state = state.clone();
-                        let config = config.clone();
-                        let remote_addr = peer_addr;
-                        let local_addr = stream.local_addr().unwrap_or(config.bind);
-
-                        tasks.spawn(async move {
-                            let _permit = permit;
-
-                            #[cfg(feature = "tls")]
-                            {
-                                if let Some(tls_config) = &config.tls_config {
-                                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout, conn_id).await {
-                                        Some((tls_stream, tls_info)) => {
-                                            crate::ops::Logger::global().emit(
-                                                crate::ops::Event::new(
-                                                    crate::ops::Severity::Debug,
-                                                    crate::ops::EventKind::TlsHandshakeSuccess,
-                                                    "TLS handshake completed",
-                                                )
-                                                .connection_id(conn_id),
-                                            );
-                                            let io = TokioIo::new(tls_stream);
-                                            let tls_info = std::sync::Arc::new(Some(tls_info));
-                                            let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
-                                                let state = state.clone();
-                                                let tls_info = tls_info.clone();
-                                                let local_addr = local_addr;
-                                                let remote_addr = remote_addr;
-                                                async move {
-                                                    Ok::<_, std::convert::Infallible>(
-                                                        crate::service::handle_request_with_metadata(req, &state, local_addr, remote_addr, (*tls_info).clone()).await,
-                                                    )
-                                                }
-                                            });
-                                            connection::serve_connection(io, svc, &config, &mut shutdown_rx, conn_id).await;
-                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                                            return;
-                                        }
-                                        None => {
-                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-
-                            let io = TokioIo::new(stream);
-                            let svc = hyper::service::service_fn(move |req: hyper::Request<hyper::body::Incoming>| {
-                                let state = state.clone();
-                                let local_addr = local_addr;
-                                let remote_addr = remote_addr;
-                                async move {
-                                    Ok::<_, std::convert::Infallible>(
-                                        crate::service::handle_request_with_metadata(req, &state, local_addr, remote_addr, None).await,
-                                    )
-                                }
-                            });
-                            connection::serve_connection(io, svc, &config, &mut shutdown_rx, conn_id).await;
-                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
-                        });
-                    }
-                    Err(e) => {
-                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind).await;
-                        if fatal {
-                            break;
-                        }
-                    }
-                }
-            }
-            _ = shutdown_rx.recv() => {
-                break;
-            }
-        }
-    }
-
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
-        crate::ops::Severity::Info,
-        crate::ops::EventKind::ShutdownRequested,
-        "shutdown requested",
-    ));
-
-    // Transition to Draining.
-    let _ = lifecycle.drain();
-
-    // Wait for in-flight connections to drain.
-    let drain_timeout = config.graceful_shutdown_timeout;
-    let deadline = tokio::time::Instant::now() + drain_timeout;
-    let mut timed_out = false;
-
-    loop {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
-            timed_out = true;
-            break;
-        }
-        match tokio::time::timeout(remaining, tasks.join_next()).await {
-            Ok(Some(result)) => {
-                if let Err(e) = result {
-                    if e.is_panic() {
-                        crate::ops::Logger::global().emit(crate::ops::Event::new(
-                            crate::ops::Severity::Error,
-                            crate::ops::EventKind::ConnectionPanic,
-                            "connection task panicked during drain",
-                        ));
-                    }
-                }
-            }
-            Ok(None) => break,
-            Err(_) => {
-                timed_out = true;
-                break;
-            }
-        }
-    }
-
-    let mut abort_count = 0usize;
-
-    if timed_out {
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
-            crate::ops::Severity::Warn,
-            crate::ops::EventKind::ForcedShutdownStarted,
-            "grace deadline exceeded, aborting remaining tasks",
-        ));
-        tasks.abort_all();
-        while let Some(result) = tasks.join_next().await {
-            abort_count += 1;
-            if let Err(e) = result {
-                if e.is_panic() {
-                    crate::ops::Logger::global().emit(crate::ops::Event::new(
-                        crate::ops::Severity::Error,
-                        crate::ops::EventKind::ConnectionPanic,
-                        "connection task panicked during forced shutdown",
-                    ));
-                }
-            }
-        }
-    }
-
-    let _ = lifecycle.mark_stopped();
-
-    let result = if timed_out {
-        counters
-            .forced_shutdowns
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        ShutdownResult::Timeout
-    } else {
-        counters
-            .graceful_shutdowns
-            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        ShutdownResult::Clean
-    };
-
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
-        crate::ops::Severity::Info,
-        crate::ops::EventKind::ShutdownComplete,
-        format!("shutdown complete: {:?} (aborted={})", result, abort_count),
-    ));
-
-    result
-}
-
-/// Accept loop with a custom service.
-async fn accept_loop_with_service<S: Service>(
-    listener: TcpListener,
-    config: Arc<RuntimeConfig>,
-    state: Arc<ServeState>,
-    connection_semaphore: Arc<tokio::sync::Semaphore>,
-    service: S,
-    mut shutdown_rx: broadcast::Receiver<()>,
-    lifecycle: Arc<Lifecycle>,
-) -> ShutdownResult {
-    let service = Arc::new(service);
-
-    // Signal that we're running.
-    if lifecycle.mark_running().is_err() {
-        return ShutdownResult::Clean;
-    }
-
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
-        crate::ops::Severity::Info,
-        crate::ops::EventKind::ListenerReady,
-        "accept loop started",
-    ));
-
-    let correlation = crate::ops::CorrelationId::new();
-    let counters = crate::ops::global_counters();
-
     let mut tasks = tokio::task::JoinSet::new();
     let mut backoff_idx: usize = 0;
     let mut error_repeat_count: usize = 0;
@@ -702,7 +445,7 @@ async fn accept_loop_with_service<S: Service>(
                                                 io,
                                                 ArcService(service),
                                                 &config,
-                                                &state,
+                                                state.as_deref(),
                                                 &mut shutdown_rx,
                                                 conn_id,
                                                 local_addr_pre_tls,
@@ -726,7 +469,7 @@ async fn accept_loop_with_service<S: Service>(
                                 io,
                                 ArcService(service),
                                 &config,
-                                &state,
+                                state.as_deref(),
                                 &mut shutdown_rx,
                                 conn_id,
                                 local_addr_pre_tls,
@@ -757,8 +500,10 @@ async fn accept_loop_with_service<S: Service>(
         "shutdown requested",
     ));
 
+    // Transition to Draining.
     let _ = lifecycle.drain();
 
+    // Wait for in-flight connections to drain.
     let drain_timeout = config.graceful_shutdown_timeout;
     let deadline = tokio::time::Instant::now() + drain_timeout;
     let mut timed_out = false;

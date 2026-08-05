@@ -230,7 +230,6 @@ async fn keepalive_after_complete_body() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(true)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(config).await;
@@ -370,7 +369,6 @@ async fn partial_body_then_pipelined_request() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(true)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(config).await;
@@ -491,10 +489,6 @@ async fn partial_body_close_policy() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -560,10 +554,6 @@ async fn close_policy_body_close_on_partial_consumption() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -628,10 +618,6 @@ async fn close_policy_keepalive_after_full_body_consumption() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -722,10 +708,6 @@ async fn partial_chunked_body_close() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -790,7 +772,6 @@ async fn handler_error_before_body_consumption() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(false)
         .build()
         .unwrap();
 
@@ -851,7 +832,6 @@ async fn body_read_timeout_before_service() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(50))
-        .keep_alive(false)
         .build()
         .unwrap();
 
@@ -911,7 +891,6 @@ async fn body_complete_before_service_keepalive() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(true)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(config).await;
@@ -1002,10 +981,6 @@ async fn leftover_bytes_not_parsed_as_next_request() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(false)
         .build()
         .unwrap();
 
@@ -1080,10 +1055,6 @@ async fn close_policy_timeout_closes_connection() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -1148,10 +1119,6 @@ async fn close_policy_partial_chunked_body() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -1220,10 +1187,6 @@ async fn close_policy_malformed_remainder() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -1290,10 +1253,6 @@ async fn close_policy_keepalive_with_full_consumption_stream() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
-        .keep_alive(true)
         .build()
         .unwrap();
 
@@ -1436,7 +1395,6 @@ async fn http10_body_timeout_returns_408() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_millis(50))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(config).await;

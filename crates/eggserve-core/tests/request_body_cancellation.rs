@@ -46,7 +46,6 @@ async fn shutdown_before_first_body_byte() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(
@@ -86,7 +85,6 @@ async fn shutdown_mid_body() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(
@@ -125,7 +123,6 @@ async fn shutdown_between_chunks() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(
@@ -166,7 +163,6 @@ async fn forced_shutdown_with_pending_body() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(30))
         .graceful_shutdown_timeout(Duration::from_millis(50))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(
@@ -205,7 +201,6 @@ async fn client_disconnect_during_body_read() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(
@@ -244,7 +239,6 @@ async fn handler_timeout_aborts_body_read() {
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(30))
         .handler_timeout(Duration::from_millis(100))
-        .keep_alive(false)
         .build()
         .unwrap();
     let (handle, _tmp) = start_server(

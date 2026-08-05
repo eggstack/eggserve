@@ -17,6 +17,7 @@
 //! 9. Permit release and connection termination
 
 use std::convert::Infallible;
+use std::sync::Arc;
 
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
@@ -125,7 +126,7 @@ pub async fn serve_connection_with_service<I, S>(
     io: TokioIo<I>,
     service: S,
     config: &RuntimeConfig,
-    state: &ServeState,
+    state: Option<&ServeState>,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
     local_addr: std::net::SocketAddr,
@@ -141,7 +142,12 @@ pub async fn serve_connection_with_service<I, S>(
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
     let tls_info = std::sync::Arc::new(tls_info);
-    let file_stream_semaphore = state.file_stream_semaphore().clone();
+    let file_stream_semaphore = state
+        .map(|s| s.file_stream_semaphore().clone())
+        .unwrap_or_else(|| {
+            // Custom service without filesystem state: create a runtime-owned semaphore.
+            Arc::new(tokio::sync::Semaphore::new(config.max_file_streams))
+        });
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
         let service = service.clone();
@@ -156,9 +162,41 @@ pub async fn serve_connection_with_service<I, S>(
                 }
             };
 
-            // Runtime-level request policy validation.
+            // Runtime-level request policy validation (body-forbidden methods).
             if let Err(e) = validate_request_policy(&head) {
                 return Ok::<_, Infallible>(e.to_response());
+            }
+
+            // Method support check: if the service's body policy is Reject
+            // for the current method but would be non-Reject for GET, the
+            // service does not support this method. Return 405 instead of
+            // 413 to distinguish method rejection from body size rejection.
+            let declared_length_for_method = req
+                .headers()
+                .get(hyper::header::CONTENT_LENGTH)
+                .and_then(|v| v.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok());
+            let has_body_for_method = declared_length_for_method.is_some_and(|len| len > 0)
+                || req.headers().contains_key(hyper::header::TRANSFER_ENCODING);
+            if has_body_for_method && service.request_body_policy(&head).is_reject() {
+                // Check if the service's policy differs for GET — if so,
+                // this method is not supported (policy is method-dependent).
+                let is_get_or_head = matches!(head.method().as_str(), "GET" | "HEAD");
+                if !is_get_or_head {
+                    // Check if the service supports GET by constructing a
+                    // minimal GET request head.
+                    let get_head = crate::primitives::request_head::RequestHead::new(
+                        crate::primitives::method::Method::get(),
+                        crate::primitives::request_target::RequestTarget::parse("/").unwrap(),
+                        head.version(),
+                        crate::primitives::header_block::HeaderBlock::new(),
+                    );
+                    if !service.request_body_policy(&get_head).is_reject() {
+                        return Ok::<_, Infallible>(crate::response::method_not_allowed(
+                            head.method().is_head(),
+                        ));
+                    }
+                }
             }
 
             // Select effective body policy.
@@ -565,18 +603,21 @@ fn build_connection_info(
 ///
 /// This checks for transport-level correctness that the service should
 /// never be responsible for:
-/// - Methods that must not have a request body (GET, HEAD, OPTIONS, TRACE, DELETE)
+/// - Methods that must not have a request body (GET, HEAD, DELETE, TRACE)
 ///   must not carry Content-Length > 0 or Transfer-Encoding headers.
 ///
-/// Returns `Ok(())` if the request passes validation, or `Err(ServiceError)`
-/// with an appropriate HTTP status code.
+/// Method-level body policy (e.g., allowing POST bodies for custom
+/// services) is the service's responsibility via `request_body_policy()`.
+/// The runtime enforces that body-forbidden methods never carry content,
+/// regardless of the service's declared policy.
 fn validate_request_policy(
     head: &crate::primitives::request_head::RequestHead,
 ) -> Result<(), ServiceError> {
     let method = head.method().as_str();
 
     // These methods must not have a request body per RFC 9110 section 6.4.
-    let body_forbidden = matches!(method, "GET" | "HEAD" | "OPTIONS" | "TRACE" | "DELETE");
+    // TRACE is also included because HTTP semantics prohibit TRACE content.
+    let body_forbidden = matches!(method, "GET" | "HEAD" | "DELETE" | "TRACE");
 
     if body_forbidden {
         // Reject Transfer-Encoding — chunked is not supported.
@@ -684,13 +725,19 @@ fn convert_request_head(
         "PATCH" => Method::patch(),
         "OPTIONS" => Method::options(),
         "TRACE" => Method::trace(),
-        other => Method::new(other).unwrap_or_else(|_| Method::get()),
+        other => Method::new(other)
+            .map_err(|_| ServiceError::rejected(400, format!("invalid method: {}", other)))?,
     };
 
     let version = match req.version() {
         hyper::Version::HTTP_10 => HttpVersion::Http10,
         hyper::Version::HTTP_11 => HttpVersion::Http11,
-        _ => HttpVersion::Http11,
+        other => {
+            return Err(ServiceError::rejected(
+                505,
+                format!("unsupported HTTP version: {:?}", other),
+            ))
+        }
     };
 
     let raw_target = req
@@ -703,12 +750,20 @@ fn convert_request_head(
 
     let mut headers = HeaderBlock::new();
     for (name, value) in req.headers().iter() {
-        if let (Ok(n), Ok(v)) = (
-            crate::primitives::header_block::HeaderName::new(name.as_str()),
-            crate::primitives::header_block::HeaderValue::new(value.to_str().unwrap_or("")),
-        ) {
-            headers.push(n, v);
-        }
+        let header_name = crate::primitives::header_block::HeaderName::new(name.as_str())
+            .map_err(|_| ServiceError::rejected(400, format!("invalid header name: {}", name)))?;
+        let header_value = match value.to_str() {
+            Ok(v) => crate::primitives::header_block::HeaderValue::new(v).map_err(|_| {
+                ServiceError::rejected(400, format!("invalid header value for {}", name))
+            })?,
+            Err(_) => {
+                return Err(ServiceError::rejected(
+                    400,
+                    format!("non-UTF-8 header value for {}", name),
+                ))
+            }
+        };
+        headers.push(header_name, header_value);
     }
 
     Ok(crate::primitives::request_head::RequestHead::new(

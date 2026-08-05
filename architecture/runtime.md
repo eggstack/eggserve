@@ -29,8 +29,10 @@ Transport-level configuration separate from service-level concerns:
 - Bind address
 - Connection limits
 - File-stream limits
-- Timeouts (header read, connection total, handler, graceful shutdown)
-- Keep-alive policy
+- Timeouts (header read, connection total, handler, body read, graceful shutdown)
+- Server header
+- TLS configuration (feature-gated)
+- Maximum request body size (hard ceiling)
 
 Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time.
 
@@ -59,7 +61,7 @@ Hardened static file service implementing `Service`:
 - Conditional and range request handling
 - ETag and Last-Modified generation
 - File-stream semaphore-gated concurrency
-- Always rejects request bodies (extracts RequestHead, discards body)
+- Method-aware body policy: Buffer for GET/HEAD, Reject for unsupported methods
 
 ### ServerHandle
 
@@ -189,7 +191,7 @@ The runtime handles request body ingestion transparently for services:
    - 413: body too large
    - 500: transport error
 
-6. **Incomplete body handling**: After the service returns, if the body was not fully consumed, the runtime applies `IncompleteBodyPolicy`. `Close` closes the connection. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value.
+6. **Incomplete body handling**: When a service returns without fully consuming a Stream body, the connection closes. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value.
 
 ## Request body handling
 
@@ -197,9 +199,9 @@ The runtime manages request body lifecycle through the `Request` envelope:
 
 ### Body policy
 
-- `RuntimeConfig::request_body_policy` — global policy (Reject/Buffer/Stream)
+- `Service::request_body_policy(&RequestHead)` — service-declared per-request policy (method-aware)
 - `RuntimeConfig::max_request_body_bytes` — hard ceiling no service can exceed
-- `RuntimeConfig::incomplete_body_policy` — close when handler doesn't consume body
+- Incomplete body handling: always close (hardcoded, not configurable)
 
 ### Request envelope
 
@@ -215,6 +217,9 @@ pub struct Request {
 
 ```rust
 pub trait Service: Send + Sync + 'static {
+    fn request_body_policy(&self, head: &RequestHead) -> RequestBodyPolicy {
+        RequestBodyPolicy::Reject  // safe default
+    }
     fn call(&self, request: Request) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
 }
 ```
@@ -228,7 +233,7 @@ pub trait Service: Send + Sync + 'static {
 
 ### Static service
 
-The built-in `StaticService` always rejects request bodies. It extracts the `RequestHead` from the `Request` envelope and discards the body. It declares `RequestBodyPolicy::Reject` via `request_body_policy()`.
+The built-in `StaticService` uses method-aware body policy: `Buffer { max_bytes: 0 }` for GET/HEAD (allowing the request to reach the service) and `Reject` for unsupported methods (causing the runtime to return 405). The service returns 405 for methods it does not support.
 
 ### Python body policy mapping
 
@@ -236,14 +241,13 @@ Python `Server` constructor parameters map to Rust `RuntimeConfig` fields:
 
 | Python parameter | Rust field | Default |
 |------------------|-----------|---------|
-| `request_body_mode="reject"` | `request_body_policy: Reject` | Yes |
-| `request_body_mode="buffer"` | `request_body_policy: Buffer { max_bytes }` | — |
-| `request_body_mode="stream"` | `request_body_policy: Stream { max_bytes }` | — |
+| `request_body_mode="reject"` | service-declared via `request_body_policy()` | — |
+| `request_body_mode="buffer"` | service-declared via `request_body_policy()` | — |
+| `request_body_mode="stream"` | service-declared via `request_body_policy()` | — |
 | `max_request_body_bytes` | `max_request_body_bytes` | 0 |
 | `body_read_timeout_secs` | `body_read_timeout` | 30s |
-| `incomplete_body_policy="close"` | `incomplete_body_policy: Close` | Yes |
 
-The runtime enforces `max_request_body_bytes` as a hard ceiling. Service-specific limits may only lower it.
+The runtime enforces `max_request_body_bytes` as a hard ceiling. Service-specific limits may only lower it. Body policy is service-declared, not a runtime field.
 
 ## Python lifecycle mapping
 

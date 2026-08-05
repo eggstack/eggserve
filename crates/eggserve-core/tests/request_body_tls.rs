@@ -318,9 +318,6 @@ async fn tls_partial_body_close_policy() {
         .bind("127.0.0.1:0".parse().unwrap())
         .max_request_body_bytes(1024)
         .body_read_timeout(Duration::from_secs(5))
-        .incomplete_body_policy(
-            eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy::Close,
-        )
         .tls_config(ctx.server_config.clone())
         .build()
         .unwrap();
