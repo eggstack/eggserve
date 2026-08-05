@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Streaming buffer qualification tests for Plan 088.
 //!
 //! These tests verify exact range boundaries, buffer isolation across
@@ -55,6 +57,7 @@ async fn exact_range_first_byte() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=0-0"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -74,6 +77,7 @@ async fn exact_range_last_byte() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=7-7"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -90,6 +94,7 @@ async fn exact_range_full_file() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=0-255"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -111,6 +116,7 @@ async fn exact_range_cross_chunk_boundary() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=8100-8299"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -128,6 +134,7 @@ async fn exact_range_at_chunk_boundary_start() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=8192-8391"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -140,7 +147,12 @@ async fn exact_range_at_chunk_boundary_start() {
 async fn zero_length_file_full() {
     let (_tmp, state) = setup();
     fs::write(state.config().root.join("empty.txt"), "").unwrap();
-    let resp = handle_request(get_req("/empty.txt"), &state).await;
+    let resp = handle_request(
+        get_req("/empty.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "0");
     let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -158,6 +170,7 @@ async fn zero_length_file_head() {
             .body(http_body_util::Empty::<Bytes>::new())
             .unwrap(),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -172,6 +185,7 @@ async fn zero_length_file_range_416() {
     let resp = handle_request(
         get_req_with_header("/empty.txt", "range", "bytes=0-0"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::RANGE_NOT_SATISFIABLE);
@@ -184,6 +198,7 @@ async fn small_file_range_1byte() {
     let resp = handle_request(
         get_req_with_header("/tiny.txt", "range", "bytes=0-0"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -201,6 +216,7 @@ async fn buffer_isolation_between_requests() {
     let resp1 = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=100-199"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     let body1 = resp1.into_body().collect().await.unwrap().to_bytes();
@@ -208,6 +224,7 @@ async fn buffer_isolation_between_requests() {
     let resp2 = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=200-299"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     let body2 = resp2.into_body().collect().await.unwrap().to_bytes();
@@ -230,6 +247,7 @@ async fn suffix_range_exact_boundary() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=-10"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -246,6 +264,7 @@ async fn open_ended_range_exact() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=95-"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -261,6 +280,7 @@ async fn range_content_range_header_exact() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=100-199"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(
@@ -283,6 +303,7 @@ async fn multiple_sequential_range_requests_same_connection() {
         let resp = handle_request(
             get_req_with_header("/data.bin", "range", &range_header),
             &state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
         )
         .await;
         assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -304,6 +325,7 @@ async fn large_file_range_preserves_exact_content() {
     let resp = handle_request(
         get_req_with_header("/big.bin", "range", "bytes=100000-100999"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -326,12 +348,13 @@ async fn client_disconnect_releases_stream_permits() {
     fs::write(state.config().root.join("big.bin"), &data).unwrap();
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
 
     // Exhaust all permits except one
     let mut permits = Vec::with_capacity(max - 1);
     for _ in 0..max - 1 {
         permits.push(
-            state
+            runtime_state
                 .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
@@ -340,13 +363,16 @@ async fn client_disconnect_releases_stream_permits() {
     }
 
     // Start streaming a large file, then drop the response body immediately
-    let resp = handle_request(get_req("/big.bin"), &state).await;
+    let resp = handle_request(get_req("/big.bin"), &state, &runtime_state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     drop(resp); // Simulate client disconnect — stream and permit dropped
 
     // The permit should be released; we should be able to acquire one more
     drop(permits.pop());
-    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    let acquired = runtime_state
+        .file_stream_semaphore()
+        .clone()
+        .try_acquire_owned();
     assert!(
         acquired.is_ok(),
         "stream permit not released after client disconnect"
@@ -362,17 +388,21 @@ async fn forced_shutdown_releases_stream_permits() {
     fs::write(state.config().root.join("big.bin"), &data).unwrap();
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
 
     // Start multiple streaming responses
     let mut responses = Vec::new();
     for _ in 0..max {
-        let resp = handle_request(get_req("/big.bin"), &state).await;
+        let resp = handle_request(get_req("/big.bin"), &state, &runtime_state).await;
         assert_eq!(resp.status(), StatusCode::OK);
         responses.push(resp);
     }
 
     // All permits are held by the streaming responses
-    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    let acquired = runtime_state
+        .file_stream_semaphore()
+        .clone()
+        .try_acquire_owned();
     assert!(
         acquired.is_err(),
         "should not be able to acquire permit when all are held"
@@ -382,7 +412,10 @@ async fn forced_shutdown_releases_stream_permits() {
     responses.clear();
 
     // All permits should be released
-    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    let acquired = runtime_state
+        .file_stream_semaphore()
+        .clone()
+        .try_acquire_owned();
     assert!(
         acquired.is_ok(),
         "permits not released after forced shutdown"
@@ -398,12 +431,13 @@ async fn concurrent_stream_exhaustion_returns_503() {
     fs::write(state.config().root.join("file.bin"), &data).unwrap();
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
 
     // Exhaust all permits
     let mut permits = Vec::with_capacity(max);
     for _ in 0..max {
         permits.push(
-            state
+            runtime_state
                 .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
@@ -412,13 +446,13 @@ async fn concurrent_stream_exhaustion_returns_503() {
     }
 
     // Next request should fail with 503
-    let resp = handle_request(get_req("/file.bin"), &state).await;
+    let resp = handle_request(get_req("/file.bin"), &state, &runtime_state).await;
     assert_eq!(resp.status(), StatusCode::SERVICE_UNAVAILABLE);
 
     drop(permits);
 
     // After releasing permits, requests should succeed again
-    let resp = handle_request(get_req("/file.bin"), &state).await;
+    let resp = handle_request(get_req("/file.bin"), &state, &runtime_state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
 
@@ -430,12 +464,13 @@ async fn range_request_releases_permits_after_stream() {
     fs::write(state.config().root.join("ranged.bin"), &data).unwrap();
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
 
     // Exhaust all permits except one
     let mut permits = Vec::with_capacity(max - 1);
     for _ in 0..max - 1 {
         permits.push(
-            state
+            runtime_state
                 .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
@@ -447,6 +482,7 @@ async fn range_request_releases_permits_after_stream() {
     let resp = handle_request(
         get_req_with_header("/ranged.bin", "range", "bytes=0-4095"),
         &state,
+        &runtime_state,
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -455,7 +491,10 @@ async fn range_request_releases_permits_after_stream() {
 
     // Permit should be released after body consumption
     drop(permits.pop());
-    let acquired = state.file_stream_semaphore().clone().try_acquire_owned();
+    let acquired = runtime_state
+        .file_stream_semaphore()
+        .clone()
+        .try_acquire_owned();
     assert!(
         acquired.is_ok(),
         "stream permit not released after range request body consumption"
@@ -471,12 +510,13 @@ async fn head_request_does_not_acquire_stream_permits() {
     fs::write(state.config().root.join("head.bin"), &data).unwrap();
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
 
     // Exhaust all permits
     let mut permits = Vec::with_capacity(max);
     for _ in 0..max {
         permits.push(
-            state
+            runtime_state
                 .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
@@ -490,7 +530,7 @@ async fn head_request_does_not_acquire_stream_permits() {
         .uri("/head.bin")
         .body(http_body_util::Empty::<Bytes>::new())
         .unwrap();
-    let resp = handle_request(req, &state).await;
+    let resp = handle_request(req, &state, &runtime_state).await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "1024");
 }
@@ -515,7 +555,12 @@ async fn custom_chunk_size_small_file() {
         ..ServeConfig::default()
     });
     let state = ServeState::new(config).unwrap();
-    let resp = handle_request(get_req("/small.txt"), &state).await;
+    let resp = handle_request(
+        get_req("/small.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], b"hello world");
@@ -535,6 +580,7 @@ async fn custom_chunk_size_range_request() {
     let resp = handle_request(
         get_req_with_header("/data.bin", "range", "bytes=10-19"),
         &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
     assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
@@ -554,7 +600,12 @@ async fn custom_chunk_size_crosses_boundary() {
         ..ServeConfig::default()
     });
     let state = ServeState::new(config).unwrap();
-    let resp = handle_request(get_req("/data.bin"), &state).await;
+    let resp = handle_request(
+        get_req("/data.bin"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], &data[..]);
@@ -571,7 +622,12 @@ async fn minimum_chunk_size_boundary() {
         ..ServeConfig::default()
     });
     let state = ServeState::new(config).unwrap();
-    let resp = handle_request(get_req("/data.bin"), &state).await;
+    let resp = handle_request(
+        get_req("/data.bin"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], &data[..]);

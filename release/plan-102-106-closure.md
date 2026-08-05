@@ -1,8 +1,9 @@
 # Superseded historical record: Plans 102–106
 
-Plan 108 reopens the static metadata, ownership, keep-alive, release-profile,
-and evidence claims recorded below. This file is retained as history; the
-current truth is the implementation and hosted checks for Plan 108.
+Plans 108 and 109 reopen the static metadata, ownership, keep-alive,
+release-profile, and evidence claims recorded below. This file is retained as
+history; the current truth is the implementation and hosted checks for the
+active corrective pass.
 
 ## Final commit
 

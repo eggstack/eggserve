@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! HTTP wire-correctness tests (Plan 033).
 //!
 //! Raw TCP tests for request-line parsing, header grammar, message framing,
@@ -54,7 +56,12 @@ async fn start_server(opts: Option<StaticPolicy>) -> TestServer {
                     let state = state.clone();
                     async move {
                         Ok::<_, std::convert::Infallible>(
-                            eggserve_core::service::handle_request(req, &state).await,
+                            eggserve_core::service::handle_request(
+                                req,
+                                &state,
+                                &eggserve_core::server::RuntimeState::new_for_testing(32),
+                            )
+                            .await,
                         )
                     }
                 });

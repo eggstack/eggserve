@@ -49,9 +49,11 @@ Rust `HeaderMapPlan` and canonical Python `HeaderBlock` preserve insertion order
 
 Deprecated stable items must remain functional for at least one minor release after deprecation is announced. Removal requires explicit release notes and migration guidance.
 
-As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
-`validate_method()`, `validate_request_target()`, `StaticResponsePlan`,
-`BodyPlan`, `HeaderMapPlan`, `ResponseStatus`) remain stable and functional.
+The pre-runtime `service::handle_request` adapter is deprecated as of Plan 109.
+It remains functional for existing migration callers, but requires an explicit
+shared `RuntimeState`; new integrations should use `server::Server`. The
+canonical primitive types and older planning types listed below remain
+functional during the migration.
 
 ## Rust API — `eggserve-core`
 
@@ -62,7 +64,7 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `config` | pub | stable | `ServeConfig`, `StartupSummary`, `ServeState` |
 | `limits` | pub | stable | `Limits` resource-limit configuration |
 | `policy` | pub | stable | `StaticPolicy`, policy enums |
-| `service` | pub | experimental | `handle_request()` — HTTP handler |
+| `service` | pub | deprecated/experimental | Explicit-context `handle_request()` adapter; use `server::Server` |
 | `server` | pub | experimental | `Server`, `Service` trait, `StaticService`, lifecycle state machine, connection tracking |
 | `server/lifecycle` | pub | experimental | `LifecycleState` — lifecycle state machine |
 | `primitives` | pub | stable | Public facade for embedding consumers |
@@ -99,8 +101,8 @@ As of Plan 049, no items are deprecated. All legacy APIs (`ReadOnlyMethod`,
 | `Request` | Experimental | Canonical request envelope |
 | `Service::call(Request)` | Experimental | Updated to accept Request envelope |
 | `RuntimeConfig::max_request_body_bytes` | Experimental | Hard body size ceiling |
-| `RuntimeConfig::request_body_policy` | Experimental | Global body policy |
-| `RuntimeConfig::incomplete_body_policy` | Experimental | Incomplete body handling |
+| `Service::request_body_policy(&RequestHead)` | Experimental | Service-declared body policy, bounded by the runtime ceiling |
+| `RuntimeConfig::incomplete_body_policy` | Experimental | Not configurable; incomplete streamed bodies close the connection |
 
 ### `server` Module
 
@@ -138,7 +140,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `ServeConfig` | stable | All fields public: `bind`, `root`, `limits`, `static_policy` |
 | `ServeConfig::default()` | stable | Binds to `127.0.0.1:8000`, serves `.` |
 | `StartupSummary` | stable | Read-only summary after startup |
-| `ServeState` | stable | Runtime state; fields are pub(crate), methods are public |
+| `ServeState` | stable | Pinned static-root state; it does not own transport admission |
 
 ### `limits` Module
 
@@ -161,7 +163,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `handle_request()` | experimental | The HTTP handler. May change with hyper version or protocol updates |
+| `handle_request()` | deprecated/experimental | Requires caller-owned shared `RuntimeState`; retained for migration only |
 
 ### `primitives` Module — Path Types
 

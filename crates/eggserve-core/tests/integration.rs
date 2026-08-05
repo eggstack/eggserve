@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::fs;
 use std::sync::Arc;
 
@@ -58,7 +60,12 @@ async fn get_existing_file_returns_200_with_body() {
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/hello.txt"), &state).await;
+    let resp = handle_request(
+        get("/hello.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -71,7 +78,12 @@ async fn head_existing_file_returns_200_empty_body() {
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(head("/hello.txt"), &state).await;
+    let resp = handle_request(
+        head("/hello.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -83,7 +95,12 @@ async fn get_missing_file_returns_404() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/nonexistent.txt"), &state).await;
+    let resp = handle_request(
+        get("/nonexistent.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 
     let body = body_bytes(resp).await;
@@ -96,7 +113,12 @@ async fn get_denied_dotfile_returns_403() {
     fs::write(tmp.path().join(".env"), "SECRET_KEY=abc").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/.env"), &state).await;
+    let resp = handle_request(
+        get("/.env"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 
     let body = body_bytes(resp).await;
@@ -111,7 +133,12 @@ async fn get_symlink_returns_403_under_safe_default() {
     std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/link.txt"), &state).await;
+    let resp = handle_request(
+        get("/link.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -126,7 +153,12 @@ async fn get_directory_with_index_serves_index() {
     .unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &state).await;
+    let resp = handle_request(
+        get("/subdir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -146,7 +178,12 @@ async fn index_final_symlink_denied_when_symlinks_denied() {
     .unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &state).await;
+    let resp = handle_request(
+        get("/subdir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -167,7 +204,12 @@ async fn index_final_symlink_allowed_when_follow_enabled_if_inside_root() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/subdir"), &state).await;
+    let resp = handle_request(
+        get("/subdir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_bytes(resp).await;
     assert_eq!(body, "<html>real</html>");
@@ -195,7 +237,12 @@ async fn index_final_symlink_outside_root_denied_when_follow_enabled() {
     };
     let state = make_state(&tmp_root, policy);
 
-    let resp = handle_request(get("/subdir"), &state).await;
+    let resp = handle_request(
+        get("/subdir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -212,7 +259,12 @@ async fn index_under_intermediate_symlink_denied_when_symlinks_denied() {
     std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/link_dir"), &state).await;
+    let resp = handle_request(
+        get("/link_dir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -233,7 +285,12 @@ async fn index_under_intermediate_symlink_allowed_when_follow_enabled_if_inside_
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/link_dir"), &state).await;
+    let resp = handle_request(
+        get("/link_dir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_bytes(resp).await;
     assert_eq!(body, "<html>real</html>");
@@ -245,7 +302,12 @@ async fn get_directory_without_index_returns_403_when_listing_disabled() {
     fs::create_dir(tmp.path().join("subdir")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &state).await;
+    let resp = handle_request(
+        get("/subdir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -254,7 +316,12 @@ async fn get_unsupported_method_returns_405() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(method(Method::POST, "/anything"), &state).await;
+    let resp = handle_request(
+        method(Method::POST, "/anything"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");
 }
@@ -265,7 +332,12 @@ async fn content_length_matches_file_length() {
     fs::write(tmp.path().join("file.txt"), "hello").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "5");
 }
@@ -276,7 +348,12 @@ async fn content_type_defaults_to_octet_stream_for_unknown_extension() {
     fs::write(tmp.path().join("file.xyz"), "data").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.xyz"), &state).await;
+    let resp = handle_request(
+        get("/file.xyz"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -292,19 +369,34 @@ async fn content_type_known_extension_is_mapped() {
     fs::write(tmp.path().join("script.js"), "alert(1)").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.html"), &state).await;
+    let resp = handle_request(
+        get("/file.html"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/html; charset=utf-8"
     );
 
-    let resp = handle_request(get("/style.css"), &state).await;
+    let resp = handle_request(
+        get("/style.css"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "text/css; charset=utf-8"
     );
 
-    let resp = handle_request(get("/script.js"), &state).await;
+    let resp = handle_request(
+        get("/script.js"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
         "application/javascript; charset=utf-8"
@@ -316,7 +408,12 @@ async fn response_does_not_leak_absolute_root_path_on_error() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/nonexistent"), &state).await;
+    let resp = handle_request(
+        get("/nonexistent"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(
@@ -331,7 +428,12 @@ async fn nosniff_header_present() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(
         resp.headers().get("x-content-type-options").unwrap(),
         "nosniff"
@@ -344,7 +446,12 @@ async fn etag_header_present() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     let etag = resp.headers().get("etag").unwrap().to_str().unwrap();
     assert!(etag.starts_with("W/\""));
     assert!(etag.ends_with('"'));
@@ -356,7 +463,12 @@ async fn last_modified_header_present() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert!(resp.headers().get("last-modified").is_some());
 }
 
@@ -373,7 +485,12 @@ async fn directory_listing_enabled_shows_entries() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -394,7 +511,12 @@ async fn directory_listing_escapes_html() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("file with &#x27;quotes&#x27; &amp; ampersand"));
@@ -412,7 +534,12 @@ async fn directory_listing_percent_encodes_url_significant_chars_in_href() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("href=\"a%3Fb.txt\""));
@@ -429,7 +556,12 @@ async fn directory_listing_has_security_headers() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(
         resp.headers().get("content-security-policy").unwrap(),
         "default-src 'none'; base-uri 'none'; form-action 'none'"
@@ -453,7 +585,12 @@ async fn directory_listing_does_not_include_absolute_path() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(
@@ -473,7 +610,12 @@ async fn directory_listing_head_has_no_body() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(head("/"), &state).await;
+    let resp = handle_request(
+        head("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
         resp.headers().get("content-type").unwrap(),
@@ -494,7 +636,12 @@ async fn dotfile_allowed_when_policy_permits() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/.env"), &state).await;
+    let resp = handle_request(
+        get("/.env"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -513,7 +660,12 @@ async fn symlink_followed_when_policy_permits() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/link.txt"), &state).await;
+    let resp = handle_request(
+        get("/link.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -525,7 +677,12 @@ async fn get_root_without_index_returns_403() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -535,7 +692,12 @@ async fn percent_encoded_path_serves_correct_file() {
     fs::write(tmp.path().join("file with spaces.txt"), "spacey").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/file%20with%20spaces.txt"), &state).await;
+    let resp = handle_request(
+        get("/file%20with%20spaces.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -550,7 +712,12 @@ async fn subdir_file_served_correctly() {
     fs::write(tmp.path().join("a").join("b").join("c.txt"), "nested").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/a/b/c.txt"), &state).await;
+    let resp = handle_request(
+        get("/a/b/c.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
@@ -562,7 +729,12 @@ async fn method_not_allowed_for_delete() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(method(Method::DELETE, "/file"), &state).await;
+    let resp = handle_request(
+        method(Method::DELETE, "/file"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
     assert_eq!(resp.headers().get("allow").unwrap(), "GET, HEAD");
 }
@@ -572,7 +744,12 @@ async fn method_not_allowed_for_patch() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(method(Method::PATCH, "/file"), &state).await;
+    let resp = handle_request(
+        method(Method::PATCH, "/file"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
 }
 
@@ -581,8 +758,18 @@ async fn head_returns_same_status_as_get_for_missing() {
     let tmp = TempDir::new().unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let get_resp = handle_request(get("/nope"), &state).await;
-    let head_resp = handle_request(head("/nope"), &state).await;
+    let get_resp = handle_request(
+        get("/nope"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
+    let head_resp = handle_request(
+        head("/nope"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(get_resp.status(), head_resp.status());
 }
 
@@ -592,8 +779,18 @@ async fn head_returns_same_status_as_get_for_dotfile() {
     fs::write(tmp.path().join(".hidden"), "secret").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let get_resp = handle_request(get("/.hidden"), &state).await;
-    let head_resp = handle_request(head("/.hidden"), &state).await;
+    let get_resp = handle_request(
+        get("/.hidden"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
+    let head_resp = handle_request(
+        head("/.hidden"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(get_resp.status(), head_resp.status());
 }
 
@@ -603,8 +800,18 @@ async fn head_returns_same_status_as_get_for_directory_without_index() {
     fs::create_dir(tmp.path().join("emptydir")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let get_resp = handle_request(get("/emptydir"), &state).await;
-    let head_resp = handle_request(head("/emptydir"), &state).await;
+    let get_resp = handle_request(
+        get("/emptydir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
+    let head_resp = handle_request(
+        head("/emptydir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(get_resp.status(), head_resp.status());
 }
 
@@ -615,7 +822,12 @@ async fn dotfile_denied_in_subdir() {
     fs::write(tmp.path().join("sub").join(".gitignore"), "*.o").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/sub/.gitignore"), &state).await;
+    let resp = handle_request(
+        get("/sub/.gitignore"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -632,7 +844,12 @@ async fn directory_listing_denies_dotfile_entries() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/"), &state).await;
+    let resp = handle_request(
+        get("/"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     let body = body_bytes(resp).await;
     let body_str = String::from_utf8_lossy(&body);
     assert!(body_str.contains("visible.txt"));
@@ -646,7 +863,12 @@ async fn large_file_returns_correct_content_length() {
     fs::write(tmp.path().join("big.txt"), &content).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/big.txt"), &state).await;
+    let resp = handle_request(
+        get("/big.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(resp.headers().get("content-length").unwrap(), "100000");
 
@@ -663,7 +885,12 @@ async fn intermediate_symlink_denied_when_symlinks_denied() {
     std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/link_dir/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/link_dir/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -680,7 +907,12 @@ async fn intermediate_symlink_inside_root_allowed_when_follow_enabled() {
     };
     let state = make_state(&tmp, policy);
 
-    let resp = handle_request(get("/link_dir/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/link_dir/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::OK);
     let body = body_bytes(resp).await;
     assert_eq!(body, "content");
@@ -708,7 +940,12 @@ async fn intermediate_symlink_escape_denied_when_follow_enabled() {
     };
     let state = make_state(&tmp_root, policy);
 
-    let resp = handle_request(get("/out/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/out/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -729,7 +966,12 @@ async fn final_symlink_outside_root_denied_when_follow_enabled() {
     };
     let state = make_state(&tmp_root, policy);
 
-    let resp = handle_request(get("/escape.txt"), &state).await;
+    let resp = handle_request(
+        get("/escape.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -743,7 +985,12 @@ async fn nested_intermediate_symlink_denied() {
     std::os::unix::fs::symlink(tmp.path().join("b"), tmp.path().join("a").join("link_b")).unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/a/link_b/file.txt"), &state).await;
+    let resp = handle_request(
+        get("/a/link_b/file.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -753,7 +1000,12 @@ async fn get_put_delete_patch_all_405() {
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
     for m in [Method::PUT, Method::DELETE, Method::PATCH] {
-        let resp = handle_request(method(m.clone(), "/file"), &state).await;
+        let resp = handle_request(
+            method(m.clone(), "/file"),
+            &state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert_eq!(
             resp.status(),
             StatusCode::METHOD_NOT_ALLOWED,
@@ -770,10 +1022,11 @@ async fn head_does_not_consume_file_stream_permit() {
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
     let mut permits = Vec::with_capacity(max);
     for _ in 0..max {
         permits.push(
-            state
+            runtime_state
                 .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
@@ -781,7 +1034,7 @@ async fn head_does_not_consume_file_stream_permit() {
         );
     }
 
-    let resp = handle_request(head("/file.txt"), &state).await;
+    let resp = handle_request(head("/file.txt"), &state, &runtime_state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     drop(permits);
@@ -794,10 +1047,11 @@ async fn file_stream_permit_held_until_body_drop() {
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
     let max = state.config().limits.max_file_streams;
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(max);
     let mut permits = Vec::with_capacity(max);
     for _ in 0..max - 1 {
         permits.push(
-            state
+            runtime_state
                 .file_stream_semaphore()
                 .clone()
                 .try_acquire_owned()
@@ -805,11 +1059,11 @@ async fn file_stream_permit_held_until_body_drop() {
         );
     }
 
-    let resp = handle_request(get("/file.txt"), &state).await;
+    let resp = handle_request(get("/file.txt"), &state, &runtime_state).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     assert!(
-        state
+        runtime_state
             .file_stream_semaphore()
             .clone()
             .try_acquire_owned()
@@ -820,7 +1074,7 @@ async fn file_stream_permit_held_until_body_drop() {
     drop(resp);
 
     assert!(
-        state
+        runtime_state
             .file_stream_semaphore()
             .clone()
             .try_acquire_owned()
@@ -837,7 +1091,12 @@ async fn double_encoded_dotdot_is_rejected() {
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/%252e%252e/hello.txt"), &state).await;
+    let resp = handle_request(
+        get("/%252e%252e/hello.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -847,7 +1106,12 @@ async fn double_encoded_slash_is_treated_as_literal() {
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/%252f%252e%252e/hello.txt"), &state).await;
+    let resp = handle_request(
+        get("/%252f%252e%252e/hello.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
 }
 
@@ -857,7 +1121,12 @@ async fn single_encoded_dotdot_is_rejected() {
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/%2e%2e/hello.txt"), &state).await;
+    let resp = handle_request(
+        get("/%2e%2e/hello.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -867,7 +1136,12 @@ async fn encoded_dotfile_denied() {
     fs::write(tmp.path().join(".env"), "secret").unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/%2eenv"), &state).await;
+    let resp = handle_request(
+        get("/%2eenv"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -888,7 +1162,12 @@ async fn symlink_outside_root_denied_even_when_follow_enabled() {
     };
     let state = make_state(&tmp_root, policy);
 
-    let resp = handle_request(get("/escape.txt"), &state).await;
+    let resp = handle_request(
+        get("/escape.txt"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -903,7 +1182,12 @@ async fn hidden_index_name_is_not_considered_index() {
     .unwrap();
     let state = make_state(&tmp, StaticPolicy::safe_default());
 
-    let resp = handle_request(get("/subdir"), &state).await;
+    let resp = handle_request(
+        get("/subdir"),
+        &state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -959,7 +1243,11 @@ async fn concurrent_symlink_swap_stress() {
                     .unwrap();
                     std::fs::rename(&link_tmp, &link_path).unwrap();
 
-                    let resp = rt.block_on(handle_request(get("/link.txt"), &state));
+                    let resp = rt.block_on(handle_request(
+                        get("/link.txt"),
+                        &state,
+                        &eggserve_core::server::RuntimeState::new_for_testing(32),
+                    ));
                     let status = resp.status();
 
                     let body = rt.block_on(body_bytes(resp));

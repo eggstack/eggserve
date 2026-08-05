@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Filesystem race qualification tests (Plan 089, Track E; Plan CORRECTIVE-CLOSURE-PHASES-31-35, Track G).
 //!
 //! Cross-platform filesystem race suite on Linux, exercising:
@@ -98,7 +100,12 @@ async fn race_file_to_symlink_replacement() {
 
     // Serve the file multiple times
     for _ in 0..10 {
-        let resp = handle_request(get_req("/target.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/target.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert_eq!(resp.status(), 200);
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"original content");
@@ -112,7 +119,12 @@ async fn race_file_to_symlink_replacement() {
 
     // Serve again - should either serve symlink target or fail safely
     for _ in 0..10 {
-        let resp = handle_request(get_req("/target.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/target.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         if resp.status() == 200 {
             let body = resp.into_body().collect().await.unwrap().to_bytes();
             // Must not serve mixed content from two identities
@@ -147,7 +159,12 @@ async fn race_symlink_to_file_replacement() {
 
     // Serve through symlink (will get 403/404 since symlinks are blocked)
     for _ in 0..10 {
-        let resp = handle_request(get_req("/link.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/link.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         // Symlinks are blocked by default, so expect 403 or 404
         assert!(
             resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
@@ -169,7 +186,12 @@ async fn race_symlink_to_file_replacement() {
 
     // Serve again
     for _ in 0..10 {
-        let resp = handle_request(get_req("/link.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/link.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         if resp.status() == 200 {
             let body = resp.into_body().collect().await.unwrap().to_bytes();
             assert!(
@@ -196,7 +218,12 @@ async fn race_directory_to_symlink_replacement() {
     fs::write(root.join("dir/file.txt"), "dir content").unwrap();
 
     // Serve file in directory
-    let resp = handle_request(get_req("/dir/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/dir/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], b"dir content");
@@ -209,7 +236,12 @@ async fn race_directory_to_symlink_replacement() {
     std::os::unix::fs::symlink(root.join("other"), root.join("dir")).unwrap();
 
     // Serve again
-    let resp = handle_request(get_req("/dir/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/dir/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     if resp.status() == 200 {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert!(
@@ -235,7 +267,12 @@ async fn race_parent_replacement() {
     fs::write(root.join("a/b/file.txt"), "nested content").unwrap();
 
     // Serve file
-    let resp = handle_request(get_req("/a/b/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/a/b/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], b"nested content");
@@ -248,7 +285,12 @@ async fn race_parent_replacement() {
     std::os::unix::fs::symlink(root.join("x"), root.join("a")).unwrap();
 
     // Serve again
-    let resp = handle_request(get_req("/a/b/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/a/b/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     if resp.status() == 200 {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert!(
@@ -273,7 +315,12 @@ async fn race_root_pathname_replacement() {
     fs::write(root.join("file.txt"), "original").unwrap();
 
     // Serve
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
 
     // Replace root directory entirely
@@ -281,7 +328,12 @@ async fn race_root_pathname_replacement() {
     fs::write(new_root.path().join("file.txt"), "replaced").unwrap();
 
     // The old root should still work (pinned root)
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     if resp.status() == 200 {
         let body = resp.into_body().collect().await.unwrap().to_bytes();
         assert_eq!(&body[..], b"original");
@@ -302,7 +354,12 @@ async fn race_index_replacement() {
     fs::write(root.join("dir/index.html"), "index v1").unwrap();
 
     // Serve directory index
-    let resp = handle_request(get_req("/dir/"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/dir/"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert!(body.windows(8).any(|w| w == b"index v1"));
@@ -311,7 +368,12 @@ async fn race_index_replacement() {
     fs::write(root.join("dir/index.html"), "index v2").unwrap();
 
     // Serve again
-    let resp = handle_request(get_req("/dir/"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/dir/"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert!(body.windows(8).any(|w| w == b"index v2"));
@@ -343,7 +405,12 @@ async fn race_listing_churn() {
 
     // Serve directory listing multiple times while modifying
     for i in 0..20 {
-        let resp = handle_request(get_req("/dir/"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/dir/"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         // Directory listing is disabled by default, so expect 403 or 404
         assert!(
             resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
@@ -379,7 +446,12 @@ async fn race_file_truncation_during_streaming() {
     fs::write(root.join("large.bin"), &data).unwrap();
 
     // Start streaming
-    let resp = handle_request(get_req("/large.bin"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/large.bin"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
 
     // Truncate file while streaming
@@ -403,7 +475,12 @@ async fn race_file_replacement_during_streaming() {
     fs::write(root.join("data.bin"), b"original").unwrap();
 
     // Start streaming
-    let resp = handle_request(get_req("/data.bin"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/data.bin"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
 
     // Replace file
@@ -433,7 +510,12 @@ async fn race_permission_changes() {
 
     // Serve multiple times while changing permissions
     for i in 0..10 {
-        let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/file.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         // Should succeed or fail gracefully (not panic)
         assert!(
             resp.status() == 200 || resp.status() == 403 || resp.status() == 404,
@@ -483,7 +565,12 @@ async fn race_deletion_and_recreation() {
 
     // Delete and recreate while serving
     for i in 0..20 {
-        let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/file.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
 
         if resp.status() == 200 {
             let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -543,7 +630,12 @@ async fn race_concurrent_directory_listing() {
         let root = root.to_path_buf();
         handles.push(tokio::spawn(async move {
             for _ in 0..5 {
-                let resp = handle_request(get_req("/dir/"), &state).await;
+                let resp = handle_request(
+                    get_req("/dir/"),
+                    &state,
+                    &eggserve_core::server::RuntimeState::new_for_testing(32),
+                )
+                .await;
                 // Directory listing is disabled by default, so expect 403 or 404
                 assert!(
                     resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
@@ -586,7 +678,12 @@ async fn race_symlink_loop_detection() {
         std::os::unix::fs::symlink(root.join("dir"), root.join("dir/loop")).unwrap();
 
         // Try to serve through loop - should fail safely
-        let resp = handle_request(get_req("/dir/loop/"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/dir/loop/"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         // Should get error or rejection, not hang
         assert!(
             resp.status() != 200 || resp.status() == 404,
@@ -619,7 +716,12 @@ async fn race_outside_root_access() {
             .unwrap();
 
         // Try to serve through symlink - must fail
-        let resp = handle_request(get_req("/escape.txt"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/escape.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         // Should NOT return 200 with secret content
         if resp.status() == 200 {
             let body = resp.into_body().collect().await.unwrap().to_bytes();
@@ -710,7 +812,11 @@ async fn concurrent_symlink_swap_stress() {
         reader_handles.push(thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..ITERS {
-                let resp = rt.block_on(handle_request(get_req("/target.txt"), &state));
+                let resp = rt.block_on(handle_request(
+                    get_req("/target.txt"),
+                    &state,
+                    &eggserve_core::server::RuntimeState::new_for_testing(32),
+                ));
                 if resp.status() == 200 {
                     let body = rt.block_on(resp.into_body().collect());
                     if let Ok(collected) = body {
@@ -818,7 +924,11 @@ async fn concurrent_directory_swap_stress() {
         reader_handles.push(thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..ITERS {
-                let resp = rt.block_on(handle_request(get_req("/linkdir/file.txt"), &state));
+                let resp = rt.block_on(handle_request(
+                    get_req("/linkdir/file.txt"),
+                    &state,
+                    &eggserve_core::server::RuntimeState::new_for_testing(32),
+                ));
                 if resp.status() == 200 {
                     let body = rt.block_on(resp.into_body().collect());
                     if let Ok(collected) = body {

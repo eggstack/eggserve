@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Fault injection and degraded environment tests (Plan 089, Track G).
 //!
 //! Exercises:
@@ -71,7 +73,12 @@ async fn fault_file_read_error_after_response_start() {
     fs::write(root.join("file.txt"), "content").unwrap();
 
     // Start streaming
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
 
     // Delete file while streaming. On Unix, unlink does not invalidate the
@@ -87,7 +94,12 @@ async fn fault_file_read_error_after_response_start() {
 
     // Server must recover and serve new requests
     fs::write(root.join("after.txt"), "ok").unwrap();
-    let resp2 = handle_request(get_req("/after.txt"), &setup.state).await;
+    let resp2 = handle_request(
+        get_req("/after.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp2.status(), 200);
 }
 
@@ -100,7 +112,12 @@ async fn fault_file_read_error_fd_invalidation() {
 
     fs::write(root.join("data.bin"), vec![b'x'; 64 * 1024]).unwrap();
 
-    let resp = handle_request(get_req("/data.bin"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/data.bin"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
 
     // Close the underlying file descriptor to force EBADF on next read.
@@ -125,7 +142,12 @@ async fn fault_file_read_error_fd_invalidation() {
         // Restore permissions and verify server recovery
         let _ = fs::set_permissions(root, fs::Permissions::from_mode(0o755));
         fs::write(root.join("recovery.txt"), "ok").unwrap();
-        let resp2 = handle_request(get_req("/recovery.txt"), &setup.state).await;
+        let resp2 = handle_request(
+            get_req("/recovery.txt"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert_eq!(resp2.status(), 200);
     }
 }
@@ -145,7 +167,12 @@ async fn fault_range_read_error_after_response_start() {
         .header("range", "bytes=0-511")
         .body(http_body_util::Empty::<Bytes>::new())
         .unwrap();
-    let resp = handle_request(req, &setup.state).await;
+    let resp = handle_request(
+        req,
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 206);
 
     // Delete file mid-range-stream. On Unix fd stays valid, so the read
@@ -157,7 +184,12 @@ async fn fault_range_read_error_after_response_start() {
 
     // Server must recover
     fs::write(root.join("after.txt"), "ok").unwrap();
-    let resp2 = handle_request(get_req("/after.txt"), &setup.state).await;
+    let resp2 = handle_request(
+        get_req("/after.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp2.status(), 200);
 }
 
@@ -177,7 +209,12 @@ async fn fault_read_only_root() {
     }
 
     // Try to serve - should handle gracefully
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     // Should either succeed (if file is readable) or fail gracefully
     assert!(resp.status() == 200 || resp.status() == 403 || resp.status() == 500);
 
@@ -206,7 +243,12 @@ async fn fault_unreadable_file() {
     }
 
     // Try to serve - should fail gracefully
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert!(
         resp.status() == 403 || resp.status() == 404 || resp.status() == 500,
         "unreadable file should return 403/404/500, got {}",
@@ -241,7 +283,12 @@ async fn fault_concurrent_requests_under_pressure() {
         let state = setup.state.clone();
         handles.push(tokio::spawn(async move {
             let path = format!("/file_{}.txt", i % 10);
-            let resp = handle_request(get_req(&path), &state).await;
+            let resp = handle_request(
+                get_req(&path),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             assert!(
                 resp.status() == 200 || resp.status() == 503,
                 "unexpected status: {}",
@@ -275,7 +322,12 @@ async fn fault_shutdown_during_requests() {
         let state = setup.state.clone();
         handles.push(tokio::spawn(async move {
             let path = format!("/file_{}.txt", i % 5);
-            let resp = handle_request(get_req(&path), &state).await;
+            let resp = handle_request(
+                get_req(&path),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             // Should complete or fail gracefully
             let _ = resp.into_body().collect().await;
         }));
@@ -309,7 +361,12 @@ async fn fault_large_file_streaming_stress() {
     for i in 0..5 {
         let state = setup.state.clone();
         handles.push(tokio::spawn(async move {
-            let resp = handle_request(get_req(&format!("/large_{}.bin", i)), &state).await;
+            let resp = handle_request(
+                get_req(&format!("/large_{}.bin", i)),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             assert_eq!(resp.status(), 200);
             let _ = resp.into_body().collect().await;
         }));
@@ -339,7 +396,12 @@ async fn fault_directory_listing_under_modification() {
     let state = setup.state.clone();
     handles.push(tokio::spawn(async move {
         for _ in 0..10 {
-            let resp = handle_request(get_req("/dir/"), &state).await;
+            let resp = handle_request(
+                get_req("/dir/"),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             // Directory listing is disabled by default, so expect 403 or 404
             assert!(
                 resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
@@ -383,7 +445,12 @@ async fn fault_nonexistent_path_handling() {
     ];
 
     for path in paths {
-        let resp = handle_request(get_req(path), &setup.state).await;
+        let resp = handle_request(
+            get_req(path),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert!(
             resp.status() == 404 || resp.status() == 400 || resp.status() == 403,
             "nonexistent path {} should return 400/403/404, got {}",
@@ -422,7 +489,12 @@ async fn fault_invalid_http_requests() {
     ];
 
     for req in invalid_requests {
-        let resp = handle_request(req, &setup.state).await;
+        let resp = handle_request(
+            req,
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         // Should fail gracefully (400/405) without panic
         assert!(
             resp.status() == 400
@@ -446,12 +518,22 @@ async fn fault_recovery_after_errors() {
 
     // Generate errors
     for _ in 0..10 {
-        let resp = handle_request(get_req("/nonexistent"), &setup.state).await;
+        let resp = handle_request(
+            get_req("/nonexistent"),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert_eq!(resp.status(), 404);
     }
 
     // Server should recover and serve valid requests
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
     let body = resp.into_body().collect().await.unwrap().to_bytes();
     assert_eq!(&body[..], b"content");
@@ -482,7 +564,12 @@ async fn fault_mixed_valid_and_invalid_requests() {
     ];
 
     for (req, expected_status) in requests {
-        let resp = handle_request(req, &setup.state).await;
+        let resp = handle_request(
+            req,
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert_eq!(
             resp.status(),
             expected_status,
@@ -510,6 +597,7 @@ async fn fault_body_policy_enforcement() {
             .body(http_body_util::Full::new(Bytes::from("hello")))
             .unwrap(),
         &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
 
@@ -538,6 +626,7 @@ async fn fault_content_length_mismatch() {
             .body(http_body_util::Empty::<Bytes>::new())
             .unwrap(),
         &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
 
@@ -565,7 +654,12 @@ async fn fault_concurrent_streaming_stress() {
     for i in 0..20 {
         let state = setup.state.clone();
         handles.push(tokio::spawn(async move {
-            let resp = handle_request(get_req(&format!("/file_{}.bin", i)), &state).await;
+            let resp = handle_request(
+                get_req(&format!("/file_{}.bin", i)),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             assert_eq!(resp.status(), 200);
             let _ = resp.into_body().collect().await;
         }));
@@ -594,7 +688,12 @@ async fn fault_graceful_degradation() {
     }
 
     // Try to serve secret file - should fail gracefully
-    let resp = handle_request(get_req("/secret.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/secret.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert!(
         resp.status() == 403 || resp.status() == 404 || resp.status() == 500,
         "unreadable file should fail gracefully, got {}",
@@ -602,7 +701,12 @@ async fn fault_graceful_degradation() {
     );
 
     // Server should still serve valid files
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert_eq!(resp.status(), 200);
 
     // Restore permissions
@@ -632,7 +736,12 @@ async fn fault_fd_exhaustion_recovery() {
     }
 
     // Server should still serve requests despite FD pressure
-    let resp = handle_request(get_req("/file.txt"), &setup.state).await;
+    let resp = handle_request(
+        get_req("/file.txt"),
+        &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
+    )
+    .await;
     assert!(
         resp.status() == 200 || resp.status() == 503,
         "server should handle FD pressure: {}",
@@ -658,7 +767,12 @@ async fn fault_forced_shutdown_under_load() {
         let state = setup.state.clone();
         handles.push(tokio::spawn(async move {
             let path = format!("/file_{}.txt", i % 10);
-            let resp = handle_request(get_req(&path), &state).await;
+            let resp = handle_request(
+                get_req(&path),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             let _ = resp.into_body().collect().await;
         }));
     }
@@ -691,7 +805,12 @@ async fn fault_rapid_create_delete_cycles() {
 
     let reader = tokio::spawn(async move {
         for _ in 0..50 {
-            let resp = handle_request(get_req("/static.txt"), &state).await;
+            let resp = handle_request(
+                get_req("/static.txt"),
+                &state,
+                &eggserve_core::server::RuntimeState::new_for_testing(32),
+            )
+            .await;
             assert_eq!(resp.status(), 200);
             let _ = resp.into_body().collect().await;
         }
@@ -712,7 +831,12 @@ async fn fault_deeply_nested_path_traversal() {
     ];
 
     for path in paths {
-        let resp = handle_request(get_req(path), &setup.state).await;
+        let resp = handle_request(
+            get_req(path),
+            &setup.state,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
         assert!(
             resp.status() == 400 || resp.status() == 403 || resp.status() == 404,
             "deep traversal {} should be denied: {}",
@@ -731,6 +855,7 @@ async fn fault_empty_request_handling() {
             .body(http_body_util::Empty::<Bytes>::new())
             .unwrap(),
         &setup.state,
+        &eggserve_core::server::RuntimeState::new_for_testing(32),
     )
     .await;
 

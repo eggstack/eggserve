@@ -134,7 +134,7 @@ This is explicitly documented as outside the descriptor-relative hardening guara
 
 ## `RootGuard` Lifecycle
 
-1. Created at the start of `handle_request()`, borrowing the `PinnedRoot`
+1. Created once when `StaticService` is built, borrowing the `PinnedRoot`
 2. Clones the pinned root fd on Unix (no reopen)
 3. Passed to `resolve()` for path resolution
 4. Dropped at the end of the request (closes cloned fd)
@@ -160,7 +160,7 @@ This section traces every path from HTTP request target to response body, provin
 | Step | Code | What happens | Handle lifecycle |
 |------|------|-------------|-----------------|
 | 1. Parse | `path/mod.rs: ConfinedPath::parse` | Length check → origin-form parse → single-pass percent decode → normalize slashes → split components → validate each (NUL, `/`, `.`, `..`, backslash, dotfile, double-encoded traversal, platform checks) | No handles |
-| 2. Validate | `service.rs: handle_request` | Validates GET/HEAD, rejects bodies, builds `PathPolicy` from `StaticPolicy` | No handles |
+| 2. Validate | `StaticService::call` | Validates GET/HEAD, rejects bodies, and builds `PathPolicy` from `StaticPolicy` | No handles |
 | 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`, clones its fd on Unix or handle on Windows | Cloned `root_fd` (Unix) or `root_handle` (Windows) for traversal |
 | 4a. Resolve (Unix) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `unix::resolve_fd_relative` (safe defaults) or `resolve_fallback` (follow-symlinks) | `root_fd` used for traversal |
 | 4b. Resolve (Windows) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `windows::resolve_to_resource` (handle-relative) or `resolve_fallback` (follow-symlinks) | `root_handle` used for traversal |

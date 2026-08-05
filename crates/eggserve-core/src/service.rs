@@ -1,9 +1,10 @@
-//! Deprecated compatibility adapter for the pre-runtime static API.
+//! Deprecated compatibility adapter for pre-runtime static callers.
 //!
 //! Static resolution, directory listing, response planning, and canonical
-//! normalization live exclusively in [`crate::server::StaticService`]. This
-//! module remains only so alpha consumers of `handle_request` can migrate
-//! without retaining a second implementation.
+//! normalization live exclusively in [`crate::server::StaticService`]. The
+//! adapter is retained only for existing alpha/in-repository consumers. It
+//! requires an explicit server-owned [`RuntimeState`] and never creates or
+//! owns transport admission state.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -21,16 +22,24 @@ use crate::primitives::request_target::RequestTarget;
 use crate::primitives::version::HttpVersion;
 use crate::response::BoxBodyInner;
 use crate::server::service::Service;
-use crate::server::StaticService;
+use crate::server::{RuntimeState, StaticService};
 
 /// Handle a request through the authoritative [`StaticService`] planner.
 ///
 /// This compatibility entry point is deprecated in favor of
-/// `Server::start()` and does not define a separate static-serving path.
-pub async fn handle_request<B>(req: HyperRequest<B>, state: &ServeState) -> Response<BoxBodyInner> {
+/// `Server::start()`. The runtime state must be shared by the caller across
+/// all adapter invocations that belong to one server.
+#[deprecated(note = "use server::Server::start; retained only for migration")]
+#[allow(deprecated)]
+pub async fn handle_request<B>(
+    req: HyperRequest<B>,
+    state: &ServeState,
+    runtime_state: &RuntimeState,
+) -> Response<BoxBodyInner> {
     handle_request_with_metadata(
         req,
         state,
+        runtime_state,
         "127.0.0.1:0".parse().expect("valid loopback address"),
         "127.0.0.1:0".parse().expect("valid loopback address"),
         None,
@@ -39,9 +48,11 @@ pub async fn handle_request<B>(req: HyperRequest<B>, state: &ServeState) -> Resp
 }
 
 /// Metadata-aware form of [`handle_request`].
+#[deprecated(note = "use server::Server::start; retained only for migration")]
 pub async fn handle_request_with_metadata<B>(
     req: HyperRequest<B>,
     state: &ServeState,
+    runtime_state: &RuntimeState,
     local_addr: std::net::SocketAddr,
     remote_addr: std::net::SocketAddr,
     tls_info: Option<TlsInfo>,
@@ -110,7 +121,7 @@ pub async fn handle_request_with_metadata<B>(
     };
     match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(
         response,
-        state.file_stream_semaphore(),
+        runtime_state.file_stream_semaphore(),
     ) {
         Ok(response) => response,
         Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => {

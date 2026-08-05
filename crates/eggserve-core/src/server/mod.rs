@@ -116,7 +116,7 @@ use crate::server::lifecycle::Lifecycle;
 /// ```
 pub struct Server {
     config: RuntimeConfig,
-    serve_config: Option<Arc<ServeConfig>>,
+    builtin_static_service: Option<StaticService>,
     lifecycle: Arc<Lifecycle>,
     listener_source: Option<ListenerSource>,
 }
@@ -131,9 +131,19 @@ pub struct RuntimeState {
 }
 
 impl RuntimeState {
-    fn new(config: &RuntimeConfig) -> Self {
+    pub(crate) fn new(config: &RuntimeConfig) -> Self {
         Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
+        }
+    }
+
+    /// Construct an explicit admission context for legacy adapter migration
+    /// and low-level tests. Running servers must obtain their context from
+    /// [`Server::start`] or [`Server::start_with_service`].
+    #[doc(hidden)]
+    pub fn new_for_testing(max_file_streams: usize) -> Self {
+        Self {
+            file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(max_file_streams)),
         }
     }
 
@@ -230,14 +240,17 @@ impl ServerBuilder {
         self
     }
 
-    /// Build the server with the built-in static file service.
+    /// Build the server, eagerly constructing the built-in static file service
+    /// when a serve configuration was supplied.
     ///
-    /// Creates a [`StaticService`] from the serve configuration's root and
-    /// policy. The serve config must have been set via [`ServerBuilder::serve_config`].
+    /// Invalid static roots therefore fail during `build()`, before listener
+    /// preparation or startup. The serve config must have been set via
+    /// [`ServerBuilder::serve_config`] for [`Server::start`] to be available.
     pub fn build(self) -> Result<Server, ServerError> {
+        let serve_config = self.serve_config;
         let config = match self.runtime_config {
             Some(c) => c,
-            None => match &self.serve_config {
+            None => match &serve_config {
                 Some(sc) => config::try_from_serve_config(sc)?,
                 None => {
                     return Err(ServerError::Config(
@@ -246,9 +259,13 @@ impl ServerBuilder {
                 }
             },
         };
+        let builtin_static_service = serve_config
+            .map(StaticService::from_serve_config)
+            .transpose()
+            .map_err(|e| ServerError::Config(e.to_string()))?;
         Ok(Server {
             config,
-            serve_config: self.serve_config,
+            builtin_static_service,
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
         })
@@ -266,9 +283,11 @@ impl ServerBuilder {
             Some(c) => c,
             None => config::try_from_serve_config(&serve_config)?,
         };
+        let builtin_static_service = StaticService::from_serve_config(serve_config)
+            .map_err(|e| ServerError::Config(e.to_string()))?;
         Ok(Server {
             config,
-            serve_config: Some(serve_config),
+            builtin_static_service: Some(builtin_static_service),
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
         })
@@ -278,18 +297,28 @@ impl ServerBuilder {
 impl Server {
     /// Start the server with the built-in static file service.
     ///
-    /// Constructs a [`StaticService`] from the serve configuration's root and
-    /// policy, then starts the server using the shared generic accept loop.
-    /// The serve config must have been set via [`ServerBuilder::serve_config`].
+    /// Starts the statically constructed service using the shared generic
+    /// accept loop. The serve config must have been set via
+    /// [`ServerBuilder::serve_config`].
     pub async fn start(self) -> Result<ServerHandle, ServerError> {
-        let serve_config = self.serve_config.clone().ok_or_else(|| {
+        let Server {
+            config,
+            builtin_static_service,
+            lifecycle,
+            listener_source,
+        } = self;
+        let service = builtin_static_service.ok_or_else(|| {
             ServerError::Config("serve configuration required for static service".into())
         })?;
 
-        let service = StaticService::from_serve_config(serve_config)
-            .map_err(|e| ServerError::Config(e.to_string()))?;
-
-        self.start_with_service(service).await
+        Server {
+            config,
+            builtin_static_service: None,
+            lifecycle,
+            listener_source,
+        }
+        .start_with_service(service)
+        .await
     }
 
     /// Start the server with a custom service.
@@ -301,27 +330,33 @@ impl Server {
         self,
         service: S,
     ) -> Result<ServerHandle, ServerError> {
-        self.lifecycle.start()?;
+        let Server {
+            config: runtime_config,
+            builtin_static_service: _,
+            lifecycle,
+            listener_source,
+        } = self;
+        lifecycle.start()?;
 
-        let listener = match self.listener_source {
+        let listener = match listener_source {
             Some(ListenerSource::Listener(l)) => l,
             Some(ListenerSource::Bind(addr)) => {
                 TcpListener::bind(addr).await.map_err(ServerError::Bind)?
             }
-            None => TcpListener::bind(self.config.bind)
+            None => TcpListener::bind(runtime_config.bind)
                 .await
                 .map_err(ServerError::Bind)?,
         };
 
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
-        let config = Arc::new(self.config);
+        let config = Arc::new(runtime_config);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
         let runtime_state = Arc::new(RuntimeState::new(&config));
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let shutdown_tx_clone = shutdown_tx.clone();
-        let lifecycle = self.lifecycle.clone();
+        let lifecycle = lifecycle.clone();
 
         let join = tokio::spawn({
             let lifecycle = lifecycle.clone();

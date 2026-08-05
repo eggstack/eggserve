@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use std::fs;
 use std::sync::Arc;
 
@@ -38,7 +40,14 @@ async fn start_server(tmp: &TempDir, policy: StaticPolicy) -> SocketAddr {
                     move |req: Request<Incoming>| {
                         let state = state.clone();
                         async move {
-                            Ok::<_, std::convert::Infallible>(handle_request(req, &state).await)
+                            Ok::<_, std::convert::Infallible>(
+                                handle_request(
+                                    req,
+                                    &state,
+                                    &eggserve_core::server::RuntimeState::new_for_testing(32),
+                                )
+                                .await,
+                            )
                         }
                     }
                 });

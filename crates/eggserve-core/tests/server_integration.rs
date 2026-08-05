@@ -10,8 +10,8 @@ use eggserve_core::primitives::canonical::{
 };
 use eggserve_core::primitives::request::Request;
 use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::connection::serve_connection_with_service;
-use eggserve_core::server::{service_fn, Server};
+use eggserve_core::server::connection::serve_connection_with_runtime_state;
+use eggserve_core::server::{service_fn, RuntimeState, Server};
 use hyper_util::rt::TokioIo;
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -26,16 +26,32 @@ fn build_state(tmp: &TempDir) -> Arc<ServeState> {
     Arc::new(ServeState::new(config).unwrap())
 }
 
+#[test]
+fn static_root_is_validated_during_build() {
+    let missing =
+        std::env::temp_dir().join(format!("eggserve-plan109-missing-{}", std::process::id()));
+    let result = Server::builder()
+        .runtime(RuntimeConfig::default())
+        .serve_config(Arc::new(ServeConfig {
+            root: missing,
+            ..ServeConfig::default()
+        }))
+        .build();
+    assert!(
+        result.is_err(),
+        "invalid static root must fail during build"
+    );
+}
+
 #[tokio::test]
 async fn panic_in_service_returns_500() {
     let tmp = TempDir::new().unwrap();
-    let state = build_state(&tmp);
+    let _state = build_state(&tmp);
     let config = RuntimeConfig::default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
 
-    let state_clone = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
@@ -43,11 +59,11 @@ async fn panic_in_service_returns_500() {
         let svc = service_fn(|_req: Request| async {
             panic!("intentional panic");
         });
-        serve_connection_with_service(
+        serve_connection_with_runtime_state(
             io,
             svc,
             &config,
-            Some(state_clone.as_ref()),
+            Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
             addr,
@@ -81,7 +97,7 @@ async fn panic_in_service_returns_500() {
 #[tokio::test]
 async fn slow_handler_returns_504() {
     let tmp = TempDir::new().unwrap();
-    let state = build_state(&tmp);
+    let _state = build_state(&tmp);
     let config = RuntimeConfig::builder()
         .handler_timeout(Duration::from_millis(50))
         .build()
@@ -90,7 +106,6 @@ async fn slow_handler_returns_504() {
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
 
-    let state_clone = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
@@ -102,11 +117,11 @@ async fn slow_handler_returns_504() {
                 .body(ResponseBody::Empty)
                 .unwrap())
         });
-        serve_connection_with_service(
+        serve_connection_with_runtime_state(
             io,
             svc,
             &config,
-            Some(state_clone.as_ref()),
+            Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
             addr,
@@ -137,7 +152,7 @@ async fn slow_handler_returns_504() {
 #[tokio::test]
 async fn malformed_request_rejected_before_service() {
     let tmp = TempDir::new().unwrap();
-    let state = build_state(&tmp);
+    let _state = build_state(&tmp);
     let config = RuntimeConfig::default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
@@ -146,7 +161,6 @@ async fn malformed_request_rejected_before_service() {
     let called = Arc::new(AtomicBool::new(false));
     let called_clone = called.clone();
 
-    let state_clone = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
@@ -161,11 +175,11 @@ async fn malformed_request_rejected_before_service() {
                     .unwrap())
             }
         });
-        serve_connection_with_service(
+        serve_connection_with_runtime_state(
             io,
             svc,
             &config,
-            Some(state_clone.as_ref()),
+            Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
             addr,
@@ -194,13 +208,12 @@ async fn malformed_request_rejected_before_service() {
 #[tokio::test]
 async fn custom_service_bytes_through_pipeline() {
     let tmp = TempDir::new().unwrap();
-    let state = build_state(&tmp);
+    let _state = build_state(&tmp);
     let config = RuntimeConfig::default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
 
-    let state_clone = state.clone();
     let server = tokio::spawn(async move {
         let (stream, _) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
@@ -211,11 +224,11 @@ async fn custom_service_bytes_through_pipeline() {
                 .body(ResponseBody::Bytes(b"hello".to_vec()))
                 .unwrap())
         });
-        serve_connection_with_service(
+        serve_connection_with_runtime_state(
             io,
             svc,
             &config,
-            Some(state_clone.as_ref()),
+            Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
             addr,
@@ -248,7 +261,7 @@ async fn custom_service_bytes_through_pipeline() {
     );
 }
 
-async fn request_custom_file(state: Arc<ServeState>, path: PathBuf) -> Vec<u8> {
+async fn request_custom_file(runtime_state: Arc<RuntimeState>, path: PathBuf) -> Vec<u8> {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -275,11 +288,11 @@ async fn request_custom_file(state: Arc<ServeState>, path: PathBuf) -> Vec<u8> {
                     .unwrap())
             }
         });
-        serve_connection_with_service(
+        serve_connection_with_runtime_state(
             io,
             svc,
             &config,
-            Some(state.as_ref()),
+            runtime_state,
             &mut shutdown_rx,
             1,
             addr,
@@ -306,24 +319,18 @@ async fn custom_service_file_stream_saturation_maps_503_and_recovers() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("custom.bin");
     std::fs::write(&path, b"custom file").unwrap();
-    let mut serve_config = ServeConfig {
-        root: tmp.path().to_path_buf(),
-        ..ServeConfig::default()
-    };
-    serve_config.limits.max_file_streams = 1;
-    let config = Arc::new(serve_config);
-    let state = Arc::new(ServeState::new(config).unwrap());
-    let held = state
+    let runtime_state = Arc::new(RuntimeState::new_for_testing(1));
+    let held = runtime_state
         .file_stream_semaphore()
         .clone()
         .try_acquire_owned()
         .unwrap();
 
-    let saturated = request_custom_file(state.clone(), path.clone()).await;
+    let saturated = request_custom_file(runtime_state.clone(), path.clone()).await;
     assert!(saturated.starts_with(b"HTTP/1.1 503"), "{saturated:?}");
 
     drop(held);
-    let recovered = request_custom_file(state, path).await;
+    let recovered = request_custom_file(runtime_state, path).await;
     assert!(recovered.starts_with(b"HTTP/1.1 200"), "{recovered:?}");
     assert!(
         recovered
@@ -457,13 +464,12 @@ async fn connection_metadata_propagated_to_service() {
     static METADATA_SEEN: AtomicBool = AtomicBool::new(false);
 
     let tmp = TempDir::new().unwrap();
-    let state = build_state(&tmp);
+    let _state = build_state(&tmp);
     let config = RuntimeConfig::default();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
 
-    let state_clone = state.clone();
     let server = tokio::spawn(async move {
         let (stream, peer_addr) = listener.accept().await.unwrap();
         let io = TokioIo::new(stream);
@@ -489,11 +495,11 @@ async fn connection_metadata_propagated_to_service() {
                     .unwrap())
             }
         });
-        serve_connection_with_service(
+        serve_connection_with_runtime_state(
             io,
             svc,
             &config,
-            Some(state_clone.as_ref()),
+            Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
             addr,

@@ -42,9 +42,9 @@ use crate::server::RuntimeState;
 /// - Response-write timeout enforcement
 /// - Graceful shutdown propagation
 ///
-/// The `service` parameter provides the request handler. For the static
-/// service, this is a closure wrapping `handle_request`. For custom services,
-/// it wraps the user's [`Service`] implementation.
+/// The `service` parameter provides the request handler. The built-in static
+/// path supplies [`crate::server::StaticService`]; custom services supply their own
+/// [`Service`] implementation.
 pub async fn serve_connection<I, S>(
     io: TokioIo<I>,
     service: S,
@@ -521,48 +521,6 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
 }
 
-/// Compatibility wrapper for pre-runtime direct connection tests. Production
-/// servers must use `serve_connection_with_runtime_state` so one pool is
-/// shared across all connections.
-#[doc(hidden)]
-#[allow(clippy::too_many_arguments)]
-pub async fn serve_connection_with_service<I, S>(
-    io: TokioIo<I>,
-    service: S,
-    config: &RuntimeConfig,
-    legacy_state: Option<&crate::config::ServeState>,
-    shutdown_rx: &mut broadcast::Receiver<()>,
-    conn_id: u64,
-    local_addr: std::net::SocketAddr,
-    remote_addr: std::net::SocketAddr,
-    tls: bool,
-    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
-) where
-    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-    S: Service,
-{
-    let runtime_state = legacy_state
-        .map(|state| {
-            Arc::new(RuntimeState {
-                file_stream_semaphore: state.compatibility_file_stream_semaphore().clone(),
-            })
-        })
-        .unwrap_or_else(|| Arc::new(RuntimeState::new(config)));
-    serve_connection_with_runtime_state(
-        io,
-        service,
-        config,
-        runtime_state,
-        shutdown_rx,
-        conn_id,
-        local_addr,
-        remote_addr,
-        tls,
-        tls_info,
-    )
-    .await;
-}
-
 /// Select the effective body policy from service preference and runtime ceiling.
 fn select_body_policy(service_policy: RequestBodyPolicy, max_body_bytes: u64) -> RequestBodyPolicy {
     match service_policy {
@@ -797,6 +755,7 @@ fn convert_request_head(
 mod tests {
     use super::*;
     use crate::config::{ServeConfig, ServeState};
+    use crate::server::static_service::StaticService;
     use std::sync::Arc;
     use tempfile::TempDir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -823,14 +782,22 @@ mod tests {
 
         let state_clone = state.clone();
         let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let io = TokioIo::new(stream);
+            let (stream, remote_addr) = listener.accept().await.unwrap();
             let mut shutdown_rx = tx.subscribe();
-            let svc = service_fn(move |req: Request<Incoming>| {
-                let state = state_clone.clone();
-                async move { Ok::<_, Infallible>(crate::service::handle_request(req, &state).await) }
-            });
-            serve_connection(io, svc, &config, &mut shutdown_rx, 1).await;
+            let runtime_state = Arc::new(RuntimeState::new(&config));
+            serve_connection_with_runtime_state(
+                TokioIo::new(stream),
+                StaticService::from_state(state_clone),
+                &config,
+                runtime_state,
+                &mut shutdown_rx,
+                1,
+                addr,
+                remote_addr,
+                false,
+                None,
+            )
+            .await;
         });
 
         let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();

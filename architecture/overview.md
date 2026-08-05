@@ -1,12 +1,14 @@
 # Architecture Overview
 
-Plan 108 is the completed corrective follow-up to Plan 107. The runtime
-ownership contract is: one
+Plan 108 is a historical corrective follow-up to Plan 107. Plan 109 is the
+active bounded correction before the runtime ownership contract is considered
+fully closed. The intended contract is: one
 `RuntimeState` per running server, one transport file-stream semaphore, and
 canonical static file/range bodies preserved until Hyper conversion. Static
 state owns confinement only; custom Rust/Python services are rootless.
-The pre-runtime `service` module remains only as a delegating compatibility
-adapter for alpha/in-repository consumers; it is not a production server path.
+The pre-runtime `service` module remains only as a deprecated delegating
+compatibility adapter for alpha/in-repository consumers. It requires an
+explicit caller-owned runtime context and is not a production server path.
 
 eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
 
@@ -43,7 +45,7 @@ eggserve/
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (32 files)
-├── plans/                      # design plans (000–101, all complete)
+├── plans/                      # design plans (000–108 historical; 109 active)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (12 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
@@ -262,7 +264,7 @@ CLI flags, Python constructor params, and Rust struct fields all converge on the
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` | Stable-ish |
 | `limits.rs` | **pub** | `Limits` — connections, streams, timeouts | Stable-ish |
 | `policy.rs` | **pub** | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy` | Stable-ish |
-| `service.rs` | **pub** | `handle_request()` — the HTTP handler | Experimental |
+| `service.rs` | **pub** (deprecated) | Explicit-context `handle_request()` adapter for migration only | Deprecated/experimental |
 | `error.rs` | pub(crate) | `Error` enum taxonomy | Internal |
 | `path/` | pub(crate) | Path confinement pipeline (7 submodules) | Internal |
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
@@ -402,7 +404,8 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–101 are all implementation-complete. Major feature tracks:
+Plans 000–108 are historical implementation records; Plan 109 is the active
+final admission and wire-verification corrective pass. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|

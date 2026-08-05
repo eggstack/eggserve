@@ -93,8 +93,8 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `Request` | Canonical request envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` |
 | `Service::call(Request)` | Service trait now accepts `Request` instead of `RequestHead` |
 | `RuntimeConfig::max_request_body_bytes` | Hard body size ceiling (default 0) |
-| `RuntimeConfig::request_body_policy` | Global body policy (default `Reject`) |
-| `RuntimeConfig::incomplete_body_policy` | Incomplete body handling (default `Close`) |
+| `Service::request_body_policy(&RequestHead)` | Service-declared body policy, bounded by the runtime ceiling |
+| `RuntimeConfig::incomplete_body_policy` | Not configurable; incomplete streamed bodies always close the connection |
 
 Body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Plan 057.
 

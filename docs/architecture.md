@@ -31,10 +31,10 @@ The crate divides its modules into three buckets. External callers should only d
 | Bucket | Modules | Stability |
 |--------|---------|-----------|
 | Stable-ish | `config`, `limits`, `policy` | Field shapes may evolve before 1.0; breaking changes bump the major version |
-| Experimental | `service` (`handle_request`) | Body type and async surface are not stable; may change in minor releases |
+| Experimental | `service` (deprecated `handle_request`) | Requires caller-owned `RuntimeState`; migrate to `server::Server` |
 | Internal | `fs`, `path`, `response`, MIME detection, error taxonomy | Not part of the public API; crate-private (`pub(crate)`) |
 
-`service::handle_request` returns `Response<BoxBody<Bytes, Infallible>>`. The body type alias is crate-private; embedding users that need it should reach in through the public `service` module and accept the type as an opaque body type from `hyper::body::Body`. The binary crate owns stdout policy: it imports `ServeConfig::startup_summary()` and prints the banner itself.
+The deprecated `service::handle_request` adapter returns `Response<BoxBody<Bytes, Infallible>>` and requires a caller-owned shared `RuntimeState`; it is retained only for migration and in-repository compatibility tests. New integrations should use `server::Server` and `StaticService`. The binary crate owns stdout policy: it imports `ServeConfig::startup_summary()` and prints the banner itself.
 
 Modules:
 
@@ -42,10 +42,10 @@ Modules:
 |--------|------------|----------------|
 | `primitives/` | `pub` | Public facade: re-exports `ConfinedPath`, `PathPolicy`, `PathRejection`, `PathDotfilePolicy` (path-level), `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` (response-level), plus `SecureRoot`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory`, `ResourceDeniedReason` (secure root and resolution capabilities). Also contains `http.rs` (request validation: `ReadOnlyMethod`, `validate_method/body/target`), `response.rs` (planning types: `BodyPlan`, `HeaderMapPlan`, `StaticResponsePlan`), `planner.rs` (conditional requests, range requests, ETag generation), and `canonical.rs` (canonical HTTP types: `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()`). Intended boundary for Rust/Python bindings. |
 | `server/` | `pub` (experimental) | Runtime service boundary: Server, ServerBuilder, ServerHandle, RuntimeConfig, Service trait, StaticService, lifecycle state machine. Experimental. |
-| `config.rs` | `pub` | `ServeConfig` (bind, root, limits, static policy), `ServeState` (runtime state with file-stream semaphore), `StartupSummary` (logging-friendly summary used by the binary to print the startup banner) |
+| `config.rs` | `pub` | `ServeConfig` (bind, root, limits, static policy), `ServeState` (pinned static root state), `StartupSummary` (logging-friendly summary used by the binary to print the startup banner) |
 | `policy.rs` | `pub` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
 | `limits.rs` | `pub` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
-| `service.rs` | `pub` (experimental) | HTTP request handler: GET/HEAD dispatch, path validation, body-metadata validation, file-stream semaphore, filesystem resolution, index file handling via `RootGuard::resolve_child`, ETag generation, symlink-aware directory listing. Body type is crate-private. |
+| `service.rs` | `pub` (deprecated/experimental) | Explicit-context compatibility adapter delegating to `StaticService`; body type is crate-private. |
 | `error.rs` | `pub(crate)` | Error taxonomy (`RequestRejected`, `Io`) |
 | `path/` | `pub(crate)` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
 | `path/mod.rs` | `pub(crate)` | `ConfinedPath` entry point — parse, validate, and classify request targets |

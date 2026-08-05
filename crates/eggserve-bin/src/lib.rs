@@ -317,6 +317,7 @@ pub fn run() {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 async fn serve_connection<I>(
     io: hyper_util::rt::TokioIo<I>,
     state: Arc<eggserve_core::config::ServeState>,
@@ -334,9 +335,13 @@ async fn serve_connection<I>(
 
     use eggserve_core::service::handle_request;
 
+    let runtime_state = Arc::new(eggserve_core::server::RuntimeState::new_for_testing(32));
     let service = service_fn(move |req: Request<Incoming>| {
         let state = state.clone();
-        async move { Ok::<_, std::convert::Infallible>(handle_request(req, &state).await) }
+        let runtime_state = runtime_state.clone();
+        async move {
+            Ok::<_, std::convert::Infallible>(handle_request(req, &state, &runtime_state).await)
+        }
     });
     let conn = http1::Builder::new()
         .timer(TokioTimer::new())

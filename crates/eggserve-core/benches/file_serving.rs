@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use http_body_util::BodyExt;
 use http_body_util::Empty;
@@ -54,6 +56,7 @@ fn get_req_header(path: &str, hdr: &str, val: &str) -> Request<Empty<Bytes>> {
 
 fn bench_get_file_sizes(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("get_file_sizes");
 
     for &(label, size) in &[
@@ -68,7 +71,11 @@ fn bench_get_file_sizes(c: &mut Criterion) {
         let state = make_state(&tmp);
         group.bench_function(label, |b| {
             b.iter(|| {
-                let resp = rt.block_on(handle_request(get_req("/file.bin"), black_box(&state)));
+                let resp = rt.block_on(handle_request(
+                    get_req("/file.bin"),
+                    black_box(&state),
+                    &runtime_state,
+                ));
                 assert_eq!(resp.status(), 200);
                 black_box(resp);
             })
@@ -83,6 +90,7 @@ fn bench_get_file_sizes(c: &mut Criterion) {
 
 fn bench_head_file_sizes(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("head_file_sizes");
 
     for &(label, size) in &[
@@ -97,7 +105,11 @@ fn bench_head_file_sizes(c: &mut Criterion) {
         let state = make_state(&tmp);
         group.bench_function(label, |b| {
             b.iter(|| {
-                let resp = rt.block_on(handle_request(head_req("/file.bin"), black_box(&state)));
+                let resp = rt.block_on(handle_request(
+                    head_req("/file.bin"),
+                    black_box(&state),
+                    &runtime_state,
+                ));
                 assert_eq!(resp.status(), 200);
                 black_box(resp);
             })
@@ -112,6 +124,7 @@ fn bench_head_file_sizes(c: &mut Criterion) {
 
 fn bench_range_requests(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("range_requests");
 
     // 16 KiB file — chunk-crossing range
@@ -124,6 +137,7 @@ fn bench_range_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "range", "bytes=0-0"),
                 black_box(&state16),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 206);
             black_box(resp);
@@ -135,6 +149,7 @@ fn bench_range_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "range", "bytes=4000-5000"),
                 black_box(&state16),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 206);
             black_box(resp);
@@ -146,6 +161,7 @@ fn bench_range_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "range", "bytes=0-16383"),
                 black_box(&state16),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 206);
             black_box(resp);
@@ -162,6 +178,7 @@ fn bench_range_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "range", "bytes=0-8191"),
                 black_box(&state1m),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 206);
             black_box(resp);
@@ -173,6 +190,7 @@ fn bench_range_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "range", "bytes=-8192"),
                 black_box(&state1m),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 206);
             black_box(resp);
@@ -184,6 +202,7 @@ fn bench_range_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "range", "bytes=1040384-1048575"),
                 black_box(&state1m),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 206);
             black_box(resp);
@@ -199,13 +218,18 @@ fn bench_range_requests(c: &mut Criterion) {
 
 fn bench_conditional_requests(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
 
     let tmp = TempDir::new().unwrap();
     make_file(&tmp, "file.bin", 16 * 1024);
     let state = make_state(&tmp);
 
     // Get ETag from a real response
-    let resp = rt.block_on(handle_request(get_req("/file.bin"), &state));
+    let resp = rt.block_on(handle_request(
+        get_req("/file.bin"),
+        &state,
+        &runtime_state,
+    ));
     let etag = resp
         .headers()
         .get("etag")
@@ -219,6 +243,7 @@ fn bench_conditional_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "if-none-match", &etag),
                 black_box(&state),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 304);
             black_box(resp);
@@ -237,6 +262,7 @@ fn bench_conditional_requests(c: &mut Criterion) {
             let resp = rt.block_on(handle_request(
                 get_req_header("/file.bin", "if-modified-since", &lm),
                 black_box(&state),
+                &runtime_state,
             ));
             assert_eq!(resp.status(), 304);
             black_box(resp);
@@ -250,6 +276,7 @@ fn bench_conditional_requests(c: &mut Criterion) {
 
 fn bench_error_paths(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
 
     let tmp = TempDir::new().unwrap();
     make_file(&tmp, "file.bin", 1024);
@@ -257,7 +284,11 @@ fn bench_error_paths(c: &mut Criterion) {
 
     c.bench_function("not_found_404", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/nope.bin"), black_box(&state)));
+            let resp = rt.block_on(handle_request(
+                get_req("/nope.bin"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(resp.status(), 404);
             black_box(resp);
         })
@@ -266,7 +297,11 @@ fn bench_error_paths(c: &mut Criterion) {
     c.bench_function("forbidden_403_dotfile", |b| {
         fs::write(tmp.path().join(".env"), "secret").unwrap();
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/.env"), black_box(&state)));
+            let resp = rt.block_on(handle_request(
+                get_req("/.env"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(resp.status(), 403);
             black_box(resp);
         })
@@ -279,7 +314,11 @@ fn bench_error_paths(c: &mut Criterion) {
                 .uri("/file.bin")
                 .body(Empty::<Bytes>::new())
                 .unwrap();
-            let resp = rt.block_on(handle_request(req, black_box(&state)));
+            let resp = rt.block_on(handle_request(
+                req,
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(resp.status(), 405);
             black_box(resp);
         })
@@ -292,6 +331,7 @@ fn bench_error_paths(c: &mut Criterion) {
 
 fn bench_directory_index(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
 
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
@@ -304,7 +344,11 @@ fn bench_directory_index(c: &mut Criterion) {
 
     c.bench_function("directory_index_serves_index_html", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/subdir"), black_box(&state)));
+            let resp = rt.block_on(handle_request(
+                get_req("/subdir"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(resp.status(), 200);
             black_box(resp);
         })
@@ -317,6 +361,7 @@ fn bench_directory_index(c: &mut Criterion) {
 
 fn bench_keepalive_sequential(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
 
     let tmp = TempDir::new().unwrap();
     make_file(&tmp, "a.txt", 1024);
@@ -326,11 +371,23 @@ fn bench_keepalive_sequential(c: &mut Criterion) {
 
     c.bench_function("sequential_3_requests", |b| {
         b.iter(|| {
-            let r1 = rt.block_on(handle_request(get_req("/a.txt"), black_box(&state)));
+            let r1 = rt.block_on(handle_request(
+                get_req("/a.txt"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(r1.status(), 200);
-            let r2 = rt.block_on(handle_request(get_req("/b.txt"), black_box(&state)));
+            let r2 = rt.block_on(handle_request(
+                get_req("/b.txt"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(r2.status(), 200);
-            let r3 = rt.block_on(handle_request(get_req("/c.txt"), black_box(&state)));
+            let r3 = rt.block_on(handle_request(
+                get_req("/c.txt"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(r3.status(), 200);
             black_box((r1, r2, r3));
         })
@@ -343,6 +400,7 @@ fn bench_keepalive_sequential(c: &mut Criterion) {
 
 fn bench_body_consumption(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("body_consumption");
 
     for &(label, size) in &[("1k", 1024), ("16k", 16 * 1024), ("128k", 128 * 1024)] {
@@ -351,7 +409,11 @@ fn bench_body_consumption(c: &mut Criterion) {
         let state = make_state(&tmp);
         group.bench_function(label, |b| {
             b.iter(|| {
-                let resp = rt.block_on(handle_request(get_req("/file.bin"), black_box(&state)));
+                let resp = rt.block_on(handle_request(
+                    get_req("/file.bin"),
+                    black_box(&state),
+                    &runtime_state,
+                ));
                 assert_eq!(resp.status(), 200);
                 let collected = rt.block_on(resp.into_body().collect()).unwrap();
                 black_box(collected);
@@ -368,6 +430,7 @@ fn bench_body_consumption(c: &mut Criterion) {
 
 fn bench_chunk_count_regimes(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("chunk_count_regimes");
 
     // Exactly 1 chunk (8192 bytes)
@@ -376,7 +439,11 @@ fn bench_chunk_count_regimes(c: &mut Criterion) {
     let state1 = make_state(&tmp1);
     group.bench_function("exact_1_chunk", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/file.bin"), black_box(&state1)));
+            let resp = rt.block_on(handle_request(
+                get_req("/file.bin"),
+                black_box(&state1),
+                &runtime_state,
+            ));
             let collected = rt.block_on(resp.into_body().collect()).unwrap();
             black_box(collected);
         })
@@ -388,7 +455,11 @@ fn bench_chunk_count_regimes(c: &mut Criterion) {
     let state2 = make_state(&tmp2);
     group.bench_function("exact_2_chunks", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/file.bin"), black_box(&state2)));
+            let resp = rt.block_on(handle_request(
+                get_req("/file.bin"),
+                black_box(&state2),
+                &runtime_state,
+            ));
             let collected = rt.block_on(resp.into_body().collect()).unwrap();
             black_box(collected);
         })
@@ -400,7 +471,11 @@ fn bench_chunk_count_regimes(c: &mut Criterion) {
     let state3 = make_state(&tmp3);
     group.bench_function("129_chunks_plus_1", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/file.bin"), black_box(&state3)));
+            let resp = rt.block_on(handle_request(
+                get_req("/file.bin"),
+                black_box(&state3),
+                &runtime_state,
+            ));
             let collected = rt.block_on(resp.into_body().collect()).unwrap();
             black_box(collected);
         })
@@ -415,6 +490,7 @@ fn bench_chunk_count_regimes(c: &mut Criterion) {
 
 fn bench_directory_listing(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("directory_listing");
 
     for &count in &[0usize, 10, 100, 1000] {
@@ -442,7 +518,11 @@ fn bench_directory_listing(c: &mut Criterion) {
             &count,
             |b, _count| {
                 b.iter(|| {
-                    let resp = rt.block_on(handle_request(get_req("/"), black_box(&state)));
+                    let resp = rt.block_on(handle_request(
+                        get_req("/"),
+                        black_box(&state),
+                        &runtime_state,
+                    ));
                     assert_eq!(resp.status(), 200);
                     black_box(resp);
                 })
@@ -458,6 +538,7 @@ fn bench_directory_listing(c: &mut Criterion) {
 
 fn bench_head_vs_get(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().unwrap();
+    let runtime_state = eggserve_core::server::RuntimeState::new_for_testing(32);
     let mut group = c.benchmark_group("head_vs_get");
 
     let tmp = TempDir::new().unwrap();
@@ -466,7 +547,11 @@ fn bench_head_vs_get(c: &mut Criterion) {
 
     group.bench_function("get_128k", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(get_req("/file.bin"), black_box(&state)));
+            let resp = rt.block_on(handle_request(
+                get_req("/file.bin"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(resp.status(), 200);
             black_box(resp);
         })
@@ -474,7 +559,11 @@ fn bench_head_vs_get(c: &mut Criterion) {
 
     group.bench_function("head_128k", |b| {
         b.iter(|| {
-            let resp = rt.block_on(handle_request(head_req("/file.bin"), black_box(&state)));
+            let resp = rt.block_on(handle_request(
+                head_req("/file.bin"),
+                black_box(&state),
+                &runtime_state,
+            ));
             assert_eq!(resp.status(), 200);
             black_box(resp);
         })

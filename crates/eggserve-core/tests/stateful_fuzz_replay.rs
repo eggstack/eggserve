@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Stateful live-socket fuzz replay tests (Plan 089, Track D).
 //!
 //! Runs a state-machine fuzzer against a real server process, exercising
@@ -80,7 +82,7 @@ async fn start_fuzz_server(limits: eggserve_core::limits::Limits) -> FuzzServer 
                                 let state = state.clone();
                                 async move {
                                     Ok::<_, std::convert::Infallible>(
-                                        handle_request(req, &state).await,
+                                        handle_request(req, &state, &eggserve_core::server::RuntimeState::new_for_testing(32)).await,
                                     )
                                 }
                             });

@@ -2,7 +2,10 @@
 
 ## Status
 
-**COMPLETE — FINAL CORRECTION REVALIDATED BY PLAN 108.** Plan 108 closed the bounded metadata, ownership, keep-alive, and release-profile corrections.
+**IMPLEMENTED — FINAL CORRECTIVE CLOSURE DEFERRED TO PLAN 109.** Plans 102–108
+implemented the roadmap, but Plan 109 reopens the bounded admission ownership,
+wire-verification, and evidence claims before this roadmap can be treated as
+fully closed.
 
 Corrective roadmap for the repository state at:
 

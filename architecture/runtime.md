@@ -24,11 +24,12 @@ Configures and constructs a `Server` via a fluent builder API:
 
 - `runtime(config)` — set the `RuntimeConfig`
 - `serve_config(config)` — compatibility convenience for `start()`; it is
-  converted into one `StaticService` at static startup and is ignored by
+  consumed into one `StaticService` during `build()` and is ignored by
   `start_with_service()` custom-service startup
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
 - `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically
-- `build()` — build with the built-in `StaticService`
+- `build()` — validate configuration and construct the built-in `StaticService`
+  once when `serve_config()` was supplied; invalid static roots fail here
 - `static_service(root)` — convenience: create a `StaticService` rooted at the given path
 
 ### RuntimeConfig

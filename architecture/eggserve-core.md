@@ -10,7 +10,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `policy.rs` | **pub** | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
 | `limits.rs` | **pub** | `Limits` — connection count, file streams, header/target/body sizes, timeouts |
-| `service.rs` | **pub** (experimental) | `handle_request()` — the HTTP handler. Stability: experimental. See [api-stability.md](../docs/api-stability.md) |
+| `service.rs` | **pub** (deprecated/experimental) | Explicit-context compatibility adapter; production uses `server::Server` |
 | `error.rs` | pub(crate) | `Error` enum taxonomy |
 | `path/` | pub(crate) | Path confinement pipeline |
 | `fs/` | pub(crate) | Filesystem confinement |
@@ -67,9 +67,11 @@ Resource limits with safe defaults:
 | `connection_total_timeout` | 60s | Total connection lifetime timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
 
-### `handle_request()` (`service.rs`)
+### Compatibility `handle_request()` (`service.rs`)
 
-The HTTP request handler. Steps:
+The deprecated alpha compatibility adapter. It requires an explicit shared
+`RuntimeState` from its caller, delegates planning to `StaticService`, and is
+not a production server path. Steps:
 
 1. The legacy adapter delegates to `StaticService`'s canonical planner; the
    runtime service boundary handles request conversion and body policy

@@ -2,7 +2,11 @@
 
 ## Status
 
-**COMPLETE — CORRECTED AND REVALIDATED BY PLAN 108.**
+**IMPLEMENTED — FINAL ADMISSION VERIFICATION DEFERRED TO PLAN 109.**
+
+The implementation and hosted-CI record remain historical. Plan 109 performs
+the final ownership and wire-verification correction before this runtime
+contract is considered fully closed.
 
 This is a bounded corrective pass against repository state:
 

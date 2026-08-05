@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Plan 083 Track H — Unix validator qualification tests.
 //!
 //! Verifies ETag/Last-Modified validator stability, format correctness,
@@ -55,7 +57,12 @@ async fn start_server(opts: Option<StaticPolicy>) -> TestServer {
                     let state = state.clone();
                     async move {
                         Ok::<_, std::convert::Infallible>(
-                            eggserve_core::service::handle_request(req, &state).await,
+                            eggserve_core::service::handle_request(
+                                req,
+                                &state,
+                                &eggserve_core::server::RuntimeState::new_for_testing(32),
+                            )
+                            .await,
                         )
                     }
                 });

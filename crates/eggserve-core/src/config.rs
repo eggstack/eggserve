@@ -4,8 +4,6 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use tokio::sync::Semaphore;
-
 use crate::fs::PinnedRoot;
 use crate::limits::Limits;
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
@@ -65,28 +63,12 @@ impl ServeConfig {
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
     pub(crate) pinned_root: Arc<PinnedRoot>,
-    // Compatibility state for the pre-runtime handler adapter. New servers
-    // never use this pool; transport admission is owned by RuntimeState.
-    pub(crate) compatibility_file_stream_semaphore: Arc<Semaphore>,
 }
 
 impl ServeState {
     pub fn new(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
         let pinned_root = Arc::new(PinnedRoot::new(&config.root)?);
-        if config.limits.max_file_streams > Semaphore::MAX_PERMITS {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                format!(
-                    "max_file_streams must be <= {} (Semaphore::MAX_PERMITS): got {}",
-                    Semaphore::MAX_PERMITS,
-                    config.limits.max_file_streams
-                ),
-            ));
-        }
         Ok(Self {
-            compatibility_file_stream_semaphore: Arc::new(Semaphore::new(
-                config.limits.max_file_streams,
-            )),
             config,
             pinned_root,
         })
@@ -98,16 +80,6 @@ impl ServeState {
 
     pub(crate) fn pinned_root(&self) -> &Arc<PinnedRoot> {
         &self.pinned_root
-    }
-
-    #[allow(dead_code)]
-    pub(crate) fn compatibility_file_stream_semaphore(&self) -> &Arc<Semaphore> {
-        &self.compatibility_file_stream_semaphore
-    }
-
-    #[allow(dead_code)]
-    pub fn file_stream_semaphore(&self) -> &Arc<Semaphore> {
-        &self.compatibility_file_stream_semaphore
     }
 }
 

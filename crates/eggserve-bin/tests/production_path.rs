@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Production-path wire coverage (Track C, CORRECTIVE-CLOSURE-PHASES-31-35).
 //!
 //! Exercises the same accept-loop/server-builder path used in production:
@@ -37,6 +39,9 @@ async fn start_production_server(limits: eggserve_core::limits::Limits) -> ProdS
         ..ServeConfig::default()
     });
     let state = Arc::new(ServeState::new(config.clone()).unwrap());
+    let runtime_state = Arc::new(eggserve_core::server::RuntimeState::new_for_testing(
+        config.limits.max_file_streams,
+    ));
     let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
 
     let listener = TcpListener::bind(config.bind).await.unwrap();
@@ -59,6 +64,7 @@ async fn start_production_server(limits: eggserve_core::limits::Limits) -> ProdS
 
                         let mut conn_shutdown_rx = shutdown_rx.resubscribe();
                         let state = state.clone();
+                        let runtime_state = runtime_state.clone();
                         let header_timeout = config.limits.header_read_timeout;
                         let connection_total_timeout = config.limits.connection_total_timeout;
 
@@ -67,9 +73,10 @@ async fn start_production_server(limits: eggserve_core::limits::Limits) -> ProdS
                             let io = TokioIo::new(stream);
                             let service = service_fn(move |req| {
                                 let state = state.clone();
+                                let runtime_state = runtime_state.clone();
                                 async move {
                                     Ok::<_, std::convert::Infallible>(
-                                        handle_request(req, &state).await,
+                                        handle_request(req, &state, &runtime_state).await,
                                     )
                                 }
                             });
@@ -555,6 +562,9 @@ async fn start_parity_server() -> ProdServer {
         ..ServeConfig::default()
     });
     let state = Arc::new(ServeState::new(config.clone()).unwrap());
+    let runtime_state = Arc::new(eggserve_core::server::RuntimeState::new_for_testing(
+        config.limits.max_file_streams,
+    ));
     let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
 
     let listener = TcpListener::bind(config.bind).await.unwrap();
@@ -573,6 +583,7 @@ async fn start_parity_server() -> ProdServer {
                         };
                         let mut conn_shutdown_rx = shutdown_rx.resubscribe();
                         let state = state.clone();
+                        let runtime_state = runtime_state.clone();
                         let header_timeout = config.limits.header_read_timeout;
                         let connection_total_timeout = config.limits.connection_total_timeout;
                         tokio::spawn(async move {
@@ -580,9 +591,10 @@ async fn start_parity_server() -> ProdServer {
                             let io = TokioIo::new(stream);
                             let service = service_fn(move |req| {
                                 let state = state.clone();
+                                let runtime_state = runtime_state.clone();
                                 async move {
                                     Ok::<_, std::convert::Infallible>(
-                                        handle_request(req, &state).await,
+                                        handle_request(req, &state, &runtime_state).await,
                                     )
                                 }
                             });

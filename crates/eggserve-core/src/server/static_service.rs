@@ -54,6 +54,7 @@ impl StaticServiceBuilder {
 }
 
 /// A hardened static file service.
+#[derive(Clone)]
 pub struct StaticService {
     state: Arc<ServeState>,
 }

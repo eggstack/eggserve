@@ -209,12 +209,13 @@ request-body policy controls GET/HEAD/DELETE/OPTIONS/extension content within
 the runtime ceiling; TRACE content is rejected, and incomplete streamed bodies
 close the connection.
 
-Plan 108 is the completed corrective follow-up validating static metadata
-attachment, rootless custom-handler construction, conditional stream closure,
-and distribution-profile consistency. Hosted CI passed both Rust and Python
-jobs on the final implementation tree. The pre-runtime Rust `service` module is
-retained only as a delegating compatibility adapter; production servers use a
-single runtime-owned file-stream admission pool.
+Plan 108 is retained as a historical corrective implementation and hosted-CI
+record. Plan 109 is the active bounded correction for final admission
+ownership, build-time static-service consumption, exact Stream wire closure,
+and truthful distribution evidence. The pre-runtime Rust `service` module is a
+deprecated compatibility adapter requiring an explicit caller-owned runtime
+context; production servers use a single runtime-owned file-stream admission
+pool.
 
 See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
 
