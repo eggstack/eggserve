@@ -2,7 +2,7 @@
 
 ## Status
 
-**REOPENED BY PLAN 107.** The historical corrective roadmap remains implemented as recorded, but its runtime-ownership closure claims require the bounded corrective pass in Plan 107.
+**COMPLETE — REVALIDATED BY PLAN 107.** The corrective roadmap and its runtime-ownership closure claims pass the bounded corrective validation.
 
 Corrective roadmap for the repository state at:
 

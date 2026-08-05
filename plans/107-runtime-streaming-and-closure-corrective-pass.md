@@ -2,7 +2,7 @@
 
 ## Status
 
-**IMPLEMENTATION COMPLETE — HOSTED CI PENDING.**
+**COMPLETE — HOSTED CI PASSING.**
 
 This is a bounded corrective pass against repository state:
 
@@ -1155,6 +1155,6 @@ Implementation satisfies the corrective requirements locally:
 
 Local `verify.sh fast`, `verify.sh full`, workspace/TLS/client-TLS tests, selected
 body/cancellation/fault/replay/race/TLS-abuse suites, package dry-runs, and the
-installed CPython 3.14 wheel suite pass. Hosted Rust and Python jobs remain
-pending for the candidate commit; this plan must not be marked complete until
-those jobs pass on that exact commit.
+installed CPython 3.14 wheel suite pass. Hosted Rust and Python jobs pass on
+candidate commit `b20b089f66a3c007e941bc9a53c5d74e4ceb9eea` in CI run
+`31012371257`.
