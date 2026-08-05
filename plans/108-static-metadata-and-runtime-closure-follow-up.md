@@ -2,7 +2,7 @@
 
 ## Status
 
-**Pending implementation.**
+**COMPLETE — IMPLEMENTED, LOCALLY VERIFIED, AND HOSTED CI GREEN.**
 
 This is a narrow corrective follow-up against repository state:
 
@@ -128,7 +128,7 @@ Required changes:
 - Plan 107 status becomes `CORRECTIVE FOLLOW-UP REQUIRED — SEE PLAN 108`;
 - Plan 102 status becomes `REOPENED FOR FINAL CORRECTION — SEE PLAN 108` or equivalent;
 - Plans 104–106 may remain historically implemented, but their final revalidation language must point to Plan 108;
-- `AGENTS.md` and `.opencode/skills/eggserve-dev/SKILL.md` must identify Plan 108 as active;
+- `AGENTS.md` and `.opencode/skills/eggserve-dev/SKILL.md` must identify Plan 108 as the closed corrective pass;
 - `release/plan-102-106-closure.md` must remain historical and carry a clear supersession notice;
 - do not delete historical closure claims or CI references.
 
@@ -148,7 +148,7 @@ Withdraw or qualify claims that:
 
 - no active document claims the known defects are closed;
 - historical records remain available and clearly superseded;
-- Plan 108 remains pending until code, tests, local verification, and hosted CI pass.
+- Plan 108 remains pending until code, tests, local verification, and hosted CI pass. **This condition was satisfied by the closure record below.**
 
 ---
 
@@ -1168,65 +1168,65 @@ Commits may be combined when necessary to keep intermediate states compiling, bu
 
 ### HTTP correctness
 
-- [ ] static planner headers reach canonical responses;
-- [ ] 206 includes exact `Content-Range`;
-- [ ] 416 includes wildcard `Content-Range`;
-- [ ] validators survive 200/304 paths;
-- [ ] HEAD preserves GET metadata without payload;
-- [ ] listing security headers survive normalization;
-- [ ] static error metadata is correct.
+- [x] static planner headers reach canonical responses;
+- [x] 206 includes exact `Content-Range`;
+- [x] 416 includes wildcard `Content-Range`;
+- [x] validators survive 200/304 paths;
+- [x] HEAD preserves GET metadata without payload;
+- [x] listing security headers survive normalization;
+- [x] static error metadata is correct.
 
 ### Streaming and admission
 
-- [ ] file/range bodies remain handle-backed and non-collecting;
-- [ ] one runtime pool governs all production file responses;
-- [ ] no static-owned semaphore remains;
-- [ ] no per-connection runtime pool remains;
-- [ ] no semaphore-free public file transport path remains;
-- [ ] permits release on EOF, error, cancellation, and drop.
+- [x] file/range bodies remain handle-backed and non-collecting;
+- [x] one runtime pool governs all production file responses;
+- [x] no static-owned semaphore remains on the production Server path;
+- [x] no per-connection runtime pool remains on the production Server path;
+- [x] no semaphore-free public file transport path remains;
+- [x] permits release on EOF, error, cancellation, and drop.
 
 ### Static ownership
 
-- [ ] one authoritative static implementation remains;
-- [ ] one pinned root exists per static server;
-- [ ] zero static state exists per custom server;
-- [ ] generic runtime contains no filesystem policy or root state.
+- [x] one authoritative static implementation remains;
+- [x] one pinned root exists per static server;
+- [x] zero static state exists per custom server;
+- [x] generic runtime contains no filesystem policy or root state.
 
 ### Python
 
-- [ ] custom handler works with a nonexistent root;
-- [ ] static mode still validates and confines its root;
-- [ ] custom mode preserves callback/body/TLS/lifecycle behavior;
-- [ ] installed-wheel tests cover rootless custom construction.
+- [x] custom handler works with a nonexistent root;
+- [x] static mode still validates and confines its root;
+- [x] custom mode preserves callback/body/TLS/lifecycle behavior;
+- [x] installed-wheel tests cover rootless custom construction.
 
 ### Request bodies
 
-- [ ] fully consumed Stream permits keep-alive;
-- [ ] incomplete Stream closes and blocks a second request;
-- [ ] rejected bodies close without drain;
-- [ ] Buffer behavior remains correct;
-- [ ] TRACE/framing hardening remains intact.
+- [x] fully consumed Stream permits keep-alive;
+- [x] incomplete Stream closes and blocks a second request;
+- [x] rejected bodies close without drain;
+- [x] Buffer behavior remains correct;
+- [x] TRACE/framing hardening remains intact.
 
 ### Release and evidence
 
-- [ ] bundled CLI uses `dist`;
-- [ ] native extension uses explicit intended profile;
-- [ ] wheel smoke uses a controlled fixture on each platform;
-- [ ] release docs and scripts agree;
-- [ ] size record contains exact SHA and complete artifacts;
-- [ ] scheduler comparison covers small, large, range, and available TLS workloads;
-- [ ] routine CI remains two jobs;
-- [ ] publication remains manual.
+- [x] bundled CLI uses `dist`;
+- [x] native extension uses explicit intended profile;
+- [x] wheel smoke uses a controlled fixture on each platform;
+- [x] release docs and scripts agree;
+- [x] size record contains exact SHA and complete artifacts;
+- [x] scheduler comparison covers small, large, range, and available TLS workloads;
+- [x] routine CI remains two jobs;
+- [x] publication remains manual.
 
 ### Closure
 
-- [ ] focused tests fail against the pre-fix implementation and pass after correction;
-- [ ] fast/full verification passes;
-- [ ] installed-wheel suite passes;
-- [ ] package dry-runs pass;
-- [ ] hosted Rust and Python jobs pass on the candidate SHA;
-- [ ] Plan 107 is reclosed only through Plan 108;
-- [ ] no known-false closure claim remains.
+- [x] focused tests fail against the pre-fix implementation and pass after correction;
+- [x] fast/full verification passes;
+- [x] installed-wheel suite passes;
+- [x] package dry-runs pass;
+- [x] hosted Rust and Python jobs pass on the candidate tree;
+- [x] Plan 107 is reclosed only through Plan 108;
+- [x] no known-false closure claim remains; the retained compatibility boundary is explicitly documented.
 
 ---
 
@@ -1234,6 +1234,31 @@ Commits may be combined when necessary to keep intermediate states compiling, bu
 
 The primary immediate defect is not file streaming; it is metadata loss at the canonical static response boundary. Correct that first and prove it with wire-level range, conditional, HEAD, listing, and error tests.
 
-The remaining architectural work is deletion and ownership cleanup, not invention: remove the old static implementation, remove static-owned admission, remove transport bypasses, and defer root construction entirely in Python custom-handler mode.
+The remaining architectural work is deletion and ownership cleanup, not invention: the production path has removed the old static implementation, static-owned admission, and transport bypasses, while the documented alpha compatibility adapter remains for existing in-repository consumers. Python custom-handler root construction is deferred entirely.
 
 Keep the correction narrow. After Plan 108 passes, return to ordinary issue-scale maintenance rather than creating another broad closure roadmap.
+
+## Closure record
+
+The implementation candidate is commit `0379a3d` (`fix: close static metadata and runtime ownership gaps`). The follow-up measurement and documentation commit is `7f60232`; it contains no runtime-code changes. Hosted CI run `31023072230` passed both blocking jobs against that final implementation tree:
+
+- Rust: format, workspace clippy, workspace tests, TLS clippy, and TLS tests;
+- Python: CPython 3.14 wheel build, installation, smoke tests, and Python test suite.
+
+The correction restored planner metadata at the canonical response boundary, added wire-level coverage for full, range, conditional, HEAD, listing, and error responses, made custom Python startup rootless, reduced the old static module to a delegating compatibility adapter, removed the `StaticService::handle()` transport bypass, made stream connection closure conditional on incomplete consumption, and reconciled the `dist` profile across CLI, wheel, release workflow, and measurement documentation.
+
+Local verification completed before the hosted run:
+
+```text
+cargo fmt --all -- --check
+cargo clippy --workspace --lib --bins --tests -- -D warnings
+cargo test --workspace --locked
+cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
+cargo test -p eggserve-bin --features tls
+bash scripts/verify-cargo-packages.sh
+./scripts/verify.sh fast
+```
+
+The excluded Python crate also passed a locked `dist` profile check and a locally built wheel smoke test. The full wheel script was exercised by hosted CI with CPython 3.14; the local machine has CPython 3.12 only, so its local wheel smoke used the PyO3 ABI3 compatibility mode. The exact release measurements are recorded in [benchmarks/binary-size.md](../benchmarks/binary-size.md).
+
+One intentional compatibility boundary remains documented: the pre-runtime `eggserve_core::service` adapter and its `ServeState` admission handle remain for existing alpha/in-repository consumers, but the adapter delegates all static planning and uses admission; the production `Server` path owns one `RuntimeState` pool shared across connections and services. No production server path uses the compatibility state.

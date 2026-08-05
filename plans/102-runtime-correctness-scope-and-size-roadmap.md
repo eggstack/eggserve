@@ -2,7 +2,7 @@
 
 ## Status
 
-**REOPENED FOR FINAL CORRECTION — SEE PLAN 108.** Plan 107's closure claims require the bounded metadata, ownership, keep-alive, and release-profile corrections defined by Plan 108.
+**COMPLETE — FINAL CORRECTION REVALIDATED BY PLAN 108.** Plan 108 closed the bounded metadata, ownership, keep-alive, and release-profile corrections.
 
 Corrective roadmap for the repository state at:
 

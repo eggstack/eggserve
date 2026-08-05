@@ -1,10 +1,12 @@
 # Architecture Overview
 
-Plan 108 is the active corrective follow-up to Plan 107. The runtime
+Plan 108 is the completed corrective follow-up to Plan 107. The runtime
 ownership contract is: one
 `RuntimeState` per running server, one transport file-stream semaphore, and
 canonical static file/range bodies preserved until Hyper conversion. Static
 state owns confinement only; custom Rust/Python services are rootless.
+The pre-runtime `service` module remains only as a delegating compatibility
+adapter for alpha/in-repository consumers; it is not a production server path.
 
 eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
 
