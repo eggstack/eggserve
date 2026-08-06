@@ -1202,13 +1202,21 @@ Commits 2–4 may be combined if required to keep the tree compiling. Do not com
 
 Implementation completed in:
 
-- `cea39f779b4f6b828c92ff8bd9332bd0d2d1d99d` — final admission ownership,
-  server/static construction, exact wire tests, and documentation correction;
-- `d273134` — artifact measurements and scheduler claim correction;
-- `49ecb712be1677a027891ad373b6951d7b916182` — rustfmt correction for the
-  compatibility benchmark call sites.
+- `cea39f779b4f6b828c92ff8bd9332bd0d2d1d99d` — functional implementation
+  candidate (final admission ownership, server/static construction, exact wire
+  tests, and documentation correction);
+- `d273134aa7eb1583106afc00f4e24dc09e0aeb91` — artifact measurements and
+  evidence correction;
+- `49ecb712be1677a027891ad373b6951d7b916182` — final verified implementation
+  tree tested by hosted CI (rustfmt correction for the compatibility benchmark
+  call sites);
+- `3b75bd621a90a94fc5d732a1afb4f36e03b255dd` — documentation-only Plan 109
+  closure commit.
 
-The final `main` head is `49ecb712be1677a027891ad373b6951d7b916182`.
+The final verified implementation tree is
+`49ecb712be1677a027891ad373b6951d7b916182`. Hosted CI run `31035414453` checked
+out and tested that exact tree. The later Plan 109 closure commit
+`3b75bd621a90a94fc5d732a1afb4f36e03b255dd` changed documentation only.
 
 Verified locally:
 
@@ -1237,16 +1245,8 @@ Plans 102, 107, and 108 are historical records reclosed by this verified Plan
 109 pass. Routine CI remains the existing two-job workflow, publication remains
 manual, and no permanent scheduler benchmark or new CI job was added.
 
-## Handoff note
+## Archival note
 
-The runtime implementation is close. The remaining work is not another redesign:
-
-- delete the alternate admission ownership;
-- make one runtime state structurally unavoidable;
-- consume static configuration before the generic server object is complete;
-- prove Stream behavior with exact same-connection and pipelining tests;
-- correct the artifact record rather than adding benchmark infrastructure.
-
-Prefer removal over compatibility layering. Prefer one deterministic test helper over many permissive socket tests. Prefer honest documentation over manufacturing a permanent scheduler variant for a historical checkbox.
-
-After Plan 109 passes, return to ordinary issue-scale maintenance. Do not create another broad closure plan for minor documentation polish.
+The implementation handoff that originally followed this section is superseded by the
+verified closure above. No runtime work remains under Plan 109. Subsequent documentation
+terminology and reproducibility polish is tracked by Plan 110.

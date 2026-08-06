@@ -165,7 +165,7 @@ Hardened static file service implementing `Service`:
 - GET/HEAD-only semantics
 - Conditional and range request handling
 - ETag and Last-Modified generation
-- File-stream semaphore-gated concurrency
+- Produces canonical file-backed responses; the server runtime applies shared file-stream admission during transport conversion
 
 ### Body ingestion
 

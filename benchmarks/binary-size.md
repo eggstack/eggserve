@@ -70,20 +70,80 @@ Linux CPython 3.14 wheel has SHA-256
 
 ## Reproduction commands
 
+Because the default and TLS builds produce the same target filenames
+(`target/release/eggserve` and `target/dist/eggserve`), the later TLS build
+overwrites the earlier default build. Each variant must be captured immediately
+after its build into a unique path.
+
+### Clean-state preparation
+
+Remove stale artifacts that could contaminate measurements:
+
 ```sh
+rm -rf target/release target/dist
+rm -rf crates/eggserve-python/target
+rm -rf crates/eggserve-python/python/eggserve/bin
+rm -rf dist
+```
+
+### Build and capture each variant
+
+```sh
+artifact_dir="$(mktemp -d)"
+
 cargo build --release --locked -p eggserve-bin
-stat --printf='%s\n' target/release/eggserve
+cp target/release/eggserve "$artifact_dir/eggserve-default-release"
 
 cargo build --profile dist --locked -p eggserve-bin
-stat --printf='%s\n' target/dist/eggserve
+cp target/dist/eggserve "$artifact_dir/eggserve-default-dist"
 
 cargo build --release --locked -p eggserve-bin --features tls
-stat --printf='%s\n' target/release/eggserve
+cp target/release/eggserve "$artifact_dir/eggserve-tls-release"
 
 cargo build --profile dist --locked -p eggserve-bin --features tls
-stat --printf='%s\n' target/dist/eggserve
+cp target/dist/eggserve "$artifact_dir/eggserve-tls-dist"
+```
 
+### Measure unique captured artifacts
+
+```sh
+stat --printf='%n %s\n' "$artifact_dir"/eggserve-*
+sha256sum "$artifact_dir"/eggserve-*
+```
+
+### Verify packaged CLI identity
+
+After the supported wheel script builds and stages the default non-TLS `dist`
+CLI, verify SHA-256 equality among the unique capture, the staged binary, and
+the wheel-extracted member:
+
+```sh
 PYTHON=python3.14 bash scripts/test-python-wheel.sh
+
+sha256sum \
+  "$artifact_dir/eggserve-default-dist" \
+  crates/eggserve-python/python/eggserve/bin/eggserve
+
+# Extract the bundled CLI from the wheel for comparison
+python3.14 -c "
+import zipfile, glob, hashlib, sys
+whl = glob.glob('dist/eggserve-*.whl')[0]
+member = [n for n in zipfile.ZipFile(whl).namelist() if n.endswith('eggserve')][0]
+data = zipfile.ZipFile(whl).read(member)
+open('/tmp/eggserve-wheel-extracted', 'wb').write(data)
+print(hashlib.sha256(data).hexdigest())
+"
+
+sha256sum \
+  "$artifact_dir/eggserve-default-dist" \
+  crates/eggserve-python/python/eggserve/bin/eggserve \
+  /tmp/eggserve-wheel-extracted
+```
+
+All three must match. The recorded snapshot itself is Linux
+`x86_64-unknown-linux-gnu`.
+
+```sh
 cargo tree -e features -p eggserve-bin --no-default-features
 cargo tree -e features -p eggserve-core --no-default-features
 ```

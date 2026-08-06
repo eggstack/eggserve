@@ -134,12 +134,13 @@ This is explicitly documented as outside the descriptor-relative hardening guara
 
 ## `RootGuard` Lifecycle
 
-1. Created once when `StaticService` is built, borrowing the `PinnedRoot`
-2. Clones the pinned root fd on Unix (no reopen)
-3. Passed to `resolve()` for path resolution
-4. Dropped at the end of the request (closes cloned fd)
+1. `ServeState` pins the configured root once during static-service construction
+2. Each static request creates a `RootGuard` from that pinned root
+3. `RootGuard` clones the pinned root fd on Unix or handle on Windows for request-scoped traversal
+4. Resolution uses that request-scoped authority without reopening the configured root pathname
+5. The request-scoped guard is dropped after planning; any file handle retained by the canonical response follows its own streaming lifetime
 
-The guard borrows the pinned root identity established at startup. No root reopening or re-canonicalization occurs per request.
+One pinned root per static service. One request-scoped `RootGuard` per static request. The guard borrows the pinned root identity established at startup. No root reopening or re-canonicalization occurs per request.
 
 ## Security Properties
 

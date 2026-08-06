@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–108 historical; Plan 108 closed), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–108 historical; Plan 109 verified complete; Plan 110 documentation polish), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 

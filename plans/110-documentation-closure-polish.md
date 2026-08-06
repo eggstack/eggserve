@@ -2,7 +2,10 @@
 
 ## Status
 
-**Pending implementation.**
+**COMPLETE — 2026-08-06.**
+
+Documentation-only polish pass. No runtime code, tests, manifests, workflows,
+or scripts were modified.
 
 This is a documentation-only polish pass against repository state:
 
@@ -954,3 +957,47 @@ The implementer should:
 8. close Plan 110 without reopening Plan 109 or expanding CI.
 
 No runtime work remains authorized under this plan.
+
+---
+
+## Closure record — 2026-08-06
+
+**Implementation commit:** documentation-only diff against main.
+
+**Files edited:**
+
+- `architecture/filesystem-confinement.md` — distinguished one-time `PinnedRoot` construction from per-request `RootGuard` creation
+- `architecture/eggserve-core.md` — corrected `StaticService` feature summary to attribute file-stream admission to runtime transport
+- `architecture/overview.md` — updated plan-state summaries
+- `benchmarks/binary-size.md` — added clean-state preparation, unique-artifact capture, and SHA-256 verification procedure
+- `docs/architecture.md` — corrected `RootGuard` description to borrow-from-pinned-root wording
+- `plans/109-final-admission-and-wire-verification-corrective-pass.md` — distinguished verified implementation tree from closure commit, removed stale handoff
+- `AGENTS.md` — updated plan-state summaries
+- `.opencode/skills/eggserve-dev/SKILL.md` — updated plan-state summaries
+
+**Verification run:**
+
+- `git diff --name-only` — 8 files, all documentation
+- `git diff --check` — clean
+- `cargo fmt --all -- --check` — pass
+- `cargo clippy --workspace --lib --bins --tests -- -D warnings` — pass
+- `cargo test --workspace` — 1,366 passed, 9 ignored
+- `cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings` — pass
+- `cargo test -p eggserve-bin --features tls` — 88 passed
+
+**Stale-phrase checks (post-edit):**
+
+- `RootGuard.*created once` — no matches in active docs
+- `The final main head is 49ecb` — no matches in active docs (only in Plan 110 itself describing what to fix)
+- `The runtime implementation is close` — no matches in Plan 109
+- `request-scoped` present in `filesystem-confinement.md` — confirmed
+- `verified implementation tree` present in Plan 109 — confirmed
+- `documentation-only.*closure commit` present in Plan 109 — confirmed
+
+**Confirmations:**
+
+- No source, tests, manifests, workflows, or scripts changed
+- Plan 109 remains functionally closed
+- Existing measured artifact values in `benchmarks/binary-size.md` were preserved
+- No new CI job, release gate, or publication mechanism was added
+- No scheduler comparison was claimed

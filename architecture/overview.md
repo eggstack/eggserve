@@ -44,7 +44,7 @@ eggserve/
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (32 files)
-├── plans/                      # design plans (000–108 historical; 109 active)
+├── plans/                      # design plans (000–110; Plan 109 verified complete, Plan 110 documentation polish)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (12 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
@@ -404,7 +404,8 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 ## Plan History
 
 Plans 000–109 are historical implementation records; Plan 109 is the verified
-final admission and wire-verification corrective pass. Major feature tracks:
+final admission and wire-verification corrective pass. Plan 110 is documentation
+polish only. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|
