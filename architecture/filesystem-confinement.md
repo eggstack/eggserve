@@ -26,11 +26,11 @@ pub(crate) struct PinnedRoot {
 }
 ```
 
-On Unix, holds an open directory fd that is cloned per-request via `try_clone()`. Cloning duplicates the underlying file descriptor, preserving the same root identity across concurrent requests. On Windows, holds an `OwnedHandle` opened once with `CreateFileW` using `FILE_FLAG_OPEN_REPARSE_POINT`. The handle is duplicated per-request via `try_clone()` for handle-relative traversal.
+On Unix, holds an open directory fd that the resolver duplicates for request-scoped traversal. On Windows, holds an `OwnedHandle` opened once with `CreateFileW` using `FILE_FLAG_OPEN_REPARSE_POINT`. For ordinary descendant traversal, the resolver uses that retained handle directly as `ObjectAttributes.RootDirectory` authority; the root handle is duplicated only when an owned root-directory result is required.
 
 ### `RootGuard`
 
-Per-request guard that borrows a `PinnedRoot` rather than opening the root independently. On Unix, cloning the `PinnedRoot` fd gives each request its own directory descriptor without reopening the root.
+Per-request guard that borrows a `PinnedRoot` rather than opening the root independently. On Unix, the resolver duplicates the `PinnedRoot` fd into request-scoped traversal state. On Windows, the resolver uses the retained root handle directly as `RootDirectory` authority for ordinary traversal.
 
 ```rust
 pub(crate) struct RootGuard<'a> {
@@ -136,7 +136,7 @@ This is explicitly documented as outside the descriptor-relative hardening guara
 
 1. `ServeState` pins the configured root once during static-service construction
 2. Each static request creates a `RootGuard` from that pinned root
-3. `RootGuard` clones the pinned root fd on Unix or handle on Windows for request-scoped traversal
+3. `RootGuard` borrows the pinned root; the resolver duplicates the root fd on Unix or uses the retained root handle directly on Windows for request-scoped traversal
 4. Resolution uses that request-scoped authority without reopening the configured root pathname
 5. The request-scoped guard is dropped after planning; any file handle retained by the canonical response follows its own streaming lifetime
 
@@ -150,7 +150,7 @@ One pinned root per static service. One request-scoped `RootGuard` per static re
 4. **No TOCTOU** — `statat` + `openat` with `O_NOFOLLOW` prevents symlink-swap attacks (Unix). `FILE_FLAG_OPEN_REPARSE_POINT` suppresses reparse following at every level (Windows).
 5. **Kernel-enforced** — Symlink rejection is enforced by the kernel via `O_NOFOLLOW` (Unix) or `FILE_ATTRIBUTE_REPARSE_POINT` checks from `GetFileInformationByHandleEx` (Windows).
 6. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
-7. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root) and a cloned directory descriptor or handle.
+7. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root). The resolver duplicates the root fd on Unix; on Windows, the retained root handle is used directly for ordinary traversal.
 
 ## Resolution-Path Audit (Plan 034 Workstream A)
 
@@ -162,7 +162,7 @@ This section traces every path from HTTP request target to response body, provin
 |------|------|-------------|-----------------|
 | 1. Parse | `path/mod.rs: ConfinedPath::parse` | Length check → origin-form parse → single-pass percent decode → normalize slashes → split components → validate each (NUL, `/`, `.`, `..`, backslash, dotfile, double-encoded traversal, platform checks) | No handles |
 | 2. Validate | `StaticService::call` | Validates GET/HEAD, rejects bodies, and builds `PathPolicy` from `StaticPolicy` | No handles |
-| 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`, clones its fd on Unix or handle on Windows | Cloned `root_fd` (Unix) or `root_handle` (Windows) for traversal |
+| 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`; resolver duplicates root fd on Unix or uses retained root handle on Windows | Request-scoped traversal authority |
 | 4a. Resolve (Unix) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `unix::resolve_fd_relative` (safe defaults) or `resolve_fallback` (follow-symlinks) | `root_fd` used for traversal |
 | 4b. Resolve (Windows) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `windows::resolve_to_resource` (handle-relative) or `resolve_fallback` (follow-symlinks) | `root_handle` used for traversal |
 | 5. fd-relative traversal (Unix) | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
@@ -187,7 +187,7 @@ Evidence:
 
 | Stage | Handle opened? | Where | Consumed/transferred? |
 |-------|---------------|-------|----------------------|
-| `RootGuard::new` | Cloned `root_fd` (Unix) or `root_handle` (Windows) | `fs/mod.rs:190` | Lives until request ends |
+| `RootGuard::new` | Borrows `PinnedRoot` | `fs/mod.rs:190` | Lives until request ends |
 | `unix::resolve_fd_relative` | Per-component `openat` fd | `fs/unix.rs:72` | Previous fd dropped; final fd → `ResolvedFile.file` |
 | `windows::resolve_to_resource` | Per-component `NtOpenFile` handle | `fs/windows.rs:791` | Previous handle dropped; final handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
 | `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:945` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
@@ -210,8 +210,8 @@ Every type that carries path data is classified by its role in the serving pipel
 | Type | Field | Classification | Notes |
 |------|-------|---------------|-------|
 | `PinnedRoot` | `canonical_root` | Diagnostic + fallback resolution | Canonical path for error messages and non-Unix fallback. Never opened after initial `PinnedRoot::new()`. |
-| `PinnedRoot` | `root_fd` | Opened-resource owner | Unix directory descriptor, opened once, cloned per-request. The sole root authority. |
-| `PinnedRoot` | `root_handle` | Opened-resource owner | Windows directory handle, opened once with `FILE_FLAG_OPEN_REPARSE_POINT`, duplicated per-request. The sole root authority. |
+| `PinnedRoot` | `root_fd` | Opened-resource owner | Unix directory descriptor, opened once, duplicated by the resolver for request-scoped traversal. The sole root authority. |
+| `PinnedRoot` | `root_handle` | Opened-resource owner | Windows directory handle, opened once with `FILE_FLAG_OPEN_REPARSE_POINT`, used directly by the resolver for ordinary traversal and duplicated only when an owned root-directory result is required. The sole root authority. |
 | `RootGuard` | `pinned` | Borrowed authority | Borrows `&PinnedRoot`. Never opens root by path. |
 | `ResolvedFile` | `safe_relative_components` | Safe relative display data | Used only for MIME detection. Never used for file access. |
 | `ResolvedFile` | `file` | Opened-resource owner | Pre-opened file handle. Consumed by `into_body()`. Never reopened by path. |

@@ -2,9 +2,9 @@
 
 ## Status
 
-**Pending implementation.**
+**COMPLETE — 2026-08-07.**
 
-This is a documentation-only corrective pass against repository state:
+Documentation-only corrective pass against repository state:
 
 ```text
 dc66811130ebdb43eb605bcaba823a2854287549
@@ -756,55 +756,55 @@ Key code facts to preserve:
 
 ## Artifact reproduction
 
-- [ ] documentation no longer hashes files after `test-python-wheel.sh` deletes them;
-- [ ] documentation no longer assumes the verification script writes a persistent wheel
+- [x] documentation no longer hashes files after `test-python-wheel.sh` deletes them;
+- [x] documentation no longer assumes the verification script writes a persistent wheel
       to repository `dist/`;
-- [ ] default release, default dist, TLS release, and TLS dist are captured to unique
+- [x] default release, default dist, TLS release, and TLS dist are captured to unique
       paths immediately after each build;
-- [ ] default dist is rebuilt before package staging after TLS overwrites the shared
+- [x] default dist is rebuilt before package staging after TLS overwrites the shared
       target path;
-- [ ] staged CLI exists during hash comparison;
-- [ ] wheel exists during extraction and hash comparison;
-- [ ] wheel-extracted CLI is saved to a persistent comparison path;
-- [ ] default-dist capture, staged CLI, and wheel-extracted CLI are compared by SHA-256;
-- [ ] `scripts/test-python-wheel.sh` remains unchanged;
-- [ ] recorded Plan 109 artifact values are unchanged absent new evidence.
+- [x] staged CLI exists during hash comparison;
+- [x] wheel exists during extraction and hash comparison;
+- [x] wheel-extracted CLI is saved to a persistent comparison path;
+- [x] default-dist capture, staged CLI, and wheel-extracted CLI are compared by SHA-256;
+- [x] `scripts/test-python-wheel.sh` remains unchanged;
+- [x] recorded Plan 109 artifact values are unchanged absent new evidence.
 
 ## Filesystem lifecycle wording
 
-- [ ] one `PinnedRoot` per static service remains documented;
-- [ ] one request-scoped `RootGuard` per static request remains documented;
-- [ ] `RootGuard` is described as borrowing `PinnedRoot`;
-- [ ] Unix root-fd duplication is attributed to Unix traversal;
-- [ ] Windows normal descendant traversal uses retained root-handle authority directly;
-- [ ] Windows root-directory result duplication is described accurately;
-- [ ] no active document claims Windows duplicates the root handle every request;
-- [ ] hardened traversal remains documented as avoiding configured-root pathname
+- [x] one `PinnedRoot` per static service remains documented;
+- [x] one request-scoped `RootGuard` per static request remains documented;
+- [x] `RootGuard` is described as borrowing `PinnedRoot`;
+- [x] Unix root-fd duplication is attributed to Unix traversal;
+- [x] Windows normal descendant traversal uses retained root-handle authority directly;
+- [x] Windows root-directory result duplication is described accurately;
+- [x] no active document claims Windows duplicates the root handle every request;
+- [x] hardened traversal remains documented as avoiding configured-root pathname
       reopen.
 
 ## Plan 110 closure bookkeeping
 
-- [ ] Plan 110 records implementation commit
+- [x] Plan 110 records implementation commit
       `dc66811130ebdb43eb605bcaba823a2854287549`;
-- [ ] Plan 110 final commit count is reconciled to nine documentation/planning files;
-- [ ] eight pre-existing corrected files versus the Plan 110 self-update are
+- [x] Plan 110 final commit count is reconciled to nine documentation/planning files;
+- [x] eight pre-existing corrected files versus the Plan 110 self-update are
       distinguished where useful;
-- [ ] Plan 110 final acceptance checklist reflects the current corrected state;
-- [ ] criteria completed by Plan 111 are attributed transparently;
-- [ ] Plan 110 remains functionally/documentationally historical and closed;
-- [ ] Plan 109 remains functionally closed.
+- [x] Plan 110 final acceptance checklist reflects the current corrected state;
+- [x] criteria completed by Plan 111 are attributed transparently;
+- [x] Plan 110 remains functionally/documentationally historical and closed;
+- [x] Plan 109 remains functionally closed.
 
 ## Scope and verification
 
-- [ ] no Rust or Python source changes;
-- [ ] no test changes;
-- [ ] no script changes;
-- [ ] no manifest or lockfile changes;
-- [ ] no workflow or release changes;
-- [ ] no new CI jobs or gates;
-- [ ] `git diff --check` passes;
-- [ ] targeted stale-phrase searches pass;
-- [ ] Plan 111 receives a concise closure record with its exact implementation SHA.
+- [x] no Rust or Python source changes;
+- [x] no test changes;
+- [x] no script changes;
+- [x] no manifest or lockfile changes;
+- [x] no workflow or release changes;
+- [x] no new CI jobs or gates;
+- [x] `git diff --check` passes;
+- [x] targeted stale-phrase searches pass;
+- [x] Plan 111 receives a concise closure record with its exact implementation SHA.
 
 ---
 
@@ -869,3 +869,56 @@ The implementer should:
 7. close Plan 111 with exact commit metadata.
 
 No runtime work remains authorized or required under this plan.
+
+---
+
+## Closure record — 2026-08-07
+
+**Implementation commit:** `4e9e24b`
+
+**Base SHA:** `dc66811130ebdb43eb605bcaba823a2854287549`
+
+**Files edited:** 5 documentation/planning files
+
+- `benchmarks/binary-size.md` — replaced impossible post-script hash sequence with
+  manual capture procedure that preserves artifacts long enough for SHA-256 comparison
+- `architecture/filesystem-confinement.md` — corrected Windows `RootGuard` lifecycle
+  wording: resolver uses retained root handle directly for ordinary traversal,
+  duplicates only for owned root-directory result
+- `docs/architecture.md` — corrected `RootGuard` description to attribute
+  duplication to the resolver rather than `RootGuard` itself
+- `plans/110-documentation-closure-polish.md` — reconciled implementation commit
+  SHA, nine-file count, final acceptance checklist, and added supersession note
+- `plans/111-final-documentation-reproduction-and-closure-polish.md` — this plan,
+  updated with status and closure record
+
+**Verification run:**
+
+- `git diff --check` — clean
+- `cargo fmt --all -- --check` — pass
+- `cargo clippy --workspace --lib --bins --tests -- -D warnings` — pass
+- `cargo test --workspace` — 1,366 passed, 9 ignored
+- `cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings` — pass
+- `cargo test -p eggserve-bin --features tls` — 88 passed
+
+**Stale-phrase checks (post-edit):**
+
+- `RootGuard.*created once` — no matches in active docs
+- `clones the pinned root.*handle.*per request` — no matches in active docs
+- `git diff --name-only.*8 files` — no matches in Plan 110
+- `Implementation commit: documentation-only diff` — no matches in Plan 110
+- `PYTHON=.*test-python-wheel.*sha256sum` — no matches in benchmarks
+- `request-scoped` present in `filesystem-confinement.md` — confirmed
+- `verified implementation tree` present in Plan 109 — confirmed
+
+**Confirmations:**
+
+- No Rust or Python source changes
+- No test changes
+- No script changes (`scripts/test-python-wheel.sh` unchanged)
+- No manifest or lockfile changes
+- No workflow or release changes
+- No new CI jobs or gates
+- Plan 109 remains functionally closed
+- Existing measured artifact values in `benchmarks/binary-size.md` were preserved
+- No runtime verification claim was reassigned to a documentation-only commit

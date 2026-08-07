@@ -113,35 +113,67 @@ sha256sum "$artifact_dir"/eggserve-*
 
 ### Verify packaged CLI identity
 
-After the supported wheel script builds and stages the default non-TLS `dist`
-CLI, verify SHA-256 equality among the unique capture, the staged binary, and
-the wheel-extracted member:
+`scripts/test-python-wheel.sh` is the supported installed-wheel verification
+harness. It intentionally removes the staged CLI and temporary wheel directory
+on exit; do not hash files after the script has deleted them.
+
+To verify packaged CLI identity, rebuild and stage the default non-TLS `dist`
+CLI separately, build the wheel into a persistent temporary directory, and
+extract the bundled CLI before comparing SHA-256 hashes:
 
 ```sh
-PYTHON=python3.14 bash scripts/test-python-wheel.sh
+set -euo pipefail
 
+# Rebuild the default non-TLS dist CLI (the TLS build overwrote target/dist/eggserve)
+cargo build --profile dist --locked -p eggserve-bin
+stage_dir="crates/eggserve-python/python/eggserve/bin"
+mkdir -p "$stage_dir"
+cp target/dist/eggserve "$stage_dir/eggserve"
+chmod +x "$stage_dir/eggserve"
+
+# Build the wheel into a persistent temporary directory
+wheel_dir="$(mktemp -d)"
+(
+  cd crates/eggserve-python
+  python3.14 -m maturin build \
+    --profile dist \
+    --interpreter python3.14 \
+    -o "$wheel_dir"
+)
+
+# Extract the bundled CLI from the wheel
+python3.14 - "$wheel_dir" "$artifact_dir/eggserve-wheel-extracted" <<'PY'
+import pathlib
+import sys
+import zipfile
+
+wheel_dir = pathlib.Path(sys.argv[1])
+out = pathlib.Path(sys.argv[2])
+wheel = next(wheel_dir.glob("eggserve-*.whl"))
+with zipfile.ZipFile(wheel) as zf:
+    members = [
+        name for name in zf.namelist()
+        if name.endswith("/eggserve") or name.endswith("/eggserve.exe")
+    ]
+    if len(members) != 1:
+        raise SystemExit(f"expected one bundled CLI, found {members!r}")
+    out.write_bytes(zf.read(members[0]))
+PY
+
+# Compare hashes: default-dist capture, staged CLI, wheel-extracted CLI
 sha256sum \
   "$artifact_dir/eggserve-default-dist" \
-  crates/eggserve-python/python/eggserve/bin/eggserve
-
-# Extract the bundled CLI from the wheel for comparison
-python3.14 -c "
-import zipfile, glob, hashlib, sys
-whl = glob.glob('dist/eggserve-*.whl')[0]
-member = [n for n in zipfile.ZipFile(whl).namelist() if n.endswith('eggserve')][0]
-data = zipfile.ZipFile(whl).read(member)
-open('/tmp/eggserve-wheel-extracted', 'wb').write(data)
-print(hashlib.sha256(data).hexdigest())
-"
-
-sha256sum \
-  "$artifact_dir/eggserve-default-dist" \
-  crates/eggserve-python/python/eggserve/bin/eggserve \
-  /tmp/eggserve-wheel-extracted
+  "$stage_dir/eggserve" \
+  "$artifact_dir/eggserve-wheel-extracted"
 ```
 
 All three must match. The recorded snapshot itself is Linux
 `x86_64-unknown-linux-gnu`.
+
+`scripts/test-python-wheel.sh` remains the supported installed-wheel
+verification harness. The manual capture recipe above exists specifically to
+preserve artifacts long enough for reproducibility and hash comparison; running
+it does not replace the installed-wheel verification.
 
 ```sh
 cargo tree -e features -p eggserve-bin --no-default-features

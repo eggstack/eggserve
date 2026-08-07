@@ -5,7 +5,8 @@
 **COMPLETE — 2026-08-06.**
 
 Documentation-only polish pass. No runtime code, tests, manifests, workflows,
-or scripts were modified.
+or scripts were modified. Final reproduction/lifecycle/closure metadata polish
+completed by Plan 111.
 
 This is a documentation-only polish pass against repository state:
 
@@ -896,48 +897,48 @@ Reject the implementation as incomplete if any of the following is true:
 
 ### Filesystem lifecycle
 
-- [ ] one pinned root per static service is documented;
-- [ ] one request-scoped `RootGuard` per static request is documented;
-- [ ] descriptor/handle clone and drop behavior is accurate;
-- [ ] no pathname reopen is implied under hardened traversal;
-- [ ] platform qualification remains unchanged.
+- [x] one pinned root per static service is documented;
+- [x] one request-scoped `RootGuard` per static request is documented;
+- [x] descriptor/handle clone and drop behavior is accurate;
+- [x] no pathname reopen is implied under hardened traversal;
+- [x] platform qualification remains unchanged.
 
 ### Runtime admission ownership
 
-- [ ] `RuntimeState` is the sole documented semaphore owner;
-- [ ] `StaticService` is documented as producing canonical responses;
-- [ ] transport conversion is documented as applying file admission;
-- [ ] compatibility-adapter wording remains deprecated and explicit-context only.
+- [x] `RuntimeState` is the sole documented semaphore owner;
+- [x] `StaticService` is documented as producing canonical responses;
+- [x] transport conversion is documented as applying file admission;
+- [x] compatibility-adapter wording remains deprecated and explicit-context only.
 
 ### Plan 109 closure record
 
-- [ ] `cea39...` is identified as the functional implementation candidate;
-- [ ] `d273...` is identified as the artifact-evidence commit;
-- [ ] `49ec...` is identified as the exact hosted-CI-tested implementation tree;
-- [ ] `3b75...` is identified as the documentation-only closure commit;
-- [ ] CI run `31035414453` remains tied to `49ec...`;
-- [ ] stale active handoff instructions are removed or archived;
-- [ ] Plan 109 remains functionally complete.
+- [x] `cea39...` is identified as the functional implementation candidate;
+- [x] `d273...` is identified as the artifact-evidence commit;
+- [x] `49ec...` is identified as the exact hosted-CI-tested implementation tree;
+- [x] `3b75...` is identified as the documentation-only closure commit;
+- [x] CI run `31035414453` remains tied to `49ec...`;
+- [x] stale active handoff instructions are removed or archived;
+- [x] Plan 109 remains functionally complete.
 
 ### Artifact reproduction
 
-- [ ] clean-state artifact removal is documented;
-- [ ] default release, default dist, TLS release, and TLS dist are captured uniquely;
-- [ ] shared target-path overwrite risk is explicit;
-- [ ] sizes and hashes are taken from unique captures;
-- [ ] staged and wheel-extracted bundled CLI identity is checked by SHA-256;
-- [ ] existing measured values remain stable absent proven error;
-- [ ] scheduler claims remain truthful;
-- [ ] no permanent benchmark or release gate is added.
+- [x] clean-state artifact removal is documented;
+- [x] default release, default dist, TLS release, and TLS dist are captured uniquely;
+- [x] shared target-path overwrite risk is explicit;
+- [x] sizes and hashes are taken from unique captures;
+- [x] staged and wheel-extracted bundled CLI identity is checked by SHA-256;
+- [x] existing measured values remain stable absent proven error;
+- [x] scheduler claims remain truthful;
+- [x] no permanent benchmark or release gate is added.
 
 ### Verification and scope
 
-- [ ] changed paths are documentation-only;
-- [ ] `git diff --check` passes;
-- [ ] targeted stale-phrase checks pass;
-- [ ] no source, tests, manifests, workflows, or scripts change;
-- [ ] no scope expansion occurs;
-- [ ] Plan 110 receives a concise closure record after implementation.
+- [x] changed paths are documentation-only;
+- [x] `git diff --check` passes;
+- [x] targeted stale-phrase checks pass;
+- [x] no source, tests, manifests, workflows, or scripts change;
+- [x] no scope expansion occurs;
+- [x] Plan 110 receives a concise closure record after implementation.
 
 ---
 
@@ -962,9 +963,12 @@ No runtime work remains authorized under this plan.
 
 ## Closure record — 2026-08-06
 
-**Implementation commit:** documentation-only diff against main.
+**Implementation commit:**
+`dc66811130ebdb43eb605bcaba823a2854287549`
 
-**Files edited:**
+**Files edited:** 9 documentation/planning files. Eight pre-existing repository
+documents were corrected, and Plan 110 itself was updated with status and
+closure evidence:
 
 - `architecture/filesystem-confinement.md` — distinguished one-time `PinnedRoot` construction from per-request `RootGuard` creation
 - `architecture/eggserve-core.md` — corrected `StaticService` feature summary to attribute file-stream admission to runtime transport
@@ -974,10 +978,11 @@ No runtime work remains authorized under this plan.
 - `plans/109-final-admission-and-wire-verification-corrective-pass.md` — distinguished verified implementation tree from closure commit, removed stale handoff
 - `AGENTS.md` — updated plan-state summaries
 - `.opencode/skills/eggserve-dev/SKILL.md` — updated plan-state summaries
+- `plans/110-documentation-closure-polish.md` — updated with status and closure evidence (self-update)
 
 **Verification run:**
 
-- `git diff --name-only` — 8 files, all documentation
+- `git diff --name-only` — 9 documentation/planning files
 - `git diff --check` — clean
 - `cargo fmt --all -- --check` — pass
 - `cargo clippy --workspace --lib --bins --tests -- -D warnings` — pass
@@ -1001,3 +1006,11 @@ No runtime work remains authorized under this plan.
 - Existing measured artifact values in `benchmarks/binary-size.md` were preserved
 - No new CI job, release gate, or publication mechanism was added
 - No scheduler comparison was claimed
+
+**Post-closure review note:**
+
+Post-closure review identified three documentation-only residuals: the artifact
+reproduction commands depended on temporary files removed by the wheel test
+harness, Windows `RootGuard` wording overstated root-handle duplication, and
+closure bookkeeping needed reconciliation. Plan 111 corrects those documentation
+issues without reopening Plan 109 or changing runtime behavior.
