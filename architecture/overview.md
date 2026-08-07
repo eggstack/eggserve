@@ -2,6 +2,8 @@
 
 eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
 
+**This document is the entry point for understanding the codebase.** Use the [Deep Dive Index](#deep-dive-index) to jump to any subsystem.
+
 ## What eggserve Is
 
 - **A hardened static file server** — serves files from a directory with security guarantees
@@ -21,6 +23,60 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 2. **No serving outside the configured root.** Path traversal and symlink escape denied at library level.
 3. **No broad dependencies.** Every dependency has an explicit purpose.
 4. **Plan-driven development.** Every change traces to a plan in `plans/`.
+
+---
+
+## Deep Dive Index
+
+Every subsystem has a dedicated deep-dive document. Use this index to navigate directly to what you need.
+
+### Crates
+
+| Document | Covers |
+|----------|--------|
+| [eggserve-core.md](eggserve-core.md) | Core library — module map, key types, server module, error types, dependencies |
+| [eggserve-bin.md](eggserve-bin.md) | CLI binary — `run()` entrypoint, accept loop, argument inventory, signal handling, TLS loading |
+| [eggserve-python.md](eggserve-python.md) | Python wheel — `eggserve.server` facade, `eggserve.lowlevel`, `eggserve.subprocess`, security boundary |
+
+### Security
+
+| Document | Covers |
+|----------|--------|
+| [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parsing, decoding, normalization, component validation, 16 rejection variants |
+| [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows), TOCTOU prevention |
+| [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`, safe defaults, CLI/Python flag mapping |
+| [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries, platform security |
+
+### HTTP and Runtime
+
+| Document | Covers |
+|----------|--------|
+| [primitives-api.md](primitives-api.md) | Public facade for embedding — `SecureRoot`, `ResolvedResource`, canonical types, HTTP validation, body primitives |
+| [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()`, streaming buffer |
+| [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline, body ingestion |
+| [client.md](client.md) | HTTP client primitives — low-level client for Python, TLS support, timeout semantics |
+| [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS key formats, ALPN, deployment profiles, limitations |
+
+### Operations
+
+| Document | Covers |
+|----------|--------|
+| [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines/text output, operational counters, sanitized fields, log sink types |
+| [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — full field inventory, ownership model, CLI/Python/Rust convergence |
+| [error-taxonomy.md](error-taxonomy.md) | 7 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError`, `ClientError` |
+
+### Quality and Process
+
+| Document | Covers |
+|----------|--------|
+| [testing-and-conformance.md](testing-and-conformance.md) | Rust unit/integration tests, Python suites, 12 fuzz targets, conformance corpora, packaging smoke tests |
+
+### Decision Records
+
+| Document | Topic | Status |
+|----------|-------|--------|
+| [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted (Plans 084–086) |
+| [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted (Plan 078) |
 
 ---
 
@@ -342,3 +398,6 @@ Plans 000–111 are historical implementation records; Plan 109 is the verified 
 | 074–090 | Corrective passes | Runtime timeouts, Windows unicode, configuration authority, structured logging, performance |
 | 091–093 | CI simplification | Reduced to proportionate two-job CI, manual release |
 | 094–101 | `http.server` compatibility | RFC 9110 corrections, `SimpleHTTPRequestHandler`, `HTTPSServer`, final verification |
+| 102–108 | Runtime correctness & size | Generic runtime boundary, product-surface freeze, binary-size reduction, streaming closure |
+| 109 | Final admission & wire verification | Verified complete — admission ownership, corrective pass |
+| 110–111 | Documentation polish | Final documentation reproduction and closure polish |
