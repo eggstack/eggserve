@@ -117,7 +117,6 @@ Routine CI is a small regression screen, not release certification:
 - Range requests ARE implemented (despite some docs saying otherwise).
 - `clap` was removed — manual arg parsing in `args.rs`.
 - `tracing` was never added — logging is custom.
-- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Bind(String)` takes a string.
 - `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`.
 - `ResponseStatus` is a struct with associated constants, not an enum.
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum.
@@ -126,10 +125,33 @@ Routine CI is a small regression screen, not release certification:
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
+- **Error taxonomy** — Seven distinct error types: `PathRejection` (16 variants, path validation), `Error` (9 variants: `PathEscape`, `PathNotAccessible(String)`, `Config(String)`, `Bind(String)`, `Runtime(String)`, `RequestRejected(String)`, `ResponseConstruction`, `Io`, `Client`), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption), `ClientError` (12 variants, feature-gated). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
 - **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS`. Values above this bound are rejected.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
 
 ## Reference docs
 
-`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, cli, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, error-taxonomy, tls, etc.). `plans/` has design plans 000–111 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 111 is documentation polish only).
+`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, cli, etc.). `architecture/` has deep-dive docs per subsystem:
+
+- `architecture/overview.md` — workspace structure, data flow, architectural decisions
+- `architecture/eggserve-core.md` — core library module map, key types, error taxonomy
+- `architecture/eggserve-bin.md` — CLI binary, accept loop, signal handling
+- `architecture/eggserve-python.md` — Python bindings, PyO3, maturin packaging
+- `architecture/path-confinement.md` — path validation pipeline
+- `architecture/filesystem-confinement.md` — SecureRoot, symlink-aware resolution
+- `architecture/policy-system.md` — StaticPolicy, symlink/dotfile/listing policies
+- `architecture/primitives-api.md` — public API boundary for embedding consumers
+- `architecture/response-planning.md` — conditional/range/ETag response planning
+- `architecture/runtime.md` — runtime service boundary, Server, Service trait, StaticService
+- `architecture/client.md` — HTTP client primitives, feature-gated substrate
+- `architecture/security-model.md` — trust boundaries, defensive layers, attacker model
+- `architecture/testing-and-conformance.md` — test layers, conformance corpora, fuzzing
+- `architecture/configuration.md` — configuration inventory, ownership model, field inventory
+- `architecture/structured-logging.md` — event model, event kinds, operational counters, log sinks
+- `architecture/error-taxonomy.md` — five error layers, variant inventory, conversion flow
+- `architecture/tls.md` — TLS support, feature gates, PEM loading
+- `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
+- `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
+
+`plans/` has design plans 000–111 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 111 is documentation polish only).

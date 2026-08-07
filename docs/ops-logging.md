@@ -17,12 +17,13 @@ All output goes to **stderr**. stdout is reserved for serving content.
 ### Python API
 
 ```python
-from eggserve.server import Server
+from eggserve.server import HTTPServer, SimpleHTTPRequestHandler
 
-server = Server(root="/path")
+handler = SimpleHTTPRequestHandler
+server = HTTPServer(("127.0.0.1", 8000), handler)
 ```
 
-The Python `Server` logs to stderr via the CLI's structured logging. The Python `Server` does not accept observer callbacks; operational events are emitted to stderr by the Rust runtime.
+The Python server logs to stderr via the CLI's structured logging. The server does not accept observer callbacks; operational events are emitted to stderr by the Rust runtime.
 
 ## JSON Lines Schema
 
@@ -161,7 +162,7 @@ Repeated accept errors (e.g., file descriptor exhaustion) are rate-limited:
 
 ### Python server logging
 
-The Python `Server` delegates logging to the Rust runtime's stderr log sink. There is no Python observer callback; operational events are emitted to stderr in the same structured format as the CLI.
+The Python server delegates logging to the Rust runtime's stderr log sink. There is no Python observer callback; operational events are emitted to stderr in the same structured format as the CLI.
 
 ### Log sink failures
 

@@ -69,7 +69,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **eggserve-python excluded from workspace** — has its own Cargo.lock, built via maturin. Don't run `cargo test --workspace` for Python crate.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
-- **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
+- **Error taxonomy** — Seven distinct error types: `PathRejection` (16 variants, path validation), `Error` (9 variants: `PathEscape`, `PathNotAccessible(String)`, `Config(String)`, `Bind(String)`, `Runtime(String)`, `RequestRejected(String)`, `ResponseConstruction`, `Io`, `Client`), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption), `ClientError` (12 variants, feature-gated). See `architecture/error-taxonomy.md`.
 - **Plan status** — Plan 108 is historical; verified Plan 109 closed final admission ownership, exact Stream wire proof, build-time static-service consumption, and corrected distribution evidence. Plan 111 completed final documentation polish. The pre-runtime `service` module is a deprecated delegating compatibility adapter requiring an explicit runtime context; production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
@@ -110,7 +110,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - Range requests ARE implemented (despite some docs saying otherwise)
 - `clap` was removed — manual arg parsing in `args.rs`
 - `tracing` was never added — logging is custom
-- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Bind(String)` takes a string
+- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Config(String)` takes a string, `Bind(String)` takes a string, `Runtime(String)` takes a string, `RequestRejected(String)` takes a string, `ResponseConstruction` wraps `ResponseConstructionError`, `Io` wraps `std::io::Error`, `Client` wraps `ClientError` (feature-gated)
 - `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`
 - `ResponseStatus` is a struct with associated constants, not an enum
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
@@ -125,4 +125,4 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
-- **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output. The two `eprintln!` calls in `response.rs` have been replaced with structured logging.
+- **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
