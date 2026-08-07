@@ -2,13 +2,13 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–111 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plan 111 is documentation polish only. Plan 091 defines current CI/release policy.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction.
 
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
 - **No serving outside the configured root.** Path traversal and symlink escape denied at library level. On Unix with safe defaults, descriptor-relative: `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`. See [docs/threat-model.md](docs/threat-model.md).
-- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md). Current deps: `thiserror`, `tokio`, `hyper`/`hyper-util`/`http-body-util`, `bytes`, `futures-util`, `httpdate`, `phf`. Optional: `rustls`/`tokio-rustls`/`webpki-roots` (TLS). Unix-only: `rustix` (descriptor-relative traversal).
+- **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
 
 ## Layout
@@ -21,7 +21,7 @@ eggserve/
 │   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 │   └── eggserve-python/    # Python wheel packaging (maturin)
 ├── architecture/           # deep-dive docs for each subsystem
-├── benchmarks/             # benchmark baselines (Plan 088)
+├── benchmarks/             # benchmark baselines
 ├── conformance/            # test corpora and conformance matrix
 ├── docs/                   # project documentation
 ├── examples/               # usage examples (Python, Rust)
@@ -89,7 +89,6 @@ Routine CI is a small regression screen, not release certification:
 - Deep verification is local/manual and selected by change risk.
 - Crates.io publishing is manual from a maintainer-controlled environment.
 - GitHub Actions never publishes.
-- Historical plans (039, 044–046, 086, 089, 090) defined the prior evidence/qualification framework; Plan 091 supersedes their CI and release requirements while preserving their product implementation and test coverage.
 
 ## Toolchain notes
 
@@ -107,17 +106,30 @@ Routine CI is a small regression screen, not release certification:
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel bundles the platform-native CLI binary.
 - **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
-- **Two error types for path validation**: `PathRejection` (16 variants for parsing failures) vs `Error` (top-level taxonomy). `RequestValidationError` handles HTTP-level issues.
-- **Two BodySource Python types**: `BodySource` (from `lib.rs`, for primitive-level body reading) and `ServerBodySource` (from `server.rs`, for server response streaming). They wrap the same Rust `BodySource` but have different Python names to avoid collision.
-- **Two Method types**: `ReadOnlyMethod` (GET/HEAD only, stable) and `Method` (standard + extension, experimental). `ReadOnlyMethod` is used by the response planner. `Method` is the canonical type for new code. Client method types are feature-gated and Rust-only, not part of the Python surface.
-- **HeaderBlock is a list, not a map**: `HeaderBlock` stores headers as an ordered `Vec<HeaderField>`, preserving duplicates. `get_unique()` returns `DuplicateHeaderError` on duplicates. Python `HeaderBlock` is frozen/immutable.
-- **Two status code types**: `ResponseStatus` (stable, used by the planner) and `StatusCode` (stable, canonical with range validation). New code should prefer `StatusCode`. Two header map types: `HeaderMapPlan` (stable, existing) and `HeaderBlock` (stable, canonical). The canonical response types use `HeaderBlock`.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`.
-- **Server without ServeConfig** — `Server::builder().runtime(config).build()` creates a runtime-only server. `Server::start()` requires `serve_config`. `Server::start_with_service()` works without serve config — custom services have no implicit filesystem root.
 - **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()` (Plan 105). The Python facade uses `rt-multi-thread` for GIL scheduling. The library is runtime-agnostic.
 - **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. `--log-format none` disables output; `--quiet` filters to warn/error only. Library code must not use `println!`/`eprintln!`.
 
+## Common pitfalls
+
+- `telemetry.rs` is referenced in some older docs but does not exist — do not create it.
+- Range requests ARE implemented (despite some docs saying otherwise).
+- `clap` was removed — manual arg parsing in `args.rs`.
+- `tracing` was never added — logging is custom.
+- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Bind(String)` takes a string.
+- `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`.
+- `ResponseStatus` is a struct with associated constants, not an enum.
+- `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum.
+- `StaticPolicy` field is `symlinks`, not `follow_symlinks`.
+- **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
+- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
+- **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
+- **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
+- **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
+- **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS`. Values above this bound are rejected.
+- **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
+
 ## Reference docs
 
-`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, error-taxonomy, tls, etc.). `plans/` has design plans 000–111 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 111 is documentation polish only).
+`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, cli, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, error-taxonomy, tls, etc.). `plans/` has design plans 000–111 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 111 is documentation polish only).
