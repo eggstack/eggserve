@@ -1,14 +1,5 @@
 # Architecture Overview
 
-Plan 108 is a historical corrective follow-up to Plan 107. Verified Plan 109
-closed the final runtime ownership contract. The intended contract is: one
-`RuntimeState` per running server, one transport file-stream semaphore, and
-canonical static file/range bodies preserved until Hyper conversion. Static
-state owns confinement only; custom Rust/Python services are rootless.
-The pre-runtime `service` module remains only as a deprecated delegating
-compatibility adapter for alpha/in-repository consumers. It requires an
-explicit caller-owned runtime context and is not a production server path.
-
 eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
 
 ## What eggserve Is
@@ -27,9 +18,9 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 ## Core Invariants
 
 1. **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag.
-2. **No serving outside the configured root.** Path traversal and symlink escape are denied at the library level. On Unix with safe defaults, symlink denial is *descriptor-relative* — `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`.
-3. **No broad dependencies.** Every dependency has an explicit purpose. No framework dependencies beyond Hyper.
-4. **Plan-driven development.** Every change traces to a plan in `plans/`. No ad-hoc feature additions.
+2. **No serving outside the configured root.** Path traversal and symlink escape denied at library level.
+3. **No broad dependencies.** Every dependency has an explicit purpose.
+4. **Plan-driven development.** Every change traces to a plan in `plans/`.
 
 ---
 
@@ -44,7 +35,7 @@ eggserve/
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (32 files)
-├── plans/                      # design plans (000–110; Plan 109 verified complete, Plan 110 documentation polish)
+├── plans/                      # design plans (000–110; Plan 109 verified complete)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (12 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
@@ -71,8 +62,6 @@ eggserve-python        → standalone, owns Python packaging
 - **`eggserve-bin`** depends on `eggserve-core` via path. Owns CLI parsing, signal handling, accept loop.
 - **`eggserve-python`** depends on `eggserve-core` via path. Excluded from workspace; has its own `Cargo.lock`. Built via maturin. Bundles the platform-native CLI binary.
 
-The Python subprocess layer communicates with the binary via CLI arguments — no shared memory, no FFI to the bin crate.
-
 ### Feature Flags
 
 | Feature | Crate | Purpose |
@@ -85,15 +74,15 @@ The Python subprocess layer communicates with the binary via CLI arguments — n
 
 ---
 
-## Component Index
+## Component Map
 
-Each component links to a deep-dive document in this directory. Use this as your starting point for understanding any subsystem.
+Each component links to a deep-dive document. Use this as your starting point for understanding any subsystem.
 
 ### Core Crates
 
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
-| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | The heart of the project — all security-critical logic, path confinement, policy enforcement, HTTP serving, response construction |
+| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | All security-critical logic — path confinement, policy enforcement, HTTP serving, response construction |
 | CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
 
@@ -128,7 +117,7 @@ Each component links to a deep-dive document in this directory. Use this as your
 
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
-| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) | Multi-layer test strategy — Rust unit/integration, Python suites, 21 fuzz targets, conformance corpora |
+| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) | Multi-layer test strategy — Rust unit/integration, Python suites, 12 fuzz targets, conformance corpora |
 
 ### Decision Records
 
@@ -142,8 +131,6 @@ Each component links to a deep-dive document in this directory. Use this as your
 ## How It All Works Together
 
 ### Request Lifecycle
-
-A request travels through these stages:
 
 ```
 HTTP Request
@@ -225,8 +212,6 @@ Defense in depth across seven layers:
 | Response normalization | Hop-by-hop smuggling, content-length manipulation | [response-planning.md](response-planning.md) |
 | Sanitized logging | Log injection, path/header leakage | [structured-logging.md](structured-logging.md) |
 
-Safe defaults are not advisory — the code rejects non-conforming requests before any filesystem access.
-
 ### Configuration Flow
 
 Configuration is split between runtime-owned (transport) and static-service-owned (filesystem) concerns:
@@ -252,8 +237,6 @@ CLI flags / Python params / Rust structs
 └────────────────┘  └────────────────────┘
 ```
 
-CLI flags, Python constructor params, and Rust struct fields all converge on the same underlying configuration. See [configuration.md](configuration.md) for the full field inventory and ownership model.
-
 ---
 
 ## Core Library Module Map (`eggserve-core`)
@@ -263,7 +246,7 @@ CLI flags, Python constructor params, and Rust struct fields all converge on the
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` | Stable-ish |
 | `limits.rs` | **pub** | `Limits` — connections, streams, timeouts | Stable-ish |
 | `policy.rs` | **pub** | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy` | Stable-ish |
-| `service.rs` | **pub** (deprecated) | Explicit-context `handle_request()` adapter for migration only | Deprecated/experimental |
+| `service.rs` | **pub** (deprecated) | Explicit-context `handle_request()` adapter | Deprecated/experimental |
 | `error.rs` | pub(crate) | `Error` enum taxonomy | Internal |
 | `path/` | pub(crate) | Path confinement pipeline (7 submodules) | Internal |
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
@@ -274,68 +257,11 @@ CLI flags, Python constructor params, and Rust struct fields all converge on the
 | `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle | Experimental |
 | `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |
 
-### `path/` submodules
-
-| File | Purpose |
-|------|---------|
-| `mod.rs` | `ConfinedPath` type — the validated path |
-| `request_target.rs` | HTTP origin-form parsing |
-| `decode.rs` | Single-pass percent decoding |
-| `components.rs` | Normalization, splitting, validation |
-| `rejected.rs` | `PathRejection` enum (16 variants) |
-| `policy.rs` | `PathPolicy`, `DotfilePolicy` (path-level) |
-| `platform.rs` | Windows-specific checks |
-
-### `fs/` submodules
-
-| File | Purpose |
-|------|---------|
-| `mod.rs` | `PinnedRoot`, `RootGuard`, `ResolvedResource`, `ResolvedFile`, `ResolvedDirectory` |
-| `unix.rs` | Descriptor-relative traversal (statat + openat) |
-| `windows.rs` | Handle-relative traversal (NtOpenFile, NtQueryDirectoryFile) |
-
-### `primitives/` submodules
-
-| File | Purpose |
-|------|---------|
-| `mod.rs` | Re-exports all public types |
-| `secure_root.rs` | `SecureRoot`, `ResolvedFile`, `ResolvedDirectory`, `ResolvedResource` |
-| `http.rs` | `ReadOnlyMethod`, request validation functions (legacy) |
-| `method.rs` | `Method`: validated HTTP method (standard + extension) |
-| `version.rs` | `HttpVersion`: HTTP/1.0, HTTP/1.1 |
-| `header_block.rs` | `HeaderBlock`: duplicate-preserving ordered headers |
-| `request_target.rs` | `RequestTarget`: validated origin-form target |
-| `request_head.rs` | `RequestHead`: canonical request head with Hyper conversion |
-| `connection_info.rs` | `ConnectionInfo`: transport metadata |
-| `request.rs` | `Request` envelope (head + body + connection info) |
-| `request_body.rs` | `RequestBody` — one-shot transport-independent body |
-| `request_body_error.rs` | `RequestBodyError` — 12-variant body error taxonomy |
-| `request_body_policy.rs` | `RequestBodyPolicy` — Reject/Buffer/Stream |
-| `incomplete_body_policy.rs` | `IncompleteBodyPolicy` — Close/Discard |
-| `body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
-| `planner.rs` | Response planning (conditional, range, ETag) |
-| `response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
-| `canonical.rs` | `StatusCode`, `Response`, `normalize_response()`, `normalize_metadata()` |
-| `client/` | HTTP client primitives (feature-gated: `client`) |
-
-### `server/` submodules
-
-| File | Purpose |
-|------|---------|
-| `mod.rs` | Re-exports, `Server`, `ServerBuilder` |
-| `config.rs` | `RuntimeConfig` — transport-level configuration |
-| `connection.rs` | Body ingestion pipeline, Hyper incoming-body adapter |
-| `errors.rs` | `ServerError`, `ServiceError`, `ShutdownResult` |
-| `handle.rs` | `ServerHandle` — control handle for lifecycle management |
-| `lifecycle.rs` | `LifecycleState` — lifecycle state machine |
-| `service.rs` | `Service` trait, `service_fn` adapter |
-| `static_service.rs` | `StaticService` — hardened static file service |
-
 ---
 
 ## Error Taxonomy
 
-eggserve uses seven distinct error layers:
+Seven distinct error layers, each scoped to a specific subsystem:
 
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
@@ -366,13 +292,13 @@ eggserve uses seven distinct error layers:
 |----------|--------|----------------|
 | **Linux** (x86_64, aarch64) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
 | **macOS** (x86_64, aarch64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
-| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + adversarial qualification scaffold (Plan 086, 114 tests). Independent safety review awaited. Not for untrusted public content until human gates complete. |
+| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + adversarial qualification scaffold (Plan 086, 114 tests). Independent safety review awaited. |
 
 ---
 
 ## Testing Strategy
 
-Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 21 fuzz targets, and 2 conformance corpora:
+Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 12 fuzz targets, and 2 conformance corpora:
 
 | Layer | Location | Scope |
 |-------|----------|-------|
@@ -403,9 +329,7 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–109 are historical implementation records; Plan 109 is the verified
-final admission and wire-verification corrective pass. Plan 110 is documentation
-polish only. Major feature tracks:
+Plans 000–109 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass. Plan 110 is documentation polish only. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|
