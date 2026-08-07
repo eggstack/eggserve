@@ -94,7 +94,9 @@ pub enum Error {
     Bind(String),
     Runtime(String),
     RequestRejected(String),
+    ResponseConstruction(ResponseConstructionError),
     Io(std::io::Error),
+    Client(ClientError),  // feature-gated: `client`
 }
 ```
 
@@ -107,14 +109,14 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 ### `Server` and `ServerBuilder`
 
 ```rust
-let handle = Server::builder()
-    .config(RuntimeConfig { bind: addr, ..Default::default() })
-    .service(StaticService::new(policy, root))
-    .start()
-    .await?;
+let server = Server::builder()
+    .runtime(RuntimeConfig { bind: addr, ..Default::default() })
+    .static_service("/srv/www")?
+    .build()?;
+let handle = server.start().await?;
 ```
 
-`Server::builder()` returns a `ServerBuilder`. Configure with `.config()` and `.service()`, then `.start()` to begin listening. Returns a `ServerHandle`.
+`Server::builder()` returns a `ServerBuilder`. Configure with `.runtime()` and `.static_service()` (or `.serve_config()` for pre-built configs), then `.build()` to construct the server. Call `.start()` (built-in static service) or `.start_with_service(service)` (custom service) to begin listening. Returns a `ServerHandle`.
 
 `ServerBuilder` also supports `.bind()` for passing a pre-bound `TcpListener` or `UnixListener` directly, and `.from_listener()` for constructing from an existing listener with additional configuration.
 

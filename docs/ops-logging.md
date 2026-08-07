@@ -116,6 +116,9 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `service_invocation_suppressed` | WARN | Service call skipped (e.g., timeout already fired) |
 | `service_timeout` | WARN | Handler timed out (504) |
 | `service_error` | ERROR | Handler returned error |
+| `request_completed` | INFO | Request fully processed |
+| `directory_listing_limit` | WARN | Directory listing entry or size limit reached |
+| `blocking_worker_saturation` | WARN | Blocking worker pool fully utilized |
 
 ### Operational faults
 

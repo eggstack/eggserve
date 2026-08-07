@@ -11,48 +11,48 @@ The top-level composite policy. Aggregates all sub-policies.
 ```rust
 pub struct StaticPolicy {
     pub directory_listing: DirectoryListingPolicy,
-    pub follow_symlinks: SymlinkPolicy,
-    pub allow_dotfiles: DotfilePolicy,
+    pub symlinks: SymlinkPolicy,
+    pub dotfiles: DotfilePolicy,
 }
 ```
 
 `StaticPolicy::safe_default()` returns the most restrictive configuration:
-- `DirectoryListingPolicy::Deny`
-- `SymlinkPolicy::Deny`
-- `DotfilePolicy::Deny`
+- `DirectoryListingPolicy::Disabled`
+- `SymlinkPolicy::Denied`
+- `DotfilePolicy::Denied`
 
 ### `DirectoryListingPolicy`
 
 ```rust
 pub enum DirectoryListingPolicy {
-    Allow,
-    Deny,
+    Disabled,
+    Enabled,
 }
 ```
 
-Controls whether directory listing HTML is returned for directory requests. Default: `Deny`.
+Controls whether directory listing HTML is returned for directory requests. Default: `Disabled`.
 
 ### `SymlinkPolicy`
 
 ```rust
 pub enum SymlinkPolicy {
-    Allow,
-    Deny,
+    Denied,
+    Follow,
 }
 ```
 
-Controls whether symlinks are followed during filesystem resolution. Default: `Deny`. When `Deny`, the descriptor-relative traversal on Unix refuses symlinks at both `statat` and `openat` time.
+Controls whether symlinks are followed during filesystem resolution. Default: `Denied`. When `Denied`, the descriptor-relative traversal on Unix refuses symlinks at both `statat` and `openat` time.
 
 ### `DotfilePolicy` (serving level)
 
 ```rust
 pub enum DotfilePolicy {
-    Allow,
-    Deny,
+    Denied,
+    Serve,
 }
 ```
 
-Controls whether dotfiles (paths containing components starting with `.`) are served. Default: `Deny`.
+Controls whether dotfiles (paths containing components starting with `.`) are served. Default: `Denied`.
 
 ## The Two DotfilePolicy Types
 
@@ -96,10 +96,10 @@ Every policy defaults to the most restrictive setting:
 
 | Policy | Default | Effect |
 |--------|---------|--------|
-| `DirectoryListingPolicy` | `Deny` | No directory listing HTML |
-| `SymlinkPolicy` | `Deny` | No symlink following |
-| `DotfilePolicy` (path) | `Deny` | Dotfile paths rejected early |
-| `DotfilePolicy` (serving) | `Deny` | Dotfiles not served |
+| `DirectoryListingPolicy` | `Disabled` | No directory listing HTML |
+| `SymlinkPolicy` | `Denied` | No symlink following |
+| `DotfilePolicy` (path) | `Denied` | Dotfile paths rejected early |
+| `DotfilePolicy` (serving) | `Denied` | Dotfiles not served |
 | Bind address | `127.0.0.1` | Loopback only |
 | Request body | rejected | No body processing |
 
@@ -109,9 +109,9 @@ Users must explicitly opt-in to less restrictive behavior via CLI flags or Pytho
 
 | CLI Flag | Policy Field | Effect |
 |----------|-------------|--------|
-| `--directory-listing` | `DirectoryListingPolicy::Allow` | Enable directory listing |
-| `--follow-symlinks` | `SymlinkPolicy::Allow` | Follow symlinks |
-| `--allow-dotfiles` | `DotfilePolicy::Allow` | Serve dotfiles |
+| `--directory-listing` | `DirectoryListingPolicy::Enabled` | Enable directory listing |
+| `--follow-symlinks` | `SymlinkPolicy::Follow` | Follow symlinks |
+| `--allow-dotfiles` | `DotfilePolicy::Serve` | Serve dotfiles |
 | `--public` | Bind to `0.0.0.0` | Accept non-loopback connections |
 
 ## Python API Mapping
@@ -120,9 +120,9 @@ Users must explicitly opt-in to less restrictive behavior via CLI flags or Pytho
 from eggserve.lowlevel import StaticPolicy
 
 policy = StaticPolicy(
-    directory_listing=True,   # → DirectoryListingPolicy::Allow
-    follow_symlinks=True,     # → SymlinkPolicy::Allow
-    allow_dotfiles=True,      # → DotfilePolicy::Allow
+    directory_listing=True,   # → DirectoryListingPolicy::Enabled
+    follow_symlinks=True,     # → SymlinkPolicy::Follow
+    allow_dotfiles=True,      # → DotfilePolicy::Serve
 )
 ```
 

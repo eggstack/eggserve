@@ -35,7 +35,7 @@ eggserve/
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
 ├── docs/                       # reference docs (32 files)
-├── plans/                      # design plans (000–110; Plan 109 verified complete)
+├── plans/                      # design plans (000–111; Plan 109 verified complete)
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (12 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
@@ -266,7 +266,7 @@ Seven distinct error layers, each scoped to a specific subsystem:
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
 | `PathRejection` | Path parsing | 16 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
-| `Error` | Top-level crate | `PathEscape`, `PathNotAccessible`, `Config`, `Bind`, `Runtime`, `RequestRejected`, `Io`, `Client` |
+| `Error` | Top-level crate | `PathEscape`, `PathNotAccessible`, `Config`, `Bind`, `Runtime`, `RequestRejected`, `ResponseConstruction`, `Io`, `Client` |
 | `RequestValidationError` | HTTP-level | `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding` |
 | `ServerError` | Server lifecycle | `Bind`, `Config`, `AlreadyStarted`, `Accept`, `TlsSetup`, `ShutdownTimeout`, `Startup`, `Terminal` |
 | `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
@@ -329,7 +329,7 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–109 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass. Plan 110 is documentation polish only. Major feature tracks:
+Plans 000–111 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plan 111 is documentation polish only. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|

@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–108 historical; Plan 109 verified complete; Plan 110 documentation polish), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–111 historical; Plan 109 verified complete; Plan 111 documentation polish), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -70,7 +70,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Two error types** — `PathRejection` (16 variants, parsing) vs `Error` (top-level taxonomy). `RequestValidationError` for HTTP-level issues.
-- **Plan status** — Plan 108 is historical; verified Plan 109 closed final admission ownership, exact Stream wire proof, build-time static-service consumption, and corrected distribution evidence. The pre-runtime `service` module is a deprecated delegating compatibility adapter requiring an explicit runtime context; production servers use the shared `RuntimeState` admission pool.
+- **Plan status** — Plan 108 is historical; verified Plan 109 closed final admission ownership, exact Stream wire proof, build-time static-service consumption, and corrected distribution evidence. Plan 111 completed final documentation polish. The pre-runtime `service` module is a deprecated delegating compatibility adapter requiring an explicit runtime context; production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
@@ -99,6 +99,8 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
 - `configuration.md` — configuration inventory, ownership model, field inventory
 - `structured-logging.md` — event model, event kinds, operational counters, log sinks
+- `error-taxonomy.md` — seven error layers, variant inventory, conversion flow
+- `tls.md` — TLS support, feature gates, PEM loading
 - `adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `adr-003-custom-service-ownership.md` — custom service ownership model
 

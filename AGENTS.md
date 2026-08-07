@@ -2,7 +2,7 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–108 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plan 110 is documentation polish only. Plan 091 defines current CI/release policy.
+eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. Plans 000–111 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plan 111 is documentation polish only. Plan 091 defines current CI/release policy.
 
 ## Non-negotiables
 
@@ -120,4 +120,4 @@ Routine CI is a small regression screen, not release certification:
 
 ## Reference docs
 
-`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, etc.). `plans/` has design plans 000–110 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 110 is documentation polish only).
+`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, etc.). `architecture/` has deep-dive docs per subsystem (core, bin, python, path-confinement, policy-system, runtime, error-taxonomy, tls, etc.). `plans/` has design plans 000–111 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 111 is documentation polish only).

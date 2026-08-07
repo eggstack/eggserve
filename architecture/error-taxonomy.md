@@ -67,6 +67,7 @@ The general-purpose error type for eggserve-core operations. Wraps lower-level e
 - `PathRejection` → `Error::RequestRejected`
 - `ResponseConstructionError` → `Error::ResponseConstruction`
 - `std::io::Error` → `Error::Io`
+- `ClientError` → `Error::Client` (feature-gated)
 
 ---
 

@@ -111,9 +111,6 @@ CI enforces dependency policy on every push and pull request:
 - **`cargo audit`** — checks for known vulnerabilities in dependencies.
 - **`cargo deny check`** — checks licenses, bans, sources, and advisory databases.
 
-Both run in the `supply-chain` CI job (see `.github/workflows/ci.yml`) after
-the pinned installer. The release workflow (`.github/workflows/release.yml`)
-uses the same installer and runs both as a gate before artifact staging and
-publication.
+These checks are run locally during release preparation (see `scripts/install-cargo-tools.sh`). The release workflow (`.github/workflows/release.yml`) uses the same installer and runs both as a gate before artifact staging and publication. Routine CI does not run these checks — see Plan 091 for the CI simplification policy.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.
