@@ -62,9 +62,6 @@ pub mod request_target;
 pub mod response;
 pub mod version;
 
-#[cfg(feature = "client")]
-pub mod client;
-
 pub use crate::path::decode::percent_decode;
 pub use crate::path::platform::{
     check_component, has_windows_drive_prefix, is_windows_reserved_name,

@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Production-path wire coverage (Track C, CORRECTIVE-CLOSURE-PHASES-31-35).
 //!
 //! Exercises the same accept-loop/server-builder path used in production:
@@ -7,24 +5,21 @@
 //! graceful shutdown, and TokioTimer-configured hyper. This complements
 //! the focused parser/service tests in eggserve-core's http_wire_correctness.rs.
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use eggserve_core::config::{ServeConfig, ServeState};
-use eggserve_core::service::handle_request;
-use hyper::server::conn::http1;
-use hyper::service::service_fn;
-use hyper_util::rt::{TokioIo, TokioTimer};
+use eggserve_core::config::ServeConfig;
+use eggserve_core::policy::StaticPolicy;
+use eggserve_core::server::{RuntimeConfig, Server, StaticService};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::broadcast;
 
 struct ProdServer {
     _tmp: TempDir,
     addr: std::net::SocketAddr,
     shutdown_tx: broadcast::Sender<()>,
-    _handle: tokio::task::JoinHandle<()>,
+    _handle: eggserve_core::server::ServerHandle,
 }
 
 async fn start_production_server(limits: eggserve_core::limits::Limits) -> ProdServer {
@@ -32,83 +27,31 @@ async fn start_production_server(limits: eggserve_core::limits::Limits) -> ProdS
     std::fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
     std::fs::write(tmp.path().join("empty.txt"), "").unwrap();
 
-    let config = Arc::new(ServeConfig {
-        root: tmp.path().to_path_buf(),
-        bind: "127.0.0.1:0".parse().unwrap(),
-        limits,
-        ..ServeConfig::default()
-    });
-    let state = Arc::new(ServeState::new(config.clone()).unwrap());
-    let runtime_state = Arc::new(eggserve_core::server::RuntimeState::new_for_testing(
-        config.limits.max_file_streams,
-    ));
-    let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
+    let policy = StaticPolicy::safe_default();
+    let svc = StaticService::builder(tmp.path())
+        .policy(policy)
+        .build()
+        .unwrap();
 
-    let listener = TcpListener::bind(config.bind).await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
+    let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
 
-    let handle = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    if let Ok((stream, _addr)) = result {
-                        let permit = match connection_semaphore.clone().try_acquire_owned() {
-                            Ok(p) => p,
-                            Err(_) => {
-                                drop(stream);
-                                continue;
-                            }
-                        };
+    let config = RuntimeConfig::builder()
+        .max_connections(limits.max_connections)
+        .header_read_timeout(limits.header_read_timeout)
+        .handler_timeout(limits.connection_total_timeout)
+        .max_file_streams(limits.max_file_streams)
+        .build()
+        .unwrap();
 
-                        let mut conn_shutdown_rx = shutdown_rx.resubscribe();
-                        let state = state.clone();
-                        let runtime_state = runtime_state.clone();
-                        let header_timeout = config.limits.header_read_timeout;
-                        let connection_total_timeout = config.limits.connection_total_timeout;
-
-                        tokio::spawn(async move {
-                            let _permit = permit;
-                            let io = TokioIo::new(stream);
-                            let service = service_fn(move |req| {
-                                let state = state.clone();
-                                let runtime_state = runtime_state.clone();
-                                async move {
-                                    Ok::<_, std::convert::Infallible>(
-                                        handle_request(req, &state, &runtime_state).await,
-                                    )
-                                }
-                            });
-                            let conn = http1::Builder::new()
-                                .timer(TokioTimer::new())
-                                .header_read_timeout(header_timeout)
-                                .serve_connection(io, service)
-                                .with_upgrades();
-                            let mut conn = std::pin::pin!(conn);
-                            tokio::select! {
-                                result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
-                                    match result {
-                                        Ok(Ok(())) => {}
-                                        Ok(Err(_)) => {}
-                                        Err(_elapsed) => {
-                                            conn.as_mut().graceful_shutdown();
-                                        }
-                                    }
-                                }
-                                _ = conn_shutdown_rx.recv() => {
-                                    conn.as_mut().graceful_shutdown();
-                                }
-                            }
-                        });
-                    }
-                }
-                _ = shutdown_rx.recv() => {
-                    break;
-                }
-            }
-        }
-    });
+    let server = Server::builder()
+        .runtime(config)
+        .from_listener(listener)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(svc).await.unwrap();
 
     ProdServer {
         _tmp: tmp,
@@ -426,7 +369,7 @@ async fn prod_graceful_shutdown_drains() {
         resp
     );
 
-    let _ = s.shutdown_tx.send(());
+    let _ = s._handle.shutdown();
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -448,7 +391,7 @@ async fn prod_inflight_request_completes_before_shutdown() {
         .unwrap();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let _ = s.shutdown_tx.send(());
+    let _ = s._handle.shutdown();
 
     let mut buf = Vec::new();
     let _ = stream.read_to_end(&mut buf).await;
@@ -555,72 +498,19 @@ async fn start_parity_server() -> ProdServer {
     .unwrap();
     std::fs::write(tmp.path().join("index.html"), "<html>root index</html>").unwrap();
 
-    let config = Arc::new(ServeConfig {
-        root: tmp.path().to_path_buf(),
-        bind: "127.0.0.1:0".parse().unwrap(),
-        limits: eggserve_core::limits::Limits::default(),
-        ..ServeConfig::default()
-    });
-    let state = Arc::new(ServeState::new(config.clone()).unwrap());
-    let runtime_state = Arc::new(eggserve_core::server::RuntimeState::new_for_testing(
-        config.limits.max_file_streams,
-    ));
-    let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
+    let svc = StaticService::builder(tmp.path()).build().unwrap();
 
-    let listener = TcpListener::bind(config.bind).await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
+    let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
 
-    let handle = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    if let Ok((stream, _addr)) = result {
-                        let permit = match connection_semaphore.clone().try_acquire_owned() {
-                            Ok(p) => p,
-                            Err(_) => { drop(stream); continue; }
-                        };
-                        let mut conn_shutdown_rx = shutdown_rx.resubscribe();
-                        let state = state.clone();
-                        let runtime_state = runtime_state.clone();
-                        let header_timeout = config.limits.header_read_timeout;
-                        let connection_total_timeout = config.limits.connection_total_timeout;
-                        tokio::spawn(async move {
-                            let _permit = permit;
-                            let io = TokioIo::new(stream);
-                            let service = service_fn(move |req| {
-                                let state = state.clone();
-                                let runtime_state = runtime_state.clone();
-                                async move {
-                                    Ok::<_, std::convert::Infallible>(
-                                        handle_request(req, &state, &runtime_state).await,
-                                    )
-                                }
-                            });
-                            let conn = http1::Builder::new()
-                                .timer(TokioTimer::new())
-                                .header_read_timeout(header_timeout)
-                                .serve_connection(io, service)
-                                .with_upgrades();
-                            let mut conn = std::pin::pin!(conn);
-                            tokio::select! {
-                                result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
-                                    match result {
-                                        Ok(Ok(())) => {}
-                                        Ok(Err(_)) => {}
-                                        Err(_elapsed) => { conn.as_mut().graceful_shutdown(); }
-                                    }
-                                }
-                                _ = conn_shutdown_rx.recv() => { conn.as_mut().graceful_shutdown(); }
-                            }
-                        });
-                    }
-                }
-                _ = shutdown_rx.recv() => { break; }
-            }
-        }
-    });
+    let server = Server::builder()
+        .runtime(RuntimeConfig::builder().build().unwrap())
+        .from_listener(listener)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(svc).await.unwrap();
 
     ProdServer {
         _tmp: tmp,

@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Filesystem race qualification tests (Plan 089, Track E; Plan CORRECTIVE-CLOSURE-PHASES-31-35, Track G).
 //!
 //! Cross-platform filesystem race suite on Linux, exercising:
@@ -49,27 +47,30 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use bytes::Bytes;
-use http_body_util::BodyExt;
 use tempfile::TempDir;
 
-use eggserve_core::config::{ServeConfig, ServeState};
-use eggserve_core::service::handle_request;
+use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
+use eggserve_core::primitives::header_block::HeaderBlock;
+use eggserve_core::primitives::method::Method;
+use eggserve_core::primitives::request::Request;
+use eggserve_core::primitives::request_body::RequestBody;
+use eggserve_core::primitives::request_head::RequestHead;
+use eggserve_core::primitives::request_target::RequestTarget;
+use eggserve_core::primitives::version::HttpVersion;
+use eggserve_core::server::service::Service;
+use eggserve_core::server::StaticService;
+use std::net::SocketAddr;
 
 struct RaceTestSetup {
     _tmp: TempDir,
-    state: Arc<ServeState>,
+    svc: StaticService,
 }
 
 impl RaceTestSetup {
     fn new() -> Self {
         let tmp = TempDir::new().unwrap();
-        let config = Arc::new(ServeConfig {
-            root: tmp.path().to_path_buf(),
-            ..ServeConfig::default()
-        });
-        let state = Arc::new(ServeState::new(config).unwrap());
-        RaceTestSetup { _tmp: tmp, state }
+        let svc = StaticService::builder(tmp.path()).build().unwrap();
+        RaceTestSetup { _tmp: tmp, svc }
     }
 
     fn root(&self) -> &Path {
@@ -77,12 +78,24 @@ impl RaceTestSetup {
     }
 }
 
-fn get_req(path: &str) -> hyper::Request<http_body_util::Empty<Bytes>> {
-    hyper::Request::builder()
-        .method(hyper::Method::GET)
-        .uri(path)
-        .body(http_body_util::Empty::new())
-        .unwrap()
+fn test_connection() -> ConnectionInfo {
+    ConnectionInfo {
+        local_addr: "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
+        remote_addr: "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+        scheme: Scheme::Http,
+        tls: None,
+    }
+}
+
+fn get_req(path: &str) -> Request {
+    let target = RequestTarget::parse(path).unwrap();
+    let head = RequestHead::new(
+        Method::get(),
+        target,
+        HttpVersion::Http11,
+        HeaderBlock::new(),
+    );
+    Request::new(head, RequestBody::empty(), test_connection())
 }
 
 /// **Sequential post-mutation regression.**
@@ -100,14 +113,9 @@ async fn race_file_to_symlink_replacement() {
 
     // Serve the file multiple times
     for _ in 0..10 {
-        let resp = handle_request(
-            get_req("/target.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
-        assert_eq!(resp.status(), 200);
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let resp = setup.svc.call(get_req("/target.txt")).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 200);
+        let body = extract_body_bytes(&resp);
         assert_eq!(&body[..], b"original content");
     }
 
@@ -119,17 +127,12 @@ async fn race_file_to_symlink_replacement() {
 
     // Serve again - should either serve symlink target or fail safely
     for _ in 0..10 {
-        let resp = handle_request(
-            get_req("/target.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
-        if resp.status() == 200 {
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let resp = setup.svc.call(get_req("/target.txt")).await.unwrap();
+        if resp.status().as_u16() == 200 {
+            let body = extract_body_bytes(&resp);
             // Must not serve mixed content from two identities
             assert!(
-                body == "original content" || body == "secret content",
+                body == b"original content" || body == b"secret content",
                 "unexpected content: {:?}",
                 body
             );
@@ -159,20 +162,17 @@ async fn race_symlink_to_file_replacement() {
 
     // Serve through symlink (will get 403/404 since symlinks are blocked)
     for _ in 0..10 {
-        let resp = handle_request(
-            get_req("/link.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req("/link.txt")).await.unwrap();
         // Symlinks are blocked by default, so expect 403 or 404
         assert!(
-            resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
+            resp.status().as_u16() == 403
+                || resp.status().as_u16() == 404
+                || resp.status().as_u16() == 200,
             "unexpected status: {}",
-            resp.status()
+            resp.status().as_u16()
         );
-        if resp.status() == 200 {
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
+        if resp.status().as_u16() == 200 {
+            let body = extract_body_bytes(&resp);
             assert_eq!(&body[..], b"real content");
         }
     }
@@ -186,16 +186,11 @@ async fn race_symlink_to_file_replacement() {
 
     // Serve again
     for _ in 0..10 {
-        let resp = handle_request(
-            get_req("/link.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
-        if resp.status() == 200 {
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let resp = setup.svc.call(get_req("/link.txt")).await.unwrap();
+        if resp.status().as_u16() == 200 {
+            let body = extract_body_bytes(&resp);
             assert!(
-                body == "real content" || body == "replaced content",
+                body == b"real content" || body == b"replaced content",
                 "unexpected content: {:?}",
                 body
             );
@@ -218,14 +213,9 @@ async fn race_directory_to_symlink_replacement() {
     fs::write(root.join("dir/file.txt"), "dir content").unwrap();
 
     // Serve file in directory
-    let resp = handle_request(
-        get_req("/dir/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/dir/file.txt")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    let body = extract_body_bytes(&resp);
     assert_eq!(&body[..], b"dir content");
 
     // Replace directory with symlink to different location
@@ -236,16 +226,11 @@ async fn race_directory_to_symlink_replacement() {
     std::os::unix::fs::symlink(root.join("other"), root.join("dir")).unwrap();
 
     // Serve again
-    let resp = handle_request(
-        get_req("/dir/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    if resp.status() == 200 {
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/dir/file.txt")).await.unwrap();
+    if resp.status().as_u16() == 200 {
+        let body = extract_body_bytes(&resp);
         assert!(
-            body == "dir content" || body == "other content",
+            body == b"dir content" || body == b"other content",
             "unexpected content: {:?}",
             body
         );
@@ -267,14 +252,9 @@ async fn race_parent_replacement() {
     fs::write(root.join("a/b/file.txt"), "nested content").unwrap();
 
     // Serve file
-    let resp = handle_request(
-        get_req("/a/b/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/a/b/file.txt")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    let body = extract_body_bytes(&resp);
     assert_eq!(&body[..], b"nested content");
 
     // Replace parent directory
@@ -285,16 +265,11 @@ async fn race_parent_replacement() {
     std::os::unix::fs::symlink(root.join("x"), root.join("a")).unwrap();
 
     // Serve again
-    let resp = handle_request(
-        get_req("/a/b/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    if resp.status() == 200 {
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/a/b/file.txt")).await.unwrap();
+    if resp.status().as_u16() == 200 {
+        let body = extract_body_bytes(&resp);
         assert!(
-            body == "nested content" || body == "replaced content",
+            body == b"nested content" || body == b"replaced content",
             "unexpected content: {:?}",
             body
         );
@@ -315,27 +290,17 @@ async fn race_root_pathname_replacement() {
     fs::write(root.join("file.txt"), "original").unwrap();
 
     // Serve
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 
     // Replace root directory entirely
     let new_root = TempDir::new().unwrap();
     fs::write(new_root.path().join("file.txt"), "replaced").unwrap();
 
     // The old root should still work (pinned root)
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    if resp.status() == 200 {
-        let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+    if resp.status().as_u16() == 200 {
+        let body = extract_body_bytes(&resp);
         assert_eq!(&body[..], b"original");
     }
 }
@@ -354,28 +319,18 @@ async fn race_index_replacement() {
     fs::write(root.join("dir/index.html"), "index v1").unwrap();
 
     // Serve directory index
-    let resp = handle_request(
-        get_req("/dir/"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/dir/")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    let body = extract_body_bytes(&resp);
     assert!(body.windows(8).any(|w| w == b"index v1"));
 
     // Replace index
     fs::write(root.join("dir/index.html"), "index v2").unwrap();
 
     // Serve again
-    let resp = handle_request(
-        get_req("/dir/"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/dir/")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    let body = extract_body_bytes(&resp);
     assert!(body.windows(8).any(|w| w == b"index v2"));
 }
 
@@ -405,17 +360,14 @@ async fn race_listing_churn() {
 
     // Serve directory listing multiple times while modifying
     for i in 0..20 {
-        let resp = handle_request(
-            get_req("/dir/"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req("/dir/")).await.unwrap();
         // Directory listing is disabled by default, so expect 403 or 404
         assert!(
-            resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
+            resp.status().as_u16() == 403
+                || resp.status().as_u16() == 404
+                || resp.status().as_u16() == 200,
             "unexpected status: {}",
-            resp.status()
+            resp.status().as_u16()
         );
 
         // Modify directory while serving
@@ -446,19 +398,14 @@ async fn race_file_truncation_during_streaming() {
     fs::write(root.join("large.bin"), &data).unwrap();
 
     // Start streaming
-    let resp = handle_request(
-        get_req("/large.bin"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
+    let resp = setup.svc.call(get_req("/large.bin")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 
     // Truncate file while streaming
     fs::write(root.join("large.bin"), b"truncated").unwrap();
 
     // Try to read body (may fail or succeed, but must not panic)
-    let _ = resp.into_body().collect().await;
+    let _ = async { Ok::<_, std::convert::Infallible>(resp.body().clone()) }.await;
 }
 
 /// **Concurrent race stress.**
@@ -475,21 +422,16 @@ async fn race_file_replacement_during_streaming() {
     fs::write(root.join("data.bin"), b"original").unwrap();
 
     // Start streaming
-    let resp = handle_request(
-        get_req("/data.bin"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
+    let resp = setup.svc.call(get_req("/data.bin")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 
     // Replace file
     fs::write(root.join("data.bin"), b"replaced").unwrap();
 
     // Read body - should see either original or replaced, not mixed
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let body = extract_body_bytes(&resp);
     assert!(
-        body == "original" || body == "replaced",
+        body == b"original" || body == b"replaced",
         "unexpected mixed content: {:?}",
         body
     );
@@ -510,17 +452,14 @@ async fn race_permission_changes() {
 
     // Serve multiple times while changing permissions
     for i in 0..10 {
-        let resp = handle_request(
-            get_req("/file.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
         // Should succeed or fail gracefully (not panic)
         assert!(
-            resp.status() == 200 || resp.status() == 403 || resp.status() == 404,
+            resp.status().as_u16() == 200
+                || resp.status().as_u16() == 403
+                || resp.status().as_u16() == 404,
             "unexpected status: {}",
-            resp.status()
+            resp.status().as_u16()
         );
 
         // Toggle permissions
@@ -565,15 +504,10 @@ async fn race_deletion_and_recreation() {
 
     // Delete and recreate while serving
     for i in 0..20 {
-        let resp = handle_request(
-            get_req("/file.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
 
-        if resp.status() == 200 {
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
+        if resp.status().as_u16() == 200 {
+            let body = extract_body_bytes(&resp);
             let content = String::from_utf8_lossy(&body).to_string();
             // Must see consistent content that was previously written
             assert!(
@@ -585,9 +519,9 @@ async fn race_deletion_and_recreation() {
         } else {
             // 404 is acceptable when file is deleted
             assert!(
-                resp.status() == 404,
+                resp.status().as_u16() == 404,
                 "unexpected status during deletion: {}",
-                resp.status()
+                resp.status().as_u16()
             );
         }
 
@@ -626,23 +560,20 @@ async fn race_concurrent_directory_listing() {
     // Serve directory listing concurrently while modifying
     let mut handles = Vec::new();
     for i in 0..10 {
-        let state = setup.state.clone();
+        let svc = setup.svc.clone();
         let root = root.to_path_buf();
         handles.push(tokio::spawn(async move {
             for _ in 0..5 {
-                let resp = handle_request(
-                    get_req("/dir/"),
-                    &state,
-                    &eggserve_core::server::RuntimeState::new_for_testing(32),
-                )
-                .await;
+                let resp = svc.call(get_req("/dir/")).await.unwrap();
                 // Directory listing is disabled by default, so expect 403 or 404
                 assert!(
-                    resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
+                    resp.status().as_u16() == 403
+                        || resp.status().as_u16() == 404
+                        || resp.status().as_u16() == 200,
                     "unexpected status: {}",
-                    resp.status()
+                    resp.status().as_u16()
                 );
-                let _ = resp.into_body().collect().await;
+                let _ = async { Ok::<_, std::convert::Infallible>(resp.body().clone()) }.await;
             }
 
             // Modify directory
@@ -678,15 +609,10 @@ async fn race_symlink_loop_detection() {
         std::os::unix::fs::symlink(root.join("dir"), root.join("dir/loop")).unwrap();
 
         // Try to serve through loop - should fail safely
-        let resp = handle_request(
-            get_req("/dir/loop/"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req("/dir/loop/")).await.unwrap();
         // Should get error or rejection, not hang
         assert!(
-            resp.status() != 200 || resp.status() == 404,
+            resp.status().as_u16() != 200 || resp.status().as_u16() == 404,
             "symlink loop should be detected"
         );
     }
@@ -716,15 +642,10 @@ async fn race_outside_root_access() {
             .unwrap();
 
         // Try to serve through symlink - must fail
-        let resp = handle_request(
-            get_req("/escape.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req("/escape.txt")).await.unwrap();
         // Should NOT return 200 with secret content
-        if resp.status() == 200 {
-            let body = resp.into_body().collect().await.unwrap().to_bytes();
+        if resp.status().as_u16() == 200 {
+            let body = extract_body_bytes(&resp);
             assert_ne!(&body[..], b"secret", "must not serve outside-root content");
         }
     }
@@ -790,7 +711,7 @@ async fn concurrent_symlink_swap_stress() {
     let outside = TempDir::new().unwrap();
     fs::write(outside.path().join("secret.txt"), "LEAKED").unwrap();
 
-    let state = setup.state.clone();
+    let svc = setup.svc.clone();
     let safe_target = root.join("safe.txt");
     let outside_secret = outside.path().join("secret.txt");
     let target_path = root.join("target.txt");
@@ -807,21 +728,16 @@ async fn concurrent_symlink_swap_stress() {
     // Spawn reader tasks: repeatedly resolve and read the file
     let mut reader_handles = Vec::new();
     for _ in 0..READERS {
-        let state = Arc::clone(&state);
+        let svc = svc.clone();
         let leaked = Arc::clone(&leaked);
         reader_handles.push(thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..ITERS {
-                let resp = rt.block_on(handle_request(
-                    get_req("/target.txt"),
-                    &state,
-                    &eggserve_core::server::RuntimeState::new_for_testing(32),
-                ));
-                if resp.status() == 200 {
-                    let body = rt.block_on(resp.into_body().collect());
-                    if let Ok(collected) = body {
-                        let bytes = collected.to_bytes();
-                        let body_str = String::from_utf8_lossy(&bytes);
+                let resp = rt.block_on(svc.call(get_req("/target.txt"))).unwrap();
+                if resp.status().as_u16() == 200 {
+                    let body = extract_body_bytes(&resp);
+                    if !body.is_empty() {
+                        let body_str = String::from_utf8_lossy(&body);
                         if body_str.contains("LEAKED") {
                             leaked.store(true, Ordering::SeqCst);
                         }
@@ -885,6 +801,15 @@ async fn concurrent_symlink_swap_stress() {
 /// the descriptor-relative traversal invariant holds for intermediate path
 /// components under concurrent mutation.
 #[cfg(unix)]
+fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+    use eggserve_core::primitives::canonical::ResponseBody;
+    match resp.body() {
+        Some(ResponseBody::Bytes(b)) => b.clone(),
+        Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
+        Some(ResponseBody::File(_)) => vec![],
+        None => vec![],
+    }
+}
 #[tokio::test]
 async fn concurrent_directory_swap_stress() {
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -902,7 +827,7 @@ async fn concurrent_directory_swap_stress() {
     fs::create_dir_all(outside.path().join("other")).unwrap();
     fs::write(outside.path().join("other/file.txt"), "LEAKED").unwrap();
 
-    let state = setup.state.clone();
+    let svc = setup.svc.clone();
     let safe_dir = root.join("dir");
     let outside_dir = outside.path().join("other");
     let dir_path = root.join("linkdir");
@@ -919,21 +844,16 @@ async fn concurrent_directory_swap_stress() {
     // Spawn reader tasks
     let mut reader_handles = Vec::new();
     for _ in 0..READERS {
-        let state = Arc::clone(&state);
+        let svc = svc.clone();
         let leaked = Arc::clone(&leaked);
         reader_handles.push(thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..ITERS {
-                let resp = rt.block_on(handle_request(
-                    get_req("/linkdir/file.txt"),
-                    &state,
-                    &eggserve_core::server::RuntimeState::new_for_testing(32),
-                ));
-                if resp.status() == 200 {
-                    let body = rt.block_on(resp.into_body().collect());
-                    if let Ok(collected) = body {
-                        let bytes = collected.to_bytes();
-                        let body_str = String::from_utf8_lossy(&bytes);
+                let resp = rt.block_on(svc.call(get_req("/linkdir/file.txt"))).unwrap();
+                if resp.status().as_u16() == 200 {
+                    let body = extract_body_bytes(&resp);
+                    if !body.is_empty() {
+                        let body_str = String::from_utf8_lossy(&body);
                         if body_str.contains("LEAKED") {
                             leaked.store(true, Ordering::SeqCst);
                         }

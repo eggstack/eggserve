@@ -113,7 +113,6 @@ Routine CI is a small regression screen, not release certification:
 
 ## Common pitfalls
 
-- `telemetry.rs` is referenced in some older docs but does not exist — do not create it.
 - Range requests ARE implemented (despite some docs saying otherwise).
 - `clap` was removed — manual arg parsing in `args.rs`.
 - `tracing` was never added — logging is custom.
@@ -121,11 +120,10 @@ Routine CI is a small regression screen, not release certification:
 - `ResponseStatus` is a struct with associated constants, not an enum.
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum.
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`.
-- **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
-- **Error taxonomy** — Seven distinct error types: `PathRejection` (16 variants, path validation), `Error` (9 variants: `PathEscape`, `PathNotAccessible(String)`, `Config(String)`, `Bind(String)`, `Runtime(String)`, `RequestRejected(String)`, `ResponseConstruction`, `Io`, `Client`), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption), `ClientError` (12 variants, feature-gated). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
+- **Error taxonomy** — Seven distinct error types: `PathRejection` (16 variants, path validation), `Error` (8 variants: `PathEscape`, `PathNotAccessible(String)`, `Config(String)`, `Bind(String)`, `Runtime(String)`, `RequestRejected(String)`, `ResponseConstruction`, `Io`), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
 - **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS`. Values above this bound are rejected.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
@@ -144,7 +142,6 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/primitives-api.md` — public API boundary for embedding consumers
 - `architecture/response-planning.md` — conditional/range/ETag response planning
 - `architecture/runtime.md` — runtime service boundary, Server, Service trait, StaticService
-- `architecture/client.md` — HTTP client primitives, feature-gated substrate
 - `architecture/security-model.md` — trust boundaries, defensive layers, attacker model
 - `architecture/testing-and-conformance.md` — test layers, conformance corpora, fuzzing
 - `architecture/configuration.md` — configuration inventory, ownership model, field inventory

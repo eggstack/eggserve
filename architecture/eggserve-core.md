@@ -10,7 +10,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `policy.rs` | **pub** | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
 | `limits.rs` | **pub** | `Limits` — connection count, file streams, header/target/body sizes, timeouts |
-| `service.rs` | **pub** (deprecated/experimental) | Explicit-context compatibility adapter; production uses `server::Server` |
+
 | `error.rs` | pub(crate) | `Error` enum taxonomy |
 | `path/` | pub(crate) | Path confinement pipeline |
 | `fs/` | pub(crate) | Filesystem confinement |
@@ -19,7 +19,7 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `primitives/` | **pub** | Public facade for embedding consumers |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
-| `primitives/client/` | **pub** (feature-gated: `client`) | HTTP client primitives: `HttpClient`, `ClientConfig`, `ClientRequest`, `ClientResponse` |
+
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
 | `server/connection.rs` | **pub** (experimental) | Body ingestion pipeline, Hyper incoming-body adapter, transfer decoding, error mapping |
@@ -67,23 +67,6 @@ Resource limits with safe defaults:
 | `connection_total_timeout` | 60s | Total connection lifetime timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
 
-### Compatibility `handle_request()` (`service.rs`)
-
-The deprecated alpha compatibility adapter. It requires an explicit shared
-`RuntimeState` from its caller, delegates planning to `StaticService`, and is
-not a production server path. Steps:
-
-1. The legacy adapter delegates to `StaticService`'s canonical planner; the
-   runtime service boundary handles request conversion and body policy
-2. Static body-bearing requests are rejected by the service's `Reject` policy
-3. Parse request target → `ConfinedPath`
-4. Resolve via the internal `RootGuard` → `ResolvedResource` (the public `SecureRoot` primitive is the embedding-consumer facade; the service uses `RootGuard` directly)
-5. Construct a `StaticRequestInput` bundling the method and conditional/range headers (`If-None-Match`, `If-Modified-Since`, `Range`, `If-Range`)
-6. For both direct files and directory index files, call `serve_resolved_file()` — the single entry point that applies conditional/range planning via `plan_file_response()`, constructs the body from the opened handle, and normalizes the response through the canonical path (200 / 206 / 304 / 416)
-7. Return a canonical file-backed response, render a directory listing, or return the appropriate error; runtime transport performs streaming
-
-Returns `Response<BoxBody<Bytes, Infallible>>`.
-
 ### Error Taxonomy (`error.rs`)
 
 ```rust
@@ -96,7 +79,6 @@ pub enum Error {
     RequestRejected(String),
     ResponseConstruction(ResponseConstructionError),
     Io(std::io::Error),
-    Client(ClientError),  // feature-gated: `client`
 }
 ```
 
@@ -210,9 +192,7 @@ Control handle returned by `Server::start()`:
 | `thiserror` | Derive macro for Error types |
 | `tokio` | Async runtime |
 | `rustix` (Unix only) | Descriptor-relative filesystem syscalls |
-| `rustls` (optional, `client-tls`) | TLS for client HTTPS connections |
-| `tokio-rustls` (optional, `client-tls`) | Async TLS stream wrapping for client |
-| `webpki-roots` (optional, `client-tls`) | Mozilla CA root certificates for TLS verification |
+
 
 ## See Also
 
@@ -221,7 +201,6 @@ Control handle returned by `Server::start()`:
 - [filesystem-confinement.md](filesystem-confinement.md) — Filesystem traversal
 - [primitives-api.md](primitives-api.md) — Public API boundary
 - [response-planning.md](response-planning.md) — HTTP response planning
-- [client.md](client.md) — HTTP client primitives
 - [runtime.md](runtime.md) — Runtime service boundary (experimental)
 - [api-stability.md](../docs/api-stability.md) — API classification by stability tier
 - [release-contract.md](../docs/release-contract.md) — Product surface and compatibility commitments

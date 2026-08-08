@@ -36,7 +36,5 @@ pub mod policy;
 pub mod primitives;
 pub(crate) mod response;
 pub mod server;
-#[doc(hidden)]
-pub mod service;
 #[cfg(feature = "tls")]
 pub mod tls;

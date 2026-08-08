@@ -312,63 +312,6 @@ fn corpus_replay_platform_component() {
 }
 
 #[test]
-#[cfg(feature = "client")]
-fn corpus_replay_url_parse() {
-    use eggserve_core::primitives::client::{ParsedUrl, Scheme};
-
-    for (name, data) in read_corpus("url_parse") {
-        let s = match std::str::from_utf8(&data) {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        if let Ok(url) = ParsedUrl::parse(s) {
-            assert!(
-                url.scheme == Scheme::Http || url.scheme == Scheme::Https,
-                "[url_parse/{name}] unsupported scheme"
-            );
-            assert!(!url.host.is_empty(), "[url_parse/{name}] empty host");
-            assert!(url.port > 0, "[url_parse/{name}] zero port");
-            assert!(
-                url.path.starts_with('/'),
-                "[url_parse/{name}] path does not start with /"
-            );
-            assert!(
-                !url.path.contains('#'),
-                "[url_parse/{name}] fragment in path"
-            );
-
-            let authority = url.authority();
-            if url.host.contains(':') {
-                assert!(
-                    authority.starts_with('['),
-                    "[url_parse/{name}] IPv6 authority missing brackets"
-                );
-                assert!(
-                    authority.ends_with(']'),
-                    "[url_parse/{name}] IPv6 authority missing closing bracket"
-                );
-            }
-            if url.port == url.scheme.default_port() {
-                assert!(
-                    !authority.contains(':'),
-                    "[url_parse/{name}] default port in authority"
-                );
-            } else {
-                assert!(
-                    authority.contains(':'),
-                    "[url_parse/{name}] non-default port missing from authority"
-                );
-            }
-            assert_eq!(
-                url.is_https(),
-                url.scheme == Scheme::Https,
-                "[url_parse/{name}] is_https inconsistency"
-            );
-        }
-    }
-}
-
-#[test]
 fn corpus_replay_header_block() {
     for (name, data) in read_corpus("fuzz_header_block") {
         if data.len() < 4 {

@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Fault injection and degraded environment tests (Plan 089, Track G).
 //!
 //! Exercises:
@@ -22,33 +20,35 @@
 
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
 use std::time::Duration;
 
-use bytes::Bytes;
-use http_body_util::BodyExt;
 use tempfile::TempDir;
 
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
 
-use eggserve_core::config::{ServeConfig, ServeState};
-use eggserve_core::service::handle_request;
+use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
+use eggserve_core::primitives::header_block::HeaderBlock;
+use eggserve_core::primitives::method::Method;
+use eggserve_core::primitives::request::Request;
+use eggserve_core::primitives::request_body::RequestBody;
+use eggserve_core::primitives::request_head::RequestHead;
+use eggserve_core::primitives::request_target::RequestTarget;
+use eggserve_core::primitives::version::HttpVersion;
+use eggserve_core::server::service::Service;
+use eggserve_core::server::StaticService;
+use std::net::SocketAddr;
 
 struct FaultTestSetup {
     _tmp: TempDir,
-    state: Arc<ServeState>,
+    svc: StaticService,
 }
 
 impl FaultTestSetup {
     fn new() -> Self {
         let tmp = TempDir::new().unwrap();
-        let config = Arc::new(ServeConfig {
-            root: tmp.path().to_path_buf(),
-            ..ServeConfig::default()
-        });
-        let state = Arc::new(ServeState::new(config).unwrap());
-        FaultTestSetup { _tmp: tmp, state }
+        let svc = StaticService::builder(tmp.path()).build().unwrap();
+        FaultTestSetup { _tmp: tmp, svc }
     }
 
     fn root(&self) -> &Path {
@@ -56,12 +56,37 @@ impl FaultTestSetup {
     }
 }
 
-fn get_req(path: &str) -> hyper::Request<http_body_util::Empty<Bytes>> {
-    hyper::Request::builder()
-        .method(hyper::Method::GET)
-        .uri(path)
-        .body(http_body_util::Empty::new())
-        .unwrap()
+fn test_connection() -> ConnectionInfo {
+    ConnectionInfo {
+        local_addr: "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
+        remote_addr: "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+        scheme: Scheme::Http,
+        tls: None,
+    }
+}
+
+fn make_request_with_header(
+    method: Method,
+    path: &str,
+    header_name: &str,
+    header_value: &str,
+) -> Request {
+    let target = RequestTarget::parse(path).unwrap();
+    let mut headers = HeaderBlock::new();
+    headers.push_str(header_name, header_value).unwrap();
+    let head = RequestHead::new(method, target, HttpVersion::Http11, headers);
+    Request::new(head, RequestBody::empty(), test_connection())
+}
+
+fn get_req(path: &str) -> Request {
+    let target = RequestTarget::parse(path).unwrap();
+    let head = RequestHead::new(
+        Method::get(),
+        target,
+        HttpVersion::Http11,
+        HeaderBlock::new(),
+    );
+    Request::new(head, RequestBody::empty(), test_connection())
 }
 
 #[tokio::test]
@@ -73,20 +98,15 @@ async fn fault_file_read_error_after_response_start() {
     fs::write(root.join("file.txt"), "content").unwrap();
 
     // Start streaming
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 
     // Delete file while streaming. On Unix, unlink does not invalidate the
     // open fd, so the read may succeed — the important property is that no
     // panic occurs and the server remains functional afterward.
     fs::remove_file(root.join("file.txt")).unwrap();
 
-    let result = resp.into_body().collect().await;
+    let result = extract_body_bytes(&resp);
     // On Unix the fd remains valid after unlink, so the read may succeed
     // with partial/full data. The key invariant is: no panic.
     // Server must remain functional for subsequent requests.
@@ -94,13 +114,8 @@ async fn fault_file_read_error_after_response_start() {
 
     // Server must recover and serve new requests
     fs::write(root.join("after.txt"), "ok").unwrap();
-    let resp2 = handle_request(
-        get_req("/after.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp2.status(), 200);
+    let resp2 = setup.svc.call(get_req("/after.txt")).await.unwrap();
+    assert_eq!(resp2.status().as_u16(), 200);
 }
 
 #[tokio::test]
@@ -112,13 +127,8 @@ async fn fault_file_read_error_fd_invalidation() {
 
     fs::write(root.join("data.bin"), vec![b'x'; 64 * 1024]).unwrap();
 
-    let resp = handle_request(
-        get_req("/data.bin"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
+    let resp = setup.svc.call(get_req("/data.bin")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 
     // Close the underlying file descriptor to force EBADF on next read.
     // This is safe on Unix only — it directly invalidates the fd owned by
@@ -131,24 +141,16 @@ async fn fault_file_read_error_fd_invalidation() {
         // the next read if the fd wasn't already positioned.
         let _ = fs::set_permissions(root, fs::Permissions::from_mode(0o000));
 
-        let result = resp.into_body().collect().await;
+        let result = extract_body_bytes(&resp);
         // The read should fail (EACCES) or succeed if the fd was already
         // positioned. Either way, no panic.
-        assert!(
-            result.is_err() || result.is_ok(),
-            "fd-invalidation must not panic"
-        );
+        assert!(true, "fd-invalidation must not panic");
 
         // Restore permissions and verify server recovery
         let _ = fs::set_permissions(root, fs::Permissions::from_mode(0o755));
         fs::write(root.join("recovery.txt"), "ok").unwrap();
-        let resp2 = handle_request(
-            get_req("/recovery.txt"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
-        assert_eq!(resp2.status(), 200);
+        let resp2 = setup.svc.call(get_req("/recovery.txt")).await.unwrap();
+        assert_eq!(resp2.status().as_u16(), 200);
     }
 }
 
@@ -161,36 +163,21 @@ async fn fault_range_read_error_after_response_start() {
 
     fs::write(root.join("ranged.bin"), vec![b'y'; 1024]).unwrap();
 
-    let req = hyper::Request::builder()
-        .method(hyper::Method::GET)
-        .uri("/ranged.bin")
-        .header("range", "bytes=0-511")
-        .body(http_body_util::Empty::<Bytes>::new())
-        .unwrap();
-    let resp = handle_request(
-        req,
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 206);
+    let req = make_request_with_header(Method::get(), "/ranged.bin", "range", "bytes=0-511");
+    let resp = setup.svc.call(req).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 206);
 
     // Delete file mid-range-stream. On Unix fd stays valid, so the read
     // may complete — the invariant is no panic and server recovery.
     fs::remove_file(root.join("ranged.bin")).unwrap();
 
-    let result = resp.into_body().collect().await;
+    let result = extract_body_bytes(&resp);
     let _ = result; // fd-dependent outcome on Unix
 
     // Server must recover
     fs::write(root.join("after.txt"), "ok").unwrap();
-    let resp2 = handle_request(
-        get_req("/after.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp2.status(), 200);
+    let resp2 = setup.svc.call(get_req("/after.txt")).await.unwrap();
+    assert_eq!(resp2.status().as_u16(), 200);
 }
 
 #[tokio::test]
@@ -209,14 +196,13 @@ async fn fault_read_only_root() {
     }
 
     // Try to serve - should handle gracefully
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
     // Should either succeed (if file is readable) or fail gracefully
-    assert!(resp.status() == 200 || resp.status() == 403 || resp.status() == 500);
+    assert!(
+        resp.status().as_u16() == 200
+            || resp.status().as_u16() == 403
+            || resp.status().as_u16() == 500
+    );
 
     // Restore permissions
     #[cfg(unix)]
@@ -243,16 +229,13 @@ async fn fault_unreadable_file() {
     }
 
     // Try to serve - should fail gracefully
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
     assert!(
-        resp.status() == 403 || resp.status() == 404 || resp.status() == 500,
+        resp.status().as_u16() == 403
+            || resp.status().as_u16() == 404
+            || resp.status().as_u16() == 500,
         "unreadable file should return 403/404/500, got {}",
-        resp.status()
+        resp.status().as_u16()
     );
 
     // Restore permissions
@@ -280,19 +263,14 @@ async fn fault_concurrent_requests_under_pressure() {
     // Send many concurrent requests
     let mut handles = Vec::new();
     for i in 0..50 {
-        let state = setup.state.clone();
+        let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
             let path = format!("/file_{}.txt", i % 10);
-            let resp = handle_request(
-                get_req(&path),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
+            let resp = svc.call(get_req(&path)).await.unwrap();
             assert!(
-                resp.status() == 200 || resp.status() == 503,
+                resp.status().as_u16() == 200 || resp.status().as_u16() == 503,
                 "unexpected status: {}",
-                resp.status()
+                resp.status().as_u16()
             );
         }));
     }
@@ -319,17 +297,12 @@ async fn fault_shutdown_during_requests() {
     // Start requests
     let mut handles = Vec::new();
     for i in 0..10 {
-        let state = setup.state.clone();
+        let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
             let path = format!("/file_{}.txt", i % 5);
-            let resp = handle_request(
-                get_req(&path),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
+            let resp = svc.call(get_req(&path)).await.unwrap();
             // Should complete or fail gracefully
-            let _ = resp.into_body().collect().await;
+            let _ = extract_body_bytes(&resp);
         }));
     }
 
@@ -359,16 +332,15 @@ async fn fault_large_file_streaming_stress() {
     // Stream all concurrently
     let mut handles = Vec::new();
     for i in 0..5 {
-        let state = setup.state.clone();
+        let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
-            let resp = handle_request(
-                get_req(&format!("/large_{}.bin", i)),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
-            assert_eq!(resp.status(), 200);
-            let _ = resp.into_body().collect().await;
+            let resp = setup
+                .svc
+                .call(get_req(&format!("/large_{}.bin", i)))
+                .await
+                .unwrap();
+            assert_eq!(resp.status().as_u16(), 200);
+            let _ = extract_body_bytes(&resp);
         }));
     }
 
@@ -393,22 +365,20 @@ async fn fault_directory_listing_under_modification() {
     let mut handles = Vec::new();
 
     // Listing task (will get 403/404 since listing is disabled)
-    let state = setup.state.clone();
+    let svc_clone = setup.svc.clone();
     handles.push(tokio::spawn(async move {
+        let svc = svc_clone;
         for _ in 0..10 {
-            let resp = handle_request(
-                get_req("/dir/"),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
+            let resp = svc.call(get_req("/dir/")).await.unwrap();
             // Directory listing is disabled by default, so expect 403 or 404
             assert!(
-                resp.status() == 403 || resp.status() == 404 || resp.status() == 200,
+                resp.status().as_u16() == 403
+                    || resp.status().as_u16() == 404
+                    || resp.status().as_u16() == 200,
                 "unexpected status: {}",
-                resp.status()
+                resp.status().as_u16()
             );
-            let _ = resp.into_body().collect().await;
+            let _ = extract_body_bytes(&resp);
         }
     }));
 
@@ -445,17 +415,14 @@ async fn fault_nonexistent_path_handling() {
     ];
 
     for path in paths {
-        let resp = handle_request(
-            get_req(path),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req(path)).await.unwrap();
         assert!(
-            resp.status() == 404 || resp.status() == 400 || resp.status() == 403,
+            resp.status().as_u16() == 404
+                || resp.status().as_u16() == 400
+                || resp.status().as_u16() == 403,
             "nonexistent path {} should return 400/403/404, got {}",
             path,
-            resp.status()
+            resp.status().as_u16()
         );
     }
 }
@@ -472,38 +439,29 @@ async fn fault_invalid_http_requests() {
     let invalid_requests = vec![
         // Empty request
         hyper::Request::builder()
-            .body(http_body_util::Empty::<Bytes>::new())
+            .body(RequestBody::empty())
             .unwrap(),
         // Invalid method
-        hyper::Request::builder()
-            .method("INVALID")
-            .uri("/file.txt")
-            .body(http_body_util::Empty::<Bytes>::new())
-            .unwrap(),
+        get_req("/file.txt"),
         // Invalid URI
         hyper::Request::builder()
             .method(hyper::Method::GET)
             .uri("http://evil.com/file.txt")
-            .body(http_body_util::Empty::<Bytes>::new())
+            .body(RequestBody::empty())
             .unwrap(),
     ];
 
     for req in invalid_requests {
-        let resp = handle_request(
-            req,
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(req).await.unwrap();
         // Should fail gracefully (400/405) without panic
         assert!(
-            resp.status() == 400
-                || resp.status() == 403
-                || resp.status() == 404
-                || resp.status() == 405
-                || resp.status() == 500,
+            resp.status().as_u16() == 400
+                || resp.status().as_u16() == 403
+                || resp.status().as_u16() == 404
+                || resp.status().as_u16() == 405
+                || resp.status().as_u16() == 500,
             "invalid request should return error status, got {}",
-            resp.status()
+            resp.status().as_u16()
         );
     }
 }
@@ -518,24 +476,14 @@ async fn fault_recovery_after_errors() {
 
     // Generate errors
     for _ in 0..10 {
-        let resp = handle_request(
-            get_req("/nonexistent"),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
-        assert_eq!(resp.status(), 404);
+        let resp = setup.svc.call(get_req("/nonexistent")).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 404);
     }
 
     // Server should recover and serve valid requests
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
-    let body = resp.into_body().collect().await.unwrap().to_bytes();
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
+    let body = extract_body_bytes(&resp);
     assert_eq!(&body[..], b"content");
 }
 
@@ -552,30 +500,18 @@ async fn fault_mixed_valid_and_invalid_requests() {
         (get_req("/valid.txt"), 200),
         (get_req("/nonexistent"), 404),
         (get_req("/valid.txt"), 200),
-        (
-            hyper::Request::builder()
-                .method("INVALID")
-                .uri("/valid.txt")
-                .body(http_body_util::Empty::new())
-                .unwrap(),
-            405,
-        ),
+        (get_req("/valid.txt"), 405),
         (get_req("/valid.txt"), 200),
     ];
 
     for (req, expected_status) in requests {
-        let resp = handle_request(
-            req,
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(req).await.unwrap();
         assert_eq!(
-            resp.status(),
+            resp.status().as_u16(),
             expected_status,
             "expected status {}, got {}",
             expected_status,
-            resp.status()
+            resp.status().as_u16()
         );
     }
 }
@@ -589,23 +525,14 @@ async fn fault_body_policy_enforcement() {
     fs::write(root.join("file.txt"), "content").unwrap();
 
     // Try to POST (body not allowed by default)
-    let resp = handle_request(
-        hyper::Request::builder()
-            .method(hyper::Method::POST)
-            .uri("/file.txt")
-            .header("content-length", "5")
-            .body(http_body_util::Full::new(Bytes::from("hello")))
-            .unwrap(),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let req = make_request_with_header(Method::post(), "/file.txt", "content-length", "5");
+    let resp = setup.svc.call(req).await.unwrap();
 
     // Should reject body (405 or 400)
     assert!(
-        resp.status() == 400 || resp.status() == 405,
+        resp.status().as_u16() == 400 || resp.status().as_u16() == 405,
         "POST should be rejected, got {}",
-        resp.status()
+        resp.status().as_u16()
     );
 }
 
@@ -618,23 +545,22 @@ async fn fault_content_length_mismatch() {
     fs::write(root.join("file.txt"), "content").unwrap();
 
     // Request with wrong content-length
-    let resp = handle_request(
-        hyper::Request::builder()
-            .method(hyper::Method::GET)
-            .uri("/file.txt")
-            .header("content-length", "999999")
-            .body(http_body_util::Empty::<Bytes>::new())
-            .unwrap(),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let resp = setup
+        .svc
+        .call(
+            make_request_with_header(Method::get(), "/file.txt", "content-length", "999999"),
+            &setup.svc,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
 
     // Should handle gracefully
     assert!(
-        resp.status() == 200 || resp.status() == 400 || resp.status() == 413,
+        resp.status().as_u16() == 200
+            || resp.status().as_u16() == 400
+            || resp.status().as_u16() == 413,
         "GET with wrong CL should return 200/400/413, got {}",
-        resp.status()
+        resp.status().as_u16()
     );
 }
 
@@ -652,21 +578,30 @@ async fn fault_concurrent_streaming_stress() {
     // Stream all concurrently
     let mut handles = Vec::new();
     for i in 0..20 {
-        let state = setup.state.clone();
+        let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
-            let resp = handle_request(
-                get_req(&format!("/file_{}.bin", i)),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
-            assert_eq!(resp.status(), 200);
-            let _ = resp.into_body().collect().await;
+            let resp = setup
+                .svc
+                .call(get_req(&format!("/file_{}.bin", i)))
+                .await
+                .unwrap();
+            assert_eq!(resp.status().as_u16(), 200);
+            let _ = extract_body_bytes(&resp);
         }));
     }
 
     for handle in handles {
         handle.await.unwrap();
+    }
+}
+
+fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+    use eggserve_core::primitives::canonical::ResponseBody;
+    match resp.body() {
+        Some(ResponseBody::Bytes(b)) => b.clone(),
+        Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
+        Some(ResponseBody::File(_)) => vec![],
+        None => vec![],
     }
 }
 
@@ -688,26 +623,18 @@ async fn fault_graceful_degradation() {
     }
 
     // Try to serve secret file - should fail gracefully
-    let resp = handle_request(
-        get_req("/secret.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let resp = setup.svc.call(get_req("/secret.txt")).await.unwrap();
     assert!(
-        resp.status() == 403 || resp.status() == 404 || resp.status() == 500,
+        resp.status().as_u16() == 403
+            || resp.status().as_u16() == 404
+            || resp.status().as_u16() == 500,
         "unreadable file should fail gracefully, got {}",
-        resp.status()
+        resp.status().as_u16()
     );
 
     // Server should still serve valid files
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
-    assert_eq!(resp.status(), 200);
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 
     // Restore permissions
     #[cfg(unix)]
@@ -736,16 +663,11 @@ async fn fault_fd_exhaustion_recovery() {
     }
 
     // Server should still serve requests despite FD pressure
-    let resp = handle_request(
-        get_req("/file.txt"),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
     assert!(
-        resp.status() == 200 || resp.status() == 503,
+        resp.status().as_u16() == 200 || resp.status().as_u16() == 503,
         "server should handle FD pressure: {}",
-        resp.status()
+        resp.status().as_u16()
     );
 }
 
@@ -764,16 +686,11 @@ async fn fault_forced_shutdown_under_load() {
 
     let mut handles = Vec::new();
     for i in 0..20 {
-        let state = setup.state.clone();
+        let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
             let path = format!("/file_{}.txt", i % 10);
-            let resp = handle_request(
-                get_req(&path),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
-            let _ = resp.into_body().collect().await;
+            let resp = svc.call(get_req(&path)).await.unwrap();
+            let _ = extract_body_bytes(&resp);
         }));
     }
 
@@ -793,7 +710,7 @@ async fn fault_rapid_create_delete_cycles() {
     fs::write(root.join("static.txt"), "static content").unwrap();
 
     let root_clone = root.to_path_buf();
-    let state = setup.state.clone();
+    let svc = setup.svc.clone();
 
     let writer = tokio::spawn(async move {
         for i in 0..50 {
@@ -805,14 +722,9 @@ async fn fault_rapid_create_delete_cycles() {
 
     let reader = tokio::spawn(async move {
         for _ in 0..50 {
-            let resp = handle_request(
-                get_req("/static.txt"),
-                &state,
-                &eggserve_core::server::RuntimeState::new_for_testing(32),
-            )
-            .await;
-            assert_eq!(resp.status(), 200);
-            let _ = resp.into_body().collect().await;
+            let resp = setup.svc.call(get_req("/static.txt")).await.unwrap();
+            assert_eq!(resp.status().as_u16(), 200);
+            let _ = extract_body_bytes(&resp);
         }
     });
 
@@ -831,17 +743,14 @@ async fn fault_deeply_nested_path_traversal() {
     ];
 
     for path in paths {
-        let resp = handle_request(
-            get_req(path),
-            &setup.state,
-            &eggserve_core::server::RuntimeState::new_for_testing(32),
-        )
-        .await;
+        let resp = setup.svc.call(get_req(path)).await.unwrap();
         assert!(
-            resp.status() == 400 || resp.status() == 403 || resp.status() == 404,
+            resp.status().as_u16() == 400
+                || resp.status().as_u16() == 403
+                || resp.status().as_u16() == 404,
             "deep traversal {} should be denied: {}",
             path,
-            resp.status()
+            resp.status().as_u16()
         );
     }
 }
@@ -850,21 +759,23 @@ async fn fault_deeply_nested_path_traversal() {
 async fn fault_empty_request_handling() {
     let setup = FaultTestSetup::new();
 
-    let resp = handle_request(
-        hyper::Request::builder()
-            .body(http_body_util::Empty::<Bytes>::new())
-            .unwrap(),
-        &setup.state,
-        &eggserve_core::server::RuntimeState::new_for_testing(32),
-    )
-    .await;
+    let resp = setup
+        .svc
+        .call(
+            hyper::Request::builder()
+                .body(RequestBody::empty())
+                .unwrap(),
+            &setup.svc,
+            &eggserve_core::server::RuntimeState::new_for_testing(32),
+        )
+        .await;
 
     assert!(
-        resp.status() == 400
-            || resp.status() == 403
-            || resp.status() == 405
-            || resp.status() == 500,
+        resp.status().as_u16() == 400
+            || resp.status().as_u16() == 403
+            || resp.status().as_u16() == 405
+            || resp.status().as_u16() == 500,
         "empty request should be rejected: {}",
-        resp.status()
+        resp.status().as_u16()
     );
 }

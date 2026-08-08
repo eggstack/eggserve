@@ -317,97 +317,39 @@ pub fn run() {
 }
 
 #[cfg(test)]
-#[allow(deprecated)]
-async fn serve_connection<I>(
-    io: hyper_util::rt::TokioIo<I>,
-    state: Arc<eggserve_core::config::ServeState>,
-    header_timeout: std::time::Duration,
-    connection_total_timeout: std::time::Duration,
-    shutdown_rx: &mut broadcast::Receiver<()>,
-) where
-    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-{
-    use hyper::body::Incoming;
-    use hyper::server::conn::http1;
-    use hyper::service::service_fn;
-    use hyper::Request;
-    use hyper_util::rt::TokioTimer;
-
-    use eggserve_core::service::handle_request;
-
-    let runtime_state = Arc::new(eggserve_core::server::RuntimeState::new_for_testing(32));
-    let service = service_fn(move |req: Request<Incoming>| {
-        let state = state.clone();
-        let runtime_state = runtime_state.clone();
-        async move {
-            Ok::<_, std::convert::Infallible>(handle_request(req, &state, &runtime_state).await)
-        }
-    });
-    let conn = http1::Builder::new()
-        .timer(TokioTimer::new())
-        .header_read_timeout(header_timeout)
-        .serve_connection(io, service)
-        .with_upgrades();
-    let mut conn = std::pin::pin!(conn);
-    tokio::select! {
-        result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
-            match result {
-                Ok(Ok(())) => {}
-                Ok(Err(_e)) => {}
-                Err(_elapsed) => {
-                    conn.as_mut().graceful_shutdown();
-                }
-            }
-        }
-        _ = shutdown_rx.recv() => {
-            conn.as_mut().graceful_shutdown();
-        }
-    }
-}
-
-#[cfg(test)]
 mod tests {
-    use super::*;
-    use eggserve_core::config::ServeState;
-    use hyper_util::rt::TokioIo;
-    use std::sync::Arc;
+    use eggserve_core::config::ServeConfig;
+    use eggserve_core::server::{RuntimeConfig, Server, StaticService};
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    fn build_state(tmp: &TempDir) -> Arc<ServeState> {
-        let config = Arc::new(ServeConfig {
-            root: tmp.path().to_path_buf(),
-            ..ServeConfig::default()
-        });
-        Arc::new(ServeState::new(config).unwrap())
+    async fn start_test_server(
+        tmp: &TempDir,
+    ) -> (std::net::SocketAddr, eggserve_core::server::ServerHandle) {
+        let svc = StaticService::builder(tmp.path()).build().unwrap();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let config = RuntimeConfig::builder()
+            .header_read_timeout(Duration::from_secs(10))
+            .handler_timeout(Duration::from_secs(60))
+            .build()
+            .unwrap();
+        let server = Server::builder()
+            .runtime(config)
+            .from_listener(listener)
+            .build()
+            .unwrap();
+        let handle = server.start_with_service(svc).await.unwrap();
+        (addr, handle)
     }
 
     #[tokio::test]
     async fn serve_connection_handles_get_without_panicking_on_timer() {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-        let state = build_state(&tmp);
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (tx, _rx) = broadcast::channel::<()>(1);
-
-        let state_clone = state.clone();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let io = TokioIo::new(stream);
-            let mut shutdown_rx = tx.subscribe();
-            serve_connection(
-                io,
-                state_clone,
-                Duration::from_secs(10),
-                Duration::from_secs(60),
-                &mut shutdown_rx,
-            )
-            .await;
-        });
+        let (addr, _handle) = start_test_server(&tmp).await;
 
         let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
         client
@@ -416,8 +358,6 @@ mod tests {
             .unwrap();
         let mut buf = Vec::new();
         client.read_to_end(&mut buf).await.unwrap();
-
-        let _ = server.await;
 
         let response = String::from_utf8_lossy(&buf);
         assert!(
@@ -432,26 +372,7 @@ mod tests {
     async fn serve_connection_handles_range_request() {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-        let state = build_state(&tmp);
-
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let addr = listener.local_addr().unwrap();
-        let (tx, _rx) = broadcast::channel::<()>(1);
-
-        let state_clone = state.clone();
-        let server = tokio::spawn(async move {
-            let (stream, _) = listener.accept().await.unwrap();
-            let io = TokioIo::new(stream);
-            let mut shutdown_rx = tx.subscribe();
-            serve_connection(
-                io,
-                state_clone,
-                Duration::from_secs(10),
-                Duration::from_secs(60),
-                &mut shutdown_rx,
-            )
-            .await;
-        });
+        let (addr, _handle) = start_test_server(&tmp).await;
 
         let mut client = tokio::net::TcpStream::connect(addr).await.unwrap();
         client
@@ -462,8 +383,6 @@ mod tests {
             .unwrap();
         let mut buf = Vec::new();
         client.read_to_end(&mut buf).await.unwrap();
-
-        let _ = server.await;
 
         let response = String::from_utf8_lossy(&buf);
         assert!(

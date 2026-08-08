@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! HTTP wire-correctness tests (Plan 033).
 //!
 //! Raw TCP tests for request-line parsing, header grammar, message framing,
@@ -8,9 +6,9 @@
 use std::fs;
 use std::sync::Arc;
 
-use eggserve_core::config::{ServeConfig, ServeState};
+use eggserve_core::config::ServeConfig;
 use eggserve_core::policy::StaticPolicy;
-use hyper_util::rt::TokioIo;
+use eggserve_core::server::{Server, StaticService};
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -18,7 +16,7 @@ use tokio::net::TcpListener;
 struct TestServer {
     _tmp: TempDir,
     addr: std::net::SocketAddr,
-    _state: Arc<ServeState>,
+    _handle: eggserve_core::server::ServerHandle,
 }
 
 async fn start_server(opts: Option<StaticPolicy>) -> TestServer {
@@ -32,50 +30,29 @@ async fn start_server(opts: Option<StaticPolicy>) -> TestServer {
     )
     .unwrap();
 
-    let config = Arc::new(ServeConfig {
-        root: tmp.path().to_path_buf(),
-        static_policy: opts.unwrap_or_else(StaticPolicy::safe_default),
-        ..ServeConfig::default()
-    });
-    let state = Arc::new(ServeState::new(config).unwrap());
-    let state_clone = state.clone();
+    let policy = opts.unwrap_or_else(StaticPolicy::safe_default);
+    let svc = StaticService::builder(tmp.path())
+        .policy(policy)
+        .build()
+        .unwrap();
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = match listener.accept().await {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let io = TokioIo::new(stream);
-            let state = state_clone.clone();
-            tokio::spawn(async move {
-                let service = hyper::service::service_fn(move |req| {
-                    let state = state.clone();
-                    async move {
-                        Ok::<_, std::convert::Infallible>(
-                            eggserve_core::service::handle_request(
-                                req,
-                                &state,
-                                &eggserve_core::server::RuntimeState::new_for_testing(32),
-                            )
-                            .await,
-                        )
-                    }
-                });
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, service)
-                    .await;
-            });
-        }
-    });
-
+    let server = Server::builder()
+        .runtime(
+            eggserve_core::server::RuntimeConfig::builder()
+                .build()
+                .unwrap(),
+        )
+        .from_listener(listener)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(svc).await.unwrap();
     TestServer {
         _tmp: tmp,
         addr,
-        _state: state,
+        _handle: handle,
     }
 }
 

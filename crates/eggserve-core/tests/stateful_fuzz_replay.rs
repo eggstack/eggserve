@@ -1,5 +1,3 @@
-#![allow(deprecated)]
-
 //! Stateful live-socket fuzz replay tests (Plan 089, Track D).
 //!
 //! Runs a state-machine fuzzer against a real server process, exercising
@@ -20,21 +18,18 @@
 //! - no unbounded allocation
 //! - bounded shutdown
 
-use std::sync::Arc;
 use std::time::Duration;
 
-use hyper_util::rt::TokioIo;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, Semaphore};
 
-use eggserve_core::config::{ServeConfig, ServeState};
-use eggserve_core::service::handle_request;
+use eggserve_core::server::{Server, StaticService};
 
 struct FuzzServer {
     addr: std::net::SocketAddr,
     shutdown_tx: broadcast::Sender<()>,
-    _handle: tokio::task::JoinHandle<()>,
+    _handle: eggserve_core::server::ServerHandle,
     _tmp: tempfile::TempDir,
 }
 
@@ -43,78 +38,27 @@ async fn start_fuzz_server(limits: eggserve_core::limits::Limits) -> FuzzServer 
     std::fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
     std::fs::write(tmp.path().join("empty.txt"), "").unwrap();
 
-    let config = Arc::new(ServeConfig {
-        root: tmp.path().to_path_buf(),
-        bind: "127.0.0.1:0".parse().unwrap(),
-        limits,
-        ..ServeConfig::default()
-    });
-    let state = Arc::new(ServeState::new(config.clone()).unwrap());
-    let connection_semaphore = Arc::new(Semaphore::new(config.limits.max_connections));
+    let svc = StaticService::builder(tmp.path()).build().unwrap();
 
-    let listener = TcpListener::bind(config.bind).await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    let (shutdown_tx, mut shutdown_rx) = broadcast::channel::<()>(1);
+    let (shutdown_tx, _shutdown_rx) = broadcast::channel::<()>(1);
 
-    let handle = tokio::spawn(async move {
-        loop {
-            tokio::select! {
-                result = listener.accept() => {
-                    if let Ok((stream, _addr)) = result {
-                        let permit = match connection_semaphore.clone().try_acquire_owned() {
-                            Ok(p) => p,
-                            Err(_) => {
-                                drop(stream);
-                                continue;
-                            }
-                        };
+    let config = eggserve_core::server::RuntimeConfig::builder()
+        .max_connections(limits.max_connections)
+        .header_read_timeout(limits.header_read_timeout)
+        .handler_timeout(limits.connection_total_timeout)
+        .max_file_streams(limits.max_file_streams)
+        .build()
+        .unwrap();
 
-                        let mut conn_shutdown_rx = shutdown_rx.resubscribe();
-                        let state = state.clone();
-                        let header_timeout = config.limits.header_read_timeout;
-                        let connection_total_timeout = config.limits.connection_total_timeout;
-
-                        tokio::spawn(async move {
-                            let _permit = permit;
-                            let io = TokioIo::new(stream);
-                            let service = hyper::service::service_fn(move |req| {
-                                let state = state.clone();
-                                async move {
-                                    Ok::<_, std::convert::Infallible>(
-                                        handle_request(req, &state, &eggserve_core::server::RuntimeState::new_for_testing(32)).await,
-                                    )
-                                }
-                            });
-                            let conn = hyper::server::conn::http1::Builder::new()
-                                .timer(hyper_util::rt::TokioTimer::new())
-                                .header_read_timeout(header_timeout)
-                                .serve_connection(io, service)
-                                .with_upgrades();
-                            let mut conn = std::pin::pin!(conn);
-                            tokio::select! {
-                                result = tokio::time::timeout(connection_total_timeout, &mut conn) => {
-                                    match result {
-                                        Ok(Ok(())) => {}
-                                        Ok(Err(_)) => {}
-                                        Err(_elapsed) => {
-                                            conn.as_mut().graceful_shutdown();
-                                        }
-                                    }
-                                }
-                                _ = conn_shutdown_rx.recv() => {
-                                    conn.as_mut().graceful_shutdown();
-                                }
-                            }
-                        });
-                    }
-                }
-                _ = shutdown_rx.recv() => {
-                    break;
-                }
-            }
-        }
-    });
+    let server = Server::builder()
+        .runtime(config)
+        .from_listener(listener)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(svc).await.unwrap();
 
     FuzzServer {
         addr,

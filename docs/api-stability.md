@@ -49,11 +49,8 @@ Rust `HeaderMapPlan` and canonical Python `HeaderBlock` preserve insertion order
 
 Deprecated stable items must remain functional for at least one minor release after deprecation is announced. Removal requires explicit release notes and migration guidance.
 
-The pre-runtime `service::handle_request` adapter is deprecated as of Plan 109.
-It remains functional for existing migration callers, but requires an explicit
-shared `RuntimeState`; new integrations should use `server::Server`. The
-canonical primitive types and older planning types listed below remain
-functional during the migration.
+The canonical primitive types and older planning types listed below remain
+functional.
 
 ## Rust API — `eggserve-core`
 
@@ -64,7 +61,6 @@ functional during the migration.
 | `config` | pub | stable | `ServeConfig`, `StartupSummary`, `ServeState` |
 | `limits` | pub | stable | `Limits` resource-limit configuration |
 | `policy` | pub | stable | `StaticPolicy`, policy enums |
-| `service` | pub | deprecated/experimental | Explicit-context `handle_request()` adapter; use `server::Server` |
 | `server` | pub | experimental | `Server`, `Service` trait, `StaticService`, lifecycle state machine, connection tracking |
 | `server/lifecycle` | pub | experimental | `LifecycleState` — lifecycle state machine |
 | `primitives` | pub | stable | Public facade for embedding consumers |
@@ -158,12 +154,6 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `DotfilePolicy` | stable | Enum: `Denied`, `Serve` |
 | `StaticPolicy` | stable | All fields public |
 | `PolicyMode` | internal | pub(crate) |
-
-### `service` Module
-
-| Item | Tier | Notes |
-|------|------|-------|
-| `handle_request()` | deprecated/experimental | Requires caller-owned shared `RuntimeState`; retained for migration only |
 
 ### `primitives` Module — Path Types
 
@@ -279,23 +269,6 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 | `BodyKind` | stable | Discriminant for BodySource |
 | `BodySourceError` | stable | InvalidRange, AlreadyConsumed |
 
-### `primitives::client` Module (feature-gated: `client`)
-
-**All client items are experimental.**
-
-| Item | Tier | Notes |
-|------|------|-------|
-| `HttpClient` | experimental | Buffered, no pooling, no redirects, no streaming |
-| `ClientConfig` | experimental | Timeout and TLS config |
-| `ClientRequest` | experimental | Request value object |
-| `ClientRequestBuilder` | experimental | Builder pattern |
-| `Method` | experimental | Get, Head, Post, Put, Delete, Patch |
-| `validate_header()` | experimental | Header name/value validation |
-| `ClientResponse` | experimental | Buffered response |
-| `ClientError` | experimental | 12-variant error taxonomy |
-| `Scheme` | experimental | Http, Https |
-| `ParsedUrl` | experimental | Hand-parsed URL |
-
 ## Python API — current contract
 
 Plan 098 supersedes the historical Python stability tables formerly maintained in this document. The supported public façade is intentionally small:
@@ -306,8 +279,6 @@ Plan 098 supersedes the historical Python stability tables formerly maintained i
 | `eggserve` | the six server classes above, `serve_directory`, `__version__` | experimental/stable as individually documented |
 | `eggserve.lowlevel` | advanced Rust-backed primitives | experimental |
 | `eggserve.subprocess` | `ServeConfig`, `ServerProcess`, `StaticPolicy`, `serve_directory` | experimental |
-
-The Python client API is not shipped. Rust client primitives remain feature-gated and Rust-only. Internal native names are not part of the Python compatibility contract.
 
 <details>
 <summary>Historical Python API tables (superseded; retained only for migration history)</summary>
@@ -398,19 +369,6 @@ The Python client API is not shipped. Rust client primitives remain feature-gate
 | `RequestBodyConsumedError` | experimental | Body already consumed (child of `RequestBodyError`) |
 | `RequestBodyCancelledError` | experimental | Body consumption cancelled (child of `RequestBodyError`) |
 
-### `eggserve._native` — Client Types (when NATIVE_AVAILABLE, feature-gated: `client`)
-
-**All client types are experimental.**
-
-| Item | Tier | Notes |
-|------|------|-------|
-| `HttpClient` | experimental | Buffered HTTP client |
-| `ClientConfig` | experimental | Timeout/TLS config |
-| `ClientRequest` | experimental | Request value |
-| `ClientResponse` | experimental | Buffered response |
-| `ClientError` | experimental | Error enum |
-| `ClientMethod` | experimental | HTTP method enum |
-
 ### `eggserve.__init__` — Body Type Re-exports
 
 | Item | Tier | Notes |
@@ -453,7 +411,7 @@ These methods:
 - Are not documented as a user feature
 - Are used only by the Python crate
 - Do not appear in default Rust docs or package examples
-- Are unavailable under `default` or `client` feature builds
+- Are unavailable under the `default` feature build
 
 ## Production Profile API Classification
 
@@ -478,7 +436,6 @@ Every production claim must name a profile. The production profiles are document
 | Static server config | stable | ServeConfig, Limits, StaticPolicy |
 | Static server lifecycle | experimental | Server, ServerBuilder, ServerHandle, Service trait, LifecycleState |
 | Request body primitives | experimental | RequestBody, RequestBodyPolicy, RequestBodyError |
-| HTTP client substrate | experimental | HttpClient, ClientConfig, ClientRequest, ClientResponse |
 | Internal transport | internal | fs, path, response, mime, error modules |
 
 ## Key Design Decisions
@@ -500,10 +457,4 @@ Every production claim must name a profile. The production profiles are document
   canonical metadata where the runtime owns them.
 - File-backed responses retain their Rust-owned capability and stream without an eager Python-memory copy.
 
-### Client Stability
-
-The client is **experimental** in the first release. It provides:
-- Buffered, one-connection-per-request behavior
-- No pooling, redirects, cookies, proxies, retries, decompression, or streaming
-- TLS verification by default
-- Timeout enforcement
+## Key Design Decisions

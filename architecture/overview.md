@@ -54,7 +54,6 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 | [primitives-api.md](primitives-api.md) | Public facade for embedding — `SecureRoot`, `ResolvedResource`, canonical types, HTTP validation, body primitives |
 | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()`, streaming buffer |
 | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline, body ingestion |
-| [client.md](client.md) | HTTP client primitives — low-level client for Python, TLS support, timeout semantics |
 | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS key formats, ALPN, deployment profiles, limitations |
 
 ### Operations
@@ -123,8 +122,6 @@ eggserve-python        → standalone, owns Python packaging
 | Feature | Crate | Purpose |
 |---------|-------|---------|
 | `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
-| `client` | `eggserve-core` | Hyper client support |
-| `client-tls` | `eggserve-core` | Client TLS via rustls/webpki-roots |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
 | `windows-plan086` | `eggserve-core` | Windows adversarial qualification |
 
@@ -158,7 +155,6 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) | Canonical types for embedding — `SecureRoot`, `ResolvedResource`, HTTP validation, request/response types |
 | Response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
 | Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
-| HTTP client primitives | `eggserve-core::primitives::client` | [client.md](client.md) | Low-level HTTP client for Python (`http.client`-like), TLS support, timeout semantics |
 
 ### Operational Subsystems
 
@@ -166,7 +162,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 |-----------|----------|-----------|--------------|
 | Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines output, operational counters, sanitized fields |
 | Configuration model | cross-cutting | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — field inventory, ownership model, CLI/Python/Rust convergence |
-| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 7 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError`, `ClientError` |
+| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 7 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
 | TLS support | `eggserve-core::tls` | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS#1/8/SEC1 key formats, feature-gated |
 
 ### Testing and Quality
@@ -302,7 +298,6 @@ CLI flags / Python params / Rust structs
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` | Stable-ish |
 | `limits.rs` | **pub** | `Limits` — connections, streams, timeouts | Stable-ish |
 | `policy.rs` | **pub** | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy` | Stable-ish |
-| `service.rs` | **pub** (deprecated) | Explicit-context `handle_request()` adapter | Deprecated/experimental |
 | `error.rs` | pub(crate) | `Error` enum taxonomy | Internal |
 | `path/` | pub(crate) | Path confinement pipeline (7 submodules) | Internal |
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
@@ -317,17 +312,16 @@ CLI flags / Python params / Rust structs
 
 ## Error Taxonomy
 
-Seven distinct error layers, each scoped to a specific subsystem:
+Six distinct error layers, each scoped to a specific subsystem:
 
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
 | `PathRejection` | Path parsing | 16 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
-| `Error` | Top-level crate | `PathEscape`, `PathNotAccessible`, `Config`, `Bind`, `Runtime`, `RequestRejected`, `ResponseConstruction`, `Io`, `Client` |
+| `Error` | Top-level crate | `PathEscape`, `PathNotAccessible`, `Config`, `Bind`, `Runtime`, `RequestRejected`, `ResponseConstruction`, `Io` |
 | `RequestValidationError` | HTTP-level | `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding` |
 | `ServerError` | Server lifecycle | `Bind`, `Config`, `AlreadyStarted`, `Accept`, `TlsSetup`, `ShutdownTimeout`, `Startup`, `Terminal` |
 | `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
 | `RequestBodyError` | Body consumption | 12 variants: `RejectedByPolicy`, `LimitExceeded`, `ReadTimeout`, `PrematureEof`, `AlreadyConsumed`, ... |
-| `ClientError` | HTTP client | 12 variants: `InvalidUrl`, `UnsupportedScheme`, `Timeout`, `TlsError`, `ResponseBodyTooLarge`, ... |
 
 ---
 
@@ -337,7 +331,7 @@ Seven distinct error layers, each scoped to a specific subsystem:
 |------|---------|-----------|
 | **Stable** | `primitives` (facade), all `primitives::*` submodules | Intended public boundary for embedding consumers |
 | **Stable-ish** | `config`, `limits`, `policy`, `ops` | Field shapes may evolve before 1.0 |
-| **Experimental** | `service` (`handle_request`), `server` (all types), `primitives::client` | API may change without notice |
+| **Experimental** | `server` (all types) | API may change without notice |
 | **Internal** | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
 
 ---

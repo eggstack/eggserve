@@ -1,11 +1,7 @@
-#![allow(deprecated)]
-
 use std::fs;
-use std::sync::Arc;
 
-use eggserve_core::config::{ServeConfig, ServeState};
 use eggserve_core::policy::StaticPolicy;
-use eggserve_core::service::handle_request;
+use eggserve_core::server::{Server, StaticService};
 use http_body_util::BodyExt;
 use http_body_util::Full;
 use hyper::body::Bytes;
@@ -16,49 +12,29 @@ use std::net::SocketAddr;
 use tempfile::TempDir;
 use tokio::net::TcpListener;
 
-async fn start_server(tmp: &TempDir, policy: StaticPolicy) -> SocketAddr {
-    let config = Arc::new(ServeConfig {
-        root: tmp.path().to_path_buf(),
-        static_policy: policy,
-        ..ServeConfig::default()
-    });
-    let state = Arc::new(ServeState::new(config).unwrap());
+async fn start_server(
+    tmp: &TempDir,
+    policy: StaticPolicy,
+) -> (SocketAddr, eggserve_core::server::ServerHandle) {
+    let svc = StaticService::builder(tmp.path())
+        .policy(policy)
+        .build()
+        .unwrap();
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
 
-    tokio::spawn(async move {
-        loop {
-            let (stream, _) = match listener.accept().await {
-                Ok(s) => s,
-                Err(_) => continue,
-            };
-            let io = TokioIo::new(stream);
-            let state = state.clone();
-            tokio::spawn(async move {
-                let service_fn = hyper::service::service_fn({
-                    let state = state.clone();
-                    move |req: Request<Incoming>| {
-                        let state = state.clone();
-                        async move {
-                            Ok::<_, std::convert::Infallible>(
-                                handle_request(
-                                    req,
-                                    &state,
-                                    &eggserve_core::server::RuntimeState::new_for_testing(32),
-                                )
-                                .await,
-                            )
-                        }
-                    }
-                });
-                let _ = hyper::server::conn::http1::Builder::new()
-                    .serve_connection(io, service_fn)
-                    .await;
-            });
-        }
-    });
+    let server = Server::builder()
+        .runtime(
+            eggserve_core::server::RuntimeConfig::builder()
+                .build()
+                .unwrap(),
+        )
+        .from_listener(listener)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(svc).await.unwrap();
 
-    addr
+    (addr, handle)
 }
 
 async fn send_request(addr: SocketAddr, req: Request<Full<Bytes>>) -> Response<Incoming> {
@@ -117,20 +93,20 @@ async fn body_bytes(resp: Response<Incoming>) -> Bytes {
 async fn live_get_existing_file_returns_200() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/hello.txt")).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
     let body = body_bytes(resp).await;
-    assert_eq!(body, "hello world");
+    assert_eq!(&body[..], b"hello world");
 }
 
 #[tokio::test]
 async fn live_head_existing_file_returns_200_no_body() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, head_req("/hello.txt")).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -142,7 +118,7 @@ async fn live_head_existing_file_returns_200_no_body() {
 #[tokio::test]
 async fn live_get_missing_returns_404() {
     let tmp = TempDir::new().unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/nope.txt")).await;
     assert_eq!(resp.status(), StatusCode::NOT_FOUND);
@@ -152,7 +128,7 @@ async fn live_get_missing_returns_404() {
 async fn live_dotfile_returns_403() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join(".env"), "secret").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/.env")).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -162,7 +138,7 @@ async fn live_dotfile_returns_403() {
 async fn live_directory_without_index_returns_403() {
     let tmp = TempDir::new().unwrap();
     fs::create_dir(tmp.path().join("subdir")).unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/subdir")).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -177,7 +153,7 @@ async fn live_directory_with_index_returns_200() {
         "<html>hi</html>",
     )
     .unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/subdir")).await;
     assert_eq!(resp.status(), StatusCode::OK);
@@ -187,7 +163,7 @@ async fn live_directory_with_index_returns_200() {
 async fn live_post_returns_405_with_allow_header() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, post_req("/hello.txt")).await;
     assert_eq!(resp.status(), StatusCode::METHOD_NOT_ALLOWED);
@@ -197,7 +173,7 @@ async fn live_post_returns_405_with_allow_header() {
 #[tokio::test]
 async fn live_malformed_percent_returns_400() {
     let tmp = TempDir::new().unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/%ZZ")).await;
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
@@ -207,7 +183,7 @@ async fn live_malformed_percent_returns_400() {
 async fn live_traversal_returns_403() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(addr, get_req("/../etc/passwd")).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
@@ -217,7 +193,7 @@ async fn live_traversal_returns_403() {
 async fn live_get_with_content_length_returns_413() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(
         addr,
@@ -231,7 +207,7 @@ async fn live_get_with_content_length_returns_413() {
 async fn live_get_with_invalid_content_length_returns_400() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(
         addr,
@@ -245,7 +221,7 @@ async fn live_get_with_invalid_content_length_returns_400() {
 async fn live_range_returns_206() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(
         addr,
@@ -262,7 +238,7 @@ async fn live_range_returns_206() {
 async fn live_unsatisfiable_range_returns_416() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(
         addr,
@@ -276,7 +252,7 @@ async fn live_unsatisfiable_range_returns_416() {
 async fn live_conditional_etag_returns_304() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let etag = eggserve_core::primitives::planner::generate_etag(
         &fs::metadata(tmp.path().join("hello.txt")).unwrap(),
@@ -296,7 +272,7 @@ async fn live_conditional_etag_returns_304() {
 async fn live_head_range_returns_206_no_body() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello world").unwrap();
-    let addr = start_server(&tmp, StaticPolicy::safe_default()).await;
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
     let resp = send_request(
         addr,
