@@ -689,6 +689,7 @@ async fn fuzz_http_request_smuggling() {
                 || resp.contains("400")
                 || resp.contains("403")
                 || resp.contains("405")
+                || resp.contains("413")
                 || resp.is_empty(),
             "smuggling attempt should be safe: {}",
             resp

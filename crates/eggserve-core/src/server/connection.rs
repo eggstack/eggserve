@@ -725,6 +725,16 @@ fn convert_request_head(
         ));
     }
 
+    // Asterisk-form (`*`) is rejected as method-not-allowed (405) rather
+    // than bad-request (400) because the method check must fire before the
+    // target-form check per the release contract.
+    if raw_target == "*" {
+        return Err(ServiceError::rejected(
+            405,
+            format!("method not allowed: {}", method.as_str()),
+        ));
+    }
+
     let target = RequestTarget::parse(raw_target)
         .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?;
 
