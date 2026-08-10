@@ -7,7 +7,6 @@
 
 use std::time::Duration;
 
-use eggserve_core::config::ServeConfig;
 use eggserve_core::policy::StaticPolicy;
 use eggserve_core::server::{RuntimeConfig, Server, StaticService};
 use tempfile::TempDir;
@@ -18,6 +17,7 @@ use tokio::sync::broadcast;
 struct ProdServer {
     _tmp: TempDir,
     addr: std::net::SocketAddr,
+    #[allow(dead_code)]
     shutdown_tx: broadcast::Sender<()>,
     _handle: eggserve_core::server::ServerHandle,
 }
@@ -369,7 +369,7 @@ async fn prod_graceful_shutdown_drains() {
         resp
     );
 
-    let _ = s._handle.shutdown();
+    s._handle.shutdown();
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 
@@ -391,7 +391,7 @@ async fn prod_inflight_request_completes_before_shutdown() {
         .unwrap();
 
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let _ = s._handle.shutdown();
+    s._handle.shutdown();
 
     let mut buf = Vec::new();
     let _ = stream.read_to_end(&mut buf).await;

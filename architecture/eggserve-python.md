@@ -39,9 +39,7 @@ primitives). `eggserve.subprocess` contains `ServeConfig`, `ServerProcess`,
 only re-exports the version, `serve_directory`, and the six façade classes.
 
 The native callback `Server`, `StaticResponder`, `ServerSecureRoot`, and
-`ServerBodySource` remain internal implementation/test types. The Python
-extension does not compile the experimental HTTP client; the Rust client is
-still an opt-in core feature.
+`ServerBodySource` remain internal implementation/test types.
 
 ## Structure
 

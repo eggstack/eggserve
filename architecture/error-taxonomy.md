@@ -7,12 +7,11 @@ eggserve uses seven distinct error layers, each scoped to a specific subsystem. 
 | Layer | Type | Scope | Variants |
 |-------|------|-------|----------|
 | Path parsing | `PathRejection` | Request target validation | 16 |
-| Top-level crate | `Error` | General eggserve operations | 9 |
+| Top-level crate | `Error` | General eggserve operations | 8 |
 | HTTP-level | `RequestValidationError` | Request framing and method | 6 |
 | Server lifecycle | `ServerError` | Startup, bind, shutdown | 10 |
 | Per-request | `ServiceError` | Service handler failures | 4 (kinds) |
 | Body consumption | `RequestBodyError` | Request body reading | 12 |
-| HTTP client | `ClientError` | Outbound HTTP requests | 12 |
 
 ---
 
@@ -61,13 +60,11 @@ The general-purpose error type for eggserve-core operations. Wraps lower-level e
 | `RequestRejected(String)` | Request was rejected | `PathRejection` → `Error` |
 | `ResponseConstruction` | Response construction failed | `ResponseConstructionError` |
 | `Io` | I/O error | `std::io::Error` |
-| `Client` | Client error (feature-gated) | `ClientError` |
 
 **Conversions:**
 - `PathRejection` → `Error::RequestRejected`
 - `ResponseConstructionError` → `Error::ResponseConstruction`
 - `std::io::Error` → `Error::Io`
-- `ClientError` → `Error::Client` (feature-gated)
 
 ---
 
@@ -173,29 +170,6 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 
 ---
 
-## `ClientError` — HTTP Client Errors
-
-**Location:** `eggserve-core::primitives::client::error`
-
-Feature-gated (`client`). Errors from outbound HTTP client operations.
-
-| Variant | Meaning |
-|---------|---------|
-| `InvalidUrl(String)` | Malformed URL |
-| `UnsupportedScheme(String)` | Non-http/https scheme |
-| `MissingHost` | URL has no host component |
-| `InvalidHeader(String)` | Invalid header name/value |
-| `BodyTooLarge { limit, actual }` | Request body exceeds limit |
-| `Timeout(String)` | Connection or request timeout |
-| `DnsError(String)` | DNS resolution failed |
-| `ConnectError(String)` | TCP connection failed |
-| `TlsError(String)` | TLS handshake/verification failed |
-| `ProtocolError(String)` | HTTP protocol error |
-| `ResponseBodyTooLarge { limit }` | Response body exceeds limit |
-| `Io(io::Error)` | I/O error |
-
----
-
 ## Error Conversion Flow
 
 ```
@@ -204,7 +178,6 @@ RequestValidationError ──→ 400/405/413
 ServerError ──→ process exit (startup) or log (runtime)
 ServiceError ──→ 500/504
 RequestBodyError ──→ 400/408/413/499/500
-ClientError ──→ propagated to caller
 ```
 
 ## Design Principles

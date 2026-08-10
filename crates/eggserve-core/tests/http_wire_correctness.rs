@@ -3,12 +3,9 @@
 //! Raw TCP tests for request-line parsing, header grammar, message framing,
 //! response validation, conditional/range semantics, and connection lifecycle.
 
-use std::fs;
-use std::sync::Arc;
-
-use eggserve_core::config::ServeConfig;
 use eggserve_core::policy::StaticPolicy;
 use eggserve_core::server::{Server, StaticService};
+use std::fs;
 use tempfile::TempDir;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;

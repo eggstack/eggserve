@@ -22,7 +22,7 @@ use std::time::Duration;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::sync::{broadcast, Semaphore};
+use tokio::sync::broadcast;
 
 use eggserve_core::server::{Server, StaticService};
 

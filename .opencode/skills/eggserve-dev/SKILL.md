@@ -94,12 +94,11 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `primitives-api.md` — public API boundary for embedding consumers
 - `response-planning.md` — conditional/range/ETag response planning
 - `runtime.md` — runtime service boundary, Server, Service trait, StaticService
-- `client.md` — HTTP client primitives, feature-gated substrate
 - `security-model.md` — trust boundaries, defensive layers, attacker model
 - `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
 - `configuration.md` — configuration inventory, ownership model, field inventory
 - `structured-logging.md` — event model, event kinds, operational counters, log sinks
-- `error-taxonomy.md` — seven error layers, variant inventory, conversion flow
+- `error-taxonomy.md` — six error layers, variant inventory, conversion flow
 - `tls.md` — TLS support, feature gates, PEM loading
 - `adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `adr-003-custom-service-ownership.md` — custom service ownership model
@@ -110,14 +109,13 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - Range requests ARE implemented (despite some docs saying otherwise)
 - `clap` was removed — manual arg parsing in `args.rs`
 - `tracing` was never added — logging is custom
-- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Config(String)` takes a string, `Bind(String)` takes a string, `Runtime(String)` takes a string, `RequestRejected(String)` takes a string, `ResponseConstruction` wraps `ResponseConstructionError`, `Io` wraps `std::io::Error`, `Client` wraps `ClientError` (feature-gated)
+- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Config(String)` takes a string, `Bind(String)` takes a string, `Runtime(String)` takes a string, `RequestRejected(String)` takes a string, `ResponseConstruction` wraps `ResponseConstructionError`, `Io` wraps `std::io::Error`
 - `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`
 - `ResponseStatus` is a struct with associated constants, not an enum
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
-- **Client is buffered-only** — `HttpClient` buffers full response in memory. Streaming is not yet supported.
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. Compatibility `""` binds normalize to `0.0.0.0`, literal wildcard binds are explicit façade opt-ins, and native activation publishes structured actual addresses. `eggserve.lowlevel` contains advanced primitives and `eggserve.subprocess` contains optional CLI lifecycle helpers. The Python wheel does not compile the experimental HTTP client.
+- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. Compatibility `""` binds normalize to `0.0.0.0`, literal wildcard binds are explicit façade opt-ins, and native activation publishes structured actual addresses. `eggserve.lowlevel` contains advanced primitives and `eggserve.subprocess` contains optional CLI lifecycle helpers.
 - **Python wheel support** — CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS` in both `Limits::validate()` and `RuntimeConfigBuilder::build()`. Values above this bound are rejected with a controlled error.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.

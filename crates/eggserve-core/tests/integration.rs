@@ -108,7 +108,7 @@ async fn get_symlink_returns_403_under_safe_default() {
     std::os::unix::fs::symlink(tmp.path().join("real.txt"), tmp.path().join("link.txt")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/link.txt")).await.unwrap();
+    let resp = svc.call(get("/link.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -143,7 +143,7 @@ async fn index_final_symlink_denied_when_symlinks_denied() {
     .unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -192,7 +192,7 @@ async fn index_final_symlink_outside_root_denied_when_follow_enabled() {
     };
     let svc = make_service(&tmp_root, policy);
 
-    let mut resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -209,7 +209,7 @@ async fn index_under_intermediate_symlink_denied_when_symlinks_denied() {
     std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/link_dir")).await.unwrap();
+    let resp = svc.call(get("/link_dir")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -242,7 +242,7 @@ async fn get_directory_without_index_returns_403_when_listing_disabled() {
     fs::create_dir(tmp.path().join("subdir")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -268,7 +268,7 @@ async fn content_length_matches_file_length() {
     fs::write(tmp.path().join("file.txt"), "hello").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/file.txt")).await.unwrap();
+    let resp = svc.call(get("/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
         resp.headers().get_first("content-length").unwrap().as_str(),
@@ -282,7 +282,7 @@ async fn content_type_defaults_to_octet_stream_for_unknown_extension() {
     fs::write(tmp.path().join("file.xyz"), "data").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/file.xyz")).await.unwrap();
+    let resp = svc.call(get("/file.xyz")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
         resp.headers().get_first("content-type").unwrap().as_str(),
@@ -298,19 +298,19 @@ async fn content_type_known_extension_is_mapped() {
     fs::write(tmp.path().join("script.js"), "alert(1)").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/file.html")).await.unwrap();
+    let resp = svc.call(get("/file.html")).await.unwrap();
     assert_eq!(
         resp.headers().get_first("content-type").unwrap().as_str(),
         "text/html; charset=utf-8"
     );
 
-    let mut resp = svc.call(get("/style.css")).await.unwrap();
+    let resp = svc.call(get("/style.css")).await.unwrap();
     assert_eq!(
         resp.headers().get_first("content-type").unwrap().as_str(),
         "text/css; charset=utf-8"
     );
 
-    let mut resp = svc.call(get("/script.js")).await.unwrap();
+    let resp = svc.call(get("/script.js")).await.unwrap();
     assert_eq!(
         resp.headers().get_first("content-type").unwrap().as_str(),
         "application/javascript; charset=utf-8"
@@ -337,7 +337,7 @@ async fn nosniff_header_present() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/file.txt")).await.unwrap();
+    let resp = svc.call(get("/file.txt")).await.unwrap();
     assert_eq!(
         resp.headers()
             .get_first("x-content-type-options")
@@ -353,7 +353,7 @@ async fn etag_header_present() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/file.txt")).await.unwrap();
+    let resp = svc.call(get("/file.txt")).await.unwrap();
     let etag = resp
         .headers()
         .get_first("etag")
@@ -370,7 +370,7 @@ async fn last_modified_header_present() {
     fs::write(tmp.path().join("file.txt"), "data").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/file.txt")).await.unwrap();
+    let resp = svc.call(get("/file.txt")).await.unwrap();
     assert!(resp.headers().get_first("last-modified").is_some());
 }
 
@@ -443,7 +443,7 @@ async fn directory_listing_has_security_headers() {
     };
     let svc = make_service(&tmp, policy);
 
-    let mut resp = svc.call(get("/")).await.unwrap();
+    let resp = svc.call(get("/")).await.unwrap();
     assert_eq!(
         resp.headers()
             .get_first("content-security-policy")
@@ -548,7 +548,7 @@ async fn get_root_without_index_returns_403() {
     let tmp = TempDir::new().unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/")).await.unwrap();
+    let resp = svc.call(get("/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -647,7 +647,7 @@ async fn dotfile_denied_in_subdir() {
     fs::write(tmp.path().join("sub").join(".gitignore"), "*.o").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/sub/.gitignore")).await.unwrap();
+    let resp = svc.call(get("/sub/.gitignore")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -698,7 +698,7 @@ async fn intermediate_symlink_denied_when_symlinks_denied() {
     std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/link_dir/file.txt")).await.unwrap();
+    let resp = svc.call(get("/link_dir/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -743,7 +743,7 @@ async fn intermediate_symlink_escape_denied_when_follow_enabled() {
     };
     let svc = make_service(&tmp_root, policy);
 
-    let mut resp = svc.call(get("/out/file.txt")).await.unwrap();
+    let resp = svc.call(get("/out/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -764,7 +764,7 @@ async fn final_symlink_outside_root_denied_when_follow_enabled() {
     };
     let svc = make_service(&tmp_root, policy);
 
-    let mut resp = svc.call(get("/escape.txt")).await.unwrap();
+    let resp = svc.call(get("/escape.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -778,7 +778,7 @@ async fn nested_intermediate_symlink_denied() {
     std::os::unix::fs::symlink(tmp.path().join("b"), tmp.path().join("a").join("link_b")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/a/link_b/file.txt")).await.unwrap();
+    let resp = svc.call(get("/a/link_b/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -788,7 +788,7 @@ async fn get_put_delete_patch_all_405() {
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
     for m in [Method::put(), Method::delete(), Method::patch()] {
-        let mut resp = svc.call(method_req(m.clone(), "/file")).await.unwrap();
+        let resp = svc.call(method_req(m.clone(), "/file")).await.unwrap();
         assert_eq!(
             resp.status().as_u16(),
             405,
@@ -804,7 +804,7 @@ async fn double_encoded_dotdot_is_rejected() {
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/%252e%252e/hello.txt")).await.unwrap();
+    let resp = svc.call(get("/%252e%252e/hello.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -814,7 +814,7 @@ async fn double_encoded_slash_is_treated_as_literal() {
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/%252f%252e%252e/hello.txt")).await.unwrap();
+    let resp = svc.call(get("/%252f%252e%252e/hello.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 404);
 }
 
@@ -824,7 +824,7 @@ async fn single_encoded_dotdot_is_rejected() {
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/%2e%2e/hello.txt")).await.unwrap();
+    let resp = svc.call(get("/%2e%2e/hello.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -834,7 +834,7 @@ async fn encoded_dotfile_denied() {
     fs::write(tmp.path().join(".env"), "secret").unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/%2eenv")).await.unwrap();
+    let resp = svc.call(get("/%2eenv")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -855,7 +855,7 @@ async fn symlink_outside_root_denied_even_when_follow_enabled() {
     };
     let svc = make_service(&tmp_root, policy);
 
-    let mut resp = svc.call(get("/escape.txt")).await.unwrap();
+    let resp = svc.call(get("/escape.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -870,7 +870,7 @@ async fn hidden_index_name_is_not_considered_index() {
     .unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 

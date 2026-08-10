@@ -113,9 +113,9 @@ async fn race_file_to_symlink_replacement() {
 
     // Serve the file multiple times
     for _ in 0..10 {
-        let resp = setup.svc.call(get_req("/target.txt")).await.unwrap();
+        let mut resp = setup.svc.call(get_req("/target.txt")).await.unwrap();
         assert_eq!(resp.status().as_u16(), 200);
-        let body = extract_body_bytes(&resp);
+        let body = extract_body_bytes(&mut resp);
         assert_eq!(&body[..], b"original content");
     }
 
@@ -127,9 +127,9 @@ async fn race_file_to_symlink_replacement() {
 
     // Serve again - should either serve symlink target or fail safely
     for _ in 0..10 {
-        let resp = setup.svc.call(get_req("/target.txt")).await.unwrap();
+        let mut resp = setup.svc.call(get_req("/target.txt")).await.unwrap();
         if resp.status().as_u16() == 200 {
-            let body = extract_body_bytes(&resp);
+            let body = extract_body_bytes(&mut resp);
             // Must not serve mixed content from two identities
             assert!(
                 body == b"original content" || body == b"secret content",
@@ -162,7 +162,7 @@ async fn race_symlink_to_file_replacement() {
 
     // Serve through symlink (will get 403/404 since symlinks are blocked)
     for _ in 0..10 {
-        let resp = setup.svc.call(get_req("/link.txt")).await.unwrap();
+        let mut resp = setup.svc.call(get_req("/link.txt")).await.unwrap();
         // Symlinks are blocked by default, so expect 403 or 404
         assert!(
             resp.status().as_u16() == 403
@@ -172,7 +172,7 @@ async fn race_symlink_to_file_replacement() {
             resp.status().as_u16()
         );
         if resp.status().as_u16() == 200 {
-            let body = extract_body_bytes(&resp);
+            let body = extract_body_bytes(&mut resp);
             assert_eq!(&body[..], b"real content");
         }
     }
@@ -186,9 +186,9 @@ async fn race_symlink_to_file_replacement() {
 
     // Serve again
     for _ in 0..10 {
-        let resp = setup.svc.call(get_req("/link.txt")).await.unwrap();
+        let mut resp = setup.svc.call(get_req("/link.txt")).await.unwrap();
         if resp.status().as_u16() == 200 {
-            let body = extract_body_bytes(&resp);
+            let body = extract_body_bytes(&mut resp);
             assert!(
                 body == b"real content" || body == b"replaced content",
                 "unexpected content: {:?}",
@@ -213,9 +213,9 @@ async fn race_directory_to_symlink_replacement() {
     fs::write(root.join("dir/file.txt"), "dir content").unwrap();
 
     // Serve file in directory
-    let resp = setup.svc.call(get_req("/dir/file.txt")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/dir/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&mut resp);
     assert_eq!(&body[..], b"dir content");
 
     // Replace directory with symlink to different location
@@ -226,9 +226,9 @@ async fn race_directory_to_symlink_replacement() {
     std::os::unix::fs::symlink(root.join("other"), root.join("dir")).unwrap();
 
     // Serve again
-    let resp = setup.svc.call(get_req("/dir/file.txt")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/dir/file.txt")).await.unwrap();
     if resp.status().as_u16() == 200 {
-        let body = extract_body_bytes(&resp);
+        let body = extract_body_bytes(&mut resp);
         assert!(
             body == b"dir content" || body == b"other content",
             "unexpected content: {:?}",
@@ -252,9 +252,9 @@ async fn race_parent_replacement() {
     fs::write(root.join("a/b/file.txt"), "nested content").unwrap();
 
     // Serve file
-    let resp = setup.svc.call(get_req("/a/b/file.txt")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/a/b/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&mut resp);
     assert_eq!(&body[..], b"nested content");
 
     // Replace parent directory
@@ -265,9 +265,9 @@ async fn race_parent_replacement() {
     std::os::unix::fs::symlink(root.join("x"), root.join("a")).unwrap();
 
     // Serve again
-    let resp = setup.svc.call(get_req("/a/b/file.txt")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/a/b/file.txt")).await.unwrap();
     if resp.status().as_u16() == 200 {
-        let body = extract_body_bytes(&resp);
+        let body = extract_body_bytes(&mut resp);
         assert!(
             body == b"nested content" || body == b"replaced content",
             "unexpected content: {:?}",
@@ -298,9 +298,9 @@ async fn race_root_pathname_replacement() {
     fs::write(new_root.path().join("file.txt"), "replaced").unwrap();
 
     // The old root should still work (pinned root)
-    let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
     if resp.status().as_u16() == 200 {
-        let body = extract_body_bytes(&resp);
+        let body = extract_body_bytes(&mut resp);
         assert_eq!(&body[..], b"original");
     }
 }
@@ -319,18 +319,18 @@ async fn race_index_replacement() {
     fs::write(root.join("dir/index.html"), "index v1").unwrap();
 
     // Serve directory index
-    let resp = setup.svc.call(get_req("/dir/")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/dir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&mut resp);
     assert!(body.windows(8).any(|w| w == b"index v1"));
 
     // Replace index
     fs::write(root.join("dir/index.html"), "index v2").unwrap();
 
     // Serve again
-    let resp = setup.svc.call(get_req("/dir/")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/dir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&mut resp);
     assert!(body.windows(8).any(|w| w == b"index v2"));
 }
 
@@ -405,7 +405,7 @@ async fn race_file_truncation_during_streaming() {
     fs::write(root.join("large.bin"), b"truncated").unwrap();
 
     // Try to read body (may fail or succeed, but must not panic)
-    let _ = async { Ok::<_, std::convert::Infallible>(resp.body().clone()) }.await;
+    let _ = async { Ok::<_, std::convert::Infallible>(resp.body()) }.await;
 }
 
 /// **Concurrent race stress.**
@@ -422,14 +422,14 @@ async fn race_file_replacement_during_streaming() {
     fs::write(root.join("data.bin"), b"original").unwrap();
 
     // Start streaming
-    let resp = setup.svc.call(get_req("/data.bin")).await.unwrap();
+    let mut resp = setup.svc.call(get_req("/data.bin")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
 
     // Replace file
     fs::write(root.join("data.bin"), b"replaced").unwrap();
 
     // Read body - should see either original or replaced, not mixed
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&mut resp);
     assert!(
         body == b"original" || body == b"replaced",
         "unexpected mixed content: {:?}",
@@ -504,10 +504,10 @@ async fn race_deletion_and_recreation() {
 
     // Delete and recreate while serving
     for i in 0..20 {
-        let resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
+        let mut resp = setup.svc.call(get_req("/file.txt")).await.unwrap();
 
         if resp.status().as_u16() == 200 {
-            let body = extract_body_bytes(&resp);
+            let body = extract_body_bytes(&mut resp);
             let content = String::from_utf8_lossy(&body).to_string();
             // Must see consistent content that was previously written
             assert!(
@@ -573,7 +573,7 @@ async fn race_concurrent_directory_listing() {
                     "unexpected status: {}",
                     resp.status().as_u16()
                 );
-                let _ = async { Ok::<_, std::convert::Infallible>(resp.body().clone()) }.await;
+                let _ = async { Ok::<_, std::convert::Infallible>(resp.body()) }.await;
             }
 
             // Modify directory
@@ -642,10 +642,10 @@ async fn race_outside_root_access() {
             .unwrap();
 
         // Try to serve through symlink - must fail
-        let resp = setup.svc.call(get_req("/escape.txt")).await.unwrap();
+        let mut resp = setup.svc.call(get_req("/escape.txt")).await.unwrap();
         // Should NOT return 200 with secret content
         if resp.status().as_u16() == 200 {
-            let body = extract_body_bytes(&resp);
+            let body = extract_body_bytes(&mut resp);
             assert_ne!(&body[..], b"secret", "must not serve outside-root content");
         }
     }
@@ -733,9 +733,9 @@ async fn concurrent_symlink_swap_stress() {
         reader_handles.push(thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..ITERS {
-                let resp = rt.block_on(svc.call(get_req("/target.txt"))).unwrap();
+                let mut resp = rt.block_on(svc.call(get_req("/target.txt"))).unwrap();
                 if resp.status().as_u16() == 200 {
-                    let body = extract_body_bytes(&resp);
+                    let body = extract_body_bytes(&mut resp);
                     if !body.is_empty() {
                         let body_str = String::from_utf8_lossy(&body);
                         if body_str.contains("LEAKED") {
@@ -801,12 +801,12 @@ async fn concurrent_symlink_swap_stress() {
 /// the descriptor-relative traversal invariant holds for intermediate path
 /// components under concurrent mutation.
 #[cfg(unix)]
-fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+fn extract_body_bytes(resp: &mut eggserve_core::primitives::canonical::Response) -> Vec<u8> {
     use eggserve_core::primitives::canonical::ResponseBody;
-    match resp.body() {
-        Some(ResponseBody::Bytes(b)) => b.clone(),
+    match resp.take_body() {
+        Some(ResponseBody::Bytes(b)) => b,
         Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
-        Some(ResponseBody::File(_)) => vec![],
+        Some(ResponseBody::File(mut source)) => source.read_all().unwrap_or_default(),
         None => vec![],
     }
 }
@@ -849,9 +849,9 @@ async fn concurrent_directory_swap_stress() {
         reader_handles.push(thread::spawn(move || {
             let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..ITERS {
-                let resp = rt.block_on(svc.call(get_req("/linkdir/file.txt"))).unwrap();
+                let mut resp = rt.block_on(svc.call(get_req("/linkdir/file.txt"))).unwrap();
                 if resp.status().as_u16() == 200 {
-                    let body = extract_body_bytes(&resp);
+                    let body = extract_body_bytes(&mut resp);
                     if !body.is_empty() {
                         let body_str = String::from_utf8_lossy(&body);
                         if body_str.contains("LEAKED") {

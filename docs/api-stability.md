@@ -39,7 +39,7 @@ Rust `HeaderMapPlan` and canonical Python `HeaderBlock` preserve insertion order
 
 ### Denial/error taxonomy variants
 
-`PathRejection`, `RequestValidationError`, `ClientError`, and `ResourceDeniedReason` variants are stable. Adding a new variant is a breaking change.
+`PathRejection`, `RequestValidationError`, and `ResourceDeniedReason` variants are stable. Adding a new variant is a breaking change.
 
 ### Serialization and repr output
 

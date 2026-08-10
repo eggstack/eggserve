@@ -22,7 +22,6 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
-| `client/` | `primitives/client/` | HTTP client primitives (feature-gated: `client`) |
 
 ## Public Types
 
@@ -399,5 +398,4 @@ assert!(err.to_string().contains("transfer-encoding"));
 - `--follow-symlinks` is weaker and outside the descriptor-relative guarantee
 - Python consumers must not reconstruct and reopen paths for static serving
 - Future Python server APIs must keep socket I/O, timeout enforcement, and file streaming in Rust
-- Future client APIs must verify TLS by default
 - Unsupported behavior fails closed or is explicitly out of contract

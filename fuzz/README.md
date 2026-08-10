@@ -13,7 +13,6 @@ Fuzz targets for eggserve's path confinement, request parsing, response planning
 | `range_header` | Range request parsing: suffix, open-ended, start-end, clamping, zero-size files |
 | `if_none_match` | ETag matching: weak/strong comparison, wildcard, comma-separated lists |
 | `platform_component` | Windows reserved names, drive prefixes, alternate data streams |
-| `url_parse` | Hand-rolled URL parser: scheme, host, port, path, authority, fragment stripping |
 | `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
 | `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine, one-shot enforcement |
@@ -31,7 +30,6 @@ cargo fuzz run validate_method
 cargo fuzz run range_header
 cargo fuzz run if_none_match
 cargo fuzz run platform_component
-cargo fuzz run url_parse
 cargo fuzz run fuzz_header_block
 cargo fuzz run fuzz_normalize_response
 cargo fuzz run fuzz_request_body
@@ -51,7 +49,6 @@ cargo fuzz run request_target -- -max_total_time=60
 - Accepted paths contain no NUL bytes
 - Percent decoder never double-decodes
 - No path component contains decoded NUL bytes
-- URL parser: scheme is http/https, host non-empty, path starts with `/`, no fragments
 - Range parser: satisfiable range within file size, start <= end, end < file_size
 - ETag matching: wildcard always matches, matching ETag returns true
 - Platform checks: drive prefix requires `X:` pattern, clean components pass

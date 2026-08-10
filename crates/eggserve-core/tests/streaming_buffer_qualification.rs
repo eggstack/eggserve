@@ -18,6 +18,7 @@ use eggserve_core::server::service::Service;
 use eggserve_core::server::StaticService;
 use std::net::SocketAddr;
 
+#[allow(dead_code)]
 fn extract_body_bytes_from_ref(
     body: &eggserve_core::primitives::canonical::ResponseBody,
 ) -> Vec<u8> {

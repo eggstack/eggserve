@@ -7,8 +7,8 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 34 files |
-| Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 3 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 31 files |
+| Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 4 files |
 | Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
 | Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
 | Python subprocess API | `crates/eggserve-python/tests/test_server.py` | CLI subprocess lifecycle | current suite |
@@ -43,11 +43,8 @@ The installed-wheel script is the authoritative Python test entry point; its cou
 | `request_body_wire.rs` | — | Wire-level body tests: fixed-length, chunked, over-limit, method rejection |
 | `request_body_timeout_interaction.rs` | — | Body timeout + handler timeout interaction |
 | `request_body_cancellation.rs` | — | Body cancellation and disconnect handling |
-| `request_body_tls.rs` | `client-tls` | Body handling over TLS connections |
+| `request_body_tls.rs` | `tls` | Body handling over TLS connections |
 | `body_properties.rs` | — | BodySource properties and invariants |
-| `client_integration.rs` | `client` | 23 tests: GET/HEAD/POST/PUT/DELETE/PATCH, timeouts, TLS, validation |
-| `client_interop.rs` | `client` | 48 tests: edge cases, chunked bodies, duplicate headers, premature EOF |
-| `client_tls.rs` | `client-tls` | 7 tests: TLS verification, self-signed certs, verify_tls bypass |
 | `tls_service_parity.rs` | `tls` | TLS + non-TLS behavioral parity |
 | `server_integration.rs` | — | Server lifecycle, Service trait, StaticService |
 | `lifecycle_integration.rs` | — | Lifecycle state machine: Created→Running→Draining→Stopped |
@@ -102,7 +99,7 @@ repository root.
 
 ## Fuzzing
 
-### Fuzz Targets (12)
+### Fuzz Targets (11)
 
 | Target | What it fuzzes |
 |--------|---------------|
@@ -121,7 +118,7 @@ repository root.
 
 ### Seed Corpora
 
-12 corpus directories under `fuzz/corpus/` providing initial inputs for each fuzz target. Coverage includes canonical HTTP types, response normalization, request body, header operations, method validation, and content-length reconciliation.
+11 corpus directories under `fuzz/corpus/` providing initial inputs for each fuzz target. Coverage includes canonical HTTP types, response normalization, request body, header operations, method validation, and content-length reconciliation.
 
 ### CI Integration
 
@@ -146,7 +143,6 @@ cargo test --workspace                                        # all unit + integ
 cargo test -p eggserve-core --test http_wire_correctness      # raw wire tests
 cargo test -p eggserve-core --test canonical_conformance      # canonical type conformance
 cargo test -p eggserve-core --test corpus_replay              # fuzz corpus replay
-cargo test -p eggserve-core --features client                 # client feature tests
 cargo test -p eggserve-bin --features tls                     # TLS tests
 cargo test -p eggserve-bin --test production_path             # production path tests
 ```

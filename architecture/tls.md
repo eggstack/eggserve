@@ -7,7 +7,6 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 | Feature | Crate | Purpose |
 |---------|-------|---------|
 | `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
-| `client-tls` | `eggserve-core` | Client TLS via rustls/webpki-roots |
 
 ## Dependencies
 
@@ -16,10 +15,6 @@ When `tls` is enabled:
 - `rustls` — TLS implementation
 - `tokio-rustls` — Async TLS integration with tokio
 - `rustls-pemfile` — PEM file parsing
-
-When `client-tls` is enabled:
-
-- `webpki-roots` — Mozilla's root certificates for client TLS
 
 ## Server TLS
 
@@ -107,33 +102,6 @@ Both accept `certfile` and `keyfile` keyword arguments.
 
 eggserve supports HTTP/1.1 ALPN only. The TLS configuration does not negotiate HTTP/2. This is intentional — eggserve is an HTTP/1.1 server.
 
-## Client TLS
-
-**Feature gate:** `client-tls`
-
-When enabled, the HTTP client primitives support HTTPS connections via rustls with Mozilla's root certificates (from `webpki-roots`).
-
-### Usage
-
-```rust
-use eggserve_core::primitives::client::{ClientConfig, HttpClient};
-
-let config = ClientConfig::builder()
-    .with_tls()
-    .build();
-
-let client = HttpClient::new(config);
-```
-
-### Certificate Verification
-
-Client TLS uses the default rustls certificate verification:
-- Mozilla's root CA bundle (via `webpki-roots`)
-- Standard certificate chain verification
-- Hostname verification
-
-No custom certificate stores or pinning are supported.
-
 ## Security Considerations
 
 ### What TLS Protects
@@ -144,7 +112,6 @@ No custom certificate stores or pinning are supported.
 
 ### What TLS Does Not Protect
 
-- Does not protect against active MITM (unless client verifies certificates)
 - Does not provide end-to-end encryption (reverse proxies terminate TLS)
 - Does not protect against application-level attacks
 
@@ -163,10 +130,9 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 1. **HTTP/1.1 only** — No HTTP/2 ALPN negotiation
 2. **No OCSP stapling** — Not implemented
 3. **No certificate management** — No ACME, no automatic renewal
-4. **No client certificates** — Server does not request client certs
-5. **No custom trust stores** — Uses Mozilla's root bundle only
-6. **No TLS session tickets** — Not configured by default
-7. **No TLS 1.3 only mode** — Uses rustls defaults (TLS 1.2 + 1.3)
+4. **No custom trust stores** — Uses Mozilla's root bundle only
+5. **No TLS session tickets** — Not configured by default
+6. **No TLS 1.3 only mode** — Uses rustls defaults (TLS 1.2 + 1.3)
 
 ## Platform Support
 

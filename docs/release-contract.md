@@ -400,7 +400,7 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 - **Enum variants** — Stable enum variants are exhaustive unless documented otherwise. Adding a new variant to a stable enum is a breaking change.
 - **Exception classes** — Python exception classes and field names are stable. Message strings are not stable.
 - **Header ordering** — Rust `HeaderMapPlan` preserves order and duplicates (stable). Python `Response.headers` uses `HashMap` and does not preserve duplicates (known limitation).
-- **Error taxonomy** — `PathRejection`, `RequestValidationError`, `ClientError`, and `ResourceDeniedReason` variants are stable.
+- **Error taxonomy** — `PathRejection`, `RequestValidationError`, and `ResourceDeniedReason` variants are stable.
 - **Serialization** — `Debug`, `Display`, and Python `repr()` output are not stable unless documented.
 - **Deprecation** — Deprecated stable items remain functional for at least one minor release after announcement.
 

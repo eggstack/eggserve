@@ -318,7 +318,6 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    use eggserve_core::config::ServeConfig;
     use eggserve_core::server::{RuntimeConfig, Server, StaticService};
     use std::time::Duration;
     use tempfile::TempDir;
