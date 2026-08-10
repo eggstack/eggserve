@@ -265,11 +265,7 @@ checksum = "92773504d58c093f6de2459af4af33faa518c13451eb8f2b5698ed3d36e7c813"
 name = "eggserve-bin"
 version = "0.1.0"
 dependencies = [
- "bytes",
  "eggserve-core",
- "http-body-util",
- "hyper",
- "hyper-util",
  "rustls",
  "rustls-pemfile",
  "tempfile",

@@ -68,6 +68,23 @@ TLS `dist` CLI has SHA-256
 Linux CPython 3.14 wheel has SHA-256
 `8502e5e8f4961920a40f1d13955d7cfc75a7bac797033ec169da0c222ac40d40`.
 
+## Plan 114 — Dependency and Artifact Slimming
+
+Plan 114 removed unused direct dependencies from `eggserve-bin` (`hyper`,
+`hyper-util`, `http-body-util`, `bytes`) and from `eggserve-python` (`hyper`,
+`hyper-util`, `http-body-util`, `bytes`, `futures-util`). These were manifest
+declarations that no source code imported; the actual linked code was unchanged.
+Artifact sizes before and after are identical within compiler noise:
+
+| Artifact | Before (bytes) | After (bytes) |
+|----------|---------------:|--------------:|
+| Default CLI (dist) | 856,920 | 856,920 |
+| TLS CLI (dist) | 1,218,048 | 1,218,032 |
+
+The TLS delta (−16 bytes) is within ordinary linker noise. The primary outcome
+is manifest correctness: every remaining direct dependency has an active
+source-level reason.
+
 ## Reproduction commands
 
 Because the default and TLS builds produce the same target filenames

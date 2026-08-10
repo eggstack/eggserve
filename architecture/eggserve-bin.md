@@ -123,12 +123,8 @@ Behind the `tls` feature flag. Uses `rustls` + `tokio-rustls`.
 
 | Dependency | Purpose |
 |------------|---------|
-| `eggserve-core` | Request handling, config, policy |
+| `eggserve-core` | Request handling, config, policy, HTTP serving |
 | `tokio` | Async runtime |
-| `hyper` | HTTP/1.1 server |
-| `hyper-util` | Tokio integration |
-| `http-body-util` | Body types |
-| `bytes` | Buffer types |
 | `rustls` (optional) | TLS implementation |
 | `tokio-rustls` (optional) | Async TLS |
 | `rustls-pemfile` (optional) | PEM parsing |

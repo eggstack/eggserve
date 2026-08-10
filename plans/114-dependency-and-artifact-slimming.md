@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED.**
+**COMPLETE.**
 
 Depends on Plan 113's product-surface decisions. Execute measurements against the post-113 tree.
 

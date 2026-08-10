@@ -115,7 +115,7 @@ The version is defined in three places and must be kept in sync:
 
 The Python package has **no Python dependencies**. The only requirement is the platform-specific wheel containing the Rust binary.
 
-The Rust binary depends on: `tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`, `futures-util`, `httpdate`, `phf`, `thiserror` — all compiled in.
+The Rust binary depends on: `eggserve-core`, `tokio`, `rustls` — all compiled in. HTTP serving, body handling, and filesystem confinement are provided by `eggserve-core`.
 
 ## Packaging Smoke Tests
 
