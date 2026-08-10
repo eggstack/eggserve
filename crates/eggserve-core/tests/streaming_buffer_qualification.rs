@@ -30,12 +30,32 @@ fn extract_body_bytes_from_ref(
     }
 }
 
-fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+async fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+    use eggserve_core::primitives::body::BodySource;
     use eggserve_core::primitives::canonical::ResponseBody;
+    use std::io::{Read, Seek, SeekFrom};
     match resp.body() {
         Some(ResponseBody::Bytes(b)) => b.clone(),
         Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
-        Some(ResponseBody::File(_)) => vec![],
+        Some(ResponseBody::File(source)) => match source {
+            BodySource::FileFull { file, len, .. } => {
+                let mut buf = vec![0u8; *len as usize];
+                let mut f = file.try_clone().expect("clone file handle");
+                f.read_exact(&mut buf).expect("read full file");
+                buf
+            }
+            BodySource::FileRange { file, range, .. } => {
+                let len = (range.end_inclusive - range.start + 1) as usize;
+                let mut buf = vec![0u8; len];
+                let mut f = file.try_clone().expect("clone file handle");
+                f.seek(SeekFrom::Start(range.start))
+                    .expect("seek to range start");
+                f.read_exact(&mut buf).expect("read range");
+                buf
+            }
+            BodySource::Empty => vec![],
+            BodySource::Bytes(b) => b.clone(),
+        },
         None => vec![],
     }
 }
@@ -94,7 +114,7 @@ async fn exact_range_first_byte() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(body.len(), 1);
     assert_eq!(body[0], 0);
 }
@@ -108,7 +128,7 @@ async fn exact_range_last_byte() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(body.len(), 1);
     assert_eq!(body[0], 7);
 }
@@ -127,7 +147,7 @@ async fn exact_range_full_file() {
         resp.headers().get_first("content-range").unwrap().as_str(),
         "bytes 0-255/256"
     );
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(&body[..], &data[..]);
 }
 
@@ -143,7 +163,7 @@ async fn exact_range_cross_chunk_boundary() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     // Range 8100-8299 clamped to 8100-8291 on 8292-byte file = 192 bytes
     assert_eq!(body.len(), 192);
     assert_eq!(&body[..], &data[8100..8292]);
@@ -159,7 +179,7 @@ async fn exact_range_at_chunk_boundary_start() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(body.len(), 200);
     assert_eq!(&body[..], &data[8192..8392]);
 }
@@ -174,7 +194,7 @@ async fn zero_length_file_full() {
         resp.headers().get_first("content-length").unwrap().as_str(),
         "0"
     );
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert!(body.is_empty());
 }
 
@@ -208,7 +228,7 @@ async fn small_file_range_1byte() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(&body[..], b"X");
 }
 
@@ -223,13 +243,13 @@ async fn buffer_isolation_between_requests() {
         .call(get_req_with_header("/data.bin", "range", "bytes=100-199"))
         .await
         .unwrap();
-    let body1 = extract_body_bytes(&resp1);
+    let body1 = extract_body_bytes(&resp1).await;
 
     let resp2 = svc
         .call(get_req_with_header("/data.bin", "range", "bytes=200-299"))
         .await
         .unwrap();
-    let body2 = extract_body_bytes(&resp2);
+    let body2 = extract_body_bytes(&resp2).await;
 
     assert_eq!(&body1[..], &data[100..200]);
     assert_eq!(&body2[..], &data[200..300]);
@@ -251,7 +271,7 @@ async fn suffix_range_exact_boundary() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(body.len(), 10);
     assert_eq!(&body[..], &data[91..101]);
 }
@@ -266,7 +286,7 @@ async fn open_ended_range_exact() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(body.len(), 6);
     assert_eq!(&body[..], &data[95..101]);
 }
@@ -304,7 +324,7 @@ async fn multiple_sequential_range_requests_same_connection() {
             .await
             .unwrap();
         assert_eq!(resp.status().as_u16(), 206);
-        let body = extract_body_bytes(&resp);
+        let body = extract_body_bytes(&resp).await;
         let expected_len = end - offset + 1;
         assert_eq!(body.len(), expected_len as usize);
         assert_eq!(&body[..], &data[offset as usize..=end as usize]);
@@ -328,7 +348,7 @@ async fn large_file_range_preserves_exact_content() {
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
-    let body = extract_body_bytes(&resp);
+    let body = extract_body_bytes(&resp).await;
     assert_eq!(body.len(), 1000);
     assert_eq!(&body[..], &data[100000..101000]);
 }
