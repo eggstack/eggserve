@@ -70,7 +70,7 @@ HEAD responses do not consume a file-stream permit.
 ## Installation
 
 ```sh
-# Via Python wheel (CPython 3.14 on Linux, macOS, or Windows)
+# Via Python wheel (CPython 3.11+ on Linux, macOS, or Windows)
 pip install eggserve
 
 # Or run directly with pipx

@@ -40,14 +40,16 @@ Other targets may compile but are not tested in CI and are not supported.
 
 | Implementation | Status |
 |----------------|--------|
-| CPython 3.14 (`>=3.14, <3.15`) | Supported |
-| CPython < 3.14 | Unsupported |
+| CPython 3.11+ (`>=3.11`) | Supported (abi3 stable ABI) |
+| CPython < 3.11 | Unsupported |
 | PyPy | Unsupported |
 | Free-threaded CPython (3.13t, 3.14t) | Unsupported |
 
 ### ABI
 
-eggserve does not currently use Python stable ABI (`abi3`). Each minor Python version produces a separate extension module. ABI3 support is planned for a future release.
+eggserve uses the Python stable ABI (`abi3`). One abi3 wheel per OS/architecture
+serves all supported CPython minor versions (3.11+). The minimum supported
+version is CPython 3.11.
 
 ### Build System
 
@@ -89,6 +91,6 @@ See [security-policy.md](security-policy.md) and [non-goals.md](non-goals.md) fo
 | Tool | Required Version | Purpose |
 |------|-----------------|---------|
 | Rust stable | Current stable | Building all crates, running tests |
-| Python | 3.14 | Wheel builds, Python tests |
+| Python | 3.11+ (abi3 wheel) | Wheel builds, Python tests |
 | maturin | `>=1.0, <2.0` | Python wheel builds |
 | bash | Any POSIX-compatible | CI and local scripts (`scripts/`) |

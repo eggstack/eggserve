@@ -56,7 +56,7 @@ See [docs/python-api.md](python-api.md) for the full API reference.
 ### Prerequisites
 
 - Rust toolchain (stable)
-- CPython 3.14 only (`>=3.14,<3.15`); PyPy and free-threaded builds are not supported
+- CPython 3.11+ with abi3 stable ABI (`>=3.11`); PyPy and free-threaded builds are not supported
 - maturin: `pip install maturin`
 
 ### Build a wheel
@@ -70,7 +70,7 @@ mkdir -p crates/eggserve-python/python/eggserve/bin
 cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
 chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --profile dist --interpreter python3.14 -o dist
+maturin build --profile dist --interpreter python3.11 -o dist
 ```
 
 This produces a platform-specific wheel in `target/wheels/`.
@@ -91,7 +91,8 @@ The wheel is platform-specific because it contains a native binary. maturin auto
 - **Architecture**: x86_64, aarch64, arm64 (Apple Silicon)
 
 Routine CI builds and tests the Linux wheel with CPython 3.14. macOS and
-Windows wheels are built and tested manually. The wheel smoke suite runs
+Windows wheels are built and tested manually. The abi3 wheel is compatible
+with CPython 3.11+. The wheel smoke suite runs
 outside the checkout with `PYTHONPATH` unset and requires the bundled CLI
 to be found.
 
@@ -136,7 +137,7 @@ mkdir -p crates/eggserve-python/python/eggserve/bin
 cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
 chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
-maturin build --profile dist --interpreter python3.14 -o dist
+maturin build --profile dist --interpreter python3.11 -o dist
 cd packaging-tests
 bash run_all.sh ../dist/*.whl python3.14
 ```

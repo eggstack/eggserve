@@ -124,4 +124,4 @@ python -m eggserve --help
   guarantee.
 - **HTTP/2, redirects, retries, cookies, proxy, and multi-range responses**:
   outside scope. HTTP/1.1 with single byte ranges only.
-- **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`).
+- **Python wheels**: CPython 3.11+ with abi3 stable ABI (`>=3.11`).

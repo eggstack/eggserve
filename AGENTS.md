@@ -104,7 +104,7 @@ Routine CI is a small regression screen, not release certification:
 - **Manual argument parsing** in `args.rs` — no clap dependency.
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
-- **Python wheels**: CPython 3.14 only (`>=3.14,<3.15`). Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel bundles the platform-native CLI binary.
+- **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel bundles the platform-native CLI binary.
 - **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`.

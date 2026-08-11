@@ -9,8 +9,8 @@ built-in static service rejects body-bearing requests, while custom services may
 declare buffering or streaming for the actual method. The runtime owns one
 server-wide file-stream admission pool and closes incomplete streamed requests.
 
-The Python wheel compatibility declaration is CPython 3.14 only
-(`>=3.14,<3.15`) on Linux, macOS, and Windows. The wheel bundles the matching
+The Python wheel compatibility declaration is CPython 3.11+ with abi3 stable ABI
+(`>=3.11`) on Linux, macOS, and Windows. The wheel bundles the matching
 platform-native CLI binary; PyPy and free-threaded CPython are not supported.
 
 ## Release Artifacts

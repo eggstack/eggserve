@@ -2,9 +2,9 @@
 
 ## Status
 
-**PLANNED.**
+**COMPLETE.**
 
-Depends on Plans 113–116. In particular, execute after the Python client/orphan-surface decision and dependency cleanup so this plan does not optimize packaging around code that should be removed.
+See implementation details below.
 
 ---
 

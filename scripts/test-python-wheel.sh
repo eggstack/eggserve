@@ -7,6 +7,8 @@
 
 set -euo pipefail
 
+# PyO3 0.24 does not officially support CPython 3.14; forward compatibility
+# allows building abi3 wheels against 3.14 using the stable ABI.
 export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
@@ -51,9 +53,8 @@ command -v "$PYTHON" >/dev/null 2>&1 || die "$PYTHON not found."
 "$PYTHON" -c "
 import sys
 v = sys.version_info
-assert v >= (3, 14), f'Python {v.major}.{v.minor} < 3.14'
-assert v < (3, 15), f'Python {v.major}.{v.minor}.{v.micro} >= 3.15 (package requires <3.15)'
-" || die "Python >=3.14,<3.15 required."
+assert v >= (3, 11), f'Python {v.major}.{v.minor} < 3.11'
+" || die "Python >=3.11 required."
 "$PYTHON" -m maturin --version >/dev/null 2>&1 || die "maturin not found. Install: pip install maturin==1.14.1"
 command -v cargo >/dev/null 2>&1 || die "cargo not found."
 

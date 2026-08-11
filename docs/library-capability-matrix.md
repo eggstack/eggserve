@@ -108,7 +108,7 @@ platform-limited as noted.
   awaiting independent safety review. Windows is functional-only. Do not use
   with untrusted public content on Windows until independent adversarial review is completed.
 
-- **Python wheels** are CPython 3.14 only (`>=3.14,<3.15`) on the Linux,
+- **Python wheels** are CPython 3.11+ with abi3 stable ABI (`>=3.11`) on the Linux,
   macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI
   binary.
 
