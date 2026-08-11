@@ -11,7 +11,6 @@ The core library crate. Contains all security-critical logic: path confinement, 
 | `policy.rs` | **pub** | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
 | `limits.rs` | **pub** | `Limits` — connection count, file streams, header/target/body sizes, timeouts |
 
-| `error.rs` | pub(crate) | `Error` enum taxonomy |
 | `path/` | pub(crate) | Path confinement pipeline |
 | `fs/` | pub(crate) | Filesystem confinement |
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing HTML, error responses) |
@@ -66,21 +65,6 @@ Resource limits with safe defaults:
 | `header_read_timeout` | 10s | Time to read full request headers |
 | `connection_total_timeout` | 60s | Total connection lifetime timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
-
-### Error Taxonomy (`error.rs`)
-
-```rust
-pub enum Error {
-    PathEscape,
-    PathNotAccessible(String),
-    Config(String),
-    Bind(String),
-    Runtime(String),
-    RequestRejected(String),
-    ResponseConstruction(ResponseConstructionError),
-    Io(std::io::Error),
-}
-```
 
 ## Server Module (`server/`)
 

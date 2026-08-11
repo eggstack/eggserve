@@ -26,7 +26,6 @@
 //! `docs/release-process.md` for the manual release procedure.
 
 pub mod config;
-pub(crate) mod error;
 pub(crate) mod fs;
 pub mod limits;
 pub(crate) mod mime;

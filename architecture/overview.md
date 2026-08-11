@@ -62,7 +62,7 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 |----------|--------|
 | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines/text output, operational counters, sanitized fields, log sink types |
 | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — full field inventory, ownership model, CLI/Python/Rust convergence |
-| [error-taxonomy.md](error-taxonomy.md) | 6 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
+| [error-taxonomy.md](error-taxonomy.md) | 5 error layers — `PathRejection`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
 
 ### Quality and Process
 
@@ -162,7 +162,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 |-----------|----------|-----------|--------------|
 | Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines output, operational counters, sanitized fields |
 | Configuration model | cross-cutting | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — field inventory, ownership model, CLI/Python/Rust convergence |
-| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 6 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
+| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 5 error layers — `PathRejection`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
 | TLS support | `eggserve-core::tls` | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS#1/8/SEC1 key formats, feature-gated |
 
 ### Testing and Quality
@@ -297,7 +297,6 @@ CLI flags / Python params / Rust structs
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` | Stable-ish |
 | `limits.rs` | **pub** | `Limits` — connections, streams, timeouts | Stable-ish |
 | `policy.rs` | **pub** | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy` | Stable-ish |
-| `error.rs` | pub(crate) | `Error` enum taxonomy | Internal |
 | `path/` | pub(crate) | Path confinement pipeline (7 submodules) | Internal |
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing, error responses) | Internal |
@@ -311,12 +310,11 @@ CLI flags / Python params / Rust structs
 
 ## Error Taxonomy
 
-Six distinct error layers, each scoped to a specific subsystem:
+Five distinct error layers, each scoped to a specific subsystem:
 
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
 | `PathRejection` | Path parsing | 16 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
-| `Error` | Top-level crate | `PathEscape`, `PathNotAccessible`, `Config`, `Bind`, `Runtime`, `RequestRejected`, `ResponseConstruction`, `Io` |
 | `RequestValidationError` | HTTP-level | `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding` |
 | `ServerError` | Server lifecycle | `Bind`, `Config`, `AlreadyStarted`, `Accept`, `TlsSetup`, `ShutdownTimeout`, `Startup`, `Terminal` |
 | `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
@@ -331,7 +329,7 @@ Six distinct error layers, each scoped to a specific subsystem:
 | **Stable** | `primitives` (facade), all `primitives::*` submodules | Intended public boundary for embedding consumers |
 | **Stable-ish** | `config`, `limits`, `policy`, `ops` | Field shapes may evolve before 1.0 |
 | **Experimental** | `server` (all types) | API may change without notice |
-| **Internal** | `fs`, `path`, `response`, `mime`, `error` | `pub(crate)` — not part of public API |
+| **Internal** | `fs`, `path`, `response`, `mime` | `pub(crate)` — not part of public API |
 
 ---
 

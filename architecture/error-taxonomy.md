@@ -1,13 +1,12 @@
 # Error Taxonomy Deep Dive
 
-eggserve uses six distinct error layers, each scoped to a specific subsystem. This separation ensures that errors carry precise context and map cleanly to HTTP responses without leaking internal details.
+eggserve uses five distinct error layers, each scoped to a specific subsystem. This separation ensures that errors carry precise context and map cleanly to HTTP responses without leaking internal details.
 
 ## Error Layers Overview
 
 | Layer | Type | Scope | Variants |
 |-------|------|-------|----------|
 | Path parsing | `PathRejection` | Request target validation | 16 |
-| Top-level crate | `Error` | General eggserve operations | 8 |
 | HTTP-level | `RequestValidationError` | Request framing and method | 6 |
 | Server lifecycle | `ServerError` | Startup, bind, shutdown | 10 |
 | Per-request | `ServiceError` | Service handler failures | 4 (kinds) |
@@ -41,30 +40,6 @@ Returned by the 6-stage path validation pipeline when a request target fails any
 | `RootEscapeDenied` | Canonical path escapes root | Symlink to `/etc` |
 
 **HTTP mapping:** All path rejections produce 404 (Not Found) or 403 (Forbidden) responses. The rejection reason is logged but never exposed to the client.
-
----
-
-## `Error` — Top-Level Crate Error
-
-**Location:** `eggserve-core::error`
-
-The general-purpose error type for eggserve-core operations. Wraps lower-level errors and provides a unified error surface.
-
-| Variant | Meaning | Source |
-|---------|---------|--------|
-| `PathEscape` | Path escapes configured root | `PathRejection` conversion |
-| `PathNotAccessible(String)` | Path is not accessible | Filesystem errors |
-| `Config(String)` | Configuration error | Invalid config values |
-| `Bind(String)` | Bind error | Address parsing/binding |
-| `Runtime(String)` | Runtime error | General runtime failures |
-| `RequestRejected(String)` | Request was rejected | `PathRejection` → `Error` |
-| `ResponseConstruction` | Response construction failed | `ResponseConstructionError` |
-| `Io` | I/O error | `std::io::Error` |
-
-**Conversions:**
-- `PathRejection` → `Error::RequestRejected`
-- `ResponseConstructionError` → `Error::ResponseConstruction`
-- `std::io::Error` → `Error::Io`
 
 ---
 
@@ -173,7 +148,7 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 ## Error Conversion Flow
 
 ```
-PathRejection ──→ Error::RequestRejected ──→ 404/403
+PathRejection ──→ 404/403
 RequestValidationError ──→ 400/405/413
 ServerError ──→ process exit (startup) or log (runtime)
 ServiceError ──→ 500/504

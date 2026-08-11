@@ -54,7 +54,6 @@ Modules:
 | `policy.rs` | `pub` | Security policy types (`StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`). `PolicyMode` is crate-private. |
 | `limits.rs` | `pub` | Resource limits (`Limits`: connection count, file streams, header/target/body sizes, timeouts, graceful shutdown) |
 | `service.rs` | `pub` (deprecated/experimental) | Explicit-context compatibility adapter delegating to `StaticService`; body type is crate-private. |
-| `error.rs` | `pub(crate)` | Error taxonomy (`RequestRejected`, `Io`) |
 | `tls.rs` | `pub` | Optional TLS support (PEM loading, rustls integration; feature-gated) |
 | `path/` | `pub(crate)` | Path confinement: request-target parsing, percent decoding, component validation, rejection types, dotfile/symlink policy, platform-specific checks |
 | `path/mod.rs` | `pub(crate)` | `ConfinedPath` entry point — parse, validate, and classify request targets |

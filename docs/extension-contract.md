@@ -171,7 +171,6 @@ The following modules are internal implementation details. They may change witho
 - `path` — path parsing internals (decoding, normalization, component validation, platform checks)
 - `response` — response construction internals (file streaming, directory listing HTML, error responses)
 - MIME type detection (`mime` module) — extension-to-type mapping, `octet-stream` fallback
-- Error taxonomy (`error` module) — `Config`, `Bind`, `Runtime`, `RequestRejected`, `Io` variants
 
 The only public path into these types is through the `primitives` facade. If a type is not re-exported in `primitives`, it is not part of the stable contract.
 

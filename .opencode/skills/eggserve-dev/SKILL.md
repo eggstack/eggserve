@@ -69,7 +69,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **eggserve-python excluded from workspace** — has its own Cargo.lock, built via maturin. Don't run `cargo test --workspace` for Python crate.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
-- **Error taxonomy** — Six distinct error types: `PathRejection` (16 variants, path validation), `Error` (8 variants: `PathEscape`, `PathNotAccessible(String)`, `Config(String)`, `Bind(String)`, `Runtime(String)`, `RequestRejected(String)`, `ResponseConstruction`, `Io`), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
+- **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
 - **Plan status** — Plan 108 is historical; verified Plan 109 closed final admission ownership, exact Stream wire proof, build-time static-service consumption, and corrected distribution evidence. Plan 111 completed final documentation polish. The pre-runtime `service` module is a deprecated delegating compatibility adapter requiring an explicit runtime context; production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
@@ -98,7 +98,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
 - `configuration.md` — configuration inventory, ownership model, field inventory
 - `structured-logging.md` — event model, event kinds, operational counters, log sinks
-- `error-taxonomy.md` — six error layers, variant inventory, conversion flow
+- `error-taxonomy.md` — five error layers, variant inventory, conversion flow
 - `tls.md` — TLS support, feature gates, PEM loading
 - `adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `adr-003-custom-service-ownership.md` — custom service ownership model
@@ -109,7 +109,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - Range requests ARE implemented (despite some docs saying otherwise)
 - `clap` was removed — manual arg parsing in `args.rs`
 - `tracing` was never added — logging is custom
-- Error taxonomy: `PathEscape` is a unit variant, `PathNotAccessible(String)` takes a string, `Config(String)` takes a string, `Bind(String)` takes a string, `Runtime(String)` takes a string, `RequestRejected(String)` takes a string, `ResponseConstruction` wraps `ResponseConstructionError`, `Io` wraps `std::io::Error`
+- Error taxonomy: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level), `ServerError` (10 variants, lifecycle), `ServiceError` (4 kinds), `RequestBodyError` (12 variants, body consumption)
 - `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`
 - `ResponseStatus` is a struct with associated constants, not an enum
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
