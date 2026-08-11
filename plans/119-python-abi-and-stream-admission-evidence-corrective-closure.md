@@ -783,3 +783,89 @@ Execute in this order:
 Do not begin documentation closure before the ABI and runtime-admission evidence is real.
 
 The expected implementation is small. If it expands into a broad refactor, stop and reassess against the non-goals above.
+
+---
+
+# Closure evidence
+
+## Implementation commit
+
+```
+c4f0dbb2e8bc51340cd7393ab0ebdc1dbe0ecd86
+```
+
+## PyO3 feature
+
+```
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py311"] }
+```
+
+## Wheel artifact
+
+```
+filename:  eggserve-0.1.0-cp311-abi3-manylinux_2_34_x86_64.whl
+SHA-256:   b6a26099d2d8a32892fe6239dafb22084f44859dd1448ad4ab2872fa6d11e073
+abi3 tag:  cp311-abi3 (CPython 3.11 stable ABI floor)
+platform:  manylinux_2_34_x86_64
+```
+
+## Build environment
+
+```
+CPython (build host):  3.14.6
+maturin:               1.14.1
+PyO3:                  0.24
+platform:              x86_64-unknown-linux-gnu
+PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1 retained for 3.14 build-host compat
+```
+
+## Installed-wheel verification
+
+| Interpreter | Version | Import | CLI | Full test suite | Result |
+|---|---|---|---|---|---|
+| CPython 3.11 | 3.11.15 | pass | pass | 681 passed | pass |
+| CPython 3.14 | 3.14.6 | pass | pass | 681 passed | pass |
+
+Same wheel artifact installed into both isolated venvs. No source-tree import.
+
+## Runtime admission tests
+
+```
+server_integration::client_disconnect_releases_file_stream_permits   — pass (live-socket, RuntimeConfig.max_file_streams=1)
+server_integration::runtime_file_admission_is_shared_across_connections — pass (live-socket, saturation maps to 503)
+server_integration::custom_service_file_stream_saturation_maps_503_and_recovers — pass
+```
+
+## Deleted invalid/temporary files
+
+```
+removed from streaming_buffer_qualification.rs:
+  - client_disconnect_releases_stream_permits  (service-layer, wrong semaphore boundary)
+  - forced_shutdown_releases_stream_permits    (service-layer, wrong semaphore boundary)
+  - concurrent_stream_exhaustion_returns_503   (service-layer, false positive)
+
+deleted:
+  - plans/plan115-inventory.md  (temporary working inventory, Plan 115 self-required deletion)
+```
+
+## Routine + TLS verification
+
+```
+cargo fmt --all -- --check                                     — pass
+cargo clippy --workspace --lib --bins --tests -- -D warnings   — pass
+cargo test --workspace                                         — 1353 passed, 9 ignored
+cargo clippy -p eggserve-bin --features tls -- -D warnings     — pass
+cargo test -p eggserve-bin --features tls                      — 88 passed
+PYTHON=python3.14 bash scripts/test-python-wheel.sh            — 681 passed
+GitHub Actions CI (rust + python jobs)                         — pass on c4f0dbb
+```
+
+## Documentation changes
+
+```
+SECURITY.md                  — corrected platform-testing claims
+architecture/eggserve-python.md — clarified "default CPython 3.14 build host"
+docs/toolchain-support.md    — updated PyO3 feature description to abi3-py311
+plans/117-...cleanup.md      — post-closure correction note appended
+plans/118-...closure.md      — post-closure correction note appended
+```
