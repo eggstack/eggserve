@@ -162,12 +162,6 @@ The following types are in the stable tier. They are safe to build on; breaking 
 | `BodySource` | `primitives::body` |
 | `BodyKind` | `primitives::body` |
 | `BodySourceError` | `primitives::body` |
-| `HttpClient` | `primitives::client` (feature-gated: `client`) |
-| `ClientConfig` | `primitives::client` (feature-gated: `client`) |
-| `ClientRequest` | `primitives::client` (feature-gated: `client`) |
-| `ClientRequestBuilder` | `primitives::client` (feature-gated: `client`) |
-| `ClientResponse` | `primitives::client` (feature-gated: `client`) |
-| `ClientError` | `primitives::client` (feature-gated: `client`) |
 
 ## Which modules are internal and must not be depended on
 

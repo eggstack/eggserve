@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED.**
+**COMPLETE.**
 
 Depends on Plan 112. Prefer executing after Plan 113 so removed product surfaces are not preserved by verification infrastructure.
 

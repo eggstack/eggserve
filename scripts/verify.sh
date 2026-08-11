@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# verify.sh — Local verification for eggserve (Plan 106)
+# verify.sh — Local verification for eggserve (Plans 106, 115)
 #
 # Modes:
 #   fast   Routine dev: format, clippy (lib/bins/tests), workspace tests
-#   full   Pre-release: fast + TLS/client features, Python wheel, package dry-run
+#   full   Pre-release: fast + TLS feature tests, Python wheel, package dry-run
 #   deep   Expensive suites: full + corpus replay, fault injection, races, TLS abuse
 
 readonly SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -58,8 +58,7 @@ cmd_full() {
   header "Full validation"
   cmd_fast
 
-  header "Feature tests"
-  run cargo test -p eggserve-core --features client-tls
+  header "TLS feature tests"
   run cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
   run cargo test -p eggserve-bin --features tls
 
@@ -86,10 +85,9 @@ cmd_deep() {
 
   header "Expensive suites"
 
-  # Corpus replay (needs client feature for some tests)
+  # Corpus replay
   if [ -d "$REPO_ROOT/fuzz/corpus" ]; then
     run cargo test -p eggserve-core --test corpus_replay
-    run cargo test -p eggserve-core --test corpus_replay --features client
   else
     info "No fuzz/corpus directory — skipping corpus replay"
   fi
@@ -126,7 +124,7 @@ Usage: $0 <mode>
 
 Modes:
   fast   Format, clippy, workspace tests
-  full   Fast + TLS/client features, Python wheel, package dry-run
+  full   Fast + TLS feature tests, Python wheel, package dry-run
   deep   Full + corpus replay, fuzz, fault injection, races, proxy interop
 
 Examples:

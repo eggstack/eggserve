@@ -22,7 +22,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python boundary hardening | `crates/eggserve-python/tests/test_boundary_hardening.py` | Security hardening and namespace boundaries | current suite |
 | Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
 | Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
-| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 12 targets |
+| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 11 targets |
 | Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
@@ -110,7 +110,6 @@ repository root.
 | `range_header` | Range header parsing |
 | `if_none_match` | If-None-Match ETag comparison |
 | `platform_component` | Windows platform-specific checks |
-| `url_parse` | Client URL parsing |
 | `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
 | `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine |

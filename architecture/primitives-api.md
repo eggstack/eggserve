@@ -370,12 +370,6 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `BodySourceError` | Rust, Python | Implemented | InvalidRange, AlreadyConsumed | Error handling for body conversion |
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |
 | `Server` | Python | Implemented | Rust owns socket I/O, timeouts, file streaming; Python supplies optional handler callback | Dynamic server use in Python |
-| `HttpClient` | Rust | Implemented, experimental | Feature-gated (`client`). Uses hyper client, enforces timeouts, verifies TLS by default | Low-level outbound HTTP requests |
-| `ClientConfig` | Rust | Implemented, experimental | Timeout policy, max response body bytes, TLS verification flag | Client configuration |
-| `ClientRequest` / `ClientRequestBuilder` | Rust | Implemented, experimental | Method/URL/header/body validation before network I/O | Request construction |
-| `ClientResponse` | Rust | Implemented, experimental | Status, headers, body (fully buffered with max-bytes enforcement) | Response consumption |
-| `ClientError` | Rust | Implemented, experimental | 12-variant taxonomy: InvalidUrl, UnsupportedScheme, Timeout, TlsError, etc. | Structured error handling |
-| `Scheme` / `ParsedUrl` | Rust | Implemented, experimental | Hand-parsed URL validation, no new dependency | URL validation |
 | `Method` | Rust, Python | Implemented and stable | Validated HTTP method; standard + extension; token validation | Canonical method identity |
 | `HttpVersion` | Rust, Python | Implemented and stable | HTTP/1.0, HTTP/1.1 | Canonical version identity |
 | `HeaderBlock` | Rust, Python | Implemented and stable | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation | Canonical header collection |

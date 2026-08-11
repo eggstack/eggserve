@@ -1,6 +1,6 @@
 # Error Taxonomy Deep Dive
 
-eggserve uses seven distinct error layers, each scoped to a specific subsystem. This separation ensures that errors carry precise context and map cleanly to HTTP responses without leaking internal details.
+eggserve uses six distinct error layers, each scoped to a specific subsystem. This separation ensures that errors carry precise context and map cleanly to HTTP responses without leaking internal details.
 
 ## Error Layers Overview
 

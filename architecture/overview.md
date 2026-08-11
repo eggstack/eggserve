@@ -62,13 +62,13 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 |----------|--------|
 | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines/text output, operational counters, sanitized fields, log sink types |
 | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — full field inventory, ownership model, CLI/Python/Rust convergence |
-| [error-taxonomy.md](error-taxonomy.md) | 7 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError`, `ClientError` |
+| [error-taxonomy.md](error-taxonomy.md) | 6 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
 
 ### Quality and Process
 
 | Document | Covers |
 |----------|--------|
-| [testing-and-conformance.md](testing-and-conformance.md) | Rust unit/integration tests, Python suites, 12 fuzz targets, conformance corpora, packaging smoke tests |
+| [testing-and-conformance.md](testing-and-conformance.md) | Rust unit/integration tests, Python suites, 11 fuzz targets, conformance corpora, packaging smoke tests |
 
 ### Decision Records
 
@@ -92,7 +92,7 @@ eggserve/
 ├── docs/                       # reference docs (32 files)
 ├── plans/                      # design plans (000–111; Plan 109 verified complete)
 ├── conformance/                # shared Rust/Python conformance corpora
-├── fuzz/                       # fuzzing targets and seed corpora (12 targets)
+├── fuzz/                       # fuzzing targets and seed corpora (11 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
 ├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
 ├── scripts/                    # verify.sh, test-python-wheel.sh, install-cargo-tools.sh
@@ -162,14 +162,14 @@ Each component links to a deep-dive document. Use this as your starting point fo
 |-----------|----------|-----------|--------------|
 | Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines output, operational counters, sanitized fields |
 | Configuration model | cross-cutting | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — field inventory, ownership model, CLI/Python/Rust convergence |
-| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 7 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
+| Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 6 error layers — `PathRejection`, `Error`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
 | TLS support | `eggserve-core::tls` | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS#1/8/SEC1 key formats, feature-gated |
 
 ### Testing and Quality
 
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
-| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) | Multi-layer test strategy — Rust unit/integration, Python suites, 12 fuzz targets, conformance corpora |
+| Testing and conformance | `tests/`, `conformance/`, `fuzz/` | [testing-and-conformance.md](testing-and-conformance.md) | Multi-layer test strategy — Rust unit/integration, Python suites, 11 fuzz targets, conformance corpora |
 
 ### Decision Records
 
@@ -348,7 +348,7 @@ Six distinct error layers, each scoped to a specific subsystem:
 
 ## Testing Strategy
 
-Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 12 fuzz targets, and 2 conformance corpora:
+Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 11 fuzz targets, and 2 conformance corpora:
 
 | Layer | Location | Scope |
 |-------|----------|-------|
@@ -357,7 +357,7 @@ Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 12 fuzz targets,
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
-| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (12 targets) |
+| Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing (11 targets) |
 | Repo-level tests | `tests/` | Proxy interop, soak, installed-binary qual |
 
 See [testing-and-conformance.md](testing-and-conformance.md) for the full test matrix.
