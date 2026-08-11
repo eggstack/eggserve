@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-11.**
+**COMPLETE — 2026-08-11.**
 
 Parent roadmap: Plan 120.
 
@@ -216,16 +216,16 @@ Routine CI must not gain a dedicated lifecycle job.
 
 Plan 121 is complete only when:
 
-- [ ] the old `let _ = timeout(...).await` readiness bug is gone;
-- [ ] timeout is surfaced as an error;
-- [ ] no non-Running lifecycle state returns readiness success;
-- [ ] `start()` and `wait_ready()` share readiness logic where practical;
-- [ ] the Python GIL is not held while waiting;
-- [ ] tests exercise timeout without a 30-second delay;
-- [ ] tests demonstrate successful readiness for static and compatibility usage;
-- [ ] port `0` address publication occurs only after Running;
-- [ ] no new public API or dependency is introduced;
-- [ ] full Rust and installed-wheel Python verification passes.
+- [x] the old `let _ = timeout(...).await` readiness bug is gone;
+- [x] timeout is surfaced as an error;
+- [x] no non-Running lifecycle state returns readiness success;
+- [x] `start()` and `wait_ready()` share readiness logic where practical;
+- [x] the Python GIL is not held while waiting;
+- [x] tests exercise timeout without a 30-second delay;
+- [x] tests demonstrate successful readiness for static and compatibility usage;
+- [x] port `0` address publication occurs only after Running;
+- [x] no new public API or dependency is introduced;
+- [x] full Rust and installed-wheel Python verification passes.
 
 ---
 

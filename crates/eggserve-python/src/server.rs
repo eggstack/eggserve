@@ -35,6 +35,48 @@ use eggserve_core::server::{Server, ServerHandle};
 /// Maximum time to wait for the server to reach Running state during startup.
 const STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
 
+/// Wait for a [`ServerHandle`] to reach `LifecycleState::Running`.
+///
+/// Returns `Ok(())` only after observing the `Running` state. All other
+/// outcomes — timeout, `Failed`, or any non-running terminal state —
+/// produce an error with a descriptive message.
+///
+/// The `timeout` parameter makes this testable without sleeping for the
+/// production 30-second `STARTUP_TIMEOUT`.
+async fn wait_until_running(
+    handle: &ServerHandle,
+    timeout: Duration,
+) -> Result<(), PyErr> {
+    // Fast path: already running.
+    if handle.state() == LifecycleState::Running {
+        return Ok(());
+    }
+
+    // Wait for the readiness signal with a deadline.
+    let timed_out = tokio::time::timeout(timeout, handle.ready())
+        .await
+        .is_err();
+
+    // Re-read the authoritative state regardless of timeout vs. signal.
+    let state = handle.state();
+    if state == LifecycleState::Running {
+        Ok(())
+    } else if state == LifecycleState::Failed {
+        Err(pyo3::exceptions::PyRuntimeError::new_err(
+            "server failed during startup",
+        ))
+    } else if timed_out {
+        Err(crate::LifecycleError::new_err(format!(
+            "startup readiness timeout: server is {state} after {}s",
+            timeout.as_secs()
+        )))
+    } else {
+        Err(crate::LifecycleError::new_err(format!(
+            "server not running: unexpected state {state}"
+        )))
+    }
+}
+
 // ---------------------------------------------------------------------------
 #[pyclass(frozen, name = "ServerRequestError")]
 #[derive(Debug)]
@@ -1611,24 +1653,7 @@ impl PyServer {
                                 "failed to start server: {e}"
                             ))
                         })?;
-                        let start_time = std::time::Instant::now();
-                        loop {
-                            let state = handle.state();
-                            if state == LifecycleState::Running {
-                                break;
-                            }
-                            if state == LifecycleState::Failed {
-                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                    "server failed during startup",
-                                ));
-                            }
-                            if start_time.elapsed() > STARTUP_TIMEOUT {
-                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                    "server failed to start: timed out waiting for readiness",
-                                ));
-                            }
-                            tokio::time::sleep(Duration::from_millis(5)).await;
-                        }
+                        wait_until_running(&handle, STARTUP_TIMEOUT).await?;
                         Ok::<ServerHandle, PyErr>(handle)
                     } else {
                         let serve_config = Arc::new(eggserve_core::config::ServeConfig {
@@ -1656,24 +1681,7 @@ impl PyServer {
                                 "failed to start server: {e}"
                             ))
                         })?;
-                        let start_time = std::time::Instant::now();
-                        loop {
-                            let state = handle.state();
-                            if state == LifecycleState::Running {
-                                break;
-                            }
-                            if state == LifecycleState::Failed {
-                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                    "server failed during startup",
-                                ));
-                            }
-                            if start_time.elapsed() > STARTUP_TIMEOUT {
-                                return Err(pyo3::exceptions::PyRuntimeError::new_err(
-                                    "server failed to start: timed out waiting for readiness",
-                                ));
-                            }
-                            tokio::time::sleep(Duration::from_millis(5)).await;
-                        }
+                        wait_until_running(&handle, STARTUP_TIMEOUT).await?;
                         Ok::<ServerHandle, PyErr>(handle)
                     }
                 })?;
@@ -1748,41 +1756,25 @@ impl PyServer {
             .as_ref()
             .ok_or_else(|| crate::LifecycleError::new_err("server not started"))?;
 
-        let state = handle.state();
-        match state {
-            LifecycleState::Running => Ok(()),
-            LifecycleState::Created => Err(crate::LifecycleError::new_err("server not started")),
-            LifecycleState::Starting => {
-                let runtime_guard = self
-                    .runtime
-                    .lock()
-                    .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-                if let Some(rt) = runtime_guard.as_ref() {
-                    py.allow_threads(|| {
-                        rt.block_on(async {
-                            let _ = tokio::time::timeout(STARTUP_TIMEOUT, handle.ready()).await;
-                        });
-                        Ok::<(), PyErr>(())
-                    })?;
-                } else {
-                    return Err(crate::LifecycleError::new_err("server not started"));
-                }
-                drop(runtime_guard);
-                let state = handle.state();
-                if state == LifecycleState::Running {
-                    Ok(())
-                } else if state == LifecycleState::Failed {
-                    Err(crate::LifecycleError::new_err(
-                        "server failed during startup",
-                    ))
-                } else {
-                    Ok(())
-                }
-            }
-            LifecycleState::Stopped | LifecycleState::Failed | LifecycleState::Draining => {
-                Err(crate::LifecycleError::new_err("server is not running"))
-            }
+        // Fast path: already running.
+        if handle.state() == LifecycleState::Running {
+            return Ok(());
         }
+
+        let runtime_guard = self
+            .runtime
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+        if runtime_guard.is_none() {
+            return Err(crate::LifecycleError::new_err("server not started"));
+        }
+
+        let result = py.allow_threads(|| {
+            let rt = runtime_guard.as_ref().unwrap();
+            rt.block_on(wait_until_running(handle, STARTUP_TIMEOUT))
+        });
+        drop(runtime_guard);
+        result
     }
 
     fn shutdown(&self) -> PyResult<()> {

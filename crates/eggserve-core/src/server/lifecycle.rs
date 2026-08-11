@@ -225,6 +225,9 @@ impl Lifecycle {
     }
 
     /// Transition to `Failed` from any non-terminal state.
+    ///
+    /// Signals both the terminal and ready channels so that any waiters
+    /// (including [`Self::wait_ready`]) are unblocked.
     #[allow(dead_code)]
     pub(crate) fn mark_failed(&self) -> Result<(), crate::server::errors::ServerError> {
         let current = self.state.load(Ordering::Acquire);
@@ -234,6 +237,9 @@ impl Lifecycle {
         }
         self.state
             .store(LifecycleState::Failed as u8, Ordering::Release);
+        // Signal both channels: terminal for shutdown waiters, ready for
+        // readiness waiters (they will re-check state and see Failed).
+        let _ = self.ready_tx.send(true);
         let _ = self.terminal_tx.send(());
         Ok(())
     }

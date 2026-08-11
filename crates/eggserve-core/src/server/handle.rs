@@ -93,27 +93,39 @@ impl ServerHandle {
     /// polled. After this returns, the server will accept new connections.
     ///
     /// If the server fails during startup, this returns an error.
+    ///
+    /// # State behavior
+    ///
+    /// - `Running`: immediate success (already ready)
+    /// - `Starting`: waits for transition to `Running` or `Failed`
+    /// - `Failed`: returns startup error
+    /// - `Created`: returns not-started error
+    /// - `Draining`/`Stopped`: returns not-running error
     pub async fn ready(&self) -> Result<(), ServerError> {
-        // Check if already in a terminal failure state.
         let state = self.lifecycle.state();
-        if state == crate::server::lifecycle::LifecycleState::Failed {
-            return Err(ServerError::Startup("server failed during startup".into()));
-        }
+        match state {
+            crate::server::lifecycle::LifecycleState::Running => Ok(()),
+            crate::server::lifecycle::LifecycleState::Starting => {
+                self.lifecycle.wait_ready().await;
 
-        self.lifecycle.wait_ready().await;
-
-        // Re-check after waiting.
-        let state = self.lifecycle.state();
-        if state == crate::server::lifecycle::LifecycleState::Failed {
-            return Err(ServerError::Startup("server failed during startup".into()));
-        }
-        if state == crate::server::lifecycle::LifecycleState::Running {
-            Ok(())
-        } else {
-            Err(ServerError::Config(format!(
-                "unexpected state after ready: {}",
-                state
-            )))
+                // Re-check after waiting.
+                let state = self.lifecycle.state();
+                match state {
+                    crate::server::lifecycle::LifecycleState::Running => Ok(()),
+                    crate::server::lifecycle::LifecycleState::Failed => {
+                        Err(ServerError::Startup("server failed during startup".into()))
+                    }
+                    other => Err(ServerError::Config(format!(
+                        "unexpected state after ready: {other}"
+                    ))),
+                }
+            }
+            crate::server::lifecycle::LifecycleState::Failed => {
+                Err(ServerError::Startup("server failed during startup".into()))
+            }
+            other => Err(ServerError::Config(format!(
+                "server not ready: in {other} state"
+            ))),
         }
     }
 
@@ -225,6 +237,37 @@ mod tests {
         ServerHandle::new("127.0.0.1:8000".parse().unwrap(), tx, join, lifecycle)
     }
 
+    fn make_handle_with_state(state: crate::server::lifecycle::LifecycleState) -> ServerHandle {
+        let lifecycle = Arc::new(Lifecycle::new());
+        match state {
+            crate::server::lifecycle::LifecycleState::Created => {}
+            crate::server::lifecycle::LifecycleState::Starting => {
+                lifecycle.start().unwrap();
+            }
+            crate::server::lifecycle::LifecycleState::Running => {
+                lifecycle.start().unwrap();
+                lifecycle.mark_running().unwrap();
+            }
+            crate::server::lifecycle::LifecycleState::Failed => {
+                lifecycle.mark_failed().unwrap();
+            }
+            crate::server::lifecycle::LifecycleState::Draining => {
+                lifecycle.start().unwrap();
+                lifecycle.mark_running().unwrap();
+                lifecycle.drain().unwrap();
+            }
+            crate::server::lifecycle::LifecycleState::Stopped => {
+                lifecycle.start().unwrap();
+                lifecycle.mark_running().unwrap();
+                lifecycle.drain().unwrap();
+                lifecycle.mark_stopped().unwrap();
+            }
+        }
+        let (shutdown_tx, _) = broadcast::channel(1);
+        let join = tokio::spawn(async { ShutdownResult::Clean });
+        ServerHandle::new("127.0.0.1:0".parse().unwrap(), shutdown_tx, join, lifecycle)
+    }
+
     #[tokio::test]
     async fn handle_local_addr() {
         let handle = make_test_handle().await;
@@ -279,5 +322,106 @@ mod tests {
         let debug = format!("{:?}", handle);
         assert!(debug.contains("ServerHandle"));
         assert!(debug.contains("127.0.0.1:8000"));
+    }
+
+    // --- Readiness correctness regression tests (Plan 121, Track C) ---
+
+    #[tokio::test]
+    async fn ready_already_running_returns_ok() {
+        let lifecycle = Arc::new(Lifecycle::new());
+        lifecycle.start().unwrap();
+        lifecycle.mark_running().unwrap();
+        assert_eq!(
+            lifecycle.state(),
+            crate::server::lifecycle::LifecycleState::Running
+        );
+
+        let (tx, _rx) = broadcast::channel(1);
+        let join = tokio::spawn(async { ShutdownResult::Clean });
+        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle);
+
+        let result = handle.ready().await;
+        assert!(
+            result.is_ok(),
+            "ready() on already-Running server: {:?}",
+            result.err()
+        );
+    }
+
+    #[tokio::test]
+    async fn ready_failed_returns_error() {
+        let handle = make_handle_with_state(crate::server::lifecycle::LifecycleState::Failed);
+        let result = handle.ready().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ready_starting_then_running_succeeds() {
+        let lifecycle = Arc::new(Lifecycle::new());
+        lifecycle.start().unwrap();
+        let (tx, _) = broadcast::channel(1);
+        let join = tokio::spawn(async { ShutdownResult::Clean });
+        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle.clone());
+
+        // Transition to Running after a short delay.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            lifecycle.mark_running().unwrap();
+        });
+
+        let result = tokio::time::timeout(Duration::from_secs(5), handle.ready()).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().is_ok());
+    }
+
+    #[tokio::test]
+    async fn ready_starting_then_failed_returns_error() {
+        let lifecycle = Arc::new(Lifecycle::new());
+        lifecycle.start().unwrap();
+        let (tx, _) = broadcast::channel(1);
+        let join = tokio::spawn(async { ShutdownResult::Clean });
+        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle.clone());
+
+        // Transition to Failed after a short delay.
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            lifecycle.mark_failed().unwrap();
+        });
+
+        let result = handle.ready().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ready_stuck_starting_times_out() {
+        let handle = make_handle_with_state(crate::server::lifecycle::LifecycleState::Starting);
+        let result = tokio::time::timeout(Duration::from_millis(50), handle.ready()).await;
+        // Timeout fires; ready() was still awaiting.
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ready_draining_is_error() {
+        let handle = make_handle_with_state(crate::server::lifecycle::LifecycleState::Draining);
+        let result = handle.ready().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ready_stopped_is_error() {
+        let handle = make_handle_with_state(crate::server::lifecycle::LifecycleState::Stopped);
+        let result = handle.ready().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn ready_idempotent_on_running() {
+        let handle = make_handle_with_state(crate::server::lifecycle::LifecycleState::Running);
+        // Call ready() twice — both should succeed immediately.
+        let r1 = tokio::time::timeout(Duration::from_millis(50), handle.ready()).await;
+        assert!(r1.is_ok() && r1.unwrap().is_ok());
+        // Re-use requires a new handle (ready takes &self, but we can call again).
+        let r2 = tokio::time::timeout(Duration::from_millis(50), handle.ready()).await;
+        assert!(r2.is_ok() && r2.unwrap().is_ok());
     }
 }

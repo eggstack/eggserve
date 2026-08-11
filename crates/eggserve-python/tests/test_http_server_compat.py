@@ -171,6 +171,32 @@ class CompatTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             server._start()
 
+    def test_port_zero_address_only_after_readiness(self):
+        """Port 0 server publishes real port only after _start() completes.
+
+        Regression test for Plan 121 Track C case 8: the compatibility
+        facade must not publish a port 0 address before the native server
+        is in Running state.
+        """
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        server = HTTPServer(("127.0.0.1", 0), Handler, bind_and_activate=False)
+        # Before activation: port is still 0.
+        self.assertEqual(server.server_port, 0)
+        self.assertEqual(server.server_address[1], 0)
+        # After server_activate: native is created but not started.
+        server.server_activate()
+        self.assertEqual(server.server_port, 0)
+        # After _start: native server is Running and real port is published.
+        server._start()
+        self.assertGreater(server.server_port, 0)
+        self.assertGreater(server.server_address[1], 0)
+        server.server_close()
+
     def test_post_reads_bounded_body(self):
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):

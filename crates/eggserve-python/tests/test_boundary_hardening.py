@@ -494,6 +494,93 @@ class TestLifecycleOwnership(_TestServerBase):
 
 
 # ---------------------------------------------------------------------------
+# Track C — Lifecycle readiness correctness (Plan 121)
+# ---------------------------------------------------------------------------
+
+
+class TestLifecycleReadiness(_TestServerBase):
+    """Plan 121 Track C — Readiness correctness regression tests.
+
+    Verifies that wait_ready() and start() only report success when the
+    server is genuinely Running, and that port 0 address publication
+    occurs only after readiness.
+    """
+
+    def test_wait_ready_already_running_succeeds(self):
+        """wait_ready() succeeds immediately on an already-running server."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        self.assertEqual(s.state, "running")
+        s.wait_ready()
+        s.stop()
+
+    def test_wait_ready_not_started_raises_lifecycle_error(self):
+        """wait_ready() raises LifecycleError on a server that hasn't started."""
+        s = Server(root=self._td, port=0)
+        with self.assertRaises(LifecycleError):
+            s.wait_ready()
+
+    def test_wait_ready_idempotent_on_running(self):
+        """Repeated wait_ready() calls on a running server are safe."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        for _ in range(3):
+            s.wait_ready()
+        s.stop()
+
+    def test_wait_ready_after_stop_raises(self):
+        """wait_ready() raises after stop() has been called."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        s.stop()
+        with self.assertRaises(LifecycleError):
+            s.wait_ready()
+
+    def test_start_only_returns_after_running(self):
+        """start() does not return until the server is in Running state."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        self.assertEqual(s.state, "running")
+        s.stop()
+
+    def test_port_zero_address_not_published_before_start(self):
+        """Port 0 address is not published before start()."""
+        s = Server(root=self._td, port=0)
+        self.assertIsNone(s.addr)
+        s.start()
+        self.assertIsNotNone(s.addr)
+        host, port_str = s.addr.rsplit(":", 1)
+        self.assertGreater(int(port_str), 0)
+        s.stop()
+
+    def test_port_zero_address_not_published_during_startup(self):
+        """Port 0 address is not available until the server is Running.
+
+        Verifies the native server address is only exposed to Python
+        after wait_ready() has confirmed the Running state.
+        """
+        s = Server(root=self._td, port=0)
+        self.assertIsNone(s.addr)
+        s.start()
+        # At this point start() has returned and the server is Running.
+        self.assertEqual(s.state, "running")
+        addr = s.addr
+        self.assertIsNotNone(addr)
+        _, port_str = addr.rsplit(":", 1)
+        self.assertGreater(int(port_str), 0)
+        s.stop()
+
+    def test_state_reflects_full_lifecycle(self):
+        """state property transitions through created → running → stopped."""
+        s = Server(root=self._td, port=0)
+        self.assertEqual(s.state, "created")
+        s.start()
+        self.assertEqual(s.state, "running")
+        s.stop()
+        self.assertEqual(s.state, "stopped")
+
+
+# ---------------------------------------------------------------------------
 # Track E — File-backed response capability
 # ---------------------------------------------------------------------------
 
