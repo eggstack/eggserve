@@ -20,9 +20,8 @@ class PublicApiTests(unittest.TestCase):
         import eggserve
 
         for name in (
-            "Server", "HttpClient", "ClientConfig", "ClientRequest",
-            "ClientResponse", "ClientError", "ClientMethod",
-            "ServerSecureRoot", "StaticResponder", "StaticPolicyWrapper",
+            "Server", "ServerSecureRoot", "StaticResponder",
+            "StaticPolicyWrapper",
         ):
             self.assertNotIn(name, eggserve.__all__)
 
@@ -40,11 +39,14 @@ class PublicApiTests(unittest.TestCase):
         self.assertIsNotNone(ServerProcess)
         self.assertTrue(callable(serve_directory))
 
-    def test_client_is_not_registered_in_native_extension(self):
+    def test_internal_types_not_in_native_extension(self):
         import eggserve._native as native
 
-        for name in ("HttpClient", "ClientConfig", "ClientRequest", "ClientResponse"):
-            self.assertFalse(hasattr(native, name))
+        for name in ("Server", "ServerSecureRoot", "StaticResponder"):
+            self.assertFalse(
+                hasattr(native, name),
+                f"Internal type {name} should not be directly accessible",
+            )
 
 
 if __name__ == "__main__":

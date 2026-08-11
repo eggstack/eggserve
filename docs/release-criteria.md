@@ -31,7 +31,7 @@
 - [x] Security review note documented
 - [x] TLS feature validated in CI: clippy and tests with `--features tls`
 - [ ] Python API tests run in CI from source and installed wheels pass on Linux, macOS, and Windows
-- [ ] `cargo deny check` runs in CI as a release gate
+- [ ] `cargo deny check` runs manually as a release gate (not in routine CI)
 - [x] Filesystem denial taxonomy is meaningful
 - [x] Python `ServeConfig` validates port, log format, and public-bind combinations at construction
 - [x] TLS handshakes are bounded by `--header-timeout`

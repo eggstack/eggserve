@@ -58,25 +58,6 @@ and file streaming; Python handlers never receive raw sockets. The low-level
 native callback engine and responder types are implementation details, while
 Rust embedders may use the experimental `eggserve_core::server` service API.
 
-### HTTP client substrate
-
-Downstream projects may use the feature-gated (`client`) client primitives to perform outbound HTTP requests:
-
-```rust
-use eggserve_core::primitives::client::{
-    HttpClient, ClientConfig, ClientRequest, Method,
-};
-
-let client = HttpClient::new(ClientConfig::default());
-let request = ClientRequest::builder()
-    .method(Method::Get)
-    .url("http://localhost:8080/api/data")?
-    .build()?;
-let response = client.send(request)?;
-```
-
-The client is a transport substrate — downstream projects build higher-level clients (cookie management, retries, redirects, auth) on top. The client enforces timeouts, verifies TLS by default, and provides structured errors. It does not provide convenience features that should be decided by the application layer.
-
 ## How downstream projects should consume the Rust primitives
 
 Use the `primitives` module. It is the stable public boundary for embedding consumers.

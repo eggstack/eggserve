@@ -91,8 +91,8 @@ When directory listing is enabled:
 - All dependencies are from crates.io
 - No git dependencies
 - No unknown registries
-- `cargo audit` is run as part of CI
-- `cargo-deny` configuration is present for automated license/advisory checking
+- `cargo audit` and `cargo deny` are run manually during release preparation (not in routine CI)
+- `cargo-deny` configuration is present for license/advisory checking
 
 ## Known limitations
 

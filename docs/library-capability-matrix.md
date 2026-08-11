@@ -21,62 +21,59 @@ its status using a constrained vocabulary.
 |---|---|
 | **CLI** | `eggserve-bin` command-line interface (all flags from `args.rs`). |
 | **Rust stable** | `eggserve-core::primitives` module — the intended public Rust boundary. |
-| **Rust experimental** | `eggserve-core::service` (HTTP handler) and `client` module (feature-gated). |
 | **Runtime experimental** | `eggserve-core::server` — transport-owning runtime: `Server`, `Service` trait, `StaticService`. |
 | **Python stable** | `eggserve.server` compatibility classes and `serve_directory`; advanced wrappers are under `eggserve.lowlevel`, subprocess helpers under `eggserve.subprocess`. |
 | **Python experimental** | No default Python client surface. The internal callback engine and native bridge types are not supported imports. |
 | **Built-in static service** | The static service used by CLI and Python Server (GET/HEAD only, body rejection, path confinement, conditional/range responses). |
 | **Generic callback server** | Python `Server` with a user-provided handler callback; bounded concurrency via `max_python_callbacks`. |
-| **Experimental client** | Rust-only opt-in core feature; not compiled into the Python wheel. |
 
 ## Capability Matrix
 
-| Capability | CLI | Rust stable | Rust experimental | Runtime experimental | Python stable | Python experimental | Built-in static service | Generic callback server | Experimental client |
-|---|---|---|---|---|---|---|---|---|---|
-| Bind/listen lifecycle | stable | — | — | experimental | stable | — | stable | stable | — |
-| Plaintext HTTP/1.x | stable | — | stable | experimental | — | — | stable | stable | stable |
-| TLS server | stable | — | — | — | — | — | — | — | — |
-| TLS client | — | — | stable | — | — | stable | — | — | stable |
-| GET/HEAD static serving | stable | stable | stable | experimental | stable | — | stable | — | — |
-| Request-target validation | stable | stable | stable | experimental | stable | — | stable | — | — |
-| Request-body policy | stable | stable | stable | experimental | stable | — | stable | stable | — |
-| Canonical request types | — | stable | stable | experimental | stable | stable | — | — | — |
-| Canonical response types | — | stable | stable | experimental | stable | stable | — | — | — |
-| Duplicate-preserving headers | — | stable | stable | experimental | — | experimental | stable | stable | — |
-| Connection metadata | — | stable | stable | experimental | stable | stable | — | — | — |
-| Service trait | — | — | — | experimental | — | — | — | — | — |
-| ServerBuilder | — | — | — | experimental | — | — | — | — | — |
-| ServerHandle | — | — | — | experimental | — | — | — | — | — |
-| StaticService | — | — | — | experimental | — | — | — | — | — |
-| service_fn | — | — | — | experimental | — | — | — | — | — |
-| RuntimeConfig | — | — | — | experimental | — | — | — | — | — |
-| Conformance corpus and parity testing | — | — | experimental | — | — | experimental | — | — | — |
-| Bounded request-body support | — | experimental | experimental | experimental | experimental | — | — | experimental | — |
-| Request-body framing strictness | — | experimental | experimental | experimental | experimental | — | — | experimental | — |
-| `normalize_metadata()` | — | stable | stable | experimental | — | — | stable | stable | — |
-| StatusCode range (100–599) | — | stable | stable | experimental | stable | — | stable | stable | — |
-| Secure root resolution | stable | stable | stable | experimental | stable | — | stable | stable | — |
-| Symlink policy | stable | stable | stable | experimental | stable | — | stable | stable | — |
-| Dotfile policy | stable | stable | stable | experimental | stable | — | stable | stable | — |
-| Directory listing | stable | stable | stable | experimental | stable | — | stable | — | — |
-| Index files | stable | stable | stable | experimental | stable | — | stable | — | — |
-| Conditional requests | stable | stable | stable | experimental | stable | — | stable | — | — |
-| Range requests | stable | stable | stable | experimental | stable | — | stable | — | — |
-| File streaming | stable | stable | stable | experimental | stable | — | stable | stable | — |
-| Generic byte responses | — | stable | stable | — | stable | — | — | stable | — |
-| Duplicate headers | — | stable | stable | experimental | stable | — | stable | stable | — |
-| Callback handlers | — | — | — | — | stable | — | — | stable | — |
-| Existing-listener support | — | implemented | implemented | experimental | Rust-only | — | — | — | — |
-| Lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) | — | — | — | experimental | stable | — | — | stable | — |
-| Graceful shutdown | stable | — | — | experimental | stable | — | stable | stable | — |
-| Observability hooks | minimal | minimal | planned | minimal | minimal | — | minimal | minimal | — |
-| Redirects | — | — | — | — | — | — | — | — | — |
-| Retries | — | — | — | — | — | — | — | — | — |
-| Cookies | — | — | — | — | — | — | — | — | — |
-| Proxies | — | — | — | — | — | — | — | — | — |
-| Decompression | — | — | — | — | — | — | — | — | — |
-| ASGI/WSGI adapters | — | — | — | — | — | — | — | — | — |
-| Windows reparse-point hardening | — | — | — | — | — | — | — | — | — |
+| Capability | CLI | Rust stable | Runtime experimental | Python stable | Python experimental | Built-in static service | Generic callback server |
+|---|---|---|---|---|---|---|---|
+| Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
+| Plaintext HTTP/1.x | stable | — | experimental | — | — | stable | stable |
+| TLS server | stable | — | — | — | — | — | — |
+| GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
+| Request-target validation | stable | stable | experimental | stable | — | stable | — |
+| Request-body policy | stable | stable | experimental | stable | — | stable | stable |
+| Canonical request types | — | stable | experimental | stable | stable | — | — |
+| Canonical response types | — | stable | experimental | stable | stable | — | — |
+| Duplicate-preserving headers | — | stable | experimental | — | experimental | stable | stable |
+| Connection metadata | — | stable | experimental | stable | stable | — | — |
+| Service trait | — | — | experimental | — | — | — | — |
+| ServerBuilder | — | — | experimental | — | — | — | — |
+| ServerHandle | — | — | experimental | — | — | — | — |
+| StaticService | — | — | experimental | — | — | — | — |
+| service_fn | — | — | experimental | — | — | — | — |
+| RuntimeConfig | — | — | experimental | — | — | — | — |
+| Conformance corpus and parity testing | — | experimental | — | — | experimental | — | — |
+| Bounded request-body support | — | experimental | experimental | experimental | — | — | experimental |
+| Request-body framing strictness | — | experimental | experimental | experimental | — | — | experimental |
+| `normalize_metadata()` | — | stable | experimental | — | — | stable | stable |
+| StatusCode range (100–599) | — | stable | experimental | stable | — | stable | stable |
+| Secure root resolution | stable | stable | experimental | stable | — | stable | stable |
+| Symlink policy | stable | stable | experimental | stable | — | stable | stable |
+| Dotfile policy | stable | stable | experimental | stable | — | stable | stable |
+| Directory listing | stable | stable | experimental | stable | — | stable | — |
+| Index files | stable | stable | experimental | stable | — | stable | — |
+| Conditional requests | stable | stable | experimental | stable | — | stable | — |
+| Range requests | stable | stable | experimental | stable | — | stable | — |
+| File streaming | stable | stable | experimental | stable | — | stable | stable |
+| Generic byte responses | — | stable | — | stable | — | — | stable |
+| Duplicate headers | — | stable | experimental | stable | — | stable | stable |
+| Callback handlers | — | — | — | stable | — | — | stable |
+| Existing-listener support | — | implemented | experimental | Rust-only | — | — | — |
+| Lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) | — | — | experimental | stable | — | — | stable |
+| Graceful shutdown | stable | — | experimental | stable | — | stable | stable |
+| Observability hooks | minimal | minimal | minimal | minimal | — | minimal | minimal |
+| Redirects | — | — | — | — | — | — | — |
+| Retries | — | — | — | — | — | — | — |
+| Cookies | — | — | — | — | — | — | — |
+| Proxies | — | — | — | — | — | — | — |
+| Decompression | — | — | — | — | — | — | — |
+| ASGI/WSGI adapters | — | — | — | — | — | — | — |
+| Windows reparse-point hardening | — | — | — | — | — | — | — |
 
 Rows with no annotation in any column are **intentionally unsupported** (empty
 cell = not applicable to that surface). The explicitly labeled rows at the
@@ -111,12 +108,6 @@ platform-limited as noted.
 - **Python wheels** are CPython 3.11+ with abi3 stable ABI (`>=3.11`) on the Linux,
   macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI
   binary.
-
-- **Client is experimental/buffered only.** `HttpClient` buffers the complete
-  response body in memory. No connection pooling, no redirect following, no
-  streaming. TLS verification uses `webpki-roots`. The client is feature-gated
-  behind `client` (and optionally `client-tls`) in Rust, and exposed as
-  experimental Python bindings.
 
 - **Runtime service boundary is experimental.** `eggserve-core::server` provides
   a transport-owning runtime (`Server`, `Service` trait, `StaticService`) for

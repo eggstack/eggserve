@@ -376,7 +376,7 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–111 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plan 111 is documentation polish only. Major feature tracks:
+Plans 000–118 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plans 112–118 form the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|
@@ -392,3 +392,4 @@ Plans 000–111 are historical implementation records; Plan 109 is the verified 
 | 102–108 | Runtime correctness & size | Generic runtime boundary, product-surface freeze, binary-size reduction, streaming closure |
 | 109 | Final admission & wire verification | Verified complete — admission ownership, corrective pass |
 | 110–111 | Documentation polish | Final documentation reproduction and closure polish |
+| 112–118 | Consolidation roadmap | Product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure |

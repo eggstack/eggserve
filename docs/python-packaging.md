@@ -148,5 +148,4 @@ bash run_all.sh ../dist/*.whl python3.14
 |-----------|---------------|
 | `test_imports.py` | All `__all__` names importable, version valid, native extension loads, no source-tree shadowing |
 | `test_server_smoke.py` | Server start/stop, ephemeral port, context manager, callback handler, static fallback, HEAD, range (206), public-bind guard |
-| `test_client_smoke.py` | HttpClient construction, GET/HEAD against local server, 404, response headers, error handling |
 | `test_cli_smoke.py` | `python -m eggserve --help` exits 0, binary discovery, binary executable, version consistency |

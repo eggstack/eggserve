@@ -80,5 +80,5 @@ they never perform Python path translation, `stat`, open, or reopen operations.
 The installed-wheel harness is `scripts/test-python-wheel.sh`. It builds the
 wheel, installs it into a clean CPython 3.14 environment, checks the import
 boundary, and runs the focused compatibility, TLS, low-level, lifecycle, and
-boundary tests with `unittest`. The Python client is not shipped; subprocess
-helpers are isolated in `eggserve.subprocess`.
+boundary tests with `unittest`. Subprocess helpers are isolated in
+`eggserve.subprocess`.

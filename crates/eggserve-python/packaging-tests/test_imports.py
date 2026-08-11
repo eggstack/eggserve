@@ -88,8 +88,6 @@ class TestNativeExtension(unittest.TestCase):
             "Request",
             "StaticResponder",
             "ServerSecureRoot",
-            "HttpClient",
-            "ClientConfig",
             "SecureRoot",
             "StaticPolicy",
             "PathPolicy",

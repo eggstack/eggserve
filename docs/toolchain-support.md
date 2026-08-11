@@ -29,8 +29,6 @@ Other targets may compile but are not tested in CI and are not supported.
 | Feature | Crate | Default | Description |
 |---------|-------|---------|-------------|
 | (none) | `eggserve-core` | Yes | Core server and primitives |
-| `client` | `eggserve-core` | No | HTTP client substrate (`primitives::client` module) |
-| `client-tls` | `eggserve-core` | No | Implies `client`; HTTPS via rustls + webpki-roots |
 | `python-bindings-internal` | `eggserve-core` | No | `ResolvedFile` extraction methods for Python bindings |
 | `tls` | `eggserve-bin` | No | TLS server via rustls |
 

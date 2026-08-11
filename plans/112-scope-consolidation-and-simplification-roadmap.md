@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — 2026-08-08.**
+**COMPLETE — 2026-08-11.** Plans 113–118 all completed. See Plan 118 for final closure metadata.
 
 This roadmap starts a bounded consolidation track after the verified hardening and runtime-correctness work through Plans 109–111.
 

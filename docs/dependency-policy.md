@@ -33,7 +33,6 @@ The following dependency categories are approved for initial development:
 | TLS | `rustls` (optional, feature-gated) | TLS termination |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pemfile` (optional, feature-gated) | PEM certificate and key parsing |
-| HTTP client TLS | `webpki-roots` (optional, behind `client-tls`) | Mozilla CA root certificates for TLS verification |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 
 ### Tokio feature ownership (Plan 105)
@@ -41,7 +40,7 @@ The following dependency categories are approved for initial development:
 | Crate | Tokio features (production) | Notes |
 |-------|---------------------------|-------|
 | `eggserve-core` | `macros`, `net`, `time`, `fs`, `io-util`, `sync` | No `signal`, no `rt-multi-thread` in default |
-| `eggserve-core` (client) | + `rt-multi-thread` | Gated behind `client` feature for `http_client.rs` |
+
 | `eggserve-bin` | `macros`, `net`, `signal`, `time`, `sync` | Signal handling for graceful shutdown |
 | `eggserve-python` | `rt-multi-thread`, `net`, `io-util`, `sync`, `time` | Python GIL scheduling requires multi-thread |
 
@@ -51,11 +50,11 @@ The following dependency categories are approved for initial development:
 - Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to `eggserve-core`. The bin crate delegates to core and only declares `tokio` and `eggserve-core` directly. Manual argument parsing was adopted instead of `clap`.
 - Plan 003 adds streaming/date/compile-time-map dependencies (`futures-util`, `httpdate`, `phf`) for file serving, Last-Modified headers, and MIME type detection.
 - Plan 009 adds optional TLS dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`) behind the `tls` feature flag in `eggserve-bin`. The default build remains TLS-free.
-- Plan 028 adds optional HTTP client dependencies behind the `client` feature flag in `eggserve-core`. Reuses `hyper` and `hyper-util` (already non-optional) with `client`/`client-legacy` features. Adds `rustls`, `tokio-rustls`, `webpki-roots` behind the `client-tls` feature. Default build remains server-only.
 - Plan 062 adds `windows-sys` as an optional Windows-only dependency behind a feature gate for handle-relative filesystem operations (reparse detection, file identity, directory enumeration). The dependency is feature-gated and only compiles on Windows targets.
-- Plan 105 narrows Tokio feature ownership: `eggserve-core` enables only `macros`, `net`, `time`, `fs`, `io-util`, `sync` (no `signal`, no `rt-multi-thread` in default). `rt-multi-thread` is gated behind the `client` feature for `http_client.rs`. The CLI runtime uses current-thread (`Builder::new_current_thread()`). A `dist` profile is added for size-optimized release builds.
+- Plan 105 narrows Tokio feature ownership: `eggserve-core` enables only `macros`, `net`, `time`, `fs`, `io-util`, `sync` (no `signal`, no `rt-multi-thread` in default). The CLI runtime uses current-thread (`Builder::new_current_thread()`). A `dist` profile is added for size-optimized release builds.
+- Plan 113 removed the HTTP client subsystem (`client`/`client-tls` features, `primitives/client/`, Python `client.rs`) and the deprecated pre-runtime service adapter. The product is now a hardened static server with reusable HTTP/security primitives.
 - No dependency is added without updating this document
-- `cargo audit` and `cargo deny` are run as part of CI validation (see `scripts/verify.sh`)
+- `cargo audit` and `cargo deny` are run manually during release preparation (see `scripts/install-cargo-tools.sh`); they are not part of routine CI
 
 ## Accepted maintenance-risk dependencies
 

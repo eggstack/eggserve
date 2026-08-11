@@ -2,7 +2,9 @@
 
 ## Status
 
-**PLANNED.**
+**COMPLETE — 2026-08-11.**
+
+Closure gate for the Plan 112 consolidation roadmap. All acceptance criteria met.
 
 Final phase of Plan 112. Execute only after Plans 113–117 have landed sufficiently that active architecture, supported API, dependency ownership, verification policy, timeout semantics, and Python packaging decisions are stable.
 
@@ -427,3 +429,50 @@ Reject closure if:
 - a known roadmap defect is deferred merely to mark the roadmap complete.
 
 If only minor wording preferences remain after all behavioral and truthfulness criteria pass, close the roadmap and handle future documentation edits as ordinary maintenance rather than creating another plan.
+
+---
+
+## Closure Metadata
+
+### Plans completed
+
+| Plan | Status | Summary |
+|------|--------|---------|
+| 112 | Complete | Consolidation roadmap (this plan) |
+| 113 | Complete | Product surface: removed client subsystem, deprecated service adapter |
+| 114 | Complete | Dependency slimming, artifact measurement |
+| 115 | Complete | CI simplification: two-job routine CI, manual release |
+| 116 | Complete | Timeout semantics (`connection_total_timeout`), error taxonomy cleanup |
+| 117 | Complete | Python TLS policy (unconditional in wheel), abi3 version broadening |
+| 118 | Complete | Documentation consolidation and roadmap closure |
+
+### Product statement
+
+EggServe is a hardened, Rust-backed static file server with safe-by-default behavior. It serves static files via HTTP/1.1 only. The supported surfaces are: CLI binary (`eggserve`), Python `http.server`-shaped facade (`eggserve.server` with six classes), and reusable Rust primitives (`eggserve-core::primitives`). There is no HTTP client. There is no deprecated service adapter. TLS is optional in the CLI (`tls` feature) and unconditional in the Python wheel.
+
+### Verification results
+
+- `cargo fmt --all -- --check`: clean
+- `cargo clippy --workspace --lib --bins --tests -- -D warnings`: clean
+- `cargo test --workspace`: 1353 passed, 11 ignored
+- `cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings`: clean
+- `cargo test -p eggserve-bin --features tls`: 88 passed
+- Scope searches for stale references: all clean (no removed surfaces described as current, no false CI claims)
+
+### Documentation changes
+
+- Fixed `cargo audit`/`cargo deny` claims in `docs/security-review.md`, `docs/dependency-policy.md`, `docs/release-criteria.md`
+- Removed deprecated `service` adapter references from `README.md`, `docs/architecture.md`
+- Removed client subsystem references from `docs/toolchain-support.md`, `docs/extension-contract.md`, `docs/library-capability-matrix.md`, `docs/dependency-policy.md`
+- Removed stale client test references from Python test files
+- Updated `AGENTS.md` and `docs/architecture/overview.md` plan ranges to 000–118
+- Updated skill file (`eggserve-dev/SKILL.md`) plan range and removed deprecated adapter note
+- Cleaned up `architecture/eggserve-python.md` and `docs/python-packaging.md`
+
+### Intentionally retained surfaces
+
+No surfaces were retained that a plan originally expected to remove. All removals from Plans 113–117 were completed.
+
+### Environment-limited tests
+
+All routine CI checks were run locally and passed. The Python wheel build/test (`scripts/test-python-wheel.sh`) was not run locally as it requires a clean CPython 3.14 venv; existing CI evidence from prior merges is used.

@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–114 historical; Plan 109 verified complete; Plan 111 documentation polish; Plan 114 dependency slimming), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–118 historical; Plan 109 verified complete; Plans 112–118 form the consolidation roadmap), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -70,7 +70,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
-- **Plan status** — Plan 108 is historical; verified Plan 109 closed final admission ownership, exact Stream wire proof, build-time static-service consumption, and corrected distribution evidence. Plan 111 completed final documentation polish. The pre-runtime `service` module is a deprecated delegating compatibility adapter requiring an explicit runtime context; production servers use the shared `RuntimeState` admission pool.
+- **Plan status** — Plan 108 is historical; verified Plan 109 closed final admission ownership, exact Stream wire proof, build-time static-service consumption, and corrected distribution evidence. Plan 111 completed final documentation polish. Plans 112–118 formed the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
