@@ -27,7 +27,9 @@ The full security policy, including safe defaults and threat model, is documente
 
 eggserve is a static file server. Security issues in upstream dependencies (Rust, hyper, tokio, etc.) should be reported to the respective projects. Report to eggserve only if the vulnerability is in eggserve's own code or policy enforcement.
 
-The release wheel is tested for CPython 3.11+ (abi3) on Linux, macOS, and Windows.
+The release wheel targets the CPython 3.11 stable ABI (abi3) and supports
+GIL-enabled CPython 3.11+. Routine CI verifies the Linux wheel with
+CPython 3.14; macOS and Windows wheels are built and tested manually.
 Windows functionality is covered, but filesystem confinement is not hardened
 to the Unix descriptor-relative level; do not use Windows with untrusted
 mutable public content.

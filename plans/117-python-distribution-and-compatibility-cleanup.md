@@ -323,3 +323,11 @@ Reject the implementation if it:
 - rewrites the Python facade around stable-ABI limitations if the complexity outweighs the compatibility benefit;
 - adds pure-Python networking fallbacks;
 - exposes deleted client functionality as a new Python API.
+
+---
+
+**Post-closure correction (Plan 119):** The abi3 feature was set to bare `abi3`
+rather than the explicit `abi3-py311`. Bare `abi3` selects the host interpreter's
+stable-ABI floor rather than pinning the declared 3.11 minimum. Plan 119
+corrected the feature to `abi3-py311` and supplied same-wheel CPython 3.11 and
+3.14 installed-wheel evidence.

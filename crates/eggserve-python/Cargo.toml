@@ -20,6 +20,6 @@ strip = "symbols"
 
 [dependencies]
 eggserve-core = { path = "../eggserve-core", features = ["tls", "python-bindings-internal"] }
-pyo3 = { version = "0.24", features = ["extension-module", "abi3"] }
+pyo3 = { version = "0.24", features = ["extension-module", "abi3-py311"] }
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }

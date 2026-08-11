@@ -55,7 +55,7 @@ Wheels are built with **maturin** (latest stable, `>=1.0, <2.0`). The build back
 
 ### PyO3 Version
 
-The Python bindings use PyO3 **0.24** with the `extension-module` feature.
+The Python bindings use PyO3 **0.24** with the `extension-module` and `abi3-py311` features.
 
 ### Wheel Matrix
 

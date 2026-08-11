@@ -476,3 +476,14 @@ No surfaces were retained that a plan originally expected to remove. All removal
 ### Environment-limited tests
 
 All routine CI checks were run locally and passed. The Python wheel build/test (`scripts/test-python-wheel.sh`) was not run locally as it requires a clean CPython 3.14 venv; existing CI evidence from prior merges is used.
+
+---
+
+**Post-closure correction (Plan 119):** Plan 119 corrected two substantive
+evidence defects found during post-closure review: (1) the PyO3 abi3 feature
+was bare rather than pinned to the declared 3.11 minimum, corrected to
+`abi3-py311`; (2) three service-layer stream-permit tests operated at the wrong
+semaphore boundary and were removed or replaced with production-boundary
+evidence. Plan 119 also deleted the stale `plans/plan115-inventory.md` and
+reconciled documentation wording. Plans 112–118 should be treated as closed
+after this corrective pass.
