@@ -13,8 +13,7 @@
 //! 5. Service invocation with panic containment
 //! 6. Canonical response normalization
 //! 7. Transport-body conversion
-//! 8. Write timeout enforcement
-//! 9. Permit release and connection termination
+//! 8. Permit release and connection termination
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -39,7 +38,7 @@ use crate::server::RuntimeState;
 ///
 /// - HTTP/1 connection setup with Hyper
 /// - Header-read timeout enforcement
-/// - Response-write timeout enforcement
+/// - Connection-total-timeout enforcement (maximum connection lifetime)
 /// - Graceful shutdown propagation
 ///
 /// The `service` parameter provides the request handler. The built-in static

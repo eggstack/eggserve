@@ -242,8 +242,7 @@ HTTP Request
 │     (HEAD suppression, body-forbidden enforcement,  │
 │      hop-by-hop stripping, content-length)          │
 │  2. Transport-body conversion (to_hyper_response)   │
-│  3. Write timeout enforcement                       │
-│  4. Permit release + connection termination         │
+│  3. Permit release + connection termination         │
 └─────────────────┬───────────────────────────────────┘
                   │
                   ▼

@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED.**
+**COMPLETE.**
 
 Depends on Plans 113–115 sufficiently landing that removed subsystems and verification paths no longer distort the runtime/API surface.
 

@@ -195,8 +195,7 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 6. Service invocation with timeout
 7. Canonical response normalization
 8. Transport-body conversion
-9. Write timeout enforcement
-10. Permit release and connection termination
+9. Permit release and connection termination
 
 ## Body ingestion pipeline
 

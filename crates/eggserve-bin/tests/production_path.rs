@@ -1,7 +1,7 @@
 //! Production-path wire coverage (Track C, CORRECTIVE-CLOSURE-PHASES-31-35).
 //!
 //! Exercises the same accept-loop/server-builder path used in production:
-//! connection semaphore, header read timeout, response write timeout,
+//! connection semaphore, header read timeout, connection total timeout,
 //! graceful shutdown, and TokioTimer-configured hyper. This complements
 //! the focused parser/service tests in eggserve-core's http_wire_correctness.rs.
 
