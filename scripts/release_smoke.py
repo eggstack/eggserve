@@ -1,9 +1,15 @@
 #!/usr/bin/env python3
-"""Smoke-test a bundled eggserve binary against a controlled fixture."""
+"""Smoke-test the eggserve server against a controlled fixture.
+
+Usage:
+    python release_smoke.py                    # test installed entry point
+    python release_smoke.py /path/to/eggserve  # test a specific binary
+"""
 
 from __future__ import annotations
 
 import http.client
+import shutil
 import socket
 import subprocess
 import sys
@@ -13,19 +19,33 @@ from pathlib import Path
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        print(f"usage: {sys.argv[0]} BINARY", file=sys.stderr)
+    binary: str | None = None
+    if len(sys.argv) == 2:
+        candidate = Path(sys.argv[1]).resolve()
+        if candidate.is_file():
+            binary = str(candidate)
+    elif len(sys.argv) > 2:
+        print(f"usage: {sys.argv[0]} [BINARY]", file=sys.stderr)
         return 2
 
-    binary = Path(sys.argv[1]).resolve()
-    if not binary.is_file():
-        raise AssertionError(f"binary not found: {binary}")
-
-    version = subprocess.run([str(binary), "--version"], check=False, capture_output=True, text=True)
-    if version.returncode != 0:
-        raise AssertionError(f"--version failed: {version.stderr}")
-    print(f"  binary: {binary}")
-    print(f"  version: {version.stdout.strip()}")
+    if binary is not None:
+        version = subprocess.run(
+            [binary, "--version"], check=False, capture_output=True, text=True
+        )
+        if version.returncode != 0:
+            raise AssertionError(f"--version failed: {version.stderr}")
+        print(f"  binary: {binary}")
+        print(f"  version: {version.stdout.strip()}")
+    else:
+        cmd = shutil.which("eggserve")
+        if cmd is None:
+            # Fall back to python -m eggserve
+            cmd = sys.executable
+            argv_base = [cmd, "-m", "eggserve"]
+            print(f"  command: python -m eggserve")
+        else:
+            argv_base = [cmd]
+            print(f"  command: {cmd}")
 
     with tempfile.TemporaryDirectory(prefix="eggserve-smoke-") as root:
         fixture = b"eggserve release smoke\n"
@@ -34,16 +54,28 @@ def main() -> int:
             probe.bind(("127.0.0.1", 0))
             port = probe.getsockname()[1]
 
-        process = subprocess.Popen(
-            [
-                str(binary),
+        if binary is not None:
+            argv = [
+                binary,
                 "--directory",
                 root,
                 "--bind",
                 f"127.0.0.1:{port}",
                 "--log-format",
                 "none",
-            ],
+            ]
+        else:
+            argv = argv_base + [
+                "--directory",
+                root,
+                "--bind",
+                f"127.0.0.1:{port}",
+                "--log-format",
+                "none",
+            ]
+
+        process = subprocess.Popen(
+            argv,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,

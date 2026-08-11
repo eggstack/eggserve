@@ -115,13 +115,13 @@ eggserve-python        → standalone, owns Python packaging
 
 - **`eggserve-core`** has no workspace dependencies. All security-critical logic lives here.
 - **`eggserve-bin`** depends on `eggserve-core` via path. Owns CLI parsing, signal handling, accept loop.
-- **`eggserve-python`** depends on `eggserve-core` via path. Excluded from workspace; has its own `Cargo.lock`. Built via maturin. Bundles the platform-native CLI binary.
+- **`eggserve-python`** depends on `eggserve-core` and `eggserve-bin` via path. Excluded from workspace; has its own `Cargo.lock`. Built via maturin. Includes an `eggserve` console script backed by the native extension.
 
 ### Feature Flags
 
 | Feature | Crate | Purpose |
 |---------|-------|---------|
-| `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
+| `tls` | `eggserve-core`, `eggserve-bin`, `eggserve-python` | Server TLS via rustls/tokio-rustls |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
 | `windows-plan086` | `eggserve-core` | Windows adversarial qualification |
 
@@ -136,7 +136,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
 | Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | All security-critical logic — path confinement, policy enforcement, HTTP serving, response construction |
-| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, signal handling, current-thread tokio runtime, graceful shutdown |
+| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, `run_cli()` library entrypoint, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
 
 ### Security Subsystems
@@ -393,3 +393,4 @@ Plans 000–118 are historical implementation records; Plan 109 is the verified 
 | 109 | Final admission & wire verification | Verified complete — admission ownership, corrective pass |
 | 110–111 | Documentation polish | Final documentation reproduction and closure polish |
 | 112–118 | Consolidation roadmap | Product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure |
+| 119–122 | Python wheel deduplication | CLI deduplication, artifact-size closure |

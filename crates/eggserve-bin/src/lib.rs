@@ -14,19 +14,25 @@ mod shutdown;
 pub mod tls;
 
 pub fn run() {
-    let args = match args::Args::parse() {
+    let code = run_cli(std::env::args().skip(1).collect());
+    std::process::exit(code);
+}
+
+#[allow(clippy::needless_return)]
+pub fn run_cli(argv: Vec<String>) -> i32 {
+    let args = match args::Args::parse_from(argv) {
         Ok(a) => a,
         Err(e) if e == "help" => {
             args::print_usage();
-            return;
+            return 0;
         }
         Err(e) if e == "version" => {
             args::print_version();
-            return;
+            return 0;
         }
         Err(e) => {
             eprintln!("error: {}", e);
-            std::process::exit(1);
+            return 1;
         }
     };
 
@@ -35,7 +41,7 @@ pub fn run() {
         Ok(l) => l,
         Err(e) => {
             eprintln!("error: {}", e);
-            std::process::exit(1);
+            return 1;
         }
     };
     let quiet = args.quiet || args.log_format == args::LogFormat::None;
@@ -72,7 +78,7 @@ pub fn run() {
             Ok(config) => Some(config),
             Err(e) => {
                 eprintln!("error: {}", e);
-                std::process::exit(1);
+                return 1;
             }
         },
         _ => None,
@@ -146,12 +152,12 @@ pub fn run() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("error: {}", e);
-                std::process::exit(1);
+                return 1;
             }
         };
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
 
-        rt.block_on(async {
+        return rt.block_on(async {
             let server = Server::builder()
                 .runtime(runtime_config)
                 .serve_config(serve_config)
@@ -160,7 +166,6 @@ pub fn run() {
 
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
 
-            // Start signal handler.
             tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
 
             match server.start().await {
@@ -174,7 +179,6 @@ pub fn run() {
                         .field(Field::Str("addr".into(), handle.local_addr().to_string())),
                     );
 
-                    // Wait for first signal: graceful shutdown.
                     let mut signal_rx = shutdown_rx;
                     let _ = signal_rx.recv().await;
 
@@ -189,7 +193,6 @@ pub fn run() {
 
                     handle.shutdown();
 
-                    // Wait for drain with configured timeout.
                     match tokio::time::timeout(shutdown_timeout, handle.wait()).await {
                         Ok(Ok(result)) => {
                             Logger::global().emit(
@@ -216,6 +219,7 @@ pub fn run() {
                             ));
                         }
                     }
+                    0
                 }
                 Err(e) => {
                     Logger::global().emit(Event::new(
@@ -223,7 +227,7 @@ pub fn run() {
                         EventKind::ProcessStarting,
                         format!("error: {}", e),
                     ));
-                    std::process::exit(1);
+                    1
                 }
             }
         });
@@ -235,14 +239,14 @@ pub fn run() {
             Ok(c) => c,
             Err(e) => {
                 eprintln!("error: {}", e);
-                std::process::exit(1);
+                return 1;
             }
         };
         runtime_config.tls_config = tls_config;
 
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
 
-        rt.block_on(async {
+        return rt.block_on(async {
             let server = Server::builder()
                 .runtime(runtime_config)
                 .serve_config(serve_config)
@@ -302,6 +306,7 @@ pub fn run() {
                             ));
                         }
                     }
+                    0
                 }
                 Err(e) => {
                     Logger::global().emit(Event::new(
@@ -309,7 +314,7 @@ pub fn run() {
                         EventKind::ProcessStarting,
                         format!("error: {}", e),
                     ));
-                    std::process::exit(1);
+                    1
                 }
             }
         });

@@ -1540,6 +1540,13 @@ fn parse_http_version_fn(value: &str) -> PyResult<PyHttpVersion> {
     PyHttpVersion::py_new(value)
 }
 
+#[pyfunction]
+#[pyo3(name = "_run_cli")]
+#[pyo3(signature = (argv,))]
+fn run_cli_fn(argv: Vec<String>) -> i32 {
+    eggserve_bin::run_cli(argv)
+}
+
 #[pymodule]
 fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("EggserveError", m.py().get_type::<EggserveError>())?;
@@ -1618,6 +1625,7 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_etag_fn, m)?)?;
     m.add_function(wrap_pyfunction!(parse_method_fn, m)?)?;
     m.add_function(wrap_pyfunction!(parse_http_version_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(run_cli_fn, m)?)?;
 
     m.add_class::<server::PyRequestBody>()?;
     m.add_class::<server::PyBodyChunkIterator>()?;

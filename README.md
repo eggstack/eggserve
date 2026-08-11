@@ -172,8 +172,8 @@ with HTTPSServer(("127.0.0.1", 8443), Handler,
     server.serve_forever()
 ```
 
-The advanced primitives are under `eggserve.lowlevel`; the optional bundled
-CLI lifecycle helpers are under `eggserve.subprocess`. `serve_directory()`
+The advanced primitives are under `eggserve.lowlevel`; the optional
+subprocess lifecycle helpers are under `eggserve.subprocess`. `serve_directory()`
 remains available at the package root. EggServe is not an ASGI/WSGI runtime,
 framework, proxy, or HTTP client library.
 

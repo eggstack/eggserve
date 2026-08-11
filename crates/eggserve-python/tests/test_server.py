@@ -258,10 +258,8 @@ class TestServerProcess(unittest.TestCase):
         proc = ServerProcess(ServeConfig())
         proc.stop()
 
-    @patch("eggserve.server._find_binary")
     @patch("eggserve.server.subprocess.Popen")
-    def test_start_spawns_binary(self, mock_popen, mock_find_binary):
-        mock_find_binary.return_value = "/usr/bin/eggserve"
+    def test_start_spawns_process(self, mock_popen):
         mock_process = MagicMock()
         mock_process.poll.return_value = None
         mock_popen.return_value = mock_process
@@ -270,19 +268,18 @@ class TestServerProcess(unittest.TestCase):
         proc = ServerProcess(config)
         proc.start()
 
-        mock_find_binary.assert_called_once()
         mock_popen.assert_called_once()
         call_args = mock_popen.call_args
         argv = call_args[0][0]
-        self.assertEqual(argv[0], "/usr/bin/eggserve")
+        self.assertEqual(argv[0], sys.executable)
+        self.assertEqual(argv[1], "-m")
+        self.assertEqual(argv[2], "eggserve")
         self.assertIn("--port", argv)
         self.assertIn("9000", argv)
         self.assertTrue(proc.is_running)
 
-    @patch("eggserve.server._find_binary")
     @patch("eggserve.server.subprocess.Popen")
-    def test_stop_terminates_process(self, mock_popen, mock_find_binary):
-        mock_find_binary.return_value = "/usr/bin/eggserve"
+    def test_stop_terminates_process(self, mock_popen):
         mock_process = MagicMock()
         mock_process.poll.return_value = None
         mock_process.wait.return_value = 0
@@ -296,10 +293,8 @@ class TestServerProcess(unittest.TestCase):
         mock_process.wait.assert_called_once()
         self.assertFalse(proc.is_running)
 
-    @patch("eggserve.server._find_binary")
     @patch("eggserve.server.subprocess.Popen")
-    def test_wait_returns_exit_code(self, mock_popen, mock_find_binary):
-        mock_find_binary.return_value = "/usr/bin/eggserve"
+    def test_wait_returns_exit_code(self, mock_popen):
         mock_process = MagicMock()
         mock_process.wait.return_value = 0
         mock_popen.return_value = mock_process
@@ -314,13 +309,6 @@ class TestServerProcess(unittest.TestCase):
         proc = ServerProcess(ServeConfig())
         with self.assertRaises(RuntimeError):
             proc.wait()
-
-    @patch("eggserve.server._find_binary")
-    def test_binary_not_found_raises(self, mock_find_binary):
-        mock_find_binary.side_effect = FileNotFoundError("not found")
-        proc = ServerProcess(ServeConfig())
-        with self.assertRaises(FileNotFoundError):
-            proc.start()
 
 
 if __name__ == "__main__":

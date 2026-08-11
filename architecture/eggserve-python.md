@@ -1,9 +1,10 @@
 # eggserve-python — Deep Dive
 
 The Python wheel is built by maturin and contains a PyO3 extension plus the
-Python façade and bundled CLI. The supported programming surface is
-`eggserve.server`; advanced primitives and CLI lifecycle helpers are kept in
-separate namespaces.
+Python façade. The supported programming surface is `eggserve.server`; advanced
+primitives and subprocess lifecycle helpers are kept in separate namespaces.
+The wheel includes an `eggserve` console script backed by the native extension
+(no separate bundled binary).
 
 Plan 108 correction: custom-handler startup is runtime-only: it constructs a Python callback
 service and `RuntimeConfig` without a `ServeConfig`, responder root, or pinned
@@ -46,16 +47,17 @@ The native callback `Server`, `StaticResponder`, `ServerSecureRoot`, and
 ```
 crates/eggserve-python/
 ├── Cargo.toml          # cdylib and feature-scoped Rust dependencies
-├── pyproject.toml      # maturin metadata and bundled CLI files
+├── pyproject.toml      # maturin metadata and entry points
 ├── src/
 │   ├── lib.rs          # PyO3 module registration
 │   └── server.rs       # internal runtime bridge and response primitives
 └── python/eggserve/
     ├── __init__.py     # small supported top-level namespace
+    ├── _bin.py         # CLI entry point via native _run_cli
+    ├── __main__.py     # python -m eggserve support
     ├── server.py       # six-class Rust-runtime compatibility façade
     ├── lowlevel.py     # advanced native exports
-    ├── subprocess.py   # optional CLI lifecycle exports
-    └── bin/             # staged platform-native CLI in wheels
+    └── subprocess.py   # optional subprocess lifecycle exports
 ```
 
 ## Security boundary

@@ -26,8 +26,6 @@ from pathlib import Path
 from typing import Literal, Optional
 from functools import partial
 
-from eggserve._bin import _find_binary
-
 
 __all__ = [
     "HTTPServer",
@@ -813,7 +811,6 @@ class ServerProcess:
         """Start the server subprocess.
 
         Raises:
-            FileNotFoundError: If the eggserve binary is not found.
             RuntimeError: If the server is already running.
         """
         if self._process is not None:
@@ -821,8 +818,7 @@ class ServerProcess:
 
         config = self._config
 
-        binary = _find_binary()
-        argv = [binary] + _config_to_argv(config)
+        argv = [sys.executable, "-m", "eggserve"] + _config_to_argv(config)
 
         self._process = subprocess.Popen(
             argv,

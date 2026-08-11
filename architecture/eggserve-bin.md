@@ -7,19 +7,28 @@ The CLI binary crate. Owns the process lifecycle: argument parsing, startup logg
 | Module | Purpose |
 |--------|---------|
 | `main.rs` | Thin `fn main()` → `eggserve_bin::run()` |
-| `lib.rs` | `pub fn run()` entrypoint; accept loop; connection serving with timeouts |
+| `lib.rs` | `pub fn run()` and `pub fn run_cli(argv) -> i32` entrypoints; accept loop; connection serving with timeouts |
 | `args.rs` | Manual argument parsing (no clap dependency) |
 | `shutdown.rs` | Signal handling (Ctrl+C, SIGTERM) with broadcast channel |
 | `tls.rs` | TLS certificate loading and rustls config (behind `tls` feature) |
 
-## Entry Point
+## Entry Points
 
 ```rust
 // lib.rs
-pub fn run() -> Result<(), Box<dyn std::error::Error>>
+pub fn run()  // calls run_cli with std::env::args, then std::process::exit
+pub fn run_cli(argv: Vec<String>) -> i32  // library entrypoint returning exit code
 ```
 
-`run()` is the single entrypoint. The binary crate calls it from `main.rs`; the Python package calls it from `server.py` via subprocess. It:
+`run_cli()` is the primary entrypoint. It parses CLI arguments, constructs
+`ServeConfig`, starts the server, and returns an exit code without calling
+`std::process::exit()`. This allows embedding from the Python extension
+without terminating the host process. `run()` is a thin wrapper that calls
+`run_cli` and exits with the returned code.
+
+The binary crate calls `run()` from `main.rs`. The Python package calls
+`run_cli()` via the native `_run_cli` PyO3 binding, and `ServerProcess`
+launches `python -m eggserve` as a subprocess.
 
 1. Parses CLI arguments
 2. Constructs `ServeConfig`

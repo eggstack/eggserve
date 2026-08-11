@@ -31,12 +31,11 @@ Homepage = "https://github.com/eggstack/eggserve"
 Repository = "https://github.com/eggstack/eggserve"
 Documentation = "https://github.com/eggstack/eggserve/tree/main/docs"
 
+[project.scripts]
+eggserve = "eggserve._bin:main"
+
 [tool.maturin]
 bindings = "pyo3"
 python-source = "python"
 module-name = "eggserve._native"
-include = [
-    { path = "python/eggserve/bin/eggserve", format = "wheel" },
-    { path = "python/eggserve/bin/eggserve.exe", format = "wheel" },
-]
 exclude = ["python/**/__pycache__/**", "python/**/*.pyc", "tests/**"]

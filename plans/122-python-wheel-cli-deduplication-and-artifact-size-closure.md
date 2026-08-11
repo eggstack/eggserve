@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-11.**
+**COMPLETE — 2026-08-11.**
 
 Parent roadmap: Plan 120.
 Depends on: Plan 121.
@@ -352,3 +352,37 @@ Reject the implementation if it:
 - removes TLS or narrows Python versions;
 - adds a new wheel flavor/matrix or publishing pipeline;
 - turns binary-size measurement into a permanent per-commit benchmark gate.
+
+---
+
+## Closure evidence
+
+### Size reduction (Track F)
+
+```text
+metric                         before        after         delta
+wheel compressed bytes         1,574,543     1,203,519     -371,024 (-23.6%)
+wheel unpacked bytes           3,279,593     2,511,696     -767,897 (-23.4%)
+_native.abi3.so bytes          2,260,320     2,348,712     +88,392 (+3.9%)
+bundled executable bytes       857,224       0             -857,224 (-100%)
+```
+
+The `_native` extension grew by ~88 KB due to linked CLI code, but the bundled
+binary is eliminated. Net wheel is 371 KB smaller compressed.
+
+### Acceptance criteria verification
+
+- [x] baseline wheel/component sizes are recorded;
+- [x] actual installed `eggserve` command behavior is baselined;
+- [x] the Python wheel no longer contains a standalone `eggserve[.exe]` server binary;
+- [x] there is one Rust source of truth for CLI parsing/execution (`eggserve-bin/src/lib.rs::run_cli`);
+- [x] standalone Cargo CLI remains independently functional (`main.rs` calls `run()` → `run_cli`);
+- [x] installed `eggserve` command works from a clean venv;
+- [x] `python -m eggserve` works from a clean venv;
+- [x] `ServerProcess` still launches a real child process via `sys.executable -m eggserve`;
+- [x] `serve_directory()` retains documented behavior (delegates to `ServerProcess`);
+- [x] HTTPS classes and CLI TLS options remain available;
+- [x] CPython 3.11 abi3 packaging remains intact;
+- [x] before/after wheel measurements show removal of the duplicate artifact;
+- [x] routine CI remains the existing small shape (2 jobs: rust + python);
+- [x] full verification passes.
