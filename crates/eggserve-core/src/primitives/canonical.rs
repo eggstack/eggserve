@@ -81,6 +81,7 @@ impl StatusCode {
     pub const NO_CONTENT: Self = Self(204);
     pub const RESET_CONTENT: Self = Self(205);
     pub const NOT_MODIFIED: Self = Self(304);
+    pub const MOVED_PERMANENTLY: Self = Self(301);
     pub const BAD_REQUEST: Self = Self(400);
     pub const FORBIDDEN: Self = Self(403);
     pub const NOT_FOUND: Self = Self(404);

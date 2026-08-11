@@ -123,7 +123,7 @@ async fn get_directory_with_index_serves_index() {
     .unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let mut resp = svc.call(get("/subdir")).await.unwrap();
+    let mut resp = svc.call(get("/subdir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
 
     let body = extract_body_bytes(&mut resp);
@@ -143,7 +143,7 @@ async fn index_final_symlink_denied_when_symlinks_denied() {
     .unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -164,7 +164,7 @@ async fn index_final_symlink_allowed_when_follow_enabled_if_inside_root() {
     };
     let svc = make_service(&tmp, policy);
 
-    let mut resp = svc.call(get("/subdir")).await.unwrap();
+    let mut resp = svc.call(get("/subdir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     let body = extract_body_bytes(&mut resp);
     assert_eq!(body, b"<html>real</html>");
@@ -192,7 +192,7 @@ async fn index_final_symlink_outside_root_denied_when_follow_enabled() {
     };
     let svc = make_service(&tmp_root, policy);
 
-    let resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -209,7 +209,7 @@ async fn index_under_intermediate_symlink_denied_when_symlinks_denied() {
     std::os::unix::fs::symlink(tmp.path().join("real_dir"), tmp.path().join("link_dir")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let resp = svc.call(get("/link_dir")).await.unwrap();
+    let resp = svc.call(get("/link_dir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -230,7 +230,7 @@ async fn index_under_intermediate_symlink_allowed_when_follow_enabled_if_inside_
     };
     let svc = make_service(&tmp, policy);
 
-    let mut resp = svc.call(get("/link_dir")).await.unwrap();
+    let mut resp = svc.call(get("/link_dir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     let body = extract_body_bytes(&mut resp);
     assert_eq!(body, b"<html>real</html>");
@@ -242,7 +242,7 @@ async fn get_directory_without_index_returns_403_when_listing_disabled() {
     fs::create_dir(tmp.path().join("subdir")).unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 
@@ -870,7 +870,7 @@ async fn hidden_index_name_is_not_considered_index() {
     .unwrap();
     let svc = make_service(&tmp, StaticPolicy::safe_default());
 
-    let resp = svc.call(get("/subdir")).await.unwrap();
+    let resp = svc.call(get("/subdir/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 403);
 }
 

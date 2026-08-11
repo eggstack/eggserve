@@ -5,6 +5,10 @@ configuration and do not pin or otherwise depend on a static responder root.
 Static handlers construct one confined static service. Both paths use the
 running server's single file-stream admission pool for canonical file bodies.
 
+Plan 123 correction: stock `SimpleHTTPRequestHandler` with default settings
+bypasses Python per-request dispatch entirely. The Rust static service handles
+requests directly without GIL acquisition or Python callback overhead.
+
 The supported Python API is the six-class `eggserve.server` façade:
 
 ```python
@@ -39,8 +43,11 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
 
 The root is validated and captured at construction. Safe defaults deny
 directory listings, dotfiles, and symlinks; `directory_listing`,
-`allow_dotfiles`, and `follow_symlinks` are explicit opt-ins. GET and HEAD
-retain Rust-native conditional, range, and streaming behavior.
+`allow_dotfiles`, and `follow_symlinks` are explicit opt-ins. For stock
+`SimpleHTTPRequestHandler` with default settings, the entire request path
+is native — no Python callback is invoked. Subclasses and non-default
+settings fall back to the Python callback path. GET and HEAD retain
+Rust-native conditional, range, and streaming behavior.
 
 `extensions_map` values and `guess_type()` results are response metadata, not
 filesystem operations. They must be strings without prohibited header

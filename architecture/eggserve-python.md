@@ -13,6 +13,13 @@ opened or validated. `SimpleHTTPRequestHandler` is the separate static branch an
 constructs one confined `StaticService`. Both branches use the server-wide
 runtime file-stream semaphore for canonical file responses.
 
+Plan 123 correction: stock `SimpleHTTPRequestHandler` (or a `functools.partial`
+wrapping it with only a `directory=` keyword) with all default settings now
+bypasses Python entirely. The Rust `Server::start()` static path owns request
+handling directly — no `PythonCallbackService`, no GIL acquisition, and no
+Python-side `StaticResponder` construction. Subclasses and non-default settings
+fall back to the Python callback path.
+
 ## Supported modules
 
 `eggserve.server` exports exactly:
@@ -70,7 +77,8 @@ is never logged. The platform qualifications in `docs/security-review.md`,
 especially the incomplete independent Windows adversarial review, continue to
 apply.
 
-The callback bridge stages status, ordered headers, body ownership, and
+The callback bridge (used only for subclass/custom handlers, not stock static
+serving) stages status, ordered headers, body ownership, and
 `Content-Length` validation before constructing a canonical response. Native
 file and byte bodies are one-shot; consumed or malformed structural bodies are
 errors rather than empty-body fallbacks. Handler failures are logged with

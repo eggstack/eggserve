@@ -311,6 +311,7 @@ class HTTPServer:
         self.RequestHandlerClass = handler_class
         self._handler_type = factory
         self._static_config = self._static_handler_config(handler_class, factory)
+        self._native_fast_path = self._check_native_fast_path(handler_class, factory)
         self.allow_reuse_address = False
         self.max_handler_response_bytes = max_handler_response_bytes
         self._closed = False
@@ -353,6 +354,38 @@ class HTTPServer:
             "extensions_map": dict(getattr(handler_type, "extensions_map", {})),
         }
 
+    @staticmethod
+    def _check_native_fast_path(handler_class, handler_type):
+        """Determine if the handler can bypass Python per-request dispatch.
+
+        Returns True only when the handler is the stock
+        ``SimpleHTTPRequestHandler`` (or a ``functools.partial`` wrapping it)
+        with all static-serving settings at their default values.  Subclasses,
+        custom ``index_pages``, non-default policy flags, or non-empty
+        ``extensions_map`` all force fallback to the Python callback path.
+
+        The ``directory=`` partial keyword is allowed because it is immutable
+        server configuration, not request-time Python behavior.
+
+        The eligibility decision is made once at server configuration time and
+        does not change per request.
+        """
+        if handler_type is not SimpleHTTPRequestHandler:
+            return False
+        if getattr(handler_type, "directory_listing", False):
+            return False
+        if getattr(handler_type, "follow_symlinks", False):
+            return False
+        if getattr(handler_type, "allow_dotfiles", False):
+            return False
+        index_pages = getattr(handler_type, "index_pages", ("index.html", "index.htm"))
+        if index_pages != ("index.html", "index.htm"):
+            return False
+        extensions_map = getattr(handler_type, "extensions_map", {})
+        if extensions_map:
+            return False
+        return True
+
     def server_bind(self):
         return None
 
@@ -360,7 +393,7 @@ class HTTPServer:
         if self._native is None:
             from eggserve._native import Server as _NativeServer
             root = "."
-            if self._static_config is not None:
+            if self._static_config is not None and not self._native_fast_path:
                 from eggserve._native import (
                     ServerSecureRoot,
                     StaticPolicyWrapper,
@@ -377,11 +410,13 @@ class HTTPServer:
                 )
                 self._static_responder = StaticResponder(secure_root)
                 root = config["root"]
-            callback = self._handle_request
+            elif self._static_config is not None:
+                root = self._static_config["root"]
+            callback = self._handle_request if not self._native_fast_path else None
             self._native = _NativeServer(
                 root, bind=self._bind, port=self._requested_port, handler=callback,
                 public=self._wildcard_bind,
-                max_python_callbacks=self._max_workers,
+                max_python_callbacks=self._max_workers if callback is not None else 1,
                 request_body_mode="reject" if self._static_config is not None else "buffer",
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,
                 tls_certfile=self._tls_certfile,

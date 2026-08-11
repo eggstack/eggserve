@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-11.**
+**COMPLETE — 2026-08-11.**
 
 Parent roadmap: Plan 120.
 Depends on: Plans 121–122.
@@ -317,15 +317,15 @@ Plan 123 is complete when either the optimization path or the evidence-only path
 
 ### Optimization closure
 
-- [ ] baseline demonstrates material Python callback overhead;
-- [ ] exact stock `SimpleHTTPRequestHandler` / directory partial has a deterministic native eligibility path;
-- [ ] eligible static requests do not enter Python per request;
-- [ ] arbitrary subclasses retain Python dispatch;
-- [ ] mutated/unrepresentable configuration safely falls back;
-- [ ] HTTP/security/TLS parity tests pass;
-- [ ] installed-wheel benchmarks demonstrate a repeatable benefit;
-- [ ] no new dependency/framework/cache is introduced;
-- [ ] routine CI remains unchanged in shape.
+- [x] baseline demonstrates material Python callback overhead;
+- [x] exact stock `SimpleHTTPRequestHandler` / directory partial has a deterministic native eligibility path;
+- [x] eligible static requests do not enter Python per request;
+- [x] arbitrary subclasses retain Python dispatch;
+- [x] mutated/unrepresentable configuration safely falls back;
+- [x] HTTP/security/TLS parity tests pass;
+- [x] installed-wheel benchmarks demonstrate a repeatable benefit;
+- [x] no new dependency/framework/cache is introduced;
+- [x] routine CI remains unchanged in shape.
 
 ### Evidence-only closure
 

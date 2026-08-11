@@ -26,8 +26,9 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
 
 The supported classes are `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`,
 `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and
-`SimpleHTTPRequestHandler`. `HTTPServer` serializes handler callbacks;
-`ThreadingHTTPServer` uses bounded Rust-managed callback concurrency and does
+`SimpleHTTPRequestHandler`. For stock `SimpleHTTPRequestHandler` with default
+settings, requests are served directly by the Rust static service without Python
+dispatch. Subclasses use bounded Rust-managed callback concurrency and do
 not create one Python thread per connection.
 
 `rfile` and `wfile` are bounded in-memory facades. Request headers are exposed
@@ -57,7 +58,10 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
 Roots are validated and pinned before serving. `index_pages` defaults to
 `("index.html", "index.htm")`; listing is opt-in with `directory_listing=True`.
 `follow_symlinks` and `allow_dotfiles` are explicit opt-ins. Policies are
-captured at startup. GET and HEAD preserve native conditional and single-range
+captured at startup. For stock `SimpleHTTPRequestHandler` with default settings,
+the entire request path is fully native — no Python callback is invoked.
+Subclasses and non-default settings fall back to the Python callback path.
+GET and HEAD preserve native conditional and single-range
 semantics, while file bodies remain Rust-owned streams.
 
 Unlike the stdlib handler, `translate_path()` is intentionally unavailable,

@@ -140,7 +140,14 @@ async fn live_directory_without_index_returns_403() {
     fs::create_dir(tmp.path().join("subdir")).unwrap();
     let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
+    // Directory without trailing slash redirects first.
     let resp = send_request(addr, get_req("/subdir")).await;
+    assert_eq!(resp.status(), StatusCode::MOVED_PERMANENTLY);
+    let location = resp.headers().get("location").unwrap().to_str().unwrap();
+    assert_eq!(location, "/subdir/");
+
+    // After redirect, no index → 403.
+    let resp = send_request(addr, get_req("/subdir/")).await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }
 
@@ -155,7 +162,14 @@ async fn live_directory_with_index_returns_200() {
     .unwrap();
     let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
 
+    // Directory without trailing slash redirects first.
     let resp = send_request(addr, get_req("/subdir")).await;
+    assert_eq!(resp.status(), StatusCode::MOVED_PERMANENTLY);
+    let location = resp.headers().get("location").unwrap().to_str().unwrap();
+    assert_eq!(location, "/subdir/");
+
+    // After redirect, index found → 200.
+    let resp = send_request(addr, get_req("/subdir/")).await;
     assert_eq!(resp.status(), StatusCode::OK);
 }
 

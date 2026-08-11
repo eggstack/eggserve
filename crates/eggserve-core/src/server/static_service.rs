@@ -192,17 +192,43 @@ fn plan_static_request(
             if_range,
             is_head,
         ),
-        ResolvedResource::Directory(dir) => plan_directory_response(
-            &guard,
-            dir,
-            config,
-            method,
-            if_none_match,
-            if_modified_since,
-            range,
-            if_range,
-            is_head,
-        ),
+        ResolvedResource::Directory(dir) => {
+            let raw_path = target.path();
+            if !raw_path.ends_with('/') {
+                let mut location = raw_path.to_string();
+                if !location.ends_with('/') {
+                    location.push('/');
+                }
+                if let Some(q) = target.query() {
+                    location.push('?');
+                    location.push_str(q);
+                }
+                let mut builder =
+                    CanonicalResponse::builder().status(StatusCode::MOVED_PERMANENTLY);
+                builder = builder.push_header(
+                    crate::primitives::header_block::HeaderName::new("location")
+                        .map_err(|e| ServiceError::internal(e.to_string()))?,
+                    crate::primitives::header_block::HeaderValue::new(&location)
+                        .map_err(|e| ServiceError::internal(e.to_string()))?,
+                );
+                let response = builder
+                    .body(ResponseBody::Empty)
+                    .map_err(|e| ServiceError::internal(e.to_string()))?;
+                return normalize_response(response, &NormalizeRequest::new(is_head))
+                    .map_err(|e| ServiceError::internal(e.to_string()));
+            }
+            plan_directory_response(
+                &guard,
+                dir,
+                config,
+                method,
+                if_none_match,
+                if_modified_since,
+                range,
+                if_range,
+                is_head,
+            )
+        }
         ResolvedResource::NotFound => {
             error_response(StatusCode::NOT_FOUND, "404 Not Found\n", is_head, false)
         }
