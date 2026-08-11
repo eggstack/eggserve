@@ -39,13 +39,13 @@ class PublicApiTests(unittest.TestCase):
         self.assertIsNotNone(ServerProcess)
         self.assertTrue(callable(serve_directory))
 
-    def test_internal_types_not_in_native_extension(self):
+    def test_removed_client_types_not_in_native_extension(self):
         import eggserve._native as native
 
-        for name in ("Server", "ServerSecureRoot", "StaticResponder"):
+        for name in ("HttpClient", "ClientConfig", "ClientRequest", "ClientResponse"):
             self.assertFalse(
                 hasattr(native, name),
-                f"Internal type {name} should not be directly accessible",
+                f"Removed type {name} should not be present in native extension",
             )
 
 
