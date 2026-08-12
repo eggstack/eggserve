@@ -415,3 +415,19 @@ class NativeFastPathBehaviorTests(unittest.TestCase):
         self.assertEqual(body, b"")
         content_length = response.getheader("Content-Length")
         self.assertEqual(content_length, "11")
+
+    def test_directory_listing_denied_by_default(self):
+        """Stock handler must not serve directory listing without opt-in."""
+        response, body = self.request("GET", "/")
+        self.assertIn(response.status, (403, 404))
+        self.assertNotIn(b"<title>Directory listing", body)
+
+    def test_symlink_denied(self):
+        """Symlinks must be denied under safe defaults."""
+        link_path = os.path.join(self.tmp.name, "link.txt")
+        try:
+            os.symlink(os.path.join(self.tmp.name, "file.txt"), link_path)
+        except OSError:
+            self.skipTest("symlinks not supported on this platform")
+        response, _ = self.request("GET", "/link.txt")
+        self.assertIn(response.status, (403, 404))

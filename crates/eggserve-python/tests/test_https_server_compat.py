@@ -139,5 +139,59 @@ class HttpsCompatTests(unittest.TestCase):
             self.assertGreater(server.server_port, 0)
 
 
+class HttpsNativeFastPathTests(unittest.TestCase):
+    """Verify native fast path is active for stock SimpleHTTPRequestHandler over TLS."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(self.tmp.name, "hello.txt"), "wb") as stream:
+            stream.write(b"tls native")
+        fixture_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+        self.cert = os.path.join(fixture_dir, "localhost-test.crt")
+        self.key = os.path.join(fixture_dir, "localhost-test.key")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_https_server_native_fast_path_eligible(self):
+        handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+        server = HTTPSServer(("127.0.0.1", 0), handler,
+                             certfile=self.cert, keyfile=self.key)
+        self.assertTrue(server._native_fast_path)
+        server.server_close()
+
+    def test_threading_https_server_native_fast_path_eligible(self):
+        handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+        server = ThreadingHTTPSServer(("127.0.0.1", 0), handler,
+                                      certfile=self.cert, keyfile=self.key)
+        self.assertTrue(server._native_fast_path)
+        server.server_close()
+
+    def test_https_stock_handler_serves_file(self):
+        handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+        server = HTTPSServer(("127.0.0.1", 0), handler,
+                             certfile=self.cert, keyfile=self.key)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            response = _request(server, b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+            self.assertIn(b"200 OK", response)
+            self.assertTrue(response.endswith(b"tls native"))
+        finally:
+            server.server_close()
+            thread.join(5)
+
+    def test_https_subclass_falls_back(self):
+        class CustomHandler(SimpleHTTPRequestHandler):
+            def guess_type(self, path):
+                return "application/x-custom"
+
+        handler = functools.partial(CustomHandler, directory=self.tmp.name)
+        server = HTTPSServer(("127.0.0.1", 0), handler,
+                             certfile=self.cert, keyfile=self.key)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+
 if __name__ == "__main__":
     unittest.main()
