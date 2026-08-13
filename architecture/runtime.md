@@ -284,7 +284,7 @@ ensuring the runtime lives as long as the server.
 
 Lifecycle methods are mapped to the Rust `ServerHandle` API:
 
-- `start()` → creates a `tokio::runtime::Runtime`, creates `ServerHandle` via `Server::builder()`, calls `handle.ready().await` so the server is in Running state when `start()` returns. For callback handlers, uses `start_with_service()` instead of `build()`.
+- `start()` → creates a bounded Tokio multi-thread runtime (2 worker threads, Plan 124), creates `ServerHandle` via `Server::builder()`, calls `handle.ready().await` so the server is in Running state when `start()` returns. For callback handlers, uses `start_with_service()` instead of `build()`.
 - `stop()` → calls `ServerHandle::wait()`, joins thread
 - `shutdown()` → calls `ServerHandle::shutdown()` (non-blocking)
 - `force_shutdown(deadline)` → calls `ServerHandle::force_shutdown()`, waits with deadline

@@ -1613,7 +1613,10 @@ impl PyServer {
 
         let (server_handle, rt) =
             py.allow_threads(|| -> PyResult<(ServerHandle, tokio::runtime::Runtime)> {
-                let rt = tokio::runtime::Runtime::new()
+                let rt = tokio::runtime::Builder::new_multi_thread()
+                    .worker_threads(2)
+                    .enable_all()
+                    .build()
                     .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
                 let server_handle = rt.block_on(async {

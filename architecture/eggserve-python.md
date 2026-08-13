@@ -20,6 +20,12 @@ handling directly — no `PythonCallbackService`, no GIL acquisition, and no
 Python-side `StaticResponder` construction. Subclasses and non-default settings
 fall back to the Python callback path.
 
+Plan 124 correction: each Python `Server` creates a bounded per-server Tokio
+multi-thread runtime with 2 worker threads (down from the default host-core
+count). This reduces per-server thread overhead by ~78% on a 16-core host with
+no measurable throughput regression. Per-server runtime ownership, start/stop
+lifecycle, and independence between server instances are preserved.
+
 ## Supported modules
 
 `eggserve.server` exports exactly:

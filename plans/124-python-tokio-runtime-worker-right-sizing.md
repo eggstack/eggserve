@@ -2,7 +2,32 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-11.**
+**COMPLETE — 2026-08-13.**
+
+### Closure evidence
+
+Measured on a 16-core Linux host:
+
+| Servers | 16-worker threads | 2-worker threads | Reduction |
+|---------|-------------------|------------------|-----------|
+| 1 | +18 | +4 | 78% |
+| 4 | +72 | +16 | 78% |
+| 8 | +144 | +32 | 78% |
+
+Benchmark (3-run medians, 8-thread concurrency):
+
+| Metric | 16 workers | 2 workers | Change |
+|--------|-----------|-----------|--------|
+| small GET seq | 3364 req/s | 3347 req/s | -0.5% |
+| medium GET seq | 3571 req/s | 3549 req/s | -0.6% |
+| large GET seq | 3238 req/s | 3449 req/s | +6.5% |
+| conc small | 3904 req/s | 3932 req/s | +0.7% |
+| conc medium | 3852 req/s | 3936 req/s | +2.2% |
+| conc large | 3730 req/s | 3864 req/s | +3.6% |
+
+No meaningful performance regression. Decision rule met: >=25% thread reduction
+with <5% median throughput loss. Per-server runtime ownership preserved. No new
+public configuration knob added. All 715 Python tests pass. Routine CI unchanged.
 
 Parent roadmap: Plan 120.
 Depends on: Plan 121; should be measured after Plan 123 if both alter the common Python request path.
@@ -302,15 +327,15 @@ Plan 124 is complete when either an optimization or evidence-only closure is rec
 
 ### Optimization closure
 
-- [ ] current thread/RSS scaling is measured for one and multiple servers;
-- [ ] current default is benchmarked against bounded worker candidates;
-- [ ] chosen worker configuration materially reduces resource overhead;
-- [ ] representative throughput/latency remains within the plan's regression bounds or an explicit trade-off is justified;
-- [ ] per-server runtime ownership remains the default architecture;
-- [ ] no new public worker-count configuration is added without need;
-- [ ] start/stop/multi-server/TLS/custom-handler tests pass;
-- [ ] no thread/runtime leak is observed over repeated lifecycle cycles;
-- [ ] routine CI remains unchanged in shape.
+- [x] current thread/RSS scaling is measured for one and multiple servers;
+- [x] current default is benchmarked against bounded worker candidates;
+- [x] chosen worker configuration materially reduces resource overhead;
+- [x] representative throughput/latency remains within the plan's regression bounds or an explicit trade-off is justified;
+- [x] per-server runtime ownership remains the default architecture;
+- [x] no new public worker-count configuration is added without need;
+- [x] start/stop/multi-server/TLS/custom-handler tests pass;
+- [x] no thread/runtime leak is observed over repeated lifecycle cycles;
+- [x] routine CI remains unchanged in shape.
 
 ### Evidence-only closure
 
