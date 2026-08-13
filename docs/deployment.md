@@ -58,11 +58,11 @@ eggserve rejects request bodies by default (safe default). When a reverse proxy 
 
 ### Production profile: unix-reverse-proxy
 
-The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. Plan 089 gates (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) are defined and infrastructure is implemented. External qualification evidence collection is pending; the profile remains functional until all gates pass. See README.md for the full specification.
+The reverse-proxy profile is the preferred public deployment. eggserve binds to loopback, the reverse proxy terminates TLS and handles public binding. External qualification evidence collection is pending; the profile remains functional until all gates pass. See README.md for the full specification.
 
 ### Production profile: unix-direct-https
 
-Native TLS is functional for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. Plan 089 gates (native TLS abuse/limits, 24h soak) are defined; external qualification pending. See README.md for the full specification.
+Native TLS is functional for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. External qualification pending. See README.md for the full specification.
 
 ## Pattern 3: Native TLS
 
@@ -76,7 +76,7 @@ See [tls.md](tls.md) for details on the TLS feature, certificate requirements, a
 
 ## Windows deployment
 
-Windows implements handle-relative confinement (Plans 084–085) with parser-level protections rejecting Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. Plan 086 adversarial qualification test scaffold is established (114 tests covering reparse-point denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed.
+Windows implements handle-relative confinement with parser-level protections rejecting Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. A comprehensive adversarial test suite (114 tests covering reparse-point denial, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay) is established. Independent adversarial review is incomplete. Windows remains functional-only until that review is completed.
 
 See README.md for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
 

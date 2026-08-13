@@ -71,7 +71,7 @@ cargo deny check                        # license/policy check
 bash scripts/verify-cargo-packages.sh   # package dry-run gates
 ```
 
-### Distribution builds (Plan 105)
+### Distribution builds
 
 The `dist` profile produces stripped, size-optimized release artifacts:
 
@@ -80,7 +80,7 @@ cargo build --profile dist --locked -p eggserve-bin              # default CLI
 cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
 ```
 
-## CI policy (Plan 091)
+## CI policy
 
 Routine CI is a small regression screen, not release certification:
 
@@ -105,10 +105,10 @@ Routine CI is a small regression screen, not release certification:
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary).
-- **Windows**: functional with handle-relative child resolution (Plan 084) and handle-relative directory enumeration (Plan 085). Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
+- **Windows**: functional with handle-relative child resolution and handle-relative directory enumeration. Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
-- **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely (Plan 123); subclasses and non-default settings fall back to the Python callback path.
-- **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()` (Plan 105). The Python facade uses `rt-multi-thread` with 2 worker threads (Plan 124) for GIL scheduling. The library is runtime-agnostic.
+- **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path.
+- **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()`. The Python facade uses `rt-multi-thread` with 2 worker threads for GIL scheduling. The library is runtime-agnostic.
 - **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. `--log-format none` disables output; `--quiet` filters to warn/error only. Library code must not use `println!`/`eprintln!`.
 
 ## Common pitfalls
@@ -151,4 +151,4 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has design plans 000–122 (historical/implementation records; Plan 091 defines current CI/release policy; Plan 105 defines product-surface freeze and binary-size reduction; Plan 109 is verified complete; Plan 111 is documentation polish only; Plans 112–118 form the consolidation roadmap; Plan 122 closed Python wheel CLI deduplication and artifact-size reduction).
+`plans/` has design plans 000–125 (historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure).

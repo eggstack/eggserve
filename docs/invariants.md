@@ -1,8 +1,7 @@
 # Invariant Test Matrix
 
-Plan 107 supersedes the earlier global GET/HEAD body prohibition and static
-semaphore ownership claims: service policy controls the actual method within
-the runtime ceiling, and transport owns one file-stream pool per server.
+Service policy controls the actual method within the runtime ceiling, and
+transport owns one file-stream pool per server.
 
 This document enumerates the security and behavioral invariants enforced by eggserve, organized by category. Each invariant maps to specific test coverage in the Rust and Python test suites.
 
@@ -92,7 +91,7 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Python body source exposes correct kind | `test_primitives.py` — `test_body_source_repr` |
 | Python body source read returns expected bytes | `test_primitives.py` — `test_body_for_plan_read_range` |
 
-## Streaming buffer invariants (Plan 088)
+## Streaming buffer invariants
 
 | Invariant | Test coverage |
 |-----------|---------------|

@@ -1,9 +1,9 @@
 # HTTP Response Planning
 
-Plan 107 corrective contract: canonical static planning returns opened-handle
-file/range bodies directly. The runtime performs the only file admission and
-transport conversion. Static request bodies are rejected by service policy;
-custom service body policy remains method-aware.
+Canonical static planning returns opened-handle file/range bodies directly. The
+runtime performs the only file admission and transport conversion. Static request
+bodies are rejected by service policy; custom service body policy remains
+method-aware.
 
 ## Overview
 
@@ -180,7 +180,7 @@ No route drops conditional or range headers. No route reconstructs the plan afte
 
 ### Parity guarantee
 
-Plan 081 requires that `/x/` and `/x/index.html` produce identical conditional and range behavior for the same file. This is verified by:
+Parity guarantee: `/x/` and `/x/index.html` must produce identical conditional and range behavior for the same file. This is verified by:
 
 - **14 planner parity tests** — identical metadata + headers always produce identical planner outputs (same status, same headers, same `BodyPlan` variant)
 - **8 production-path parity tests** — raw TCP comparison of `/subdir/` vs `/subdir/index.html` and `/` vs `/index.html` for full response, HEAD, range, If-None-Match 304, If-Modified-Since 304, and unsatisfiable range 416

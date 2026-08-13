@@ -1,8 +1,7 @@
 # Dependency Policy
 
-Plan 107 adds no runtime or release-framework dependency. The release smoke
-fixture uses only Python's standard library, and the existing Hyper/Tokio
-transport remains the sole file-stream conversion boundary.
+The release smoke fixture uses only Python's standard library, and the existing
+Hyper/Tokio transport remains the sole file-stream conversion boundary.
 
 ## Rules
 
@@ -35,7 +34,7 @@ The following dependency categories are approved for initial development:
 | TLS | `rustls-pemfile` (optional, feature-gated) | PEM certificate and key parsing |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 
-### Tokio feature ownership (Plan 105)
+### Tokio feature ownership
 
 | Crate | Tokio features (production) | Notes |
 |-------|---------------------------|-------|
@@ -110,6 +109,6 @@ CI enforces dependency policy on every push and pull request:
 - **`cargo audit`** — checks for known vulnerabilities in dependencies.
 - **`cargo deny check`** — checks licenses, bans, sources, and advisory databases.
 
-These checks are run locally during release preparation (see `scripts/install-cargo-tools.sh`). The release workflow (`.github/workflows/release.yml`) uses the same installer and runs both as a gate before artifact staging and publication. Routine CI does not run these checks — see Plan 091 for the CI simplification policy.
+These checks are run locally during release preparation (see `scripts/install-cargo-tools.sh`). The release workflow (`.github/workflows/release.yml`) uses the same installer and runs both as a gate before artifact staging and publication. Routine CI does not run these checks.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.

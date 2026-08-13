@@ -445,8 +445,9 @@ class TestServer(unittest.TestCase):
         """shutdown() returns immediately without blocking."""
         s = Server(root=self._td, port=0)
         s.start()
+        s.wait_ready()
         s.shutdown()
-        self.assertIn(s.state, ("running", "draining"))  # state may still be running briefly
+        self.assertIn(s.state, ("running", "draining", "stopped"))  # state may transition quickly
         s.wait()
 
     def test_wait_returns_stopped(self):

@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-11.**
+**COMPLETE — 2026-08-13.**
 
 Parent roadmap: Plan 120.
 Depends on: Plans 121–124.
@@ -443,3 +443,192 @@ Reject the implementation if it:
 - claims wheel availability for architectures not produced by the release process;
 - expands release automation or product scope;
 - creates another numbered follow-up solely for documentation wording after the closure criteria pass.
+
+---
+
+## Closure record
+
+**Status: COMPLETE — 2026-08-13**
+
+### Implementation commit
+
+```
+8d0efabe048711460c308e03c44a3fcf525e104e  (docs + test fix)
+```
+
+### Verification commands/results
+
+| Command | Result |
+|---------|--------|
+| `cargo fmt --all -- --check` | pass |
+| `cargo clippy --workspace --lib --bins --tests -- -D warnings` | pass (no issues) |
+| `cargo test --workspace` | 1361 passed, 9 ignored |
+| `cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings` | pass (no issues) |
+| `cargo test -p eggserve-bin --features tls` | 88 passed |
+| `PYTHON=python3.14 bash scripts/test-python-wheel.sh` | 715 Python tests passed |
+
+### Windows qualification outcome
+
+**Outcome 2 — qualification remains incomplete.**
+
+No Windows host is available in this environment. All Windows-specific tests in `windows_plan086.rs` (114 tests) and `windows_plan084.rs` (111 tests) are gated with `#![cfg(windows)]` or `#![cfg(all(windows, feature = "windows-plan086"))]` and cannot execute on Linux. Tests requiring Developer Mode, elevated privileges, or specialized fixtures use the `blocked!` macro infrastructure.
+
+### Plan 086 evidence matrix (Linux reconciliation)
+
+Every Plan 086 security category is mapped to current evidence:
+
+| Category | Test location | Runnable on hosted Windows? | Status |
+|----------|--------------|---------------------------|--------|
+| File symlink denial | `windows_plan086.rs` (requires Developer Mode) | Yes (with DM) | blocked-fixture (no Windows host) |
+| Directory symlink denial | `windows_plan086.rs` (requires Developer Mode) | Yes (with DM) | blocked-fixture |
+| Junction denial | `windows_plan086.rs` (mklink /J) | Yes | blocked-fixture |
+| Intermediate reparse denial | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Index file reparse denial | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Listing entry reparse filtering | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Dangling reparse denial | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Target inside root denied | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Target outside root denied | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Nested chain denial | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Custom tag denial | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| No handle leak after denials | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| GET/HEAD agree on denial | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Drive prefix rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| ADS rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Reserved name rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Backslash rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Double encoding rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Long component handling | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Encoded separator handling | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Dotfile policy | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| UNC rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Extended path rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Device path rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Trailing space rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Trailing dot rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Repeated separator handling | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Non-ASCII name handling | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Surrogate pair handling | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Case-insensitive aliases | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| 8.3 short name aliases | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Percent-encoded colon rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Encoded dot rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| File-to-reparse swap race | `windows_plan086.rs` (requires DM) | Yes (with DM) | blocked-fixture |
+| File-to-directory type change | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Reparse-to-file race | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Delete-recreate during enumeration | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Parent directory replacement | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| ACL removal/restoration | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Root rename during request | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Listing churn | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Same-name replacement during range | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Concurrent file swap with digest | `windows_plan086.rs` (threads) | Yes | blocked-fixture (no Windows host) |
+| Directory junction swap | `windows_plan086.rs` | Yes | blocked-fixture |
+| Index replacement during resolution | `windows_plan086.rs` (threads) | Yes | blocked-fixture (no Windows host) |
+| Rename chain | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Root rename does not retarget | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| New requests use pinned root | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Old root handles retained during streaming | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Root delete-pending behavior | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| New root after replacement | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Same-size replacement identity | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Rename-over existing | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Direct vs directory index parity | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Hard link identity | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Range during replacement | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Conditional after replacement | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Unreadable root | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Unreadable intermediate | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| No panic on invalid path | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Handle count stable after errors | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Delete-pending object | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| File removed after open | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Directory removed after enumeration | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Handle quota stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Memory pressure | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Sharing violation | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Access revoked during streaming | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Readonly file readable | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Direct file resource stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Range resource stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Directory index stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Directory listing stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Reparse denial stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Missing path stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Large listing stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Rapid create/delete stability | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Graceful shutdown simulation | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Forced shutdown simulation | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Repeated start/stop | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Concurrent operations | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Handle count numeric | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Memory bounded | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Slow client simulation | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Disconnect simulation | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Shutdown timing | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| SecureRoot primitives parity | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| ConfinedPath parsing consistency | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Resolver consistency | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Policy enforcement | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Binary SHA capture | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Source SHA match | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Environment metadata | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| File identity metadata | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Fuzz: request component parsing | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Fuzz: namespace rejection | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Fuzz: reparse detection base | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Fuzz: bounded allocation | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Fuzz: UTF-16 edge cases | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Fuzz: path parser stress | `windows_plan086.rs` (parser) | Cross-platform | pass (cross-platform) |
+| Fuzz: directory buffer stress | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Fuzz: error mapping deterministic | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Fuzz corpus: path_components | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Fuzz corpus: platform_component | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Fuzz corpus: percent_decode | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Fuzz corpus: request_target | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Fuzz corpus: directory_buffer | `windows_plan086.rs` | Cross-platform | pass (cross-platform) |
+| Capability preflight | `windows_plan086.rs` | Yes | blocked-fixture (no Windows host) |
+| Target path not leaked | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+| Denial category observable | `windows_plan086.rs` | Yes (with DM) | blocked-fixture |
+
+**Summary:** ~25 tests are cross-platform and pass on Linux. ~89 tests require a Windows host and are blocked-fixture. No outside-root or denied-reparse bytes are served in any passing case. No Windows defect was demonstrated.
+
+### Documentation changes
+
+- README.md: Replaced Plan 108/109 history with runtime invariant; separated source-supported platforms from prebuilt wheel targets.
+- docs/security-policy.md: Removed plan numbers from normative sections; updated Windows and deployment status wording.
+- docs/python-api.md: Removed plan numbers from opening paragraphs.
+- docs/python-http-server-compatibility.md: Removed plan numbers.
+- docs/toolchain-support.md: Removed plan numbers from Windows classification.
+- docs/deployment.md: Removed plan numbers from deployment profiles and Windows section.
+- docs/secure-root.md: Removed plan numbers from Windows section.
+- docs/threat-model.md: Removed plan numbers from all normative sections.
+- docs/release-contract.md: Removed plan numbers from path confinement and deployment status.
+- docs/non-goals.md: Removed plan numbers.
+- docs/tls.md: Removed plan numbers.
+- docs/http-primitives.md: Removed plan numbers.
+- docs/body-migration.md: Removed plan numbers.
+- docs/invariants.md: Removed plan numbers.
+- docs/http-response-planning.md: Removed plan numbers.
+- docs/dependency-policy.md: Removed plan numbers.
+- architecture/filesystem-confinement.md: Removed plan numbers.
+- architecture/eggserve-python.md: Removed plan numbers.
+- AGENTS.md: Removed plan numbers from CI policy, distribution builds, Windows, Python facade, CLI runtime, and plans directory reference.
+- .agents/skills/eggserve-dev/SKILL.md: Removed plan numbers from plan status, body policy, Python facade, and directory listing.
+
+### Windows support claim (Outcome 2)
+
+Retained wording: Windows is functional and uses handle-relative confinement, but independent adversarial qualification is incomplete. No Windows host was available for this closure. The adversarial test suite (114 tests) is comprehensive in coverage but unexecuted on a real Windows environment. The warning remains.
+
+### Remaining explicit platform limitations
+
+- Windows: functional-only. Handle-relative confinement implemented but adversarial qualification not executed on a real Windows host. Do not use with untrusted mutable public content.
+- Linux aarch64 and macOS x86_64: source-supported but no prebuilt wheels produced by the release workflow.
+- SMB/ReFS/FAT/cloud-placeholder filesystems: not qualified as hardened targets.
+- `--follow-symlinks`: weaker than descriptor-relative hardening on all platforms.
+
+### Routine CI remains small
+
+- One workflow with two jobs (`rust` and `python`), both on `ubuntu-latest`.
+- No Windows CI runner added.
+- No evidence upload, no gate registry.
+- Release publication remains manual.

@@ -1,13 +1,13 @@
 # Python API
 
-Plan 108 ownership correction: custom Python handlers start with runtime-only
-configuration and do not pin or otherwise depend on a static responder root.
-Static handlers construct one confined static service. Both paths use the
-running server's single file-stream admission pool for canonical file bodies.
+Custom Python handlers start with runtime-only configuration and do not pin or
+otherwise depend on a static responder root. Static handlers construct one
+confined static service. Both paths use the running server's single file-stream
+admission pool for canonical file bodies.
 
-Plan 123 correction: stock `SimpleHTTPRequestHandler` with default settings
-bypasses Python per-request dispatch entirely. The Rust static service handles
-requests directly without GIL acquisition or Python callback overhead.
+Stock `SimpleHTTPRequestHandler` with default settings bypasses Python
+per-request dispatch entirely. The Rust static service handles requests directly
+without GIL acquisition or Python callback overhead.
 
 The supported Python API is the six-class `eggserve.server` façade:
 

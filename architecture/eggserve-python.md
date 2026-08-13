@@ -6,25 +6,25 @@ primitives and subprocess lifecycle helpers are kept in separate namespaces.
 The wheel includes an `eggserve` console script backed by the native extension
 (no separate bundled binary).
 
-Plan 108 correction: custom-handler startup is runtime-only: it constructs a Python callback
-service and `RuntimeConfig` without a `ServeConfig`, responder root, or pinned
+Custom-handler startup is runtime-only: it constructs a Python callback service
+and `RuntimeConfig` without a `ServeConfig`, responder root, or pinned
 filesystem state. Its compatibility `root` argument is inactive and is not
 opened or validated. `SimpleHTTPRequestHandler` is the separate static branch and
 constructs one confined `StaticService`. Both branches use the server-wide
 runtime file-stream semaphore for canonical file responses.
 
-Plan 123 correction: stock `SimpleHTTPRequestHandler` (or a `functools.partial`
-wrapping it with only a `directory=` keyword) with all default settings now
-bypasses Python entirely. The Rust `Server::start()` static path owns request
-handling directly — no `PythonCallbackService`, no GIL acquisition, and no
-Python-side `StaticResponder` construction. Subclasses and non-default settings
-fall back to the Python callback path.
+Stock `SimpleHTTPRequestHandler` (or a `functools.partial` wrapping it with only
+a `directory=` keyword) with all default settings bypasses Python entirely. The
+Rust `Server::start()` static path owns request handling directly — no
+`PythonCallbackService`, no GIL acquisition, and no Python-side
+`StaticResponder` construction. Subclasses and non-default settings fall back to
+the Python callback path.
 
-Plan 124 correction: each Python `Server` creates a bounded per-server Tokio
-multi-thread runtime with 2 worker threads (down from the default host-core
-count). This reduces per-server thread overhead by ~78% on a 16-core host with
-no measurable throughput regression. Per-server runtime ownership, start/stop
-lifecycle, and independence between server instances are preserved.
+Each Python `Server` creates a bounded per-server Tokio multi-thread runtime
+with 2 worker threads. This reduces per-server thread overhead by ~78% on a
+16-core host with no measurable throughput regression. Per-server runtime
+ownership, start/stop lifecycle, and independence between server instances are
+preserved.
 
 ## Supported modules
 

@@ -119,7 +119,12 @@ Parser and canonicalization checks only. Symlink checks use `symlink_metadata` (
 
 ### Windows
 
-Plan 084 has implemented handle-relative child resolution on Windows. `ResolvedDirectory` retains an owned `OwnedHandle` for handle-relative child resolution, and `RootGuard::resolve_child` uses handle-relative traversal on Windows. This provides stronger confinement than parser-level checks alone. Plan 085 has implemented handle-relative directory enumeration using `NtQueryDirectoryFile`, replacing the path-based fallback. Plan 086 adversarial qualification test scaffold is established (114 tests). Independent adversarial review is incomplete.
+Handle-relative child resolution is implemented on Windows. `ResolvedDirectory`
+retains an owned `OwnedHandle` for handle-relative child resolution, and
+`RootGuard::resolve_child` uses handle-relative traversal on Windows. This
+provides stronger confinement than parser-level checks alone. Handle-relative
+directory enumeration using `NtQueryDirectoryFile` replaces the path-based
+fallback. Independent adversarial review is incomplete.
 
 ## Usage example
 

@@ -105,8 +105,8 @@ event-driven shutdown. Raw sockets, `fileno()`, exact one-request
 `handle_request()`, socketserver internals, and async handlers are outside
 this foundation. TLS uses rustls and accepts only HTTP/1.1 ALPN; it does not
 accept `ssl.SSLContext`, expose wrapped sockets, select multiple certificates,
-or manage certificates. Static file compatibility is defined separately by
-Plan 097; TLS compatibility by Plan 098.
+or manage certificates. Static file compatibility is defined separately in the
+project documentation.
 
 Low-level Rust-backed primitives remain available only through the explicitly
 advanced `eggserve.lowlevel` namespace.

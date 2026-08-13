@@ -209,15 +209,15 @@ request-body policy controls GET/HEAD/DELETE/OPTIONS/extension content within
 the runtime ceiling; TRACE content is rejected, and incomplete streamed bodies
 close the connection.
 
-Plan 108 is retained as a historical corrective implementation and hosted-CI
-record. Verified Plan 109 completed the final admission ownership, build-time
-static-service consumption, exact Stream wire closure, and truthful
-distribution evidence. Production servers use a single runtime-owned
-file-stream admission pool.
+Every running server owns one shared file-stream admission pool used by static,
+Rust custom, and Python custom file responses. Custom services have no implicit
+filesystem root.
 
 See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
 
 ## Supported platforms
+
+### Runtime/source-supported platforms
 
 | Platform | Status |
 |----------|--------|
@@ -225,7 +225,15 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; handle-relative confinement (Plans 084–085). Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete. Do not use with untrusted public content until that review is completed. |
+| Windows x86_64 | Functional; handle-relative confinement. Independent adversarial review is incomplete. Do not use with untrusted public content until that review is completed. |
+
+### Prebuilt Python wheels
+
+| Platform | Wheel |
+|----------|-------|
+| Linux x86_64 | Built by routine CI |
+| macOS arm64 | Built manually |
+| Windows x86_64 | Built manually |
 
 ## Deployment
 

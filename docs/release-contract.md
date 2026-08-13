@@ -4,10 +4,10 @@ This document defines the exact product surface, behavioral guarantees, and comp
 
 Version: 0.1.0 (pre-release)
 
-Plan 107 corrective boundary: request-body behavior is service-owned. The
-built-in static service rejects body-bearing requests, while custom services may
-declare buffering or streaming for the actual method. The runtime owns one
-server-wide file-stream admission pool and closes incomplete streamed requests.
+Request-body behavior is service-owned. The built-in static service rejects
+body-bearing requests, while custom services may declare buffering or streaming
+for the actual method. The runtime owns one server-wide file-stream admission
+pool and closes incomplete streamed requests.
 
 The Python wheel compatibility declaration is CPython 3.11+ with abi3 stable ABI
 (`>=3.11`) on Linux, macOS, and Windows. The wheel bundles the matching
@@ -211,7 +211,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Path traversal, NUL bytes, ambiguous separators, Windows prefixes, reserved names, and ADS syntax are rejected.
 - On Unix with safe defaults (symlinks denied): descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`. A symlink swapped between check and open is refused rather than followed.
 - With `--follow-symlinks`: component-wise `symlink_metadata` checks. Weaker than descriptor-relative; explicitly outside the hardening guarantee.
-- On Windows: parser-level checks plus handle-relative child resolution (Plan 084) and directory enumeration (Plan 085). `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained handle. Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete.
+- On Windows: parser-level checks plus handle-relative child resolution and directory enumeration. `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained handle. Independent adversarial review is incomplete.
 
 ### Resource Limits
 
@@ -420,9 +420,9 @@ eggserve defines production readiness through explicit profiles rather than one 
 
 | Profile | Status | Description |
 |---------|--------|-------------|
-| unix-reverse-proxy | functional; qualification pending | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; Plan 089 gates defined: proxy.caddy-interop, proxy.nginx-interop, proxy.desync-corpus, stateful.fuzz-replay, filesystem.unix-race, fault.injection, soak.unix-reverse-proxy, artifact.installed-binaries, supply-chain.sbom, release.independent-review) |
-| unix-direct-https | functional; qualification pending | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; Plan 089 gates defined: native-tls.abuse-limits, soak.unix-direct-https) |
-| windows-reverse-proxy | functional | Windows behind reverse proxy (adversarial qualification scaffold established, independent adversarial review incomplete) |
+| unix-reverse-proxy | functional; qualification pending | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; external qualification pending) |
+| unix-direct-https | functional; qualification pending | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; external qualification pending) |
+| windows-reverse-proxy | functional | Windows behind reverse proxy (independent adversarial review incomplete) |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |
 | local-development | supported-hardened | Any platform, loopback, safe defaults |
 | windows-functional | functional | Windows SMB/non-NTFS/cloud filesystems |

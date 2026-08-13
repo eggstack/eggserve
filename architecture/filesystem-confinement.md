@@ -130,7 +130,7 @@ On non-Unix platforms without handle support (or in follow-symlinks mode), compo
 
 This is explicitly documented as outside the descriptor-relative hardening guarantee.
 
-**Windows handle-relative is stronger than the fallback.** Plan 084 and 085 implement true handle-relative traversal on Windows using `NtOpenFile` with `ObjectAttributes.RootDirectory` and `NtQueryDirectoryFile` for enumeration. Under the hardened profile (symlinks denied), Windows uses handle-relative traversal exclusively — no path reconstruction is used as filesystem authority. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). Plan 086 has established the adversarial filesystem qualification test scaffold covering reparse-point denial matrix, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing behavior, resource stability, and installed artifact parity.
+**Windows handle-relative is stronger than the fallback.** Windows uses true handle-relative traversal via `NtOpenFile` with `ObjectAttributes.RootDirectory` and `NtQueryDirectoryFile` for enumeration. Under the hardened profile (symlinks denied), Windows uses handle-relative traversal exclusively — no path reconstruction is used as filesystem authority. A full ADR is available at [architecture/adr-002-windows-handle-relative-filesystem.md](adr-002-windows-handle-relative-filesystem.md). A comprehensive adversarial test suite covers reparse-point denial, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing, resource stability, and installed artifact parity.
 
 ## `RootGuard` Lifecycle
 

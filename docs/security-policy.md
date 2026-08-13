@@ -1,10 +1,9 @@
 # Security Policy
 
-Runtime corrective boundary (Plan 107): static file capabilities remain opened
-and canonical until transport, where one server-wide file-stream semaphore is
-applied. Custom services have no implicit root. Service-declared request-body
-policy controls non-TRACE methods within the configured ceiling; incomplete
-streamed bodies close the connection.
+Static file capabilities remain opened and canonical until transport, where one
+server-wide file-stream semaphore is applied. Custom services have no implicit
+root. Service-declared request-body policy controls non-TRACE methods within the
+configured ceiling; incomplete streamed bodies close the connection.
 
 ## Safe defaults
 
@@ -60,9 +59,9 @@ eggserve defines production readiness through explicit profiles. Each profile sp
 
 | Profile | Status | Hardened |
 |---------|--------|----------|
-| unix-reverse-proxy | functional; qualification pending | Plan 089 gates defined; external qualification pending (proxy interop, fuzz, race, soak, review) |
-| unix-direct-https | functional; qualification pending | Plan 089 gates defined; native TLS abuse and soak qualification pending |
-| windows-reverse-proxy | functional | Adversarial qualification scaffold established (Plan 086); independent adversarial review incomplete |
+| unix-reverse-proxy | functional; qualification pending | External qualification pending (proxy interop, fuzz, race, soak, review) |
+| unix-direct-https | functional; qualification pending | Native TLS abuse and soak qualification pending |
+| windows-reverse-proxy | functional | Independent adversarial review incomplete |
 | windows-direct-https | functional | No |
 | local-development | supported-hardened | Yes |
 | windows-functional | functional | No |
@@ -118,7 +117,15 @@ On non-Unix platforms, or when `--follow-symlinks` is enabled, the implementatio
 
 The configured root is opened once at server startup via `PinnedRoot` and retained for the server lifetime. `RootGuard` borrows from the pinned root for request-scoped traversal. Renaming or replacing the configured pathname does not redirect a running server.
 
-Windows handle-relative child resolution is implemented (Plan 084). `ResolvedDirectory` retains an owned handle for child resolution, and `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained directory handle (Plan 085), eliminating the path-based fallback. Plan 086 adversarial qualification test scaffold is established (114 tests covering denial matrix, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed.
+Windows handle-relative child resolution is implemented. `ResolvedDirectory`
+retains an owned handle for child resolution, and `RootGuard::resolve_child`
+uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile`
+on the retained directory handle, eliminating the path-based fallback. A
+comprehensive adversarial test suite (114 tests covering reparse-point denial,
+namespace normalization, race harness, root identity, file validators,
+ACL/sharing, resource stability, installed artifact parity, and fuzz corpus
+replay) is established. Independent adversarial review is incomplete. Windows
+remains functional-only until that review is completed.
 
 ### `--directory-listing`
 
