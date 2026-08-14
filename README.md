@@ -228,7 +228,7 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; handle-relative confinement. Manual adversarial qualification is recorded in [Plan 129](plans/129-platform-and-product-qualification.md); keep the documented trusted-content caveat until every security-relevant class is covered. |
+| Windows x86_64 | Functionally qualified with handle-relative confinement. Plan 129 records the manual adversarial run; two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation. Keep Windows for trusted/local content. |
 
 ### Prebuilt Python wheels
 

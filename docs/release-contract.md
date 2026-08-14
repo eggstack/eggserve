@@ -413,7 +413,7 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 | Linux aarch64 | Supported | Manual | Full (descriptor-relative) |
 | macOS arm64 | Supported | Manual | Full (descriptor-relative) |
 | macOS x86_64 | Supported | Manual | Full (descriptor-relative) |
-| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration implemented; adversarial qualification scaffold established, independent adversarial review incomplete) |
+| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration implemented and manually qualified in Plan 129; two open-descendant root-rename cases skipped by NTFS path-rename semantics) |
 
 ## Deployment Status
 
@@ -423,7 +423,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 |---------|--------|-------------|
 | unix-reverse-proxy | functional; qualification pending | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; external qualification pending) |
 | unix-direct-https | functional; qualification pending | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; external qualification pending) |
-| windows-reverse-proxy | functional | Windows behind reverse proxy (independent adversarial review incomplete) |
+| windows-reverse-proxy | functional | Windows behind reverse proxy; trusted/local content only because two open-descendant root-rename cases are skipped in Plan 129 |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |
 | local-development | supported-hardened | Any platform, loopback, safe defaults |
 | windows-functional | functional | Windows SMB/non-NTFS/cloud filesystems |

@@ -189,7 +189,7 @@ An attacker can:
 |----------|---------------|-------------|
 | Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None (fully hardened); Plan 089 gates defined, external qualification pending for unix-reverse-proxy profile |
 | macOS (x86_64, aarch64) | Same descriptor-relative guarantees | None (fully hardened) |
-| Windows (x86_64) | Parser-level checks + handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + manually executed adversarial qualification suites (Plan 129) | Profile promotion depends on complete evidence; not for untrusted mutable public content while any security-relevant class remains uncovered |
+| Windows (x86_64) | Parser-level checks + handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + manually executed adversarial qualification suites (Plan 129) | Functionally qualified for executed classes; two open-descendant root-rename cases are skipped by NTFS path-rename semantics, so not for untrusted mutable public content |
 
 ## Consumer Trust Boundaries
 

@@ -89,7 +89,7 @@ platform-limited as noted.
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Plan 129 records manual adversarial qualification evidence; Windows remains functional-only for any uncovered class. |
+| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086) and manually qualified in Plan 129: directory-handle retention, child resolution, reparse denial, and directory enumeration pass. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation. |
 
 ## Notes
 
@@ -101,9 +101,10 @@ platform-limited as noted.
   component-wise `symlink_metadata` checks and is explicitly outside the
   descriptor-relative hardening guarantee.
 
-- **Windows handle-relative confinement** is implemented (Plans 084–086) but
-  awaiting independent safety review. Windows is functional-only. Do not use
-  with untrusted public content on Windows until independent adversarial review is completed.
+- **Windows handle-relative confinement** is implemented and manually
+  qualified (Plans 084–086 and 129). Two open-descendant root-rename cases are
+  skipped due to NTFS path-rename semantics. Windows remains functional-only;
+  do not use it with untrusted public content.
 
 - **Python wheels** are CPython 3.11+ with abi3 stable ABI (`>=3.11`) on the Linux,
   macOS, and Windows wheel matrix. The wheel contains the native extension and

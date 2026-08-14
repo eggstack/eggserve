@@ -100,8 +100,8 @@ Python cannot choose a filesystem path per request, reopen translated paths,
 provide a raw socket, or override runtime-owned framing. Static handler roots
 and policy flags are captured during server construction. Invalid TLS
 configuration fails before the native server reports readiness; key material
-is never logged. The platform qualifications in `docs/security-review.md`,
-especially the incomplete independent Windows adversarial review, continue to
+is never logged. The platform qualifications in `docs/security-review.md` and
+the Windows trusted-content limitation recorded by Plan 129 continue to
 apply.
 
 The callback bridge (used only for subclass/custom handlers, not stock static
@@ -113,8 +113,9 @@ fixed categories only. MIME hooks provide metadata to the native responder;
 they never perform Python path translation, `stat`, open, or reopen operations.
 Installed-wheel and cross-platform product evidence is maintained in
 `plans/129-platform-and-product-qualification.md`; the manual workflow is
-separate from routine CI and does not change the Windows trusted-content
-caveat without complete adversarial coverage.
+separate from routine CI. Windows is functionally qualified, but the
+trusted-content caveat remains because two open-descendant root-rename cases
+are skipped under NTFS path-rename semantics.
 
 ## Verification
 

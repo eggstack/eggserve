@@ -339,7 +339,7 @@ Five distinct error layers, each scoped to a specific subsystem:
 |----------|--------|----------------|
 | **Linux** (x86_64, aarch64) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
 | **macOS** (x86_64, aarch64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
-| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + the manually executed Plan 086 adversarial suite. Plan 129 records the current qualification evidence; the safety-review caveat remains for any uncovered class. |
+| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084), directory enumeration (Plan 085), and the manually executed Plan 086 adversarial suite. Plan 129 records the qualification evidence and two explicitly skipped open-descendant root-rename cases required by NTFS path-rename semantics. |
 
 ---
 

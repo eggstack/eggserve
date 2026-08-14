@@ -50,7 +50,9 @@ gh workflow run platform-qualification.yml --ref main
 ```
 
 It exercises the installed wheel on macOS arm64 and the Windows adversarial
-filesystem suites. Keep Windows support language aligned with the evidence in
+filesystem suites. The Windows suite explicitly skips the two cases where
+NTFS rejects an external path-based root rename while a descendant handle is
+open. Keep Windows support language aligned with the evidence in
 `plans/129-platform-and-product-qualification.md`.
 
 Or use the local verification script:
@@ -131,6 +133,6 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
-- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until the Plan 129 evidence covers all security-relevant reparse/handle classes.
+- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functionally qualified, but remains trusted/local-content only because Plan 129 records two skipped open-descendant root-rename cases.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.

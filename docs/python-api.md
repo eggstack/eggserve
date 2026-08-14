@@ -91,8 +91,9 @@ The façade is not ASGI, WSGI, a routing framework, middleware, a proxy, or a
 general-purpose HTTP server. It intentionally does not expose socketserver
 internals, `fileno()`, authoritative `translate_path()`, or one-request
 `handle_request()` mode. Platform security qualifications, including the
-remaining Windows qualification caveats recorded in Plan 129, remain in
-[`README.md`](../README.md) and [`security-review.md`](security-review.md).
+remaining Windows qualification caveat recorded in Plan 129—the two
+open-descendant root-rename cases skipped by NTFS path-rename semantics—remains
+in [`README.md`](../README.md) and [`security-review.md`](security-review.md).
 
 Python handler responses are validated in one Rust-owned conversion boundary.
 Malformed structural bodies, failed body reads, consumed one-shot bodies,

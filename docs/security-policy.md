@@ -124,9 +124,9 @@ on the retained directory handle, eliminating the path-based fallback. The
 Plan 084/086 adversarial suites cover reparse-point denial, namespace
 normalization, race harness, root identity, file validators, ACL/sharing,
 resource stability, installed artifact parity, and fuzz corpus replay. Plan 129
-records manual execution and any remaining privilege-dependent gaps. Windows
-remains functional-only until complete evidence covers every security-relevant
-class.
+records manual execution; two open-descendant root-rename cases are skipped
+because NTFS rejects that external path operation. Windows remains
+functional-only for trusted/local content.
 
 ### `--directory-listing`
 

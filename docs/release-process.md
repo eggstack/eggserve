@@ -108,8 +108,9 @@ python -m eggserve --help
 
 ## Known limitations
 
-- **Windows**: functional but not hardened for untrusted content. Adversarial
-  qualification test scaffold established; independent safety review pending.
+- **Windows**: functionally qualified on the manual Plan 129 workflow, but not
+  hardened for untrusted content. Two open-descendant root-rename cases are
+  explicitly skipped because NTFS rejects that external path operation.
 - **Follow-symlinks**: weaker than default symlink-denied mode. Uses
   canonicalize-based resolution outside the descriptor-relative hardening
   guarantee.

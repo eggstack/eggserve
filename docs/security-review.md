@@ -96,7 +96,7 @@ When directory listing is enabled:
 
 ## Known limitations
 
-1. **Windows reparse-point hardening** — not fully audited; Windows is supported with parser-level checks but production hardening is a documented non-goal (`docs/non-goals.md`). Windows is explicitly a trusted/local-use platform. **Do not use on Windows for untrusted mutable public roots.**
+1. **Windows platform qualification boundary** — handle-relative resolution, reparse-point denial, and directory enumeration passed the manual Plan 129 qualification on a GitHub-hosted Windows Server 2025 NTFS runner. Two tests remain explicitly ignored because NTFS rejects an external path-based directory rename while a descendant file handle is open. Windows is therefore functionally qualified but remains a trusted/local-use platform. **Do not use on Windows for untrusted mutable public roots.**
 2. **Follow-symlinks mode uses canonicalize-based resolution** — TOCTOU window exists when `--follow-symlinks` is enabled; final canonical path is still verified against root. This mode is **not** covered by the descriptor-relative hardening guarantee and is treated as weaker/experimental.
 3. **macOS intermediate-component TOCTOU** — on macOS, the statat-to-openat gap for intermediate directory components may not be fully closed by `O_NOFOLLOW` on some filesystem configurations; the final component's `O_NOFOLLOW` open prevents swap attacks where supported by the platform.
 4. **Single-range only** — multi-range MIME responses are not supported; single-range requests function correctly
