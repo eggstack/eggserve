@@ -9,6 +9,7 @@ Usage:
 from __future__ import annotations
 
 import http.client
+import os
 import shutil
 import socket
 import subprocess
@@ -109,7 +110,13 @@ def main() -> int:
                 process.kill()
                 process.wait(timeout=5)
                 raise AssertionError("server did not terminate cleanly")
-            if process.returncode not in (0, -15, 143):
+            expected_returncodes = {0, -15, 143}
+            if os.name == "nt":
+                # Popen.terminate() uses TerminateProcess on Windows, which
+                # reports status 1 even though the requested termination
+                # completed successfully.
+                expected_returncodes.add(1)
+            if process.returncode not in expected_returncodes:
                 stderr = process.stderr.read() if process.stderr else ""
                 raise AssertionError(f"server exited unsuccessfully: {process.returncode}: {stderr}")
             print("  server stopped")
