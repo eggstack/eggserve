@@ -632,3 +632,23 @@ Retained wording: Windows is functional and uses handle-relative confinement, bu
 - No Windows CI runner added.
 - No evidence upload, no gate registry.
 - Release publication remains manual.
+
+---
+
+## Plan 126 correction note
+
+The routine CI closure above was correct as of the Plan 125 baseline:
+two jobs, both on `ubuntu-latest`, no new matrix expansion, no evidence
+upload, no automated publication. The Rust and Python jobs both
+exercised the deduplicated wheel architecture installed in a fresh venv
+and the wheel-built `eggserve` console script.
+
+However, the routine CI never executed the manual `.github/workflows/release.yml`
+workflow. That workflow still implemented the pre-Plan 122 architecture
+(staging a duplicate `eggserve[.exe]` into `python/eggserve/bin/` and
+calling the deleted `_find_binary()` in its smoke step), so it would
+have failed on dispatch even though the wheel itself was healthy. Plan
+126 corrected the workflow to match the deduplicated architecture, added
+a wheel composition assertion proving no bundled executable exists, and
+ran the manual Release workflow successfully across Linux x86_64,
+macOS arm64, and Windows x86_64.

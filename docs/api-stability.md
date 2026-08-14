@@ -388,7 +388,6 @@ Plan 098 supersedes the historical Python stability tables formerly maintained i
 
 | Name | Location | Tier |
 |------|----------|------|
-| `_find_binary()` | `_bin.py` | internal |
 | `main()` | `_bin.py` | internal |
 | `_parse_bind()` | `server.py` | internal |
 | `_config_to_argv()` | `server.py` | internal |

@@ -348,3 +348,70 @@ Reject the implementation if it:
 - adds per-request reflection/introspection that offsets the optimization;
 - changes MIME/index/security semantics merely to fit the native path;
 - keeps complexity despite no repeatable performance benefit.
+
+---
+
+## Closure evidence (Plan 126)
+
+### Context
+
+Plan 126 required retaining real before/after measurements for the fast
+path because the original closure record was stronger than the surviving
+repository evidence. The same lightweight benchmark harness
+(`scripts/bench_compat.py`) was run against two installed wheels on the
+same host:
+
+- pre-fast-path baseline = `a3e12540ce0d9906899e344fb308611bdd8bf84d`
+- corrected current implementation = Plan 126 implementation commit
+
+The harness instantiates `ThreadingHTTPServer` with the stock
+`SimpleHTTPRequestHandler` partial, exercises each scenario for 4s with
+8 concurrent workers (and 32 for the moderate-concurrency case), and
+records median / p95 latency. Three samples per wheel were taken.
+
+### Median latency (ms) — three samples per wheel
+
+| scenario              | baseline run 1 | baseline run 2 | baseline run 3 | current run 1 | current run 2 | current run 3 |
+|-----------------------|----------------|----------------|----------------|---------------|---------------|---------------|
+| small GET             | 4.39           | 3.60           | 3.71           | 2.96          | 2.86          | 2.07          |
+| ~64 KiB GET           | 4.28           | 3.38           | 4.30           | 3.44          | 3.47          | 2.31          |
+| HEAD                  | 4.11           | 3.35           | 4.10           | 2.87          | 2.77          | 2.14          |
+| range                 | 4.65           | 3.49           | 4.49           | 3.03          | 2.81          | 2.33          |
+| conditional 304       | 3.45           | 3.09           | 3.78           | 2.57          | 2.03          | 1.86          |
+| moderate concurrency  | 17.61          | 14.99          | 17.01          | 12.51         | 8.73          | 9.73          |
+
+### p95 latency (ms)
+
+| scenario              | baseline run 1 | baseline run 2 | baseline run 3 | current run 1 | current run 2 | current run 3 |
+|-----------------------|----------------|----------------|----------------|---------------|---------------|---------------|
+| small GET             | 10.92          | 9.89           | 8.86           | 6.62          | 7.25          | 5.11          |
+| ~64 KiB GET           | 10.69          | 9.70           | 9.14           | 7.42          | 8.37          | 5.87          |
+| HEAD                  | 10.80          | 9.67           | 9.27           | 7.25          | 7.50          | 5.51          |
+| range                 | 12.16          | 9.73           | 10.11          | 7.00          | 7.29          | 5.99          |
+| conditional 304       | 9.71           | 8.80           | 8.81           | 6.17          | 5.63          | 5.11          |
+| moderate concurrency  | 38.84          | 32.51          | 38.76          | 30.05         | 19.36         | 23.21         |
+
+### Median-of-medians comparison
+
+| scenario              | baseline ms | current ms | delta %  |
+|-----------------------|-------------|------------|----------|
+| small GET             | 3.71        | 2.86       | -23%     |
+| ~64 KiB GET           | 4.28        | 3.44       | -20%     |
+| HEAD                  | 4.10        | 2.77       | -32%     |
+| range                 | 4.49        | 2.81       | -37%     |
+| conditional 304       | 3.45        | 2.03       | -41%     |
+| moderate concurrency  | 17.01       | 9.73       | -43%     |
+
+### Materiality verdict
+
+Every measured scenario exceeds the Plan 123 10% materiality threshold
+on median latency. The moderate-concurrency case shows the largest
+absolute latency reduction (≈43% lower median, ≈40% lower p95). The
+hot-path small GET, conditional 304, and range cases each show ≥20%
+median latency improvement. RSS rose from ~330–380 KB to ~460–600 KB
+because the fast path threads the native runtime directly; this is a
+fixed-cost increase tied to the runtime itself, not duplicated static
+configuration, and remains acceptable.
+
+The fast path is therefore retained under the original optimization
+closure; no revert is required.

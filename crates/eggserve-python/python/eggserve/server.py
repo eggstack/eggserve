@@ -358,19 +358,34 @@ class HTTPServer:
     def _check_native_fast_path(handler_class, handler_type):
         """Determine if the handler can bypass Python per-request dispatch.
 
-        Returns True only when the handler is the stock
-        ``SimpleHTTPRequestHandler`` (or a ``functools.partial`` wrapping it)
-        with all static-serving settings at their default values.  Subclasses,
-        custom ``index_pages``, non-default policy flags, or non-empty
-        ``extensions_map`` all force fallback to the Python callback path.
+        Returns True only for the exact eligibility contract:
 
-        The ``directory=`` partial keyword is allowed because it is immutable
-        server configuration, not request-time Python behavior.
+        - the resolved type is exactly ``SimpleHTTPRequestHandler`` (no
+          subclass); and
+        - the handler is either the bare class, or a ``functools.partial``
+          whose ``.func`` is exactly ``SimpleHTTPRequestHandler``, whose
+          ``.args`` is empty, and whose keyword names are a subset of
+          ``{"directory"}``; and
+        - all static-serving class attributes are at their supported defaults.
+
+        Anything else falls back to the Python callback path. Unsupported
+        partial ``args`` or partial ``keywords`` are never silently ignored;
+        they make the handler ineligible.
 
         The eligibility decision is made once at server configuration time and
         does not change per request.
         """
         if handler_type is not SimpleHTTPRequestHandler:
+            return False
+        if isinstance(handler_class, partial):
+            if handler_class.func is not SimpleHTTPRequestHandler:
+                return False
+            if handler_class.args:
+                return False
+            extra_kwargs = set(handler_class.keywords or {}) - {"directory"}
+            if extra_kwargs:
+                return False
+        elif handler_class is not SimpleHTTPRequestHandler:
             return False
         if getattr(handler_type, "directory_listing", False):
             return False
@@ -413,6 +428,14 @@ class HTTPServer:
             elif self._static_config is not None:
                 root = self._static_config["root"]
             callback = self._handle_request if not self._native_fast_path else None
+            # When the fast path is active, the Rust runtime owns request
+            # handling directly, so the compatibility facade's effective
+            # concurrency is enforced through the native connection
+            # admission limit. Callback-backed paths keep the existing
+            # callback semaphore behavior untouched.
+            native_kwargs = {}
+            if callback is None:
+                native_kwargs["max_connections"] = self._max_workers
             self._native = _NativeServer(
                 root, bind=self._bind, port=self._requested_port, handler=callback,
                 public=self._wildcard_bind,
@@ -421,6 +444,7 @@ class HTTPServer:
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,
                 tls_certfile=self._tls_certfile,
                 tls_keyfile=self._tls_keyfile,
+                **native_kwargs,
             )
             if self._bind_and_activate:
                 self._native.start()
@@ -813,7 +837,6 @@ def serve_directory(
     Raises:
         ValueError: If configuration is invalid (port, log_format, or
             public-bind combination).
-        FileNotFoundError: If the eggserve binary is not found.
     """
     config = ServeConfig(
         directory=directory,
@@ -834,8 +857,10 @@ def serve_directory(
 class ServerProcess:
     """Manage an eggserve subprocess.
 
-    Wraps the eggserve binary for use in tests and simple embedding.
-    This is a subprocess lifecycle manager, not a Python server object.
+    Launches ``sys.executable -m eggserve`` as a real child process for use
+    in tests and simple embedding. The subprocess uses the same installed
+    wheel/native extension as the parent. This is a subprocess lifecycle
+    manager, not a Python server object.
     """
 
     def __init__(self, config: ServeConfig) -> None:
