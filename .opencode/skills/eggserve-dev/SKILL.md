@@ -16,9 +16,9 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 Three crates:
 - `crates/eggserve-core/` — library: security primitives, path confinement, HTTP serving, response construction
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
-- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
+- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–125 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–127 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plans 125–127 close Windows support truthfulness, the native fast path, and the manual release workflow), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -40,7 +40,7 @@ cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings 
 cargo test -p eggserve-bin --features tls                  # TLS tests
 
 # Python job (via scripts/test-python-wheel.sh)
-# Builds CLI, stages binary, builds wheel, installs in venv, runs smoke + tests
+# Builds the extension-backed wheel, installs it in a venv, runs smoke + tests
 ```
 
 Or use the local verification script:
@@ -70,7 +70,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
-- **Plan status** — Plans 112–118 formed the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Plan 125 closes Windows qualification, support truthfulness, and final closure. Production servers use the shared `RuntimeState` admission pool.
+- **Plan status** — Plans 112–118 formed the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Plan 125 closes Windows qualification, support truthfulness, and final closure. Plan 126 is a narrow post-closure corrective pass for the native fast path and the manual release workflow. Production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
@@ -115,7 +115,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. Compatibility `""` binds normalize to `0.0.0.0`, literal wildcard binds are explicit façade opt-ins, and native activation publishes structured actual addresses. `eggserve.lowlevel` contains advanced primitives and `eggserve.subprocess` contains optional CLI lifecycle helpers. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path.
+- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. Compatibility `""` binds normalize to `0.0.0.0`, literal wildcard binds are explicit façade opt-ins, and native activation publishes structured actual addresses. `eggserve.lowlevel` contains advanced primitives and `eggserve.subprocess` contains optional CLI lifecycle helpers. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory"}`. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N).
 - **Python wheel support** — CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS` in both `Limits::validate()` and `RuntimeConfigBuilder::build()`. Values above this bound are rejected with a controlled error.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.

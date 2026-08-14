@@ -89,4 +89,5 @@ python -m eggserve [OPTIONS] [PORT]
 pipx run eggserve [OPTIONS] [PORT]
 ```
 
-Arguments are forwarded directly to the bundled Rust binary.
+Arguments are forwarded directly to the extension-linked Rust CLI entry point
+inside the installed wheel.

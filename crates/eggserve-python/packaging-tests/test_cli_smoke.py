@@ -1,22 +1,21 @@
-"""Standalone packaging smoke test — CLI and binary discovery.
+"""Standalone packaging smoke test — CLI entry points.
 
-Tests `python -m eggserve --help` and verifies the binary is discoverable.
+Tests `python -m eggserve --help` and the installed `eggserve` console
+script. The wheel links the native CLI implementation directly into the
+PyO3 extension, so no separate bundled binary is required.
 
 Must be run from an installed wheel (pip install eggserve), NOT from the
 source tree. Uses only stdlib + eggserve.
 """
 
+import shutil
 import subprocess
 import sys
 import unittest
-from pathlib import Path
 
 
 class TestCliHelp(unittest.TestCase):
-    """python -m eggserve --help must exit 0 and print usage info.
-
-    The wheel must contain the platform-native eggserve binary.
-    """
+    """python -m eggserve --help must exit 0 and print usage info."""
 
     def _run_help(self):
         return subprocess.run(
@@ -55,47 +54,38 @@ class TestCliHelp(unittest.TestCase):
         self.assertIn("--port", output)
 
 
-class TestBinaryDiscovery(unittest.TestCase):
-    """The eggserve binary must be discoverable by the _bin module.
+class TestConsoleScript(unittest.TestCase):
+    """The installed ``eggserve`` console script must be discoverable and run."""
 
-    The Python wheel must bundle the binary so discovery is deterministic.
-    """
+    def test_console_script_is_discoverable(self):
+        cmd = shutil.which("eggserve")
+        self.assertIsNotNone(cmd, "installed `eggserve` console script not on PATH")
 
-    def setUp(self):
-        try:
-            from eggserve._bin import _find_binary
-            self._binary_path = _find_binary()
-        except FileNotFoundError as exc:
-            self.fail(str(exc))
-
-    def test_find_binary_succeeds(self):
-        """Binary discovery must resolve the wheel's bundled binary."""
-        self.assertIsInstance(self._binary_path, str)
-        self.assertGreater(len(self._binary_path), 0)
-        binary_path = Path(self._binary_path)
-        self.assertEqual(binary_path.parent.name, "bin")
-        self.assertEqual(binary_path.parent.parent.name, "eggserve")
-
-    def test_binary_is_executable(self):
-        """Binary must be executable when installed from the wheel."""
-        import os
-        self.assertTrue(os.path.isfile(self._binary_path))
-        self.assertTrue(os.access(self._binary_path, os.X_OK))
-
-    def test_binary_executes_with_help(self):
-        """Binary must respond to --help when installed from the wheel."""
+    def test_console_script_runs(self):
+        cmd = shutil.which("eggserve")
+        if cmd is None:
+            self.skipTest("installed `eggserve` console script not on PATH")
         result = subprocess.run(
-            [self._binary_path, "--help"],
+            [cmd, "--help"],
             capture_output=True,
             text=True,
             timeout=10,
         )
         self.assertEqual(result.returncode, 0, f"stderr: {result.stderr}")
         output = result.stdout + result.stderr
-        self.assertTrue(
-            "usage" in output.lower() or "eggserve" in output.lower(),
-            f"Expected help output from binary, got: {output[:200]}",
+        self.assertIn("eggserve", output.lower())
+
+    def test_console_script_mentions_directory(self):
+        cmd = shutil.which("eggserve")
+        if cmd is None:
+            self.skipTest("installed `eggserve` console script not on PATH")
+        result = subprocess.run(
+            [cmd, "--help"],
+            capture_output=True,
+            text=True,
+            timeout=10,
         )
+        self.assertIn("--directory", result.stdout + result.stderr)
 
 
 class TestVersionConsistency(unittest.TestCase):

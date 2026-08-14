@@ -10,16 +10,17 @@ for the actual method. The runtime owns one server-wide file-stream admission
 pool and closes incomplete streamed requests.
 
 The Python wheel compatibility declaration is CPython 3.11+ with abi3 stable ABI
-(`>=3.11`) on Linux, macOS, and Windows. The wheel bundles the matching
-platform-native CLI binary; PyPy and free-threaded CPython are not supported.
+(`>=3.11`) on Linux, macOS, and Windows. The wheel contains the matching
+platform-native extension and its extension-backed CLI entry point; PyPy and
+free-threaded CPython are not supported.
 
 ## Release Artifacts
 
 | Artifact | Description | Distribution |
 |----------|-------------|--------------|
-| `eggserve` binary | CLI static file server | `cargo install`, Python wheel `bin/` |
+| `eggserve` binary | CLI static file server | `cargo install` |
 | `eggserve-core` crate | Rust library for path confinement, policy, response planning | crates.io (planned) |
-| Python wheel `eggserve` | Python package wrapping the binary and Rust primitives | PyPI (planned) |
+| Python wheel `eggserve` | Python package containing the native extension, CLI entry point, and Rust primitives | PyPI (planned) |
 
 ### Feature Gates
 

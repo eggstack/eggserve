@@ -1,8 +1,8 @@
 # Release Process
 
 Manual wheel smoke tests use a temporary directory containing a deterministic
-fixture file, pass the explicit directory and loopback bind to the bundled
-CLI, poll readiness with bounded retries, verify the exact response body, and
+fixture file, pass the explicit directory and loopback bind to the installed
+extension-backed CLI, poll readiness with bounded retries, verify the exact response body, and
 confirm clean termination. Distribution artifacts use the workspace `dist`
 profile; size comparisons distinguish profile/stripping effects from code
 changes.
@@ -38,14 +38,9 @@ cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
 The dist profile uses `opt-level = "z"`, fat LTO, single codegen unit,
 and symbol stripping. See `Cargo.toml` for the exact configuration.
 
-For Python wheels, use the same profile through Maturin:
+For Python wheels, build the extension-backed artifact directly through Maturin:
 
 ```sh
-cargo build --profile dist --locked -p eggserve-bin
-mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
-
 cd crates/eggserve-python
 maturin build --profile dist --interpreter python -o dist
 ```
@@ -71,14 +66,10 @@ publication of changed contents under an existing version.
 
 ## Python artifact build and manual publication
 
-Build the platform wheel after staging the matching CLI binary:
+Build the platform wheel directly from the Python crate; the wheel contains no
+second standalone CLI executable:
 
 ```sh
-cargo build --profile dist --locked -p eggserve-bin
-mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
-
 cd crates/eggserve-python
 maturin build --profile dist --interpreter python -o dist
 ```

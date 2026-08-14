@@ -20,6 +20,27 @@ Rust `Server::start()` static path owns request handling directly — no
 `StaticResponder` construction. Subclasses and non-default settings fall back to
 the Python callback path.
 
+The fast-path eligibility contract is exact: the bare
+`SimpleHTTPRequestHandler` class, or a `functools.partial` whose `.func` is
+exactly `SimpleHTTPRequestHandler`, whose `.args` is empty, and whose keyword
+names are a subset of `{"directory"}`. Bound positional args, arbitrary extra
+keywords, subclasses, and mutated stock class attributes (custom
+`index_pages`, non-default `extensions_map`, opt-in `directory_listing`,
+`follow_symlinks`, `allow_dotfiles`) all fall back to Python.
+
+When the fast path is active, the compatibility facade's effective concurrency
+is enforced through the native connection admission limit. `HTTPServer` /
+`HTTPSServer` (compat `max_workers=1`) bound native `max_connections` to `1`;
+`ThreadingHTTPServer(N)` / `ThreadingHTTPSServer(N)` bound it to `N`. Callback
+paths keep the existing `max_python_callbacks` semaphore behavior. No new
+scheduler/semaphore abstraction is introduced for this compatibility fix.
+
+The callback contract is covered at the public compatibility boundary: a
+custom `BaseHTTPRequestHandler` that holds two requests in Python with
+`ThreadingHTTPServer(max_workers=2)` does not admit a third callback until one
+held request releases its permit. This is distinct from fast-path selection;
+the test observes handler entry and active-handler count directly.
+
 Each Python `Server` creates a bounded per-server Tokio multi-thread runtime
 with 2 worker threads. This reduces per-server thread overhead by ~78% on a
 16-core host with no measurable throughput regression. Per-server runtime

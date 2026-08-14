@@ -48,6 +48,92 @@ class CompatTests(unittest.TestCase):
         self.assertTrue(response.endswith(b"ok"))
         self.assertEqual(seen, [("/hello?q=1", ["a", "b"])])
 
+    def test_callback_concurrency_is_bounded_at_public_server_boundary(self):
+        """Callback handlers remain bounded by ThreadingHTTPServer workers."""
+        state_lock = threading.Lock()
+        active = 0
+        max_active = 0
+        entered_a = threading.Event()
+        entered_b = threading.Event()
+        entered_c = threading.Event()
+        first_two_entered = threading.Event()
+        release_a = threading.Event()
+        release_b = threading.Event()
+        release_c = threading.Event()
+
+        class BlockingHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                nonlocal active, max_active
+                path = self.path.split("?", 1)[0]
+                with state_lock:
+                    active += 1
+                    max_active = max(max_active, active)
+                    if active == 2:
+                        first_two_entered.set()
+                try:
+                    if path == "/a":
+                        entered_a.set()
+                        release_a.wait(5)
+                    elif path == "/b":
+                        entered_b.set()
+                        release_b.wait(5)
+                    elif path == "/c":
+                        entered_c.set()
+                        release_c.wait(5)
+                    else:
+                        self.send_response(404)
+                        self.end_headers()
+                        return
+                    self.send_response(200)
+                    self.end_headers()
+                finally:
+                    with state_lock:
+                        active -= 1
+
+        server, _ = self.run_server(BlockingHandler, ThreadingHTTPServer, max_workers=2)
+        self.assertFalse(server._native_fast_path)
+        payload = b"GET {} HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n"
+        responses = {}
+        errors = []
+
+        def send(path):
+            try:
+                responses[path] = request(server, payload.replace(b"{}", path.encode()))
+            except BaseException as exc:  # surface worker failures in the test thread
+                errors.append(exc)
+
+        workers = [threading.Thread(target=send, args=(path,)) for path in ("/a", "/b")]
+        workers.append(threading.Thread(target=send, args=("/c",)))
+        try:
+            for worker in workers[:2]:
+                worker.start()
+            self.assertTrue(first_two_entered.wait(3), "first two callbacks did not enter")
+            self.assertTrue(entered_a.is_set())
+            self.assertTrue(entered_b.is_set())
+
+            workers[2].start()
+            self.assertFalse(
+                entered_c.wait(0.25),
+                "third callback entered while both callback permits were held",
+            )
+
+            release_a.set()
+            self.assertTrue(entered_c.wait(3), "third callback did not proceed after a release")
+            release_b.set()
+            release_c.set()
+        finally:
+            release_a.set()
+            release_b.set()
+            release_c.set()
+            for worker in workers:
+                if worker.ident is not None:
+                    worker.join(5)
+
+        self.assertEqual(errors, [])
+        self.assertEqual(set(responses), {"/a", "/b", "/c"})
+        self.assertLessEqual(max_active, 2)
+        self.assertTrue(all(b"200 OK" in response for response in responses.values()))
+
     def test_localhost_and_peer_addresses_are_structured(self):
         seen = []
 

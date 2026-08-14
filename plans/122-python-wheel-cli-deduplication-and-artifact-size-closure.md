@@ -386,3 +386,24 @@ binary is eliminated. Net wheel is 371 KB smaller compressed.
 - [x] before/after wheel measurements show removal of the duplicate artifact;
 - [x] routine CI remains the existing small shape (2 jobs: rust + python);
 - [x] full verification passes.
+
+---
+
+## Plan 126 correction note
+
+The packaging architecture deduplication described above was correct: the
+wheel no longer bundles a duplicate `eggserve[.exe]` server binary, and
+`eggserve._bin` forwards `python -m eggserve` directly to the
+extension-linked CLI. However, the manual `.github/workflows/release.yml`
+workflow remained stale until Plan 126: it still built the standalone
+binary, copied it into `python/eggserve/bin/`, built the wheel, and
+called the now-deleted `eggserve._bin._find_binary()` in its smoke
+step. The wheel architecture worked (routine installed-wheel CI stayed
+green) but the manual release workflow would have failed on dispatch.
+
+Plan 126 corrected the release workflow to match the deduplicated
+architecture, replaced the `_find_binary` smoke with assertions for
+`<venv>/bin/eggserve --help`, `<venv>/Scripts/eggserve.exe --help` (on
+Windows), and `python -m eggserve --help`, added a wheel composition
+assertion that no `eggserve/bin/eggserve[.exe]` exists, and ran the
+manual Release workflow successfully across all three platforms.

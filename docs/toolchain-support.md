@@ -65,7 +65,10 @@ The Python bindings use PyO3 **0.24** with the `extension-module` and `abi3-py31
 | macOS arm64 | `aarch64-apple-darwin` |
 | Windows x86_64 | `x86_64-pc-windows-msvc` |
 
-The wheel bundles the platform-native `eggserve` CLI binary in the `bin/` package directory. Users do not need a separate Rust installation to use the CLI from a wheel.
+The wheel packages the platform-native extension, which includes the CLI entry
+point. Users do not need a separate Rust installation to use the CLI from a
+wheel, and no standalone executable is placed in the package's `bin/`
+directory.
 
 ## Platform Security Classification
 

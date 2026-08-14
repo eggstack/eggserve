@@ -3,7 +3,8 @@
 A hardened, Rust-backed static file server, packaged as a Python wheel.
 
 Release wheels support CPython 3.11+ with abi3 stable ABI (`>=3.11`) and
-bundle the platform-native `eggserve` CLI binary.
+include an extension-backed `eggserve` CLI entry point. They do not bundle a
+second standalone executable.
 
 ## Installation
 
@@ -33,10 +34,6 @@ python -m eggserve --directory public 8000
 
 ```bash
 pip install maturin
-cargo build --release --locked -p eggserve-bin
-mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/release/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
 maturin build --release --interpreter python3.11 -o dist
 ```

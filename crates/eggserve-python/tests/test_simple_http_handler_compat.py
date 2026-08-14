@@ -3,11 +3,21 @@
 import functools
 import http.client
 import os
+import socket
+import ssl
 import tempfile
 import threading
+import time
 import unittest
 
-from eggserve.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from eggserve.server import (
+    BaseHTTPRequestHandler,
+    HTTPServer,
+    HTTPSServer,
+    SimpleHTTPRequestHandler,
+    ThreadingHTTPServer,
+    ThreadingHTTPSServer,
+)
 
 
 class SimpleHandlerCompatibilityTests(unittest.TestCase):
@@ -324,6 +334,99 @@ class NativeFastPathEligibilityTests(unittest.TestCase):
         except TypeError:
             pass
 
+    def test_stock_bare_class_is_eligible(self):
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), SimpleHTTPRequestHandler
+        )
+        self.assertTrue(server._native_fast_path)
+        server.server_close()
+
+    def test_partial_without_keywords_is_eligible(self):
+        handler = functools.partial(SimpleHTTPRequestHandler)
+        server = self._make_server(handler)
+        self.assertTrue(server._native_fast_path)
+        server.server_close()
+
+    def test_partial_with_directory_only_is_eligible(self):
+        handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+        server = self._make_server(handler)
+        self.assertTrue(server._native_fast_path)
+        server.server_close()
+
+    def test_partial_with_unsupported_keyword_falls_back(self):
+        handler = functools.partial(
+            SimpleHTTPRequestHandler, directory=self.tmp.name, unsupported_kw="value"
+        )
+        server = self._make_server(handler)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+    def test_partial_with_only_unsupported_keyword_falls_back(self):
+        handler = functools.partial(SimpleHTTPRequestHandler, extra="x")
+        server = self._make_server(handler)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+    def test_partial_with_bound_positional_arg_falls_back(self):
+        class StandIn(object):
+            pass
+
+        handler = functools.partial(SimpleHTTPRequestHandler, StandIn())
+        server = self._make_server(handler)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+    def test_subclass_no_overrides_is_ineligible(self):
+        class PlainSubclass(SimpleHTTPRequestHandler):
+            pass
+
+        handler = functools.partial(PlainSubclass, directory=self.tmp.name)
+        server = self._make_server(handler)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+    def test_mutated_directory_listing_flag_falls_back(self):
+        SimpleHTTPRequestHandler.directory_listing = True
+        try:
+            handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+            server = self._make_server(handler)
+            self.assertFalse(server._native_fast_path)
+            server.server_close()
+        finally:
+            SimpleHTTPRequestHandler.directory_listing = False
+
+    def test_mutated_extensions_map_falls_back(self):
+        SimpleHTTPRequestHandler.extensions_map = {".foo": "application/x-foo"}
+        try:
+            handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+            server = self._make_server(handler)
+            self.assertFalse(server._native_fast_path)
+            server.server_close()
+        finally:
+            SimpleHTTPRequestHandler.extensions_map = {}
+
+    def test_unsupported_partial_invocation_fails_through_python(self):
+        """An invalid partial that Python would reject must not silently serve."""
+        handler = functools.partial(
+            SimpleHTTPRequestHandler, directory=self.tmp.name, nonexistent_kwarg="x"
+        )
+        server = self._make_server(handler)
+        self.assertFalse(server._native_fast_path)
+        try:
+            server._start()
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            conn = http.client.HTTPConnection(*server.server_address, timeout=5)
+            conn.request("GET", "/file.txt")
+            response = conn.getresponse()
+            body = response.read()
+            conn.close()
+            self.assertEqual(response.status, 500)
+            self.assertIn(b"Internal Server Error", body)
+        finally:
+            server.server_close()
+            thread.join(5)
+
 
 class NativeFastPathBehaviorTests(unittest.TestCase):
     """Prove that the native fast path serves correctly without Python."""
@@ -431,3 +534,253 @@ class NativeFastPathBehaviorTests(unittest.TestCase):
             self.skipTest("symlinks not supported on this platform")
         response, _ = self.request("GET", "/link.txt")
         self.assertIn(response.status, (403, 404))
+
+
+class _ConcurrencyHelper:
+    """Open idle connections so the native admit semaphore fills."""
+
+    @staticmethod
+    def hold_idle(server, count, timeout=2.0):
+        sockets = []
+        try:
+            for _ in range(count):
+                sock = socket.create_connection(server.server_address, timeout=timeout)
+                sockets.append(sock)
+            return sockets
+        finally:
+            if len(sockets) < count:
+                for sock in sockets:
+                    sock.close()
+                raise AssertionError(
+                    f"only opened {len(sockets)} of {count} idle connections"
+                )
+
+    @staticmethod
+    def is_accepted(server, timeout=2.0):
+        """Open a connection and return True if the server holds it open.
+
+        A server that admits the connection will keep the socket open even
+        though the client sends no request, so a short recv times out.
+        A server that rejects the connection closes the socket immediately,
+        so recv returns ``b""`` (EOF).
+        """
+        sock = socket.create_connection(server.server_address, timeout=timeout)
+        try:
+            sock.settimeout(0.5)
+            try:
+                data = sock.recv(1)
+            except socket.timeout:
+                return True
+            return bool(data)
+        finally:
+            sock.close()
+
+
+def _run_native_concurrency_test(server_factory, attempts=10):
+    """Construct a server, attempt to over-fill its admission limit, and
+    return whether the additional connection was rejected deterministically.
+
+    After holding ``max_workers`` idle connections, opening one more
+    connection must be rejected (the server drops it without a response).
+    We retry up to ``attempts`` times to absorb the small scheduling
+    window between TCP-accept and permit acquisition.
+    """
+    server = server_factory()
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    try:
+        max_workers = getattr(server, "_max_workers", None)
+        assert max_workers is not None, "compatibility concurrency limit missing"
+        for _ in range(attempts):
+            occupants = _ConcurrencyHelper.hold_idle(server, max_workers)
+            try:
+                time.sleep(0.05)
+                if not _ConcurrencyHelper.is_accepted(server):
+                    return True
+            finally:
+                for sock in occupants:
+                    sock.close()
+                time.sleep(0.05)
+        return False
+    finally:
+        server.server_close()
+        thread.join(5)
+
+
+class NativeFastPathConcurrencyTests(unittest.TestCase):
+    """Production-boundary tests for the compat facade's concurrency contract.
+
+    The native fast path bypasses Python per-request dispatch, so the
+    compatibility facade's effective concurrency is enforced through the
+    native connection admission limit. These tests open idle TCP
+    connections so the native admit semaphore fills, then assert that an
+    additional connection is closed immediately.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(self.tmp.name, "file.txt"), "wb") as stream:
+            stream.write(b"hello from rust\n")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _make_http(self, server_class, max_workers):
+        handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+        if max_workers == 1:
+            server = server_class(("127.0.0.1", 0), handler)
+        else:
+            server = server_class(("127.0.0.1", 0), handler, max_workers=max_workers)
+        self.assertTrue(server._native_fast_path)
+        return server
+
+    def test_http_server_serial_enforces_concurrency_one(self):
+        rejected = _run_native_concurrency_test(
+            lambda: self._make_http(HTTPServer, 1)
+        )
+        self.assertTrue(rejected, "HTTPServer should reject the second connection")
+
+    def test_threading_http_server_bounded_by_max_workers(self):
+        rejected = _run_native_concurrency_test(
+            lambda: self._make_http(ThreadingHTTPServer, 2)
+        )
+        self.assertTrue(
+            rejected, "ThreadingHTTPServer(2) should reject the third connection"
+        )
+
+
+class NativeFastPathTlsConcurrencyTests(unittest.TestCase):
+    """TLS equivalents of the native fast path concurrency tests."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(self.tmp.name, "file.txt"), "wb") as stream:
+            stream.write(b"hello over tls\n")
+        fixture_dir = os.path.join(os.path.dirname(__file__), "fixtures")
+        self.cert = os.path.join(fixture_dir, "localhost-test.crt")
+        self.key = os.path.join(fixture_dir, "localhost-test.key")
+        self.context = ssl._create_unverified_context()
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def _hold_idle_tls(self, server, count, timeout=2.0):
+        sockets = []
+        try:
+            for _ in range(count):
+                raw = socket.create_connection(server.server_address, timeout=timeout)
+                sock = self.context.wrap_socket(raw, server_hostname="localhost")
+                sockets.append(sock)
+            return sockets
+        finally:
+            if len(sockets) < count:
+                for sock in sockets:
+                    sock.close()
+                raise AssertionError(
+                    f"only opened {len(sockets)} of {count} idle TLS connections"
+                )
+
+    def _is_accepted_tls(self, server, timeout=2.0):
+        try:
+            raw = socket.create_connection(server.server_address, timeout=timeout)
+            sock = self.context.wrap_socket(raw, server_hostname="localhost")
+            try:
+                sock.settimeout(0.5)
+                try:
+                    data = sock.recv(1)
+                except (socket.timeout, ssl.SSLWantReadError, OSError):
+                    return True
+                return bool(data)
+            finally:
+                sock.close()
+        except (OSError, ssl.SSLError):
+            return False
+
+    def _make_tls(self, server_class, max_workers):
+        handler = functools.partial(SimpleHTTPRequestHandler, directory=self.tmp.name)
+        if max_workers == 1:
+            server = server_class(
+                ("127.0.0.1", 0), handler,
+                certfile=self.cert, keyfile=self.key,
+            )
+        else:
+            server = server_class(
+                ("127.0.0.1", 0), handler,
+                certfile=self.cert, keyfile=self.key,
+                max_workers=max_workers,
+            )
+        self.assertTrue(server._native_fast_path)
+        return server
+
+    def _run_tls_concurrency_test(self, server_factory, attempts=10):
+        server = server_factory()
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            max_workers = server._max_workers
+            for _ in range(attempts):
+                occupants = self._hold_idle_tls(server, max_workers)
+                try:
+                    time.sleep(0.05)
+                    if not self._is_accepted_tls(server):
+                        return True
+                finally:
+                    for sock in occupants:
+                        sock.close()
+                    time.sleep(0.05)
+            return False
+        finally:
+            server.server_close()
+            thread.join(5)
+
+    def test_https_server_serial_enforces_concurrency_one(self):
+        rejected = self._run_tls_concurrency_test(
+            lambda: self._make_tls(HTTPSServer, 1)
+        )
+        self.assertTrue(rejected, "HTTPSServer should reject the second connection")
+
+    def test_threading_https_server_bounded_by_max_workers(self):
+        rejected = self._run_tls_concurrency_test(
+            lambda: self._make_tls(ThreadingHTTPSServer, 2)
+        )
+        self.assertTrue(
+            rejected, "ThreadingHTTPSServer(2) should reject the third connection"
+        )
+
+
+class CallbackConcurrencyRegressionTests(unittest.TestCase):
+    """Subclass/custom callback concurrency remains bounded by the callback semaphore."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        with open(os.path.join(self.tmp.name, "file.txt"), "wb") as stream:
+            stream.write(b"data")
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_subclass_falls_back(self):
+        class CustomHandler(SimpleHTTPRequestHandler):
+            def guess_type(self, path):
+                return "application/x-custom"
+
+        handler = functools.partial(CustomHandler, directory=self.tmp.name)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+    def test_base_http_handler_cannot_use_fast_path(self):
+        class CustomHandler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(b"ok")
+
+        handler = functools.partial(CustomHandler)
+        server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.assertFalse(server._native_fast_path)
+        server.server_close()
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -1,6 +1,9 @@
 # Python Packaging
 
-eggserve is distributed as a Python wheel containing the pre-built Rust binary. The Python package provides `pip install` and `python -m` entrypoints while the actual serving is performed by the native binary.
+eggserve is distributed as a Python wheel containing a PyO3 extension and the
+Python façade. The `eggserve` and `python -m eggserve` entry points call the
+extension-linked Rust CLI; the wheel does not contain a second standalone
+server executable.
 
 ## Architecture
 
@@ -12,7 +15,7 @@ crates/eggserve-python/
 ├── python/eggserve/
 │   ├── __init__.py         # exports version, ServeConfig, StaticPolicy, serve_directory
 │   ├── __main__.py         # python -m eggserve entrypoint
-│   ├── _bin.py             # locates and executes the packaged binary
+│   ├── _bin.py             # invokes the extension-backed CLI entry point
 │   ├── server.py           # Python API implementation
 │   └── test_server.py      # Python API tests
 ├── packaging-tests/        # standalone installed-wheel validation
@@ -20,7 +23,7 @@ crates/eggserve-python/
 │   ├── test_imports.py     # import validation, version, native extension
 │   ├── test_server_smoke.py # server lifecycle, callback, HEAD, range
 │   ├── test_client_smoke.py # HTTP client local request
-│   └── test_cli_smoke.py   # CLI help, binary discovery
+│   └── test_cli_smoke.py   # CLI help, native entry point
 └── README.md
 ```
 
@@ -28,13 +31,16 @@ crates/eggserve-python/
 
 1. **maturin** builds the Rust lib crate (with PyO3 bindings) and packages it into a platform-specific wheel
 2. `pip install eggserve` installs the wheel, which places the native module and Python package in site-packages
-3. `python -m eggserve` invokes `_bin.py`, which locates the bundled binary and executes it via `subprocess.run()`
-4. All CLI arguments are forwarded directly to the binary
+3. `python -m eggserve` invokes `_bin.py`, which calls the native `_run_cli` entry point
+4. All CLI arguments are forwarded directly to the extension-linked Rust CLI
 5. Native primitives (path parsing, resolution, response planning) are available directly via the `_native` PyO3 module without subprocess overhead
 
-### Why subprocess for CLI?
+### Native CLI entry point
 
-The binary is a standalone process (Tokio runtime, TCP listener, signal handling). It cannot run inside the Python process for full HTTP serving. The subprocess approach keeps the Rust binary self-contained. For primitive operations (path parsing, resolution, response planning), the native `_native` PyO3 module provides direct in-process access without subprocess overhead.
+The CLI runs in the Python process through the native extension, sharing the
+Rust CLI implementation with the standalone Cargo binary. `ServerProcess` in
+`eggserve.subprocess` remains available when an embedding application needs a
+separate child process.
 
 ## Python API
 
@@ -61,14 +67,9 @@ See [docs/python-api.md](python-api.md) for the full API reference.
 
 ### Build a wheel
 
-The wheel bundles the platform-native `eggserve` CLI. Stage the binary before
-calling maturin; the release and CI workflows do this on each OS runner.
+Build the extension-backed wheel directly; no binary staging step is needed.
 
 ```sh
-cargo build --profile dist --locked -p eggserve-bin
-mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
 maturin build --profile dist --interpreter python3.11 -o dist
 ```
@@ -85,16 +86,15 @@ This installs the package in the current virtualenv in development mode.
 
 ## Platform support
 
-The wheel is platform-specific because it contains a native binary. maturin automatically detects:
+The wheel is platform-specific because it contains a native extension. maturin automatically detects:
 
 - **OS**: linux, macos, windows
 - **Architecture**: x86_64, aarch64, arm64 (Apple Silicon)
 
 Routine CI builds and tests the Linux wheel with CPython 3.14. macOS and
 Windows wheels are built and tested manually. The abi3 wheel is compatible
-with CPython 3.11+. The wheel smoke suite runs
-outside the checkout with `PYTHONPATH` unset and requires the bundled CLI
-to be found.
+with CPython 3.11+. The wheel smoke suite runs outside the checkout with
+`PYTHONPATH` unset and requires the installed extension-backed CLI entry point.
 
 ## Versioning
 
@@ -108,15 +108,15 @@ The version is defined in three places and must be kept in sync:
 
 | Command | What runs |
 |---------|-----------|
-| `eggserve` (from wheel) | Native binary directly |
-| `python -m eggserve` | `_bin.py` → subprocess → native binary |
-| `pipx run eggserve` | Native binary directly |
+| `eggserve` (from wheel) | `_bin.py` → native `_run_cli` |
+| `python -m eggserve` | `_bin.py` → native `_run_cli` |
+| `pipx run eggserve` | Installed wheel console script |
 
 ## Dependencies
 
-The Python package has **no Python dependencies**. The only requirement is the platform-specific wheel containing the Rust binary.
+The Python package has **no Python dependencies**. The only requirement is the platform-specific wheel containing the Rust extension.
 
-The Rust binary depends on: `eggserve-core`, `tokio`, `rustls` — all compiled in. HTTP serving, body handling, and filesystem confinement are provided by `eggserve-core`.
+The native extension depends on: `eggserve-core`, `eggserve-bin`, `tokio`, and `rustls` — all compiled into the wheel. HTTP serving, body handling, and filesystem confinement are provided by `eggserve-core`.
 
 ## Packaging Smoke Tests
 
@@ -127,15 +127,11 @@ Standalone tests in `packaging-tests/` validate the wheel works independently of
 - Validate all public imports, version metadata, native extension loading
 - Exercise server lifecycle, callback handlers, HEAD/range responses
 - Test HTTP client against a local server
-- Verify CLI help output and binary discovery
+- Verify CLI help output and the installed extension-backed entry point
 
 ### Running packaging smoke tests
 
 ```sh
-cargo build --profile dist --locked -p eggserve-bin
-mkdir -p crates/eggserve-python/python/eggserve/bin
-cp target/dist/eggserve crates/eggserve-python/python/eggserve/bin/eggserve
-chmod +x crates/eggserve-python/python/eggserve/bin/eggserve
 cd crates/eggserve-python
 maturin build --profile dist --interpreter python3.11 -o dist
 cd packaging-tests
@@ -148,4 +144,4 @@ bash run_all.sh ../dist/*.whl python3.14
 |-----------|---------------|
 | `test_imports.py` | All `__all__` names importable, version valid, native extension loads, no source-tree shadowing |
 | `test_server_smoke.py` | Server start/stop, ephemeral port, context manager, callback handler, static fallback, HEAD, range (206), public-bind guard |
-| `test_cli_smoke.py` | `python -m eggserve --help` exits 0, binary discovery, binary executable, version consistency |
+| `test_cli_smoke.py` | `python -m eggserve --help` exits 0, installed console script, native entry point, version consistency |
