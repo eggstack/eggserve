@@ -489,3 +489,32 @@ Reject an implementation that:
 ```
 
 Do not create another roadmap. If implementation finds a new release-blocking defect directly caused by these corrections, record and fix it inside Plan 126 when reasonably scoped. Otherwise stop once these acceptance criteria pass.
+
+## Final closure record (Plan 127) — 2026-08-14
+
+Status: COMPLETE.
+
+The corrective implementation and the platform-specific release-smoke fix are
+complete on final commit
+`b71ec982227a999d4bf530b2a4c0e8a8e4eaf538`. The authoritative closure evidence
+is:
+
+- Routine PR CI run [31836499452](https://github.com/eggstack/eggserve/actions/runs/31836499452) passed on this final implementation head; both `rust` and `python` jobs passed.
+- Manual Release run [31836790126](https://github.com/eggstack/eggserve/actions/runs/31836790126) passed on this final implementation head:
+  - Linux x86_64 job `94884761367`: success;
+  - macOS arm64 job `94884761538`: success;
+  - Windows x86_64 job `94884761552`: success.
+- `test_callback_concurrency_is_bounded_at_public_server_boundary` passed in
+  the installed-wheel Python suite. It exercised an ineligible custom handler,
+  observed two active callbacks with `max_workers=2`, held the third callback
+  out, and admitted it after a permit was released.
+- The broken Linux `sys.modules["eggserve"]` smoke assertion was removed.
+  Installed console-script/module help checks and real fixture serving remain.
+- All three release jobs passed the wheel composition assertion proving that no
+  standalone `eggserve/bin/eggserve[.exe]` is bundled.
+- The Windows result proves wheel build, installation, entry-point, and fixture
+  runtime compatibility only. Independent adversarial Windows filesystem
+  qualification remains incomplete, and the existing warning is retained.
+
+This append-only record closes the remaining Plan 126 criteria without
+rewriting the historical plan body.
