@@ -81,7 +81,9 @@ uses the same Rust TLS loader for `HTTPSServer` and `ThreadingHTTPSServer`.
 This means:
 
 - **`cargo install eggserve`** installs a plaintext-only binary unless you pass `--features tls`.
-- **Published PyPI wheels** can provide Python HTTPS classes; the bundled CLI binary remains plaintext unless built with its `tls` feature.
+- **Published PyPI wheels** can provide Python HTTPS classes and the
+  extension-backed CLI; both are built with the Python crate's enabled `tls`
+  feature.
 - To obtain a TLS-capable binary, build from source with `--features tls` or use a reverse proxy in front of the plaintext server.
 
 Release gates validate TLS functionality by explicitly enabling the feature during CI. TLS tests (`clippy` and `cargo test` with `--features tls`) cover TLS correctness; they are not satisfied by a default (non-TLS) build.

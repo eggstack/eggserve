@@ -62,7 +62,6 @@ jobs:
           echo "  python -m eggserve --help OK"
 
           # Serve a real fixture from the installed wheel (no source-tree/Cargo binary on PATH)
-          /tmp/smoke-venv/bin/python -c "import sys; sys.exit(sys.modules['eggserve'].__name__ == 'eggserve' and 0 or 1)"
           /tmp/smoke-venv/bin/python "$GITHUB_WORKSPACE/scripts/release_smoke.py"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2

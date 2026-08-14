@@ -35,6 +35,12 @@ is enforced through the native connection admission limit. `HTTPServer` /
 paths keep the existing `max_python_callbacks` semaphore behavior. No new
 scheduler/semaphore abstraction is introduced for this compatibility fix.
 
+The callback contract is covered at the public compatibility boundary: a
+custom `BaseHTTPRequestHandler` that holds two requests in Python with
+`ThreadingHTTPServer(max_workers=2)` does not admit a third callback until one
+held request releases its permit. This is distinct from fast-path selection;
+the test observes handler entry and active-handler count directly.
+
 Each Python `Server` creates a bounded per-server Tokio multi-thread runtime
 with 2 worker threads. This reduces per-server thread overhead by ~78% on a
 16-core host with no measurable throughput regression. Per-server runtime

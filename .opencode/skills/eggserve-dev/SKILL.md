@@ -16,9 +16,9 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 Three crates:
 - `crates/eggserve-core/` — library: security primitives, path confinement, HTTP serving, response construction
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
-- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; bundles the platform-native CLI binary)
+- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–125 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–127 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plans 125–127 close Windows support truthfulness, the native fast path, and the manual release workflow), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -40,7 +40,7 @@ cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings 
 cargo test -p eggserve-bin --features tls                  # TLS tests
 
 # Python job (via scripts/test-python-wheel.sh)
-# Builds CLI, stages binary, builds wheel, installs in venv, runs smoke + tests
+# Builds the extension-backed wheel, installs it in a venv, runs smoke + tests
 ```
 
 Or use the local verification script:

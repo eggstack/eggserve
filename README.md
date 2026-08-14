@@ -56,6 +56,9 @@ with HTTPServer(("127.0.0.1", 8000), Handler) as server:
 
 This facade uses the existing Rust runtime; it does not expose raw sockets or
 Python's thread-per-connection implementation. See [the compatibility contract](docs/python-http-server-compatibility.md).
+Subclass and custom-handler requests remain on the Python callback path and are
+bounded by `ThreadingHTTPServer(max_workers=...)`; stock static handlers use
+the native fast path with the same effective compatibility bound.
 
 Static MIME customization is bounded to response metadata. `extensions_map`
 applies to direct files and native-selected index files; subclass
