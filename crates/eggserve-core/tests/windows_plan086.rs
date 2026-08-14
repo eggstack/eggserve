@@ -1062,6 +1062,7 @@ fn windows_root_rename_does_not_retarget_pinned_root() {
     // Verify the root serves the original content.
     let result = root.resolve(&parse("/hello.txt"));
     assert!(result.is_file(), "original root must serve files");
+    drop(result);
 
     // Rename the root directory.
     let renamed_path = tmp.path().with_file_name(format!(
@@ -1325,8 +1326,9 @@ fn windows_error_no_panic_on_invalid_path() {
 
     // These should all return errors or NotFound, not panic.
     let _ = root.resolve(&parse("/"));
-    let _ = root.resolve(&parse("/.."));
-    let _ = root.resolve(&parse("/hello.txt/extra"));
+    let _ = ConfinedPath::parse("/..", &PathPolicy::default()).map(|path| root.resolve(&path));
+    let _ = ConfinedPath::parse("/hello.txt/extra", &PathPolicy::default())
+        .map(|path| root.resolve(&path));
 }
 
 #[test]
@@ -1342,7 +1344,9 @@ fn windows_error_handle_count_stable_after_errors() {
     for _ in 0..50 {
         let _ = root.resolve(&parse("/hello.txt"));
         let _ = root.resolve(&parse("/nonexistent.txt"));
-        let _ = root.resolve(&parse("/.hidden"));
+        if let Ok(path) = ConfinedPath::parse("/.hidden", &PathPolicy::default()) {
+            let _ = root.resolve(&path);
+        }
     }
 
     // After all that, a valid resolve must still work.
@@ -2623,8 +2627,12 @@ fn windows_error_handle_quota_stability() {
     for i in 0..100 {
         let _ = root.resolve(&parse("/hello.txt"));
         let _ = root.resolve(&parse("/nonexistent.txt"));
-        let _ = root.resolve(&parse("/.hidden"));
-        let _ = root.resolve(&parse("/../../../etc/passwd"));
+        if let Ok(path) = ConfinedPath::parse("/.hidden", &PathPolicy::default()) {
+            let _ = root.resolve(&path);
+        }
+        if let Ok(path) = ConfinedPath::parse("/../../../etc/passwd", &PathPolicy::default()) {
+            let _ = root.resolve(&path);
+        }
         let _ = root.resolve(&parse(&format!("/file_{i}.txt")));
     }
 
@@ -3356,7 +3364,7 @@ fn windows_race_index_file_replacement_during_resolution() {
         let mut use_v1 = true;
         while running2.load(std::sync::atomic::Ordering::Relaxed) {
             let data = if use_v1 { v1 } else { v2 };
-            fs::write(dir_path.join("index.html"), data).expect("write index");
+            replace_file_with_new_inode(&dir_path.join("index.html"), data);
             use_v1 = !use_v1;
             thread::yield_now();
         }

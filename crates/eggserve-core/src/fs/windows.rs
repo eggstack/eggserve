@@ -1733,8 +1733,9 @@ pub(crate) fn enumerate_directory(
         let count = parsed.len();
         all_entries.extend(parsed);
 
-        // If we got fewer entries than the buffer could hold, we're done.
-        if count == 0 || bytes_returned < DIR_ENUM_BUFFER_SIZE {
+        // A short response can still contain the final record of a full
+        // directory buffer. Continue until Windows reports STATUS_NO_MORE_FILES.
+        if count == 0 {
             break;
         }
     }

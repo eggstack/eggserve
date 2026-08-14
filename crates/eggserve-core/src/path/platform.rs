@@ -13,6 +13,12 @@ pub fn check_component(component: &str) -> Result<(), PathRejection> {
         return Err(PathRejection::WindowsReservedNameDenied);
     }
 
+    // Windows trims trailing dots and spaces when resolving names. Reject
+    // them so a request cannot alias a different normalized component.
+    if component.ends_with('.') || component.ends_with(' ') {
+        return Err(PathRejection::WindowsReservedNameDenied);
+    }
+
     Ok(())
 }
 
