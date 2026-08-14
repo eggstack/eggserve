@@ -866,7 +866,7 @@ fn windows_namespace_encoded_separator_rejected() {
     // %2F decodes to '/' which is a separator — this should parse as /path/file.txt
     // or be rejected. The key is it must not be treated as a single component "path/file.txt".
     if let Ok(confined) = result {
-        let components: Vec<_> = confined.components().iter().collect();
+        let components: Vec<_> = confined.components().iter().map(String::as_str).collect();
         assert!(
             components.len() > 1 || confined.as_str().contains('/'),
             "encoded slash must not create a single-component path"
@@ -1564,7 +1564,7 @@ fn windows_fuzz_request_component_parsing() {
         // They must not panic.
         if let Ok(path) = result {
             // If it parsed, it must not contain traversal components.
-            let components: Vec<_> = path.components().iter().collect();
+            let components: Vec<_> = path.components().iter().map(String::as_str).collect();
             assert!(
                 !components.contains(&".."),
                 "adversarial input {input:?} must not produce traversal"
@@ -2004,7 +2004,7 @@ fn windows_namespace_repeated_separators_rejected() {
     let result = ConfinedPath::parse("//file.txt", &PathPolicy::default());
     // Double slash at root may parse but must not create an empty component.
     if let Ok(path) = result {
-        let components: Vec<_> = path.components().iter().collect();
+        let components: Vec<_> = path.components().iter().map(String::as_str).collect();
         assert!(
             !components.contains(&""),
             "empty component from repeated separators must not exist"
@@ -2013,7 +2013,7 @@ fn windows_namespace_repeated_separators_rejected() {
 
     let result = ConfinedPath::parse("/path//file.txt", &PathPolicy::default());
     if let Ok(path) = result {
-        let components: Vec<_> = path.components().iter().collect();
+        let components: Vec<_> = path.components().iter().map(String::as_str).collect();
         assert!(
             !components.contains(&""),
             "empty component from internal double slash must not exist"
@@ -3002,7 +3002,7 @@ fn windows_fuzz_path_parser_stress() {
         let result = ConfinedPath::parse(input, &PathPolicy::default());
         if let Ok(path) = result {
             // If it parsed, verify no traversal.
-            let components: Vec<_> = path.components().iter().collect();
+            let components: Vec<_> = path.components().iter().map(String::as_str).collect();
             assert!(
                 !components.contains(&".."),
                 "adversarial input {input:?} must not produce traversal"

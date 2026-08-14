@@ -173,6 +173,15 @@ cd crates/eggserve-python/packaging-tests
 bash run_all.sh ../dist/*.whl python3.14
 ```
 
+### Platform and external-consumer qualification
+
+Routine CI is intentionally Linux-focused. Plan 129 records the product-level
+qualification matrix and evidence for the standalone CLI, installed wheel,
+Python static/custom facades, and a temporary external Rust consumer. The
+manual `.github/workflows/platform-qualification.yml` workflow runs the
+installed-wheel checks on macOS arm64 and the Windows Plan 084/086 filesystem
+qualification suites; it is not part of every push/PR.
+
 ## See Also
 
 - [overview.md](overview.md) — Architecture overview

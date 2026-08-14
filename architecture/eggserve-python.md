@@ -111,6 +111,10 @@ file and byte bodies are one-shot; consumed or malformed structural bodies are
 errors rather than empty-body fallbacks. Handler failures are logged with
 fixed categories only. MIME hooks provide metadata to the native responder;
 they never perform Python path translation, `stat`, open, or reopen operations.
+Installed-wheel and cross-platform product evidence is maintained in
+`plans/129-platform-and-product-qualification.md`; the manual workflow is
+separate from routine CI and does not change the Windows trusted-content
+caveat without complete adversarial coverage.
 
 ## Verification
 

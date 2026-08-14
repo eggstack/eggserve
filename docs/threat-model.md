@@ -69,7 +69,7 @@ On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` w
 
 ### Windows reparse and namespace attacker
 
-An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the hardened Windows profile, all reparse-point components are denied (tag-independent denial). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback. A comprehensive adversarial test suite (114 tests) covers reparse-point denial, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing, resource stability, and installed artifact parity. Independent adversarial review is incomplete. Directory listing remains disabled by default. Windows remains functional-only until that review is completed.
+An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the functional Windows profile, all reparse-point components are denied (tag-independent denial). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback. The Plan 084/086 adversarial suites cover reparse-point denial, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing, resource stability, and installed artifact parity. Plan 129 records manual execution and any privilege-dependent gaps. Directory listing remains disabled by default. Windows remains functional-only until complete evidence covers every security-relevant class.
 
 ### Resource-exhaustion attacker
 
@@ -135,7 +135,7 @@ Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge 
 - final files and directories served from already validated handles;
 - loopback or private-interface origin behind a mature edge.
 
-Windows handle-relative child resolution is implemented (Plan 084). Handle-relative directory enumeration is implemented (Plan 085). Adversarial qualification test scaffold established (Plan 086, 114 tests). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed.
+Windows handle-relative child resolution is implemented (Plan 084). Handle-relative directory enumeration is implemented (Plan 085). The adversarial qualification suites are established in Plan 086 and manually exercised under Plan 129. Windows remains functional-only until complete evidence covers every security-relevant class.
 
 ### windows-direct-https
 
@@ -185,7 +185,7 @@ eggserve terminates TLS directly. Certificate management is manual — the opera
 
 ### Windows profiles
 
-Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle. A comprehensive adversarial test suite (114 tests) is established. Independent adversarial review is incomplete. Directory listing remains disabled by default and outside the hardened production profile. Until that review is completed, Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows. The hardened Windows profile remains functional-only until independent adversarial review is completed.
+Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle. The Plan 086 adversarial suite is manually exercised under Plan 129. Directory listing remains disabled by default and outside the hardened production profile. Until complete evidence covers every security-relevant class, Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows.
 
 ## Defensive layers
 

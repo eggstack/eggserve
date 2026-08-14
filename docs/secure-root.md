@@ -124,7 +124,9 @@ retains an owned `OwnedHandle` for handle-relative child resolution, and
 `RootGuard::resolve_child` uses handle-relative traversal on Windows. This
 provides stronger confinement than parser-level checks alone. Handle-relative
 directory enumeration using `NtQueryDirectoryFile` replaces the path-based
-fallback. Independent adversarial review is incomplete.
+fallback. Windows qualification evidence and any remaining caveats are tracked
+in Plan 129; Windows remains functional-only until complete adversarial
+coverage is established.
 
 ## Usage example
 

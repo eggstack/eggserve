@@ -18,7 +18,7 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–127 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plans 125–127 close Windows support truthfulness, the native fast path, and the manual release workflow), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–129 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plans 125–127 close Windows support truthfulness, the native fast path, and the manual release workflow; Plan 129 records platform/product qualification), `examples/`, `fuzz/`.
 
 ## Non-negotiables
 
@@ -42,6 +42,16 @@ cargo test -p eggserve-bin --features tls                  # TLS tests
 # Python job (via scripts/test-python-wheel.sh)
 # Builds the extension-backed wheel, installs it in a venv, runs smoke + tests
 ```
+
+Manual platform qualification is separate from routine CI:
+
+```sh
+gh workflow run platform-qualification.yml --ref main
+```
+
+It exercises the installed wheel on macOS arm64 and the Windows adversarial
+filesystem suites. Keep Windows support language aligned with the evidence in
+`plans/129-platform-and-product-qualification.md`.
 
 Or use the local verification script:
 
@@ -70,7 +80,7 @@ bash scripts/verify-cargo-packages.sh   # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
-- **Plan status** — Plans 112–118 formed the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Plan 125 closes Windows qualification, support truthfulness, and final closure. Plan 126 is a narrow post-closure corrective pass for the native fast path and the manual release workflow. Production servers use the shared `RuntimeState` admission pool.
+- **Plan status** — Plans 112–118 formed the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Plan 125 closes Windows qualification, support truthfulness, and final closure. Plans 126–127 are narrow post-closure corrective passes for the native fast path and the manual release workflow. Plan 129 records platform/product qualification evidence. Production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
@@ -121,6 +131,6 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
-- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until reparse hardening evidence passes.
+- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functional-only until the Plan 129 evidence covers all security-relevant reparse/handle classes.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.

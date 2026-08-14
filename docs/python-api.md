@@ -90,8 +90,8 @@ remain an opt-in core feature, but the Python wheel does not compile it.
 The façade is not ASGI, WSGI, a routing framework, middleware, a proxy, or a
 general-purpose HTTP server. It intentionally does not expose socketserver
 internals, `fileno()`, authoritative `translate_path()`, or one-request
-`handle_request()` mode. Platform security qualifications, especially the
-unfinished independent Windows adversarial review, remain in
+`handle_request()` mode. Platform security qualifications, including the
+remaining Windows qualification caveats recorded in Plan 129, remain in
 [`README.md`](../README.md) and [`security-review.md`](security-review.md).
 
 Python handler responses are validated in one Rust-owned conversion boundary.

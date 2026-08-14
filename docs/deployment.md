@@ -76,7 +76,7 @@ See [tls.md](tls.md) for details on the TLS feature, certificate requirements, a
 
 ## Windows deployment
 
-Windows implements handle-relative confinement with parser-level protections rejecting Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. A comprehensive adversarial test suite (114 tests covering reparse-point denial, namespace normalization, race harness, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, fuzz corpus replay) is established. Independent adversarial review is incomplete. Windows remains functional-only until that review is completed.
+Windows implements handle-relative confinement with parser-level protections rejecting Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Directory listing is disabled by default. The Plan 084/086 adversarial suites cover reparse-point denial, namespace normalization, race harnesses, root identity, file validators, ACL/sharing, resource stability, installed artifact parity, and fuzz corpus replay. Plan 129 records their manual Windows execution; Windows remains functional-only for any class not covered by complete evidence.
 
 See README.md for Windows-specific profiles (windows-reverse-proxy, windows-direct-https, windows-functional).
 

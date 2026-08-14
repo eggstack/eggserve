@@ -120,12 +120,13 @@ The configured root is opened once at server startup via `PinnedRoot` and retain
 Windows handle-relative child resolution is implemented. `ResolvedDirectory`
 retains an owned handle for child resolution, and `RootGuard::resolve_child`
 uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile`
-on the retained directory handle, eliminating the path-based fallback. A
-comprehensive adversarial test suite (114 tests covering reparse-point denial,
-namespace normalization, race harness, root identity, file validators,
-ACL/sharing, resource stability, installed artifact parity, and fuzz corpus
-replay) is established. Independent adversarial review is incomplete. Windows
-remains functional-only until that review is completed.
+on the retained directory handle, eliminating the path-based fallback. The
+Plan 084/086 adversarial suites cover reparse-point denial, namespace
+normalization, race harness, root identity, file validators, ACL/sharing,
+resource stability, installed artifact parity, and fuzz corpus replay. Plan 129
+records manual execution and any remaining privilege-dependent gaps. Windows
+remains functional-only until complete evidence covers every security-relevant
+class.
 
 ### `--directory-listing`
 

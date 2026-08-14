@@ -228,7 +228,7 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 | Linux aarch64 | Supported; hardened |
 | macOS arm64 (Apple Silicon) | Supported; hardened |
 | macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functional; handle-relative confinement. Independent adversarial review is incomplete. Do not use with untrusted public content until that review is completed. |
+| Windows x86_64 | Functional; handle-relative confinement. Manual adversarial qualification is recorded in [Plan 129](plans/129-platform-and-product-qualification.md); keep the documented trusted-content caveat until every security-relevant class is covered. |
 
 ### Prebuilt Python wheels
 
@@ -249,6 +249,10 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 ./scripts/verify.sh full    # pre-release: features, Python wheel, package dry-run
 ./scripts/verify.sh deep    # expensive suites (manual): corpus replay, fault injection, etc.
 ```
+
+Platform/product qualification evidence, including the manual macOS/Windows
+workflow and the external Rust consumer check, is maintained in
+[Plan 129](plans/129-platform-and-product-qualification.md).
 
 ## Examples
 

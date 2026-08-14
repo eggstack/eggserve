@@ -84,7 +84,8 @@ cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
 
 Routine CI is a small regression screen, not release certification:
 
-- One workflow (`.github/workflows/ci.yml`) with two jobs: `rust` and `python`.
+- Routine CI remains one workflow (`.github/workflows/ci.yml`) with two jobs: `rust` and `python`.
+- Platform/product qualification is manual-only in `.github/workflows/platform-qualification.yml`; it exercises the installed wheel on macOS arm64 and the Windows adversarial filesystem suites without expanding routine CI.
 - No evidence upload, no gate registry, no generated checklists, no publication.
 - Deep verification is local/manual and selected by change risk.
 - Crates.io publishing is manual from a maintainer-controlled environment.
@@ -105,7 +106,7 @@ Routine CI is a small regression screen, not release certification:
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary). `python -m eggserve` uses the same in-process native CLI entry point.
-- **Windows**: functional with handle-relative child resolution and handle-relative directory enumeration. Independent adversarial review is incomplete. Do not use with untrusted public content on Windows until that review is completed.
+- **Windows**: functional with handle-relative child resolution and handle-relative directory enumeration. Plan 129 records the manual Windows qualification evidence; the independent safety-review/support caveat remains unless that evidence covers every security-relevant class.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory"}`. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N).
 - **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()`. The Python facade uses `rt-multi-thread` with 2 worker threads for GIL scheduling. The library is runtime-agnostic.
@@ -151,4 +152,4 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has design plans 000–127 (historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure; Plans 126–127 close the native fast path and manual release workflow).
+`plans/` has design plans 000–129 (historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure; Plans 126–127 close the native fast path and manual release workflow; Plan 129 records platform and product qualification evidence).

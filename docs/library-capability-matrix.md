@@ -89,7 +89,7 @@ platform-limited as noted.
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Adversarial qualification scaffold established (114 tests). Independent adversarial review is incomplete. Windows remains functional-only until that review is completed. |
+| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086): directory-handle retention, child resolution, directory enumeration via `NtQueryDirectoryFile`. Plan 129 records manual adversarial qualification evidence; Windows remains functional-only for any uncovered class. |
 
 ## Notes
 
@@ -106,7 +106,8 @@ platform-limited as noted.
   with untrusted public content on Windows until independent adversarial review is completed.
 
 - **Python wheels** are CPython 3.11+ with abi3 stable ABI (`>=3.11`) on the Linux,
-  macOS, and Windows wheel matrix. The wheel bundles the platform-native CLI
+  macOS, and Windows wheel matrix. The wheel contains the native extension and
+  extension-backed CLI entry point; it does not bundle a second standalone CLI
   binary.
 
 - **Runtime service boundary is experimental.** `eggserve-core::server` provides

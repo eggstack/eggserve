@@ -339,13 +339,13 @@ Five distinct error layers, each scoped to a specific subsystem:
 |----------|--------|----------------|
 | **Linux** (x86_64, aarch64) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
 | **macOS** (x86_64, aarch64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
-| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + adversarial qualification scaffold (Plan 086, 114 tests). Independent safety review awaited. |
+| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + the manually executed Plan 086 adversarial suite. Plan 129 records the current qualification evidence; the safety-review caveat remains for any uncovered class. |
 
 ---
 
 ## Testing Strategy
 
-Multi-layered testing with ~824 Python tests, ~200+ Rust tests, 11 fuzz targets, and 2 conformance corpora:
+Multi-layered testing spans the Python and Rust suites, 11 fuzz targets, and 2 conformance corpora:
 
 | Layer | Location | Scope |
 |-------|----------|-------|
@@ -376,7 +376,7 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–118 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plans 112–118 form the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Major feature tracks:
+Plans 000–129 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plans 112–118 form the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure); Plan 129 records platform/product qualification evidence. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|
