@@ -1487,13 +1487,13 @@ pub fn parse_directory_buffer(
             if next_entry_offset == 0 {
                 break;
             }
-            if next_entry_offset < offset {
-                return Err(DirBufParseError::OffsetUnderflow);
-            }
-            if next_entry_offset == offset || next_entry_offset >= total_len {
+            let next_offset = offset
+                .checked_add(next_entry_offset)
+                .ok_or(DirBufParseError::OffsetOverflow)?;
+            if next_offset <= offset || next_offset >= total_len {
                 return Err(DirBufParseError::OffsetOverflow);
             }
-            offset = next_entry_offset;
+            offset = next_offset;
             continue;
         }
 
@@ -1528,14 +1528,14 @@ pub fn parse_directory_buffer(
         }
 
         // Validate offset: must advance, must stay within buffer, must not loop.
-        if next_entry_offset < offset {
-            return Err(DirBufParseError::OffsetUnderflow);
-        }
-        if next_entry_offset == offset || next_entry_offset >= total_len {
+        let next_offset = offset
+            .checked_add(next_entry_offset)
+            .ok_or(DirBufParseError::OffsetOverflow)?;
+        if next_offset <= offset || next_offset >= total_len {
             return Err(DirBufParseError::OffsetOverflow);
         }
 
-        offset = next_entry_offset;
+        offset = next_offset;
     }
 
     Ok(entries)
@@ -2188,9 +2188,10 @@ mod tests {
         }
         let mut buf = Vec::new();
         for (i, entry) in entries_data.iter().enumerate() {
-            let current_offset = buf.len();
             if i < entries_data.len() - 1 {
-                let next_offset = (current_offset + entry.len()) as u32;
+                // NextEntryOffset is relative to the current record, not an
+                // absolute offset into the returned buffer.
+                let next_offset = entry.len() as u32;
                 let mut entry_clone = entry.clone();
                 entry_clone[0..4].copy_from_slice(&next_offset.to_ne_bytes());
                 buf.extend_from_slice(&entry_clone);
