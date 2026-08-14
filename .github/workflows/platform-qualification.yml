@@ -56,4 +56,6 @@ jobs:
           EGGSERVE_WINDOWS_QUALIFY: "1"
         run: |
           cargo test -p eggserve-core --features windows-plan086 \
-            --test windows_plan084 --test windows_plan086 -- --nocapture
+            --test windows_plan084 -- --nocapture
+          cargo test -p eggserve-core --features windows-plan086 \
+            --test windows_plan086 -- --nocapture
