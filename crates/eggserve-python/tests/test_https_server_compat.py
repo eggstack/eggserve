@@ -56,8 +56,10 @@ class HttpsCompatTests(unittest.TestCase):
                               keyfile=self.key, **kwargs)
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
-        self.addCleanup(server.server_close)
+        # Cleanup callbacks run last-in, first-out. Close the listener before
+        # joining so the serve_forever thread can actually exit.
         self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
         while server.server_port == 0:
             thread.join(0.01)
         return server
@@ -67,8 +69,8 @@ class HttpsCompatTests(unittest.TestCase):
         server = HTTPSServer(("127.0.0.1", 0), handler, certfile=self.cert, keyfile=self.key)
         thread = threading.Thread(target=server.serve_forever)
         thread.start()
-        self.addCleanup(server.server_close)
         self.addCleanup(thread.join, 5)
+        self.addCleanup(server.server_close)
         while server.server_port == 0:
             thread.join(0.01)
         return server

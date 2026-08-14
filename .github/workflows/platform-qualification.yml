@@ -1,0 +1,59 @@
+name: Platform Qualification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  PYTHON: "3.14"
+
+jobs:
+  macos-arm64:
+    name: "macOS arm64 product qualification"
+    runs-on: macos-14
+    timeout-minutes: 35
+    env:
+      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: ${{ env.PYTHON }}
+      - name: Record platform evidence
+        run: |
+          sw_vers
+          uname -a
+          rustc -vV
+          git rev-parse HEAD
+      - name: Build and qualify installed wheel
+        run: bash scripts/test-python-wheel.sh
+
+  windows-x86_64:
+    name: "Windows x86_64 filesystem qualification"
+    runs-on: windows-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - name: Record platform evidence
+        shell: pwsh
+        run: |
+          Get-ComputerInfo -Property WindowsProductName,WindowsVersion,OsBuildNumber
+          Get-Volume -DriveLetter $env:SystemDrive.TrimEnd(':') | Select-Object DriveLetter,FileSystem,FileSystemLabel
+          rustc -vV
+          git rev-parse HEAD
+      - name: Run Windows adversarial qualification suite
+        shell: bash
+        env:
+          EGGSERVE_WINDOWS_QUALIFY: "1"
+        run: |
+          cargo test -p eggserve-core --features windows-plan086 \
+            --test windows_plan084 --test windows_plan086 -- --nocapture
