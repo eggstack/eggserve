@@ -55,7 +55,13 @@ info "Building wheel into $DIST_DIR"
 (cd "$REPO_ROOT/crates/eggserve-python" && \
     "$PYTHON" -m maturin build --profile dist --interpreter "$PYTHON" -o "$DIST_DIR")
 WHEEL_PATH="$(printf '%s\n' "$DIST_DIR"/*.whl)"
-info "Wheel size: $(stat --printf='%s' "$WHEEL_PATH") bytes"
+if WHEEL_SIZE="$(stat --printf='%s' "$WHEEL_PATH" 2>/dev/null)"; then
+    :
+else
+    # macOS and other BSD systems use a different stat interface.
+    WHEEL_SIZE="$(stat -f '%z' "$WHEEL_PATH")"
+fi
+info "Wheel size: $WHEEL_SIZE bytes"
 
 # Create venv and install wheel
 VENV_DIR="$(mktemp -d)"
