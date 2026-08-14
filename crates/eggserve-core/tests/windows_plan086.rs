@@ -44,7 +44,9 @@ use tempfile::TempDir;
 
 use eggserve_core::policy::StaticPolicy;
 use eggserve_core::primitives::response::BodyPlan;
-use eggserve_core::primitives::{check_component, SecureRoot};
+use eggserve_core::primitives::{
+    check_component, has_windows_drive_prefix, is_windows_reserved_name, percent_decode, SecureRoot,
+};
 use eggserve_core::primitives::{ConfinedPath, PathPolicy};
 
 // ============================================================================
@@ -267,13 +269,6 @@ fn make_plan() -> eggserve_core::primitives::response::StaticResponsePlan {
         headers: eggserve_core::primitives::response::HeaderMapPlan::new(),
         body: BodyPlan::FileFull,
     }
-}
-
-/// Read all bytes from a resolved file resource.
-fn read_resolved_file(file: eggserve_core::primitives::SecureRoot) -> Vec<u8> {
-    let plan = make_plan();
-    let mut body = file.into_body(&plan).expect("into_body");
-    body.read_all().expect("read_all")
 }
 
 /// Create a symlink, returning Err if Developer Mode is not available.
@@ -871,7 +866,7 @@ fn windows_namespace_encoded_separator_rejected() {
     // %2F decodes to '/' which is a separator — this should parse as /path/file.txt
     // or be rejected. The key is it must not be treated as a single component "path/file.txt".
     if let Ok(confined) = result {
-        let components: Vec<_> = confined.components().collect();
+        let components: Vec<_> = confined.components().iter().collect();
         assert!(
             components.len() > 1 || confined.as_str().contains('/'),
             "encoded slash must not create a single-component path"
@@ -1153,7 +1148,7 @@ fn windows_file_identity_same_size_replacement() {
         .resolve(&parse("/hello.txt"))
         .into_file()
         .expect("hello.txt should resolve");
-    let meta1 = file1.metadata().clone();
+    let meta1_len = file1.len();
     drop(file1);
 
     // Replace with same-size content.
@@ -1164,11 +1159,11 @@ fn windows_file_identity_same_size_replacement() {
         .resolve(&parse("/hello.txt"))
         .into_file()
         .expect("replaced hello.txt should resolve");
-    let meta2 = file2.metadata().clone();
+    let meta2_len = file2.len();
     drop(file2);
 
     // File size is the same (5 bytes), but modified time should differ.
-    assert_eq!(meta1.len(), meta2.len(), "replacement must have same size");
+    assert_eq!(meta1_len, meta2_len, "replacement must have same size");
     // Modified time may or may not differ depending on filesystem timestamp
     // granularity. On NTFS, the minimum granularity is 100ns, so rapid
     // replacements may have the same timestamp. The test documents this
@@ -1343,7 +1338,7 @@ fn windows_resource_stability_direct_files() {
         let file = root
             .resolve(&parse("/hello.txt"))
             .into_file()
-            .unwrap_or_else(|_| panic!("iteration {i}: hello.txt should resolve"));
+            .unwrap_or_else(|| panic!("iteration {i}: hello.txt should resolve"));
         let plan = make_plan();
         let mut body = file.into_body(&plan).expect("into_body");
         let data = body.read_all().expect("read_all");
@@ -1363,7 +1358,7 @@ fn windows_resource_stability_ranges() {
         let file = root
             .resolve(&parse("/hello.txt"))
             .into_file()
-            .unwrap_or_else(|_| panic!("iteration {i}: hello.txt should resolve"));
+            .unwrap_or_else(|| panic!("iteration {i}: hello.txt should resolve"));
         let plan = eggserve_core::primitives::response::StaticResponsePlan {
             status: eggserve_core::primitives::response::ResponseStatus::OK,
             headers: eggserve_core::primitives::response::HeaderMapPlan::new(),
@@ -1390,11 +1385,11 @@ fn windows_resource_stability_directory_index() {
         let dir = root
             .resolve(&parse("/subdir"))
             .into_directory()
-            .unwrap_or_else(|_| panic!("iteration {i}: subdir should resolve"));
+            .unwrap_or_else(|| panic!("iteration {i}: subdir should resolve"));
         let file = dir
             .resolve_child("index.html", &root)
             .into_file()
-            .unwrap_or_else(|_| panic!("iteration {i}: index.html should resolve"));
+            .unwrap_or_else(|| panic!("iteration {i}: index.html should resolve"));
         let plan = make_plan();
         let mut body = file.into_body(&plan).expect("into_body");
         let data = body.read_all().expect("read_all");
@@ -1417,7 +1412,7 @@ fn windows_resource_stability_directory_listing() {
         let dir = root
             .resolve(&parse("/subdir"))
             .into_directory()
-            .unwrap_or_else(|_| panic!("iteration {i}: subdir should resolve"));
+            .unwrap_or_else(|| panic!("iteration {i}: subdir should resolve"));
         let entries = dir
             .list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
             .unwrap_or_else(|_| panic!("iteration {i}: list should succeed"));
@@ -1569,7 +1564,7 @@ fn windows_fuzz_request_component_parsing() {
         // They must not panic.
         if let Ok(path) = result {
             // If it parsed, it must not contain traversal components.
-            let components: Vec<_> = path.components().collect();
+            let components: Vec<_> = path.components().iter().collect();
             assert!(
                 !components.contains(&".."),
                 "adversarial input {input:?} must not produce traversal"
@@ -1858,7 +1853,7 @@ fn windows_reparse_nested_chain_denied() {
 
     let link1 = tmp.path().join("chain_link");
     let link2 = tmp.path().join("chain_target");
-    match try_create_file_symlink(tmp.path().join("hello.txt"), &link2) {
+    match try_create_file_symlink(&tmp.path().join("hello.txt"), &link2) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             blocked!("nested symlink chain requires Developer Mode");
@@ -1924,7 +1919,7 @@ fn windows_reparse_custom_tag_denied() {
 
     // Create a symlink (which sets FILE_ATTRIBUTE_REPARSE_POINT).
     let link = tmp.path().join("custom_reparse");
-    match try_create_file_symlink(tmp.path().join("hello.txt"), &link) {
+    match try_create_file_symlink(&tmp.path().join("hello.txt"), &link) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             blocked!("custom reparse test requires Developer Mode");
@@ -2009,7 +2004,7 @@ fn windows_namespace_repeated_separators_rejected() {
     let result = ConfinedPath::parse("//file.txt", &PathPolicy::default());
     // Double slash at root may parse but must not create an empty component.
     if let Ok(path) = result {
-        let components: Vec<_> = path.components().collect();
+        let components: Vec<_> = path.components().iter().collect();
         assert!(
             !components.contains(&""),
             "empty component from repeated separators must not exist"
@@ -2018,7 +2013,7 @@ fn windows_namespace_repeated_separators_rejected() {
 
     let result = ConfinedPath::parse("/path//file.txt", &PathPolicy::default());
     if let Ok(path) = result {
-        let components: Vec<_> = path.components().collect();
+        let components: Vec<_> = path.components().iter().collect();
         assert!(
             !components.contains(&""),
             "empty component from internal double slash must not exist"
@@ -2456,7 +2451,7 @@ fn windows_file_identity_conditional_after_replacement() {
         .resolve(&parse("/hello.txt"))
         .into_file()
         .expect("hello.txt should resolve");
-    let _meta1 = file1.metadata().clone();
+    let _meta1_len = file1.len();
     drop(file1);
 
     // Replace with different content.
@@ -2467,7 +2462,7 @@ fn windows_file_identity_conditional_after_replacement() {
         .resolve(&parse("/hello.txt"))
         .into_file()
         .expect("replaced hello.txt should resolve");
-    let meta2 = file2.metadata().clone();
+    let meta2_len = file2.len();
     drop(file2);
 
     // The metadata must differ (size or modified time) to ensure
@@ -2476,7 +2471,7 @@ fn windows_file_identity_conditional_after_replacement() {
     // the same timestamp. The size difference (5 vs 5 bytes) is
     // the same, but the content is different. The key invariant is
     // that the resolver returns fresh metadata on each resolution.
-    assert_eq!(meta2.len(), 5, "replacement must have same size (5 bytes)");
+    assert_eq!(meta2_len, 5, "replacement must have same size (5 bytes)");
 }
 
 // ============================================================================
@@ -2770,7 +2765,7 @@ fn windows_resource_stability_large_listing() {
         let dir = root
             .resolve(&parse("/subdir"))
             .into_directory()
-            .unwrap_or_else(|_| panic!("iteration {i}: subdir should resolve"));
+            .unwrap_or_else(|| panic!("iteration {i}: subdir should resolve"));
         let entries = dir
             .list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
             .unwrap_or_else(|_| panic!("iteration {i}: list should succeed"));
@@ -2934,7 +2929,7 @@ fn windows_artifact_parity_policy_enforcement() {
 
     // Safe default with dotfile policy.
     let safe_policy = StaticPolicy {
-        allow_dotfiles: false,
+        dotfiles: eggserve_core::policy::DotfilePolicy::Denied,
         ..StaticPolicy::safe_default()
     };
     let root2 = SecureRoot::new(tmp.path(), safe_policy).unwrap();
@@ -3007,7 +3002,7 @@ fn windows_fuzz_path_parser_stress() {
         let result = ConfinedPath::parse(input, &PathPolicy::default());
         if let Ok(path) = result {
             // If it parsed, verify no traversal.
-            let components: Vec<_> = path.components().collect();
+            let components: Vec<_> = path.components().iter().collect();
             assert!(
                 !components.contains(&".."),
                 "adversarial input {input:?} must not produce traversal"
@@ -3174,7 +3169,7 @@ fn windows_reparse_denial_category_observable() {
 
     // Test 3: Reparse point (must be denied).
     let link = tmp.path().join("reparse_category_test");
-    match try_create_file_symlink(tmp.path().join("hello.txt"), &link) {
+    match try_create_file_symlink(&tmp.path().join("hello.txt"), &link) {
         Ok(()) => {}
         Err(e) if e.kind() == io::ErrorKind::PermissionDenied => {
             blocked!("symlink requires Developer Mode");
@@ -3338,7 +3333,7 @@ fn windows_race_index_file_replacement_during_resolution() {
         let mut successes = 0;
         for _ in 0..500 {
             let dir = root2.resolve(&parse("/subdir")).into_directory();
-            if let Ok(dir) = dir {
+            if let Some(dir) = dir {
                 if let Some(file) = dir.resolve_child("index.html", &root2).into_file() {
                     let plan = make_plan();
                     let mut body = file.into_body(&plan).expect("into_body");
