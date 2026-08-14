@@ -193,6 +193,11 @@ fn get_filesystem_type(path: &Path) -> String {
             lp_file_system_name_buffer: *mut u16,
             n_file_system_name_size: u32,
         ) -> i32;
+        fn GetVolumePathNameW(
+            lpsz_file_name: *const u16,
+            lpsz_volume_path_name: *mut u16,
+            cch_buffer_length: u32,
+        ) -> i32;
     }
 
     let wide: Vec<u16> = path
@@ -200,10 +205,22 @@ fn get_filesystem_type(path: &Path) -> String {
         .map(|s| s.encode_utf16().chain(std::iter::once(0)).collect())
         .unwrap_or_default();
 
+    let mut volume_root = vec![0u16; 32768];
+    let root_success = unsafe {
+        GetVolumePathNameW(
+            wide.as_ptr(),
+            volume_root.as_mut_ptr(),
+            volume_root.len() as u32,
+        )
+    };
+    if root_success == 0 {
+        return "unknown".to_string();
+    }
+
     let mut fs_name = vec![0u16; 256];
     let success = unsafe {
         GetVolumeInformationW(
-            wide.as_ptr(),
+            volume_root.as_ptr(),
             ptr::null_mut(),
             0,
             ptr::null_mut(),

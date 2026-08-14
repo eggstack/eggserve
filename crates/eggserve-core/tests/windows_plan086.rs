@@ -47,7 +47,7 @@ use eggserve_core::primitives::response::BodyPlan;
 use eggserve_core::primitives::{
     check_component, has_windows_drive_prefix, is_windows_reserved_name, percent_decode, SecureRoot,
 };
-use eggserve_core::primitives::{ConfinedPath, PathPolicy};
+use eggserve_core::primitives::{ConfinedPath, PathDotfilePolicy, PathPolicy};
 
 // ============================================================================
 // Inline Windows FFI — test isolation mirrors windows_feasibility.rs
@@ -140,6 +140,11 @@ extern "system" {
         lp_file_system_flags: *mut DWORD,
         lp_file_system_name_buffer: *mut u16,
         n_file_system_name_size: DWORD,
+    ) -> BOOL;
+    fn GetVolumePathNameW(
+        lpsz_file_name: PCWSTR,
+        lpsz_volume_path_name: *mut u16,
+        cch_buffer_length: DWORD,
     ) -> BOOL;
 
     fn LockFileEx(
@@ -260,7 +265,11 @@ fn create_plan086_tree(root: &Path) {
 }
 
 fn parse(raw: &str) -> ConfinedPath {
-    ConfinedPath::parse(raw, &PathPolicy::default()).unwrap()
+    let policy = PathPolicy {
+        dotfiles: PathDotfilePolicy::Allow,
+        ..PathPolicy::default()
+    };
+    ConfinedPath::parse(raw, &policy).unwrap()
 }
 
 fn make_plan() -> eggserve_core::primitives::response::StaticResponsePlan {
@@ -316,10 +325,22 @@ fn set_readonly(path: &Path, readonly: bool) -> bool {
 /// Get the filesystem type name for a given path.
 fn get_filesystem_type(path: &Path) -> String {
     let wide = utf16_string(path.to_str().unwrap());
+    let mut volume_root = vec![0u16; MAX_PATH_W];
+    let root_success = unsafe {
+        GetVolumePathNameW(
+            wide.as_ptr(),
+            volume_root.as_mut_ptr(),
+            volume_root.len() as DWORD,
+        )
+    };
+    if root_success == 0 {
+        return "unknown".to_string();
+    }
+
     let mut fs_name = vec![0u16; 256];
     let success = unsafe {
         GetVolumeInformationW(
-            wide.as_ptr(),
+            volume_root.as_ptr(),
             ptr::null_mut(),
             0,
             ptr::null_mut(),
@@ -3793,7 +3814,8 @@ fn windows_artifact_parity_source_sha_matches() {
 #[test]
 fn windows_fuzz_corpus_replay_path_components() {
     // Replay the path_components fuzz corpus and verify safety invariants.
-    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/path_components");
+    let corpus_dir =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/path_components");
     if !corpus_dir.exists() {
         blocked!("fuzz corpus directory not found");
         return;
@@ -3842,7 +3864,7 @@ fn windows_fuzz_corpus_replay_path_components() {
 fn windows_fuzz_corpus_replay_platform_component() {
     // Replay the platform_component fuzz corpus for Windows-specific checks.
     let corpus_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/platform_component");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/platform_component");
     if !corpus_dir.exists() {
         blocked!("fuzz corpus directory not found");
         return;
@@ -3898,7 +3920,7 @@ fn windows_fuzz_corpus_replay_platform_component() {
 #[test]
 fn windows_fuzz_corpus_replay_percent_decode() {
     // Replay the percent_decode fuzz corpus.
-    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/percent_decode");
+    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/percent_decode");
     if !corpus_dir.exists() {
         blocked!("fuzz corpus directory not found");
         return;
@@ -3940,7 +3962,7 @@ fn windows_fuzz_corpus_replay_percent_decode() {
 #[test]
 fn windows_fuzz_corpus_replay_request_target() {
     // Replay the request_target fuzz corpus with Windows-specific validation.
-    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/request_target");
+    let corpus_dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/request_target");
     if !corpus_dir.exists() {
         blocked!("fuzz corpus directory not found");
         return;
@@ -3994,7 +4016,7 @@ fn windows_fuzz_corpus_replay_request_target() {
 fn windows_fuzz_corpus_replay_directory_buffer() {
     // Replay the directory_buffer fuzz corpus (binary data).
     let corpus_dir =
-        Path::new(env!("CARGO_MANIFEST_DIR")).join("../fuzz/corpus/fuzz_directory_buffer");
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fuzz/corpus/fuzz_directory_buffer");
     if !corpus_dir.exists() {
         blocked!("fuzz corpus directory not found");
         return;

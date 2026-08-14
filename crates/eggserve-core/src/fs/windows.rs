@@ -238,6 +238,7 @@ const FILE_DIRECTORY_FILE: u32 = 0x00000001;
 const FILE_NON_DIRECTORY_FILE: u32 = 0x00000040;
 const FILE_OPEN_FOR_BACKUP_INTENT: u32 = 0x00004000;
 const FILE_SYNCHRONOUS_IO_NONALERT: u32 = 0x00000020;
+const FILE_OPEN_REPARSE_POINT: u32 = 0x00200000;
 
 const SYNCHRONIZE: u32 = 0x00100000;
 
@@ -567,7 +568,10 @@ pub(crate) fn open_directory_relative(
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_FOR_BACKUP_INTENT,
+            FILE_DIRECTORY_FILE
+                | FILE_SYNCHRONOUS_IO_NONALERT
+                | FILE_OPEN_FOR_BACKUP_INTENT
+                | FILE_OPEN_REPARSE_POINT,
         )
     };
 
@@ -630,7 +634,7 @@ pub(crate) fn open_file_relative(
             &mut obj_attr,
             &mut iosb,
             FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT,
+            FILE_NON_DIRECTORY_FILE | FILE_SYNCHRONOUS_IO_NONALERT | FILE_OPEN_REPARSE_POINT,
         )
     };
 
