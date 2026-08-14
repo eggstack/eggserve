@@ -2,11 +2,11 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-14.**
+**COMPLETE — 2026-08-14. Outcome 2 (functionally qualified; precise Windows caveat remains).**
 
 Governing roadmap: Plan 128.
 
-Baseline:
+Qualification starting baseline:
 
 ```text
 main = 4a2371045e221c6d3875f3a6085bd67fa53de7f5
@@ -299,12 +299,44 @@ This plan must not:
 
 Plan 129 is complete when:
 
-- [ ] Linux CLI/Python live qualification passes;
-- [ ] macOS arm64 CLI/Python qualification passes or a concrete environment limitation is truthfully recorded;
-- [ ] Windows adversarial suite has been executed on Windows and outcome 1/2/3 is explicitly recorded;
-- [ ] Rust external static consumer passes;
-- [ ] Rust external custom-service consumer passes;
-- [ ] package dry-run passes;
-- [ ] support/security docs are not stronger than the evidence;
-- [ ] any observed defects have focused regression tests;
-- [ ] no unrelated scope expansion occurred.
+- [x] Linux CLI/Python live qualification passes;
+- [x] macOS arm64 CLI/Python qualification passes;
+- [x] Windows adversarial suite has been executed on Windows and outcome 2 is explicitly recorded;
+- [x] Rust external static consumer passes;
+- [x] Rust external custom-service consumer passes;
+- [x] package dry-run passes;
+- [x] support/security docs are not stronger than the evidence;
+- [x] any observed defects have focused regression tests;
+- [x] no unrelated scope expansion occurred.
+
+## Closure evidence — 2026-08-14
+
+Final source commit: `bfc45f0943ec055fbc334277646a9e218136f366`.
+
+| Surface | Platform | Command/test | Result | Evidence |
+|---|---|---|---|---|
+| CLI | Linux | `./scripts/verify.sh full`; installed-binary qualification | Pass; live TCP smoke 9/9 | Local run |
+| Python wheel | Linux | `PYTHON=python3.14 bash scripts/test-python-wheel.sh` | Pass; CPython 3.14 installed wheel and 732 tests | Local run |
+| External Rust consumer | Linux | Temporary clean crate: static TCP server, custom service TCP server, primitives, no Hyper | Pass | Local run |
+| Cargo packages | Linux | `ALLOW_DIRTY=true bash scripts/verify-cargo-packages.sh --mode all` | Pass; core publish dry-run and packaged binary graph | Local run |
+| CLI/Python wheel | macOS arm64 | Manual workflow `31847307427`, `bash scripts/test-python-wheel.sh` | Pass; macOS 14.8.7 / Darwin 23.6.0, Rust 1.97.1, 732 tests | [workflow](https://github.com/eggstack/eggserve/actions/runs/31847307427) |
+| Windows filesystem | Windows x86_64 | Manual workflow `31847307427`; Plan 084 and Plan 086 suites | Pass; 114 discovered, 112 passed, 0 failed, 2 ignored; Windows Server 2025 10.0.26100, NTFS, local volume, qualification privileges enabled | [workflow](https://github.com/eggstack/eggserve/actions/runs/31847307427) |
+| Routine CI | Linux | CI run `31846386507` | Pass; `rust` and `python` jobs | [workflow](https://github.com/eggstack/eggserve/actions/runs/31846386507) |
+
+### Outcome and corrective changes
+
+Windows is Outcome 2: the handle-relative resolver, reparse-point denial,
+namespace checks, replacement races, root pinning, enumeration, resource
+stability, artifact parity, and shutdown tests passed on the real Windows
+runner. The two ignored tests retain a narrow caveat: NTFS rejects an external
+Win32 path-based directory rename while a descendant file handle is open.
+Windows therefore remains functional and trusted/local-content only; it is not
+promoted to a hardened public-content profile.
+
+Qualification found and corrected concrete issues only: macOS portability of
+the wheel harness and interpreter selection; Windows volume-root detection,
+fixture API drift, reparse-point opens, directory-record offsets and buffer
+continuation, path trailing-dot/space normalization, malformed-path test
+handling, and replacement-by-new-inode fixtures. The two NTFS-limited root
+rename cases are explicitly ignored and documented rather than weakened or
+silently treated as passed.
