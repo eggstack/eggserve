@@ -264,6 +264,19 @@ fn create_plan086_tree(root: &Path) {
     fs::write(root.join("subdir/index.html"), "<html>index</html>").expect("write index.html");
 }
 
+/// Replace a file by removing its directory entry and renaming a new inode
+/// into place. `fs::write` truncates the existing inode on Windows, which
+/// cannot exercise the pinned-handle replacement invariant.
+fn replace_file_with_new_inode(path: &Path, contents: &str) {
+    let replacement = path.with_file_name(format!(
+        "{}.eggserve-replacement",
+        path.file_name().unwrap().to_string_lossy()
+    ));
+    fs::write(&replacement, contents).expect("write replacement");
+    fs::remove_file(path).expect("remove original before replacement");
+    fs::rename(replacement, path).expect("rename replacement into place");
+}
+
 fn parse(raw: &str) -> ConfinedPath {
     let policy = PathPolicy {
         dotfiles: PathDotfilePolicy::Allow,
@@ -2369,7 +2382,7 @@ fn windows_race_same_name_replacement_during_range_streaming() {
         .expect("hello.txt should resolve");
 
     // Replace the file while the handle is held.
-    fs::write(tmp.path().join("hello.txt"), "REPLACED CONTENT").expect("replace file");
+    replace_file_with_new_inode(&tmp.path().join("hello.txt"), "REPLACED CONTENT");
 
     // Read from the original handle — must return original content.
     let plan = eggserve_core::primitives::response::StaticResponsePlan {
@@ -2442,7 +2455,7 @@ fn windows_file_identity_range_during_replacement() {
         .expect("hello.txt should resolve");
 
     // Replace the file.
-    fs::write(tmp.path().join("hello.txt"), "REPLACED").expect("replace");
+    replace_file_with_new_inode(&tmp.path().join("hello.txt"), "REPLACED");
 
     // Read with range — must be consistent (original content).
     let plan = eggserve_core::primitives::response::StaticResponsePlan {
