@@ -196,7 +196,11 @@ struct FILE_ID_BOTH_DIR_INFO {
 /// Fields: NextEntryOffset(4) + FileIndex(8) + CreationTime(8) + LastAccessTime(8) +
 /// LastWriteTime(8) + ChangeTime(8) + AllocationSize(8) + EndOfFile(8) +
 /// FileAttributes(4) + FileNameLength(4) + EaSize(4) + FileId(8) + FileName(1*2) = 80 bytes
-const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize = 80;
+const FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET: usize = 60;
+const FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET: usize = 56;
+const FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET: usize = 96;
+const FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET: usize = 104;
+const FILE_ID_BOTH_DIR_INFO_HEADER_SIZE: usize = FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET;
 
 // ── NT API types (for handle-relative opens) ─────────────────────────────────
 
@@ -1424,8 +1428,8 @@ pub fn parse_directory_buffer(
             buffer[offset + 3],
         ]) as usize;
 
-        // Read FileNameLength (at offset 68 within the record, LE u32).
-        let name_length_offset = offset + 68;
+        // Read FileNameLength (at offset 60 within the record, LE u32).
+        let name_length_offset = offset + FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET;
         let file_name_length = u32::from_ne_bytes([
             buffer[name_length_offset],
             buffer[name_length_offset + 1],
@@ -1446,7 +1450,7 @@ pub fn parse_directory_buffer(
         }
 
         // Read file_attributes (at offset 56 within the record, LE u32).
-        let attrs_offset = offset + 56;
+        let attrs_offset = offset + FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET;
         let file_attributes = u32::from_ne_bytes([
             buffer[attrs_offset],
             buffer[attrs_offset + 1],
@@ -1454,8 +1458,8 @@ pub fn parse_directory_buffer(
             buffer[attrs_offset + 3],
         ]);
 
-        // Read file_index (at offset 8 within the record, LE u64) for identity.
-        let file_index_offset = offset + 8;
+        // Read FileId (at offset 96 within the record, LE u64) for identity.
+        let file_index_offset = offset + FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET;
         let file_index = u64::from_ne_bytes([
             buffer[file_index_offset],
             buffer[file_index_offset + 1],
@@ -2026,8 +2030,9 @@ mod tests {
 
         // NextEntryOffset
         buf[0..4].copy_from_slice(&next_entry_offset.to_ne_bytes());
-        // FileIndex (u64 at offset 8)
-        buf[8..16].copy_from_slice(&file_id.to_ne_bytes());
+        // FileId (u64 at offset 96)
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET..FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET + 8]
+            .copy_from_slice(&file_id.to_ne_bytes());
         // FileAttributes (u32 at offset 56)
         let mut attrs: u32 = 0;
         if is_directory {
@@ -2036,12 +2041,16 @@ mod tests {
         if is_reparse {
             attrs |= FILE_ATTRIBUTE_REPARSE_POINT;
         }
-        buf[56..60].copy_from_slice(&attrs.to_ne_bytes());
-        // FileNameLength (u32 at offset 68)
-        buf[68..72].copy_from_slice(&(name_bytes as u32).to_ne_bytes());
-        // FileName (UTF-16 at offset 80)
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET
+            ..FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET + 4]
+            .copy_from_slice(&attrs.to_ne_bytes());
+        // FileNameLength (u32 at offset 60)
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET
+            ..FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET + 4]
+            .copy_from_slice(&(name_bytes as u32).to_ne_bytes());
+        // FileName (UTF-16 at offset 104)
         for (i, &ch) in name_utf16.iter().enumerate() {
-            let idx = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + i * 2;
+            let idx = FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET + i * 2;
             buf[idx..idx + 2].copy_from_slice(&ch.to_ne_bytes());
         }
 
@@ -2123,7 +2132,9 @@ mod tests {
     fn parse_odd_filename_length() {
         let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 10];
         buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
-        buf[68..72].copy_from_slice(&5u32.to_ne_bytes());
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET
+            ..FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET + 4]
+            .copy_from_slice(&5u32.to_ne_bytes());
         let result = parse_directory_buffer(&buf, 100);
         assert!(matches!(result, Err(DirBufParseError::OddFileNameLength)));
     }
@@ -2132,7 +2143,9 @@ mod tests {
     fn parse_filename_out_of_range() {
         let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 4];
         buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
-        buf[68..72].copy_from_slice(&100u32.to_ne_bytes());
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET
+            ..FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET + 4]
+            .copy_from_slice(&100u32.to_ne_bytes());
         let result = parse_directory_buffer(&buf, 100);
         assert!(matches!(result, Err(DirBufParseError::FileNameOutOfRange)));
     }
@@ -2220,7 +2233,9 @@ mod tests {
         let mut buf = vec![0u8; FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + 4];
         buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
         // FileNameLength claims 100 bytes but buffer only has 4 bytes of name.
-        buf[68..72].copy_from_slice(&100u32.to_ne_bytes());
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET
+            ..FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET + 4]
+            .copy_from_slice(&100u32.to_ne_bytes());
         let result = parse_directory_buffer(&buf, 100);
         assert!(matches!(result, Err(DirBufParseError::FileNameOutOfRange)));
     }
@@ -2235,9 +2250,11 @@ mod tests {
         let mut buf = vec![0u8; aligned_size];
 
         buf[0..4].copy_from_slice(&0u32.to_ne_bytes());
-        buf[68..72].copy_from_slice(&(name_bytes as u32).to_ne_bytes());
+        buf[FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET
+            ..FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET + 4]
+            .copy_from_slice(&(name_bytes as u32).to_ne_bytes());
         for (i, &ch) in name_utf16.iter().enumerate() {
-            let idx = FILE_ID_BOTH_DIR_INFO_HEADER_SIZE + i * 2;
+            let idx = FILE_ID_BOTH_DIR_INFO_FILE_NAME_OFFSET + i * 2;
             buf[idx..idx + 2].copy_from_slice(&ch.to_ne_bytes());
         }
 
