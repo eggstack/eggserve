@@ -37,20 +37,19 @@ jobs:
             --out "$GITHUB_WORKSPACE/dist"
       - name: Verify wheel composition
         run: |
-          cd "$GITHUB_WORKSPACE"
           python - <<'PYEOF'
-import sys
-import zipfile
+          import sys
+          import zipfile
 
-for wheel in sorted(__import__("pathlib").Path("dist").glob("*.whl")):
-    with zipfile.ZipFile(wheel) as zf:
-        names = zf.namelist()
-        forbidden = [n for n in names if n.startswith("eggserve/bin/eggserve")]
-        if forbidden:
-            print(f"FAIL: {wheel.name} contains bundled executable: {forbidden}", file=sys.stderr)
-            sys.exit(1)
-        print(f"  {wheel.name}: no bundled server executable (good)")
-PYEOF
+          for wheel in sorted(__import__("pathlib").Path("dist").glob("*.whl")):
+              with zipfile.ZipFile(wheel) as zf:
+                  names = zf.namelist()
+                  forbidden = [n for n in names if n.startswith("eggserve/bin/eggserve")]
+                  if forbidden:
+                      print(f"FAIL: {wheel.name} contains bundled executable: {forbidden}", file=sys.stderr)
+                      sys.exit(1)
+                  print(f"  {wheel.name}: no bundled server executable (good)")
+          PYEOF
       - name: Smoke test wheel
         run: |
           python -m venv /tmp/smoke-venv
@@ -96,20 +95,19 @@ PYEOF
             --out "$GITHUB_WORKSPACE/dist"
       - name: Verify wheel composition
         run: |
-          cd "$GITHUB_WORKSPACE"
           python - <<'PYEOF'
-import sys
-import zipfile
+          import sys
+          import zipfile
 
-for wheel in sorted(__import__("pathlib").Path("dist").glob("*.whl")):
-    with zipfile.ZipFile(wheel) as zf:
-        names = zf.namelist()
-        forbidden = [n for n in names if n.startswith("eggserve/bin/eggserve")]
-        if forbidden:
-            print(f"FAIL: {wheel.name} contains bundled executable: {forbidden}", file=sys.stderr)
-            sys.exit(1)
-        print(f"  {wheel.name}: no bundled server executable (good)")
-PYEOF
+          for wheel in sorted(__import__("pathlib").Path("dist").glob("*.whl")):
+              with zipfile.ZipFile(wheel) as zf:
+                  names = zf.namelist()
+                  forbidden = [n for n in names if n.startswith("eggserve/bin/eggserve")]
+                  if forbidden:
+                      print(f"FAIL: {wheel.name} contains bundled executable: {forbidden}", file=sys.stderr)
+                      sys.exit(1)
+                  print(f"  {wheel.name}: no bundled server executable (good)")
+          PYEOF
       - name: Smoke test wheel
         run: |
           python -m venv /tmp/smoke-venv
@@ -156,20 +154,19 @@ PYEOF
       - name: Verify wheel composition
         shell: bash
         run: |
-          cd "$GITHUB_WORKSPACE"
           python - <<'PYEOF'
-import sys
-import zipfile
+          import sys
+          import zipfile
 
-for wheel in sorted(__import__("pathlib").Path("dist").glob("*.whl")):
-    with zipfile.ZipFile(wheel) as zf:
-        names = zf.namelist()
-        forbidden = [n for n in names if n.startswith("eggserve/bin/eggserve")]
-        if forbidden:
-            print(f"FAIL: {wheel.name} contains bundled executable: {forbidden}", file=sys.stderr)
-            sys.exit(1)
-        print(f"  {wheel.name}: no bundled server executable (good)")
-PYEOF
+          for wheel in sorted(__import__("pathlib").Path("dist").glob("*.whl")):
+              with zipfile.ZipFile(wheel) as zf:
+                  names = zf.namelist()
+                  forbidden = [n for n in names if n.startswith("eggserve/bin/eggserve")]
+                  if forbidden:
+                      print(f"FAIL: {wheel.name} contains bundled executable: {forbidden}", file=sys.stderr)
+                      sys.exit(1)
+                  print(f"  {wheel.name}: no bundled server executable (good)")
+          PYEOF
       - name: Smoke test wheel
         shell: bash
         run: |
