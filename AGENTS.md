@@ -30,7 +30,7 @@ eggserve/
 ├── benchmarks/             # benchmark baselines
 ├── conformance/            # test corpora and conformance matrix
 ├── docs/                   # project documentation
-├── examples/               # usage examples (Python, Rust)
+├── examples/               # canonical CLI/Python examples and tiny fixtures
 ├── fuzz/                   # fuzz targets, seed corpora, fuzz README
 ├── plans/                  # design plans and roadmap
 ├── release/                # release artifacts
@@ -62,7 +62,7 @@ The `tests/` directory at the repo root holds integration tests (proxy interop, 
 
 ```sh
 ./scripts/verify.sh fast                 # routine dev check (Rust only)
-./scripts/verify.sh full                 # pre-release validation (Rust + Python wheel)
+./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel)
 ./scripts/verify.sh deep                 # expensive suites (manual)
 ```
 
@@ -117,6 +117,7 @@ Routine CI is a small regression screen, not release certification:
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory"}`. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N).
 - **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()`. The Python facade uses `rt-multi-thread` with 2 worker threads for GIL scheduling. The library is runtime-agnostic.
 - **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. `--log-format none` disables output; `--quiet` filters to warn/error only. Library code must not use `println!`/`eprintln!`.
+- **Canonical examples** — `examples/README.md` is the index. The supported demonstrations are `python_http_server_static.py`, `python_custom_handler.py`, `python_subprocess.py`, `python_safe_download.py`, and the Cargo examples `static_server`, `custom_service`, and `primitives`. Keep examples small, loopback-bound, safe by default, and mechanically checked by `scripts/verify.sh full`.
 
 ## Common pitfalls
 

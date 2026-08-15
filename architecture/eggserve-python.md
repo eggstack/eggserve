@@ -76,6 +76,13 @@ only re-exports the version, `serve_directory`, and the six façade classes.
 The native callback `Server`, `StaticResponder`, `ServerSecureRoot`, and
 `ServerBodySource` remain internal implementation/test types.
 
+The canonical executable facade demonstrations are
+[`examples/python_http_server_static.py`](../examples/python_http_server_static.py)
+and [`examples/python_custom_handler.py`](../examples/python_custom_handler.py).
+The optional subprocess and low-level primitive examples are listed in
+[`examples/README.md`](../examples/README.md); none is a replacement for the
+supported `eggserve.server` surface.
+
 ## Structure
 
 ```

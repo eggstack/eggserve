@@ -26,8 +26,9 @@ Three crates:
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
 `plans/` (historical design/implementation records, currently through Plan
 133),
-`examples/`, `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
-plus package/release checks).
+`examples/` (canonical CLI/Python examples plus Cargo examples and tiny
+fixtures), `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
+plus package/release checks). The example index is `examples/README.md`.
 
 ## Non-negotiables
 
@@ -72,7 +73,7 @@ Or use the local verification script:
 
 ```sh
 ./scripts/verify.sh fast                 # routine dev check (Rust only)
-./scripts/verify.sh full                 # pre-release validation (Rust + Python wheel)
+./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel)
 ./scripts/verify.sh deep                 # expensive suites (manual)
 ```
 
@@ -149,3 +150,4 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functionally qualified, but remains trusted/local-content only because two open-descendant root-rename cases are rejected by NTFS path-rename semantics; see `docs/toolchain-support.md`.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
+- **Examples are product demonstrations** — Use the canonical examples in `examples/README.md` when documenting CLI, Python, or Rust usage. Rust examples must use public APIs only; server examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. Do not turn examples into a framework, router, or alternate policy reference.

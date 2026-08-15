@@ -107,7 +107,7 @@ eggserve/
 ├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
 ├── scripts/                    # small verification hierarchy plus package/release checks
 ├── release/                    # release artifacts and closure reports
-└── examples/                   # Python usage examples
+└── examples/                   # canonical CLI/Python examples and fixtures
 ```
 
 ---
@@ -369,13 +369,19 @@ Multi-layered testing spans the Python and Rust suites, 11 fuzz targets, and 2 c
 
 See [testing-and-conformance.md](testing-and-conformance.md) for the full test matrix.
 
+The executable product demonstrations are indexed in
+[`../examples/README.md`](../examples/README.md). The full verification script
+compiles the Cargo examples and smoke-tests the canonical Python and Rust
+examples with loopback port `0`; this is deliberately a small addition to the
+existing Rust/Python checks rather than a separate CI job.
+
 ---
 
 ## Release Process
 
 Release is a manual crates.io procedure. CI is a regression screen, not release certification:
 
-1. Run `./scripts/verify.sh full` (Rust + Python wheel)
+1. Run `./scripts/verify.sh full` (examples, Rust + Python wheel)
 2. Run `bash scripts/install-cargo-tools.sh` then `cargo audit` + `cargo deny check`
 3. Manual crates.io publish from maintainer-controlled environment
 4. GitHub Actions never publishes

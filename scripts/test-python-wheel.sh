@@ -111,6 +111,109 @@ assert eggserve_cmd is not None, 'eggserve command not found in venv'
 print(f'  installed command: {eggserve_cmd}')
 "
 
+# Canonical Python example smoke checks. The examples are loaded from the
+# checkout but run entirely against the installed wheel in this venv.
+info "Running canonical Python example smoke"
+REPO_ROOT="$REPO_ROOT" "$VENV_PYTHON" - <<'PYEOF'
+import http.client
+import os
+import runpy
+from pathlib import Path
+
+repo = Path(os.environ["REPO_ROOT"])
+
+
+def request(server, method, path):
+    connection = http.client.HTTPConnection(*server.server_address, timeout=5)
+    try:
+        connection.request(method, path, headers={"Connection": "close"})
+        response = connection.getresponse()
+        return response.status, response.read()
+    finally:
+        connection.close()
+
+
+static = runpy.run_path(str(repo / "examples" / "python_http_server_static.py"))
+server = static["create_server"](("127.0.0.1", 0), repo / "examples" / "site")
+try:
+    assert server._native_fast_path, "stock static example must use the native fast path"
+    assert request(server, "GET", "/")[0] == 200
+    assert request(server, "HEAD", "/assets/example.txt") == (200, b"")
+    assert request(server, "GET", "/.hidden-example")[0] == 403
+finally:
+    server.server_close()
+
+custom = runpy.run_path(str(repo / "examples" / "python_custom_handler.py"))
+server = custom["create_server"](("127.0.0.1", 0))
+try:
+    assert request(server, "GET", "/health") == (200, b"ok\n")
+    assert request(server, "GET", "/missing") == (404, b"not found\n")
+finally:
+    server.server_close()
+
+print("  canonical Python examples passed")
+PYEOF
+
+# Exercise the documented CLI example against its committed text fixture.
+info "Running CLI example fixture smoke"
+REPO_ROOT="$REPO_ROOT" EGG_SERVE_BIN="$VENV_DIR/bin/eggserve" "$VENV_PYTHON" - <<'PYEOF'
+import http.client
+import os
+import signal
+import socket
+import subprocess
+import time
+from pathlib import Path
+
+repo = Path(os.environ["REPO_ROOT"])
+binary = os.environ["EGG_SERVE_BIN"]
+with socket.socket() as probe:
+    probe.bind(("127.0.0.1", 0))
+    port = probe.getsockname()[1]
+
+process = subprocess.Popen(
+    [binary, "--directory", str(repo / "examples" / "site"),
+     "--bind", f"127.0.0.1:{port}", "--log-format", "none"],
+)
+try:
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        if process.poll() is not None:
+            raise SystemExit(f"CLI example exited during startup: {process.returncode}")
+        try:
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+            connection.request("GET", "/")
+            response = connection.getresponse()
+            body = response.read()
+            connection.close()
+            if response.status == 200 and b"EggServe example site" in body:
+                break
+        except OSError:
+            time.sleep(0.05)
+    else:
+        raise SystemExit("CLI example did not become ready")
+
+    connection = http.client.HTTPConnection("127.0.0.1", port, timeout=1)
+    connection.request("GET", "/.hidden-example")
+    response = connection.getresponse()
+    response.read()
+    connection.close()
+    if response.status != 403:
+        raise SystemExit(f"CLI example served hidden file: {response.status}")
+finally:
+    if process.poll() is None:
+        process.send_signal(signal.SIGTERM)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=5)
+        raise SystemExit("CLI example did not shut down")
+    if process.returncode != 0:
+        raise SystemExit(f"CLI example exited with {process.returncode}")
+print("  CLI example fixture passed")
+PYEOF
+
 # Fixture serving via installed command
 info "Running fixture serving via installed eggserve command"
 "$VENV_PYTHON" <<'PYEOF'

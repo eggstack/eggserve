@@ -17,7 +17,7 @@ root = SecureRoot("downloads", policy=StaticPolicy())
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         # Extract the filename from the URL path
-        name = unquote(self.path.lstrip("/"))
+        name = unquote(self.path.split("?", 1)[0].lstrip("/"))
         if not name:
             self.send_error(400, "No file specified")
             return
@@ -44,6 +44,9 @@ class Handler(BaseHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    server = HTTPServer(("127.0.0.1", 8000), Handler)
-    print("Download server on http://127.0.0.1:8000")
-    server.serve_forever()
+    try:
+        with HTTPServer(("127.0.0.1", 8000), Handler) as server:
+            print("Download server on http://127.0.0.1:8000")
+            server.serve_forever()
+    except KeyboardInterrupt:
+        pass

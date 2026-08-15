@@ -12,6 +12,12 @@ the response and connection to close.
 
 The `server` module provides a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper. It includes a lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed), readiness signaling, graceful and forced shutdown with configurable drain deadlines, and connection/task tracking.
 
+The runnable public-API demonstrations are [`static_server.rs`](../crates/eggserve-core/examples/static_server.rs)
+and [`custom_service.rs`](../crates/eggserve-core/examples/custom_service.rs).
+Both wait for `ready()`, use loopback defaults, and call synchronous
+`shutdown()` followed by consuming `wait()` after Ctrl+C. The examples are
+intentionally not routers or application frameworks.
+
 ## Components
 
 ### Server

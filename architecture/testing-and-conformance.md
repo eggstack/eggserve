@@ -24,8 +24,15 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 11 targets |
 | Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
+| Executable examples | `examples/`, `crates/eggserve-core/examples/` | Canonical CLI/Python/Rust product demonstrations | current |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
+
+`./scripts/verify.sh full` additionally runs `cargo check -p eggserve-core
+--examples`, builds those examples for the live harness, then starts the
+canonical Python static/custom examples and Rust static/custom examples on
+loopback port `0`. Each smoke test makes a real HTTP request and verifies clean
+shutdown; the process harness uses only Python's standard library.
 
 ## Rust Integration Test Files
 

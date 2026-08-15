@@ -62,6 +62,11 @@ cmd_full() {
   run cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
   run cargo test -p eggserve-bin --features tls
 
+  header "Executable examples"
+  run cargo check -p eggserve-core --examples
+  run cargo build -p eggserve-core --examples
+  run bash "$SCRIPT_DIR/test-examples.sh"
+
   # Python wheel tests
   if command_exists "$PYTHON" && "$PYTHON" -m maturin --version >/dev/null 2>&1; then
     header "Python wheel tests"

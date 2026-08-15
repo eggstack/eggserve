@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-14.**
+**COMPLETE — 2026-08-15.**
 
 Governing roadmap: Plan 128.
 
@@ -394,13 +394,26 @@ Reject an implementation that:
 
 Plan 132 is complete when:
 
-- [ ] `examples/README.md` indexes the supported surfaces;
-- [ ] CLI static demonstration exists and works;
-- [ ] canonical Python static `http.server` replacement example exists and works from installed wheel;
-- [ ] canonical Python custom handler example exists and works;
-- [ ] redundant Python examples are merged/deleted;
-- [ ] Rust static server example compiles and serves a fixture;
-- [ ] Rust custom service example compiles and responds over TCP;
-- [ ] optional primitives example is added only if it has distinct value;
-- [ ] full/manual verification mechanically checks canonical examples;
-- [ ] no application-framework scope is introduced.
+- [x] `examples/README.md` indexes the supported surfaces;
+- [x] CLI static demonstration exists and works;
+- [x] canonical Python static `http.server` replacement example exists and works from installed wheel;
+- [x] canonical Python custom handler example exists and works;
+- [x] redundant Python examples are merged/deleted;
+- [x] Rust static server example compiles and serves a fixture;
+- [x] Rust custom service example compiles and responds over TCP;
+- [x] optional primitives example is added only if it has distinct value;
+- [x] full/manual verification mechanically checks canonical examples;
+- [x] no application-framework scope is introduced.
+
+## Completion record
+
+Implemented on 2026-08-15. The canonical CLI, Python facade, Python
+convenience/low-level, and Rust examples are indexed in `examples/README.md`.
+Redundant legacy examples were removed, the tiny `examples/site` and
+`examples/downloads` fixtures were added, and `verify.sh full` now compiles
+and live-smoke-tests the Rust examples while the installed-wheel harness
+smoke-tests the Python facade and CLI example.
+
+Validation: `./scripts/verify.sh full` passed, including format, workspace and
+TLS lint/tests, 732 installed-wheel Python tests, example HTTP smoke tests, and
+Cargo package dry-runs.

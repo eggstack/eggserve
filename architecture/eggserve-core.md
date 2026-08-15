@@ -13,6 +13,13 @@ The filesystem, path, response, and MIME implementation modules remain
 internal; importing Hyper directly is not required for either static serving or
 custom services.
 
+Executable demonstrations live under
+[`crates/eggserve-core/examples/`](../crates/eggserve-core/examples/) and are
+indexed with the CLI and Python examples in [`examples/README.md`](../examples/README.md):
+`static_server` shows the built-in confined service, `custom_service` shows a
+small public `service_fn`, and `primitives` performs response planning without
+opening a socket. They are compiled by `scripts/verify.sh full`.
+
 ## Module Map
 
 | Module | Visibility | Purpose |

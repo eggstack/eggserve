@@ -23,22 +23,22 @@ The concise surface comparison is in the
 
 ## CLI quickstart
 
-Serve the current directory on loopback:
+Serve the small example fixture on loopback:
 
 ```sh
-eggserve
+eggserve --directory ./examples/site
 ```
 
-Serve `public` on port 9000:
+For a source checkout, the equivalent is:
 
 ```sh
-eggserve --directory public --port 9000
+cargo run -p eggserve-bin -- --directory ./examples/site
 ```
 
 Make a public bind explicit when serving beyond the local machine:
 
 ```sh
-eggserve --directory public --public --port 8080
+eggserve --directory ./examples/site --public --port 8080
 ```
 
 The CLI is a static file server. Directory listings, symlink following, and
@@ -47,38 +47,20 @@ and [security policy](docs/security-policy.md).
 
 ## Python `http.server` facade
 
-The canonical Python static-serving pattern is source-familiar while keeping
-the filesystem and transport in Rust:
-
-```python
-from functools import partial
-from eggserve.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-
-Handler = partial(SimpleHTTPRequestHandler, directory="public")
-with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
-    server.serve_forever()
-```
+The canonical Python static-serving example is
+[examples/python_http_server_static.py](examples/python_http_server_static.py).
+Run it with `python examples/python_http_server_static.py`; it is source-
+familiar while keeping the filesystem and transport in Rust.
 
 Stock `SimpleHTTPRequestHandler` with the documented default eligibility uses
 the native static fast path. Directory listings, dotfiles, and symlinks remain
 denied unless explicitly enabled through the supported facade settings.
 
-For bounded synchronous custom responses, use `BaseHTTPRequestHandler`:
-
-```python
-from eggserve.server import BaseHTTPRequestHandler, HTTPServer
-
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = b"ok\n"
-        self.send_response(200)
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
-
-with HTTPServer(("127.0.0.1", 8000), Handler) as server:
-    server.serve_forever()
-```
+For bounded synchronous custom responses, use the complete
+[examples/python_custom_handler.py](examples/python_custom_handler.py). The
+optional subprocess lifecycle example is
+[examples/python_subprocess.py](examples/python_subprocess.py); it is not the
+canonical `http.server` replacement.
 
 Custom handlers are synchronous and receive bounded in-memory `rfile`/`wfile`
 facades. They do not receive raw sockets, do not provide unbounded streaming,
@@ -91,50 +73,11 @@ for intentional deviations from the stdlib.
 ## Rust library
 
 `eggserve-core` exposes `primitives` as the intended public facade and
-`server` as an experimental transport-owning runtime. A static server can be
-embedded without importing internal modules or Hyper:
-
-```rust,no_run
-use eggserve_core::server::{RuntimeConfig, Server};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = Server::builder()
-        .runtime(RuntimeConfig::builder()
-            .bind("127.0.0.1:8000".parse()?)
-            .build()?)
-        .static_service("public")?;
-    let handle = server.start().await?;
-    handle.ready().await?;
-    println!("serving on {}", handle.local_addr());
-    // Keep the handle while the application runs, then shut down cleanly.
-    handle.wait().await?;
-    Ok(())
-}
-```
-
-Custom Rust services use the same runtime and canonical request/response types:
-
-```rust,no_run
-use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
-use eggserve_core::primitives::Request;
-use eggserve_core::server::{service_fn, RuntimeConfig, Server};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let server = Server::builder()
-        .runtime(RuntimeConfig::builder().bind("127.0.0.1:8000".parse()?).build()?)
-        .build()?;
-    let handle = server.start_with_service(service_fn(|_request: Request| async {
-        Ok(Response::builder()
-            .status(StatusCode::OK)
-            .body(ResponseBody::Bytes(b"ok\n".to_vec()))?)
-    })).await?;
-    handle.ready().await?;
-    handle.wait().await?;
-    Ok(())
-}
-```
+`server` as an experimental transport-owning runtime. The executable,
+mechanically checked examples are [the static server](crates/eggserve-core/examples/static_server.rs),
+[the custom service](crates/eggserve-core/examples/custom_service.rs),
+and [the primitives demo](crates/eggserve-core/examples/primitives.rs).
+They use no direct Hyper imports and include readiness plus graceful shutdown.
 
 The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
 `Service` owns request handling and response construction. The `server` module
@@ -196,7 +139,7 @@ point; it does not bundle a second standalone CLI binary. See
 
 ```sh
 ./scripts/verify.sh fast    # format, clippy, and workspace tests
-./scripts/verify.sh full    # fast + TLS + installed Python wheel checks
+./scripts/verify.sh full    # fast + examples + TLS + installed Python wheel checks
 ./scripts/verify.sh deep    # expensive suites selected for release risk
 ```
 
