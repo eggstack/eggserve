@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-14.**
+**COMPLETE — 2026-08-15.**
 
 Governing roadmap: Plan 128.
 
@@ -292,7 +292,7 @@ Append a closure ledger to this plan. For every deletion or merge, record:
 | `scripts/__init__.py` | deleted | `scripts/` is not imported as a Python package and the file had no callers | Standalone stdlib scripts | `rg` caller audit; Python checks |
 | `docs/architecture.md` | deleted | Duplicated the maintained subsystem map in `architecture/overview.md` | `architecture/overview.md` | `rg` reference audit; docs link check |
 | `docs/release-criteria.md` | deleted | Explicitly historical and referenced removed gate-registry tooling | `docs/release-process.md` and manual `verify.sh` tiers | `rg` reference audit; release docs review |
-| `.github/workflows/release.yml` | consolidated | Linux, macOS, and Windows jobs repeated the same wheel build, composition, smoke, and upload logic | One explicit three-target matrix; platform-specific flags/paths remain in matrix data | YAML parse/lint; local wheel composition check |
+| `.github/workflows/release.yml` | consolidated | Linux, macOS, and Windows jobs repeated the same wheel build, composition, smoke, and upload logic | One explicit three-target matrix; platform-specific flags/paths remain in matrix data | YAML parse/lint; local wheel composition check; GitHub Actions run 31861291909 passed all three targets |
 | Wheel composition heredocs in release workflow | extracted | Identical inline Python assertion was repeated on all three targets | `scripts/check-wheel-composition.py` (Python stdlib only) | Script run against local wheel |
 | `windows-plan086` feature | renamed | Live manual qualification gate encoded a historical plan number | `windows-adversarial-qualification` | Feature-reference audit; Rust feature builds |
 | `scripts/verify.sh` package calls | consolidated | Full verification packaged the core crate twice by invoking `core` and `bin` separately | One `--mode all` package verification | `./scripts/verify.sh full` |
@@ -331,5 +331,5 @@ Plan 130 is complete when:
 - [x] unused dev-dependencies are removed without weakening tests;
 - [x] current security/conformance/fuzz assets remain available manually;
 - [x] routine CI stays small and green;
-- [ ] manual release workflow passes after consolidation;
+- [x] manual release workflow passes after consolidation;
 - [x] deletion ledger records what changed and why.
