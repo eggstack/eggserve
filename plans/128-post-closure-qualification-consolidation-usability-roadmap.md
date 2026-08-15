@@ -232,11 +232,11 @@ Do not create another broad roadmap for cosmetic leftovers. Any remaining item s
 
 ## Closure record — 2026-08-15
 
-- Final main commit: `3ef6a5ab9df5b393a9f4bf84cf600d01d3cd0e08` (Plan 133 implementation and documentation closure).
+- Plan 133 implementation commit: `3ef6a5ab9df5b393a9f4bf84cf600d01d3cd0e08`; the closure-record update is on main as `7dd4c8d12cbc5933d59d08e84aeb20325c4773d3`.
 - Plan 129: Linux/macOS product qualification, Windows Outcome 2 evidence, clean external Rust static/custom consumers, and package dry-run are recorded in [Plan 129](129-platform-and-product-qualification.md).
 - Plan 130: repository deletion/consolidation and verification simplification are recorded in [Plan 130](130-repository-deletion-consolidation-verification-simplification.md).
 - Plan 131: normative README, compatibility, capability-matrix, and support-document updates are recorded in [Plan 131](131-documentation-and-compatibility-contract-polish.md).
 - Plan 132: canonical CLI, Python, and Rust examples plus executable example verification are recorded in [Plan 132](132-executable-examples-and-product-demonstrations.md).
 - Plan 133: Rust public API/rustdoc, CLI integration boundary, package usability, README/AGENTS/skill/architecture cleanup, and external consumer evidence are recorded in [Plan 133](133-rust-library-and-cli-usability-closure.md).
-- Final routine CI: [run 31868456917](https://github.com/eggstack/eggserve/actions/runs/31868456917), both `rust` and `python` jobs passed.
+- Final routine CI coverage: [run 31868456917](https://github.com/eggstack/eggserve/actions/runs/31868456917) for the implementation commit and [run 31868614525](https://github.com/eggstack/eggserve/actions/runs/31868614525) for the closure-record update; both `rust` and `python` jobs passed in each run.
 - Remaining limitations: Windows remains functionally qualified and trusted/local-content only because the two NTFS path-rename cases documented by Plan 129 remain skipped; the Rust `server` module remains experimental before 1.0.
