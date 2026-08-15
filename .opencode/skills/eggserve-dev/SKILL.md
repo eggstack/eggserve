@@ -25,7 +25,7 @@ Three crates:
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
 `plans/` (historical design/implementation records, currently through Plan
-133),
+135),
 `examples/` (canonical CLI/Python examples plus Cargo examples and tiny
 fixtures), `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
 plus package/release checks). The example index is `examples/README.md`.
@@ -90,7 +90,11 @@ bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 
 ## Key conventions
 
-- **Manual argument parsing** in `args.rs` — no clap dependency
+- **Manual argument parsing** in `args.rs` — no clap dependency. The CLI grammar
+  is `[OPTIONS] [PORT] [DIRECTORY]`; positional parsing owns those two logical
+  slots, treats a directory after an occupied port slot verbatim (including a
+  numeric name), and rejects excess positionals. A host-only `--bind` leaves
+  the port slot available; `--directory` occupies the directory slot.
 - **Two DotfilePolicy types** — `path::DotfilePolicy` (parsing) and `policy::DotfilePolicy` (serving). Both must agree.
 - **eggserve-python excluded from workspace** — has its own Cargo.lock, built via maturin. Don't run `cargo test --workspace` for Python crate.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses

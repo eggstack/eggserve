@@ -5,7 +5,7 @@ eggserve ships as a CLI binary and a Python-packaged tool. Both share the same a
 ## Usage
 
 ```
-eggserve [OPTIONS] [PORT] [--directory DIR]
+eggserve [OPTIONS] [PORT] [DIRECTORY]
 ```
 
 ## Options
@@ -18,10 +18,20 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 | `--addr HOST:PORT` | Bind address (cannot be combined with `--bind`) | `127.0.0.1:8000` |
 | `--bind HOST[:PORT]` | Bind host or host:port; an explicit port is retained | `127.0.0.1:8000` |
 | `--port PORT` | Port to listen on (blocks positional port override) | `8000` |
-| `PORT` | Positional port argument (overrides `--bind` port when neither `--port` nor `--addr` is given; ignored if `--bind` includes a port) | `8000` |
+| `PORT` | Positional port argument; a valid numeric token fills the unoccupied port slot | `8000` |
+| `DIRECTORY` | First positional token not consumed as PORT; once PORT is occupied, it is used verbatim, including numeric names | `.` (current directory) |
 | `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
 
-Port resolution: `--port` and an explicit port in `--bind` take precedence over a positional PORT. `--addr` sets both host and port and cannot be combined with `--bind`; a positional PORT is ignored when either explicit flag supplies the port. Default is `127.0.0.1:8000`.
+Positional arguments use two logical slots: `PORT`, then `DIRECTORY`. `--port`,
+`--addr`, and an explicit port in `--bind` occupy the port slot. A host-only
+`--bind` leaves that slot available for a positional numeric token. Once the
+port slot is occupied, the next positional token is the directory verbatim,
+including a token made only of decimal digits. `--directory` occupies the
+directory slot, so a later numeric positional token can still provide PORT.
+After both slots are occupied, another positional argument is rejected. A
+single valid numeric positional token remains PORT for compatibility. `--addr`
+sets both host and port and cannot be combined with `--bind`. Default is
+`127.0.0.1:8000`.
 
 `--header-timeout` must not exceed `--connection-total-timeout`.
 
@@ -69,6 +79,9 @@ eggserve
 # Serve a specific directory on port 3000
 eggserve --directory ./public 3000
 
+# Serve a directory whose name is numeric after an explicit port source
+eggserve --port 9000 1234
+
 # Bind to all interfaces (public server)
 eggserve --public --addr 0.0.0.0:8080
 
@@ -87,8 +100,8 @@ eggserve --max-connections 128 --max-file-streams 64
 When installed via pip, the same CLI is available as:
 
 ```sh
-python -m eggserve [OPTIONS] [PORT]
-pipx run eggserve [OPTIONS] [PORT]
+python -m eggserve [OPTIONS] [PORT] [DIRECTORY]
+pipx run eggserve [OPTIONS] [PORT] [DIRECTORY]
 ```
 
 Arguments are forwarded directly to the extension-linked Rust CLI entry point

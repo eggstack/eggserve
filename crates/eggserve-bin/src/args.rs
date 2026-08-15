@@ -243,14 +243,19 @@ impl Args {
             i += 1;
         }
 
-        for pos in &positional_args {
-            if let Ok(port) = pos.parse::<u16>() {
-                if !port_from_flag {
+        for pos in positional_args {
+            if !port_from_flag {
+                if let Ok(port) = pos.parse::<u16>() {
                     bind_port = port;
                     port_from_flag = true;
+                    continue;
                 }
-            } else if root.is_none() {
+            }
+
+            if root.is_none() {
                 root = Some(PathBuf::from(pos));
+            } else {
+                return Err(format!("too many positional arguments: '{pos}'"));
             }
         }
 
@@ -374,9 +379,10 @@ pub fn print_usage() {
     println!("  PORT                      Port to listen on (default: 8000)");
     println!("  DIRECTORY                 Directory to serve (default: current directory)");
     println!();
-    println!("Port precedence: --port/--addr take precedence; a positional PORT overrides");
-    println!("--bind only when --bind specifies a host without a port. --bind and --addr");
-    println!("cannot be combined.");
+    println!("Positional slots are PORT followed by DIRECTORY. Explicit port sources");
+    println!("(--port, --addr, or --bind HOST:PORT) occupy PORT; --bind HOST leaves");
+    println!("PORT available. Once PORT is occupied, the next positional is DIRECTORY");
+    println!("verbatim, including numeric names. --bind and --addr cannot be combined.");
 }
 
 pub fn print_version() {
@@ -454,6 +460,27 @@ mod tests {
     }
 
     #[test]
+    fn positional_port_and_numeric_directory() {
+        let args = parse(&["8000", "1234"]).unwrap();
+        assert_eq!(args.bind.port(), 8000);
+        assert_eq!(args.root, PathBuf::from("1234"));
+    }
+
+    #[test]
+    fn explicit_port_and_numeric_directory() {
+        let args = parse(&["--port", "9000", "1234"]).unwrap();
+        assert_eq!(args.bind.port(), 9000);
+        assert_eq!(args.root, PathBuf::from("1234"));
+    }
+
+    #[test]
+    fn explicit_addr_and_numeric_directory() {
+        let args = parse(&["--addr", "127.0.0.1:9000", "1234"]).unwrap();
+        assert_eq!(args.bind, "127.0.0.1:9000".parse().unwrap());
+        assert_eq!(args.root, PathBuf::from("1234"));
+    }
+
+    #[test]
     fn directory_flag_sets_root() {
         let args = parse(&["--directory", "mydir"]).unwrap();
         assert_eq!(args.root, PathBuf::from("mydir"));
@@ -479,10 +506,40 @@ mod tests {
     }
 
     #[test]
-    fn positional_port_does_not_override_bind_port() {
+    fn numeric_directory_does_not_override_explicit_bind_port() {
         let args = parse(&["--bind", "127.0.0.1:3000", "9000"]).unwrap();
         assert_eq!(args.bind, "127.0.0.1:3000".parse().unwrap());
+        assert_eq!(args.root, PathBuf::from("9000"));
+    }
+
+    #[test]
+    fn host_only_bind_allows_positional_port_and_numeric_directory() {
+        let args = parse(&["--bind", "127.0.0.1", "9000", "1234"]).unwrap();
+        assert_eq!(args.bind, "127.0.0.1:9000".parse().unwrap());
+        assert_eq!(args.root, PathBuf::from("1234"));
+    }
+
+    #[test]
+    fn numeric_directory_flag_leaves_positional_port_available() {
+        let args = parse(&["--directory", "1234", "9000"]).unwrap();
+        assert_eq!(args.bind.port(), 9000);
+        assert_eq!(args.root, PathBuf::from("1234"));
+    }
+
+    #[test]
+    fn single_numeric_positional_remains_a_port() {
+        let args = parse(&["1234"]).unwrap();
+        assert_eq!(args.bind.port(), 1234);
         assert_eq!(args.root, PathBuf::from("."));
+    }
+
+    #[test]
+    fn excess_positional_arguments_are_rejected() {
+        let result = parse(&["8000", "public", "extra"]);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("too many positional arguments"));
     }
 
     #[test]

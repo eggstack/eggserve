@@ -108,7 +108,11 @@ Routine CI is a small regression screen, not release certification:
 
 - **eggserve-python is excluded from the workspace** — it has its own `Cargo.lock` and is built independently via `maturin`. Don't run `cargo test --workspace` expecting to cover Python crate code.
 - **Two DotfilePolicy types**: `path::DotfilePolicy` (parsing level) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served. Don't confuse them.
-- **Manual argument parsing** in `args.rs` — no clap dependency.
+- **Manual argument parsing** in `args.rs` — no clap dependency. The CLI grammar
+  is `[OPTIONS] [PORT] [DIRECTORY]`; positional parsing owns those two logical
+  slots, treats a directory after an occupied port slot verbatim (including a
+  numeric name), and rejects excess positionals. A host-only `--bind` leaves
+  the port slot available; `--directory` occupies the directory slot.
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary). `python -m eggserve` uses the same in-process native CLI entry point.
@@ -159,7 +163,7 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has historical design and implementation records through Plan 133;
+`plans/` has historical design and implementation records through Plan 135;
 the current product and compatibility contract is recorded in README.md,
 the relevant docs/ pages, and the architecture pages. Plans record evidence
 and change history; they are not normative API documentation.

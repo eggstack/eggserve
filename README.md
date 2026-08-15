@@ -41,6 +41,12 @@ Make a public bind explicit when serving beyond the local machine:
 eggserve --directory ./examples/site --public --port 8080
 ```
 
+The positional form is `eggserve [OPTIONS] [PORT] [DIRECTORY]`. Explicit port
+sources occupy the PORT slot, so a numeric directory remains unambiguous after
+them—for example, `eggserve --port 9000 1234` serves directory `1234`. Use
+`--directory 1234` when selecting a numeric directory without a positional
+port; a single positional numeric token continues to mean PORT.
+
 The CLI is a static file server. Directory listings, symlink following, and
 dotfile serving are separate explicit flags; see the [CLI reference](docs/cli.md)
 and [security policy](docs/security-policy.md).

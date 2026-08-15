@@ -110,9 +110,14 @@ Manual parsing — no clap. Arguments:
 | `--tls-cert` | — | TLS certificate PEM path |
 | `--tls-key` | — | TLS private key PEM path |
 
-Positional: `PORT` and `DIRECTORY` (in that order). An explicit port in
-`--bind`, `--addr`, or `--port` takes precedence; `--bind` and `--addr` may
-not be combined.
+Positional parsing has two logical slots: `PORT` and `DIRECTORY` (in that
+order). An explicit port in `--bind`, `--addr`, or `--port` occupies PORT;
+host-only `--bind` leaves PORT available. The next positional token after an
+occupied PORT is DIRECTORY verbatim, even when it is numeric. `--directory`
+occupies DIRECTORY and leaves a positional numeric token available for PORT.
+Once both slots are occupied, additional positionals are rejected. A single
+valid numeric positional remains PORT for compatibility. `--bind` and `--addr`
+may not be combined.
 
 ## Signal Handling (`shutdown.rs`)
 
