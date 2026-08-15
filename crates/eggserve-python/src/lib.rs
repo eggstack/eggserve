@@ -297,16 +297,19 @@ impl PyBodySource {
         self.inner.range().map(|r| (r.start, r.end_inclusive))
     }
 
-    fn read_all(&mut self) -> PyResult<Vec<u8>> {
-        self.inner
-            .read_all()
-            .map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
+    fn read_all(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
+        let result = py.allow_threads(|| self.inner.read_all());
+        result.map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
     }
 
-    fn read_range(&mut self, start: u64, end_inclusive: u64) -> PyResult<Vec<u8>> {
-        self.inner
-            .read_range(start, end_inclusive)
-            .map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
+    fn read_range(
+        &mut self,
+        py: Python<'_>,
+        start: u64,
+        end_inclusive: u64,
+    ) -> PyResult<Vec<u8>> {
+        let result = py.allow_threads(|| self.inner.read_range(start, end_inclusive));
+        result.map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
     }
 
     fn __repr__(&self) -> String {
@@ -1543,8 +1546,8 @@ fn parse_http_version_fn(value: &str) -> PyResult<PyHttpVersion> {
 #[pyfunction]
 #[pyo3(name = "_run_cli")]
 #[pyo3(signature = (argv,))]
-fn run_cli_fn(argv: Vec<String>) -> i32 {
-    eggserve_bin::run_cli(argv)
+fn run_cli_fn(py: Python<'_>, argv: Vec<String>) -> i32 {
+    py.allow_threads(|| eggserve_bin::run_cli(argv))
 }
 
 #[pymodule]

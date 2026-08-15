@@ -99,22 +99,36 @@ fn help_flag_shows_usage() {
         .arg("--help")
         .output()
         .expect("failed to execute binary");
-    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(output.stderr.is_empty(), "help should be written to stdout");
     assert!(
-        stderr.contains("--max-connections"),
+        stdout.contains("--max-connections"),
         "help should mention --max-connections: {}",
-        stderr
+        stdout
     );
     assert!(
-        stderr.contains("--handler-timeout"),
+        stdout.contains("--handler-timeout"),
         "help should mention --handler-timeout: {}",
-        stderr
+        stdout
     );
     assert!(
-        stderr.contains("--body-read-timeout"),
+        stdout.contains("--body-read-timeout"),
         "help should mention --body-read-timeout: {}",
-        stderr
+        stdout
     );
+}
+
+#[test]
+fn header_timeout_cannot_exceed_connection_timeout() {
+    let output = eggserve_bin()
+        .arg("--header-timeout")
+        .arg("2")
+        .arg("--connection-total-timeout")
+        .arg("1")
+        .output()
+        .expect("failed to execute binary");
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("header_read_timeout"));
 }
 
 #[test]

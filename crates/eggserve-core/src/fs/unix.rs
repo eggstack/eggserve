@@ -123,7 +123,9 @@ pub(crate) fn resolve_child_fd(
     child: &str,
     policy: &StaticPolicy,
 ) -> ResolvedResource {
-    if let Err(rejection) = super::validate_child_component(child) {
+    if let Err(rejection) =
+        super::validate_child_component(child, policy.dotfiles == DotfilePolicy::Denied)
+    {
         return ResolvedResource::Denied(rejection);
     }
 

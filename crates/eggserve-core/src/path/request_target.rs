@@ -9,7 +9,7 @@ pub fn parse_origin_form(raw: &str) -> Result<&str, PathRejection> {
         return Err(PathRejection::UnsupportedUriForm);
     }
 
-    if raw.contains("://") || raw.contains('@') {
+    if raw.contains("://") {
         return Err(PathRejection::UnsupportedUriForm);
     }
 
@@ -35,6 +35,14 @@ mod tests {
     #[test]
     fn path_with_query() {
         assert_eq!(parse_origin_form("/foo?bar=baz").unwrap(), "/foo");
+    }
+
+    #[test]
+    fn path_with_at_sign() {
+        assert_eq!(
+            parse_origin_form("/file@name.txt").unwrap(),
+            "/file@name.txt"
+        );
     }
 
     #[test]

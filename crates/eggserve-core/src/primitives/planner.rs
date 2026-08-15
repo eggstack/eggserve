@@ -96,6 +96,9 @@ pub fn plan_file_response(
 }
 
 /// Evaluate conditional request headers (If-None-Match, If-Modified-Since).
+///
+/// When both headers are present, `If-None-Match` takes precedence as required
+/// by RFC 7232 section 6; `If-Modified-Since` is intentionally not evaluated.
 pub fn evaluate_conditional_headers(
     current_etag: &str,
     last_modified: Option<&str>,

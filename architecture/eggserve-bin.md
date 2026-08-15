@@ -97,7 +97,7 @@ Manual parsing — no clap. Arguments:
 | `--directory` / `-d` | `.` | Root directory to serve |
 | `--bind` / `-b` | `127.0.0.1` | Bind address |
 | `--port` / `-p` | `8000` | Port number |
-| `--public` | off | Bind to `0.0.0.0` (requires explicit opt-in) |
+| `--public` | off | Bind to `0.0.0.0` or `::` (requires explicit opt-in) |
 | `--directory-listing` | off | Enable directory listing |
 | `--follow-symlinks` | off | Follow symbolic links |
 | `--allow-dotfiles` | off | Serve dotfiles |
@@ -110,7 +110,9 @@ Manual parsing — no clap. Arguments:
 | `--tls-cert` | — | TLS certificate PEM path |
 | `--tls-key` | — | TLS private key PEM path |
 
-Positional: `PORT` and `DIRECTORY` (in that order).
+Positional: `PORT` and `DIRECTORY` (in that order). An explicit port in
+`--bind`, `--addr`, or `--port` takes precedence; `--bind` and `--addr` may
+not be combined.
 
 ## Signal Handling (`shutdown.rs`)
 
@@ -120,6 +122,10 @@ Uses `tokio::sync::broadcast` channel. On Ctrl+C (all platforms) or SIGTERM (Uni
 2. Accept loop receives message → breaks
 3. In-flight connections get `graceful_shutdown_timeout` to complete
 4. Server exits
+
+Only the first Ctrl+C or SIGTERM is acted on. Additional signals received
+during graceful shutdown are consumed but do not escalate; use the platform's
+normal external termination mechanism if a stuck process must be stopped.
 
 ## TLS Support (`tls.rs`)
 

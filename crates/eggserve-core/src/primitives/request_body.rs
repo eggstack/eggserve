@@ -84,7 +84,7 @@ enum BodyInner {
         stream: Pin<Box<dyn Stream<Item = Result<Bytes, IncomingError>> + Send + 'static>>,
     },
     /// A pre-built test body (bytes).
-    Fixed { data: Vec<u8>, offset: usize },
+    Fixed { data: Bytes, offset: usize },
     /// An empty body.
     Empty,
 }
@@ -124,7 +124,8 @@ impl RequestBody {
     ///
     /// The `max_bytes` parameter sets the effective limit. Use `u64::MAX`
     /// for unlimited.
-    pub fn from_bytes(data: Vec<u8>, max_bytes: u64) -> Self {
+    pub fn from_bytes(data: impl Into<Bytes>, max_bytes: u64) -> Self {
+        let data = data.into();
         let len = data.len() as u64;
         Self {
             inner: Some(BodyInner::Fixed { data, offset: 0 }),
@@ -248,7 +249,7 @@ impl RequestBody {
                 self.bytes_received = total;
                 self.state = BodyState::Complete;
                 self.mark_consumed();
-                Ok(Bytes::copy_from_slice(remaining))
+                Ok(data.slice(offset..))
             }
             BodyInner::Incoming { mut stream } => {
                 let mut buf = Vec::new();

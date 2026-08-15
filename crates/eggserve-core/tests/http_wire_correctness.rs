@@ -3,7 +3,7 @@
 //! Raw TCP tests for request-line parsing, header grammar, message framing,
 //! response validation, conditional/range semantics, and connection lifecycle.
 
-use eggserve_core::policy::StaticPolicy;
+use eggserve_core::policy::{DirectoryListingPolicy, StaticPolicy};
 use eggserve_core::server::{Server, StaticService};
 use std::fs;
 use tempfile::TempDir;
@@ -124,6 +124,22 @@ async fn ws_a_root_path_returns_403_listing_disabled() {
         "Root with listing disabled must return 403, got: {}",
         line
     );
+}
+
+#[tokio::test]
+async fn ws_a_root_path_listing_contains_resolver_entries_when_enabled() {
+    let mut policy = StaticPolicy::safe_default();
+    policy.directory_listing = DirectoryListingPolicy::Enabled;
+    let s = start_server(Some(policy)).await;
+    let raw = send_raw(
+        s.addr,
+        b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+    )
+    .await;
+    let response = String::from_utf8_lossy(&raw);
+    assert!(response.starts_with("HTTP/1.1 200"), "got: {response}");
+    assert!(response.contains("hello.txt"), "listing omitted hello.txt");
+    assert!(response.contains("subdir"), "listing omitted subdir");
 }
 
 #[tokio::test]
@@ -944,6 +960,23 @@ async fn ws_e_head_with_range_returns_206_no_body() {
     assert!(line.contains("206"), "Expected 206, got: {}", line);
     let body = response_body(s.addr, data).await;
     assert!(body.is_empty(), "HEAD should suppress body");
+}
+
+#[tokio::test]
+async fn ws_e_head_directory_index_range_returns_206_without_body() {
+    let s = start_server(None).await;
+    let data = b"HEAD /subdir/ HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n";
+    let line = status_line(s.addr, data).await;
+    assert!(line.contains("206"), "Expected 206, got: {line}");
+    let headers = response_headers(s.addr, data).await;
+    assert_eq!(
+        headers
+            .iter()
+            .find(|(name, _)| name == "content-length")
+            .map(|(_, value)| value.as_str()),
+        Some("5")
+    );
+    assert!(response_body(s.addr, data).await.is_empty());
 }
 
 #[tokio::test]

@@ -334,10 +334,15 @@ fn corpus_replay_header_block() {
         }
 
         let lookup_name = format!("x-{}-0", lookup_byte);
-        let _ = block.get_first(&lookup_name);
-        let _ = block.get_all(&lookup_name);
-        let _ = block.get_unique(&lookup_name);
-        let _ = block.contains(&lookup_name);
+        let first = block.get_first(&lookup_name);
+        let all = block.get_all(&lookup_name);
+        assert_eq!(block.contains(&lookup_name), !all.is_empty());
+        assert_eq!(first, all.first().copied());
+        match all.len() {
+            0 => assert!(block.get_unique(&lookup_name).unwrap().is_none()),
+            1 => assert_eq!(block.get_unique(&lookup_name).unwrap(), first),
+            _ => assert!(block.get_unique(&lookup_name).is_err()),
+        }
 
         let mut prev_index = None;
         for (idx, field) in block.iter().enumerate() {
@@ -416,6 +421,15 @@ fn corpus_replay_request_body() {
                 result.is_ok(),
                 "[fuzz_request_body/{name}] exact-limit body failed: {:?}",
                 result.err()
+            );
+
+            let body = eggserve_core::primitives::RequestBody::from_bytes(
+                data.clone(),
+                data.len() as u64 - 1,
+            );
+            assert!(
+                rt.block_on(body.read_all()).is_err(),
+                "[fuzz_request_body/{name}] one-byte-under limit unexpectedly succeeded"
             );
         }
 

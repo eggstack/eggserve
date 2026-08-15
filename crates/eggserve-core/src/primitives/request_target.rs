@@ -74,6 +74,9 @@ impl RequestTarget {
             return Err(RequestTargetError::ContainsWhitespace);
         }
         if raw.starts_with('/') {
+            if raw.starts_with("//") {
+                return Err(RequestTargetError::AuthorityForm);
+            }
             return Self::parse_origin_form(raw);
         }
         if raw.contains("://") {
@@ -141,6 +144,14 @@ mod tests {
         assert_eq!(t.raw(), "/");
         assert_eq!(t.path(), "/");
         assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn network_path_reference_is_rejected() {
+        assert_eq!(
+            RequestTarget::parse("//example.com/file").unwrap_err(),
+            RequestTargetError::AuthorityForm
+        );
     }
 
     #[test]

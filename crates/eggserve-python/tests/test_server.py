@@ -282,7 +282,7 @@ class TestServerProcess(unittest.TestCase):
     def test_stop_terminates_process(self, mock_popen):
         mock_process = MagicMock()
         mock_process.poll.return_value = None
-        mock_process.wait.return_value = 0
+        mock_process.communicate.return_value = (b"", b"")
         mock_popen.return_value = mock_process
 
         proc = ServerProcess(ServeConfig())
@@ -290,7 +290,7 @@ class TestServerProcess(unittest.TestCase):
         proc.stop()
 
         mock_process.terminate.assert_called_once()
-        mock_process.wait.assert_called_once()
+        mock_process.communicate.assert_called_once()
         self.assertFalse(proc.is_running)
 
     @patch("eggserve.server.subprocess.Popen")

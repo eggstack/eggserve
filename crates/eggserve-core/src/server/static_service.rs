@@ -193,7 +193,7 @@ fn plan_static_request(
             is_head,
         ),
         ResolvedResource::Directory(dir) => {
-            let raw_path = target.path();
+            let raw_path = confined.as_str();
             if !raw_path.ends_with('/') {
                 let mut location = raw_path.to_string();
                 if !location.ends_with('/') {

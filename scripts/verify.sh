@@ -49,6 +49,7 @@ command_exists() { command -v "$1" >/dev/null 2>&1; }
 
 cmd_fast() {
   header "Fast validation"
+  run python3 "$REPO_ROOT/scripts/verify-conformance-matrix.py"
   run cargo fmt --all -- --check
   run cargo clippy --workspace --lib --bins --tests -- -D warnings
   run cargo test --workspace

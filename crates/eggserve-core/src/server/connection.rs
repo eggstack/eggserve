@@ -374,8 +374,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     .await
                     {
                         Ok(Ok(bytes)) => crate::primitives::request_body::RequestBody::from_bytes(
-                            bytes.to_vec(),
-                            body_limit,
+                            bytes, body_limit,
                         ),
                         Ok(Err(err)) => {
                             return Ok::<_, Infallible>(finalize_runtime_response(

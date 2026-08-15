@@ -282,17 +282,16 @@ class Server:
         policy: StaticPolicyWrapper | None = None,
         handler: Callable[[Request], Response] | None = None,
         public: bool = False,
-        max_connections: int = 100,
-        max_file_streams: int = 64,
+        max_connections: int = 64,
+        max_file_streams: int = 32,
         max_python_callbacks: int = 8,
         header_timeout_secs: int = 10,
-        write_timeout_secs: int = 30,
+        connection_total_timeout_secs: int = 60,
         handler_timeout_secs: int = 30,
         graceful_shutdown_timeout_secs: int = 10,
         request_body_mode: str = "reject",
         max_request_body_bytes: int = 0,
         body_timeout_secs: int = 30,
-        incomplete_body_policy: str = "close",
     ) -> None: ...
 
     @property

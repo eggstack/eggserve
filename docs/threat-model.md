@@ -65,7 +65,7 @@ An attacker with the ability to create, rename, delete, or modify files within t
 - Placing files with special names (dotfiles, reserved names) to influence behavior
 - Replacing files during a TOCTOU window between validation and open
 
-On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` with `O_NOFOLLOW`) eliminates the TOCTOU window for symlink swaps. On non-Unix or follow-symlinks modes, this attacker is only partially mitigated.
+On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` with `O_NOFOLLOW`) eliminates the TOCTOU window for symlink swaps. On non-Unix or follow-symlinks modes, canonical-path validation and opening remain separated by a mutable-filesystem window, so this attacker is only partially mitigated.
 
 ### Windows reparse and namespace attacker
 

@@ -14,6 +14,7 @@ from __future__ import annotations
 import ipaddress
 import inspect
 import io
+import mimetypes
 import os
 import socket
 import subprocess
@@ -345,7 +346,7 @@ class HTTPServer:
         root = os.fspath(directory)
         if not os.path.isdir(root):
             raise NotADirectoryError(root)
-        return {
+        builtin = {
             "root": root,
             "directory_listing": bool(getattr(handler_type, "directory_listing", False)),
             "follow_symlinks": bool(getattr(handler_type, "follow_symlinks", False)),
@@ -353,6 +354,7 @@ class HTTPServer:
             "index_pages": tuple(getattr(handler_type, "index_pages", ("index.html", "index.htm"))),
             "extensions_map": dict(getattr(handler_type, "extensions_map", {})),
         }
+        return builtin
 
     @staticmethod
     def _check_native_fast_path(handler_class, handler_type):
@@ -625,7 +627,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         key = f".{suffix.lower()}" if suffix else ""
         if key in self.extensions_map:
             return self.extensions_map[key]
-        return {
+        builtin = {
             ".html": "text/html; charset=utf-8",
             ".htm": "text/html; charset=utf-8",
             ".css": "text/css; charset=utf-8",
@@ -636,7 +638,10 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             ".jpg": "image/jpeg",
             ".jpeg": "image/jpeg",
             ".svg": "image/svg+xml",
-        }.get(key, "application/octet-stream")
+        }.get(key)
+        if builtin is not None:
+            return builtin
+        return mimetypes.guess_type(os.fspath(path), strict=False)[0] or "application/octet-stream"
 
     def list_directory(self, path):
         raise NotImplementedError(
@@ -895,12 +900,13 @@ class ServerProcess:
         if self._process is None:
             return
 
-        self._process.terminate()
+        process = self._process
+        process.terminate()
         try:
-            self._process.wait(timeout=timeout)
+            process.communicate(timeout=timeout)
         except subprocess.TimeoutExpired:
-            self._process.kill()
-            self._process.wait()
+            process.kill()
+            process.communicate()
         self._process = None
 
     def wait(self) -> int:

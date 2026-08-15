@@ -5,6 +5,7 @@ use std::time::Duration;
 
 /// Default maximum number of entries to enumerate in a directory listing.
 pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
+pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 
 /// Error returned when a [`Limits`] field violates its constraint.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -117,6 +118,13 @@ impl Limits {
                 constraint: "> 0".into(),
             });
         }
+        if self.header_read_timeout > self.connection_total_timeout {
+            errors.push(LimitsError {
+                field: "header_read_timeout",
+                value: format!("{}s", self.header_read_timeout.as_secs()),
+                constraint: "<= connection_total_timeout".into(),
+            });
+        }
         if self.handler_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "handler_timeout",
@@ -150,6 +158,19 @@ impl Limits {
                 field: "stream_chunk_size",
                 value: self.stream_chunk_size.to_string(),
                 constraint: "<= 1048576 (1 MiB)".into(),
+            });
+        }
+        if self.max_listing_response_bytes == 0 {
+            errors.push(LimitsError {
+                field: "max_listing_response_bytes",
+                value: "0".into(),
+                constraint: "> 0".into(),
+            });
+        } else if self.max_listing_response_bytes > MAX_LISTING_RESPONSE_BYTES {
+            errors.push(LimitsError {
+                field: "max_listing_response_bytes",
+                value: self.max_listing_response_bytes.to_string(),
+                constraint: format!("<= {} (10 MiB)", MAX_LISTING_RESPONSE_BYTES),
             });
         }
         if errors.is_empty() {
@@ -208,6 +229,17 @@ mod tests {
         };
         let errs = limits.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.field == "connection_total_timeout"));
+    }
+
+    #[test]
+    fn header_timeout_cannot_exceed_connection_timeout() {
+        let limits = Limits {
+            header_read_timeout: Duration::from_secs(2),
+            connection_total_timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "header_read_timeout"));
     }
 
     #[test]
@@ -376,6 +408,16 @@ mod tests {
         };
         let errs = limits.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.field == "stream_chunk_size"));
+    }
+
+    #[test]
+    fn listing_response_limit_is_bounded() {
+        let limits = Limits {
+            max_listing_response_bytes: MAX_LISTING_RESPONSE_BYTES + 1,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "max_listing_response_bytes"));
     }
 
     #[test]

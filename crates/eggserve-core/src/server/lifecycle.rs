@@ -21,8 +21,8 @@
 //!
 //! | State     | build | start | ready | shutdown | force_shutdown | wait |
 //! |-----------|-------|-------|-------|----------|---------------|------|
-//! | Created   | yes   | yes   | -     | noop     | noop          | err  |
-//! | Starting  | -     | err   | yes   | pending  | pending       | err  |
+//! | Created   | yes   | yes   | -     | stop     | stop          | err  |
+//! | Starting  | -     | err   | yes   | stop     | stop          | err  |
 //! | Running   | -     | err   | ok    | ok       | ok            | yes  |
 //! | Draining  | -     | err   | err   | idempot  | ok            | yes  |
 //! | Stopped   | -     | err   | err   | noop     | noop          | ok   |
@@ -183,8 +183,24 @@ impl Lifecycle {
             Err(actual) => {
                 let state = LifecycleState::from_u8(actual);
                 if state == LifecycleState::Created || state == LifecycleState::Starting {
-                    // Shutdown before start: no-op
-                    Ok(())
+                    // Make shutdown-before-start terminal so waiters cannot hang.
+                    if self
+                        .state
+                        .compare_exchange(
+                            actual,
+                            LifecycleState::Stopped as u8,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        let _ = self.terminal_tx.send(());
+                        Ok(())
+                    } else {
+                        Err(crate::server::errors::ServerError::Config(
+                            "server state changed while shutting down".into(),
+                        ))
+                    }
                 } else if state.is_terminal() {
                     Ok(())
                 } else {
@@ -304,10 +320,10 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_before_start_is_noop() {
+    fn shutdown_before_start_stops_lifecycle() {
         let lc = Lifecycle::new();
         assert!(lc.drain().is_ok());
-        assert_eq!(lc.state(), LifecycleState::Created);
+        assert_eq!(lc.state(), LifecycleState::Stopped);
     }
 
     #[test]

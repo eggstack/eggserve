@@ -87,10 +87,8 @@ pub fn validate_request_body(
         return Err(RequestValidationError::ConflictingBodyHeaders);
     }
 
-    if let Some(te) = transfer_encoding {
-        if !te.trim().is_empty() {
-            return Err(RequestValidationError::UnsupportedTransferEncoding);
-        }
+    if transfer_encoding.is_some() {
+        return Err(RequestValidationError::UnsupportedTransferEncoding);
     }
 
     if let Some(cl) = content_length {
@@ -231,13 +229,19 @@ mod tests {
     }
 
     #[test]
-    fn empty_transfer_encoding_allowed() {
-        assert!(validate_request_body(None, Some(""), 0).is_ok());
+    fn empty_transfer_encoding_rejected() {
+        assert_eq!(
+            validate_request_body(None, Some(""), 0).unwrap_err(),
+            RequestValidationError::UnsupportedTransferEncoding
+        );
     }
 
     #[test]
-    fn whitespace_transfer_encoding_allowed() {
-        assert!(validate_request_body(None, Some("  "), 0).is_ok());
+    fn whitespace_transfer_encoding_rejected() {
+        assert_eq!(
+            validate_request_body(None, Some("  "), 0).unwrap_err(),
+            RequestValidationError::UnsupportedTransferEncoding
+        );
     }
 
     #[test]

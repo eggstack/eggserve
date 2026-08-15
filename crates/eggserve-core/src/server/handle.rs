@@ -145,8 +145,8 @@ impl ServerHandle {
     /// Trigger forced shutdown with a deadline.
     ///
     /// Sends the shutdown signal and waits for the server to stop. If the
-    /// server does not stop within `deadline`, the remaining tasks are
-    /// abandoned (they will be cancelled when the runtime shuts down).
+    /// server does not stop within `deadline`, the accept task is aborted and
+    /// the server is marked stopped.
     ///
     /// Returns the [`ShutdownResult`] indicating how the shutdown completed.
     pub async fn force_shutdown(
@@ -169,7 +169,14 @@ impl ServerHandle {
                     Ok(ShutdownResult::Clean)
                 }
             }
-            Err(_deadline_exceeded) => Ok(ShutdownResult::Forced),
+            Err(_deadline_exceeded) => {
+                if let Some(join) = self.join.take() {
+                    join.abort();
+                    let _ = join.await;
+                }
+                let _ = self.lifecycle.mark_stopped();
+                Ok(ShutdownResult::Forced)
+            }
         }
     }
 

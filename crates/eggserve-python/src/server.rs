@@ -268,16 +268,31 @@ impl PyRequestBody {
         };
 
         let handle = self.handle.clone();
-        let data = py.allow_threads(|| handle.block_on(async { body.read_all().await }));
+        let data = py.allow_threads(|| {
+            handle.block_on(async {
+                let mut body = body;
+                let mut data = Vec::new();
+                loop {
+                    match body.next_chunk().await {
+                        Ok(Some(chunk)) => data.extend_from_slice(&chunk),
+                        Ok(None) => return Ok((data, body.bytes_received())),
+                        Err(error) => return Err((error, body.bytes_received())),
+                    }
+                }
+            })
+        });
 
         match data {
-            Ok(bytes) => {
-                let len = bytes.len() as u64;
-                self.final_bytes_received.store(len, Ordering::Release);
+            Ok((bytes, received)) => {
+                self.final_bytes_received.store(received, Ordering::Release);
                 self.final_complete.store(true, Ordering::Release);
                 Ok(PyBytes::new(py, &bytes))
             }
-            Err(e) => Err(raw_body_error_to_pyerr(e.into())),
+            Err((e, received)) => {
+                self.final_bytes_received.store(received, Ordering::Release);
+                let raw: RawBodyError = e.into();
+                Err(raw_body_error_to_pyerr(raw))
+            }
         }
     }
 
@@ -309,11 +324,13 @@ impl PyRequestBody {
                 match body.next_chunk().await {
                     Ok(Some(chunk)) => {
                         let data = chunk.to_vec();
+                        final_bytes.store(body.bytes_received(), Ordering::Release);
                         if sender.send(Ok(data)).await.is_err() {
                             break;
                         }
                     }
                     Ok(None) => {
+                        final_bytes.store(body.bytes_received(), Ordering::Release);
                         final_complete.store(true, Ordering::Release);
                         break;
                     }
@@ -369,8 +386,6 @@ impl PyBodyChunkIterator {
         let result = py.allow_threads(|| self.receiver.blocking_recv());
         match result {
             Some(Ok(data)) => {
-                let len = data.len() as u64;
-                self.final_bytes_received.fetch_add(len, Ordering::AcqRel);
                 Ok(PyBytes::new(py, &data).into_any().unbind())
             }
             Some(Err(e)) => Err(raw_body_error_to_pyerr(e)),
@@ -992,8 +1007,9 @@ impl ServerBodySource {
         let mut source = inner.take().ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("BodySource already consumed")
         })?;
-        let data = source
-            .read_all()
+        drop(inner);
+        let data = py
+            .allow_threads(|| source.read_all())
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Ok(PyBytes::new(py, &data))
     }
@@ -1011,8 +1027,9 @@ impl ServerBodySource {
         let mut source = inner.take().ok_or_else(|| {
             pyo3::exceptions::PyValueError::new_err("BodySource already consumed")
         })?;
-        let data = source
-            .read_range(start, end_inclusive)
+        drop(inner);
+        let data = py
+            .allow_threads(|| source.read_range(start, end_inclusive))
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Ok(PyBytes::new(py, &data))
     }
@@ -1355,7 +1372,7 @@ impl Service for PythonCallbackService {
 // Python Server — delegates to Rust runtime
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "Server")]
+#[pyclass(frozen, name = "Server")]
 #[allow(dead_code)]
 pub struct PyServer {
     bind: String,
@@ -1369,6 +1386,7 @@ pub struct PyServer {
     handle: std::sync::Mutex<Option<ServerHandle>>,
     runtime: std::sync::Mutex<Option<tokio::runtime::Runtime>>,
     has_been_started: std::sync::atomic::AtomicBool,
+    starting: std::sync::atomic::AtomicBool,
     max_connections: usize,
     max_file_streams: usize,
     max_python_callbacks: usize,
@@ -1534,6 +1552,7 @@ impl PyServer {
             handle: std::sync::Mutex::new(None),
             runtime: std::sync::Mutex::new(None),
             has_been_started: std::sync::atomic::AtomicBool::new(false),
+            starting: std::sync::atomic::AtomicBool::new(false),
             max_connections,
             max_file_streams,
             max_python_callbacks,
@@ -1575,136 +1594,182 @@ impl PyServer {
         }
     }
 
-    fn start(&self, py: Python<'_>) -> PyResult<()> {
-        let mut handle_guard = self
-            .handle
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        if handle_guard.is_some() {
-            return Err(crate::LifecycleError::new_err("Server already started"));
+    fn start(slf: Py<Self>, py: Python<'_>) -> PyResult<()> {
+        {
+            let this = slf.borrow(py);
+            let handle_guard = this
+                .handle
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            let runtime_guard = this
+                .runtime
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            if handle_guard.is_some()
+                || runtime_guard.is_some()
+                || this.starting.swap(true, std::sync::atomic::Ordering::AcqRel)
+            {
+                return Err(crate::LifecycleError::new_err("Server already started"));
+            }
         }
 
-        let mut runtime_guard = self
-            .runtime
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        if runtime_guard.is_some() {
-            return Err(crate::LifecycleError::new_err("Server already started"));
-        }
+        let result = Self::start_reserved(slf.clone_ref(py), py);
+        slf.borrow(py)
+            .starting
+            .store(false, std::sync::atomic::Ordering::Release);
+        result
+    }
 
-        let bind_addr = self.bind_address;
+    fn start_reserved(slf: Py<Self>, py: Python<'_>) -> PyResult<()> {
+        let (
+            bind_addr,
+            max_connections,
+            max_file_streams,
+            max_python_callbacks,
+            header_timeout,
+            connection_total_timeout,
+            handler_timeout,
+            graceful_shutdown_timeout,
+            max_request_body_bytes,
+            body_read_timeout,
+            tls_config,
+            handler,
+            static_root,
+            static_policy,
+            body_policy,
+        ) = {
+            let this = slf.borrow(py);
+            let handler = this
+                .handler
+                .as_ref()
+                .map(|handler| {
+                    let guard = handler.lock().map_err(|_| {
+                        pyo3::exceptions::PyRuntimeError::new_err("handler lock poisoned")
+                    })?;
+                    guard
+                        .as_ref()
+                        .map(|handler| handler.clone_ref(py))
+                        .ok_or_else(|| {
+                            pyo3::exceptions::PyRuntimeError::new_err("handler already consumed")
+                        })
+                })
+                .transpose()?;
+            (
+                this.bind_address,
+                this.max_connections,
+                this.max_file_streams,
+                this.max_python_callbacks,
+                this.header_timeout,
+                this.connection_total_timeout,
+                this.handler_timeout,
+                this.graceful_shutdown_timeout,
+                this.max_request_body_bytes,
+                this.body_read_timeout,
+                this.tls_config.clone(),
+                handler,
+                this.static_root.clone(),
+                this.static_policy.clone(),
+                this.body_policy,
+            )
+        };
 
         let mut runtime_builder = RuntimeConfig::builder()
             .bind(bind_addr)
-            .max_connections(self.max_connections)
-            .max_file_streams(self.max_file_streams)
-            .header_read_timeout(self.header_timeout)
-            .connection_total_timeout(self.connection_total_timeout)
-            .handler_timeout(self.handler_timeout)
-            .graceful_shutdown_timeout(self.graceful_shutdown_timeout)
-            .max_request_body_bytes(self.max_request_body_bytes)
-            .body_read_timeout(self.body_read_timeout);
-        if let Some(tls_config) = &self.tls_config {
+            .max_connections(max_connections)
+            .max_file_streams(max_file_streams)
+            .header_read_timeout(header_timeout)
+            .connection_total_timeout(connection_total_timeout)
+            .handler_timeout(handler_timeout)
+            .graceful_shutdown_timeout(graceful_shutdown_timeout)
+            .max_request_body_bytes(max_request_body_bytes)
+            .body_read_timeout(body_read_timeout);
+        if let Some(tls_config) = &tls_config {
             runtime_builder = runtime_builder.tls_config(tls_config.clone());
         }
         let runtime_config = runtime_builder
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-        let (server_handle, rt) =
-            py.allow_threads(|| -> PyResult<(ServerHandle, tokio::runtime::Runtime)> {
-                let rt = tokio::runtime::Builder::new_multi_thread()
-                    .worker_threads(2)
-                    .enable_all()
-                    .build()
-                    .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
+        let (server_handle, rt) = py.allow_threads(|| -> PyResult<_> {
+            let rt = tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .build()
+                .map_err(|e| pyo3::exceptions::PyRuntimeError::new_err(e.to_string()))?;
 
-                let server_handle = rt.block_on(async {
-                    if let Some(handler_arc) = &self.handler {
-                        let cloned_handler = handler_arc
-                            .lock()
-                            .map_err(|_| {
-                                pyo3::exceptions::PyRuntimeError::new_err("handler lock poisoned")
-                            })?
-                            .as_ref()
-                            .map(|h| Python::with_gil(|py| h.clone_ref(py)))
-                            .ok_or_else(|| {
-                                pyo3::exceptions::PyRuntimeError::new_err(
-                                    "handler already consumed",
-                                )
-                            })?;
-
-                        let shared_handler = Arc::new(std::sync::Mutex::new(Some(cloned_handler)));
-                        let service = PythonCallbackService {
-                            handler: shared_handler,
-                            callback_semaphore: Arc::new(Semaphore::new(self.max_python_callbacks)),
-                            body_policy: self.body_policy,
-                        };
-
-                        let server = Server::builder()
-                            .runtime(runtime_config)
-                            .bind(bind_addr)
-                            .build()
-                            .map_err(|e| {
-                                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                                    "failed to build server: {e}"
-                                ))
-                            })?;
-
-                        let handle = server.start_with_service(service).await.map_err(|e| {
+            let server_handle = rt.block_on(async {
+                if let Some(handler) = handler {
+                    let service = PythonCallbackService {
+                        handler: Arc::new(std::sync::Mutex::new(Some(handler))),
+                        callback_semaphore: Arc::new(Semaphore::new(max_python_callbacks)),
+                        body_policy,
+                    };
+                    let server = Server::builder()
+                        .runtime(runtime_config)
+                        .bind(bind_addr)
+                        .build()
+                        .map_err(|e| {
                             pyo3::exceptions::PyRuntimeError::new_err(format!(
-                                "failed to start server: {e}"
+                                "failed to build server: {e}"
                             ))
                         })?;
-                        wait_until_running(&handle, STARTUP_TIMEOUT).await?;
-                        Ok::<ServerHandle, PyErr>(handle)
-                    } else {
-                        let serve_config = Arc::new(eggserve_core::config::ServeConfig {
-                            root: self.static_root.as_ref().ok_or_else(|| {
-                                pyo3::exceptions::PyRuntimeError::new_err(
-                                    "static configuration is unavailable for custom handler",
-                                )
-                            })?.clone(),
-                            static_policy: self.static_policy.clone(),
-                            ..eggserve_core::config::ServeConfig::default()
-                        });
-                        let server = Server::builder()
-                            .runtime(runtime_config)
-                            .serve_config(serve_config)
-                            .bind(bind_addr)
-                            .build()
-                            .map_err(|e| {
-                                pyo3::exceptions::PyRuntimeError::new_err(format!(
-                                    "failed to build server: {e}"
-                                ))
-                            })?;
-
-                        let handle = server.start().await.map_err(|e| {
+                    let handle = server.start_with_service(service).await.map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "failed to start server: {e}"
+                        ))
+                    })?;
+                    wait_until_running(&handle, STARTUP_TIMEOUT).await?;
+                    Ok::<ServerHandle, PyErr>(handle)
+                } else {
+                    let root = static_root.ok_or_else(|| {
+                        pyo3::exceptions::PyRuntimeError::new_err(
+                            "static configuration is unavailable for custom handler",
+                        )
+                    })?;
+                    let serve_config = Arc::new(eggserve_core::config::ServeConfig {
+                        root,
+                        static_policy,
+                        ..eggserve_core::config::ServeConfig::default()
+                    });
+                    let server = Server::builder()
+                        .runtime(runtime_config)
+                        .serve_config(serve_config)
+                        .bind(bind_addr)
+                        .build()
+                        .map_err(|e| {
                             pyo3::exceptions::PyRuntimeError::new_err(format!(
-                                "failed to start server: {e}"
+                                "failed to build server: {e}"
                             ))
                         })?;
-                        wait_until_running(&handle, STARTUP_TIMEOUT).await?;
-                        Ok::<ServerHandle, PyErr>(handle)
-                    }
-                })?;
-
-                Ok((server_handle, rt))
+                    let handle = server.start().await.map_err(|e| {
+                        pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "failed to start server: {e}"
+                        ))
+                    })?;
+                    wait_until_running(&handle, STARTUP_TIMEOUT).await?;
+                    Ok::<ServerHandle, PyErr>(handle)
+                }
             })?;
+            Ok((server_handle, rt))
+        })?;
 
         let local_addr = server_handle.local_addr();
-
-        *self
+        let this = slf.borrow(py);
+        *this
             .addr
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
             Some(local_addr.to_string());
-
-        *runtime_guard = Some(rt);
-        drop(runtime_guard);
-
-        *handle_guard = Some(server_handle);
-        self.has_been_started
+        *this
+            .runtime
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? = Some(rt);
+        *this
+            .handle
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? =
+            Some(server_handle);
+        this.has_been_started
             .store(true, std::sync::atomic::Ordering::Release);
         Ok(())
     }
@@ -1857,7 +1922,7 @@ impl PyServer {
 
     fn __enter__(slf: Py<Self>) -> PyResult<Py<Self>> {
         Python::with_gil(|py| {
-            slf.borrow(py).start(py)?;
+            Self::start(slf.clone_ref(py), py)?;
             Ok(slf)
         })
     }

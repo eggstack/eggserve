@@ -76,6 +76,17 @@ async fn send_raw(addr: std::net::SocketAddr, data: &[u8]) -> Vec<u8> {
     buf
 }
 
+fn response_status(raw: &[u8]) -> Option<u16> {
+    std::str::from_utf8(raw)
+        .ok()?
+        .lines()
+        .next()?
+        .split_whitespace()
+        .nth(1)?
+        .parse()
+        .ok()
+}
+
 #[tokio::test]
 async fn fuzz_open_close_connection() {
     let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
@@ -257,23 +268,21 @@ async fn fuzz_invalid_method() {
     let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
 
     let invalid_methods = vec![
-        b"GETT /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n" as &[u8],
-        b"DELETE /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        b"PUT /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        b"PATCH /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        b"OPTIONS /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        b"TRACE /hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        b"GETT /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" as &[u8],
+        b"DELETE /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"PUT /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"PATCH /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"OPTIONS /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"TRACE /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     ];
 
     for method in invalid_methods {
         let raw = send_raw(server.addr, method).await;
-        let resp = String::from_utf8_lossy(&raw);
-        // Should get 405 or connection close, not 200
+        let status = response_status(&raw).expect("invalid method should receive a response");
         assert!(
-            !resp.contains("200 OK") || resp.is_empty(),
-            "invalid method should not return 200: {}",
-            resp
+            (400..500).contains(&status),
+            "invalid method status: {status}"
         );
     }
 
@@ -285,25 +294,18 @@ async fn fuzz_invalid_target() {
     let server = start_fuzz_server(eggserve_core::limits::Limits::default()).await;
 
     let invalid_targets = vec![
-        b"GET http://localhost/hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n" as &[u8],
-        b"GET //hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
-        b"GET /../hello.txt HTTP/1.1\r\nHost: localhost\r\n\r\n",
+        b"GET http://localhost/hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"
+            as &[u8],
+        b"GET //hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"GET /../hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     ];
 
     for target in invalid_targets {
         let raw = send_raw(server.addr, target).await;
-        let resp = String::from_utf8_lossy(&raw);
-        // Server should handle gracefully without crashing — any valid
-        // HTTP status or connection close is acceptable
+        let status = response_status(&raw).expect("invalid target should receive a response");
         assert!(
-            resp.contains("200")
-                || resp.contains("400")
-                || resp.contains("403")
-                || resp.contains("404")
-                || resp.contains("405")
-                || resp.is_empty(),
-            "invalid target should return valid response: {}",
-            resp
+            (400..500).contains(&status),
+            "invalid target status: {status}"
         );
     }
 

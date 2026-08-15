@@ -70,6 +70,13 @@ fuzz_target!(|data: &[u8]| {
         let result = rt.block_on(body.read_all());
         assert!(result.is_err(), "one-over-limit body should fail");
     }
+    if !data.is_empty() {
+        let body = RequestBody::from_bytes(data.to_vec(), data.len() as u64 - 1);
+        assert!(
+            rt.block_on(body.read_all()).is_err(),
+            "one-byte-under limit should fail"
+        );
+    }
 
     // === Error classification tests ===
 

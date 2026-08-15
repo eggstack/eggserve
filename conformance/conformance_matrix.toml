@@ -44,7 +44,6 @@ file_state = "normal"
 http_version = "1.1"
 connection = "close"
 expected_status = 304
-expected_content_length = null
 body_forbidden = true
 connection_reuse = false
 

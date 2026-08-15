@@ -149,7 +149,24 @@ impl std::error::Error for ServiceError {}
 impl From<RequestBodyError> for ServiceError {
     fn from(err: RequestBodyError) -> Self {
         let status = err.to_status_code();
-        ServiceError::rejected(status, err.to_string())
+        let message = match err {
+            RequestBodyError::RejectedByPolicy => "request body rejected by policy",
+            RequestBodyError::DeclaredLengthTooLarge { .. }
+            | RequestBodyError::LimitExceeded { .. } => "request body exceeds configured limit",
+            RequestBodyError::ReadTimeout => "request body read timed out",
+            RequestBodyError::PrematureEof { .. } => {
+                "request body ended before its declared length"
+            }
+            RequestBodyError::LengthMismatch { .. } => "request body length mismatch",
+            RequestBodyError::InvalidChunkFraming(_) => "invalid request body framing",
+            RequestBodyError::Cancelled => "request body consumption cancelled",
+            RequestBodyError::Disconnected => "client disconnected while sending request body",
+            RequestBodyError::AlreadyConsumed | RequestBodyError::MixedConsumptionMode => {
+                "request body was already consumed"
+            }
+            RequestBodyError::Transport(_) => "request body transport failure",
+        };
+        ServiceError::rejected(status, message)
     }
 }
 

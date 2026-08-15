@@ -92,11 +92,6 @@ impl HeaderName {
     pub fn as_str(&self) -> &str {
         &self.0
     }
-
-    /// Returns the lowercased header name for case-insensitive comparison.
-    fn as_lower(&self) -> String {
-        self.0.to_ascii_lowercase()
-    }
 }
 
 impl fmt::Display for HeaderName {
@@ -121,7 +116,7 @@ impl HeaderValue {
         if s.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
             return Err(HeaderError::InvalidValue);
         }
-        Ok(Self(s))
+        Ok(Self(s.trim_matches([' ', '\t']).to_owned()))
     }
 
     /// Returns the header value as a string slice.
@@ -195,20 +190,18 @@ impl HeaderBlock {
 
     /// Returns the first value for the given header name (case-insensitive).
     pub fn get_first(&self, name: &str) -> Option<&HeaderValue> {
-        let lower = name.to_ascii_lowercase();
         self.fields
             .iter()
-            .find(|f| f.name.as_lower() == lower)
+            .find(|f| f.name.as_str().eq_ignore_ascii_case(name))
             .map(|f| &f.value)
     }
 
     /// Returns all values for the given header name (case-insensitive),
     /// in order.
     pub fn get_all(&self, name: &str) -> Vec<&HeaderValue> {
-        let lower = name.to_ascii_lowercase();
         self.fields
             .iter()
-            .filter(|f| f.name.as_lower() == lower)
+            .filter(|f| f.name.as_str().eq_ignore_ascii_case(name))
             .map(|f| &f.value)
             .collect()
     }
@@ -234,8 +227,9 @@ impl HeaderBlock {
     /// Returns `true` if a header with the given name exists
     /// (case-insensitive).
     pub fn contains(&self, name: &str) -> bool {
-        let lower = name.to_ascii_lowercase();
-        self.fields.iter().any(|f| f.name.as_lower() == lower)
+        self.fields
+            .iter()
+            .any(|f| f.name.as_str().eq_ignore_ascii_case(name))
     }
 
     /// Returns an iterator over all header fields.
@@ -319,6 +313,11 @@ mod tests {
         assert!(HeaderValue::new("text/html").is_ok());
         assert!(HeaderValue::new("").is_ok());
         assert!(HeaderValue::new("hello world").is_ok());
+    }
+
+    #[test]
+    fn header_value_trims_optional_whitespace() {
+        assert_eq!(HeaderValue::new(" \tvalue\t ").unwrap().as_str(), "value");
     }
 
     #[test]

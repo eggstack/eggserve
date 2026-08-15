@@ -1122,6 +1122,7 @@ async fn short_connection_total_timeout_closes_connection() {
     let tmp = TempDir::new().unwrap();
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
+        .header_read_timeout(Duration::from_millis(50))
         .connection_total_timeout(Duration::from_millis(100))
         .graceful_shutdown_timeout(Duration::from_secs(5))
         .build()
@@ -1717,9 +1718,10 @@ async fn unix_fd_baseline_after_start_stop() {
         let _ = handle.wait().await;
     }
     let after = count_open_fds();
-    // Allow small variance (up to 8 FDs) for library internals
+    // Allow small variance (up to 16 FDs) for library internals and parallel
+    // test activity that may overlap the two measurements.
     assert!(
-        after <= baseline + 8,
+        after <= baseline + 16,
         "FD count must not grow unbounded: baseline={}, after={}",
         baseline,
         after

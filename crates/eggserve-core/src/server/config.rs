@@ -255,6 +255,11 @@ impl RuntimeConfigBuilder {
                 "connection_total_timeout must be > 0".into(),
             ));
         }
+        if header_read_timeout > connection_total_timeout {
+            return Err(crate::server::errors::ServerError::Config(
+                "header_read_timeout must be <= connection_total_timeout".into(),
+            ));
+        }
         if handler_timeout.is_zero() {
             return Err(crate::server::errors::ServerError::Config(
                 "handler_timeout must be > 0".into(),
@@ -441,6 +446,18 @@ mod tests {
         assert!(err
             .to_string()
             .contains("connection_total_timeout must be > 0"));
+    }
+
+    #[test]
+    fn header_timeout_cannot_exceed_connection_total_timeout() {
+        let result = RuntimeConfig::builder()
+            .header_read_timeout(Duration::from_secs(2))
+            .connection_total_timeout(Duration::from_secs(1))
+            .build();
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("header_read_timeout must be <= connection_total_timeout"));
     }
 
     #[test]

@@ -15,13 +15,15 @@ eggserve [OPTIONS] [PORT] [--directory DIR]
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--directory DIR` | Root directory to serve | `.` (current directory) |
-| `--addr HOST:PORT` | Bind address (sets both host and port; blocks positional port override) | `127.0.0.1:8000` |
-| `--bind HOST[:PORT]` | Bind host or host:port (positional port can override the port portion) | `127.0.0.1:8000` |
+| `--addr HOST:PORT` | Bind address (cannot be combined with `--bind`) | `127.0.0.1:8000` |
+| `--bind HOST[:PORT]` | Bind host or host:port; an explicit port is retained | `127.0.0.1:8000` |
 | `--port PORT` | Port to listen on (blocks positional port override) | `8000` |
 | `PORT` | Positional port argument (overrides `--bind` port when neither `--port` nor `--addr` is given; ignored if `--bind` includes a port) | `8000` |
 | `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
 
-Port resolution: `--port`/`--addr` take highest precedence and block positional override. The `PORT` positional overrides `--bind` when neither `--port` nor `--addr` is given. If `--bind` includes a port (e.g. `--bind 0.0.0.0:8080`), the positional PORT is ignored. Default is `127.0.0.1:8000`.
+Port resolution: `--port` and an explicit port in `--bind` take precedence over a positional PORT. `--addr` sets both host and port and cannot be combined with `--bind`; a positional PORT is ignored when either explicit flag supplies the port. Default is `127.0.0.1:8000`.
+
+`--header-timeout` must not exceed `--connection-total-timeout`.
 
 Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 

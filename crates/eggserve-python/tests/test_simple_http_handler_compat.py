@@ -92,6 +92,9 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
         self.address = self.server.server_address
         response, _ = self.request("GET", "/custom.blob")
         self.assertEqual(response.getheader("Content-Type"), "application/x-map")
+        self.assertEqual(
+            MapHandler.guess_type(MapHandler, "archive.tar.gz"), "application/x-tar"
+        )
         head, head_body = self.request("HEAD", "/custom.blob")
         self.assertEqual(head.getheader("Content-Type"), "application/x-map")
         self.assertEqual(head_body, b"")

@@ -364,6 +364,7 @@ impl Server {
             async move {
                 accept_loop_generic(
                     listener,
+                    local_addr,
                     config,
                     runtime_state,
                     connection_semaphore,
@@ -386,8 +387,10 @@ impl Server {
 
 /// Unified accept loop for both static and custom services.
 ///
+#[allow(clippy::too_many_arguments)]
 async fn accept_loop_generic<S: Service>(
     listener: TcpListener,
+    local_addr: std::net::SocketAddr,
     config: Arc<RuntimeConfig>,
     runtime_state: Arc<RuntimeState>,
     connection_semaphore: Arc<tokio::sync::Semaphore>,
@@ -399,6 +402,7 @@ async fn accept_loop_generic<S: Service>(
 
     // Signal that we're running (listener bound, accept loop about to poll).
     if lifecycle.mark_running().is_err() {
+        let _ = lifecycle.mark_failed();
         return ShutdownResult::Clean;
     }
 
@@ -461,10 +465,11 @@ async fn accept_loop_generic<S: Service>(
                         let config = config.clone();
                         let service = service.clone();
                         let remote_addr = peer_addr;
-                        let local_addr_pre_tls = stream.local_addr().unwrap_or(config.bind);
+                        let local_addr_pre_tls = stream.local_addr().unwrap_or(local_addr);
 
                         tasks.spawn(async move {
                             let _permit = permit;
+                            let _active_connection = ActiveConnectionGuard;
 
                             #[cfg(feature = "tls")]
                             {
@@ -493,11 +498,9 @@ async fn accept_loop_generic<S: Service>(
                                                 true,
                                                 Some(tls_info),
                                             ).await;
-                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                             return;
                                         }
                                         None => {
-                                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                             return;
                                         }
                                     }
@@ -517,7 +520,6 @@ async fn accept_loop_generic<S: Service>(
                                 false,
                                 None,
                             ).await;
-                            counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                         });
                     }
                     Err(e) => {
@@ -558,6 +560,9 @@ async fn accept_loop_generic<S: Service>(
             Ok(Some(result)) => {
                 if let Err(e) = result {
                     if e.is_panic() {
+                        counters
+                            .connection_panics
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                         crate::ops::Logger::global().emit(crate::ops::Event::new(
                             crate::ops::Severity::Error,
                             crate::ops::EventKind::ConnectionPanic,
@@ -587,6 +592,9 @@ async fn accept_loop_generic<S: Service>(
             abort_count += 1;
             if let Err(e) = result {
                 if e.is_panic() {
+                    counters
+                        .connection_panics
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     crate::ops::Logger::global().emit(crate::ops::Event::new(
                         crate::ops::Severity::Error,
                         crate::ops::EventKind::ConnectionPanic,
@@ -702,6 +710,7 @@ async fn classify_accept_error(
 
     let err_str = e.to_string();
     let kind = e.kind();
+    let fd_exhausted = is_fd_exhaustion(e);
 
     let (severity, event_kind, should_backoff, is_fatal) = match kind {
         std::io::ErrorKind::Interrupted => (
@@ -725,36 +734,16 @@ async fn classify_accept_error(
             true,
             false,
         ),
-        std::io::ErrorKind::OutOfMemory => {
-            if err_str.contains("too many open files")
-                || err_str.contains("EMFILE")
-                || err_str.contains("ENFILE")
-            {
-                (Severity::Error, EventKind::ResourceExhaustion, true, false)
-            } else {
-                (
-                    Severity::Error,
-                    EventKind::ListenerPersistentError,
-                    false,
-                    true,
-                )
-            }
+        std::io::ErrorKind::OutOfMemory | std::io::ErrorKind::Other if fd_exhausted => {
+            (Severity::Error, EventKind::ResourceExhaustion, true, false)
         }
-        std::io::ErrorKind::Other => {
-            if err_str.contains("too many open files")
-                || err_str.contains("EMFILE")
-                || err_str.contains("ENFILE")
-            {
-                (Severity::Error, EventKind::ResourceExhaustion, true, false)
-            } else {
-                (
-                    Severity::Error,
-                    EventKind::ListenerPersistentError,
-                    false,
-                    true,
-                )
-            }
-        }
+        std::io::ErrorKind::OutOfMemory | std::io::ErrorKind::Other => (
+            Severity::Error,
+            EventKind::ListenerPersistentError,
+            false,
+            true,
+        ),
+        _ if fd_exhausted => (Severity::Error, EventKind::ResourceExhaustion, true, false),
         _ => (
             Severity::Error,
             EventKind::ListenerPersistentError,
@@ -807,6 +796,33 @@ async fn classify_accept_error(
     is_fatal
 }
 
+fn is_fd_exhaustion(error: &std::io::Error) -> bool {
+    #[cfg(unix)]
+    if let Some(raw) = error.raw_os_error() {
+        return raw == rustix::io::Errno::MFILE.raw_os_error().abs()
+            || raw == rustix::io::Errno::NFILE.raw_os_error().abs();
+    }
+
+    if error.raw_os_error().is_some() {
+        return false;
+    }
+
+    let message = error.to_string().to_ascii_lowercase();
+    message.contains("too many open files")
+        || message.contains("emfile")
+        || message.contains("enfile")
+}
+
+struct ActiveConnectionGuard;
+
+impl Drop for ActiveConnectionGuard {
+    fn drop(&mut self) {
+        crate::ops::global_counters()
+            .active_connections
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
 /// Wrapper to implement `Service` for `Arc<S>`.
 struct ArcService<S>(Arc<S>);
 
@@ -830,5 +846,24 @@ impl<S: Service> Service for ArcService<S> {
         >,
     > {
         self.0.call(request)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn classify_accept_error_uses_os_error_for_fd_exhaustion() {
+        let error = std::io::Error::from_raw_os_error(libc::EMFILE);
+        let (tx, mut rx) = broadcast::channel(1);
+        let mut backoff = 0;
+        let mut repeats = 0;
+        let mut last = None;
+        assert!(
+            !classify_accept_error(&error, &mut rx, &mut backoff, &mut repeats, &mut last,).await
+        );
+        let _ = tx.send(());
     }
 }

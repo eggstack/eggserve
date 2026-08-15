@@ -310,7 +310,9 @@ class TestConnectionSemaphore(unittest.TestCase):
 
     def test_release_after_connection_total_timeout(self):
         """Connection stalled on read releases the permit on connection total timeout."""
-        s = self._make_server(max_connections=2, connection_total_timeout_secs=1)
+        s = self._make_server(
+            max_connections=2, header_timeout_secs=1, connection_total_timeout_secs=1
+        )
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -746,7 +748,9 @@ class TestTimeoutBoundaries(unittest.TestCase):
 
     def test_connection_total_timeout_covers_stalled_response(self):
         """Connection total timeout fires when client stops reading during response."""
-        s = self._make_server(max_connections=10, connection_total_timeout_secs=1)
+        s = self._make_server(
+            max_connections=10, header_timeout_secs=1, connection_total_timeout_secs=1
+        )
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -767,7 +771,9 @@ class TestTimeoutBoundaries(unittest.TestCase):
 
     def test_connection_total_timeout_covers_file_body_streaming(self):
         """Connection total timeout applies to file body streaming (not just headers)."""
-        s = self._make_server(max_connections=10, connection_total_timeout_secs=1)
+        s = self._make_server(
+            max_connections=10, header_timeout_secs=1, connection_total_timeout_secs=1
+        )
         addr = s.addr
         url = f"http://{addr}/small.txt"
         self.assertTrue(_wait_for_server(url))
@@ -1193,7 +1199,9 @@ class TestGracefulShutdown(unittest.TestCase):
 
     def test_shutdown_during_active_file_stream(self):
         """Shutdown during an active file stream completes without deadlock."""
-        s = self._make_server(max_connections=10, connection_total_timeout_secs=2)
+        s = self._make_server(
+            max_connections=10, header_timeout_secs=2, connection_total_timeout_secs=2
+        )
         addr = s.addr
         # Use a small file to avoid long streaming times
         with open(os.path.join(self._td, "stream_test.bin"), "wb") as f:

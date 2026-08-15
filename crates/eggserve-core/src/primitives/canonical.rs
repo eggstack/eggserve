@@ -450,7 +450,8 @@ pub fn normalize_response(
 /// 2. HEAD responses: suppress `Content-Length` only when `body_len` is 0
 ///    (empty body). Non-empty HEAD responses retain `Content-Length` to
 ///    match the equivalent GET representation.
-/// 3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`.
+/// 3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`,
+///    except that 304 may retain a matching representation length.
 /// 4. Normal payloads: set `Content-Length` to `body_len`.
 /// 5. Preserve all other headers (including duplicates).
 ///
@@ -470,7 +471,8 @@ pub fn normalize_response(
 /// `normalize_metadata()` enforces:
 /// - Transfer-Encoding is always stripped (runtime-owned)
 /// - Content-Length is set from actual body length for payload-permitting responses
-/// - Content-Length is suppressed for body-forbidden (1xx/204/304) responses
+/// - Content-Length is suppressed for body-forbidden (1xx/204/304) responses,
+///   except for a matching 304 representation length
 /// - Content-Length is suppressed only when HEAD body is empty (body_len == 0)
 pub fn normalize_metadata(
     status: StatusCode,
@@ -481,12 +483,28 @@ pub fn normalize_metadata(
     // Rule 1: Strip all hop-by-hop headers.
     strip_hop_by_hop(headers);
 
+    // A 304 may retain the selected representation's length, but only when the
+    // supplied value is unique, valid, and matches the planned representation.
+    let not_modified_length = if status == StatusCode::NOT_MODIFIED {
+        headers
+            .get_unique("content-length")
+            .ok()
+            .flatten()
+            .and_then(|value| value.as_str().parse::<u64>().ok())
+            .filter(|length| *length == body_len)
+    } else {
+        None
+    };
+
     // Rule 2-4: Content-Length handling.
     remove_header(headers, "content-length");
 
-    if status.permits_payload_body() && !(is_head && body_len == 0) {
+    if (status.permits_payload_body() && !(is_head && body_len == 0))
+        || not_modified_length.is_some()
+    {
+        let length = not_modified_length.unwrap_or(body_len);
         headers
-            .push_str("content-length", body_len.to_string())
+            .push_str("content-length", length.to_string())
             .map_err(ResponseConstructionError::from)?;
     }
 
@@ -578,6 +596,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
                 .map(|s| s.clone().try_acquire_owned())
                 .transpose()
                 .map_err(|_| ResponseConstructionError::FileStreamLimit)?;
+            let permit = permit.map(CountingFileStreamPermit::new);
             file_body(source, permit)
         }
         Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
@@ -597,7 +616,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
 
 fn file_body(
     source: BodySource,
-    permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    permit: Option<CountingFileStreamPermit>,
 ) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
     use bytes::Bytes;
     use futures_util::stream;
@@ -650,6 +669,27 @@ fn file_body(
         },
     );
     StreamBody::new(stream).boxed()
+}
+
+struct CountingFileStreamPermit {
+    _permit: tokio::sync::OwnedSemaphorePermit,
+}
+
+impl CountingFileStreamPermit {
+    fn new(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
+        crate::ops::global_counters()
+            .active_file_streams
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        Self { _permit: permit }
+    }
+}
+
+impl Drop for CountingFileStreamPermit {
+    fn drop(&mut self) {
+        crate::ops::global_counters()
+            .active_file_streams
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
 }
 
 #[cfg(test)]
@@ -901,6 +941,34 @@ mod tests {
         let normalized = normalize_response(resp, &req).unwrap();
         assert_eq!(normalized.status().as_u16(), 304);
         assert!(normalized.body().unwrap().is_empty());
+    }
+
+    #[test]
+    fn normalize_304_preserves_only_matching_content_length() {
+        let matching = Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header("content-length", "5")
+            .unwrap()
+            .body(ResponseBody::Bytes(b"hello".to_vec()))
+            .unwrap();
+        let normalized = normalize_response(matching, &NormalizeRequest::new(false)).unwrap();
+        assert_eq!(
+            normalized
+                .headers()
+                .get_first("content-length")
+                .unwrap()
+                .as_str(),
+            "5"
+        );
+
+        let mismatched = Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header("content-length", "4")
+            .unwrap()
+            .body(ResponseBody::Bytes(b"hello".to_vec()))
+            .unwrap();
+        let normalized = normalize_response(mismatched, &NormalizeRequest::new(false)).unwrap();
+        assert!(!normalized.headers().contains("content-length"));
     }
 
     #[test]

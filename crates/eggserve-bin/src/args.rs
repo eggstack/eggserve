@@ -44,6 +44,8 @@ impl Args {
         let mut bind_port: u16 = 8000;
         let mut root: Option<PathBuf> = None;
         let mut port_from_flag = false;
+        let mut bind_seen = false;
+        let mut addr_seen = false;
         let mut public = false;
         let mut directory_listing = DirectoryListingPolicy::Disabled;
         let mut symlinks = SymlinkPolicy::Denied;
@@ -71,11 +73,16 @@ impl Args {
                     root = Some(PathBuf::from(dir));
                 }
                 "--bind" => {
+                    if addr_seen {
+                        return Err("--bind and --addr cannot be used together".to_string());
+                    }
+                    bind_seen = true;
                     i += 1;
                     let addr = args.get(i).ok_or("--bind requires an argument")?;
                     if let Ok(parsed) = addr.parse::<SocketAddr>() {
                         bind_ip = parsed.ip();
                         bind_port = parsed.port();
+                        port_from_flag = true;
                     } else if let Ok(ip) = addr.parse::<IpAddr>() {
                         bind_ip = ip;
                     } else {
@@ -94,6 +101,10 @@ impl Args {
                     port_from_flag = true;
                 }
                 "--addr" => {
+                    if bind_seen {
+                        return Err("--bind and --addr cannot be used together".to_string());
+                    }
+                    addr_seen = true;
                     i += 1;
                     let addr = args.get(i).ok_or("--addr requires an argument")?;
                     let parsed: SocketAddr = addr
@@ -209,6 +220,13 @@ impl Args {
                     let path = args.get(i).ok_or("--tls-key requires an argument")?;
                     tls_key = Some(PathBuf::from(path));
                 }
+                #[cfg(not(feature = "tls"))]
+                "--tls-cert" | "--tls-key" => {
+                    return Err(format!(
+                        "{} requires the CLI to be built with the 'tls' feature",
+                        args[i]
+                    ));
+                }
                 "--help" | "-h" => {
                     return Err("help".to_string());
                 }
@@ -230,8 +248,6 @@ impl Args {
                 if !port_from_flag {
                     bind_port = port;
                     port_from_flag = true;
-                } else if root.is_none() {
-                    root = Some(PathBuf::from(pos));
                 }
             } else if root.is_none() {
                 root = Some(PathBuf::from(pos));
@@ -241,10 +257,10 @@ impl Args {
         let root = root.unwrap_or_else(|| PathBuf::from("."));
 
         if !public && bind_ip.is_unspecified() {
-            return Err(
-                "binding to 0.0.0.0 requires --public to acknowledge public exposure intent"
-                    .to_string(),
-            );
+            return Err(format!(
+                "binding to {} requires --public to acknowledge public exposure intent",
+                bind_ip
+            ));
         }
 
         #[cfg(feature = "tls")]
@@ -323,40 +339,44 @@ impl Args {
 }
 
 pub fn print_usage() {
-    eprintln!("Usage: eggserve [OPTIONS] [PORT] [DIRECTORY]");
-    eprintln!();
-    eprintln!("eggserve: a hardened, Rust-backed static file server");
-    eprintln!();
-    eprintln!("Options:");
-    eprintln!("  --directory <DIR>         Root directory to serve (default: current directory)");
-    eprintln!("  --bind <HOST[:PORT]>      Bind host or host:port (default: 127.0.0.1)");
-    eprintln!("  --port <PORT>             Bind port (default: 8000)");
-    eprintln!("  --addr <HOST:PORT>        Full socket address (overrides --bind and --port)");
-    eprintln!(
-        "  --public                  Acknowledge public exposure intent (required for 0.0.0.0)"
+    println!("Usage: eggserve [OPTIONS] [PORT] [DIRECTORY]");
+    println!();
+    println!("eggserve: a hardened, Rust-backed static file server");
+    println!();
+    println!("Options:");
+    println!("  --directory <DIR>         Root directory to serve (default: current directory)");
+    println!("  --bind <HOST[:PORT]>      Bind host or host:port (default: 127.0.0.1)");
+    println!("  --port <PORT>             Bind port (default: 8000)");
+    println!("  --addr <HOST:PORT>        Full socket address (cannot combine with --bind)");
+    println!(
+        "  --public                  Acknowledge public exposure intent (required for 0.0.0.0 or ::)"
     );
-    eprintln!("  --directory-listing       Enable directory listing (disabled by default)");
-    eprintln!("  --follow-symlinks         Follow symlinks (denied by default)");
-    eprintln!("  --allow-dotfiles          Allow dotfile serving (denied by default)");
-    eprintln!("  --log-format <FORMAT>     Log format: text, json, none (default: text)");
-    eprintln!("  --quiet                   Suppress startup banner except errors");
-    eprintln!("  --max-connections <N>      Max concurrent connections (default: 64)");
-    eprintln!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
-    eprintln!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
-    eprintln!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
-    eprintln!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
-    eprintln!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
+    println!("  --directory-listing       Enable directory listing (disabled by default)");
+    println!("  --follow-symlinks         Follow symlinks (denied by default)");
+    println!("  --allow-dotfiles          Allow dotfile serving (denied by default)");
+    println!("  --log-format <FORMAT>     Log format: text, json, none (default: text)");
+    println!("  --quiet                   Suppress routine informational output (warn/error only)");
+    println!("  --max-connections <N>      Max concurrent connections (default: 64)");
+    println!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
+    println!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
+    println!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
+    println!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
+    println!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
     #[cfg(feature = "tls")]
     {
-        eprintln!("  --tls-cert <PATH>          PEM certificate chain (requires --tls-key)");
-        eprintln!("  --tls-key <PATH>           PEM private key (requires --tls-cert)");
+        println!("  --tls-cert <PATH>          PEM certificate chain (requires --tls-key)");
+        println!("  --tls-key <PATH>           PEM private key (requires --tls-cert)");
     }
-    eprintln!("  -h, --help                Print this help message");
-    eprintln!("  -V, --version             Print version");
-    eprintln!();
-    eprintln!("Positional arguments:");
-    eprintln!("  PORT                      Port to listen on (default: 8000)");
-    eprintln!("  DIRECTORY                 Directory to serve (default: current directory)");
+    println!("  -h, --help                Print this help message");
+    println!("  -V, --version             Print version");
+    println!();
+    println!("Positional arguments:");
+    println!("  PORT                      Port to listen on (default: 8000)");
+    println!("  DIRECTORY                 Directory to serve (default: current directory)");
+    println!();
+    println!("Port precedence: --port/--addr take precedence; a positional PORT overrides");
+    println!("--bind only when --bind specifies a host without a port. --bind and --addr");
+    println!("cannot be combined.");
 }
 
 pub fn print_version() {
@@ -456,6 +476,27 @@ mod tests {
         let args = parse(&["--bind", "192.168.1.1"]).unwrap();
         assert_eq!(args.bind.ip(), "192.168.1.1".parse::<IpAddr>().unwrap());
         assert_eq!(args.bind.port(), 8000);
+    }
+
+    #[test]
+    fn positional_port_does_not_override_bind_port() {
+        let args = parse(&["--bind", "127.0.0.1:3000", "9000"]).unwrap();
+        assert_eq!(args.bind, "127.0.0.1:3000".parse().unwrap());
+        assert_eq!(args.root, PathBuf::from("."));
+    }
+
+    #[test]
+    fn bind_and_addr_conflict_is_rejected() {
+        let result = parse(&["--bind", "127.0.0.1", "--addr", "127.0.0.1:9000"]);
+        assert!(result.unwrap_err().contains("cannot be used together"));
+    }
+
+    #[test]
+    fn ipv6_unspecified_bind_error_names_actual_address() {
+        let result = parse(&["--bind", "::"]);
+        let error = result.unwrap_err();
+        assert!(error.contains("::"));
+        assert!(error.contains("--public"));
     }
 
     #[test]

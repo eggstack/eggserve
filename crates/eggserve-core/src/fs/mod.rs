@@ -104,7 +104,7 @@ pub(crate) enum ResolvedResource {
     Denied(#[allow(dead_code)] PathRejection),
 }
 
-fn validate_child_component(child: &str) -> Result<(), PathRejection> {
+fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), PathRejection> {
     if child.is_empty() {
         return Err(PathRejection::Empty);
     }
@@ -122,6 +122,9 @@ fn validate_child_component(child: &str) -> Result<(), PathRejection> {
     }
     if cfg!(unix) && child.contains('\\') {
         return Err(PathRejection::SeparatorAmbiguity);
+    }
+    if dotfiles_denied && child.starts_with('.') {
+        return Err(PathRejection::DotfileDenied);
     }
     Ok(())
 }
@@ -159,7 +162,15 @@ impl PinnedRoot {
             ));
         }
         #[cfg(unix)]
-        let root_fd = fs::File::open(&canonical_root)?;
+        let root_fd: fs::File = rustix::fs::open(
+            &canonical_root,
+            rustix::fs::OFlags::RDONLY
+                | rustix::fs::OFlags::DIRECTORY
+                | rustix::fs::OFlags::CLOEXEC
+                | rustix::fs::OFlags::NOFOLLOW,
+            rustix::fs::Mode::empty(),
+        )?
+        .into();
         #[cfg(windows)]
         let root_handle = windows::open_root_handle(&canonical_root)?;
         Ok(Self {
@@ -257,7 +268,9 @@ impl<'a> RootGuard<'a> {
         child: &str,
         policy: &StaticPolicy,
     ) -> ResolvedResource {
-        if let Err(rejection) = validate_child_component(child) {
+        if let Err(rejection) =
+            validate_child_component(child, policy.dotfiles == DotfilePolicy::Denied)
+        {
             return ResolvedResource::Denied(rejection);
         }
         #[cfg(unix)]
@@ -700,13 +713,16 @@ mod tests {
 
     #[test]
     fn validate_child_empty_string() {
-        assert_eq!(validate_child_component(""), Err(PathRejection::Empty));
+        assert_eq!(
+            validate_child_component("", false),
+            Err(PathRejection::Empty)
+        );
     }
 
     #[test]
     fn validate_child_dot() {
         assert_eq!(
-            validate_child_component("."),
+            validate_child_component(".", false),
             Err(PathRejection::CurrentComponent)
         );
     }
@@ -714,7 +730,7 @@ mod tests {
     #[test]
     fn validate_child_dotdot() {
         assert_eq!(
-            validate_child_component(".."),
+            validate_child_component("..", false),
             Err(PathRejection::ParentComponent)
         );
     }
@@ -722,7 +738,7 @@ mod tests {
     #[test]
     fn validate_child_nul_byte() {
         assert_eq!(
-            validate_child_component("foo\0bar"),
+            validate_child_component("foo\0bar", false),
             Err(PathRejection::NulByte)
         );
     }
@@ -731,41 +747,49 @@ mod tests {
     #[test]
     fn validate_child_backslash_unix() {
         assert_eq!(
-            validate_child_component("foo\\bar"),
+            validate_child_component("foo\\bar", false),
             Err(PathRejection::SeparatorAmbiguity)
         );
     }
 
     #[test]
     fn validate_child_only_spaces() {
-        assert!(validate_child_component("   ").is_ok());
+        assert!(validate_child_component("   ", false).is_ok());
     }
 
     #[test]
     fn validate_child_long_name() {
         let long_name = "a".repeat(256);
-        assert!(validate_child_component(&long_name).is_ok());
+        assert!(validate_child_component(&long_name, false).is_ok());
     }
 
     #[test]
     fn validate_child_unicode() {
-        assert!(validate_child_component("日本語").is_ok());
-        assert!(validate_child_component("émojis_🚀").is_ok());
+        assert!(validate_child_component("日本語", false).is_ok());
+        assert!(validate_child_component("émojis_🚀", false).is_ok());
     }
 
     #[test]
     fn validate_child_nested_dotfile() {
-        assert!(validate_child_component(".hidden").is_ok());
+        assert!(validate_child_component(".hidden", false).is_ok());
         assert_eq!(
-            validate_child_component(".hidden/file"),
+            validate_child_component(".hidden/file", false),
             Err(PathRejection::SeparatorAmbiguity)
         );
     }
 
     #[test]
     fn validate_child_normal_name() {
-        assert!(validate_child_component("hello.txt").is_ok());
-        assert!(validate_child_component("subdir").is_ok());
+        assert!(validate_child_component("hello.txt", false).is_ok());
+        assert!(validate_child_component("subdir", false).is_ok());
+    }
+
+    #[test]
+    fn validate_child_dotfile_when_denied() {
+        assert_eq!(
+            validate_child_component(".hidden", true),
+            Err(PathRejection::DotfileDenied)
+        );
     }
 
     #[cfg(unix)]

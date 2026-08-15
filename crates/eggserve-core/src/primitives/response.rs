@@ -100,13 +100,16 @@ impl FileRange {
     }
 
     pub fn len(&self) -> u64 {
+        self.checked_len().expect("FileRange length overflow")
+    }
+
+    pub fn checked_len(&self) -> Option<u64> {
         if self.is_empty() {
-            return 0;
+            return Some(0);
         }
         self.end_inclusive
             .checked_sub(self.start)
             .and_then(|len| len.checked_add(1))
-            .unwrap_or(u64::MAX)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -223,6 +226,12 @@ mod tests {
         let range = FileRange::new(10, 9);
         assert!(range.is_empty());
         assert_eq!(range.len(), 0);
+    }
+
+    #[test]
+    fn overflowing_file_range_is_reported() {
+        let range = FileRange::new(0, u64::MAX);
+        assert_eq!(range.checked_len(), None);
     }
 
     #[test]

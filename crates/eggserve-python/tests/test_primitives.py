@@ -774,11 +774,13 @@ class TestValidateMethodExtended(unittest.TestCase):
 
 
 class TestValidateRequestBodyExtended(unittest.TestCase):
-    def test_empty_transfer_encoding_allowed(self):
-        validate_request_body(transfer_encoding="")
+    def test_empty_transfer_encoding_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(transfer_encoding="")
 
-    def test_whitespace_transfer_encoding_allowed(self):
-        validate_request_body(transfer_encoding="  ")
+    def test_whitespace_transfer_encoding_rejected(self):
+        with self.assertRaises(RequestValidationError):
+            validate_request_body(transfer_encoding="  ")
 
     def test_conflicting_headers_rejected(self):
         with self.assertRaises(RequestValidationError):
