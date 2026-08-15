@@ -101,8 +101,8 @@ provide a raw socket, or override runtime-owned framing. Static handler roots
 and policy flags are captured during server construction. Invalid TLS
 configuration fails before the native server reports readiness; key material
 is never logged. The platform qualifications in `docs/security-review.md` and
-the Windows trusted-content limitation recorded by Plan 129 continue to
-apply.
+the Windows trusted-content limitation in `docs/toolchain-support.md` continue
+to apply.
 
 The callback bridge (used only for subclass/custom handlers, not stock static
 serving) stages status, ordered headers, body ownership, and
@@ -111,11 +111,13 @@ file and byte bodies are one-shot; consumed or malformed structural bodies are
 errors rather than empty-body fallbacks. Handler failures are logged with
 fixed categories only. MIME hooks provide metadata to the native responder;
 they never perform Python path translation, `stat`, open, or reopen operations.
-Installed-wheel and cross-platform product evidence is maintained in
-`plans/129-platform-and-product-qualification.md`; the manual workflow is
-separate from routine CI. Windows is functionally qualified, but the
-trusted-content caveat remains because two open-descendant root-rename cases
-are skipped under NTFS path-rename semantics.
+The [Python compatibility contract](../docs/python-http-server-compatibility.md)
+owns the source-compatibility boundary. Installed-wheel checks run in routine
+Python CI; cross-platform qualification is documented in
+[`toolchain-support.md`](../docs/toolchain-support.md). Windows is functionally
+qualified for the executed classes but remains trusted/local-content only
+because two open-descendant root-rename cases are rejected by NTFS path-rename
+semantics.
 
 ## Verification
 

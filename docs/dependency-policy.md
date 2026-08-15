@@ -45,13 +45,24 @@ The following dependency categories are approved for initial development:
 
 ## Notes
 
-- The first milestone (plan 000) added initial dependencies
-- Plan 001 adds HTTP substrate dependencies (`tokio`, `hyper`, `hyper-util`, `http-body-util`, `bytes`) to `eggserve-core`. The bin crate delegates to core and only declares `tokio` and `eggserve-core` directly. Manual argument parsing was adopted instead of `clap`.
-- Plan 003 adds streaming/date/compile-time-map dependencies (`futures-util`, `httpdate`, `phf`) for file serving, Last-Modified headers, and MIME type detection.
-- Plan 009 adds optional TLS dependencies (`rustls`, `tokio-rustls`, `rustls-pemfile`) behind the `tls` feature flag in `eggserve-bin`. The default build remains TLS-free.
-- Plan 062 adds `windows-sys` as an optional Windows-only dependency behind a feature gate for handle-relative filesystem operations (reparse detection, file identity, directory enumeration). The dependency is feature-gated and only compiles on Windows targets.
-- Plan 105 narrows Tokio feature ownership: `eggserve-core` enables only `macros`, `net`, `time`, `fs`, `io-util`, `sync` (no `signal`, no `rt-multi-thread` in default). The CLI runtime uses current-thread (`Builder::new_current_thread()`). A `dist` profile is added for size-optimized release builds.
-- Plan 113 removed the HTTP client subsystem (`client`/`client-tls` features, `primitives/client/`, Python `client.rs`) and the deprecated pre-runtime service adapter. The product is now a hardened static server with reusable HTTP/security primitives.
+- The dependency graph is intentionally small: `eggserve-core` owns the HTTP,
+  runtime, filesystem, and MIME capabilities; the CLI and Python crates add
+  only their frontend/runtime requirements.
+- `tokio`, `hyper`, `hyper-util`, `http-body-util`, and `bytes` provide the
+  HTTP/1 transport and body pipeline. Manual CLI parsing avoids a broad CLI
+  framework dependency.
+- `futures-util`, `httpdate`, and `phf` support streaming, HTTP dates, and the
+  compile-time MIME map.
+- TLS dependencies are optional and feature-gated. Windows filesystem support
+  is likewise target-gated; platform-only dependencies do not enter the
+  default Unix graph.
+- Tokio features are owned narrowly: the core library does not enable signal
+  handling or a multi-thread runtime; the CLI owns signals and uses a
+  current-thread runtime, while Python enables a bounded multi-thread runtime
+  for GIL scheduling.
+- The default product is a hardened static server with reusable HTTP/security
+  primitives; unused client and application-framework dependencies are not
+  part of the default graph.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run manually during release preparation (see `scripts/install-cargo-tools.sh`); they are not part of routine CI
 

@@ -78,12 +78,12 @@ directory.
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. Pinned root identity. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Handle-relative confinement and the Plan 129 manual qualification pass are complete for the executed classes. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation; Windows remains trusted/local-content only. |
+| Windows x86_64 | supported-functional | Handle-relative confinement and manual qualification are complete for the executed classes. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation; Windows remains trusted/local-content only. |
 
 ### Classification Definitions
 
 - **supported-hardened**: Full security hardening is active. Descriptor-relative traversal on Unix provides TOCTOU-resistant symlink denial. The serving root is pinned at startup (`PinnedRoot`), so renaming or replacing the configured pathname does not redirect the running server. These platforms are suitable for serving untrusted content with safe defaults.
-- **supported-functional**: The server is functional and manually qualified for the executed platform classes, but the platform is not promoted to hardened public-content status. Windows has handle-relative confinement; see Plan 129 for the two skipped open-descendant root-rename cases. These platforms are suitable only for trusted local content.
+- **supported-functional**: The server is functional and manually qualified for the executed platform classes, but the platform is not promoted to hardened public-content status. Windows has handle-relative confinement, with two skipped open-descendant root-rename cases caused by NTFS path-rename semantics. These platforms are suitable only for trusted local content.
 
 See [security-policy.md](security-policy.md) and [non-goals.md](non-goals.md) for the full Windows hardening statement and deferred scope.
 

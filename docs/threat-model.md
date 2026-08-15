@@ -55,7 +55,7 @@ An attacker who sends HTTP requests that violate the HTTP/1.1 grammar or framing
 
 ### Request-smuggling attacker operating through a reverse proxy
 
-An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud load balancer) with the intent that the proxy and eggserve disagree on request boundaries. eggserve's hardened framing checks (TE+CL rejection, duplicate Content-Length rejection, wire-level validation) ensure that ambiguous requests are rejected at the origin, preventing desynchronization. Plan 089 proxy desynchronization corpus validates no frontend/backend disagreement through Caddy and nginx. This attacker is in scope because reverse-proxy deployment is the preferred production profile.
+An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud load balancer) with the intent that the proxy and EggServe disagree on request boundaries. EggServe's hardened framing checks (TE+CL rejection, duplicate Content-Length rejection, wire-level validation) ensure that ambiguous requests are rejected at the origin, preventing desynchronization. The proxy desynchronization corpus exercises Caddy and nginx. This attacker is in scope because reverse-proxy deployment is the preferred production profile.
 
 ### Filesystem namespace attacker able to mutate content within or adjacent to the root
 
@@ -69,7 +69,7 @@ On Unix with safe defaults, descriptor-relative traversal (`statat` + `openat` w
 
 ### Windows reparse and namespace attacker
 
-An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the functional Windows profile, all reparse-point components are denied (tag-independent denial). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback. The Plan 084/086 adversarial suites cover reparse-point denial, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing, resource stability, and installed artifact parity. Plan 129 records manual execution; two open-descendant root-rename cases are skipped because NTFS rejects that external path operation. Directory listing remains disabled by default. Windows remains functional-only for trusted/local content.
+An attacker who can place reparse points (NTFS junctions, symbolic links, mount points) within or adjacent to the serving root on Windows. Under the functional Windows profile, all reparse-point components are denied (tag-independent denial). Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle, eliminating the path-based fallback. The adversarial suites cover reparse-point denial, namespace normalization, concurrent mutation races, root identity, file validators, ACL/sharing, resource stability, and installed artifact parity. Two open-descendant root-rename cases are skipped because NTFS rejects that external path operation. Directory listing remains disabled by default. Windows remains functional-only for trusted/local content.
 
 ### Resource-exhaustion attacker
 
@@ -130,12 +130,12 @@ Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge 
 
 - supported Windows release on a local NTFS volume;
 - pinned root directory handle;
-- component-by-component handle-relative traversal including child resolution (Plan 084);
+- component-by-component handle-relative traversal including child resolution;
 - all reparse points denied under the hardened profile;
 - final files and directories served from already validated handles;
 - loopback or private-interface origin behind a mature edge.
 
-Windows handle-relative child resolution is implemented (Plan 084). Handle-relative directory enumeration is implemented (Plan 085). The adversarial qualification suites are established in Plan 086 and manually exercised under Plan 129. Two open-descendant root-rename cases are skipped due to NTFS path-rename semantics; Windows remains functional-only for trusted/local content.
+Windows handle-relative child resolution and directory enumeration are implemented. The adversarial qualification suites are manually exercised. Two open-descendant root-rename cases are skipped due to NTFS path-rename semantics; Windows remains functional-only for trusted/local content.
 
 ### windows-direct-https
 
@@ -185,7 +185,7 @@ eggserve terminates TLS directly. Certificate management is manual — the opera
 
 ### Windows profiles
 
-Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle. The Plan 086 adversarial suite is manually exercised under Plan 129. Directory listing remains disabled by default and outside the hardened production profile. Because two open-descendant root-rename cases are skipped by NTFS path-rename semantics, Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows.
+Parser-level protections reject Windows reserved names, ADS syntax, drive prefixes, and backslash in path components. Handle-relative confinement is implemented including child resolution and handle-relative directory enumeration using `NtQueryDirectoryFile` on the retained directory handle. The adversarial suite is manually exercised. Directory listing remains disabled by default and outside the hardened production profile. Because two open-descendant root-rename cases are skipped by NTFS path-rename semantics, Windows is explicitly a trusted/local-use platform — do not use with untrusted mutable public content on Windows.
 
 ## Defensive layers
 

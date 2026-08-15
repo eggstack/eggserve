@@ -7,7 +7,12 @@ description: Use when working on eggserve code, plans, docs, or architecture. Co
 
 ## Project identity
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction.
+EggServe is a hardened, HTTP-correct static file server and reusable Rust
+HTTP/static-serving library, with a Python `http.server`-shaped facade. The
+CLI is static-only; the Python facade also supports bounded synchronous custom
+handlers; and `eggserve-core::server` exposes an experimental, low-level Rust
+service boundary. EggServe is not an application framework, ASGI/WSGI runtime,
+proxy, or general-purpose `socketserver` replacement.
 
 **Not** a general web server, framework, ASGI/WSGI runtime, or Granian replacement.
 
@@ -19,10 +24,8 @@ Three crates:
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
-`plans/` (000–130 historical/implementation records; Plans 112–118 form the
-consolidation roadmap; Plans 125–127 close Windows support truthfulness, the
-native fast path, and the manual release workflow; Plan 129 records
-platform/product qualification; Plan 130 records repository cleanup),
+`plans/` (historical design/implementation records, currently through Plan
+133),
 `examples/`, `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
 plus package/release checks).
 
@@ -32,6 +35,10 @@ plus package/release checks).
 2. **No serving outside root** — path traversal and symlink escape denied at library level. On Unix with safe defaults, descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`.
 3. **No broad dependencies** — every dependency must have an explicit purpose. See `docs/dependency-policy.md`.
 4. **Plan-driven development** — every change must be traced to a plan in `plans/`. No ad-hoc feature additions.
+
+Keep detailed Python deviations in `docs/python-http-server-compatibility.md`
+and detailed Rust ownership in `architecture/runtime.md`; plans record change
+history and are not prerequisites for understanding current behavior.
 
 ## CI validation sequence
 
@@ -59,7 +66,7 @@ It exercises the installed wheel on macOS arm64 and the Windows adversarial
 filesystem suites. The Windows suite explicitly skips the two cases where
 NTFS rejects an external path-based root rename while a descendant handle is
 open. Keep Windows support language aligned with the evidence in
-`plans/129-platform-and-product-qualification.md`.
+`docs/toolchain-support.md` and `docs/security-review.md`.
 
 Or use the local verification script:
 
@@ -88,7 +95,7 @@ bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
 - **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
-- **Plan status** — Plans 112–118 formed the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure). Plan 125 closes Windows qualification, support truthfulness, and final closure. Plans 126–127 are narrow post-closure corrective passes for the native fast path and the manual release workflow. Plan 129 records platform/product qualification evidence. Production servers use the shared `RuntimeState` admission pool.
+- **Plan status** — Plans are historical change-trace records. The current product and compatibility contract is owned by `README.md`, `docs/python-http-server-compatibility.md`, and the relevant architecture pages. Production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
@@ -133,12 +140,12 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. Compatibility `""` binds normalize to `0.0.0.0`, literal wildcard binds are explicit façade opt-ins, and native activation publishes structured actual addresses. `eggserve.lowlevel` contains advanced primitives and `eggserve.subprocess` contains optional CLI lifecycle helpers. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory"}`. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N).
+- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. The exact fast-path eligibility and intentional incompatibility contract is maintained in `docs/python-http-server-compatibility.md`.
 - **Python wheel support** — CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS` in both `Limits::validate()` and `RuntimeConfigBuilder::build()`. Values above this bound are rejected with a controlled error.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
 - **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
-- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functionally qualified, but remains trusted/local-content only because Plan 129 records two skipped open-descendant root-rename cases.
+- **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functionally qualified, but remains trusted/local-content only because two open-descendant root-rename cases are rejected by NTFS path-rename semantics; see `docs/toolchain-support.md`.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.

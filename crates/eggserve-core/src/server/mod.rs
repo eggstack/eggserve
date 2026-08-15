@@ -87,7 +87,7 @@ use crate::server::lifecycle::Lifecycle;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
 /// use eggserve_core::server::{Server, RuntimeConfig, service_fn, Request};
 /// use eggserve_core::primitives::canonical::{Response, StatusCode, ResponseBody};
 ///
@@ -109,7 +109,7 @@ use crate::server::lifecycle::Lifecycle;
 ///
 /// // ... serve requests ...
 ///
-/// handle.shutdown().await?;
+/// handle.shutdown();
 /// handle.wait().await?;
 /// # Ok(())
 /// # }
@@ -179,13 +179,15 @@ impl Server {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use eggserve_core::server::{Server, RuntimeConfig, StaticService};
+/// ```no_run
+/// use eggserve_core::server::{RuntimeConfig, Server};
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// let server = Server::builder()
 ///     .runtime(RuntimeConfig::default())
-///     .static_service("/var/www")
-///     .build()?;
+///     .static_service("/var/www")?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug)]
 #[must_use]

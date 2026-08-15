@@ -308,11 +308,16 @@ impl fmt::Debug for Response {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```no_run
+/// use eggserve_core::primitives::{Response, ResponseBody, StatusCode};
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 /// let response = Response::builder()
 ///     .status(StatusCode::OK)
 ///     .header("content-type", "text/plain")?
 ///     .body(ResponseBody::Bytes(b"ok".to_vec()))?;
+/// # let _ = response;
+/// # Ok(())
+/// # }
 /// ```
 pub struct ResponseBuilder {
     status: Option<StatusCode>,

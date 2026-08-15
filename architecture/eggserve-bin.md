@@ -1,6 +1,6 @@
 # eggserve-bin — Deep Dive
 
-The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, accept loop, connection management, signal handling, and graceful shutdown. Contains optional TLS support via rustls. Uses a current-thread Tokio runtime (Plan 105).
+The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, accept loop, connection management, signal handling, and graceful shutdown. Contains optional TLS support via rustls. Uses a current-thread Tokio runtime.
 
 ## Module Map
 

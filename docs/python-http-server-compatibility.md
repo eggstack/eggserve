@@ -1,49 +1,39 @@
-# Python `http.server` compatibility
+# Python `http.server` compatibility contract
 
-Custom-handler startup is rootless: only `SimpleHTTPRequestHandler` creates
-static filesystem state. Request-body policy is applied to the actual method,
-and incomplete streamed bodies close the HTTP connection before another
-request can run.
+EggServe provides a narrow, bounded `http.server`-shaped facade over a
+Rust-owned listener, HTTP/1 parser, response validator, and lifecycle. It is a
+static-server compatibility layer plus a synchronous custom-handler boundary,
+not a general `socketserver` implementation or application framework.
 
-eggserve provides a narrow `http.server`-shaped API over the Rust-owned
-listener, Hyper parser, response validator, and shutdown machinery:
+## Product comparison
 
-```python
-from eggserve.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+| Capability | `python -m http.server` | EggServe CLI | EggServe Python | EggServe Rust |
+|---|---|---|---|---|
+| Static GET/HEAD | Yes | Yes | Yes | Yes |
+| Secure loopback default | No; ordinary invocation binds broadly | Yes | Use the documented loopback tuple; empty host is explicit wildcard intent | Configurable; safe defaults are loopback |
+| Directory listing default | Enabled | Disabled | Disabled | Disabled by policy |
+| Symlink following default | Follows | Denied | Denied | Denied by policy |
+| Dotfiles default | Served | Denied | Denied | Denied by policy |
+| Ranges/conditional requests | Limited/version-dependent | Supported contract | Supported on static path | Supported on static path |
+| Custom handler responses | Subclass handlers | No CLI handler API | Bounded synchronous `BaseHTTPRequestHandler` | `Service` boundary |
+| Raw socket access | Available through socketserver internals | No | No | Listener/runtime APIs only |
+| `translate_path()` | Available | N/A | Intentionally unavailable | Hardened resolver primitives |
+| Raw `list_directory()` path | Available to handler | N/A | Intentionally unavailable | N/A |
+| ASGI/WSGI | No | No | No | No |
 
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        body = b"ok\n"
-        self.send_response(200)
-        self.send_header("Content-Type", "text/plain")
-        self.send_header("Content-Length", str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+The matrix describes product boundaries rather than Python-version trivia. The
+[library capability matrix](library-capability-matrix.md) has the more detailed
+Rust/Python API inventory.
 
-with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
-    server.serve_forever()
-```
+## Supported facade
 
-The supported classes are `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`,
-`ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and
-`SimpleHTTPRequestHandler`. For stock `SimpleHTTPRequestHandler` with default
-settings, requests are served directly by the Rust static service without Python
-dispatch. Subclasses use bounded Rust-managed callback concurrency and do
-not create one Python thread per connection.
+The supported classes are exactly:
 
-`rfile` and `wfile` are bounded in-memory facades. Request headers are exposed
-as an ordered, duplicate-preserving view (`get`, `get_all`, `items`, and
-membership). Response headers are validated and remain ordered. The runtime
-owns connection persistence, `Date`, `Content-Length`, and all other framing;
-handlers cannot supply `Connection`, `Keep-Alive`, `Upgrade`, or
-`Transfer-Encoding`.
+- `HTTPServer` and `ThreadingHTTPServer`;
+- `HTTPSServer` and `ThreadingHTTPSServer`;
+- `BaseHTTPRequestHandler` and `SimpleHTTPRequestHandler`.
 
-The default ceilings are 1 MiB for request bodies and 16 MiB for handler
-responses. Override them with `max_request_body_bytes` and
-`max_handler_response_bytes`. Handlers are synchronous; coroutine returns,
-uncaught exceptions, invalid responses, and oversized bodies fail closed.
-
-Static usage follows the familiar shape:
+The canonical static pattern is:
 
 ```python
 from functools import partial
@@ -54,59 +44,86 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
     server.serve_forever()
 ```
 
-`directory=None` captures the current directory during server construction.
-Roots are validated and pinned before serving. `index_pages` defaults to
-`("index.html", "index.htm")`; listing is opt-in with `directory_listing=True`.
-`follow_symlinks` and `allow_dotfiles` are explicit opt-ins. Policies are
-captured at startup. For stock `SimpleHTTPRequestHandler` with default settings,
-the entire request path is fully native — no Python callback is invoked.
-Subclasses and non-default settings fall back to the Python callback path.
-GET and HEAD preserve native conditional and single-range
-semantics, while file bodies remain Rust-owned streams.
+Stock `SimpleHTTPRequestHandler` with default settings uses the native static
+fast path. The exact eligibility contract is the bare class, or a
+`functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, whose
+`.args` is empty, and whose keywords are limited to `directory`. Subclasses,
+extra partial arguments/keywords, and non-default static settings use the
+bounded Python callback path.
 
-Unlike the stdlib handler, `translate_path()` is intentionally unavailable,
-`list_directory()` never receives a raw host path, unknown MIME types use
-`application/octet-stream`, and static GET/HEAD request bodies are rejected.
-Backslashes, traversal, dotfiles, and denied symlinks remain protected by the
-native resolver.
+Both paths use Rust for socket ownership, request parsing, framing, timeouts,
+path confinement, and file streaming. The callback path is synchronous;
+`ThreadingHTTPServer(max_workers=N)` provides bounded callback concurrency.
+When the native fast path is active, `HTTPServer`/`HTTPSServer` are effectively
+limited to one connection and `ThreadingHTTPServer(N)`/
+`ThreadingHTTPSServer(N)` to `N` through native admission control.
+
+## Source-familiar behavior
+
+The facade supports the compatibility behaviors that are useful for porting a
+small `http.server` handler:
+
+- stdlib-shaped `(host, port)` tuples, including port `0` publication after
+  native readiness;
+- `serve_forever()`, `shutdown()`, context-manager cleanup, and the bounded
+  lifecycle methods exposed by the facade;
+- `send_response()`, `send_header()`, `end_headers()`, and bounded `rfile`/
+  `wfile` adapters;
+- duplicate-preserving request-header access through `get()`, `get_all()`,
+  `items()`, and membership;
+- `SimpleHTTPRequestHandler(directory=...)`, `GET`/`HEAD` static semantics,
+  ranges, conditional requests, index selection, and bounded `guess_type()` /
+  `extensions_map` metadata hooks;
+- rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with PEM paths and
+  HTTP/1.1 ALPN only.
+
+Static roots are validated and pinned at construction. `rfile` and `wfile` are
+bounded in-memory facades: the default request-body ceiling is 1 MiB and the
+default handler-response ceiling is 16 MiB. Handlers do not receive raw
+sockets, and Rust owns `Date`, `Content-Length`, connection persistence, and
+hop-by-hop framing headers.
+
+## Intentional incompatibilities
+
+These behaviors are unavailable by design, not pending work:
+
+| Unavailable behavior | Boundary |
+|---|---|
+| Raw socket ownership or `fileno()` | Rust transport ownership |
+| Exact `socketserver` internals | Compatibility scope control |
+| One-request `handle_request()` mode | Runtime lifecycle is event-driven |
+| Authoritative `translate_path()` or raw host paths in `list_directory()` | Security confinement |
+| Python thread-per-connection behavior | Bounded native/callback admission |
+| Arbitrary `ssl.SSLContext`, SNI multi-cert selection, or client certificates | Rustls facade constraints |
+| Async handler coroutines | Synchronous handler contract |
+| Unbounded streaming Python response bodies | Bounded response policy |
+
+The facade also does not expose routing, middleware, proxying, decompression,
+cookies, retries, or ASGI/WSGI adaptation.
+
+## Address and lifecycle details
 
 `client_address` and `server_address` are `(host, port)` tuples, including for
-IPv6 (the host is unbracketed). Empty-host, localhost, IPv4, and supported
-IPv6 constructor forms are resolved by the native listener. Port `0` is
-published after native activation. In the compatibility façade only, `""` is
-normalized to the explicit IPv4 wildcard `"0.0.0.0"`; literal `0.0.0.0` and
-`::` are also accepted. This does not change the CLI rule that wildcard binds
-require `--public`. `server_bind()`/`server_activate()` are a bounded lifecycle
-façade; raw socket ownership and exact `socketserver` internals are intentionally
-not exposed.
+IPv6 (the host is unbracketed). In this facade only, `""` is normalized to the
+explicit IPv4 wildcard `"0.0.0.0"`; literal `0.0.0.0` and `::` are also
+accepted. This does not change the CLI rule that wildcard binds require
+`--public`. Port `0` is not published until native activation has completed.
 
-`SimpleHTTPRequestHandler.extensions_map` and subclass `guess_type()`
-overrides affect the Content-Type of the already-resolved native response.
-The selected value is retained for GET, HEAD, range, and conditional metadata.
-Values must be valid response metadata; invalid strings or non-string results
-fail closed with a generic 500. Unknown suffixes remain
-`application/octet-stream`; static responses retain
-`X-Content-Type-Options: nosniff`. `extensions_map` applies to native-selected
-index files. A subclass `guess_type()` override is promised for direct request
-targets with a suffix, but not for an index filename Python never resolves.
-File-stream limits apply to built-in and compatibility static responses.
+`poll_interval` is accepted for source compatibility but shutdown is
+event-driven. `server_bind()` and `server_activate()` are bounded lifecycle
+facades; they do not expose the native listener.
 
-Handler responses are converted atomically at the Rust callback boundary. The
-supported native `Response`/`BodySource` forms and the internal handler
-response form must provide an explicit body; unknown body kinds, failed
-`read_all()` calls, non-byte results, consumed one-shot bodies, invalid headers,
-and mismatched `Content-Length` values become a generic 500. Deliberate empty
-responses remain valid. Handler exception and response-validation logs contain
-fixed failure categories, not exception text, response reprs, or raw header
-values.
+## Failure and security behavior
 
-`poll_interval` is accepted for source compatibility but the runtime uses
-event-driven shutdown. Raw sockets, `fileno()`, exact one-request
-`handle_request()`, socketserver internals, and async handlers are outside
-this foundation. TLS uses rustls and accepts only HTTP/1.1 ALPN; it does not
-accept `ssl.SSLContext`, expose wrapped sockets, select multiple certificates,
-or manage certificates. Static file compatibility is defined separately in the
-project documentation.
+Malformed handler responses fail closed with a generic 500: invalid status or
+headers, forbidden framing headers, body-read failures, one-shot body reuse,
+non-byte bodies, and `Content-Length` mismatches are not treated as successful
+empty responses. Diagnostics use fixed categories and do not log untrusted
+exception text or response data.
 
-Low-level Rust-backed primitives remain available only through the explicitly
-advanced `eggserve.lowlevel` namespace.
+Static resolution rejects traversal, backslashes, dotfiles, and denied
+symlinks before a host path can be reopened. Unknown MIME types use
+`application/octet-stream`, and static responses retain `nosniff`.
+
+For the full Python surface see [python-api.md](python-api.md). For the
+runtime ownership model see [architecture/runtime.md](../architecture/runtime.md).

@@ -1,6 +1,11 @@
 # Architecture Overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction. It competes with `python -m http.server` for local development use cases — not with nginx, Caddy, or Uvicorn.
+EggServe is a hardened, HTTP-correct static file server and reusable Rust
+HTTP/static-serving library, with a Python `http.server`-shaped facade. The
+CLI is static-only; the Python facade adds bounded synchronous custom handlers;
+the Rust crate exposes a low-level, embeddable service boundary. EggServe is
+not an application framework, ASGI/WSGI runtime, proxy, or general-purpose
+`socketserver` replacement.
 
 **This document is the entry point for understanding the codebase.** Use the [Deep Dive Index](#deep-dive-index) to jump to any subsystem.
 
@@ -9,13 +14,18 @@ eggserve is a security-oriented, Rust-backed static file server with safe-by-def
 - **A hardened static file server** — serves files from a directory with security guarantees
 - **A CLI tool** — `eggserve` binary with `--directory`, `--bind`, `--port`, TLS, and policy flags
 - **A Python package** — `eggserve` wheel with `python -m eggserve` and `http.server`-compatible API
-- **A reusable Rust library** — `eggserve-core` for embedding path confinement and policy enforcement
+- **A reusable Rust library** — `eggserve-core::primitives` is the public
+  security/HTTP facade and `eggserve-core::server` is the experimental
+  transport-owning runtime and `Service` boundary
 
 ## What eggserve Is Not
 
 - Not an ASGI/WSGI server, CGI executor, or web framework
 - Not a reverse proxy, ACME client, or plugin host
 - Not a file upload handler, auth system, or template engine
+
+The user-facing Python compatibility matrix is maintained in
+[`docs/python-http-server-compatibility.md`](../docs/python-http-server-compatibility.md).
 
 ## Core Invariants
 
@@ -74,8 +84,8 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Topic | Status |
 |----------|-------|--------|
-| [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted (Plans 084–086) |
-| [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted (Plan 078) |
+| [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted |
+| [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted |
 
 ---
 
@@ -93,7 +103,7 @@ eggserve/
 ├── plans/                      # historical design and implementation plans
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (11 targets)
-├── benchmarks/                 # benchmark baselines (Plan 088)
+├── benchmarks/                 # benchmark baselines
 ├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
 ├── scripts/                    # small verification hierarchy plus package/release checks
 ├── release/                    # release artifacts and closure reports
@@ -176,7 +186,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | ADR | Topic | Status |
 |-----|-------|--------|
 | [adr-002](adr-002-windows-handle-relative-filesystem.md) | Windows handle-relative filesystem confinement | Accepted (Plans 084–086) |
-| [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted (Plan 078) |
+| [adr-003](adr-003-custom-service-ownership.md) | Custom-service ownership model | Accepted |
 
 ---
 
@@ -339,7 +349,7 @@ Five distinct error layers, each scoped to a specific subsystem:
 |----------|--------|----------------|
 | **Linux** (x86_64, aarch64) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
 | **macOS** (x86_64, aarch64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
-| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution (Plan 084), directory enumeration (Plan 085), and the manually executed Plan 086 adversarial suite. Plan 129 records the qualification evidence and two explicitly skipped open-descendant root-rename cases required by NTFS path-rename semantics. |
+| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution, reparse-point denial, and directory enumeration are qualified for the executed classes. Two open-descendant root-rename cases remain skipped because NTFS rejects that external path operation; keep Windows for trusted/local content. |
 
 ---
 
@@ -370,27 +380,7 @@ Release is a manual crates.io procedure. CI is a regression screen, not release 
 3. Manual crates.io publish from maintainer-controlled environment
 4. GitHub Actions never publishes
 
-See [docs/release-process.md](../docs/release-process.md) for the full procedure (Plan 091).
+See [docs/release-process.md](../docs/release-process.md) for the full procedure.
 
----
-
-## Plan History
-
-Plans 000–130 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plans 112–118 form the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure); Plan 129 records platform/product qualification evidence; Plan 130 records repository cleanup and verification simplification. Major feature tracks:
-
-| Plans | Theme | Key Outcomes |
-|-------|-------|--------------|
-| 000–009 | Foundation & core | Security contract, path confinement, static serving MVP, TLS, Python packaging |
-| 010–022 | Python API & primitives | PyO3 bindings, `SecureRoot`, HTTP validation, response planning, invariant tests |
-| 023–030 | HTTP primitives production | Correctness primitives, body streaming, client substrate, server primitives |
-| 031–046 | Release infrastructure | Evidence framework, CI gates, machine-readable criteria (simplified in 091) |
-| 047–059 | Canonical HTTP types & runtime | `Method`, `StatusCode`, `HeaderBlock`, `Response`, runtime/service boundary, request body |
-| 060–073 | Production internet & Windows | Windows handle-relative, internet deployment, reverse-proxy qualification, soak testing |
-| 074–090 | Corrective passes | Runtime timeouts, Windows unicode, configuration authority, structured logging, performance |
-| 091–093 | CI simplification | Reduced to proportionate two-job CI, manual release |
-| 094–101 | `http.server` compatibility | RFC 9110 corrections, `SimpleHTTPRequestHandler`, `HTTPSServer`, final verification |
-| 102–108 | Runtime correctness & size | Generic runtime boundary, product-surface freeze, binary-size reduction, streaming closure |
-| 109 | Final admission & wire verification | Verified complete — admission ownership, corrective pass |
-| 110–111 | Documentation polish | Final documentation reproduction and closure polish |
-| 112–118 | Consolidation roadmap | Product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure |
-| 119–122 | Python wheel deduplication | CLI deduplication, artifact-size closure |
+Historical design records remain in [`plans/`](../plans/); they are not
+required to understand the current runtime or security contract.

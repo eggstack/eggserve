@@ -152,7 +152,7 @@ One pinned root per static service. One request-scoped `RootGuard` per static re
 6. **Pre-opened handles** — `ResolvedFile` carries a `File` handle. The file is never re-opened by path.
 7. **Per-request isolation** — Each request gets its own `RootGuard` (borrowing the pinned root). The resolver duplicates the root fd on Unix; on Windows, the retained root handle is used directly for ordinary traversal.
 
-## Resolution-Path Audit (Plan 034 Workstream A)
+## Resolution-Path Audit
 
 This section traces every path from HTTP request target to response body, proving that no serving path reopens a reconstructed filesystem path after secure resolution.
 
@@ -203,7 +203,7 @@ Evidence:
 - Fallback: `fs/mod.rs:249-250` checks `!meta.is_file()` → `NotFound`
 - FIFOs, sockets, block/char devices all rejected. Symlinks caught by `statat` pre-check (Unix) or `FILE_ATTRIBUTE_REPARSE_POINT` check (Windows).
 
-## Pathname-Bearing Type Inventory (Plan 061 Track A)
+## Pathname-Bearing Type Inventory
 
 Every type that carries path data is classified by its role in the serving pipeline:
 

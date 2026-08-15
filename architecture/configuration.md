@@ -1,7 +1,7 @@
 # Configuration Inventory and Ownership Model
 
-Plan 080, Tracks A and B. Single source of truth for every operator-facing
-configuration field, its owner, enforcement path, and cross-frontend mapping.
+Single source of truth for every operator-facing configuration field, its
+owner, enforcement path, and cross-frontend mapping.
 
 ## Ownership split
 

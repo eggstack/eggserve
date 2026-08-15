@@ -1,5 +1,9 @@
 # Library Capability Matrix
 
+This is the technical inventory for maintainers and embedders. The concise
+user-facing comparison of `python -m http.server`, the CLI, Python, and Rust
+is maintained in [python-http-server-compatibility.md](python-http-server-compatibility.md).
+
 This document maps every eggserve capability across all surfaces and indicates
 its status using a constrained vocabulary.
 
@@ -89,7 +93,7 @@ platform-limited as noted.
 | Linux aarch64 | supported-hardened | Same as Linux x86_64. |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
-| Windows x86_64 | supported-functional | Handle-relative confinement implemented (Plans 084–086) and manually qualified in Plan 129: directory-handle retention, child resolution, reparse denial, and directory enumeration pass. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation. |
+| Windows x86_64 | supported-functional | Handle-relative confinement and manual qualification cover directory-handle retention, child resolution, reparse denial, and directory enumeration. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation. |
 
 ## Notes
 
@@ -102,7 +106,7 @@ platform-limited as noted.
   descriptor-relative hardening guarantee.
 
 - **Windows handle-relative confinement** is implemented and manually
-  qualified (Plans 084–086 and 129). Two open-descendant root-rename cases are
+  qualified for the executed classes. Two open-descendant root-rename cases are
   skipped due to NTFS path-rename semantics. Windows remains functional-only;
   do not use it with untrusted public content.
 

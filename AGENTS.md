@@ -2,7 +2,13 @@
 
 ## Project overview
 
-eggserve is a security-oriented, Rust-backed static file server with safe-by-default behavior, intended as a hardened replacement for `python -m http.server`. It ships as a CLI binary and a Python-packaged tool, backed by a Rust library for path confinement, policy enforcement, and response construction.
+EggServe is a hardened, HTTP-correct static file server and reusable Rust
+HTTP/static-serving library, with a Python `http.server`-shaped facade. The
+CLI is static-only; the Python facade also supports bounded synchronous custom
+handlers; and `eggserve-core::server` exposes an experimental, low-level Rust
+service boundary. EggServe is not an application framework, ASGI/WSGI runtime,
+proxy, or general-purpose `socketserver` replacement. The user-facing Python
+compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
 
@@ -106,7 +112,7 @@ Routine CI is a small regression screen, not release certification:
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
 - **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary). `python -m eggserve` uses the same in-process native CLI entry point.
-- **Windows**: functionally qualified with handle-relative child resolution and directory enumeration. Plan 129 records the manual Windows qualification evidence; two open-descendant root-rename cases are explicitly skipped because NTFS rejects that external path operation, so Windows remains a trusted/local-content platform.
+- **Windows**: functionally qualified for the executed handle-relative child-resolution and directory-enumeration classes. Two open-descendant root-rename cases are explicitly skipped because NTFS rejects that external path operation, so Windows remains a trusted/local-content platform. See [docs/toolchain-support.md](docs/toolchain-support.md).
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory"}`. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N).
 - **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()`. The Python facade uses `rt-multi-thread` with 2 worker threads for GIL scheduling. The library is runtime-agnostic.
@@ -152,4 +158,8 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has design plans 000–130 (historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure; Plans 126–127 close the native fast path and manual release workflow; Plan 129 records platform and product qualification evidence; Plan 130 records repository cleanup and verification simplification).
+`plans/` has historical design and implementation records through Plan 133;
+the current documentation/compatibility contract is recorded in Plan 131.
+Plans are repository navigation and change-trace records, not prerequisites
+for understanding runtime behavior; use the owning docs and architecture
+pages for current invariants.

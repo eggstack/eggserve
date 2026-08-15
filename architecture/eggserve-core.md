@@ -1,6 +1,17 @@
 # eggserve-core — Deep Dive
 
-The core library crate. Contains all security-critical logic: path confinement, policy enforcement, filesystem traversal, HTTP request handling, response construction, MIME detection, and the public primitives API.
+`eggserve-core` is the reusable Rust library behind every EggServe surface. It
+contains the security-critical path confinement, policy enforcement, HTTP
+request handling, response construction, MIME detection, and runtime service
+boundary.
+
+External Rust consumers should start with `eggserve_core::primitives` for the
+stable canonical HTTP/security facade. The `eggserve_core::server` module is an
+experimental, transport-owning HTTP/1 runtime exposing `Server`,
+`RuntimeConfig`, `ServerHandle`, `Service`, `service_fn`, and `StaticService`.
+The filesystem, path, response, and MIME implementation modules remain
+internal; importing Hyper directly is not required for either static serving or
+custom services.
 
 ## Module Map
 
@@ -188,3 +199,4 @@ Control handle returned by `Server::start()`:
 - [runtime.md](runtime.md) — Runtime service boundary (experimental)
 - [api-stability.md](../docs/api-stability.md) — API classification by stability tier
 - [release-contract.md](../docs/release-contract.md) — Product surface and compatibility commitments
+- [python-http-server-compatibility.md](../docs/python-http-server-compatibility.md) — Python facade boundary

@@ -25,13 +25,16 @@ use std::sync::Arc;
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```no_run
 /// use eggserve_core::server::RuntimeConfig;
+/// # fn main() -> Result<(), Box<dyn std::error::Error>> {
 ///
 /// let config = RuntimeConfig::builder()
 ///     .bind("127.0.0.1:8000".parse().unwrap())
 ///     .max_connections(128)
 ///     .build()?;
+/// # Ok(())
+/// # }
 /// ```
 #[derive(Debug, Clone)]
 #[must_use]

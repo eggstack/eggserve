@@ -76,7 +76,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 - `ready().await` returns error if server failed during startup
 - `force_shutdown(deadline)` returns `ShutdownResult::Forced` on deadline exceeded
 
-### Request Body Primitives (Experimental, Plan 056)
+### Request Body Primitives (Experimental)
 
 **Stability**: All request body types are **experimental**. The interface may change in any release.
 
@@ -95,7 +95,10 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `Service::request_body_policy(&RequestHead)` | Service-declared body policy, bounded by the runtime ceiling |
 | `RuntimeConfig::incomplete_body_policy` | Not configurable; incomplete streamed bodies always close the connection |
 
-Body acceptance plumbing (Hyper Incoming → RequestBody) is in the connection pipeline with `body_limit = 0` for now; full body acceptance lands in Plan 057.
+Body acceptance plumbing (Hyper Incoming → RequestBody) is implemented in the
+connection pipeline. The runtime default remains body rejection, while custom
+services may opt into bounded buffering or streaming under the configured hard
+ceiling.
 
 ### Python Body Parity (Milestone 4C)
 
@@ -212,7 +215,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 - Path traversal, NUL bytes, ambiguous separators, Windows prefixes, reserved names, and ADS syntax are rejected.
 - On Unix with safe defaults (symlinks denied): descriptor-relative traversal via `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`. A symlink swapped between check and open is refused rather than followed.
 - With `--follow-symlinks`: component-wise `symlink_metadata` checks. Weaker than descriptor-relative; explicitly outside the hardening guarantee.
-- On Windows: parser-level checks plus handle-relative child resolution and directory enumeration. `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained handle. Manual qualification evidence and any remaining class/privilege gaps are recorded in Plan 129.
+- On Windows: parser-level checks plus handle-relative child resolution and directory enumeration. `ResolvedDirectory` retains an owned handle for child resolution; `RootGuard::resolve_child` uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile` on the retained handle. Windows remains trusted/local-content only because two open-descendant root-rename cases are rejected by NTFS path-rename semantics; see `docs/toolchain-support.md`.
 
 ### Resource Limits
 
@@ -244,7 +247,8 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 
 ## Canonical HTTP Request Types
 
-**Stability**: All canonical request types are **stable** after conformance completion in Plan 049.
+**Stability**: All canonical request types are **stable** and covered by the
+conformance corpus.
 
 The canonical request types provide transport-independent, Hyper-independent value types for inspecting HTTP requests. They are defined in `eggserve_core::primitives` and projected to Python through `eggserve._native`.
 
@@ -281,7 +285,8 @@ The canonical request types provide transport-independent, Hyper-independent val
 
 ## Canonical Response Types
 
-**Stability**: All canonical response types are **stable** after conformance completion in Plan 049.
+**Stability**: All canonical response types are **stable** and covered by the
+conformance corpus.
 
 The canonical response types provide transport-independent, Hyper-independent value types for constructing HTTP responses. They are defined in `eggserve_core::primitives::canonical` and enforce response normalization rules at construction and before transport conversion.
 
@@ -369,7 +374,7 @@ Python handlers cannot emit duplicate response headers. If a handler needs multi
 
 ## Conformance Corpus
 
-Plan 049 establishes a conformance corpus for canonical HTTP type behavior. The corpus contains:
+The conformance corpus defines canonical HTTP type behavior. It contains:
 
 - **Request type conformance**: Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, and ConnectionInfo parsing and validation rules.
 - **Response type conformance**: StatusCode, ResponseHead, ResponseBody, Response construction, and normalization rules.
@@ -413,7 +418,7 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 | Linux aarch64 | Supported | Manual | Full (descriptor-relative) |
 | macOS arm64 | Supported | Manual | Full (descriptor-relative) |
 | macOS x86_64 | Supported | Manual | Full (descriptor-relative) |
-| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration implemented and manually qualified in Plan 129; two open-descendant root-rename cases skipped by NTFS path-rename semantics) |
+| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration are qualified; two open-descendant root-rename cases are skipped by NTFS path-rename semantics) |
 
 ## Deployment Status
 
@@ -423,7 +428,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 |---------|--------|-------------|
 | unix-reverse-proxy | functional; qualification pending | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; external qualification pending) |
 | unix-direct-https | functional; qualification pending | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; external qualification pending) |
-| windows-reverse-proxy | functional | Windows behind reverse proxy; trusted/local content only because two open-descendant root-rename cases are skipped in Plan 129 |
+| windows-reverse-proxy | functional | Windows behind reverse proxy; trusted/local content only because two open-descendant root-rename cases are rejected by NTFS path-rename semantics |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |
 | local-development | supported-hardened | Any platform, loopback, safe defaults |
 | windows-functional | functional | Windows SMB/non-NTFS/cloud filesystems |

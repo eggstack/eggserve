@@ -6,8 +6,10 @@
 //!
 //! # Example
 //!
-//! ```ignore
-//! use eggserve_core::server::{service_fn, Request, Response, StatusCode, ResponseBody};
+//! ```no_run
+//! use eggserve_core::primitives::{Response, ResponseBody, StatusCode};
+//! use eggserve_core::server::{service_fn, Request};
+//! # fn main() {
 //!
 //! let service = service_fn(|_req| async {
 //!     Ok(Response::builder()
@@ -15,6 +17,7 @@
 //!         .body(ResponseBody::Bytes(b"hello".to_vec()))
 //!         .unwrap())
 //! });
+//! # }
 //! ```
 
 use std::future::Future;
@@ -198,8 +201,10 @@ pub trait Service: Send + Sync + 'static {
 ///
 /// # Example
 ///
-/// ```ignore
-/// use eggserve_core::server::{service_fn, Request, Response, StatusCode, ResponseBody};
+/// ```no_run
+/// use eggserve_core::primitives::{Response, ResponseBody, StatusCode};
+/// use eggserve_core::server::{service_fn, Request};
+/// # fn main() {
 ///
 /// let service = service_fn(|_req: Request| async {
 ///     Ok(Response::builder()
@@ -207,6 +212,7 @@ pub trait Service: Send + Sync + 'static {
 ///         .body(ResponseBody::Bytes(b"hello".to_vec()))
 ///         .unwrap())
 /// });
+/// # }
 /// ```
 pub fn service_fn<F, Fut>(f: F) -> ServiceFn<F>
 where

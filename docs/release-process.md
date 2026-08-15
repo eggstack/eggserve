@@ -14,7 +14,8 @@ merges, pushes, tags, or CI state.
 
 Historical plans (039, 044–046, 086, 089, 090) defined an evidence-driven
 release framework with gate registries, generated checklists, and automated
-publication. Plan 091 supersedes those infrastructure requirements while
+publication. The current release workflow supersedes the earlier infrastructure
+requirements while
 preserving the product implementation and test coverage they created.
 
 ## Pre-release verification
@@ -108,7 +109,7 @@ python -m eggserve --help
 
 ## Known limitations
 
-- **Windows**: functionally qualified on the manual Plan 129 workflow, but not
+- **Windows**: functionally qualified on the manual platform workflow, but not
   hardened for untrusted content. Two open-descendant root-rename cases are
   explicitly skipped because NTFS rejects that external path operation.
 - **Follow-symlinks**: weaker than default symlink-denied mode. Uses

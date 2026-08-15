@@ -82,21 +82,25 @@ in `eggserve.lowlevel`.
 
 The six-class `eggserve.server` façade is the primary supported Python server
 surface. The bespoke native callback `Server` and the experimental Python HTTP
-client are not part of the supported default package surface. The Rust client may
-remain an opt-in core feature, but the Python wheel does not compile it.
+client are not part of the supported default package surface. Advanced
+primitives remain available under `eggserve.lowlevel`; subprocess lifecycle
+helpers are under `eggserve.subprocess`.
 
 ## Compatibility boundary
 
 The façade is not ASGI, WSGI, a routing framework, middleware, a proxy, or a
 general-purpose HTTP server. It intentionally does not expose socketserver
 internals, `fileno()`, authoritative `translate_path()`, or one-request
-`handle_request()` mode. Platform security qualifications, including the
-remaining Windows qualification caveat recorded in Plan 129—the two
-open-descendant root-rename cases skipped by NTFS path-rename semantics—remains
-in [`README.md`](../README.md) and [`security-review.md`](security-review.md).
+`handle_request()` mode. Platform support and the Windows trusted-content
+boundary are maintained in [`toolchain-support.md`](toolchain-support.md),
+[`security-review.md`](security-review.md), and the [security policy](security-policy.md).
 
 Python handler responses are validated in one Rust-owned conversion boundary.
 Malformed structural bodies, failed body reads, consumed one-shot bodies,
 invalid headers, and length mismatches produce a generic 500; malformed state
 is never treated as an empty successful response. Operational diagnostics use
 bounded categories and do not include handler exception text or response data.
+
+The complete source-compatibility matrix and intentional incompatibility list
+are maintained in
+[`python-http-server-compatibility.md`](python-http-server-compatibility.md).

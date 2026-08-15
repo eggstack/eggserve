@@ -1,12 +1,14 @@
 # Security Model — Deep Dive
 
-Plan 107 runtime boundary: static file capabilities remain handle-backed until
+The runtime boundary keeps static file capabilities handle-backed until
 transport conversion, which owns the single server-wide file-stream pool.
 Static and custom services share that admission point; custom startup has no
 implicit static root. Body policy is service-declared per actual method, while
 TRACE content and incomplete streamed bodies close at the transport boundary.
 
-eggserve is designed as a hardened replacement for `python -m http.server`. Security is not a feature — it is the foundational constraint that shapes every architectural decision.
+EggServe is a hardened, HTTP-correct static file server and reusable Rust
+HTTP/static-serving library with a Python `http.server`-shaped facade. Security
+is the foundational constraint that shapes every architectural decision.
 
 ## Central Invariant
 
@@ -187,9 +189,9 @@ An attacker can:
 
 | Platform | Security Model | Limitations |
 |----------|---------------|-------------|
-| Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None (fully hardened); Plan 089 gates defined, external qualification pending for unix-reverse-proxy profile |
+| Linux (x86_64, aarch64) | Descriptor-relative traversal via `statat`+`openat` | None for the local hardened profile; public reverse-proxy deployment still requires its documented qualification |
 | macOS (x86_64, aarch64) | Same descriptor-relative guarantees | None (fully hardened) |
-| Windows (x86_64) | Parser-level checks + handle-relative child resolution (Plan 084) + directory enumeration (Plan 085) + manually executed adversarial qualification suites (Plan 129) | Functionally qualified for executed classes; two open-descendant root-rename cases are skipped by NTFS path-rename semantics, so not for untrusted mutable public content |
+| Windows (x86_64) | Parser-level checks + handle-relative child resolution + directory enumeration + manual adversarial qualification suites | Functionally qualified for executed classes; two open-descendant root-rename cases are skipped by NTFS path-rename semantics, so not for untrusted mutable public content |
 
 ## Consumer Trust Boundaries
 

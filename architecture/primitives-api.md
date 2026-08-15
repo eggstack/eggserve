@@ -312,7 +312,7 @@ let err = ResponseConstructionError::ForbiddenFramingHeader("transfer-encoding".
 assert!(err.to_string().contains("transfer-encoding"));
 ```
 
-## Request body primitives (Plan 056)
+## Request body primitives
 
 ### Body policy
 

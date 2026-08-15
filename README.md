@@ -1,24 +1,54 @@
 # eggserve
 
-> A hardened, Rust-backed static file server with safe-by-default behavior.
+> EggServe is a hardened, HTTP-correct static file server and reusable Rust HTTP/static-serving library, with a Python `http.server`-shaped facade.
 
-**eggserve is not a general web server, framework, ASGI/WSGI runtime, or Granian replacement.** It serves static files from a directory with secure-by-default behavior. That is all.
+The CLI serves static files only. The Python package provides hardened static
+serving plus a bounded, synchronous custom-handler path shaped like
+`http.server`. The Rust crate exposes a low-level, embeddable HTTP runtime and
+service boundary. EggServe itself is not an application framework, ASGI/WSGI
+runtime, proxy, or general-purpose `socketserver` replacement.
 
-## Why not `python -m http.server`?
+## Why EggServe instead of `python -m http.server`?
 
-`python -m http.server` is convenient but unsafe by default:
+`python -m http.server` is a useful local-development tool, but its ordinary
+defaults bind broadly, follow symlinks, serve dotfiles, and list directories.
+EggServe makes loopback binding, path confinement, dotfile denial, and disabled
+directory listings the defaults; weaker behavior requires an explicit opt-in.
+It also provides native range and conditional responses, bounded resource
+limits, and the same hardened static service behind its CLI, Python, and Rust
+surfaces.
 
-- Binds to all interfaces (0.0.0.0) unless explicitly told otherwise
-- Follows symlinks without restriction
-- Serves dotfiles
-- Enables directory listing
-- Uses a slow, single-threaded Python implementation
+The concise surface comparison is in the
+[Python compatibility contract](docs/python-http-server-compatibility.md).
 
-eggserve fixes these by making the safe choice the only default. Every unsafe behavior is available but requires explicit opt-in.
+## CLI quickstart
 
-For subclass-based custom handlers, eggserve also provides a bounded,
-Rust-backed `http.server`-shaped facade. Secure static serving uses the
-source-familiar `SimpleHTTPRequestHandler` form:
+Serve the current directory on loopback:
+
+```sh
+eggserve
+```
+
+Serve `public` on port 9000:
+
+```sh
+eggserve --directory public --port 9000
+```
+
+Make a public bind explicit when serving beyond the local machine:
+
+```sh
+eggserve --directory public --public --port 8080
+```
+
+The CLI is a static file server. Directory listings, symlink following, and
+dotfile serving are separate explicit flags; see the [CLI reference](docs/cli.md)
+and [security policy](docs/security-policy.md).
+
+## Python `http.server` facade
+
+The canonical Python static-serving pattern is source-familiar while keeping
+the filesystem and transport in Rust:
 
 ```python
 from functools import partial
@@ -29,15 +59,11 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
     server.serve_forever()
 ```
 
-Directory listing is disabled, dotfiles and symlinks are denied, and the
-default index order is `index.html`, then `index.htm`. Rust pins the root,
-resolves paths, and streams files; Python never reopens a translated path.
-The compatibility server accepts stdlib-shaped `(host, port)` tuples: an empty
-host is normalized to the explicit IPv4 wildcard `0.0.0.0`, literal wildcard
-addresses are accepted by this façade, and port `0` publishes the actual native
-port. The CLI continues to require `--public` for wildcard binds.
+Stock `SimpleHTTPRequestHandler` with the documented default eligibility uses
+the native static fast path. Directory listings, dotfiles, and symlinks remain
+denied unless explicitly enabled through the supported facade settings.
 
-For subclass-based custom responses:
+For bounded synchronous custom responses, use `BaseHTTPRequestHandler`:
 
 ```python
 from eggserve.server import BaseHTTPRequestHandler, HTTPServer
@@ -54,247 +80,126 @@ with HTTPServer(("127.0.0.1", 8000), Handler) as server:
     server.serve_forever()
 ```
 
-This facade uses the existing Rust runtime; it does not expose raw sockets or
-Python's thread-per-connection implementation. See [the compatibility contract](docs/python-http-server-compatibility.md).
-Subclass and custom-handler requests remain on the Python callback path and are
-bounded by `ThreadingHTTPServer(max_workers=...)`; stock static handlers use
-the native fast path with the same effective compatibility bound.
+Custom handlers are synchronous and receive bounded in-memory `rfile`/`wfile`
+facades. They do not receive raw sockets, do not provide unbounded streaming,
+and do not turn EggServe into an application server. The optional subprocess
+helpers are under `eggserve.subprocess`; the primary API is `eggserve.server`.
+See the [Python API reference](docs/python-api.md) for the full six-class
+surface and [the compatibility contract](docs/python-http-server-compatibility.md)
+for intentional deviations from the stdlib.
 
-Static MIME customization is bounded to response metadata. `extensions_map`
-applies to direct files and native-selected index files; subclass
-`guess_type()` applies to direct file targets. GET, HEAD, range, and conditional
-responses retain the selected type, while invalid values fail closed. Handler
-response conversion is also fail-closed: malformed bodies, invalid headers, and
-one-shot body reuse produce a generic 500 without logging untrusted exception
-text or response data. Every native file-backed response uses the shared
-`max_file_streams` admission limit for its transport lifetime; byte, empty, and
-HEAD responses do not consume a file-stream permit.
+## Rust library
+
+`eggserve-core` exposes `primitives` as the intended public facade and
+`server` as an experimental transport-owning runtime. A static server can be
+embedded without importing internal modules or Hyper:
+
+```rust,no_run
+use eggserve_core::server::{RuntimeConfig, Server};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = Server::builder()
+        .runtime(RuntimeConfig::builder()
+            .bind("127.0.0.1:8000".parse()?)
+            .build()?)
+        .static_service("public")?;
+    let handle = server.start().await?;
+    handle.ready().await?;
+    println!("serving on {}", handle.local_addr());
+    // Keep the handle while the application runs, then shut down cleanly.
+    handle.wait().await?;
+    Ok(())
+}
+```
+
+Custom Rust services use the same runtime and canonical request/response types:
+
+```rust,no_run
+use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
+use eggserve_core::primitives::Request;
+use eggserve_core::server::{service_fn, RuntimeConfig, Server};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let server = Server::builder()
+        .runtime(RuntimeConfig::builder().bind("127.0.0.1:8000".parse()?).build()?)
+        .build()?;
+    let handle = server.start_with_service(service_fn(|_request: Request| async {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Bytes(b"ok\n".to_vec()))?)
+    })).await?;
+    handle.ready().await?;
+    handle.wait().await?;
+    Ok(())
+}
+```
+
+The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
+`Service` owns request handling and response construction. The `server` module
+is experimental before 1.0. See the [Rust architecture overview](architecture/eggserve-core.md),
+[primitives facade](architecture/primitives-api.md), and
+[runtime contract](architecture/runtime.md).
+
+## Security and compatibility boundaries
+
+- Loopback bind, no symlinks, no dotfiles, and no directory listing are the
+  safe defaults for static serving.
+- Static serving is GET/HEAD only and rejects request bodies; custom services
+  may opt into bounded bodies under the runtime ceiling.
+- Path traversal and symlink escape are denied at library level. Unix safe
+  defaults use descriptor-relative resolution; Windows is qualified for the
+  executed handle-relative classes but remains trusted/local-content only.
+- HTTP/1.1, ranges, conditional requests, canonical response normalization,
+  and bounded resource admission are part of the implemented contract.
+- Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
+  async Python handlers, unbounded Python response streaming, and ASGI/WSGI are
+  intentionally unavailable.
+
+See the [security policy](docs/security-policy.md),
+[threat model](docs/threat-model.md),
+[Python compatibility matrix](docs/python-http-server-compatibility.md), and
+[non-goals](docs/non-goals.md).
 
 ## Installation
 
 ```sh
-# Via Python wheel (CPython 3.11+ on Linux, macOS, or Windows)
+# Python wheel: CPython 3.11+; Linux, macOS, and Windows wheels are built
+# according to the support matrix.
 pip install eggserve
 
-# Or run directly with pipx
 pipx run eggserve
 
-# From source (requires Rust toolchain)
+# From source (requires a Rust toolchain)
 cargo install --path crates/eggserve-bin
 ```
 
-## Quick start
+The Python wheel includes the native extension and extension-backed CLI entry
+point; it does not bundle a second standalone CLI binary. See
+[toolchain and wheel support](docs/toolchain-support.md).
 
-**Serve the current directory:**
+## Deeper references
 
-```sh
-eggserve
-# Serves on http://127.0.0.1:8000 with safe defaults
-```
+- [CLI reference](docs/cli.md)
+- [Python API reference](docs/python-api.md)
+- [Python compatibility contract](docs/python-http-server-compatibility.md)
+- [Rust HTTP primitives](docs/http-primitives.md)
+- [Security policy](docs/security-policy.md)
+- [Deployment guidance](docs/deployment.md)
+- [TLS constraints](docs/tls.md)
+- [Library capability matrix](docs/library-capability-matrix.md)
+- [Architecture overview](architecture/overview.md)
+- [Examples](examples/)
 
-**Serve a specific directory on a custom port:**
-
-```sh
-eggserve --directory public --port 9000
-```
-
-**Enable directory listing and follow symlinks:**
-
-```sh
-eggserve --directory-listing --follow-symlinks
-```
-
-**Bind to all interfaces (requires --public):**
+## Local verification
 
 ```sh
-eggserve --public --port 8080
+./scripts/verify.sh fast    # format, clippy, and workspace tests
+./scripts/verify.sh full    # fast + TLS + installed Python wheel checks
+./scripts/verify.sh deep    # expensive suites selected for release risk
 ```
 
-## CLI reference
-
-```
-eggserve [OPTIONS] [PORT] [--directory DIR]
-
-Options:
-  --directory DIR          Root directory to serve (default: .)
-  --addr HOST:PORT         Bind address (default: 127.0.0.1:8000)
-  --bind HOST              Bind host (host:port or bare host)
-  --port PORT              Port to listen on
-  --public                 Bind to all interfaces (required for 0.0.0.0)
-  --directory-listing      Enable directory listing
-  --follow-symlinks        Follow symlinks
-  --allow-dotfiles         Serve dotfiles
-  --log-format FORMAT      text, json, or none (default: text)
-  --quiet                  Suppress routine informational output (warn/error only)
-  --max-connections N      Max concurrent connections (default: 64)
-  --max-file-streams N     Max concurrent file streams (default: 32)
-  --header-timeout SECS    Header read timeout (default: 10)
-  --connection-total-timeout SECS
-                            Total connection lifetime timeout (default: 60)
-  --handler-timeout SECS   Handler invocation timeout (default: 30)
-  --body-read-timeout SECS Request body read timeout (default: 30)
-
-TLS options (requires tls feature):
-  --tls-cert PATH          PEM certificate chain (requires --tls-key)
-  --tls-key PATH           PEM private key (requires --tls-cert)
-```
-
-See [docs/cli.md](docs/cli.md) for full details.
-
-## Python API
-
-The canonical API is a narrow, synchronous `http.server`-shaped façade. Rust
-owns sockets, parsing, framing, timeouts, and file streaming; handlers never
-receive raw sockets and their in-memory bodies are bounded.
-
-```python
-from eggserve.server import BaseHTTPRequestHandler, HTTPServer
-
-class Handler(BaseHTTPRequestHandler):
-    def do_GET(self):
-        self.send_response(200)
-        self.end_headers()
-        self.wfile.write(b"ok\n")
-
-with HTTPServer(("127.0.0.1", 8000), Handler) as server:
-    server.serve_forever()
-```
-
-Use `SimpleHTTPRequestHandler` for secure static files. `HTTPSServer` and
-`ThreadingHTTPSServer` use the same rustls runtime with PEM certificate/key
-paths, HTTP/1.1 ALPN only, no SNI certificate selection, and no client
-certificates:
-
-```python
-from functools import partial
-from eggserve.server import HTTPSServer, SimpleHTTPRequestHandler
-
-Handler = partial(SimpleHTTPRequestHandler, directory="public")
-with HTTPSServer(("127.0.0.1", 8443), Handler,
-                 certfile="cert.pem", keyfile="key.pem") as server:
-    server.serve_forever()
-```
-
-The advanced primitives are under `eggserve.lowlevel`; the optional
-subprocess lifecycle helpers are under `eggserve.subprocess`. `serve_directory()`
-remains available at the package root. EggServe is not an ASGI/WSGI runtime,
-framework, proxy, or HTTP client library.
-
-Full API reference: [docs/python-api.md](docs/python-api.md)
-
-## Security defaults
-
-eggserve ships with secure defaults. Every option that weakens security requires explicit CLI flags.
-
-- **Loopback only** — binds to 127.0.0.1 unless `--public` is passed
-- **GET and HEAD only** — all other methods are rejected
-- **Static service rejects request bodies** — custom services may opt into
-  buffered/streamed bodies within the runtime ceiling
-- **No symlink following** — denied unless `--follow-symlinks` is passed. On Unix, descriptor-relative traversal (`statat` + `openat`) prevents symlink swap attacks
-- **No dotfiles served** — hidden files are excluded
-- **No directory listing** — unless `--directory-listing` is passed
-- **Unknown MIME as application/octet-stream** — safe fallback
-- **Malformed request targets rejected** — invalid paths are not resolved
-- **Logs sanitized** — paths/headers are sanitized before logging
-- **Resource limits enabled** — connection and file stream limits are active
-
-Responses follow the shared RFC 9110 response rules: status codes are limited
-to 100–599, 205 responses carry no content, weak metadata ETags are not valid
-`If-Range` validators, and the runtime adds one authoritative `Date` header.
-HEAD responses preserve the equivalent GET representation metadata, including
-directory-listing `Content-Length`, while sending no body.
-
-Static files and ranges remain canonical, opened-handle-backed bodies until the
-runtime transport boundary. One file-stream admission pool is created per
-running server and is shared by static, Rust custom, and Python custom file
-responses. Custom services have no implicit filesystem root. Their declared
-request-body policy controls GET/HEAD/DELETE/OPTIONS/extension content within
-the runtime ceiling; TRACE content is rejected, and incomplete streamed bodies
-close the connection.
-
-Every running server owns one shared file-stream admission pool used by static,
-Rust custom, and Python custom file responses. Custom services have no implicit
-filesystem root.
-
-See [docs/security-policy.md](docs/security-policy.md) for the full security policy.
-
-## Supported platforms
-
-### Runtime/source-supported platforms
-
-| Platform | Status |
-|----------|--------|
-| Linux x86_64 | Supported; hardened |
-| Linux aarch64 | Supported; hardened |
-| macOS arm64 (Apple Silicon) | Supported; hardened |
-| macOS x86_64 | Supported; hardened |
-| Windows x86_64 | Functionally qualified with handle-relative confinement. Plan 129 records the manual adversarial run; two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation. Keep Windows for trusted/local content. |
-
-### Prebuilt Python wheels
-
-| Platform | Wheel |
-|----------|-------|
-| Linux x86_64 | Built by routine CI |
-| macOS arm64 | Built manually |
-| Windows x86_64 | Built manually |
-
-## Deployment
-
-**Production recommendation:** Use a reverse proxy (Caddy, nginx, Traefik) for TLS termination. Native TLS is limited — no ACME, virtual hosting, HTTP/2, or edge platform features. See [docs/deployment.md](docs/deployment.md) and [docs/tls.md](docs/tls.md).
-
-## Verification
-
-```sh
-./scripts/verify.sh fast    # routine dev check: format, clippy, tests
-./scripts/verify.sh full    # pre-release: features, Python wheel, package dry-run
-./scripts/verify.sh deep    # expensive suites (manual): corpus replay, fault injection, etc.
-
-The verification hierarchy is intentionally small. scripts/test-python-wheel.sh
-is the shared installed-wheel check used by routine Python CI and verify.sh
-full; scripts/verify-cargo-packages.sh is the separate package dry-run gate;
-scripts/install-cargo-tools.sh installs the pinned manual audit tools; and
-scripts/release_smoke.py plus scripts/check-wheel-composition.py are used by
-the manually dispatched cross-platform release workflow.
-```
-
-Platform/product qualification evidence, including the manual macOS/Windows
-workflow and the external Rust consumer check, is maintained in
-[Plan 129](plans/129-platform-and-product-qualification.md).
-
-## Examples
-
-See the [examples/](examples/) directory:
-
-- `examples/python_basic.py` — minimal subprocess API usage
-- `examples/python_dynamic_static.py` — dynamic health endpoint + static assets using primitives
-- `examples/python_safe_download.py` — safe file download handler with user-provided names
-
-Rust examples in `crates/eggserve-core/examples/`:
-
-```sh
-cargo run --example rust_primitives -p eggserve-core
-cargo run --example server_embedding -p eggserve-core
-```
-
-## Scope
-
-eggserve is deliberately narrow. For the full list of non-goals, see [docs/non-goals.md](docs/non-goals.md).
-
-**This is not:** an ASGI/WSGI runtime, a reverse proxy, a web framework, a template engine, a plugin host, a dynamic request execution environment, a production edge platform, or a replacement for nginx/Caddy.
-
-**This is:** a hardened static file server with safe defaults, a hardened static file server for controlled environments and reverse-proxy origins, a small reusable library for path confinement and policy enforcement, and a Python-packaged tool that feels like `python -m http.server`.
-
-Downstream projects may build ASGI/WSGI adapters, application servers, or HTTP clients on eggserve primitives, but those projects are not release deliverables or supported application-serving modes of eggserve.
-
-## Documentation
-
-- [docs/python-api.md](docs/python-api.md) — full Python API reference
-- [docs/cli.md](docs/cli.md) — CLI usage reference
-- [docs/http-primitives.md](docs/http-primitives.md) — HTTP primitive contract
-- [docs/secure-root.md](docs/secure-root.md) — SecureRoot API
-- [docs/body-migration.md](docs/body-migration.md) — request body support guide
-- [docs/deployment.md](docs/deployment.md) — deployment patterns
-- [docs/tls.md](docs/tls.md) — TLS configuration
-- [docs/security-policy.md](docs/security-policy.md) — security defaults and opt-in behaviors
-- [docs/threat-model.md](docs/threat-model.md) — threat model
-- [CONTRIBUTING.md](CONTRIBUTING.md) — contribution guidelines
+The routine CI workflow has separate Rust and Python jobs. Platform
+qualification and release certification are manual workflows; see
+[the release process](docs/release-process.md).

@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-14.**
+**COMPLETE — 2026-08-15.**
 
 Governing roadmap: Plan 128.
 
@@ -51,10 +51,10 @@ Remove or rewrite wording such as "static files only, that is all" where it cont
 
 ### Acceptance criteria
 
-- [ ] README opening statement is accurate for CLI + Python + Rust surfaces;
-- [ ] no doc implies arbitrary application-serving scope;
-- [ ] no doc falsely says the library can only emit static responses;
-- [ ] terms `static server`, `http.server-shaped facade`, and `Rust service boundary` are used consistently.
+- [x] README opening statement is accurate for CLI + Python + Rust surfaces;
+- [x] no doc implies arbitrary application-serving scope;
+- [x] no doc falsely says the library can only emit static responses;
+- [x] terms `static server`, `http.server-shaped facade`, and `Rust service boundary` are used consistently.
 
 ---
 
@@ -112,10 +112,10 @@ Add a compact example using the actual public `eggserve-core` server/static API.
 
 ### Acceptance criteria
 
-- [ ] all three primary surfaces are visible from README without deep navigation;
-- [ ] canonical Python static facade is prominent;
-- [ ] subprocess helpers are presented as optional convenience, not primary API;
-- [ ] Rust example is public-API-only and verified by Plan 132/133.
+- [x] all three primary surfaces are visible from README without deep navigation;
+- [x] canonical Python static facade is prominent;
+- [x] subprocess helpers are presented as optional convenience, not primary API;
+- [x] Rust example is public-API-only and compile-checked; Plans 132/133 may add executable demonstrations.
 
 ---
 
@@ -208,11 +208,11 @@ Do not promote internal `fs`, `path`, or `response` modules to public merely to 
 
 ### Acceptance criteria
 
-- [ ] crate root describes the intended public boundary;
-- [ ] `primitives` and `server` have clearly differentiated stability status;
-- [ ] at least one static-server rustdoc/example compiles;
-- [ ] at least one custom-service rustdoc/example compiles;
-- [ ] no direct Hyper dependency appears in user docs.
+- [x] crate root describes the intended public boundary;
+- [x] `primitives` and `server` have clearly differentiated stability status;
+- [x] at least one static-server rustdoc/example compiles;
+- [x] at least one custom-service rustdoc/example compiles;
+- [x] no direct Hyper dependency appears in user docs.
 
 ---
 
@@ -301,13 +301,13 @@ Reject documentation changes that:
 
 Plan 131 is complete when:
 
-- [ ] one consistent product statement appears across user-facing docs;
-- [ ] README presents CLI, Python, and Rust quickstarts;
-- [ ] canonical Python `http.server` replacement usage is prominent;
-- [ ] capability/compatibility matrix exists with an authoritative owner;
-- [ ] intentional Python incompatibilities are explicit and justified where appropriate;
-- [ ] Rust public API/stability docs are discoverable and accurate;
-- [ ] Windows/platform claims match Plan 129 evidence;
-- [ ] duplicated normative content is reduced;
-- [ ] planning-history leakage is removed from normative behavior claims;
-- [ ] executable/rustdoc examples remain mechanically verified.
+- [x] one consistent product statement appears across user-facing docs;
+- [x] README presents CLI, Python, and Rust quickstarts;
+- [x] canonical Python `http.server` replacement usage is prominent;
+- [x] capability/compatibility matrix exists with an authoritative owner;
+- [x] intentional Python incompatibilities are explicit and justified where appropriate;
+- [x] Rust public API/stability docs are discoverable and accurate;
+- [x] Windows/platform claims match the qualification evidence;
+- [x] duplicated normative content is reduced;
+- [x] planning-history leakage is removed from normative behavior claims;
+- [x] executable/rustdoc examples remain mechanically verified.

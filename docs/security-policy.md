@@ -121,10 +121,10 @@ Windows handle-relative child resolution is implemented. `ResolvedDirectory`
 retains an owned handle for child resolution, and `RootGuard::resolve_child`
 uses handle-relative traversal. Directory enumeration uses `NtQueryDirectoryFile`
 on the retained directory handle, eliminating the path-based fallback. The
-Plan 084/086 adversarial suites cover reparse-point denial, namespace
+The adversarial qualification suites cover reparse-point denial, namespace
 normalization, race harness, root identity, file validators, ACL/sharing,
-resource stability, installed artifact parity, and fuzz corpus replay. Plan 129
-records manual execution; two open-descendant root-rename cases are skipped
+resource stability, installed artifact parity, and fuzz corpus replay. Two
+open-descendant root-rename cases are skipped
 because NTFS rejects that external path operation. Windows remains
 functional-only for trusted/local content.
 

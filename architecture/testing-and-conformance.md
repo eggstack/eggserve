@@ -63,7 +63,7 @@ The installed-wheel script is the authoritative Python test entry point; its cou
 | `windows_feasibility.rs` | `windows-adversarial-qualification` | Windows feasibility spike |
 | `windows_plan084.rs` | `windows-adversarial-qualification` | Windows handle-relative directory retention |
 | `windows_plan086.rs` | `windows-adversarial-qualification` | Windows adversarial filesystem qualification |
-| `streaming_buffer_qualification.rs` | — | Plan 088: exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
+| `streaming_buffer_qualification.rs` | — | Exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
 
 ## Conformance Corpora
 
@@ -175,17 +175,17 @@ bash run_all.sh ../dist/*.whl python3.14
 
 ### Platform and external-consumer qualification
 
-Routine CI is intentionally Linux-focused. Plan 129 records the product-level
-qualification matrix and evidence for the standalone CLI, installed wheel,
-Python static/custom facades, and a temporary external Rust consumer. The
-manual `.github/workflows/platform-qualification.yml` workflow runs the
-installed-wheel checks on macOS arm64 and the Windows Plan 084/086 filesystem
-qualification suites; it is not part of every push/PR.
+Routine CI is intentionally Linux-focused. The product-level qualification
+matrix covers the standalone CLI, installed wheel, Python static/custom
+facades, and an external Rust consumer. The manual
+`.github/workflows/platform-qualification.yml` workflow runs installed-wheel
+checks on macOS arm64 and Windows filesystem qualification suites; it is not
+part of every push/PR.
 
 ## See Also
 
 - [overview.md](overview.md) — Architecture overview
 - [eggserve-core.md](eggserve-core.md) — Core library modules under test
 - [eggserve-python.md](eggserve-python.md) — Python test suites
-- [release-process.md](../docs/release-process.md) — Manual release procedure (Plan 091)
+- [release-process.md](../docs/release-process.md) — Manual release procedure
 - [../docs/fuzzing.md](../docs/fuzzing.md) — Fuzzing documentation

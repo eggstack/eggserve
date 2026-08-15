@@ -125,8 +125,9 @@ retains an owned `OwnedHandle` for handle-relative child resolution, and
 provides stronger confinement than parser-level checks alone. Handle-relative
 directory enumeration using `NtQueryDirectoryFile` replaces the path-based
 fallback. Windows qualification evidence and any remaining caveats are tracked
-in Plan 129; two open-descendant root-rename cases are skipped because NTFS
-rejects that external path operation, so Windows remains functional-only.
+by the platform qualification workflow; two open-descendant root-rename cases
+are skipped because NTFS rejects that external path operation, so Windows
+remains functional-only.
 
 ## Usage example
 

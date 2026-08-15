@@ -197,7 +197,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 
 ### `primitives` Module — Canonical HTTP Request Types
 
-**All canonical request types are stable** after conformance completion in Plan 049.
+**All canonical request types are stable** and covered by the conformance corpus.
 
 | Item | Tier | Notes |
 |------|------|-------|
@@ -246,7 +246,7 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 
 ### `primitives` Module — Canonical Response Types
 
-**All canonical response types are stable** after conformance completion in Plan 049.
+**All canonical response types are stable** and covered by the conformance corpus.
 
 | Item | Tier | Notes |
 |------|------|-------|
@@ -271,7 +271,8 @@ Promotion to stable requires: production-path consumer fixtures, real-socket par
 
 ## Python API — current contract
 
-Plan 098 supersedes the historical Python stability tables formerly maintained in this document. The supported public façade is intentionally small:
+The historical Python stability tables are retained below only for migration
+context. The supported public façade is intentionally small:
 
 | Module | Public names | Tier |
 |--------|--------------|------|

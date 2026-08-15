@@ -2,7 +2,7 @@
 
 The response planner produces framework-independent response descriptions. It handles conditional requests, range requests, ETag generation, and directory listing planning — all without depending on Hyper types.
 
-Plan 108 requires every static planner header to be copied into the canonical
+Every static planner header is copied into the canonical
 response builder before normalization. This preserves validators,
 `Content-Range`, listing security headers, and `Allow`; the transport boundary
 remains responsible for runtime-owned headers.
@@ -305,9 +305,10 @@ acquiring transport state. The runtime's single Hyper conversion boundary turns
 file-backed variants into streams and acquires the server-wide
 `max_file_streams` permit.
 
-## Unified Service-Layer Entry Point (Plan 081)
+## Unified Service-Layer Entry Point
 
-Before Plan 081, direct-file and directory-index routes had separate code paths that could diverge in how conditional and range headers were handled. Plan 081 eliminates this by introducing a shared input type and a single serving function.
+Direct-file and directory-index routes share one input type and serving
+function, so conditional and range headers cannot diverge between the routes.
 
 ### `StaticRequestInput`
 
@@ -345,7 +346,7 @@ This guarantees that `/directory/index.html` and `/directory/` (resolving to the
 - [eggserve-core.md](eggserve-core.md) — Core library context
 - [architecture/overview.md](overview.md) — Data flow diagram
 
-## Streaming Buffer Strategy (Plan 088)
+## Streaming Buffer Strategy
 
 File streaming uses `stream_chunk_size` from `Limits` (default 8 KiB, configurable 64 B–1 MiB) as the read buffer size for both full-file and range responses. Each chunk allocates a fresh `Vec<u8>`, reads into it, truncates to actual bytes read, and wraps in `Bytes::from(buf)` (zero-copy transfer of ownership). No buffer pool or reuse strategy is employed — each chunk allocation is bounded by the configured chunk size and released when consumed by the transport layer.
 
@@ -356,9 +357,9 @@ Key allocation classification per request:
 - **Removable copy (eliminated)**: `normalize_metadata` header filtering (now uses `retain`)
 - **Benchmark artifact**: per-chunk allocation is bounded and cheap at 8 KiB default
 
-### Baseline Performance (Plan 088)
+### Baseline Performance
 
-Plan 088 captured the following representative benchmark results on macOS arm64
+The following representative benchmark results were captured on macOS arm64
 (APFS, warm cache). The old Criterion harness is historical and is not part of
 routine verification; current changes should use a deliberately selected
 measurement session rather than treating these numbers as a CI gate.
@@ -390,4 +391,4 @@ The response planner has extensive test coverage:
 - **Live HTTP tests** (`http_primitives_integration.rs`): 15 tests exercising real TCP connections through hyper's client/server stack, covering GET, HEAD, POST (405), 404, 403, 400, 413, 206, 416, and 304 responses.
 - **Python tests** (`test_primitives.py`): comprehensive tests for method validation, body validation, request target validation, response planning, range responses, conditional responses, and HEAD parity through PyO3 bindings.
 - **Canonical conformance tests** (`tests/canonical_conformance.rs`, `crates/eggserve-python/tests/test_canonical_conformance.py`): parity tests for canonical HTTP types (Method, HttpVersion, HeaderBlock, RequestTarget, RequestHead, StatusCode, ResponseHead, ResponseBody, Response, normalize_response). Exercises identical behavior across Rust and Python, including normalization rules (HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation).
-- **Buffer qualification tests** (`tests/streaming_buffer_qualification.rs`): 27 tests for Plan 088 covering exact range boundaries (first byte, last byte, full file, chunk-crossing, chunk-start), zero-length file handling (GET, HEAD, range 416), buffer isolation between sequential requests, suffix/open-ended ranges, Content-Range header accuracy, sequential range requests across a full file, large-file range content preservation, client disconnect permit release, forced shutdown permit release, concurrent stream exhaustion (503), range request permit release, HEAD non-acquisition of stream permits, and configurable chunk size validation.
+- **Buffer qualification tests** (`tests/streaming_buffer_qualification.rs`): exact range boundaries (first byte, last byte, full file, chunk-crossing, chunk-start), zero-length file handling (GET, HEAD, range 416), buffer isolation between sequential requests, suffix/open-ended ranges, Content-Range header accuracy, sequential range requests across a full file, large-file range content preservation, client disconnect permit release, forced shutdown permit release, concurrent stream exhaustion (503), range request permit release, HEAD non-acquisition of stream permits, and configurable chunk size validation.
