@@ -28,7 +28,7 @@ eggserve/
 ├── fuzz/                   # fuzz targets, seed corpora, fuzz README
 ├── plans/                  # design plans and roadmap
 ├── release/                # release artifacts
-├── scripts/                # verify.sh, test-python-wheel.sh, install-cargo-tools.sh
+├── scripts/                # small fast/full/deep verification hierarchy and package/release checks
 └── tests/                  # integration tests (proxy interop, soak, installed-binary qual)
 ```
 
@@ -68,7 +68,7 @@ Not run in routine CI. Run manually when preparing a release:
 bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation
 cargo audit                             # vulnerability check
 cargo deny check                        # license/policy check
-bash scripts/verify-cargo-packages.sh   # package dry-run gates
+bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
 
 ### Distribution builds
@@ -152,4 +152,4 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has design plans 000–129 (historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure; Plans 126–127 close the native fast path and manual release workflow; Plan 129 records platform and product qualification evidence).
+`plans/` has design plans 000–130 (historical/implementation records; Plans 112–118 form the consolidation roadmap; Plan 125 closes Windows qualification, support truthfulness, and final closure; Plans 126–127 close the native fast path and manual release workflow; Plan 129 records platform and product qualification evidence; Plan 130 records repository cleanup and verification simplification).

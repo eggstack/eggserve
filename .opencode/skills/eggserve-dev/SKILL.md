@@ -18,7 +18,13 @@ Three crates:
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
-Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs), `plans/` (000–129 historical/implementation records; Plans 112–118 form the consolidation roadmap; Plans 125–127 close Windows support truthfulness, the native fast path, and the manual release workflow; Plan 129 records platform/product qualification), `examples/`, `fuzz/`.
+Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
+`plans/` (000–130 historical/implementation records; Plans 112–118 form the
+consolidation roadmap; Plans 125–127 close Windows support truthfulness, the
+native fast path, and the manual release workflow; Plan 129 records
+platform/product qualification; Plan 130 records repository cleanup),
+`examples/`, `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
+plus package/release checks).
 
 ## Non-negotiables
 
@@ -71,7 +77,7 @@ Not run in routine CI. Run manually when preparing a release:
 bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation
 cargo audit                             # vulnerability check
 cargo deny check                        # license/policy check
-bash scripts/verify-cargo-packages.sh   # package dry-run gates
+bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
 
 ## Key conventions

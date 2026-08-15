@@ -358,7 +358,10 @@ Key allocation classification per request:
 
 ### Baseline Performance (Plan 088)
 
-Representative benchmarks via `benches/file_serving.rs` on macOS arm64 (APFS, warm cache):
+Plan 088 captured the following representative benchmark results on macOS arm64
+(APFS, warm cache). The old Criterion harness is historical and is not part of
+routine verification; current changes should use a deliberately selected
+measurement session rather than treating these numbers as a CI gate.
 
 | Workload | Median | Notes |
 |----------|--------|-------|

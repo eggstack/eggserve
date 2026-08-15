@@ -12,7 +12,7 @@ readme = "../../README.md"
 default = []
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
 python-bindings-internal = []
-windows-plan086 = []
+windows-adversarial-qualification = []
 
 [dependencies]
 bytes = "1"
@@ -34,7 +34,6 @@ rustls-pemfile = { version = "2", optional = true }
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
-criterion = { version = "0.5", features = ["html_reports"] }
 hyper = { version = "1", features = ["client"] }
 libc = "0.2"
 proptest = "1"
@@ -45,11 +44,3 @@ rcgen = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-rustls = "0.26"
 rustls-pki-types = "1"
-
-[[bench]]
-name = "canonical_types"
-harness = false
-
-[[bench]]
-name = "file_serving"
-harness = false

@@ -14,6 +14,7 @@ set -euo pipefail
 # --mode all    Verify both (default)
 
 MODE="all"
+PYTHON="${PYTHON:-python3}"
 while [ $# -gt 0 ]; do
   case "$1" in
     --mode)
@@ -61,7 +62,16 @@ if [ "$MODE" = "core" ]; then
   exit 0
 fi
 
-core_version="$(cargo metadata --format-version 1 --no-deps | jq -r '.packages[] | select(.name == "eggserve-core") | .version')"
+core_version="$(cargo metadata --format-version 1 --no-deps | "$PYTHON" -c '
+import json
+import sys
+
+package = next(
+    package for package in json.load(sys.stdin)["packages"]
+    if package["name"] == "eggserve-core"
+)
+print(package["version"])
+')"
 core_crate="target/package/eggserve-core-${core_version}.crate"
 if [ ! -f "$core_crate" ]; then
   echo "packaged core crate not found at $core_crate" >&2
@@ -80,26 +90,38 @@ crate_dir="$tmp_dir/crates"
 mkdir -p "$index_dir/eg/gs" "$crate_dir"
 cp "$core_crate" "$crate_dir/"
 core_checksum="$(sha256sum "$core_crate" | awk '{print $1}')"
-core_index_entry="$(cargo metadata --format-version 1 --no-deps | jq -c \
-  --arg checksum "$core_checksum" \
-  '.packages[] | select(.name == "eggserve-core") | {
-    name,
-    vers: .version,
-    deps: [.dependencies[] | {
-      name,
-      req,
-      features,
-      optional,
-      default_features: .uses_default_features,
-      target,
-      kind: (.kind // "normal"),
-      registry: "https://github.com/rust-lang/crates.io-index"
-    }],
-    cksum: $checksum,
-    features,
-    yanked: false,
-    links: null
-  }')"
+core_index_entry="$(cargo metadata --format-version 1 --no-deps | CHECKSUM="$core_checksum" "$PYTHON" -c '
+import json
+import os
+import sys
+
+package = next(
+    package for package in json.load(sys.stdin)["packages"]
+    if package["name"] == "eggserve-core"
+)
+entry = {
+    "name": package["name"],
+    "vers": package["version"],
+    "deps": [
+        {
+            "name": dependency["name"],
+            "req": dependency["req"],
+            "features": dependency["features"],
+            "optional": dependency["optional"],
+            "default_features": dependency["uses_default_features"],
+            "target": dependency.get("target"),
+            "kind": dependency.get("kind") or "normal",
+            "registry": "https://github.com/rust-lang/crates.io-index",
+        }
+        for dependency in package["dependencies"]
+    ],
+    "cksum": os.environ["CHECKSUM"],
+    "features": package["features"],
+    "yanked": False,
+    "links": None,
+}
+print(json.dumps(entry, separators=(",", ":")))
+')"
 printf '%s\n' "$core_index_entry" > "$index_dir/eg/gs/eggserve-core"
 printf '{"dl":"file://%s/{crate}-{version}.crate"}\n' "$crate_dir" > "$index_dir/config.json"
 git -C "$index_dir" init -q

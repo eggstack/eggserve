@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# verify.sh — Local verification for eggserve (Plans 106, 115)
+# verify.sh — Local verification for eggserve
 #
 # Modes:
 #   fast   Routine dev: format, clippy (lib/bins/tests), workspace tests
@@ -74,8 +74,7 @@ Use 'verify.sh fast' for Rust-only development checks."
   # Package dry-run
   if [ -f "$SCRIPT_DIR/verify-cargo-packages.sh" ]; then
     header "Package dry-run"
-    ALLOW_DIRTY=true run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode core
-    ALLOW_DIRTY=true run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode bin
+    ALLOW_DIRTY=true run bash "$SCRIPT_DIR/verify-cargo-packages.sh" --mode all
   fi
 }
 

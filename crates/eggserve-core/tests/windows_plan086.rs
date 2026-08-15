@@ -16,10 +16,11 @@
 //! - **Qualification** (`EGGSERVE_WINDOWS_QUALIFY=1`): All tests run.
 //!   Fixtures that still cannot be created produce a real test failure.
 //!
-//! All tests are gated with `#![cfg(all(windows, feature = "windows-plan086"))]`
+//! All tests are gated with `#![cfg(all(windows, feature =
+//! "windows-adversarial-qualification"))]`
 //! and will not compile on other platforms.
 
-#![cfg(all(windows, feature = "windows-plan086"))]
+#![cfg(all(windows, feature = "windows-adversarial-qualification"))]
 #![allow(
     dead_code,
     clippy::upper_case_acronyms,

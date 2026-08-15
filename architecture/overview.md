@@ -89,13 +89,13 @@ eggserve/
 │   ├── eggserve-bin/           # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
-├── docs/                       # reference docs (32 files)
-├── plans/                      # design plans (000–111; Plan 109 verified complete)
+├── docs/                       # reference docs
+├── plans/                      # historical design and implementation plans
 ├── conformance/                # shared Rust/Python conformance corpora
 ├── fuzz/                       # fuzzing targets and seed corpora (11 targets)
 ├── benchmarks/                 # benchmark baselines (Plan 088)
 ├── tests/                      # repo-level integration tests (proxy interop, soak, qual)
-├── scripts/                    # verify.sh, test-python-wheel.sh, install-cargo-tools.sh
+├── scripts/                    # small verification hierarchy plus package/release checks
 ├── release/                    # release artifacts and closure reports
 └── examples/                   # Python usage examples
 ```
@@ -123,7 +123,7 @@ eggserve-python        → standalone, owns Python packaging
 |---------|-------|---------|
 | `tls` | `eggserve-core`, `eggserve-bin`, `eggserve-python` | Server TLS via rustls/tokio-rustls |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
-| `windows-plan086` | `eggserve-core` | Windows adversarial qualification |
+| `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification |
 
 ---
 
@@ -376,7 +376,7 @@ See [docs/release-process.md](../docs/release-process.md) for the full procedure
 
 ## Plan History
 
-Plans 000–129 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plans 112–118 form the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure); Plan 129 records platform/product qualification evidence. Major feature tracks:
+Plans 000–130 are historical implementation records; Plan 109 is the verified final admission and wire-verification corrective pass; Plans 112–118 form the consolidation roadmap (product surface simplification, dependency slimming, CI consolidation, timeout/taxonomy cleanup, Python distribution cleanup, documentation consolidation and roadmap closure); Plan 129 records platform/product qualification evidence; Plan 130 records repository cleanup and verification simplification. Major feature tracks:
 
 | Plans | Theme | Key Outcomes |
 |-------|-------|--------------|

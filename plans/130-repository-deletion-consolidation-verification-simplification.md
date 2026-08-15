@@ -287,7 +287,17 @@ Append a closure ledger to this plan. For every deletion or merge, record:
 
 | Artifact | Action | Reason | Replacement/owner | Verification |
 |---|---|---|---|---|
-| example candidate | deleted | unreferenced duplicate | none | routine tests |
+| scripts/verify-cargo-packages.sh metadata parsing | corrected | Package verification required an unlisted jq executable even though Cargo metadata is JSON | Python standard-library metadata parsing | bash scripts/verify-cargo-packages.sh --mode all |
+| `scripts/bench_compat.py` | deleted | Unreferenced Plan 126 one-off benchmark helper; no current benchmark or CI caller | Current Criterion benches under `crates/eggserve-core/benches/`; historical benchmark records remain | `rg` caller audit; full verification |
+| `scripts/__init__.py` | deleted | `scripts/` is not imported as a Python package and the file had no callers | Standalone stdlib scripts | `rg` caller audit; Python checks |
+| `docs/architecture.md` | deleted | Duplicated the maintained subsystem map in `architecture/overview.md` | `architecture/overview.md` | `rg` reference audit; docs link check |
+| `docs/release-criteria.md` | deleted | Explicitly historical and referenced removed gate-registry tooling | `docs/release-process.md` and manual `verify.sh` tiers | `rg` reference audit; release docs review |
+| `.github/workflows/release.yml` | consolidated | Linux, macOS, and Windows jobs repeated the same wheel build, composition, smoke, and upload logic | One explicit three-target matrix; platform-specific flags/paths remain in matrix data | YAML parse/lint; local wheel composition check |
+| Wheel composition heredocs in release workflow | extracted | Identical inline Python assertion was repeated on all three targets | `scripts/check-wheel-composition.py` (Python stdlib only) | Script run against local wheel |
+| `windows-plan086` feature | renamed | Live manual qualification gate encoded a historical plan number | `windows-adversarial-qualification` | Feature-reference audit; Rust feature builds |
+| `scripts/verify.sh` package calls | consolidated | Full verification packaged the core crate twice by invoking `core` and `bin` separately | One `--mode all` package verification | `./scripts/verify.sh full` |
+| `crates/eggserve-core/benches/*.rs` and Criterion manifest entries | deleted | Both benchmark harnesses targeted a removed service API and failed all-target compilation; retained benchmark results are historical rather than a current CI gate | Historical `benchmarks/088-baseline/` records; selected future measurements can use a dedicated current harness | `cargo check --workspace --all-targets --all-features`; benchmark-reference audit |
+| `tls_service_parity.rs` head-only callbacks | corrected | TLS feature tests still used the pre-`Request` callback signature | Current `service_fn`/`service_fn_head` API | `cargo check --workspace --all-targets --all-features`; TLS tests |
 
 This is a one-time human-readable table, not a generated registry.
 
@@ -313,13 +323,13 @@ Reject an implementation that:
 
 Plan 130 is complete when:
 
-- [ ] deletion inventory is completed;
-- [ ] stale/unreferenced artifacts are removed;
-- [ ] release workflow duplication is materially reduced;
-- [ ] `scripts/` has a small explainable verification hierarchy;
-- [ ] unused plan-era feature flags/scaffolding are removed;
-- [ ] unused dev-dependencies are removed without weakening tests;
-- [ ] current security/conformance/fuzz assets remain available manually;
-- [ ] routine CI stays small and green;
+- [x] deletion inventory is completed;
+- [x] stale/unreferenced artifacts are removed;
+- [x] release workflow duplication is materially reduced;
+- [x] `scripts/` has a small explainable verification hierarchy;
+- [x] unused plan-era feature flags/scaffolding are removed;
+- [x] unused dev-dependencies are removed without weakening tests;
+- [x] current security/conformance/fuzz assets remain available manually;
+- [x] routine CI stays small and green;
 - [ ] manual release workflow passes after consolidation;
-- [ ] deletion ledger records what changed and why.
+- [x] deletion ledger records what changed and why.

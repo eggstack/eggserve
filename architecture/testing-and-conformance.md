@@ -60,9 +60,9 @@ The installed-wheel script is the authoritative Python test entry point; its cou
 | `qualification.rs` | — | Qualification test harness |
 | `stateful_fuzz_replay.rs` | — | Stateful fuzz corpus replay |
 | `unix_validator_qualification.rs` | — | Unix path validator qualification |
-| `windows_feasibility.rs` | `windows-plan086` | Windows feasibility spike |
-| `windows_plan084.rs` | `windows-plan086` | Windows handle-relative directory retention |
-| `windows_plan086.rs` | `windows-plan086` | Windows adversarial filesystem qualification |
+| `windows_feasibility.rs` | `windows-adversarial-qualification` | Windows feasibility spike |
+| `windows_plan084.rs` | `windows-adversarial-qualification` | Windows handle-relative directory retention |
+| `windows_plan086.rs` | `windows-adversarial-qualification` | Windows adversarial filesystem qualification |
 | `streaming_buffer_qualification.rs` | — | Plan 088: exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
 
 ## Conformance Corpora

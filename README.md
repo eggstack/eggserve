@@ -248,6 +248,13 @@ See [docs/security-policy.md](docs/security-policy.md) for the full security pol
 ./scripts/verify.sh fast    # routine dev check: format, clippy, tests
 ./scripts/verify.sh full    # pre-release: features, Python wheel, package dry-run
 ./scripts/verify.sh deep    # expensive suites (manual): corpus replay, fault injection, etc.
+
+The verification hierarchy is intentionally small. scripts/test-python-wheel.sh
+is the shared installed-wheel check used by routine Python CI and verify.sh
+full; scripts/verify-cargo-packages.sh is the separate package dry-run gate;
+scripts/install-cargo-tools.sh installs the pinned manual audit tools; and
+scripts/release_smoke.py plus scripts/check-wheel-composition.py are used by
+the manually dispatched cross-platform release workflow.
 ```
 
 Platform/product qualification evidence, including the manual macOS/Windows
