@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-15.**
+**COMPLETE — 2026-08-15.**
 
 Reviewed baseline:
 
@@ -199,16 +199,16 @@ Do not broaden this into a general parser rewrite. Add only the state required t
 
 ### Track A acceptance criteria
 
-- [ ] `eggserve 8000 1234` resolves root `1234`;
-- [ ] `eggserve --port 9000 1234` resolves root `1234`;
-- [ ] `eggserve --addr 127.0.0.1:9000 1234` resolves root `1234`;
-- [ ] `eggserve --bind 127.0.0.1:3000 9000` resolves root `9000`;
-- [ ] host-only `--bind` still allows a positional port;
-- [ ] `--directory 1234` always means directory `1234`;
-- [ ] a single positional numeric token still means `PORT`;
-- [ ] no positional token is silently discarded after both logical slots are occupied;
-- [ ] no filesystem probing is introduced into argument parsing;
-- [ ] no dependency is added.
+- [x] `eggserve 8000 1234` resolves root `1234`;
+- [x] `eggserve --port 9000 1234` resolves root `1234`;
+- [x] `eggserve --addr 127.0.0.1:9000 1234` resolves root `1234`;
+- [x] `eggserve --bind 127.0.0.1:3000 9000` resolves root `9000`;
+- [x] host-only `--bind` still allows a positional port;
+- [x] `--directory 1234` always means directory `1234`;
+- [x] a single positional numeric token still means `PORT`;
+- [x] no positional token is silently discarded after both logical slots are occupied;
+- [x] no filesystem probing is introduced into argument parsing;
+- [x] no dependency is added.
 
 ---
 
@@ -288,12 +288,12 @@ Ensure existing coverage continues to prove:
 
 ### Track B acceptance criteria
 
-- [ ] regression tests fail on `afc9c636…` and pass after the fix;
-- [ ] numeric directory behavior is covered directly;
-- [ ] the incorrect Plan-134 expectation is removed;
-- [ ] excess positionals have an explicit test;
-- [ ] adjacent Plan-134 CLI fixes remain covered;
-- [ ] no new testing framework or dependency is introduced.
+- [x] regression tests fail on `afc9c636…` and pass after the fix;
+- [x] numeric directory behavior is covered directly;
+- [x] the incorrect Plan-134 expectation is removed;
+- [x] excess positionals have an explicit test;
+- [x] adjacent Plan-134 CLI fixes remain covered;
+- [x] no new testing framework or dependency is introduced.
 
 ---
 
@@ -324,14 +324,14 @@ If the positional parser fix requires touching Python bindings, stop and justify
 
 ### Track C acceptance criteria
 
-- [ ] format passes;
-- [ ] workspace clippy passes with `-D warnings`;
-- [ ] default CLI tests pass;
-- [ ] TLS CLI tests pass;
-- [ ] workspace tests pass;
-- [ ] `./scripts/verify.sh full` passes;
-- [ ] installed Python wheel tests remain green;
-- [ ] no Python compatibility contract changes are required.
+- [x] format passes;
+- [x] workspace clippy passes with `-D warnings`;
+- [x] default CLI tests pass;
+- [x] TLS CLI tests pass;
+- [x] workspace tests pass;
+- [x] `./scripts/verify.sh full` passes;
+- [x] installed Python wheel tests remain green;
+- [x] no Python compatibility contract changes are required.
 
 ---
 
@@ -405,16 +405,16 @@ No crates.io publication, PyPI publication, release tag, or automatic GitHub rel
 
 ### Track D acceptance criteria
 
-- [ ] routine CI passes on the corrected exact SHA;
-- [ ] Platform Qualification is manually dispatched on that SHA;
-- [ ] macOS arm64 qualification passes;
-- [ ] Windows x86_64 adversarial qualification passes within the existing documented limitation boundary;
-- [ ] Release is manually dispatched only after platform qualification succeeds;
-- [ ] Linux x86_64 wheel build/composition/smoke passes;
-- [ ] macOS arm64 wheel build/composition/smoke passes;
-- [ ] Windows x86_64 wheel build/composition/smoke passes;
-- [ ] no publication occurs;
-- [ ] workflow run IDs and head SHA are recorded in the plan closure record.
+- [x] routine CI passes on the corrected exact SHA;
+- [x] Platform Qualification is manually dispatched on that SHA;
+- [x] macOS arm64 qualification passes;
+- [x] Windows x86_64 adversarial qualification passes within the existing documented limitation boundary;
+- [x] Release is manually dispatched only after platform qualification succeeds;
+- [x] Linux x86_64 wheel build/composition/smoke passes;
+- [x] macOS arm64 wheel build/composition/smoke passes;
+- [x] Windows x86_64 wheel build/composition/smoke passes;
+- [x] no publication occurs;
+- [x] workflow run IDs and head SHA are recorded in the plan closure record.
 
 ---
 
@@ -464,19 +464,32 @@ Reject an implementation that:
 
 Plan 135 is complete only when all are true:
 
-- [ ] the numeric positional directory regression is fixed;
-- [ ] positional argument interpretation is deterministic and slot-based;
-- [ ] numeric directory names work after any already-occupied port source;
-- [ ] single positional numeric compatibility remains intact;
-- [ ] excess positional arguments fail instead of disappearing;
-- [ ] focused regression tests cover the corrected cases;
-- [ ] the incorrect Plan-134 parser expectation is removed;
-- [ ] all adjacent Plan-134 CLI hardening remains intact;
-- [ ] `./scripts/verify.sh full` passes;
-- [ ] normal two-job CI passes on the corrected exact head;
-- [ ] manual Platform Qualification passes on the same head;
-- [ ] manual Release matrix passes on the same head;
-- [ ] no publication occurs;
-- [ ] no dependency or architectural scope is added;
-- [ ] the completion record contains exact SHA/run evidence;
-- [ ] the repository returns to ordinary bug/release maintenance rather than another broad cleanup phase.
+- [x] the numeric positional directory regression is fixed;
+- [x] positional argument interpretation is deterministic and slot-based;
+- [x] numeric directory names work after any already-occupied port source;
+- [x] single positional numeric compatibility remains intact;
+- [x] excess positional arguments fail instead of disappearing;
+- [x] focused regression tests cover the corrected cases;
+- [x] the incorrect Plan-134 parser expectation is removed;
+- [x] all adjacent Plan-134 CLI hardening remains intact;
+- [x] `./scripts/verify.sh full` passes;
+- [x] normal two-job CI passes on the corrected exact head;
+- [x] manual Platform Qualification passes on the same head;
+- [x] manual Release matrix passes on the same head;
+- [x] no publication occurs;
+- [x] no dependency or architectural scope is added;
+- [x] the completion record contains exact SHA/run evidence;
+- [x] the repository returns to ordinary bug/release maintenance rather than another broad cleanup phase.
+
+## Completion record
+
+- Parser implementation commit: `026ce4315359502d445658831bf90126fedcedb5` (`fix positional CLI slot parsing`).
+- Qualification correction commit: `16afecea940d2707eb574063658f8267cad6d66d` (`test: bound active stream shutdown qualification`). The macOS installed-wheel qualification exposed that the active-stream test used the 10-second default drain deadline while asserting a 5-second bound; the test now specifies a 1-second deadline.
+- Documentation and skill updates: `README.md`, `AGENTS.md`, `docs/cli.md`, `architecture/eggserve-bin.md`, and `.opencode/skills/eggserve-dev/SKILL.md` now describe the two-slot positional grammar and numeric-directory behavior.
+- Parser regression coverage: numeric directories after positional, explicit `--port`, explicit `--addr`, port-bearing `--bind`, host-only `--bind`, `--directory` with a positional port, single numeric positional compatibility, and excess positional rejection. The baseline parser was verified to fail the numeric-directory regression before the fix.
+- Local verification: `./scripts/verify.sh full` passed, including format, clippy, workspace/TLS tests, examples, the installed wheel suite (732 Python tests), and package dry-runs.
+- Routine CI: run `31894958826` passed on `16afecea940d2707eb574063658f8267cad6d66d` (`rust` job `95036739378`, `python` job `95036739355`).
+- Platform Qualification: run `31895110822` passed on the same SHA after the failed Windows race test was rerun; macOS job `95037654715` and Windows retry job `95037654410` passed. The initial Windows attempt failed only in the timing-sensitive `windows_race_index_file_replacement_during_resolution` test; no product code was changed for that unrelated fixture race.
+- Release: run `31895525890` passed on the same SHA: Linux job `95038153821`, macOS job `95038153811`, and Windows job `95038153839`.
+- Publication: none.
+- Known limitations: Windows remains a trusted/local-content platform; the two documented NTFS open-descendant root-rename cases remain skipped. GitHub Actions reported non-blocking Node.js 20 deprecation annotations.
