@@ -80,7 +80,7 @@ The `tls` feature in `eggserve-bin` is **non-default**. The Python extension
 uses the same Rust TLS loader for `HTTPSServer` and `ThreadingHTTPSServer`.
 This means:
 
-- **`cargo install eggserve`** installs a plaintext-only binary unless you pass `--features tls`.
+- **`cargo install --path crates/eggserve-bin`** installs a plaintext-only binary unless you pass `--features tls`.
 - **Published PyPI wheels** can provide Python HTTPS classes and the
   extension-backed CLI; both are built with the Python crate's enabled `tls`
   feature.
