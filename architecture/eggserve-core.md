@@ -6,7 +6,7 @@ request handling, response construction, MIME detection, and runtime service
 boundary.
 
 External Rust consumers should start with `eggserve_core::primitives` for the
-stable canonical HTTP/security facade. The `eggserve_core::server` module is an
+semver-considered canonical HTTP/security facade. The `eggserve_core::server` module is an
 experimental, transport-owning HTTP/1 runtime exposing `Server`,
 `RuntimeConfig`, `ServerHandle`, `Service`, `service_fn`, and `StaticService`.
 The filesystem, path, response, and MIME implementation modules remain
@@ -102,7 +102,9 @@ let handle = server.start().await?;
 
 `Server::builder()` returns a `ServerBuilder`. Configure with `.runtime()` and `.static_service()` (or `.serve_config()` for pre-built configs), then `.build()` to construct the server. Call `.start()` (built-in static service) or `.start_with_service(service)` (custom service) to begin listening. Returns a `ServerHandle`.
 
-`ServerBuilder` also supports `.bind()` for passing a pre-bound `TcpListener` or `UnixListener` directly, and `.from_listener()` for constructing from an existing listener with additional configuration.
+`ServerBuilder::bind()` overrides the configured socket address. Use
+`ServerBuilder::from_listener()` when transferring ownership of an existing
+Tokio `TcpListener`; the runtime is TCP-only.
 
 ### `RuntimeConfig`
 
@@ -117,11 +119,8 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `connection_total_timeout` | 60s | Timeout wrapping the entire Hyper connection future |
 | `handler_timeout` | 30s | Per-request handler timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
-| `keep_alive` | true | TCP keep-alive |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
-| `request_body_policy` | `Reject` | Global body policy (Reject/Buffer/Stream) |
 | `body_read_timeout` | 30s | Total deadline for body consumption in Buffer mode |
-| `incomplete_body_policy` | `Close` | Connection behavior when handler doesn't consume body |
 
 Note: `Limits::connection_total_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by the `From<&ServeConfig>` impl.
 
@@ -169,7 +168,6 @@ Control handle returned by `Server::start()`:
 - `local_addr()` — listening address
 - `shutdown()` — trigger graceful shutdown
 - `wait()` — wait for server to finish
-- `wait_timeout()` — wait with timeout
 - `ready()` — wait for server to be ready to accept connections
 - `force_shutdown()` — immediately terminate without draining
 - `state()` — query current `LifecycleState`

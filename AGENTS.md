@@ -117,7 +117,7 @@ Routine CI is a small regression screen, not release certification:
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory"}`. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N).
 - **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()`. The Python facade uses `rt-multi-thread` with 2 worker threads for GIL scheduling. The library is runtime-agnostic.
 - **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. `--log-format none` disables output; `--quiet` filters to warn/error only. Library code must not use `println!`/`eprintln!`.
-- **Canonical examples** — `examples/README.md` is the index. The supported demonstrations are `python_http_server_static.py`, `python_custom_handler.py`, `python_subprocess.py`, `python_safe_download.py`, and the Cargo examples `static_server`, `custom_service`, and `primitives`. Keep examples small, loopback-bound, safe by default, and mechanically checked by `scripts/verify.sh full`.
+- **Canonical examples** — `examples/README.md` is the index. The supported demonstrations are `python_http_server_static.py`, `python_custom_handler.py`, `python_subprocess.py`, `python_safe_download.py`, and the Cargo examples `static_server`, `custom_service`, and `primitives`. Keep examples small, loopback-bound, safe by default, and mechanically checked by `scripts/verify.sh full`. Rust embedders should use `eggserve-core`; `eggserve-bin::run_cli` is integration plumbing for the Python wheel, not a general embedding API.
 
 ## Common pitfalls
 
@@ -160,7 +160,9 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
 `plans/` has historical design and implementation records through Plan 133;
-the current documentation/compatibility contract is recorded in Plan 131.
+the current product and compatibility contract is recorded in README.md,
+the relevant docs/ pages, and the architecture pages. Plans record evidence
+and change history; they are not normative API documentation.
 Plans are repository navigation and change-trace records, not prerequisites
 for understanding runtime behavior; use the owning docs and architecture
 pages for current invariants.

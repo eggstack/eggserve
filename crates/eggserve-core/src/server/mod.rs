@@ -7,18 +7,17 @@
 //! # Architecture
 //!
 //! ```text
-//! Server::builder()
-//!     .runtime(RuntimeConfig)
-//!     .service(my_service)
-//!     .build()?
-//!     .start()
-//!     .await?;
+//! let server = Server::builder()
+//!     .runtime(RuntimeConfig::default())
+//!     .build()?;
+//! let handle = server.start_with_service(my_service).await?;
 //!
 //! handle.ready().await?;
 //! // server is accepting connections
 //!
-//! handle.shutdown().await?;
+//! handle.shutdown();
 //! // server drains and stops
+//! handle.wait().await?;
 //! ```
 //!
 //! The runtime owns:

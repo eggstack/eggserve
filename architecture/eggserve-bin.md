@@ -7,7 +7,7 @@ The CLI binary crate. Owns the process lifecycle: argument parsing, startup logg
 | Module | Purpose |
 |--------|---------|
 | `main.rs` | Thin `fn main()` → `eggserve_bin::run()` |
-| `lib.rs` | `pub fn run()` and `pub fn run_cli(argv) -> i32` entrypoints; accept loop; connection serving with timeouts |
+| `lib.rs` | `run()` executable entrypoint and integration-only `run_cli(argv) -> i32`; accept loop; connection serving with timeouts |
 | `args.rs` | Manual argument parsing (no clap dependency) |
 | `shutdown.rs` | Signal handling (Ctrl+C, SIGTERM) with broadcast channel |
 | `tls.rs` | TLS certificate loading and rustls config (behind `tls` feature) |
@@ -17,14 +17,16 @@ The CLI binary crate. Owns the process lifecycle: argument parsing, startup logg
 ```rust
 // lib.rs
 pub fn run()  // calls run_cli with std::env::args, then std::process::exit
-pub fn run_cli(argv: Vec<String>) -> i32  // library entrypoint returning exit code
+pub fn run_cli(argv: Vec<String>) -> i32  // Python integration entrypoint
 ```
 
-`run_cli()` is the primary entrypoint. It parses CLI arguments, constructs
+`run_cli()` parses the same arguments as the executable, constructs
 `ServeConfig`, starts the server, and returns an exit code without calling
-`std::process::exit()`. This allows embedding from the Python extension
-without terminating the host process. `run()` is a thin wrapper that calls
-`run_cli` and exits with the returned code.
+`std::process::exit()`. This narrowly supports the Python extension's
+extension-backed CLI without terminating the host process. It is not a
+general Rust embedding API; Rust applications should use `eggserve-core`.
+`run()` is the executable wrapper that calls `run_cli` and exits with the
+returned code.
 
 The binary crate calls `run()` from `main.rs`. The Python package calls
 `run_cli()` via the native `_run_cli` PyO3 binding, and `ServerProcess`

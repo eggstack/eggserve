@@ -178,7 +178,11 @@ match resource {
 
 ## Stability
 
-The `primitives` module is the **stable** tier. Breaking changes bump the major version. Pre-1.0, minor versions may break. For the full API classification, see [api-stability.md](../docs/api-stability.md) and [release-contract.md](../docs/release-contract.md).
+The `primitives` module is the semver-considered public tier for the 0.x
+line. It is intentionally supported as the Rust facade, but minor versions
+may still make breaking changes before 1.0. For the full API classification,
+see [api-stability.md](../docs/api-stability.md) and
+[release-contract.md](../docs/release-contract.md).
 
 ## Examples
 

@@ -146,7 +146,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
 | Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | All security-critical logic — path confinement, policy enforcement, HTTP serving, response construction |
-| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, `run_cli()` library entrypoint, signal handling, current-thread tokio runtime, graceful shutdown |
+| CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, integration-only `run_cli()`, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
 
 ### Security Subsystems

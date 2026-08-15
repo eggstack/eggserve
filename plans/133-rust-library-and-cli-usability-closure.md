@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-14.**
+**COMPLETE — 2026-08-15.**
 
 Governing roadmap: Plan 128.
 
@@ -438,18 +438,35 @@ Reject an implementation that:
 
 Plan 133 is complete when:
 
-- [ ] `eggserve-core` is demonstrably usable from a clean external crate;
-- [ ] static embedding uses public API only and is README/example quality;
-- [ ] custom `Service` embedding uses public API only and no direct Hyper dependency;
-- [ ] crate rustdoc clearly identifies public/stability boundaries;
-- [ ] useful doctests/examples compile;
-- [ ] Cargo package dry-runs pass for core and binary crates;
-- [ ] CLI remains thin, secure-by-default, and dependency-light;
-- [ ] CLI options map coherently to core policy/config ownership;
-- [ ] `eggserve-bin::run_cli` support status is explicit;
-- [ ] no new facade crate is added absent a demonstrated blocker;
-- [ ] Python packaging remains functional if shared CLI code is touched;
-- [ ] no application-framework scope is introduced.
+- [x] `eggserve-core` is demonstrably usable from a clean external crate;
+- [x] static embedding uses public API only and is README/example quality;
+- [x] custom `Service` embedding uses public API only and no direct Hyper dependency;
+- [x] crate rustdoc clearly identifies public/stability boundaries;
+- [x] useful doctests/examples compile;
+- [x] Cargo package dry-runs pass for core and binary crates;
+- [x] CLI remains thin, secure-by-default, and dependency-light;
+- [x] CLI options map coherently to core policy/config ownership;
+- [x] `eggserve-bin::run_cli` support status is explicit;
+- [x] no new facade crate is added absent a demonstrated blocker;
+- [x] Python packaging remains functional if shared CLI code is touched;
+- [x] no application-framework scope is introduced.
+
+## Closure evidence — 2026-08-15
+
+The closure pass made no runtime architecture expansion and retained the
+public boundary as `eggserve-core::primitives` plus the experimental
+`eggserve-core::server` module. `eggserve-bin::run_cli` is documented as
+integration plumbing for the Python wheel, and no `eggserve` facade crate or
+permanent external-consumer fixture was added.
+
+| Surface | Command/test | Result |
+|---|---|---|
+| Rust format/lint/tests | `cargo fmt --all -- --check`; workspace clippy/tests; TLS clippy/tests | Pass |
+| Rust docs/examples | `cargo test --doc -p eggserve-core`; `cargo check -p eggserve-core --examples` | Pass |
+| Dist artifacts | `cargo build --profile dist --locked -p eggserve-bin`; same with `--features tls` | Pass |
+| Package boundary | `ALLOW_DIRTY=true bash scripts/verify-cargo-packages.sh --mode all` | Pass; core publish dry-run and packaged binary graph |
+| Clean external consumer | Temporary crate using only `eggserve-core` and Tokio; static and custom-service TCP smokes on port 0; primitives import; clean shutdown | Pass; no Hyper or internal modules |
+| Documentation boundary | README, AGENTS.md, skill, architecture/runtime, core/bin/overview, primitives, API stability, release contract | Updated; stale fields and unsupported lifecycle claims pruned |
 
 ---
 

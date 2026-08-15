@@ -46,7 +46,8 @@ pub enum BodyState {
 ///
 /// # Examples
 ///
-/// ```ignore
+/// ```no_run
+/// use eggserve_core::primitives::{RequestBody, RequestBodyError};
 /// use futures_util::StreamExt;
 ///
 /// async fn handle(body: RequestBody) -> Result<Vec<u8>, RequestBodyError> {
@@ -58,7 +59,7 @@ pub enum BodyState {
 /// async fn handle_streaming(mut body: RequestBody) -> Result<(), RequestBodyError> {
 ///     // Option 2: stream chunks
 ///     while let Some(chunk) = body.next_chunk().await? {
-///         process(chunk);
+///         let _ = chunk;
 ///     }
 ///     Ok(())
 /// }

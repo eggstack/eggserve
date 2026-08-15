@@ -93,32 +93,29 @@ functional.
 | `RequestBody::was_fully_consumed()` | Internal | `pub(crate)` — not public API |
 | `BodyState` | Experimental | Body consumption state machine |
 | `RequestBodyError` | Experimental | Typed body error taxonomy |
-| `IncompleteBodyPolicy` | Experimental | Close for incomplete bodies |
 | `Request` | Experimental | Canonical request envelope |
 | `Service::call(Request)` | Experimental | Updated to accept Request envelope |
 | `RuntimeConfig::max_request_body_bytes` | Experimental | Hard body size ceiling |
 | `Service::request_body_policy(&RequestHead)` | Experimental | Service-declared body policy, bounded by the runtime ceiling |
-| `RuntimeConfig::incomplete_body_policy` | Experimental | Not configurable; incomplete streamed bodies close the connection |
+| `IncompleteBodyPolicy` | Experimental | Public marker for the close-on-incomplete-body behavior; the runtime does not expose a configuration field |
 
 ### `server` Module
 
 **All server module items are experimental.** API is subject to change without notice.
 
-**Milestone 3 decision:** The `server` module remains experimental for the initial release. While the lifecycle state machine, `Service` trait, and `StaticService` are implemented and tested, the following factors justify keeping the module experimental:
-
-1. No production-path consumer fixtures exist yet (only test consumers)
-2. The `Service` trait signature may evolve to support request bodies or HTTP/2
-3. `RuntimeConfig` field set may change as more transport options are added
-4. The Python compatibility façade uses this Rust runtime through the native bridge; its public surface is documented separately in `docs/python-api.md`
-
-Promotion to stable requires: production-path consumer fixtures, real-socket parity matrix passing, installed-wheel matrix passing, and lifecycle stress tests showing no leaks.
+The `server` module remains experimental for the initial release. Plan 129
+qualified clean external static and custom-service consumers over TCP, and
+Plan 133 verified the packaged crate graph, but the runtime API and
+`RuntimeConfig` field set may still evolve before 1.0. The Python compatibility
+facade uses this runtime through the native bridge; its public surface is
+documented separately in `docs/python-api.md`.
 
 | Item | Tier | Notes |
 |------|------|-------|
 | `Server` | experimental | Main entry point; `Server::builder()` returns `ServerBuilder` |
-| `ServerBuilder` | experimental | Configured builder; `.config()`, `.start()`, `.bind()`, `.from_listener()` |
-| `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
-| `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, keep-alive |
+| `ServerBuilder` | experimental | Configured builder; `.runtime()`, `.serve_config()`, `.static_service()`, `.start()`, `.bind()`, `.from_listener()` |
+| `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
+| `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, body ceiling, optional TLS |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
 | `Service` trait | experimental | `call(Request) -> Result<Response, ServiceError>` (updated from `RequestHead`) |
 | `service_fn` | experimental | Create a Service from a closure |

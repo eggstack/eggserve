@@ -22,7 +22,12 @@ intentionally not routers or application frameworks.
 
 ### Server
 
-The main entry point. Created via `Server::builder()`, configured with a `RuntimeConfig` and a service, then started with `.start()`. The `start()` call transitions the server from Created → Starting → Running through the lifecycle state machine. Double-start is prevented by atomic state guards and returns `ServerError::AlreadyStarted`.
+The main entry point. Created via `Server::builder()`, configured with a
+`RuntimeConfig`, then started with the built-in static service via `.start()` or
+with a custom service via `.start_with_service(service)`. The start call
+transitions the server from Created → Starting → Running through the lifecycle
+state machine. Double-start is prevented by atomic state guards and returns
+`ServerError::AlreadyStarted`.
 
 ### ServerBuilder
 

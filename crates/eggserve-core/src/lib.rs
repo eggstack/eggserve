@@ -5,14 +5,19 @@
 //! The public surface is intentionally conservative during the alpha period.
 //! Modules and types are divided into three buckets:
 //!
-//! - **Stable-ish (semver-considered)**: [`config`], [`limits`], [`policy`].
-//!   Field shapes here may still evolve before 1.0, but breaking changes will
-//!   be accompanied by a major version bump and a migration note.
+//! - **Semver-considered (pre-1.0)**: [`config`], [`limits`], [`policy`], and
+//!   [`primitives`]. These are the intended public facades, but a minor
+//!   release may still make breaking changes before 1.0.
 //! - **Experimental**: [`server`]. The runtime and service boundary is
-//!   exposed for Rust embedders and may change before 1.0.
+//!   exposed for Rust embedders and may change independently before 1.0.
 //! - **Internal**: [`fs`], [`path`], [`response`], MIME detection, and the
 //!   error taxonomy. These are not part of the public API and are not
 //!   re-exported. External callers should not depend on them.
+//!
+//! Start with [`primitives`] when using the library without starting a
+//! server. Use [`server`] for the experimental transport-owning runtime; the
+//! repository's `static_server` and `custom_service` examples show the two
+//! supported embedding paths.
 //!
 //! # Primitives facade
 //!
@@ -21,9 +26,9 @@
 //! enforcement without pulling in the full HTTP service layer. It re-exports
 //! the core types with invariant-focused documentation.
 //!
-//! Before 1.0, every public type or function in this crate is best-effort
-//! and may change without a major version bump. See
-//! `docs/release-process.md` for the manual release procedure.
+//! Before 1.0, every public type or function in this crate may change without
+//! a major version bump. See `docs/release-process.md` for the manual release
+//! procedure.
 
 pub mod config;
 pub(crate) mod fs;

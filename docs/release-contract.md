@@ -29,7 +29,7 @@ free-threaded CPython are not supported.
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
 
-## Runtime Service Boundary (Experimental, Milestone 3)
+## Runtime Service Boundary (Experimental)
 
 **Stability**: All `server` module types are **experimental**. The interface may change in any release.
 
@@ -41,8 +41,8 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 |------|-------------|
 | `Server` | Main entry point; creates via `Server::builder()` |
 | `ServerBuilder` | Configured builder for `Server`; supports `.bind()` and `.from_listener()` for existing listeners |
-| `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `wait_timeout()`, `ready()`, `force_shutdown()`, `state()` |
-| `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, keep-alive) |
+| `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
+| `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, body ceiling, optional TLS) |
 | `Service` trait | Receives `Request` (envelope: `RequestHead` + `RequestBody` + `ConnectionInfo`), returns `Result<Response, ServiceError>` |
 | `service_fn` | Create a `Service` from a closure |
 | `StaticService` | Hardened static file service implementing `Service` |
@@ -88,12 +88,11 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `RequestBody` | One-shot, bounded request body with `read_all` and streaming |
 | `BodyState` | Body consumption state machine: Unread, Streaming, Complete, Error |
 | `RequestBodyError` | Typed body error taxonomy (policy, limit, timeout, disconnect, consumption state) |
-| `IncompleteBodyPolicy` | Close for incomplete bodies |
 | `Request` | Canonical request envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` |
 | `Service::call(Request)` | Service trait now accepts `Request` instead of `RequestHead` |
 | `RuntimeConfig::max_request_body_bytes` | Hard body size ceiling (default 0) |
 | `Service::request_body_policy(&RequestHead)` | Service-declared body policy, bounded by the runtime ceiling |
-| `RuntimeConfig::incomplete_body_policy` | Not configurable; incomplete streamed bodies always close the connection |
+| `IncompleteBodyPolicy` | Public marker for the close-on-incomplete-body behavior; no runtime configuration field |
 
 Body acceptance plumbing (Hyper Incoming → RequestBody) is implemented in the
 connection pipeline. The runtime default remains body rejection, while custom

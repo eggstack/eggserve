@@ -72,12 +72,37 @@ for intentional deviations from the stdlib.
 
 ## Rust library
 
-`eggserve-core` exposes `primitives` as the intended public facade and
-`server` as an experimental transport-owning runtime. The executable,
-mechanically checked examples are [the static server](crates/eggserve-core/examples/static_server.rs),
+`eggserve-core` is the intended Rust library crate for the 0.x line. It
+exposes `primitives` as the semver-considered public facade and `server` as an
+experimental transport-owning runtime; there is no additional `eggserve`
+facade crate. Rust applications do not need a direct Hyper dependency.
+
+The concise static-server flow is:
+
+```rust,no_run
+use eggserve_core::server::{RuntimeConfig, Server};
+
+# async fn run() -> Result<(), Box<dyn std::error::Error>> {
+let server = Server::builder()
+    .runtime(RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse()?)
+        .build()?)
+    .static_service("public")?;
+let handle = server.start().await?;
+handle.ready().await?;
+println!("listening on {}", handle.local_addr());
+// ... make requests ...
+handle.shutdown();
+handle.wait().await?;
+# Ok(())
+# }
+```
+
+The executable, mechanically checked examples are [the static server](crates/eggserve-core/examples/static_server.rs),
 [the custom service](crates/eggserve-core/examples/custom_service.rs),
 and [the primitives demo](crates/eggserve-core/examples/primitives.rs).
-They use no direct Hyper imports and include readiness plus graceful shutdown.
+They use public EggServe modules only, include readiness plus graceful
+shutdown, and are the recommended starting points for custom services.
 
 The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
 `Service` owns request handling and response construction. The `server` module
@@ -117,6 +142,10 @@ pipx run eggserve
 # From source (requires a Rust toolchain)
 cargo install --path crates/eggserve-bin
 ```
+
+The source-checkout command installs the `eggserve-bin` package's `eggserve`
+binary. Rust embedders should add `eggserve-core` as their library dependency;
+the executable crate is intentionally a thin CLI surface.
 
 The Python wheel includes the native extension and extension-backed CLI entry
 point; it does not bundle a second standalone CLI binary. See

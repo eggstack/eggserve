@@ -18,6 +18,13 @@ pub fn run() {
     std::process::exit(code);
 }
 
+/// Run the packaged CLI implementation without terminating the host process.
+///
+/// This entry point exists for the Python wheel's extension-backed CLI. It is
+/// not the general Rust embedding API: Rust applications should depend on
+/// `eggserve-core` and use its public `server` or `primitives` facade. The
+/// argument vector uses the same syntax as the `eggserve` executable, and the
+/// return value is the process-style exit code.
 #[allow(clippy::needless_return)]
 pub fn run_cli(argv: Vec<String>) -> i32 {
     let args = match args::Args::parse_from(argv) {

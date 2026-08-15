@@ -47,9 +47,11 @@ Server(
     request_body_mode="buffer",      # "reject" | "buffer" | "stream"
     max_request_body_bytes=10240,    # required for buffer/stream
     body_timeout_secs=30,            # optional, default 30
-    incomplete_body_policy="close",  # "close" only
 ).start()
 ```
+
+Incomplete streamed bodies always close the connection; there is no separate
+configuration field for that behavior.
 
 ## Body Modes
 
