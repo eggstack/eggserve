@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-14.**
+**COMPLETE — 2026-08-15.**
 
 Reviewed baseline:
 
@@ -153,21 +153,21 @@ Required outcomes:
 
 The entire roadmap is complete only when all are true:
 
-- [ ] routine CI remains small and green;
-- [ ] manual/deep verification remains manual rather than becoming a required push gate;
-- [ ] Windows support language is backed by actual Windows execution evidence;
-- [ ] CLI remains secure-by-default and static-serving focused;
-- [ ] Python `http.server`-shaped examples work from the installed wheel;
-- [ ] stock `SimpleHTTPRequestHandler` still uses the native fast path under its documented eligibility contract;
-- [ ] Rust static serving works from a clean external consumer crate using public API only;
-- [ ] Rust custom service handling works without importing Hyper directly;
-- [ ] no raw-socket or raw translated-path compatibility escape hatch is added;
-- [ ] duplicated release workflow logic is reduced rather than expanded;
-- [ ] obsolete plan-era implementation artifacts identified by Plan 130 are removed or explicitly retained with rationale;
-- [ ] README presents CLI, Python, and Rust usage without contradictory product claims;
-- [ ] examples compile/run under documented verification commands;
-- [ ] no new application-serving scope is introduced;
-- [ ] final documentation describes actual behavior rather than planning history.
+- [x] routine CI remains small and green;
+- [x] manual/deep verification remains manual rather than becoming a required push gate;
+- [x] Windows support language is backed by actual Windows execution evidence;
+- [x] CLI remains secure-by-default and static-serving focused;
+- [x] Python `http.server`-shaped examples work from the installed wheel;
+- [x] stock `SimpleHTTPRequestHandler` still uses the native fast path under its documented eligibility contract;
+- [x] Rust static serving works from a clean external consumer crate using public API only;
+- [x] Rust custom service handling works without importing Hyper directly;
+- [x] no raw-socket or raw translated-path compatibility escape hatch is added;
+- [x] duplicated release workflow logic is reduced rather than expanded;
+- [x] obsolete plan-era implementation artifacts identified by Plan 130 are removed or explicitly retained with rationale;
+- [x] README presents CLI, Python, and Rust usage without contradictory product claims;
+- [x] examples compile/run under documented verification commands;
+- [x] no new application-serving scope is introduced;
+- [x] final documentation describes actual behavior rather than planning history.
 
 ---
 
@@ -229,3 +229,14 @@ remaining known limitations, if any
 ```
 
 Do not create another broad roadmap for cosmetic leftovers. Any remaining item should be either a concrete bug/security issue or ordinary maintenance.
+
+## Closure record — 2026-08-15
+
+- Final main commit: `3ef6a5ab9df5b393a9f4bf84cf600d01d3cd0e08` (Plan 133 implementation and documentation closure).
+- Plan 129: Linux/macOS product qualification, Windows Outcome 2 evidence, clean external Rust static/custom consumers, and package dry-run are recorded in [Plan 129](129-platform-and-product-qualification.md).
+- Plan 130: repository deletion/consolidation and verification simplification are recorded in [Plan 130](130-repository-deletion-consolidation-verification-simplification.md).
+- Plan 131: normative README, compatibility, capability-matrix, and support-document updates are recorded in [Plan 131](131-documentation-and-compatibility-contract-polish.md).
+- Plan 132: canonical CLI, Python, and Rust examples plus executable example verification are recorded in [Plan 132](132-executable-examples-and-product-demonstrations.md).
+- Plan 133: Rust public API/rustdoc, CLI integration boundary, package usability, README/AGENTS/skill/architecture cleanup, and external consumer evidence are recorded in [Plan 133](133-rust-library-and-cli-usability-closure.md).
+- Final routine CI: [run 31868456917](https://github.com/eggstack/eggserve/actions/runs/31868456917), both `rust` and `python` jobs passed.
+- Remaining limitations: Windows remains functionally qualified and trusted/local-content only because the two NTFS path-rename cases documented by Plan 129 remain skipped; the Rust `server` module remains experimental before 1.0.
