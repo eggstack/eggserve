@@ -1200,7 +1200,10 @@ class TestGracefulShutdown(unittest.TestCase):
     def test_shutdown_during_active_file_stream(self):
         """Shutdown during an active file stream completes without deadlock."""
         s = self._make_server(
-            max_connections=10, header_timeout_secs=2, connection_total_timeout_secs=2
+            max_connections=10,
+            header_timeout_secs=2,
+            connection_total_timeout_secs=2,
+            graceful_shutdown_timeout_secs=1,
         )
         addr = s.addr
         # Use a small file to avoid long streaming times
