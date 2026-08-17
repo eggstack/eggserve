@@ -19,6 +19,7 @@ not a general `socketserver` implementation or application framework.
 | Raw socket access | Available through socketserver internals | No | No | Listener/runtime APIs only |
 | `translate_path()` | Available | N/A | Intentionally unavailable | Hardened resolver primitives |
 | Raw `list_directory()` path | Available to handler | N/A | Intentionally unavailable | N/A |
+| Static metadata hooks | `--content-type`, `-H/--header` | N/A | `default_content_type`, `extra_response_headers` | Builder metadata |
 | ASGI/WSGI | No | No | No | No |
 
 The matrix describes product boundaries rather than Python-version trivia. The
@@ -47,9 +48,12 @@ with ThreadingHTTPServer(("127.0.0.1", 8000), Handler) as server:
 Stock `SimpleHTTPRequestHandler` with default settings uses the native static
 fast path. The exact eligibility contract is the bare class, or a
 `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, whose
-`.args` is empty, and whose keywords are limited to `directory`. Subclasses,
-extra partial arguments/keywords, and non-default static settings use the
-bounded Python callback path.
+`.args` is empty, and whose keywords are limited to `directory` and
+`extra_response_headers`. Subclasses, extra partial arguments/keywords, and
+non-default static settings use the bounded Python callback path. A custom
+`default_content_type` and safe ordered extra headers remain native metadata
+settings; extras are emitted only for final `200` responses and never replace
+runtime-owned headers.
 
 Both paths use Rust for socket ownership, request parsing, framing, timeouts,
 path confinement, and file streaming. The callback path is synchronous;
@@ -71,17 +75,27 @@ small `http.server` handler:
   `wfile` adapters;
 - duplicate-preserving request-header access through `get()`, `get_all()`,
   `items()`, and membership;
+- `BaseHTTPRequestHandler.send_error()` with class-level `responses`,
+  `error_message_format`, and `error_content_type` hooks, plus
+  `log_date_time_string()` and MIME-oriented request-header helpers;
 - `SimpleHTTPRequestHandler(directory=...)`, `GET`/`HEAD` static semantics,
   ranges, conditional requests, index selection, and bounded `guess_type()` /
-  `extensions_map` metadata hooks;
+  `extensions_map`, `default_content_type`, and ordered
+  `extra_response_headers` metadata hooks;
 - rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with PEM paths and
   HTTP/1.1 ALPN only.
 
-Static roots are validated and pinned at construction. `rfile` and `wfile` are
+Static roots are validated and pinned at construction. Handler classes that set
+an incompatible `protocol_version` are rejected at construction because the
+runtime is HTTP/1.1 only. `rfile` and `wfile` are
 bounded in-memory facades: the default request-body ceiling is 1 MiB and the
 default handler-response ceiling is 16 MiB. Handlers do not receive raw
 sockets, and Rust owns `Date`, `Content-Length`, connection persistence, and
 hop-by-hop framing headers.
+
+`server_version`, `sys_version`, and the formatting methods remain available
+for source-compatible logging/customization. They do not create a Python-owned
+`Server` header; transport metadata remains Rust-owned.
 
 ## Intentional incompatibilities
 

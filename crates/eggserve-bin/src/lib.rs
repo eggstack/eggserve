@@ -96,6 +96,8 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         bind: args.bind,
         limits,
         static_policy,
+        default_content_type: args.default_content_type,
+        extra_response_headers: args.extra_response_headers,
     });
 
     // Emit structured startup event.

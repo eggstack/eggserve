@@ -48,6 +48,79 @@ class CompatTests(unittest.TestCase):
         self.assertTrue(response.endswith(b"ok"))
         self.assertEqual(seen, [("/hello?q=1", ["a", "b"])])
 
+    def test_httpmessage_helpers_are_read_only_and_duplicate_preserving(self):
+        seen = []
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                seen.append({
+                    "item": self.headers["Content-Length"],
+                    "keys": self.headers.keys(),
+                    "values": self.headers.values(),
+                    "items": self.headers.items(),
+                    "raw": self.headers.raw_items(),
+                    "type": self.headers.get_content_type(),
+                    "maintype": self.headers.get_content_maintype(),
+                    "subtype": self.headers.get_content_subtype(),
+                    "charset": self.headers.get_content_charset(),
+                    "param": self.headers.get_param("charset"),
+                    "all": self.headers.get_all("X-Test"),
+                })
+                self.send_response(200)
+                self.end_headers()
+
+        server, _ = self.run_server(Handler)
+        response = request(
+            server,
+            b"GET / HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n"
+            b"Content-Type: text/plain; charset=UTF-8\r\nX-Test: a\r\nX-Test: b\r\n"
+            b"Connection: close\r\n\r\n",
+        )
+        self.assertIn(b"200 OK", response)
+        self.assertEqual(seen[0]["item"], "3")
+        self.assertEqual(seen[0]["type"], "text/plain")
+        self.assertEqual(seen[0]["maintype"], "text")
+        self.assertEqual(seen[0]["subtype"], "plain")
+        self.assertEqual(seen[0]["charset"], "utf-8")
+        self.assertEqual(seen[0]["param"], "UTF-8")
+        self.assertEqual(seen[0]["all"], ["a", "b"])
+
+    def test_send_error_customization_and_body_suppression(self):
+        class Handler(BaseHTTPRequestHandler):
+            error_message_format = "%(code)d|%(message)s|%(explain)s"
+            error_content_type = "text/custom"
+
+            def do_GET(self):
+                self.send_error(418, "<bad>", "details & more")
+
+            def do_HEAD(self):
+                self.send_error(418, "head", "details")
+
+        server, _ = self.run_server(Handler)
+        response = request(server, b"GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        self.assertIn(b"418|&lt;bad&gt;|details &amp; more", response)
+        self.assertIn(b"text/custom", response)
+        head = request(server, b"HEAD / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        self.assertIn(b"Content-Length", head)
+        self.assertTrue(head.endswith(b"\r\n\r\n"))
+
+    def test_protocol_version_is_fixed_and_log_helper_is_available(self):
+        class Incompatible(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.0"
+
+        with self.assertRaises(ValueError):
+            HTTPServer(("127.0.0.1", 0), Incompatible)
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+                self.wfile.write(self.log_date_time_string().encode())
+
+        server, _ = self.run_server(Handler)
+        response = request(server, b"GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        self.assertRegex(response, rb"\d{2}/[A-Z][a-z]{2}/\d{4} \d{2}:\d{2}:\d{2}")
+
     def test_callback_concurrency_is_bounded_at_public_server_boundary(self):
         """Callback handlers remain bounded by ThreadingHTTPServer workers."""
         state_lock = threading.Lock()

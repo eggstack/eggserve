@@ -25,7 +25,7 @@ Three crates:
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
 `plans/` (historical design/implementation records, currently through Plan
-135),
+136),
 `examples/` (canonical CLI/Python examples plus Cargo examples and tiny
 fixtures), `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
 plus package/release checks). The example index is `examples/README.md`.
@@ -145,7 +145,8 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. The exact fast-path eligibility and intentional incompatibility contract is maintained in `docs/python-http-server-compatibility.md`.
+- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. The exact fast-path eligibility and intentional incompatibility contract is maintained in `docs/python-http-server-compatibility.md`. Stock static handlers also support `default_content_type` and ordered safe `extra_response_headers`; those headers are limited to final 200 responses. Handler `protocol_version` must remain HTTP/1.1.
+- **CLI compatibility polish** — Manual parsing accepts hostname `--bind` values, repeatable `-H/--header` and `--content-type` static metadata, and a combined certificate/key PEM when `--tls-key` is omitted. Header metadata is validated against runtime-owned and hop-by-hop fields.
 - **Python wheel support** — CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually.
 - **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS` in both `Limits::validate()` and `RuntimeConfigBuilder::build()`. Values above this bound are rejected with a controlled error.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
@@ -156,4 +157,4 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
 - **Examples are product demonstrations** — Use the canonical examples in `examples/README.md` when documenting CLI, Python, or Rust usage. Rust examples must use public APIs only; server examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. Do not turn examples into a framework, router, or alternate policy reference.
 - **Rust package boundary** — `eggserve-core` is the intended 0.x Rust library crate. `eggserve-core::primitives` is the semver-considered facade; `eggserve-core::server` is experimental. `eggserve-bin::run_cli` exists for the Python wheel's extension-backed CLI and is not a general Rust embedding API. Do not add a facade crate for naming convenience.
-- **Rust closure verification** — For library/CLI usability work, run `cargo test --doc -p eggserve-core`, `cargo check -p eggserve-core --examples`, both dist builds, and `bash scripts/verify-cargo-packages.sh --mode all`; use a temporary clean external consumer for static and custom-service TCP smokes when the plan requires it.
+- **Rust closure verification** — For library/CLI usability work, run `cargo test --doc -p eggserve-core`, `cargo check -p eggserve-core --examples`, both dist builds, and `bash scripts/verify-cargo-packages.sh --mode all`; use a temporary clean external consumer for static and custom-service TCP smokes when the plan requires it. For native bind/TLS changes, run the manual platform qualification workflow after pushing the final SHA.

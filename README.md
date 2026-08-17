@@ -61,6 +61,11 @@ familiar while keeping the filesystem and transport in Rust.
 Stock `SimpleHTTPRequestHandler` with the documented default eligibility uses
 the native static fast path. Directory listings, dotfiles, and symlinks remain
 denied unless explicitly enabled through the supported facade settings.
+The Python 3.15-shaped static metadata hooks are supported: set
+`default_content_type` for unknown suffixes and pass ordered
+`extra_response_headers` through a stock handler or `functools.partial`.
+Extra headers are emitted only on final `200` static responses and cannot
+override runtime-owned metadata.
 
 For bounded synchronous custom responses, use the complete
 [examples/python_custom_handler.py](examples/python_custom_handler.py). The
@@ -127,6 +132,9 @@ is experimental before 1.0. See the [Rust architecture overview](architecture/eg
   executed handle-relative classes but remains trusted/local-content only.
 - HTTP/1.1, ranges, conditional requests, canonical response normalization,
   and bounded resource admission are part of the implemented contract.
+- The CLI accepts hostnames in `--bind`, repeatable safe `-H/--header` static
+  metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
+  `--tls-key` is omitted.
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
   async Python handlers, unbounded Python response streaming, and ASGI/WSGI are
   intentionally unavailable.

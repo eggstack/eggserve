@@ -134,7 +134,12 @@ Enables HTML directory listing for directories without an index file. Under safe
 
 ### `--tls-cert` and `--tls-key` (requires `tls` feature)
 
-Enables native TLS termination using rustls. When both flags are provided, the server accepts HTTPS connections. Certificate and key must be PEM-encoded. Encrypted private keys are not supported. The TLS feature is optional and not included in the default build. For public-facing deployments, a reverse proxy (Caddy, nginx, Traefik) is usually preferred over native TLS.
+Enables native TLS termination using rustls. `--tls-cert` is required and
+`--tls-key` is optional when the certificate file also contains the private
+key. Certificate and key must be PEM-encoded. Encrypted private keys are not
+supported. The TLS feature is optional and not included in the default build.
+For public-facing deployments, a reverse proxy (Caddy, nginx, Traefik) is
+usually preferred over native TLS.
 
 TLS handshakes are bounded by the same timeout as HTTP header reads (`--header-timeout`, default 10 seconds). A slow or stalled TLS client cannot tie up a connection beyond this window.
 

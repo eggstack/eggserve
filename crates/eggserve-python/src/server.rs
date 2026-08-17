@@ -455,6 +455,7 @@ pub struct PyResponse {
     #[pyo3(get)]
     headers: HashMap<String, String>,
     pub(crate) body: std::sync::Mutex<PyResponseBody>,
+    pub(crate) extra_headers: Vec<(String, String)>,
 }
 
 #[derive(Debug)]
@@ -473,6 +474,7 @@ impl PyResponse {
             status,
             headers: HashMap::new(),
             body: std::sync::Mutex::new(PyResponseBody::Empty),
+            extra_headers: Vec::new(),
         }
     }
 
@@ -483,6 +485,7 @@ impl PyResponse {
             status,
             headers: headers.unwrap_or_default(),
             body: std::sync::Mutex::new(PyResponseBody::Bytes(data)),
+            extra_headers: Vec::new(),
         }
     }
 
@@ -496,6 +499,7 @@ impl PyResponse {
             status,
             headers: h,
             body: std::sync::Mutex::new(PyResponseBody::Bytes(text.into_bytes())),
+            extra_headers: Vec::new(),
         }
     }
 
@@ -516,6 +520,7 @@ impl PyResponse {
             status,
             headers: headers.unwrap_or_default(),
             body: std::sync::Mutex::new(PyResponseBody::BodySource(source)),
+            extra_headers: Vec::new(),
         })
     }
 
@@ -594,7 +599,7 @@ impl PyStaticResponder {
         }
     }
 
-    #[pyo3(signature = (method, target, headers=None, has_body=false, remote_addr=None, http_version=None, index_pages=None, mime_overrides=None))]
+    #[pyo3(signature = (method, target, headers=None, has_body=false, remote_addr=None, http_version=None, index_pages=None, mime_overrides=None, default_content_type=None, extra_response_headers=None))]
     fn respond(
         &self,
         method: &str,
@@ -605,6 +610,8 @@ impl PyStaticResponder {
         http_version: Option<String>,
         index_pages: Option<Vec<String>>,
         mime_overrides: Option<HashMap<String, String>>,
+        default_content_type: Option<String>,
+        extra_response_headers: Option<Vec<(String, String)>>,
     ) -> PyResult<PyResponse> {
         let _ = remote_addr;
         let _http_version = http_version.unwrap_or_else(|| "1.1".to_string());
@@ -666,10 +673,23 @@ impl PyStaticResponder {
         let range = hdrs.get("range").map(|s| s.as_str());
         let if_range = hdrs.get("if-range").map(|s| s.as_str());
 
-        let plan_file = |file: eggserve_core::primitives::ResolvedFile| {
+        let default_content_type = default_content_type
+            .unwrap_or_else(|| "application/octet-stream".to_string());
+        let extra_response_headers = extra_response_headers.unwrap_or_default();
+        validate_extra_response_headers(&default_content_type, &extra_response_headers)?;
+        let plan_file = |file: eggserve_core::primitives::ResolvedFile| -> PyResult<PyResponse> {
             let plan =
                 file.plan_response(ro_method, if_none_match, if_modified_since, range, if_range);
-            file.into_body(&plan).map(|body| build_response(plan, body))
+            let body = file.into_body(&plan).map_err(|e| {
+                pyo3::exceptions::PyRuntimeError::new_err(format!("body error: {e}"))
+            })?;
+            let mut response = build_response(plan, body)?;
+            apply_static_metadata(
+                &mut response,
+                &default_content_type,
+                &extra_response_headers,
+            )?;
+            Ok(response)
         };
 
         if let eggserve_core::primitives::ResolvedResource::Directory(dir) =
@@ -699,13 +719,18 @@ impl PyStaticResponder {
                 match dir.resolve_child(&index, &self.root) {
                     eggserve_core::primitives::ResolvedResource::File(file) => {
                         if let Ok(response) = plan_file(file) {
-                            let mut response = response?;
+                            let mut response = response;
                             if let Some(overrides) = &mime_overrides {
                                 let suffix = file_suffix(&index);
                                 if let Some(mime) = overrides.get(&suffix) {
                                     response.headers.insert("content-type".into(), mime.clone());
                                 }
                             }
+                            apply_static_metadata(
+                                &mut response,
+                                &default_content_type,
+                                &extra_response_headers,
+                            )?;
                             return Ok(response);
                         }
                     }
@@ -748,6 +773,11 @@ impl PyStaticResponder {
                         pyo3::exceptions::PyRuntimeError::new_err("lock poisoned")
                     })? = PyResponseBody::Empty;
                 }
+                apply_static_metadata(
+                    &mut response,
+                    &default_content_type,
+                    &extra_response_headers,
+                )?;
                 return Ok(response);
             }
             return build_error_response(403, "Forbidden");
@@ -769,6 +799,11 @@ impl PyStaticResponder {
                         response.headers.insert("content-type".into(), mime.clone());
                     }
                 }
+                apply_static_metadata(
+                    &mut response,
+                    &default_content_type,
+                    &extra_response_headers,
+                )?;
                 Ok(response)
             }
             Err(ResolveAndPlanError::NotFound) => build_error_response(404, "Not Found"),
@@ -804,7 +839,80 @@ fn build_response(
         status: plan.status.as_u16(),
         headers,
         body: std::sync::Mutex::new(PyResponseBody::BodySource(body_source)),
+        extra_headers: Vec::new(),
     })
+}
+
+fn validate_extra_response_headers(
+    default_content_type: &str,
+    headers: &[(String, String)],
+) -> PyResult<()> {
+    if default_content_type.is_empty()
+        || default_content_type
+            .bytes()
+            .any(|b| b == b'\r' || b == b'\n' || b == 0)
+    {
+        return Err(pyo3::exceptions::PyValueError::new_err(
+            "invalid default content type",
+        ));
+    }
+    for (name, value) in headers {
+        let lower = name.to_ascii_lowercase();
+        if HeaderName::new(name.clone()).is_err()
+            || HeaderValue::new(value.clone()).is_err()
+            || eggserve_core::primitives::canonical::is_hop_by_hop_header(&lower)
+            || matches!(
+                lower.as_str(),
+                "content-length"
+                    | "date"
+                    | "server"
+                    | "content-type"
+                    | "content-range"
+                    | "accept-ranges"
+                    | "etag"
+                    | "last-modified"
+                    | "x-content-type-options"
+            )
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "invalid or runtime-owned extra response header",
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn apply_static_metadata(
+    response: &mut PyResponse,
+    default_content_type: &str,
+    extra_headers: &[(String, String)],
+) -> PyResult<()> {
+    if response.status != 200 {
+        return Ok(());
+    }
+    if response
+        .headers
+        .get("content-type")
+        .is_some_and(|value| value == "application/octet-stream")
+    {
+        response
+            .headers
+            .insert("content-type".to_string(), default_content_type.to_string());
+    }
+    for (name, value) in extra_headers {
+        if !response
+            .headers
+            .keys()
+            .any(|existing| existing.eq_ignore_ascii_case(name))
+            && !response
+                .extra_headers
+                .iter()
+                .any(|(existing, _)| existing.eq_ignore_ascii_case(name))
+        {
+            response.extra_headers.push((name.clone(), value.clone()));
+        }
+    }
+    Ok(())
 }
 
 fn build_error_response(status: u16, reason: &str) -> PyResult<PyResponse> {
@@ -817,6 +925,7 @@ fn build_error_response(status: u16, reason: &str) -> PyResult<PyResponse> {
         status,
         headers,
         body: std::sync::Mutex::new(PyResponseBody::Bytes(reason.as_bytes().to_vec())),
+        extra_headers: Vec::new(),
     })
 }
 
@@ -957,6 +1066,7 @@ impl ServerBodySource {
             status,
             headers: HashMap::new(),
             body: std::sync::Mutex::new(PyResponseBody::BodySource(source)),
+            extra_headers: Vec::new(),
         })
     }
 
@@ -1189,7 +1299,7 @@ fn convert_python_response_to_canonical<'py>(
     let code = CanonicalStatusCode::new(status)
         .map_err(|_| ServiceError::internal("Python handler response status is outside 100-599"))?;
 
-    let headers: Vec<(String, String)> = obj
+    let mut headers: Vec<(String, String)> = obj
         .getattr("headers")
         .map_err(|_| ServiceError::internal("Python handler response headers are missing"))?
         .extract()
@@ -1199,6 +1309,10 @@ fn convert_python_response_to_canonical<'py>(
                 .map(|map| map.into_iter().collect())
         })
         .map_err(|_| ServiceError::internal("Python handler response headers are invalid"))?;
+
+    if let Ok(py_resp) = obj.extract::<pyo3::Bound<'py, PyResponse>>() {
+        headers.extend(py_resp.borrow().extra_headers.iter().cloned());
+    }
 
     // Validate every header into temporary canonical values before constructing
     // a response. This keeps a later body or framing failure from exposing a
@@ -1398,13 +1512,15 @@ pub struct PyServer {
     max_request_body_bytes: u64,
     body_read_timeout: Duration,
     tls_config: Option<std::sync::Arc<rustls::ServerConfig>>,
+    default_content_type: String,
+    extra_response_headers: Vec<(String, String)>,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None))]
+    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None, default_content_type="application/octet-stream", extra_response_headers=None))]
     fn new(
         root: String,
         bind: &str,
@@ -1424,6 +1540,8 @@ impl PyServer {
         body_timeout_secs: u64,
         tls_certfile: Option<String>,
         tls_keyfile: Option<String>,
+        default_content_type: &str,
+        extra_response_headers: Option<Vec<(String, String)>>,
     ) -> PyResult<Self> {
         // rustls can be built with more than one provider through the
         // workspace's feature-unified dependency graph. Select the same
@@ -1515,6 +1633,12 @@ impl PyServer {
         let static_policy = policy
             .map(|p| p.inner)
             .unwrap_or_else(StaticPolicy::safe_default);
+        let extra_response_headers = extra_response_headers.unwrap_or_default();
+        eggserve_core::config::validate_static_metadata(
+            default_content_type,
+            &extra_response_headers,
+        )
+        .map_err(pyo3::exceptions::PyValueError::new_err)?;
 
         let tls_config = match (tls_certfile, tls_keyfile) {
             (None, None) => None,
@@ -1564,6 +1688,8 @@ impl PyServer {
             max_request_body_bytes,
             body_read_timeout: Duration::from_secs(body_timeout_secs),
             tls_config,
+            default_content_type: default_content_type.to_string(),
+            extra_response_headers,
         })
     }
 
@@ -1637,6 +1763,8 @@ impl PyServer {
             static_root,
             static_policy,
             body_policy,
+            default_content_type,
+            extra_response_headers,
         ) = {
             let this = slf.borrow(py);
             let handler = this
@@ -1670,6 +1798,8 @@ impl PyServer {
                 this.static_root.clone(),
                 this.static_policy.clone(),
                 this.body_policy,
+                this.default_content_type.clone(),
+                this.extra_response_headers.clone(),
             )
         };
 
@@ -1729,6 +1859,8 @@ impl PyServer {
                     let serve_config = Arc::new(eggserve_core::config::ServeConfig {
                         root,
                         static_policy,
+                        default_content_type,
+                        extra_response_headers,
                         ..eggserve_core::config::ServeConfig::default()
                     });
                     let server = Server::builder()

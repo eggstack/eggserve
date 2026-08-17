@@ -23,10 +23,16 @@ the Python callback path.
 The fast-path eligibility contract is exact: the bare
 `SimpleHTTPRequestHandler` class, or a `functools.partial` whose `.func` is
 exactly `SimpleHTTPRequestHandler`, whose `.args` is empty, and whose keyword
-names are a subset of `{"directory"}`. Bound positional args, arbitrary extra
+names are a subset of `{"directory", "extra_response_headers"}`. Bound positional args, arbitrary extra
 keywords, subclasses, and mutated stock class attributes (custom
 `index_pages`, non-default `extensions_map`, opt-in `directory_listing`,
 `follow_symlinks`, `allow_dotfiles`) all fall back to Python.
+
+`default_content_type` and `extra_response_headers` are the exception: they are
+validated static metadata settings and remain on the native fast path. Extra
+headers preserve input order, are limited to final status-200 responses, and
+cannot replace runtime-owned or hop-by-hop metadata. The same metadata is
+passed to the callback-backed static responder.
 
 When the fast path is active, the compatibility facade's effective concurrency
 is enforced through the native connection admission limit. `HTTPServer` /
@@ -58,8 +64,10 @@ preserved.
 The classes use the Rust runtime for socket ownership, HTTP/1.1 parsing,
 timeouts, response framing, static path resolution, and file streaming.
 Handlers are synchronous and receive bounded `rfile`/`wfile` adapters, never
-raw sockets. HTTPS uses the shared core rustls PEM loader, requires certificate
-and key paths, and restricts ALPN to `http/1.1`.
+raw sockets. HTTPS uses the shared core rustls PEM loader, accepts a combined
+certificate/key PEM when `keyfile` is omitted, and restricts ALPN to
+`http/1.1`. The CLI has the analogous `--tls-cert` fallback when
+`--tls-key` is omitted.
 
 Compatibility addresses are normalized in the Python façade only at the API
 boundary: `""` becomes `0.0.0.0`, and literal unspecified IPv4/IPv6 addresses
@@ -118,6 +126,9 @@ file and byte bodies are one-shot; consumed or malformed structural bodies are
 errors rather than empty-body fallbacks. Handler failures are logged with
 fixed categories only. MIME hooks provide metadata to the native responder;
 they never perform Python path translation, `stat`, open, or reopen operations.
+The facade accepts only `protocol_version = "HTTP/1.1"`; response errors use
+the configurable `responses`, `error_message_format`, and
+`error_content_type` hooks with bounded HTML-escaped bodies.
 The [Python compatibility contract](../docs/python-http-server-compatibility.md)
 owns the source-compatibility boundary. Installed-wheel checks run in routine
 Python CI; cross-platform qualification is documented in

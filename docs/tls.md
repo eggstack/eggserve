@@ -32,16 +32,21 @@ cargo build -p eggserve-bin --features tls
 
 ### TLS feature compiled, no TLS flags
 
-When eggserve is built with the `tls` feature but invoked without `--tls-cert` and `--tls-key`, the binary runs as plain HTTP. The TLS feature only adds the capability to terminate TLS when both flags are supplied; it does not force TLS. This is deliberate: operators who keep the feature enabled in their distribution get a working plaintext server by default and opt into HTTPS explicitly per invocation.
+When eggserve is built with the `tls` feature but invoked without TLS flags, the
+binary runs as plain HTTP. The TLS feature only adds the capability to
+terminate TLS; it does not force TLS.
 
 ## Usage
 
 ```sh
+eggserve --tls-cert cert.pem                 # combined cert/key PEM
 eggserve --tls-cert cert.pem --tls-key key.pem
 eggserve --tls-cert cert.pem --tls-key key.pem --port 8443
 ```
 
-Both `--tls-cert` and `--tls-key` must be provided together. If only one is provided, eggserve exits with an error.
+`--tls-cert` is required for TLS. If `--tls-key` is omitted, the certificate
+path is also used as the private-key path, allowing a combined PEM file. A
+key-only configuration remains invalid.
 
 ## Handshake timeout
 

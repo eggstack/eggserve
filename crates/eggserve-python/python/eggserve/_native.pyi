@@ -263,6 +263,10 @@ class StaticResponder:
         has_body: bool = False,
         remote_addr: str | None = None,
         http_version: str | None = None,
+        index_pages: list[str] | None = None,
+        mime_overrides: dict[str, str] | None = None,
+        default_content_type: str | None = None,
+        extra_response_headers: list[tuple[str, str]] | None = None,
     ) -> Response: ...
 
 class ServerBodySource:
@@ -292,6 +296,10 @@ class Server:
         request_body_mode: str = "reject",
         max_request_body_bytes: int = 0,
         body_timeout_secs: int = 30,
+        tls_certfile: str | None = None,
+        tls_keyfile: str | None = None,
+        default_content_type: str = "application/octet-stream",
+        extra_response_headers: list[tuple[str, str]] | None = None,
     ) -> None: ...
 
     @property

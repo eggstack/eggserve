@@ -159,8 +159,8 @@ Listener errors are classified by `io::ErrorKind` into transient, resource-exhau
 
 Each running server creates exactly one `RuntimeState`, including one
 `max_file_streams` semaphore. The accept loop clones that state into every
-connection; `StaticService` owns only its pinned root, policy, and listing
-limits. All canonical file and range responses acquire the same permit at the
+connection; `StaticService` owns only its pinned root, policy, listing limits,
+and validated static representation metadata. All canonical file and range responses acquire the same permit at the
 single Hyper conversion boundary. Custom Rust and Python services have no
 implicit root or static state.
 

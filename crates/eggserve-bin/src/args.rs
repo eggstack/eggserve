@@ -1,4 +1,4 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -19,6 +19,8 @@ pub struct Args {
     pub directory_listing: DirectoryListingPolicy,
     pub symlinks: SymlinkPolicy,
     pub dotfiles: DotfilePolicy,
+    pub default_content_type: String,
+    pub extra_response_headers: Vec<(String, String)>,
     pub log_format: LogFormat,
     pub quiet: bool,
     max_connections: Option<usize>,
@@ -33,6 +35,27 @@ pub struct Args {
     pub tls_key: Option<PathBuf>,
 }
 
+fn split_bind_host_port(value: &str) -> Option<(&str, Option<u16>)> {
+    if value.starts_with('[') {
+        let end = value.find(']')?;
+        let host = &value[1..end];
+        let rest = &value[end + 1..];
+        if rest.is_empty() {
+            return Some((host, None));
+        }
+        let port = rest.strip_prefix(':')?.parse().ok()?;
+        return Some((host, Some(port)));
+    }
+    if value.matches(':').count() > 1 {
+        return None;
+    }
+    match value.split_once(':') {
+        Some((host, port)) if !host.is_empty() => Some((host, Some(port.parse().ok()?))),
+        None if !value.is_empty() => Some((value, None)),
+        _ => None,
+    }
+}
+
 impl Args {
     pub fn parse() -> Result<Self, String> {
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -40,7 +63,7 @@ impl Args {
     }
 
     pub fn parse_from(args: Vec<String>) -> Result<Self, String> {
-        let mut bind_ip: IpAddr = IpAddr::V4(Ipv4Addr::LOCALHOST);
+        let mut bind_host = Ipv4Addr::LOCALHOST.to_string();
         let mut bind_port: u16 = 8000;
         let mut root: Option<PathBuf> = None;
         let mut port_from_flag = false;
@@ -58,6 +81,8 @@ impl Args {
         let mut connection_total_timeout: Option<Duration> = None;
         let mut handler_timeout: Option<Duration> = None;
         let mut body_read_timeout: Option<Duration> = None;
+        let mut default_content_type = "application/octet-stream".to_string();
+        let mut extra_response_headers = Vec::new();
         #[cfg(feature = "tls")]
         let mut tls_cert: Option<PathBuf> = None;
         #[cfg(feature = "tls")]
@@ -80,11 +105,17 @@ impl Args {
                     i += 1;
                     let addr = args.get(i).ok_or("--bind requires an argument")?;
                     if let Ok(parsed) = addr.parse::<SocketAddr>() {
-                        bind_ip = parsed.ip();
+                        bind_host = parsed.ip().to_string();
                         bind_port = parsed.port();
                         port_from_flag = true;
                     } else if let Ok(ip) = addr.parse::<IpAddr>() {
-                        bind_ip = ip;
+                        bind_host = ip.to_string();
+                    } else if let Some((host, port)) = split_bind_host_port(addr) {
+                        bind_host = host.to_string();
+                        if let Some(port) = port {
+                            bind_port = port;
+                            port_from_flag = true;
+                        }
                     } else {
                         return Err(format!(
                             "invalid bind address '{}': expected HOST or HOST:PORT",
@@ -110,7 +141,7 @@ impl Args {
                     let parsed: SocketAddr = addr
                         .parse()
                         .map_err(|e| format!("invalid address '{}': {}", addr, e))?;
-                    bind_ip = parsed.ip();
+                    bind_host = parsed.ip().to_string();
                     bind_port = parsed.port();
                     port_from_flag = true;
                 }
@@ -208,6 +239,20 @@ impl Args {
                         .map_err(|e| format!("invalid body-read-timeout '{}': {}", val, e))?;
                     body_read_timeout = Some(Duration::from_secs(secs));
                 }
+                "--content-type" => {
+                    i += 1;
+                    default_content_type = args
+                        .get(i)
+                        .ok_or("--content-type requires an argument")?
+                        .clone();
+                }
+                "-H" | "--header" => {
+                    i += 1;
+                    let name = args.get(i).ok_or("--header requires NAME and VALUE")?;
+                    i += 1;
+                    let value = args.get(i).ok_or("--header requires NAME and VALUE")?;
+                    extra_response_headers.push((name.clone(), value.clone()));
+                }
                 #[cfg(feature = "tls")]
                 "--tls-cert" => {
                     i += 1;
@@ -261,6 +306,13 @@ impl Args {
 
         let root = root.unwrap_or_else(|| PathBuf::from("."));
 
+        let bind_ip = (bind_host.as_str(), bind_port)
+            .to_socket_addrs()
+            .map_err(|e| format!("failed to resolve bind host '{}': {}", bind_host, e))?
+            .next()
+            .ok_or_else(|| format!("bind host '{}' did not resolve", bind_host))?
+            .ip();
+
         if !public && bind_ip.is_unspecified() {
             return Err(format!(
                 "binding to {} requires --public to acknowledge public exposure intent",
@@ -268,14 +320,17 @@ impl Args {
             ));
         }
 
+        eggserve_core::config::validate_static_metadata(
+            &default_content_type,
+            &extra_response_headers,
+        )?;
+
         #[cfg(feature = "tls")]
         {
             match (&tls_cert, &tls_key) {
                 (Some(_), Some(_)) => {}
                 (None, None) => {}
-                (Some(_), None) => {
-                    return Err("--tls-cert requires --tls-key to be provided".to_string());
-                }
+                (Some(cert), None) => tls_key = Some(cert.clone()),
                 (None, Some(_)) => {
                     return Err("--tls-key requires --tls-cert to be provided".to_string());
                 }
@@ -288,6 +343,8 @@ impl Args {
             directory_listing,
             symlinks,
             dotfiles,
+            default_content_type,
+            extra_response_headers,
             log_format,
             quiet,
             max_connections,
@@ -367,10 +424,12 @@ pub fn print_usage() {
     println!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
     println!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
     println!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
+    println!("  --content-type <TYPE>      Fallback MIME type for unknown extensions");
+    println!("  -H, --header <NAME> <VALUE>  Extra header for static 200 responses (repeatable)");
     #[cfg(feature = "tls")]
     {
-        println!("  --tls-cert <PATH>          PEM certificate chain (requires --tls-key)");
-        println!("  --tls-key <PATH>           PEM private key (requires --tls-cert)");
+        println!("  --tls-cert <PATH>          PEM certificate chain (enables TLS)");
+        println!("  --tls-key <PATH>           PEM private key (defaults to --tls-cert)");
     }
     println!("  -h, --help                Print this help message");
     println!("  -V, --version             Print version");
@@ -395,10 +454,11 @@ mod tests {
 
     #[cfg(feature = "tls")]
     #[test]
-    fn tls_cert_without_key_fails() {
+    fn tls_cert_without_key_uses_combined_pem() {
         let result = parse(&["--tls-cert", "/tmp/cert.pem"]);
-        assert!(result.is_err());
-        assert!(result.unwrap_err().contains("--tls-key"));
+        let args = result.unwrap();
+        assert_eq!(args.tls_cert, Some(PathBuf::from("/tmp/cert.pem")));
+        assert_eq!(args.tls_key, Some(PathBuf::from("/tmp/cert.pem")));
     }
 
     #[cfg(feature = "tls")]
@@ -560,7 +620,40 @@ mod tests {
     fn bind_invalid_address_fails() {
         let result = parse(&["--bind", "not-an-address"]);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("invalid bind address"));
+        assert!(result.unwrap_err().contains("failed to resolve bind host"));
+    }
+
+    #[test]
+    fn hostname_bind_resolves_once() {
+        let args = parse(&["--bind", "localhost", "0"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
+        assert_eq!(args.bind.port(), 0);
+    }
+
+    #[test]
+    fn static_metadata_options_preserve_order() {
+        let args = parse(&[
+            "--content-type",
+            "text/x-unknown",
+            "-H",
+            "X-One",
+            "a",
+            "--header",
+            "X-Two",
+            "b",
+        ])
+        .unwrap();
+        assert_eq!(args.default_content_type, "text/x-unknown");
+        assert_eq!(
+            args.extra_response_headers,
+            [("X-One".into(), "a".into()), ("X-Two".into(), "b".into())]
+        );
+    }
+
+    #[test]
+    fn unsafe_static_metadata_is_rejected() {
+        assert!(parse(&["--content-type", "text/plain\r\nX-Leak: yes"]).is_err());
+        assert!(parse(&["-H", "Content-Length", "1"]).is_err());
     }
 
     #[test]

@@ -32,6 +32,8 @@ use crate::server::service::{Service, ServiceError};
 pub struct StaticServiceBuilder {
     root: PathBuf,
     policy: StaticPolicy,
+    default_content_type: String,
+    extra_response_headers: Vec<(String, String)>,
 }
 
 impl StaticServiceBuilder {
@@ -41,11 +43,25 @@ impl StaticServiceBuilder {
         self
     }
 
+    /// Set the fallback type used when a file extension has no known MIME type.
+    pub fn default_content_type(mut self, content_type: impl Into<String>) -> Self {
+        self.default_content_type = content_type.into();
+        self
+    }
+
+    /// Set ordered, duplicate-preserving headers for successful static 200 responses.
+    pub fn extra_response_headers(mut self, headers: Vec<(String, String)>) -> Self {
+        self.extra_response_headers = headers;
+        self
+    }
+
     /// Build the service and pin its root exactly once.
     pub fn build(self) -> Result<StaticService, ServiceError> {
         let config = Arc::new(ServeConfig {
             root: self.root,
             static_policy: self.policy,
+            default_content_type: self.default_content_type,
+            extra_response_headers: self.extra_response_headers,
             ..ServeConfig::default()
         });
         StaticService::from_serve_config(config)
@@ -65,6 +81,8 @@ impl StaticService {
         StaticServiceBuilder {
             root: root.as_ref().to_path_buf(),
             policy: StaticPolicy::safe_default(),
+            default_content_type: "application/octet-stream".to_string(),
+            extra_response_headers: Vec::new(),
         }
     }
 
@@ -185,6 +203,7 @@ fn plan_static_request(
     match guard.resolve(&confined, &config.static_policy) {
         ResolvedResource::File(file) => planned_file_response(
             file,
+            config,
             method,
             if_none_match,
             if_modified_since,
@@ -238,8 +257,10 @@ fn plan_static_request(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn planned_file_response(
     file: crate::fs::ResolvedFile,
+    config: &ServeConfig,
     method: ReadOnlyMethod,
     if_none_match: Option<&str>,
     if_modified_since: Option<&str>,
@@ -247,15 +268,27 @@ fn planned_file_response(
     if_range: Option<&str>,
     is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
-    let plan = plan_file_response(
+    let mut plan = plan_file_response(
         method,
         &file.metadata,
-        crate::mime::mime_for_path(&file.safe_relative_components.iter().collect::<PathBuf>()),
+        {
+            let detected = crate::mime::mime_for_path(
+                &file.safe_relative_components.iter().collect::<PathBuf>(),
+            );
+            if detected == "application/octet-stream" {
+                &config.default_content_type
+            } else {
+                detected
+            }
+        },
         if_none_match,
         if_modified_since,
         range,
         if_range,
     );
+    if plan.status.as_u16() == 200 {
+        append_extra_headers(&mut plan.headers, config);
+    }
     let body = file
         .into_body(&plan)
         .map_err(|e| ServiceError::internal(format!("file body conversion failed: {e}")))?;
@@ -279,6 +312,7 @@ fn plan_directory_response(
             ResolvedResource::File(file) => {
                 return planned_file_response(
                     file,
+                    config,
                     method,
                     if_none_match,
                     if_modified_since,
@@ -316,12 +350,22 @@ fn plan_directory_response(
                 .map_err(|_| ServiceError::internal("directory listing failed"))?;
             let body =
                 render_directory_listing(&entries, config.limits.max_listing_response_bytes)?;
+            let mut headers = listing_headers();
+            append_extra_headers(&mut headers, config);
             canonical_response(
                 StatusCode::OK.as_u16(),
-                &listing_headers(),
+                &headers,
                 BodySource::Bytes(body),
                 is_head,
             )
+        }
+    }
+}
+
+fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
+    for (name, value) in &config.extra_response_headers {
+        if !headers.contains(name) {
+            headers.push(name.clone(), value.clone());
         }
     }
 }

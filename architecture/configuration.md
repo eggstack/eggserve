@@ -58,6 +58,8 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
 | `bind` | `ServeConfig` / `RuntimeConfig` | 127.0.0.1:8000 | SocketAddr | `--bind`, `--port`, `--addr` | `bind`, `port` | TCP listener bind |
+| `default_content_type` | `ServeConfig` | `application/octet-stream` | non-empty header-safe string | `--content-type` | `SimpleHTTPRequestHandler.default_content_type` | Unknown-suffix static responses |
+| `extra_response_headers` | `ServeConfig` | none | ordered safe name/value pairs | `-H`, `--header` | `SimpleHTTPRequestHandler.extra_response_headers` | Final static status-200 responses only |
 | `server_header` | `RuntimeConfig` | None | Option\<String\> | N/A | N/A | Server header on responses |
 
 ### Filesystem policy

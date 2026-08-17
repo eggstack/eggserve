@@ -56,6 +56,13 @@ also applies to native-selected index files. A subclass `guess_type()` hook is
 defined for direct file targets with a suffix, not for index names resolved
 only inside Rust.
 
+Unknown suffixes use `SimpleHTTPRequestHandler.default_content_type`, which
+defaults to `application/octet-stream`. `extra_response_headers` accepts an
+ordered sequence of safe `(name, value)` pairs on the handler class or stock
+`functools.partial`; those headers are added only to final `200` static
+responses. Runtime-owned and hop-by-hop headers are rejected during server
+construction.
+
 ## HTTPS
 
 ```python

@@ -36,8 +36,8 @@ its status using a constrained vocabulary.
 | Capability | CLI | Rust stable | Runtime experimental | Python stable | Python experimental | Built-in static service | Generic callback server |
 |---|---|---|---|---|---|---|---|
 | Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
-| Plaintext HTTP/1.x | stable | — | experimental | — | — | stable | stable |
-| TLS server | stable | — | — | — | — | — | — |
+| Plaintext HTTP/1.x | stable | — | experimental | stable | — | stable | stable |
+| TLS server (rustls, HTTP/1.1 ALPN) | stable | — | — | stable | — | stable | stable |
 | GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
 | Request-target validation | stable | stable | experimental | stable | — | stable | — |
 | Request-body policy | stable | stable | experimental | stable | — | stable | stable |
@@ -71,7 +71,8 @@ its status using a constrained vocabulary.
 | Lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) | — | — | experimental | stable | — | — | stable |
 | Graceful shutdown | stable | — | experimental | stable | — | stable | stable |
 | Observability hooks | minimal | minimal | minimal | minimal | — | minimal | minimal |
-| Redirects | — | — | — | — | — | — | — |
+| Static directory canonicalization | CLI | — | experimental | stable | — | stable | — |
+| General application redirects | — | — | — | — | — | — | — |
 | Retries | — | — | — | — | — | — | — |
 | Cookies | — | — | — | — | — | — | — |
 | Proxies | — | — | — | — | — | — | — |
@@ -80,10 +81,11 @@ its status using a constrained vocabulary.
 | Windows reparse-point hardening | — | — | — | — | — | — | — |
 
 Rows with no annotation in any column are **intentionally unsupported** (empty
-cell = not applicable to that surface). The explicitly labeled rows at the
-bottom — redirects, retries, cookies, proxies, decompression, ASGI/WSGI,
-Windows reparse-point hardening — are intentionally unsupported or
-platform-limited as noted.
+cell = not applicable to that surface). General application redirects,
+retries, cookies, proxies, decompression, ASGI/WSGI, and Windows
+reparse-point hardening remain intentionally unsupported or platform-limited as
+noted. Static directory canonicalization is the implemented narrow redirect
+behavior.
 
 ## Platform support
 

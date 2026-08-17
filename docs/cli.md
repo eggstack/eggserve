@@ -22,6 +22,11 @@ eggserve [OPTIONS] [PORT] [DIRECTORY]
 | `DIRECTORY` | First positional token not consumed as PORT; once PORT is occupied, it is used verbatim, including numeric names | `.` (current directory) |
 | `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
 
+`--bind` accepts IPv4/IPv6 literals and hostnames. Hostname resolution happens
+once during argument validation; the resolved address is then used for the
+listener. A hostname that resolves to a wildcard address still requires
+`--public`.
+
 Positional arguments use two logical slots: `PORT`, then `DIRECTORY`. `--port`,
 `--addr`, and an explicit port in `--bind` occupy the port slot. A host-only
 `--bind` leaves that slot available for a positional numeric token. Once the
@@ -44,6 +49,16 @@ Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 | `--directory-listing` | Enable HTML directory listing | disabled |
 | `--follow-symlinks` | Follow symlinks outside root | denied |
 | `--allow-dotfiles` | Serve dotfiles (e.g. `.env`, `.git`) | denied |
+
+### Static response metadata
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--content-type TYPE` | Content type used when a file suffix has no detected MIME type | `application/octet-stream` |
+| `-H NAME VALUE`, `--header NAME VALUE` | Add a repeatable safe response header to final `200` static responses | none |
+
+Header values preserve command-line order. Runtime-owned metadata and
+hop-by-hop headers are rejected rather than silently overridden.
 
 ### Resource limits
 

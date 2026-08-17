@@ -7,6 +7,8 @@ use std::sync::Arc;
 use crate::fs::PinnedRoot;
 use crate::limits::Limits;
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
+use crate::primitives::canonical::is_hop_by_hop_header;
+use crate::primitives::header_block::{HeaderName, HeaderValue};
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -15,6 +17,8 @@ pub struct ServeConfig {
     pub root: PathBuf,
     pub limits: Limits,
     pub static_policy: StaticPolicy,
+    pub default_content_type: String,
+    pub extra_response_headers: Vec<(String, String)>,
 }
 
 impl Default for ServeConfig {
@@ -24,8 +28,49 @@ impl Default for ServeConfig {
             root: PathBuf::from("."),
             limits: Limits::default(),
             static_policy: StaticPolicy::safe_default(),
+            default_content_type: "application/octet-stream".to_string(),
+            extra_response_headers: Vec::new(),
         }
     }
+}
+
+/// Validate static representation metadata before a server is activated.
+pub fn validate_static_metadata(
+    default_content_type: &str,
+    extra_response_headers: &[(String, String)],
+) -> Result<(), String> {
+    if default_content_type.is_empty()
+        || default_content_type
+            .bytes()
+            .any(|b| b == b'\r' || b == b'\n' || b == 0)
+    {
+        return Err("default content type must be a non-empty value without CR/LF/NUL".into());
+    }
+    for (name, value) in extra_response_headers {
+        HeaderName::new(name.clone()).map_err(|e| format!("invalid extra response header: {e}"))?;
+        HeaderValue::new(value.clone())
+            .map_err(|e| format!("invalid extra response header: {e}"))?;
+        let lower = name.to_ascii_lowercase();
+        if is_hop_by_hop_header(&lower)
+            || matches!(
+                lower.as_str(),
+                "content-length"
+                    | "date"
+                    | "server"
+                    | "content-type"
+                    | "content-range"
+                    | "accept-ranges"
+                    | "etag"
+                    | "last-modified"
+                    | "x-content-type-options"
+            )
+        {
+            return Err(format!(
+                "extra response header is runtime- or representation-owned: {name}"
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -67,6 +112,8 @@ pub struct ServeState {
 
 impl ServeState {
     pub fn new(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
+        validate_static_metadata(&config.default_content_type, &config.extra_response_headers)
+            .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
         let pinned_root = Arc::new(PinnedRoot::new(&config.root)?);
         Ok(Self {
             config,

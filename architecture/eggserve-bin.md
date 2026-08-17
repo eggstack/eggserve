@@ -95,7 +95,7 @@ Manual parsing — no clap. Arguments:
 | Flag | Default | Description |
 |------|---------|-------------|
 | `--directory` / `-d` | `.` | Root directory to serve |
-| `--bind` / `-b` | `127.0.0.1` | Bind address |
+| `--bind` / `-b` | `127.0.0.1` | Bind host, hostname, or host:port |
 | `--port` / `-p` | `8000` | Port number |
 | `--public` | off | Bind to `0.0.0.0` or `::` (requires explicit opt-in) |
 | `--directory-listing` | off | Enable directory listing |
@@ -109,6 +109,8 @@ Manual parsing — no clap. Arguments:
 | `--connection-total-timeout` | `60s` | Total connection lifetime timeout |
 | `--tls-cert` | — | TLS certificate PEM path |
 | `--tls-key` | — | TLS private key PEM path |
+| `--content-type` | `application/octet-stream` | Unknown-suffix static content type |
+| `-H` / `--header` | — | Repeatable safe header for final 200 static responses |
 
 Positional parsing has two logical slots: `PORT` and `DIRECTORY` (in that
 order). An explicit port in `--bind`, `--addr`, or `--port` occupies PORT;
@@ -117,7 +119,10 @@ occupied PORT is DIRECTORY verbatim, even when it is numeric. `--directory`
 occupies DIRECTORY and leaves a positional numeric token available for PORT.
 Once both slots are occupied, additional positionals are rejected. A single
 valid numeric positional remains PORT for compatibility. `--bind` and `--addr`
-may not be combined.
+may not be combined. Hostnames are resolved once before the native listener
+starts. Static metadata headers are ordered and validated against runtime-owned
+and hop-by-hop fields. With TLS enabled, omitting `--tls-key` makes
+`--tls-cert` serve as both PEM paths for a combined file.
 
 ## Signal Handling (`shutdown.rs`)
 

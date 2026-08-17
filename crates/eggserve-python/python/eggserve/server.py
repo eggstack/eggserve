@@ -14,6 +14,7 @@ from __future__ import annotations
 import ipaddress
 import inspect
 import io
+import html
 import mimetypes
 import os
 import socket
@@ -22,6 +23,7 @@ import sys
 import threading
 import time
 from http import HTTPStatus
+from email.message import Message
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
@@ -48,12 +50,52 @@ class _HTTPMessage:
         values = self.get_all(name)
         return values[0] if values else default
 
+    def __getitem__(self, name: str) -> str:
+        value = self.get(name)
+        if value is None:
+            raise KeyError(name)
+        return value
+
     def get_all(self, name: str) -> list[str]:
         lowered = name.lower()
         return [value for key, value in self._fields if key.lower() == lowered]
 
     def items(self) -> list[tuple[str, str]]:
         return list(self._fields)
+
+    def raw_items(self) -> list[tuple[str, str]]:
+        return list(self._fields)
+
+    def keys(self) -> list[str]:
+        return [name for name, _ in self._fields]
+
+    def values(self) -> list[str]:
+        return [value for _, value in self._fields]
+
+    def _mime_message(self, header: str = "content-type") -> Message:
+        message = Message()
+        value = self.get(header)
+        if value is not None:
+            message[header] = value
+        return message
+
+    def get_content_type(self) -> str:
+        return self._mime_message().get_content_type()
+
+    def get_content_maintype(self) -> str:
+        return self._mime_message().get_content_maintype()
+
+    def get_content_subtype(self) -> str:
+        return self._mime_message().get_content_subtype()
+
+    def get_content_charset(self) -> str | None:
+        return self._mime_message().get_content_charset()
+
+    def get_param(self, param: str, failobj=None, header: str = "content-type"):
+        return self._mime_message(header).get_param(param, failobj=failobj)
+
+    def get_params(self, failobj=None, header: str = "content-type"):
+        return self._mime_message(header).get_params(failobj=failobj)
 
     def __contains__(self, name: object) -> bool:
         return isinstance(name, str) and bool(self.get_all(name))
@@ -224,11 +266,34 @@ class BaseHTTPRequestHandler:
         self.end_headers()
 
     def send_error(self, code: int, message: str | None = None, explain: str | None = None) -> None:
-        reason = message or HTTPStatus(code).phrase if code in HTTPStatus._value2member_map_ else "Error"
-        self.send_response_only(code, reason)
-        self.send_header("Content-Type", self.error_content_type)
+        try:
+            short, long = self.responses[code]
+        except (KeyError, TypeError):
+            short, long = "???", "???"
+        message = short if message is None else str(message)
+        explain = long if explain is None else str(explain)
+        body = b""
+        if code >= 200 and code not in (204, 205, 304):
+            limit = self.server.max_handler_response_bytes
+            if len(self.error_message_format) + len(message) + len(explain) > limit:
+                raise ValueError("handler error response exceeds max_handler_response_bytes")
+            rendered = self.error_message_format % {
+                "code": code,
+                "message": html.escape(message, quote=False),
+                "explain": html.escape(explain, quote=False),
+            }
+            body = rendered.encode("utf-8", "replace")
+            if len(body) > limit:
+                raise ValueError("handler error response exceeds max_handler_response_bytes")
+
+        self.log_error("code %d, message %s", code, message)
+        self.send_response_only(code, message)
+        if body or self.command == "HEAD":
+            self.send_header("Content-Type", self.error_content_type)
+            self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(f"{code} {reason}\n".encode("utf-8"))
+        if self.command != "HEAD" and body:
+            self.wfile.write(body)
 
     def version_string(self) -> str:
         return self.server_version if not self.sys_version else f"{self.server_version} {self.sys_version}"
@@ -236,6 +301,10 @@ class BaseHTTPRequestHandler:
     def date_time_string(self, timestamp: float | None = None) -> str:
         from email.utils import formatdate
         return formatdate(timestamp, usegmt=True)
+
+    def log_date_time_string(self) -> str:
+        now = time.localtime(time.time())
+        return time.strftime("%d/%b/%Y %H:%M:%S", now)
 
     def address_string(self) -> str:
         return str(self.client_address[0])
@@ -290,6 +359,46 @@ def _split_native_address(value):
     return host, int(port)
 
 
+_STATIC_RESERVED_HEADERS = frozenset({
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade",
+    "content-length", "date", "server", "content-type", "content-range",
+    "accept-ranges", "etag", "last-modified", "x-content-type-options",
+})
+
+
+def _validate_static_metadata(default_content_type, extra_response_headers):
+    if not isinstance(default_content_type, str):
+        raise TypeError("default_content_type must be a string")
+    if not default_content_type or any(c in default_content_type for c in ("\x00", "\r", "\n")):
+        raise ValueError("default_content_type must be non-empty and contain no CR/LF/NUL")
+    if extra_response_headers is None:
+        return default_content_type, []
+    if isinstance(extra_response_headers, (str, bytes)):
+        raise TypeError("extra_response_headers must be a sequence of (name, value) pairs")
+    result = []
+    try:
+        pairs = list(extra_response_headers)
+    except TypeError as exc:
+        raise TypeError("extra_response_headers must be a sequence of (name, value) pairs") from exc
+    for pair in pairs:
+        if not isinstance(pair, (tuple, list)) or len(pair) != 2:
+            raise TypeError("extra_response_headers must contain (name, value) pairs")
+        name, value = pair
+        if not isinstance(name, str) or not isinstance(value, str):
+            raise TypeError("extra response header names and values must be strings")
+        if not name or any(c in name for c in ("\x00", "\r", "\n")):
+            raise ValueError("invalid extra response header name")
+        if any(c in value for c in ("\x00", "\r", "\n")):
+            raise ValueError("invalid extra response header value")
+        if not all(c.isascii() and (c.isalnum() or c in "!#$%&'*+-.^_`|~") for c in name):
+            raise ValueError("invalid extra response header name")
+        if name.lower() in _STATIC_RESERVED_HEADERS:
+            raise ValueError(f"extra response header is runtime-owned: {name}")
+        result.append((name, value))
+    return default_content_type, result
+
+
 class HTTPServer:
     """Serial ``http.server.HTTPServer``-compatible facade."""
 
@@ -309,6 +418,10 @@ class HTTPServer:
             raise TypeError("RequestHandlerClass must subclass BaseHTTPRequestHandler")
         if max_request_body_bytes <= 0 or max_handler_response_bytes <= 0:
             raise ValueError("body and response limits must be greater than zero")
+        if getattr(factory, "protocol_version", None) != "HTTP/1.1":
+            raise ValueError(
+                "EggServe compatibility servers support only handler protocol_version='HTTP/1.1'"
+            )
         self.RequestHandlerClass = handler_class
         self._handler_type = factory
         self._static_config = self._static_handler_config(handler_class, factory)
@@ -353,7 +466,15 @@ class HTTPServer:
             "allow_dotfiles": bool(getattr(handler_type, "allow_dotfiles", False)),
             "index_pages": tuple(getattr(handler_type, "index_pages", ("index.html", "index.htm"))),
             "extensions_map": dict(getattr(handler_type, "extensions_map", {})),
+            "default_content_type": getattr(
+                handler_type, "default_content_type", "application/octet-stream"
+            ),
         }
+        keywords = handler_class.keywords if isinstance(handler_class, partial) else {}
+        builtin["extra_response_headers"] = _validate_static_metadata(
+            builtin["default_content_type"],
+            keywords.get("extra_response_headers", getattr(handler_type, "extra_response_headers", None)),
+        )[1]
         return builtin
 
     @staticmethod
@@ -384,7 +505,7 @@ class HTTPServer:
                 return False
             if handler_class.args:
                 return False
-            extra_kwargs = set(handler_class.keywords or {}) - {"directory"}
+            extra_kwargs = set(handler_class.keywords or {}) - {"directory", "extra_response_headers"}
             if extra_kwargs:
                 return False
         elif handler_class is not SimpleHTTPRequestHandler:
@@ -446,6 +567,12 @@ class HTTPServer:
                 max_request_body_bytes=0 if self._static_config is not None else self._max_request_body_bytes,
                 tls_certfile=self._tls_certfile,
                 tls_keyfile=self._tls_keyfile,
+                default_content_type=(self._static_config or {}).get(
+                    "default_content_type", "application/octet-stream"
+                ),
+                extra_response_headers=(self._static_config or {}).get(
+                    "extra_response_headers", []
+                ),
                 **native_kwargs,
             )
             if self._bind_and_activate:
@@ -587,12 +714,14 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
     follow_symlinks = False
     allow_dotfiles = False
     extensions_map = {}
+    default_content_type = "application/octet-stream"
+    extra_response_headers = None
 
-    def __init__(self, request, client_address, server, directory=None):
+    def __init__(self, request, client_address, server, *, directory=None, extra_response_headers=None):
         # ``directory`` is captured by the server configuration. Accepting it
         # here preserves the standard constructor shape without allowing a
         # request to choose a root.
-        del directory
+        del directory, extra_response_headers
         super().__init__(request, client_address, server)
 
     def _static_response(self):
@@ -611,6 +740,8 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
             has_body=bool(getattr(self.request, "has_body", False)),
             index_pages=list(self.server._static_config["index_pages"]),
             mime_overrides=overrides,
+            default_content_type=self.server._static_config["default_content_type"],
+            extra_response_headers=self.server._static_config["extra_response_headers"],
         )
 
     def do_GET(self):
@@ -641,7 +772,7 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         }.get(key)
         if builtin is not None:
             return builtin
-        return mimetypes.guess_type(os.fspath(path), strict=False)[0] or "application/octet-stream"
+        return mimetypes.guess_type(os.fspath(path), strict=False)[0] or self.default_content_type
 
     def list_directory(self, path):
         raise NotImplementedError(

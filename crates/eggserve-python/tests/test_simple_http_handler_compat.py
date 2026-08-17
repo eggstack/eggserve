@@ -73,6 +73,72 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
         self.assertEqual(response.getheader("Content-Type"), "application/octet-stream")
         self.assertEqual(response.getheader("X-Content-Type-Options"), "nosniff")
 
+    def test_default_content_type_controls_unknown_extensions_for_get_head_and_range(self):
+        with open(os.path.join(self.tmp.name, "unknown.custom"), "wb") as stream:
+            stream.write(b"custom type")
+
+        class CustomType(SimpleHTTPRequestHandler):
+            default_content_type = "text/x-custom"
+
+        self.server.server_close()
+        self.thread.join(5)
+        self.server = ThreadingHTTPServer(
+            ("127.0.0.1", 0), functools.partial(CustomType, directory=self.tmp.name)
+        )
+        self.server._start()
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.address = self.server.server_address
+
+        response, _ = self.request("GET", "/unknown.custom")
+        self.assertEqual(response.getheader("Content-Type"), "text/x-custom")
+        head, body = self.request("HEAD", "/unknown.custom")
+        self.assertEqual(head.getheader("Content-Type"), "text/x-custom")
+        self.assertEqual(body, b"")
+        ranged, _ = self.request("GET", "/unknown.custom", {"Range": "bytes=0-2"})
+        self.assertEqual(ranged.status, 206)
+        self.assertEqual(ranged.getheader("Content-Type"), "text/x-custom")
+
+    def test_extra_response_headers_are_native_ordered_and_200_only(self):
+        handler = functools.partial(
+            SimpleHTTPRequestHandler,
+            directory=self.tmp.name,
+            extra_response_headers=[("X-Extra", "one"), ("X-Extra", "two")],
+        )
+        self.server.server_close()
+        self.thread.join(5)
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), handler)
+        self.assertTrue(self.server._native_fast_path)
+        self.server._start()
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+        self.address = self.server.server_address
+
+        response, _ = self.request("GET", "/hello.txt")
+        self.assertEqual(response.getheaders().count(("X-Extra", "one")), 1)
+        self.assertEqual(response.getheaders().count(("X-Extra", "two")), 1)
+        head, _ = self.request("HEAD", "/hello.txt")
+        self.assertEqual(head.getheaders().count(("X-Extra", "one")), 1)
+        ranged, _ = self.request("GET", "/hello.txt", {"Range": "bytes=0-2"})
+        self.assertEqual(ranged.getheader("X-Extra"), None)
+        conditional, _ = self.request("GET", "/hello.txt", {"If-None-Match": response.getheader("ETag")})
+        self.assertEqual(conditional.status, 304)
+        self.assertIsNone(conditional.getheader("X-Extra"))
+        redirect, _ = self.request("GET", "/docs")
+        self.assertEqual(redirect.status, 301)
+        self.assertIsNone(redirect.getheader("X-Extra"))
+
+    def test_extra_response_headers_validate_atomically(self):
+        with self.assertRaises((TypeError, ValueError)):
+            ThreadingHTTPServer(
+                ("127.0.0.1", 0),
+                functools.partial(
+                    SimpleHTTPRequestHandler,
+                    directory=self.tmp.name,
+                    extra_response_headers=[("X-Good", "ok"), ("Content-Length", "1")],
+                ),
+            )
+
     def test_extensions_map_and_guess_type_overrides(self):
         with open(os.path.join(self.tmp.name, "custom.blob"), "wb") as stream:
             stream.write(b"custom")

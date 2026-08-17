@@ -67,12 +67,15 @@ The function:
 ### CLI Usage
 
 ```sh
+eggserve --directory /path/to/files --tls-cert /path/to/combined.pem
 eggserve --directory /path/to/files \
     --tls-cert /path/to/cert.pem \
     --tls-key /path/to/key.pem
 ```
 
-Both `--tls-cert` and `--tls-key` must be provided together. If only one is provided, the CLI exits with an error.
+`--tls-cert` is required. If `--tls-key` is omitted, the certificate path is
+also used as the key path, allowing a combined PEM file. A key-only
+configuration remains invalid.
 
 ### Python Usage
 

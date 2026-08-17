@@ -46,7 +46,9 @@ opening a socket. They are compiled by `scripts/verify.sh full`.
 
 ### `ServeConfig` (`config.rs`)
 
-Top-level configuration. Holds bind address, root directory, limits, and static policy. Constructed by the CLI or Python wrapper.
+Top-level configuration. Holds bind address, root directory, limits, static
+policy, and validated static representation metadata. Constructed by the CLI
+or Python wrapper.
 
 ```rust
 pub struct ServeConfig {
@@ -54,6 +56,8 @@ pub struct ServeConfig {
     pub root: PathBuf,
     pub limits: Limits,
     pub static_policy: StaticPolicy,
+    pub default_content_type: String,
+    pub extra_response_headers: Vec<(String, String)>,
 }
 ```
 
@@ -150,6 +154,8 @@ Hardened static file service implementing `Service`:
 - GET/HEAD-only semantics
 - Conditional and range request handling
 - ETag and Last-Modified generation
+- Unknown-suffix fallback content type and ordered safe extra headers on final
+  status-200 responses; runtime-owned and hop-by-hop fields cannot be replaced
 - Produces canonical file-backed responses; the server runtime applies shared file-stream admission during transport conversion
 
 ### Body ingestion
