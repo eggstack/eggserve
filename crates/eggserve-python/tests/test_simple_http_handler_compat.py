@@ -115,10 +115,13 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
         self.address = self.server.server_address
 
         response, _ = self.request("GET", "/hello.txt")
-        self.assertEqual(response.getheaders().count(("X-Extra", "one")), 1)
-        self.assertEqual(response.getheaders().count(("X-Extra", "two")), 1)
+        headers = [(name.lower(), value) for name, value in response.getheaders()]
+        self.assertEqual(
+            [value for name, value in headers if name == "x-extra"], ["one", "two"]
+        )
         head, _ = self.request("HEAD", "/hello.txt")
-        self.assertEqual(head.getheaders().count(("X-Extra", "one")), 1)
+        head_headers = [(name.lower(), value) for name, value in head.getheaders()]
+        self.assertEqual(head_headers.count(("x-extra", "one")), 1)
         ranged, _ = self.request("GET", "/hello.txt", {"Range": "bytes=0-2"})
         self.assertEqual(ranged.getheader("X-Extra"), None)
         conditional, _ = self.request("GET", "/hello.txt", {"If-None-Match": response.getheader("ETag")})

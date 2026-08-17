@@ -74,7 +74,7 @@ class CompatTests(unittest.TestCase):
             server,
             b"GET / HTTP/1.1\r\nHost: test\r\nContent-Length: 3\r\n"
             b"Content-Type: text/plain; charset=UTF-8\r\nX-Test: a\r\nX-Test: b\r\n"
-            b"Connection: close\r\n\r\n",
+            b"Connection: close\r\n\r\nabc",
         )
         self.assertIn(b"200 OK", response)
         self.assertEqual(seen[0]["item"], "3")
@@ -101,7 +101,7 @@ class CompatTests(unittest.TestCase):
         self.assertIn(b"418|&lt;bad&gt;|details &amp; more", response)
         self.assertIn(b"text/custom", response)
         head = request(server, b"HEAD / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
-        self.assertIn(b"Content-Length", head)
+        self.assertIn(b"content-length", head.lower())
         self.assertTrue(head.endswith(b"\r\n\r\n"))
 
     def test_protocol_version_is_fixed_and_log_helper_is_available(self):

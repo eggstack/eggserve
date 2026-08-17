@@ -726,11 +726,6 @@ impl PyStaticResponder {
                                     response.headers.insert("content-type".into(), mime.clone());
                                 }
                             }
-                            apply_static_metadata(
-                                &mut response,
-                                &default_content_type,
-                                &extra_response_headers,
-                            )?;
                             return Ok(response);
                         }
                     }
@@ -904,10 +899,6 @@ fn apply_static_metadata(
             .headers
             .keys()
             .any(|existing| existing.eq_ignore_ascii_case(name))
-            && !response
-                .extra_headers
-                .iter()
-                .any(|(existing, _)| existing.eq_ignore_ascii_case(name))
         {
             response.extra_headers.push((name.clone(), value.clone()));
         }
@@ -1395,7 +1386,17 @@ fn extract_python_response_body<'py>(
                     Ok(ResponseBody::Empty)
                 }
             }
-            PyResponseBody::Bytes(data) => Ok(ResponseBody::Bytes(data)),
+            PyResponseBody::Bytes(data) => {
+                if is_head {
+                    if let Some(length) = representation_length {
+                        Ok(ResponseBody::EmptyWithLength(length))
+                    } else {
+                        Ok(ResponseBody::Bytes(data))
+                    }
+                } else {
+                    Ok(ResponseBody::Bytes(data))
+                }
+            }
             PyResponseBody::BodySource(source) => match source {
                 BodySource::Empty => {
                     if is_head {
@@ -1408,7 +1409,17 @@ fn extract_python_response_body<'py>(
                         Ok(ResponseBody::Empty)
                     }
                 }
-                BodySource::Bytes(data) => Ok(ResponseBody::Bytes(data)),
+                BodySource::Bytes(data) => {
+                    if is_head {
+                        if let Some(length) = representation_length {
+                            Ok(ResponseBody::EmptyWithLength(length))
+                        } else {
+                            Ok(ResponseBody::Bytes(data))
+                        }
+                    } else {
+                        Ok(ResponseBody::Bytes(data))
+                    }
+                }
                 file @ BodySource::FileFull { .. } | file @ BodySource::FileRange { .. } => {
                     Ok(ResponseBody::File(file))
                 }
@@ -1420,6 +1431,11 @@ fn extract_python_response_body<'py>(
         .getattr("body")
         .map_err(|_| ServiceError::internal("Python handler response body is missing"))?;
     if let Ok(data) = body.extract::<Vec<u8>>() {
+        if is_head {
+            if let Some(length) = representation_length {
+                return Ok(ResponseBody::EmptyWithLength(length));
+            }
+        }
         return Ok(ResponseBody::Bytes(data));
     }
 
@@ -1440,7 +1456,15 @@ fn extract_python_response_body<'py>(
                 .map_err(|_| {
                     ServiceError::internal("Python handler response body conversion failed")
                 })?;
-            Ok(ResponseBody::Bytes(data))
+            if is_head {
+                if let Some(length) = representation_length {
+                    Ok(ResponseBody::EmptyWithLength(length))
+                } else {
+                    Ok(ResponseBody::Bytes(data))
+                }
+            } else {
+                Ok(ResponseBody::Bytes(data))
+            }
         }
         _ => Err(ServiceError::internal(
             "Python handler response body kind is unsupported",

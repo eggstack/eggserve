@@ -363,8 +363,12 @@ fn plan_directory_response(
 }
 
 fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
+    let owned_names: Vec<String> = headers.iter().map(|header| header.name.clone()).collect();
     for (name, value) in &config.extra_response_headers {
-        if !headers.contains(name) {
+        if !owned_names
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(name))
+        {
             headers.push(name.clone(), value.clone());
         }
     }
