@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-17.**
+**COMPLETE — 2026-08-17.**
 
 Reviewed baseline:
 
@@ -1011,26 +1011,34 @@ Reject an implementation that does any of the following:
 
 Plan 136 is complete only when all applicable items are true:
 
-- [ ] `SimpleHTTPRequestHandler.default_content_type` exists with `application/octet-stream` default and controls unknown-type fallback;
-- [ ] `SimpleHTTPRequestHandler(..., extra_response_headers=...)` is supported through the documented bounded contract;
-- [ ] CLI `--content-type` and repeatable `-H`/`--header` use the same native static configuration;
-- [ ] safe extra headers apply only to static 200 responses and cannot overwrite canonical/runtime-owned metadata;
-- [ ] stock/static metadata configuration preserves the native no-Python-per-request fast path;
-- [ ] `send_error()` honors the useful stdlib customization hooks and correct body-suppression semantics;
-- [ ] `self.headers` supports the selected common read-only `HTTPMessage`-style accessors while preserving duplicates;
-- [ ] unsupported `protocol_version` values fail clearly and HTTP/1.1 remains the only EggServe server mode;
-- [ ] `log_date_time_string()` and any other selected pure compatibility helpers are present and tested;
-- [ ] response metadata/logging docs clearly distinguish Python hooks from Rust-owned wire fields;
-- [ ] the CLI bind `HOST` claim is either implemented through one-time bounded resolution or corrected to IP-only everywhere;
-- [ ] CLI TLS accepts cert-only combined PEM consistently with the Python facade;
-- [ ] encrypted-key password handling remains explicitly out of scope;
-- [ ] directory canonicalization redirects are represented accurately in the capability matrix;
-- [ ] Python TLS capability is represented accurately in active documentation;
-- [ ] all new behavior has focused tests in existing suites;
-- [ ] existing range, conditional, path-confinement, static-fast-path, TLS, and callback hardening tests remain green;
-- [ ] `./scripts/verify.sh full` passes;
-- [ ] routine hosted CI passes on the final verified SHA;
-- [ ] any manual platform qualification is proportional and triggered only by the native bind/TLS conditions defined above;
-- [ ] no dependency, workflow, release automation, or architectural scope expansion is introduced without an explicit necessity documented in the completion record;
-- [ ] the plan is marked complete with exact implementation/verification evidence;
-- [ ] after completion, the `http.server` compatibility workstream returns to maintenance rather than spawning another broad parity roadmap.
+- [x] `SimpleHTTPRequestHandler.default_content_type` exists with `application/octet-stream` default and controls unknown-type fallback;
+- [x] `SimpleHTTPRequestHandler(..., extra_response_headers=...)` is supported through the documented bounded contract;
+- [x] CLI `--content-type` and repeatable `-H`/`--header` use the same native static configuration;
+- [x] safe extra headers apply only to static 200 responses and cannot overwrite canonical/runtime-owned metadata;
+- [x] stock/static metadata configuration preserves the native no-Python-per-request fast path;
+- [x] `send_error()` honors the useful stdlib customization hooks and correct body-suppression semantics;
+- [x] `self.headers` supports the selected common read-only `HTTPMessage`-style accessors while preserving duplicates;
+- [x] unsupported `protocol_version` values fail clearly and HTTP/1.1 remains the only EggServe server mode;
+- [x] `log_date_time_string()` and any other selected pure compatibility helpers are present and tested;
+- [x] response metadata/logging docs clearly distinguish Python hooks from Rust-owned wire fields;
+- [x] the CLI bind `HOST` claim is either implemented through one-time bounded resolution or corrected to IP-only everywhere;
+- [x] CLI TLS accepts cert-only combined PEM consistently with the Python facade;
+- [x] encrypted-key password handling remains explicitly out of scope;
+- [x] directory canonicalization redirects are represented accurately in the capability matrix;
+- [x] Python TLS capability is represented accurately in active documentation;
+- [x] all new behavior has focused tests in existing suites;
+- [x] existing range, conditional, path-confinement, static-fast-path, TLS, and callback hardening tests remain green;
+- [x] `./scripts/verify.sh full` passes;
+- [x] routine hosted CI passes on the final verified SHA;
+- [x] any manual platform qualification is proportional and triggered only by the native bind/TLS conditions defined above;
+- [x] no dependency, workflow, release automation, or architectural scope expansion is introduced without an explicit necessity documented in the completion record;
+- [x] the plan is marked complete with exact implementation/verification evidence;
+- [x] after completion, the `http.server` compatibility workstream returns to maintenance rather than spawning another broad parity roadmap.
+
+## Completion evidence
+
+- Implementation commits: `0abc620` and corrective follow-up `dad5fe9`, pushed to `main`.
+- Local verification: `./scripts/verify.sh full`, both locked `dist` CLI builds, and `git diff --check` passed. The full gate covered conformance validation, Rust workspace tests, TLS tests, examples, the installed Python wheel suite, and package dry-runs.
+- Routine hosted CI: run `32055672101` passed on `dad5fe9` (Rust and Python jobs).
+- Native-boundary qualification: run `32055681455` passed on `dad5fe9` (macOS arm64 product wheel and Windows x86_64 filesystem qualification).
+- No new dependency, workflow, release automation, or compatibility-parity roadmap was added. The compatibility workstream returns to maintenance.
