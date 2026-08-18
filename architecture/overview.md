@@ -377,6 +377,177 @@ existing Rust/Python checks rather than a separate CI job.
 
 ---
 
+## Fuzz Targets
+
+11 fuzz targets under `fuzz/fuzz_targets/` provide property-based input fuzzing:
+
+| Target | What It Fuzzes |
+|--------|---------------|
+| `request_target` | HTTP origin-form parsing, path confinement, request target validation |
+| `percent_decode` | Single-pass percent decoding |
+| `path_components` | Path normalization and component validation |
+| `validate_method` | HTTP method construction and validation, body rejection |
+| `range_header` | Range header parsing |
+| `if_none_match` | If-None-Match ETag comparison |
+| `platform_component` | Windows platform-specific checks |
+| `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
+| `fuzz_normalize_response` | StatusCode validation, response building, normalization |
+| `fuzz_request_body` | RequestBody state machine |
+| `fuzz_directory_buffer` | Directory listing buffer behavior |
+
+Each target has a seed corpus under `fuzz/corpus/`. Fuzzing invariants: no panics on arbitrary input, no `..`/`.` in accepted path components, no NUL bytes in decoded paths, no double-decoding, satisfiable ranges within file size. Corpus regression replay runs via `cargo test -p eggserve-core --test corpus_replay`.
+
+---
+
+## Scripts and Verification
+
+The `scripts/` directory provides a small, layered verification hierarchy:
+
+| Script | Purpose |
+|--------|---------|
+| `verify.sh` | Main entry point: `fast` (Rust-only dev check), `full` (examples + Rust + Python wheel), `deep` (expensive suites) |
+| `test-python-wheel.sh` | Build wheel, install in venv, run smoke + tests — the authoritative Python test entry point |
+| `test-examples.sh` | Compile Cargo examples and smoke-test canonical Python/Rust demos on loopback port 0 |
+| `verify-cargo-packages.sh` | Package dry-run gates (`--mode all`) for release validation |
+| `verify-conformance-matrix.py` | Validate conformance corpus consistency |
+| `check-wheel-composition.py` | Inspect wheel contents for correctness |
+| `release_smoke.py` | Release artifact smoke tests |
+| `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` for manual security checks |
+
+Verification levels:
+- **`fast`** — `cargo fmt --check`, `cargo clippy`, `cargo test --workspace` (routine dev)
+- **`full`** — fast + Cargo examples compiled and smoke-tested, Python wheel built and tested (pre-release)
+- **`deep`** — full + expensive suites, manual execution only
+
+---
+
+## Benchmarks
+
+The `benchmarks/` directory holds benchmark baselines (Criterion-based, historical). Current representative results on macOS arm64 (APFS, warm cache):
+
+| Workload | Median | Notes |
+|----------|--------|-------|
+| GET 1 KiB | 12.6 us | Handler latency (no TCP/TLS) |
+| GET 128 KiB | 12.9 us | Streaming body is lazy |
+| HEAD 128 KiB | 12.1 us | Body suppressed by normalize_metadata |
+| Range 16 KiB | 26.3 us | Seek + range parsing overhead |
+| 304 Not Modified | 11.3 us | No file open or streaming |
+| 404 Not Found | 1.9 us | Path parse + resolve only |
+| Dir listing 1000 entries | 2.25 ms | Linear scaling |
+
+Full results: `benchmarks/088-baseline/results.json`. The old Criterion harness is historical; current changes use a deliberately selected measurement session rather than treating numbers as a CI gate.
+
+---
+
+## Examples
+
+### Python examples (`examples/`)
+
+| File | Purpose |
+|------|---------|
+| `python_http_server_static.py` | Stock `SimpleHTTPRequestHandler` — fast-path, no Python dispatch |
+| `python_custom_handler.py` | Custom `BaseHTTPRequestHandler` — callback path |
+| `python_subprocess.py` | `eggserve.subprocess` lifecycle helpers |
+| `python_safe_download.py` | Safe download with bounded response |
+| `README.md` | Example index with descriptions |
+
+### Rust examples (`crates/eggserve-core/examples/`)
+
+| File | Purpose |
+|------|---------|
+| `static_server.rs` | Built-in confined static service via `Server::builder()` |
+| `custom_service.rs` | Custom `Service` via `service_fn` |
+| `primitives.rs` | Response planning without opening a socket |
+
+All examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. They are compiled and smoke-tested by `scripts/verify.sh full`.
+
+---
+
+## Crate Source Structure
+
+### eggserve-core (50 source files)
+
+```
+src/
+├── lib.rs                    # module declarations, 3-tier stability model
+├── config.rs                 # ServeConfig, ServeState, StartupSummary
+├── limits.rs                 # Limits — connections, streams, timeouts
+├── policy.rs                 # StaticPolicy, SymlinkPolicy, DotfilePolicy, DirectoryListingPolicy
+├── ops.rs                    # structured logging event model, OpsCounters
+├── tls.rs                    # TLS config loading (feature-gated)
+├── response.rs               # Hyper response helpers, file streaming, error responses
+├── mime.rs                   # MIME type detection via phf map (~60 extensions)
+├── path/
+│   ├── mod.rs                # ConfinedPath type
+│   ├── request_target.rs     # origin-form parsing
+│   ├── decode.rs             # single-pass percent decoding
+│   ├── components.rs         # normalization, splitting, validation
+│   ├── rejected.rs           # PathRejection (16 variants)
+│   ├── policy.rs             # PathPolicy, DotfilePolicy (path-level)
+│   └── platform.rs           # Windows reserved names, ADS, drive prefixes
+├── fs/
+│   ├── mod.rs                # PinnedRoot, RootGuard, ResolvedResource, ResolvedFile, ResolvedDirectory
+│   ├── unix.rs               # descriptor-relative traversal (statat + openat)
+│   └── windows.rs            # handle-relative traversal (NtOpenFile, NtQueryDirectoryFile)
+├── primitives/
+│   ├── mod.rs                # re-exports all public types
+│   ├── secure_root.rs        # SecureRoot, ResolvedFile, ResolvedDirectory, ResolvedResource
+│   ├── body.rs               # BodySource, BodyKind, BodySourceError
+│   ├── canonical.rs          # StatusCode, Response, normalize_response, normalize_metadata
+│   ├── method.rs             # Method (canonical HTTP method)
+│   ├── version.rs            # HttpVersion
+│   ├── header_block.rs       # HeaderBlock, HeaderName, HeaderValue
+│   ├── request_target.rs     # RequestTarget
+│   ├── request_head.rs       # RequestHead
+│   ├── connection_info.rs    # ConnectionInfo, Scheme, TlsInfo
+│   ├── request.rs            # Request (head + body + connection)
+│   ├── request_body.rs       # RequestBody, BodyState
+│   ├── request_body_error.rs # RequestBodyError (12 variants)
+│   ├── request_body_policy.rs# RequestBodyPolicy (Reject/Buffer/Stream)
+│   ├── incomplete_body_policy.rs # IncompleteBodyPolicy
+│   ├── planner.rs            # plan_file_response, conditional/range/ETag evaluation
+│   ├── response.rs           # StaticResponsePlan, BodyPlan, FileRange, ResponseStatus
+│   └── http.rs               # ReadOnlyMethod, validate_method/body/target
+└── server/
+    ├── mod.rs                # Server, ServerBuilder, RuntimeState, accept_loop_generic
+    ├── config.rs             # RuntimeConfig, RuntimeConfigBuilder
+    ├── connection.rs         # per-connection HTTP/1 handling, body ingestion
+    ├── errors.rs             # ServerError, ShutdownResult
+    ├── handle.rs             # ServerHandle (lifecycle control)
+    ├── lifecycle.rs          # LifecycleState (Created→Running→Draining→Stopped/Failed)
+    ├── service.rs            # Service trait, service_fn, ServiceError
+    └── static_service.rs     # StaticService (hardened static file serving)
+```
+
+### eggserve-bin (5 source files)
+
+```
+src/
+├── main.rs    # thin fn main() → eggserve_bin::run()
+├── lib.rs     # run(), run_cli(argv), accept loop, connection serving
+├── args.rs    # manual argument parsing (no clap)
+├── shutdown.rs# signal handling (Ctrl+C, SIGTERM) with broadcast channel
+└── tls.rs     # TLS certificate loading and rustls config (feature-gated)
+```
+
+### eggserve-python (2 Rust source files + Python facade)
+
+```
+src/
+├── lib.rs     # PyO3 module registration: 18 exceptions, 13 classes, 7 functions, 10 server classes
+└── server.rs  # PyRequestBody, PyRequest, PyResponse, PythonCallbackService, PyServer
+
+python/eggserve/
+├── __init__.py     # top-level namespace (version, serve_directory, facade classes)
+├── _bin.py         # CLI entry point via native _run_cli
+├── __main__.py     # python -m eggserve support
+├── server.py       # six-class Rust-runtime compatibility facade
+├── lowlevel.py     # advanced native exports (SecureRoot, StaticPolicy, canonical types)
+└── subprocess.py   # subprocess lifecycle exports (ServeConfig, ServerProcess)
+```
+
+---
+
 ## Release Process
 
 Release is a manual crates.io procedure. CI is a regression screen, not release certification:
