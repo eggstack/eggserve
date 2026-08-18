@@ -8,6 +8,16 @@ exclude = [
 ]
 resolver = "2"
 
+[workspace.package]
+version = "0.1.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/eggstack/eggserve"
+homepage = "https://github.com/eggstack/eggserve"
+keywords = ["http", "static-file-server", "security", "hardened", "http-server"]
+categories = ["web-programming::http-server"]
+rust-version = "1.87"
+
 [profile.dist]
 inherits = "release"
 opt-level = "z"

@@ -1,12 +1,25 @@
 [package]
 name = "eggserve-core"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "Security policy, path confinement, and static-serving primitives for eggserve"
-repository = "https://github.com/eggstack/eggserve"
-homepage = "https://github.com/eggstack/eggserve"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 readme = "../../README.md"
+description = "Security policy, path confinement, and static-serving primitives for eggserve"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
+include = [
+    "src/**",
+    "tests/**",
+    "examples/**",
+    "docs/**",
+    "architecture/**",
+    "python-examples/*.py",
+    "python-examples/README.md",
+    "LICENSE",
+]
 
 [features]
 default = []

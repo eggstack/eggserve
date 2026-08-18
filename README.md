@@ -14,15 +14,15 @@ serving plus a bounded, synchronous custom-handler path shaped like
 service boundary. EggServe itself is not an application framework, ASGI/WSGI
 runtime, proxy, or general-purpose `socketserver` replacement.
 
-## Why EggServe instead of `python -m http.server`?
+## Secure alternative to `python -m http.server`
 
-`python -m http.server` is a useful local-development tool, but its ordinary
-defaults bind broadly, follow symlinks, serve dotfiles, and list directories.
-EggServe makes loopback binding, path confinement, dotfile denial, and disabled
-directory listings the defaults; weaker behavior requires an explicit opt-in.
-It also provides native range and conditional responses, bounded resource
-limits, and the same hardened static service behind its CLI, Python, and Rust
-surfaces.
+`python -m http.server` is a useful local-development tool with a
+well-understood interface. EggServe provides a secure alternative built on
+the same mental model: loopback binding, path confinement, dotfile denial,
+and disabled directory listings are the defaults; broader behavior requires
+an explicit opt-in. It also adds native range and conditional responses,
+bounded resource limits, and the same hardened static service behind its
+CLI, Python, and Rust surfaces.
 
 The concise surface comparison is in the
 [Python compatibility contract](docs/python-http-server-compatibility.md).

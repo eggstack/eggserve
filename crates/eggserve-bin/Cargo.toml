@@ -1,12 +1,15 @@
 [package]
 name = "eggserve-bin"
-version = "0.1.0"
-edition = "2021"
-license = "MIT"
-description = "CLI binary for eggserve"
-repository = "https://github.com/eggstack/eggserve"
-homepage = "https://github.com/eggstack/eggserve"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
 readme = "../../README.md"
+description = "CLI binary for eggserve hardened static file server"
+keywords.workspace = true
+categories.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "eggserve_bin"
@@ -21,7 +24,7 @@ default = []
 tls = ["eggserve-core/tls"]
 
 [dependencies]
-eggserve-core = { path = "../eggserve-core", version = "0.1.0" }
+eggserve-core = { path = "../eggserve-core", version = "0.1.1" }
 tokio = { version = "1", features = ["macros", "net", "signal", "time", "sync"] }
 
 [dev-dependencies]

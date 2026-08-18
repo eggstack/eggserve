@@ -27,8 +27,8 @@
 //! the core types with invariant-focused documentation.
 //!
 //! Before 1.0, every public type or function in this crate may change without
-//! a major version bump. See `docs/release-process.md` for the manual release
-//! procedure.
+//! a major version bump. See [docs/release-process.md](docs/release-process.md)
+//! for the manual release procedure.
 
 pub mod config;
 pub(crate) mod fs;
