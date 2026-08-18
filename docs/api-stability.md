@@ -453,5 +453,3 @@ Every production claim must name a profile. The production profiles are document
 - Hop-by-hop headers are rejected at the Python boundary and stripped from
   canonical metadata where the runtime owns them.
 - File-backed responses retain their Rust-owned capability and stream without an eager Python-memory copy.
-
-## Key Design Decisions

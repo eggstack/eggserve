@@ -1,6 +1,6 @@
-# Security Review — Alpha
+# Security Review
 
-This document summarizes the security posture of eggserve as of the alpha release. It is intended for early adopters evaluating the project.
+This document summarizes the security posture of eggserve. It is intended for adopters evaluating the project.
 
 ## Threat model summary
 

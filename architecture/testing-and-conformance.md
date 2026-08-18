@@ -7,7 +7,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 31 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 30 files |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 4 files |
 | Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
 | Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
