@@ -141,7 +141,9 @@ semantics.
 ## Verification
 
 The installed-wheel harness is `scripts/test-python-wheel.sh`. It builds the
-wheel, installs it into a clean CPython environment (default 3.14), checks the
-import boundary, and runs the focused compatibility, TLS, low-level, lifecycle,
-and boundary tests with `unittest`. Subprocess helpers are isolated in
-`eggserve.subprocess`.
+wheel, installs it into a clean CPython environment (CI default: 3.14 with
+`PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1`), checks the import boundary, and runs
+the focused compatibility, TLS, low-level, lifecycle, and boundary tests with
+`unittest`. The CI default is a test-interpreter constraint, not a package
+requirement; release wheels are built against the CPython 3.11 ABI baseline.
+Subprocess helpers are isolated in `eggserve.subprocess`.
