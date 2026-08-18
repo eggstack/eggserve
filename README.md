@@ -25,7 +25,7 @@ bounded resource limits, and the same hardened static service behind its
 CLI, Python, and Rust surfaces.
 
 The concise surface comparison is in the
-[Python compatibility contract](docs/python-http-server-compatibility.md).
+[Python compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md).
 
 ## CLI quickstart
 
@@ -55,13 +55,13 @@ port; a single positional numeric token continues to mean PORT.
 
 The CLI is a static file server. Directory listings, symlink following, and
 dotfile serving are separate explicit flags. Static metadata can be set with
-`--content-type` and repeatable `-H/--header`; see the [CLI reference](docs/cli.md)
-and [security policy](docs/security-policy.md).
+`--content-type` and repeatable `-H/--header`; see the [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md)
+and [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md).
 
 ## Python `http.server` facade
 
 The canonical Python static-serving example is
-[examples/python_http_server_static.py](examples/python_http_server_static.py).
+[examples/python_http_server_static.py](https://github.com/eggstack/eggserve/blob/main/examples/python_http_server_static.py).
 Run it with `python examples/python_http_server_static.py`; it is source-
 familiar while keeping the filesystem and transport in Rust.
 
@@ -73,25 +73,25 @@ The Python 3.15-shaped static metadata hooks are supported: set
 `extra_response_headers` through a stock handler or `functools.partial`.
 Extra headers are emitted only on final `200` static responses and cannot
 override runtime-owned metadata. See
-[examples/python_custom_headers.py](examples/python_custom_headers.py) for a
+[examples/python_custom_headers.py](https://github.com/eggstack/eggserve/blob/main/examples/python_custom_headers.py) for a
 working demonstration.
 
 For bounded synchronous custom responses, use the complete
-[examples/python_custom_handler.py](examples/python_custom_handler.py). The
+[examples/python_custom_handler.py](https://github.com/eggstack/eggserve/blob/main/examples/python_custom_handler.py). The
 optional subprocess lifecycle example is
-[examples/python_subprocess.py](examples/python_subprocess.py); it is not the
+[examples/python_subprocess.py](https://github.com/eggstack/eggserve/blob/main/examples/python_subprocess.py); it is not the
 canonical `http.server` replacement.
 
 When the `tls` feature is available, HTTPS serving uses
 `HTTPSServer` / `ThreadingHTTPSServer` — see
-[examples/python_https_server.py](examples/python_https_server.py).
+[examples/python_https_server.py](https://github.com/eggstack/eggserve/blob/main/examples/python_https_server.py).
 
 Custom handlers are synchronous and receive bounded in-memory `rfile`/`wfile`
 facades. They do not receive raw sockets, do not provide unbounded streaming,
 and do not turn EggServe into an application server. The optional subprocess
 helpers are under `eggserve.subprocess`; the primary API is `eggserve.server`.
-See the [Python API reference](docs/python-api.md) for the full six-class
-surface and [the compatibility contract](docs/python-http-server-compatibility.md)
+See the [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) for the full six-class
+surface and [the compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md)
 for intentional deviations from the stdlib.
 
 ## Rust library
@@ -122,17 +122,17 @@ handle.wait().await?;
 # }
 ```
 
-The executable, mechanically checked examples are [the static server](crates/eggserve-core/examples/static_server.rs),
-[the custom service](crates/eggserve-core/examples/custom_service.rs),
-and [the primitives demo](crates/eggserve-core/examples/primitives.rs).
+The executable, mechanically checked examples are [the static server](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/static_server.rs),
+[the custom service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/custom_service.rs),
+and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/primitives.rs).
 They use public EggServe modules only, include readiness plus graceful
 shutdown, and are the recommended starting points for custom services.
 
 The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
 `Service` owns request handling and response construction. The `server` module
-is experimental before 1.0. See the [Rust architecture overview](architecture/eggserve-core.md),
-[primitives facade](architecture/primitives-api.md), and
-[runtime contract](architecture/runtime.md).
+is experimental before 1.0. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
+[primitives facade](https://github.com/eggstack/eggserve/blob/main/architecture/primitives-api.md), and
+[runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 
 ## Security and compatibility boundaries
 
@@ -152,10 +152,10 @@ is experimental before 1.0. See the [Rust architecture overview](architecture/eg
   async Python handlers, unbounded Python response streaming, and ASGI/WSGI are
   intentionally unavailable.
 
-See the [security policy](docs/security-policy.md),
-[threat model](docs/threat-model.md),
-[Python compatibility matrix](docs/python-http-server-compatibility.md), and
-[non-goals](docs/non-goals.md).
+See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),
+[threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md),
+[Python compatibility matrix](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md), and
+[non-goals](https://github.com/eggstack/eggserve/blob/main/docs/non-goals.md).
 
 ## Installation
 
@@ -176,36 +176,36 @@ the executable crate is intentionally a thin CLI surface.
 
 The Python wheel includes the native extension and extension-backed CLI entry
 point; it does not bundle a second standalone CLI binary. See
-[toolchain and wheel support](docs/toolchain-support.md).
+[toolchain and wheel support](https://github.com/eggstack/eggserve/blob/main/docs/toolchain-support.md).
 
 ## Deeper references
 
 **CLI and installation:**
-- [CLI reference](docs/cli.md) — all flags, positional parsing, and examples
-- [TLS support](docs/tls.md) — building with `--features tls`, certificate requirements
-- [Toolchain and wheel support](docs/toolchain-support.md) — platform matrix, Python versions
-- [Deployment guidance](docs/deployment.md) — production profiles, reverse-proxy patterns
+- [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md) — all flags, positional parsing, and examples
+- [TLS support](https://github.com/eggstack/eggserve/blob/main/docs/tls.md) — building with `--features tls`, certificate requirements
+- [Toolchain and wheel support](https://github.com/eggstack/eggserve/blob/main/docs/toolchain-support.md) — platform matrix, Python versions
+- [Deployment guidance](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md) — production profiles, reverse-proxy patterns
 
 **Python:**
-- [Python API reference](docs/python-api.md) — `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, handler classes
-- [Python compatibility contract](docs/python-http-server-compatibility.md) — deviations from `http.server`
-- [Python packaging](docs/python-packaging.md) — wheel architecture, build from source
-- [Request body migration](docs/body-migration.md) — body modes, one-shot enforcement, error hierarchy
+- [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) — `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, handler classes
+- [Python compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md) — deviations from `http.server`
+- [Python packaging](https://github.com/eggstack/eggserve/blob/main/docs/python-packaging.md) — wheel architecture, build from source
+- [Request body migration](https://github.com/eggstack/eggserve/blob/main/docs/body-migration.md) — body modes, one-shot enforcement, error hierarchy
 
 **Rust library:**
-- [Rust HTTP primitives](docs/http-primitives.md) — HTTP/1.1 primitive contract
-- [Public API boundary](docs/public-api-boundary.md) — stability tiers, semver policy
-- [Library capability matrix](docs/library-capability-matrix.md) — cross-surface feature inventory
+- [Rust HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md) — HTTP/1.1 primitive contract
+- [Public API boundary](https://github.com/eggstack/eggserve/blob/main/docs/public-api-boundary.md) — stability tiers, semver policy
+- [Library capability matrix](https://github.com/eggstack/eggserve/blob/main/docs/library-capability-matrix.md) — cross-surface feature inventory
 
 **Security:**
-- [Security policy](docs/security-policy.md) — safe defaults and enforcement
-- [Threat model](docs/threat-model.md) — attacker profiles, trust boundaries
-- [Security review](docs/security-review.md) — posture summary for adopters
-- [Non-goals](docs/non-goals.md) — explicit exclusions
+- [Security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md) — safe defaults and enforcement
+- [Threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md) — attacker profiles, trust boundaries
+- [Security review](https://github.com/eggstack/eggserve/blob/main/docs/security-review.md) — posture summary for adopters
+- [Non-goals](https://github.com/eggstack/eggserve/blob/main/docs/non-goals.md) — explicit exclusions
 
 **Architecture:**
-- [Architecture overview](architecture/overview.md) — workspace layout, module map, data flow
-- [Examples](examples/) — all runnable demonstrations
+- [Architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/overview.md) — workspace layout, module map, data flow
+- [Examples](https://github.com/eggstack/eggserve/tree/main/examples) — all runnable demonstrations
 
 ## Local verification
 
@@ -217,4 +217,4 @@ point; it does not bundle a second standalone CLI binary. See
 
 The routine CI workflow has separate Rust and Python jobs. Platform
 qualification and release certification are manual workflows; see
-[the release process](docs/release-process.md).
+[the release process](https://github.com/eggstack/eggserve/blob/main/docs/release-process.md).
