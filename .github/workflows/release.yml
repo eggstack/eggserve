@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       sha: ${{ steps.sha.outputs.sha }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -39,6 +40,9 @@ jobs:
       - name: Record git SHA
         id: sha
         run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Record expected version
+        id: version
+        run: echo "version=$(grep '^version' Cargo.toml | head -1 | cut -d'\"' -f2)" >> "$GITHUB_OUTPUT"
 
   build:
     name: ${{ matrix.name }}
@@ -156,6 +160,7 @@ jobs:
         shell: bash
         run: python scripts/check-wheel-composition.py dist
       - name: Smoke test wheel
+        if: "!contains(matrix.target, 'armv7')"
         shell: bash
         run: |
           python -m venv /tmp/smoke-venv
@@ -163,6 +168,31 @@ jobs:
           ${{ matrix.console_script }} --help >/dev/null
           ${{ matrix.venv_python }} -m eggserve --help >/dev/null
           ${{ matrix.venv_python }} scripts/release_smoke.py
+      - name: Smoke test wheel (QEMU ARMv7)
+        if: contains(matrix.target, 'armv7')
+        shell: bash
+        run: |
+          docker run --rm --platform linux/arm/v7 \
+            -v "$(pwd)/dist:/wheels:ro" \
+            -v "$(pwd)/scripts:/scripts:ro" \
+            arm32v7/python:3.11-bookworm \
+            bash -c '
+              pip install --disable-pip-version-check -q /wheels/*.whl
+              python -c "import eggserve; import eggserve._native; print(f\"version={eggserve.__version__}\")"
+              eggserve --help >/dev/null
+              python -m eggserve --help >/dev/null
+              python /scripts/release_smoke.py
+            '
+      - name: "Stable ABI proof: same wheel on CPython 3.14"
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
+        shell: bash
+        run: |
+          python3.14 -m venv /tmp/smoke-venv-314
+          /tmp/smoke-venv-314/bin/python -m pip install --disable-pip-version-check -q dist/*.whl
+          /tmp/smoke-venv-314/bin/python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
+          /tmp/smoke-venv-314/bin/eggserve --help >/dev/null
+          /tmp/smoke-venv-314/bin/python -m eggserve --help >/dev/null
+          /tmp/smoke-venv-314/bin/python scripts/release_smoke.py
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
@@ -191,13 +221,24 @@ jobs:
         run: |
           mkdir -p dist
           cp all-wheels/*.whl dist/
-          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
-          python scripts/check-release-wheel-set.py dist --version "$VERSION"
+          python scripts/check-release-wheel-set.py dist --version "${{ needs.preflight.outputs.version }}"
+      - name: Generate release manifest
+        shell: bash
+        run: |
+          echo "Source: ${{ needs.preflight.outputs.sha }}" > dist/MANIFEST
+          echo "Version: ${{ needs.preflight.outputs.version }}" >> dist/MANIFEST
+          echo "" >> dist/MANIFEST
+          echo "Wheel files and SHA-256 digests:" >> dist/MANIFEST
+          for whl in dist/*.whl; do
+            sha256sum "$whl" >> dist/MANIFEST
+          done
       - name: Upload release wheel set
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: release-wheel-set
-          path: dist/*.whl
+          path: |
+            dist/*.whl
+            dist/MANIFEST
 
   publish-testpypi:
     name: Publish to TestPyPI
@@ -237,30 +278,66 @@ jobs:
           packages-dir: dist/
 
   post-publish:
-    name: Post-publish smoke test
+    name: "Post-publish smoke: ${{ matrix.name }}"
     needs: [preflight, publish-testpypi, publish-pypi]
     if: always() && (needs.publish-testpypi.result == 'success' || needs.publish-pypi.result == 'success')
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "Linux x86_64"
+            os: ubuntu-latest
+          - name: "Linux aarch64"
+            os: ubuntu-24.04-arm
+          - name: "Linux musl (Alpine)"
+            os: ubuntu-latest
+          - name: "macOS arm64"
+            os: macos-14
+          - name: "Windows x86_64"
+            os: windows-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.preflight.outputs.sha }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        if: matrix.name != 'Linux musl (Alpine)'
         with:
           python-version: "3.11"
-      - name: Install from published index
+      - name: Install from PyPI (native)
+        if: "!contains(matrix.name, 'musl')"
         shell: bash
         run: |
-          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          VERSION="${{ needs.preflight.outputs.version }}"
           if [ "${{ needs.publish-testpypi.result }}" = "success" ]; then
             pip install --index-url https://test.pypi.org/simple/ --only-binary=:all: "eggserve==${VERSION}"
           else
             pip install --only-binary=:all: "eggserve==${VERSION}"
           fi
-      - name: Smoke test published package
+      - name: Smoke test (native)
+        if: "!contains(matrix.name, 'musl')"
         shell: bash
         run: |
           eggserve --help >/dev/null
           python -m eggserve --help >/dev/null
           python scripts/release_smoke.py
+      - name: Install from PyPI (musl Alpine container)
+        if: contains(matrix.name, 'musl')
+        shell: bash
+        run: |
+          VERSION="${{ needs.preflight.outputs.version }}"
+          INDEX_URL="https://pypi.org/simple/"
+          if [ "${{ needs.publish-testpypi.result }}" = "success" ]; then
+            INDEX_URL="https://test.pypi.org/simple/"
+          fi
+          docker run --rm \
+            -v "$(pwd)/scripts:/scripts:ro" \
+            python:3.11-alpine \
+            sh -c "
+              pip install --no-cache-dir --index-url ${INDEX_URL} 'eggserve==${VERSION}'
+              python -c \"import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')\"
+              eggserve --help >/dev/null
+              python -m eggserve --help >/dev/null
+              python /scripts/release_smoke.py
+            "

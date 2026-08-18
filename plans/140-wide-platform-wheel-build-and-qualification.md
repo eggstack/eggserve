@@ -606,3 +606,40 @@ Plan 140 is complete when:
 - no self-hosted runners or bespoke EggServe cross toolchains are introduced;
 - routine CI remains unchanged except for any tiny shared validation hook justified by Plan 139;
 - the resulting artifact set is ready for the publication boundary in Plan 141.
+
+---
+
+# 18. Implementation closure evidence
+
+```text
+source commit SHA:     (filled after first release workflow run)
+workflow run ID:       (filled after first release workflow run)
+expected version:      0.1.2
+```
+
+## Per-target build and execution evidence
+
+| Target | Runner | Build method | Execution | Evidence |
+|--------|--------|-------------|-----------|----------|
+| `manylinux_2_17_x86_64` | ubuntu-latest | maturin-action manylinux container | native x86_64 | wheel composition check + release_smoke.py |
+| `manylinux_2_17_aarch64` | ubuntu-latest | maturin-action + QEMU cross-build | native x86_64 smoke (cross-compiled wheel) | wheel composition check + release_smoke.py |
+| `manylinux_2_17_armv7l` | ubuntu-latest | maturin-action + QEMU cross-build | QEMU ARMv7 Docker (arm32v7/python:3.11-bookworm) | wheel composition check + release_smoke.py in emulated ARMv7 |
+| `musllinux_1_2_x86_64` | ubuntu-latest | maturin-action musllinux container | native x86_64 | wheel composition check + release_smoke.py |
+| `musllinux_1_2_aarch64` | ubuntu-latest | maturin-action + QEMU cross-build | native x86_64 smoke (cross-compiled wheel) | wheel composition check + release_smoke.py |
+| `macosx_11_0_arm64` | macos-14 | native maturin build | native ARM64 | wheel composition check + release_smoke.py |
+| `macosx_11_0_x86_64` | macos-13 | native maturin build | native x86_64 | wheel composition check + release_smoke.py |
+| `win_amd64` | windows-latest | native maturin build | native x86_64 | wheel composition check + release_smoke.py |
+| `win_arm64` | windows-latest | native maturin build or cross-build | native ARM64 or cross-qualified | wheel composition check + release_smoke.py |
+
+## Tier 2 musllinux armv7l
+
+Deferred. No GitHub-hosted native ARM32 runner available. Maturin cross-build
+for `armv7-unknown-linux-musleabihf` is possible but runtime qualification in
+a musl ARMv7 environment is not reliably achievable without self-hosted
+infrastructure. The manylinux armv7 wheel covers 32-bit ARM SBC deployments;
+musllinux armv7 is an optional extension for Alpine/musl ARMv7 only.
+
+## Known caveats
+
+- aarch64 manylinux and musllinux smoke tests run on x86_64 host (cross-compiled wheel, not emulated ARM64 execution). Full ARM64 runtime qualification is covered by the platform qualification workflow.
+- Windows arm64 may use cross-build from x86_64 if native ARM64 runner is unavailable for release builds. Functional qualification is covered by the platform qualification workflow.

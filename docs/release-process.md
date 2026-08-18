@@ -91,6 +91,11 @@ Release wheels are built for all 9 Tier 1 targets:
 Each wheel is built with `--profile dist --locked --compatibility pypi` and
 validated for platform/ABI/version correctness, wheel composition (no second
 standalone binary), and runtime smoke (import, CLI help, real fixture serving).
+On the representative manylinux x86_64 target, the same wheel is installed and
+smoke-tested under both CPython 3.11 (minimum) and CPython 3.14 (newest
+supported) to prove stable-ABI reuse of one artifact across the declared
+Python range. The armv7 wheel is cross-compiled on x86_64 and smoke-tested
+inside a QEMU-emulated ARMv7 Docker container to prove runtime compatibility.
 
 ## Aggregate and validate
 
@@ -136,14 +141,19 @@ For TestPyPI qualification:
 
 ## Post-publication smoke checks
 
-After a successful PyPI upload, run binary-only installation checks on
-representative targets:
+After a successful PyPI upload, run binary-only installation and smoke checks
+on five representative targets in parallel:
 
-```
-pip install --only-binary=:all: eggserve==<version>
-eggserve --help
-python -m eggserve --help
-```
+- Linux x86_64 (glibc, manylinux)
+- Linux aarch64 (glibc, manylinux)
+- Linux x86_64 (musl, Alpine container)
+- macOS arm64
+- Windows x86_64
+
+Each target installs from the published index with `--only-binary=:all:`
+(where supported by the platform), verifies `eggserve.__version__` matches
+the expected release version, confirms `eggserve._native` imports, and runs
+the release smoke test (real loopback server serving exact fixture bytes).
 
 Install in a clean environment without source/build dependencies. Verify pip
 resolves a wheel without local compilation. Capture the resolved wheel
