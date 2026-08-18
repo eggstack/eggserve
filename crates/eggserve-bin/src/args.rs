@@ -124,6 +124,9 @@ impl Args {
                     }
                 }
                 "--port" => {
+                    if addr_seen {
+                        return Err("--port cannot be used with --addr (the port is set in --addr HOST:PORT)".into());
+                    }
                     i += 1;
                     let port_str = args.get(i).ok_or("--port requires an argument")?;
                     bind_port = port_str

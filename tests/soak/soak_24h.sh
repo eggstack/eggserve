@@ -13,6 +13,7 @@
 #   SOAK_DURATION_HOURS  - Duration in hours (default: 24)
 #   SOAK_LOG_DIR         - Log directory (default: /tmp/eggserve-soak)
 #   SOAK_VERBOSE         - Enable verbose output (default: false)
+#   SOAK_SMOKE           - If 1, run a 60-second smoke test instead
 
 set -euo pipefail
 
@@ -24,6 +25,10 @@ DURATION_HOURS="${SOAK_DURATION_HOURS:-24}"
 DURATION_SECS="${SOAK_DURATION_SECS:-0}"
 LOG_DIR="${SOAK_LOG_DIR:-/tmp/eggserve-soak}"
 VERBOSE="${SOAK_VERBOSE:-false}"
+
+if [[ "${SOAK_SMOKE:-0}" == "1" ]]; then
+    DURATION_SECS=60
+fi
 
 # Convert hours to seconds if duration_secs not set
 if [[ "$DURATION_SECS" -eq 0 ]]; then
@@ -82,7 +87,7 @@ dd if=/dev/urandom of="$WORK_DIR/root/subdir/deep.bin" bs=1024 count=50 2>/dev/n
 touch "$WORK_DIR/root/empty.txt"
 
 # Start eggserve
-EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
+EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
 EGGSERVE_PID=$!
 trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT

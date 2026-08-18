@@ -30,6 +30,7 @@ fn extract_body_bytes_from_ref(
     }
 }
 
+// FIXME(extract_body_bytes): four duplicate helpers across integration tests; consolidated helper should replace these in a follow-up.
 async fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
     use eggserve_core::primitives::body::BodySource;
     use eggserve_core::primitives::canonical::ResponseBody;

@@ -17,7 +17,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+PROCS_TO_KILL=()
+
+cleanup() {
+    for pid in "${PROCS_TO_KILL[@]+"${PROCS_TO_KILL[@]}"}"; do
+        kill "$pid" 2>/dev/null || true
+    done
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
 
 EGGSERVE_BIN="${REPO_ROOT}/target/debug/eggserve"
 NGINX_BIN="$(command -v nginx 2>/dev/null || echo "")"
@@ -46,10 +54,10 @@ mkdir -p "$WORK_DIR/root/subdir"
 echo "nested" > "$WORK_DIR/root/subdir/nested.txt"
 
 # Start eggserve on loopback (no TLS, with directory listing)
-EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
+EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" --directory-listing &
 EGGSERVE_PID=$!
-trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
+PROCS_TO_KILL+=("$EGGSERVE_PID")
 sleep 1
 
 # Verify eggserve is running
@@ -64,7 +72,7 @@ openssl req -x509 -newkey rsa:2048 -keyout "$WORK_DIR/key.pem" \
     -subj "/CN=localhost" 2>/dev/null
 
 # Generate nginx config
-NGINX_PORT=$(shuf -i 10000-60000 -n 1)
+NGINX_PORT=$(shuf -i 50000-60000 -n 1)
 NGINX_WORKER_PROCS=$(nproc 2>/dev/null || echo 1)
 
 cat > "$WORK_DIR/nginx.conf" <<EOF
@@ -108,7 +116,7 @@ EOF
 # Start nginx
 "$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" 2>&1 &
 NGINX_PID=$!
-trap 'kill $NGINX_PID 2>/dev/null; kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
+PROCS_TO_KILL+=("$NGINX_PID")
 sleep 3
 
 # Verify nginx is running
@@ -132,15 +140,21 @@ run_test() {
     local expected="$2"
     shift 2
     local actual
-    actual="$("$@" 2>/dev/null || echo "CURL_FAILED")"
+    local _stderr_log
+    _stderr_log="$(mktemp)"
+    actual="$("$@" 2>"$_stderr_log" || echo "CURL_FAILED")"
     if echo "$actual" | grep -q "$expected"; then
         echo "  PASS: $name"
         PASS=$((PASS + 1))
     else
         echo "  FAIL: $name (expected '$expected' in response)"
         echo "    Got: $(echo "$actual" | head -5)"
+        if [[ "$actual" == "CURL_FAILED" ]]; then
+            echo "    curl stderr: $(cat "$_stderr_log")"
+        fi
         FAIL=$((FAIL + 1))
     fi
+    rm -f "$_stderr_log"
 }
 
 echo "=== nginx Reverse-Proxy Interop Tests ==="

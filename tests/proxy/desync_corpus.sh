@@ -20,7 +20,7 @@ WORK_DIR="$(mktemp -d)"
 PROCS_TO_KILL=()
 
 cleanup() {
-    for pid in "${PROCS_TO_KILL[@]}"; do
+    for pid in "${PROCS_TO_KILL[@]+"${PROCS_TO_KILL[@]}"}"; do
         kill "$pid" 2>/dev/null || true
     done
     rm -rf "$WORK_DIR"
@@ -48,7 +48,7 @@ echo "ok" > "$WORK_DIR/root/status.txt"
 dd if=/dev/urandom of="$WORK_DIR/root/large.bin" bs=1024 count=64 2>/dev/null
 
 # Start eggserve on loopback
-EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
+EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
 PROCS_TO_KILL+=($!)
 sleep 1
@@ -177,7 +177,7 @@ CADDY_PORT=""
 if [[ -n "$CADDY_BIN" ]]; then
     echo ""
     echo "=== Desynchronization Corpus — Through Caddy ==="
-    CADDY_PORT=$(shuf -i 30000-50000 -n 1)
+    CADDY_PORT=$(shuf -i 50000-60000 -n 1)
 
     mkdir -p "$WORK_DIR/caddy"
     cat > "$WORK_DIR/caddy/Caddyfile" <<CADDY_EOF
@@ -225,7 +225,7 @@ NGINX_PORT=""
 if [[ -n "$NGINX_BIN" ]]; then
     echo ""
     echo "=== Desynchronization Corpus — Through nginx ==="
-    NGINX_PORT=$(shuf -i 30000-50000 -n 1)
+    NGINX_PORT=$(shuf -i 50000-60000 -n 1)
 
     mkdir -p "$WORK_DIR/nginx"
     cat > "$WORK_DIR/nginx/nginx.conf" <<NGINX_EOF

@@ -45,6 +45,22 @@ def main() -> None:
         if not isinstance(entry["connection_reuse"], bool):
             raise SystemExit(f"matrix entry {index} has invalid connection_reuse value")
 
+    # Coverage check: every declared resource must appear at least once.
+    declared_resources = {
+        "direct_file",
+        "directory_index",
+        "root_index",
+        "directory_listing",
+        "missing",
+        "denied",
+    }
+    exercised = {e["resource"] for e in entries}
+    missing = declared_resources - exercised
+    if missing:
+        raise SystemExit(
+            f"declared resources not exercised in any matrix entry: {sorted(missing)}"
+        )
+
     print(f"validated {len(entries)} conformance matrix entries")
 
 

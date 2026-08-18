@@ -102,7 +102,7 @@ pub fn validate_request_body(
 | `Content-Length: 99999999999999999999` | `InvalidContentLength` → HTTP 400 |
 | `Transfer-Encoding: chunked` | `UnsupportedTransferEncoding` → HTTP 400 |
 | `Content-Length: 0` + `Transfer-Encoding: chunked` | `ConflictingBodyHeaders` → HTTP 400 |
-| `Transfer-Encoding: ` (empty/whitespace) | OK (treated as absent) |
+| `Transfer-Encoding: ` (empty/whitespace) | `UnsupportedTransferEncoding` → HTTP 400 |
 
 ### Configurable body limits
 

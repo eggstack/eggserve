@@ -426,6 +426,7 @@ async fn accept_loop_generic<S: Service>(
             result = listener.accept() => {
                 match result {
                     Ok((stream, peer_addr)) => {
+                        let _ = stream.set_nodelay(true);
                         backoff_idx = 0;
                         error_repeat_count = 0;
                         last_error_kind = None;

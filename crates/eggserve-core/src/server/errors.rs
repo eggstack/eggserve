@@ -3,11 +3,11 @@
 //! Errors are classified into four categories:
 //!
 //! - **Startup errors** ([`ServerError::Bind`], [`ServerError::Config`],
-//!   [`ServerError::TlsSetup`]) — returned to the caller before the listener
-//!   is ready.
+//!   [`ServerError::TlsSetup`], [`ServerError::Startup`]) — returned to the
+//!   caller before the listener is ready.
 //! - **Lifecycle errors** ([`ServerError::AlreadyStarted`],
-//!   [`ServerError::NotStarted`], [`ServerError::Startup`]) — indicate misuse
-//!   of the server handle or lifecycle state violations.
+//!   [`ServerError::NotStarted`]) — indicate misuse of the server handle or
+//!   lifecycle state violations.
 //! - **Runtime errors** ([`ServerError::Accept`], [`ServerError::ShutdownTimeout`])
 //!   — occur during serving and are logged, not returned to callers.
 //! - **Transport errors** ([`ServerError::Transport`]) — failures in response

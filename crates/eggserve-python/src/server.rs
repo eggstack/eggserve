@@ -369,6 +369,7 @@ impl PyRequestBody {
 // Python BodyChunkIterator — synchronous iterator over body chunks
 // ---------------------------------------------------------------------------
 
+/// PyBodyChunkIterator is not thread-safe; concurrent __next__ calls are not supported.
 #[pyclass(name = "BodyChunkIterator")]
 #[allow(dead_code)]
 pub struct PyBodyChunkIterator {
@@ -411,6 +412,7 @@ pub struct PyRequest {
     path: String,
     #[pyo3(get)]
     query: String,
+    /// First-wins semantics; for duplicate-sensitive headers use `header_items`.
     #[pyo3(get)]
     headers: HashMap<String, String>,
     header_items: Vec<(String, String)>,
@@ -524,6 +526,9 @@ impl PyResponse {
         })
     }
 
+    /// Returns a clone of the body. The first call extracts; subsequent
+    /// calls re-clone from internal state. For hot paths, use the
+    /// internal conversion directly.
     #[getter]
     fn body(&self) -> PyResult<ServerBodySource> {
         let body = self.body.lock().map_err(|_| {

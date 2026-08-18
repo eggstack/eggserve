@@ -231,41 +231,6 @@ fn headers_from_list(headers: Option<&Bound<'_, PyList>>) -> Result<Vec<(String,
     }
 }
 
-fn plan_to_python(py: Python<'_>, plan: StaticResponsePlan) -> PyResult<PyObject> {
-    let status = plan.status_code();
-
-    let headers_list = PyList::empty(py);
-    for h in plan.headers.iter() {
-        let tup = PyTuple::new(py, [h.name.as_str(), h.value.as_str()])?;
-        headers_list.append(tup)?;
-    }
-
-    let body_kind = match &plan.body {
-        BodyPlan::Empty => "empty",
-        BodyPlan::FullBytes(_) => "bytes",
-        BodyPlan::FileFull => "file_full",
-        BodyPlan::FileRange { .. } => "file_range",
-    };
-
-    let range: Option<(u64, u64)> = match &plan.body {
-        BodyPlan::FileRange {
-            start,
-            end_inclusive,
-        } => Some((*start, *end_inclusive)),
-        _ => None,
-    };
-
-    let range_obj: PyObject = match range {
-        Some((s, e)) => PyTuple::new(py, [s, e])?.into_any().unbind(),
-        None => py.None(),
-    };
-
-    let plan_cls = py.import("eggserve")?.getattr("ResponsePlan")?;
-    plan_cls
-        .call1((status, headers_list, body_kind, range_obj))
-        .map(|b| b.unbind())
-}
-
 // ---------------------------------------------------------------------------
 // BodySource (Rust wrapper for Python body source)
 // ---------------------------------------------------------------------------
@@ -797,10 +762,7 @@ impl PyResolvedFile {
             None,
             None,
         );
-        Ok(PyResponsePlan {
-            inner: plan,
-            py_obj: std::sync::OnceLock::new(),
-        })
+        Ok(PyResponsePlan { inner: plan })
     }
 
     #[pyo3(signature = (method="GET", headers=None))]
@@ -837,10 +799,7 @@ impl PyResolvedFile {
             range_header.as_deref(),
             if_range.as_deref(),
         );
-        Ok(PyResponsePlan {
-            inner: plan,
-            py_obj: std::sync::OnceLock::new(),
-        })
+        Ok(PyResponsePlan { inner: plan })
     }
 
     fn __repr__(&self) -> String {
@@ -1007,7 +966,6 @@ use eggserve_core::primitives::response::StaticResponsePlan;
 #[allow(dead_code)]
 struct PyResponsePlan {
     inner: StaticResponsePlan,
-    py_obj: std::sync::OnceLock<PyObject>,
 }
 
 #[pymethods]
@@ -1058,15 +1016,7 @@ impl PyResponsePlan {
     }
 }
 
-#[allow(dead_code)]
-impl PyResponsePlan {
-    fn to_py(&self, py: Python<'_>) -> PyResult<PyObject> {
-        if let Some(obj) = self.py_obj.get() {
-            return Ok(obj.clone_ref(py));
-        }
-        plan_to_python(py, self.inner.clone())
-    }
-}
+
 
 // ---------------------------------------------------------------------------
 // Method (canonical HTTP method)

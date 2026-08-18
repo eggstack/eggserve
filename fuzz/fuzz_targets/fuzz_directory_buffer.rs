@@ -1,6 +1,10 @@
 #![no_main]
 #![cfg(windows)]
 
+// Windows-only fuzzer: parses the platform-specific directory-listing buffer
+// format. On Linux/macOS this target compiles to an empty harness; it is still
+// registered in fuzz/Cargo.toml for cross-platform parity.
+
 use libfuzzer_sys::fuzz_target;
 use eggserve_core::fs::windows::{parse_directory_buffer, DirBufParseError};
 

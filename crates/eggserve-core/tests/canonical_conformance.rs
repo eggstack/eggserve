@@ -1061,11 +1061,11 @@ proptest! {
             .unwrap();
         let req = NormalizeRequest::new(false);
         let once = normalize_response(resp, &req).unwrap();
+        let once_body_len = once.body().map(|b| b.len());
+        let once_header_count = once.headers().iter().count();
         let twice = normalize_response(once, &req).unwrap();
-        prop_assert_eq!(
-            twice.body().map(|b| b.len()),
-            twice.body().map(|b| b.len()),
-        );
+        prop_assert_eq!(once_body_len, twice.body().map(|b| b.len()));
+        prop_assert_eq!(once_header_count, twice.headers().iter().count());
     }
 
     #[test]

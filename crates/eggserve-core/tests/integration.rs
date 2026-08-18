@@ -875,6 +875,7 @@ async fn hidden_index_name_is_not_considered_index() {
 }
 
 #[cfg(unix)]
+// FIXME(extract_body_bytes): four duplicate helpers across integration tests; consolidated helper should replace these in a follow-up.
 fn extract_body_bytes(resp: &mut eggserve_core::primitives::canonical::Response) -> Vec<u8> {
     use eggserve_core::primitives::canonical::ResponseBody;
     match resp.take_body() {

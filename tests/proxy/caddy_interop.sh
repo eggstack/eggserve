@@ -17,7 +17,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORK_DIR="$(mktemp -d)"
-trap 'rm -rf "$WORK_DIR"' EXIT
+PROCS_TO_KILL=()
+
+cleanup() {
+    for pid in "${PROCS_TO_KILL[@]+"${PROCS_TO_KILL[@]}"}"; do
+        kill "$pid" 2>/dev/null || true
+    done
+    rm -rf "$WORK_DIR"
+}
+trap cleanup EXIT
 
 EGGSERVE_BIN="${REPO_ROOT}/target/debug/eggserve"
 CADDY_BIN="$(command -v caddy 2>/dev/null || echo "")"
@@ -46,10 +54,10 @@ mkdir -p "$WORK_DIR/root/subdir"
 echo "nested" > "$WORK_DIR/root/subdir/nested.txt"
 
 # Start eggserve on loopback (no TLS, with directory listing)
-EGGSERVE_PORT=$(shuf -i 10000-60000 -n 1)
+EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" --directory-listing &
 EGGSERVE_PID=$!
-trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
+PROCS_TO_KILL+=("$EGGSERVE_PID")
 sleep 1
 
 # Verify eggserve is running
@@ -59,7 +67,7 @@ if ! kill -0 "$EGGSERVE_PID" 2>/dev/null; then
 fi
 
 # Generate Caddyfile
-CADDY_PORT=$(shuf -i 10000-60000 -n 1)
+CADDY_PORT=$(shuf -i 50000-60000 -n 1)
 cat > "$WORK_DIR/Caddyfile" <<EOF
 {
     admin off
@@ -79,7 +87,7 @@ EOF
 # Start Caddy
 "$CADDY_BIN" run --config "$WORK_DIR/Caddyfile" --adapter caddyfile &
 CADDY_PID=$!
-trap 'kill $CADDY_PID 2>/dev/null; kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
+PROCS_TO_KILL+=("$CADDY_PID")
 sleep 2
 
 # Verify Caddy is running
@@ -96,15 +104,21 @@ run_test() {
     local expected="$2"
     shift 2
     local actual
-    actual="$("$@" 2>/dev/null || echo "CURL_FAILED")"
+    local _stderr_log
+    _stderr_log="$(mktemp)"
+    actual="$("$@" 2>"$_stderr_log" || echo "CURL_FAILED")"
     if echo "$actual" | grep -q "$expected"; then
         echo "  PASS: $name"
         PASS=$((PASS + 1))
     else
         echo "  FAIL: $name (expected '$expected' in response)"
         echo "    Got: $(echo "$actual" | head -5)"
+        if [[ "$actual" == "CURL_FAILED" ]]; then
+            echo "    curl stderr: $(cat "$_stderr_log")"
+        fi
         FAIL=$((FAIL + 1))
     fi
+    rm -f "$_stderr_log"
 }
 
 echo "=== Caddy Reverse-Proxy Interop Tests ==="

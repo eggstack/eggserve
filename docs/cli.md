@@ -27,6 +27,13 @@ once during argument validation; the resolved address is then used for the
 listener. A hostname that resolves to a wildcard address still requires
 `--public`.
 
+Note: `--bind HOST` (without a port) leaves the positional port slot
+available. A subsequent numeric positional argument will be parsed as the
+port. For example, `eggserve --bind 127.0.0.1 8000 mydir` binds port 8000
+and serves `mydir`. If the numeric argument is intended as a directory name
+rather than a port, use `--port` to explicitly set the port first (e.g.
+`eggserve --bind 127.0.0.1 --port 9000 1234`).
+
 Positional arguments use two logical slots: `PORT`, then `DIRECTORY`. `--port`,
 `--addr`, and an explicit port in `--bind` occupy the port slot. A host-only
 `--bind` leaves that slot available for a positional numeric token. Once the

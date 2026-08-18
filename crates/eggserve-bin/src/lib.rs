@@ -77,14 +77,18 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
             }
         }
     };
-    Logger::init(sink);
+    let _ = Logger::try_init(sink);
 
     #[cfg(feature = "tls")]
     let tls_config = match (&args.tls_cert, &args.tls_key) {
         (Some(cert), Some(key)) => match tls::load_tls_config(cert, key) {
             Ok(config) => Some(config),
             Err(e) => {
-                eprintln!("error: {}", e);
+                Logger::global().emit(Event::new(
+                    Severity::Error,
+                    EventKind::ProcessStarting,
+                    format!("error: {}", e),
+                ));
                 return 1;
             }
         },
@@ -160,7 +164,11 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         let runtime_config = match try_from_serve_config(&serve_config) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("error: {}", e);
+                Logger::global().emit(Event::new(
+                    Severity::Error,
+                    EventKind::ProcessStarting,
+                    format!("error: {}", e),
+                ));
                 return 1;
             }
         };
@@ -247,7 +255,11 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         let mut runtime_config = match try_from_serve_config(&serve_config) {
             Ok(c) => c,
             Err(e) => {
-                eprintln!("error: {}", e);
+                Logger::global().emit(Event::new(
+                    Severity::Error,
+                    EventKind::ProcessStarting,
+                    format!("error: {}", e),
+                ));
                 return 1;
             }
         };

@@ -442,6 +442,7 @@ async fn race_file_replacement_during_streaming() {
 /// Toggles file permissions between readable and unreadable while serving.
 /// Proves the server handles permission changes without panic, returning
 /// 200, 403, or 404 as appropriate.
+#[cfg(unix)]
 #[tokio::test]
 async fn race_permission_changes() {
     let setup = RaceTestSetup::new();
@@ -463,7 +464,6 @@ async fn race_permission_changes() {
         );
 
         // Toggle permissions
-        #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
             if i % 2 == 0 {
@@ -474,12 +474,9 @@ async fn race_permission_changes() {
                     fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o644));
             }
         }
-        #[cfg(not(unix))]
-        let _ = &i;
     }
 
     // Restore permissions
-    #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = fs::set_permissions(root.join("file.txt"), fs::Permissions::from_mode(0o644));
@@ -801,6 +798,7 @@ async fn concurrent_symlink_swap_stress() {
 /// the descriptor-relative traversal invariant holds for intermediate path
 /// components under concurrent mutation.
 #[cfg(unix)]
+// FIXME(extract_body_bytes): four duplicate helpers across integration tests; consolidated helper should replace these in a follow-up.
 fn extract_body_bytes(resp: &mut eggserve_core::primitives::canonical::Response) -> Vec<u8> {
     use eggserve_core::primitives::canonical::ResponseBody;
     match resp.take_body() {

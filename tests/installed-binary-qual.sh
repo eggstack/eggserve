@@ -87,7 +87,7 @@ run_test "eggserve --version exits 0" "$ISOLATED_DIR/eggserve" --version
 
 # --- Test 3: Serve a directory ---
 echo "Test 3: Serve directory and fetch file"
-PORT=$(shuf -i 10000-60000 -n 1)
+PORT=$(shuf -i 50000-60000 -n 1)
 "$ISOLATED_DIR/eggserve" --bind "127.0.0.1:${PORT}" --directory "$ISOLATED_DIR/www" &
 SERVER_PID=$!
 sleep 1

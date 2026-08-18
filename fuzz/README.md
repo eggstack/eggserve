@@ -16,7 +16,7 @@ Fuzz targets for eggserve's path confinement, request parsing, response planning
 | `fuzz_header_block` | HeaderName, HeaderValue, and HeaderBlock operations |
 | `fuzz_normalize_response` | StatusCode validation, response building, response normalization, Content-Length reconciliation |
 | `fuzz_request_body` | RequestBody state machine, one-shot enforcement |
-| `fuzz_directory_buffer` | Directory listing buffer, HTML well-formedness |
+| `fuzz_directory_buffer` | Directory listing buffer, HTML well-formedness (Windows-only — empty harness on Linux/macOS) |
 
 ## Running
 

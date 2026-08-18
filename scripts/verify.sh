@@ -19,6 +19,7 @@ PYTHON="${PYTHON:-python3.14}"
 info()    { printf "\033[0;34m▸\033[0m %s\n" "$*"; }
 success() { printf "\033[0;32m✓\033[0m %s\n" "$*"; }
 fail()    { printf "\033[0;31m✗\033[0m %s\n" "$*"; }
+warn()    { printf "\033[0;33m⚠\033[0m %s\n" "$*"; }
 
 header() {
   printf "\n\033[1m\033[0;35m━━━ %s ━━━\033[0m\n\n" "$*"
@@ -115,7 +116,10 @@ cmd_deep() {
     run bash "$REPO_ROOT/tests/proxy/nginx_interop.sh"
     run bash "$REPO_ROOT/tests/proxy/desync_corpus.sh"
   else
-    info "Caddy/nginx not available — skipping proxy interop"
+    if [[ "${EGGSERVE_REQUIRE_PROXY:-0}" == "1" ]]; then
+        die "Caddy/nginx required by EGGSERVE_REQUIRE_PROXY=1 but not in PATH"
+    fi
+    warn "Caddy/nginx not in PATH — proxy interop tests SKIPPED"
   fi
 }
 

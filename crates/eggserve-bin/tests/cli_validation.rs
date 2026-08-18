@@ -148,3 +148,110 @@ fn version_flag_shows_version() {
         combined
     );
 }
+
+// ---------------------------------------------------------------------------
+// Plan 134–137 positional CLI regression tests
+// ---------------------------------------------------------------------------
+
+#[test]
+fn bind_host_only_with_numeric_port_and_numeric_dir() {
+    // --bind HOST (no port) leaves port slot open; first numeric positional
+    // is port, second is directory name.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_eggserve"))
+        .arg("--bind")
+        .arg("127.0.0.1")
+        .arg("12345")
+        .arg("1234")
+        .arg("--version")
+        .spawn()
+        .expect("failed to spawn binary");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let _ = child.kill();
+    let output = child.wait_with_output().expect("failed to wait on child");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !combined.contains("error"),
+        "expected clean arg parse, got: {}",
+        combined
+    );
+}
+
+#[test]
+fn positional_port_then_numeric_directory() {
+    // First numeric positional is port, second is directory name.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_eggserve"))
+        .arg("12346")
+        .arg("5678")
+        .arg("--version")
+        .spawn()
+        .expect("failed to spawn binary");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let _ = child.kill();
+    let output = child.wait_with_output().expect("failed to wait on child");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !combined.contains("error"),
+        "expected clean arg parse, got: {}",
+        combined
+    );
+}
+
+#[test]
+fn bind_host_only_with_port_flag_and_numeric_dir() {
+    // --bind HOST (no port) + --port sets port via flag; numeric positional
+    // then becomes directory.
+    let mut child = Command::new(env!("CARGO_BIN_EXE_eggserve"))
+        .arg("--bind")
+        .arg("127.0.0.1")
+        .arg("--port")
+        .arg("12347")
+        .arg("1234")
+        .arg("--version")
+        .spawn()
+        .expect("failed to spawn binary");
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let _ = child.kill();
+    let output = child.wait_with_output().expect("failed to wait on child");
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(
+        !combined.contains("error"),
+        "expected clean arg parse, got: {}",
+        combined
+    );
+}
+
+#[test]
+fn addr_and_port_conflict() {
+    // --addr sets both host and port; --port after --addr is rejected.
+    let output = Command::new(env!("CARGO_BIN_EXE_eggserve"))
+        .arg("--addr")
+        .arg("127.0.0.1:80")
+        .arg("--port")
+        .arg("443")
+        .output()
+        .expect("failed to execute binary");
+    assert!(!output.status.success(), "expected non-zero exit code");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("--port"),
+        "stderr should mention --port: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("--addr"),
+        "stderr should mention --addr: {}",
+        stderr
+    );
+}

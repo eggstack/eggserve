@@ -549,3 +549,175 @@ expected_status = 405
 expected_allow = "GET, HEAD"
 body_forbidden = true
 connection_reuse = false
+
+# ===========================================================================
+# Directory listing — GET
+# ===========================================================================
+
+[[matrix]]
+resource = "directory_listing"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_type = "text/html"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_listing"
+method = "GET"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_listing"
+method = "GET"
+conditional = "none"
+range = "exact"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_listing"
+method = "GET"
+conditional = "none"
+range = "unsatisfiable"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 416
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_listing"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "keep_alive"
+expected_status = 200
+expected_content_type = "text/html"
+body_forbidden = false
+connection_reuse = true
+
+# ===========================================================================
+# Directory listing — HEAD
+# ===========================================================================
+
+[[matrix]]
+resource = "directory_listing"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "directory_listing"
+method = "HEAD"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+# ===========================================================================
+# Root index — GET
+# ===========================================================================
+
+[[matrix]]
+resource = "root_index"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+expected_content_type = "text/html"
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "root_index"
+method = "GET"
+conditional = "etag_match"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 304
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "root_index"
+method = "GET"
+conditional = "none"
+range = "exact"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 206
+body_forbidden = false
+connection_reuse = false
+
+[[matrix]]
+resource = "root_index"
+method = "GET"
+conditional = "none"
+range = "unsatisfiable"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 416
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "root_index"
+method = "HEAD"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "close"
+expected_status = 200
+body_forbidden = true
+connection_reuse = false
+
+[[matrix]]
+resource = "root_index"
+method = "GET"
+conditional = "none"
+range = "none"
+file_state = "normal"
+http_version = "1.1"
+connection = "keep_alive"
+expected_status = 200
+expected_content_type = "text/html"
+body_forbidden = false
+connection_reuse = true
