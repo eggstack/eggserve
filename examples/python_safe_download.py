@@ -6,7 +6,7 @@ uses the response planner for metadata. Never join user paths directly
 to a filesystem root.
 """
 
-from http.server import HTTPServer, BaseHTTPRequestHandler
+from eggserve.server import HTTPServer, BaseHTTPRequestHandler
 from urllib.parse import unquote
 from eggserve.lowlevel import SecureRoot, StaticPolicy
 
@@ -26,7 +26,7 @@ class Handler(BaseHTTPRequestHandler):
         resource = root.resolve_path(name)
 
         if resource.is_file:
-            plan = resource.file.plan_response("GET", dict(self.headers))
+            plan = resource.file.plan_response("GET", list(self.headers.items()))
             self.send_response(plan.status)
             for n, v in plan.headers:
                 self.send_header(n, v)

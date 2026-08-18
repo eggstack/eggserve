@@ -283,8 +283,9 @@ CLI flags / Python params / Rust structs
          ▼
 ┌─────────────────────────────────────────┐
 │ Limits (validated subset)               │
-│  • 14 fields: connections, streams,     │
-│    timeouts, body sizes, chunk size     │
+│  • 11 fields: connections, streams,     │
+│    timeouts, body sizes, listing,       │
+│    chunk size                           │
 └────────┬───────────────┬────────────────┘
          │               │
          ▼               ▼
@@ -311,7 +312,7 @@ CLI flags / Python params / Rust structs
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing, error responses) | Internal |
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map (~60 extensions) | Internal |
-| `ops/` | **pub** | Structured logging, operational events, counters | Stable-ish |
+| `ops.rs` | **pub** | Structured logging, operational events, counters | Stable-ish |
 | `primitives/` | **pub** | Public facade — all canonical types for embedding consumers | Stable |
 | `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle | Experimental |
 | `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |

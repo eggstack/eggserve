@@ -95,6 +95,26 @@ primitives for a deliberately small download handler. User-controlled names
 are resolved through `SecureRoot`; the example never joins or reopens a
 translated path. It uses the default loopback bind and blocks until Ctrl+C.
 
+### HTTPS server: `python_https_server.py`
+
+Demonstrates the `ThreadingHTTPSServer` class backed by the Rust TLS backend.
+Requires a PEM certificate and key; the file header shows how to generate a
+self-signed certificate for local testing.
+
+```sh
+python examples/python_https_server.py
+```
+
+### Custom response headers: `python_custom_headers.py`
+
+Shows the `default_content_type` and `extra_response_headers` static metadata
+hooks. Extra headers are emitted only on final 200 static responses and cannot
+override runtime-owned metadata.
+
+```sh
+python examples/python_custom_headers.py
+```
+
 ## Rust library
 
 The Rust examples are Cargo examples and use only public `eggserve-core` APIs.

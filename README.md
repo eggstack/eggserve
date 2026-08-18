@@ -1,5 +1,11 @@
 # eggserve
 
+[![CI](https://github.com/eggstack/eggserve/actions/workflows/ci.yml/badge.svg)](https://github.com/eggstack/eggserve/actions/workflows/ci.yml)
+[![Crates.io](https://img.shields.io/crates/v/eggserve-core.svg)](https://crates.io/crates/eggserve-core)
+[![PyPI](https://img.shields.io/pypi/v/eggserve.svg)](https://pypi.org/project/eggserve/)
+[![PyPI Downloads](https://static.pepy.tech/personalized-badge/eggserve?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/eggserve)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/eggstack/eggserve/blob/main/LICENSE)
+
 > EggServe is a hardened, HTTP-correct static file server and reusable Rust HTTP/static-serving library, with a Python `http.server`-shaped facade.
 
 The CLI serves static files only. The Python package provides hardened static
@@ -66,13 +72,19 @@ The Python 3.15-shaped static metadata hooks are supported: set
 `default_content_type` for unknown suffixes and pass ordered
 `extra_response_headers` through a stock handler or `functools.partial`.
 Extra headers are emitted only on final `200` static responses and cannot
-override runtime-owned metadata.
+override runtime-owned metadata. See
+[examples/python_custom_headers.py](examples/python_custom_headers.py) for a
+working demonstration.
 
 For bounded synchronous custom responses, use the complete
 [examples/python_custom_handler.py](examples/python_custom_handler.py). The
 optional subprocess lifecycle example is
 [examples/python_subprocess.py](examples/python_subprocess.py); it is not the
 canonical `http.server` replacement.
+
+When the `tls` feature is available, HTTPS serving uses
+`HTTPSServer` / `ThreadingHTTPSServer` — see
+[examples/python_https_server.py](examples/python_https_server.py).
 
 Custom handlers are synchronous and receive bounded in-memory `rfile`/`wfile`
 facades. They do not receive raw sockets, do not provide unbounded streaming,
@@ -168,16 +180,32 @@ point; it does not bundle a second standalone CLI binary. See
 
 ## Deeper references
 
-- [CLI reference](docs/cli.md)
-- [Python API reference](docs/python-api.md)
-- [Python compatibility contract](docs/python-http-server-compatibility.md)
-- [Rust HTTP primitives](docs/http-primitives.md)
-- [Security policy](docs/security-policy.md)
-- [Deployment guidance](docs/deployment.md)
-- [TLS constraints](docs/tls.md)
-- [Library capability matrix](docs/library-capability-matrix.md)
-- [Architecture overview](architecture/overview.md)
-- [Examples](examples/)
+**CLI and installation:**
+- [CLI reference](docs/cli.md) — all flags, positional parsing, and examples
+- [TLS support](docs/tls.md) — building with `--features tls`, certificate requirements
+- [Toolchain and wheel support](docs/toolchain-support.md) — platform matrix, Python versions
+- [Deployment guidance](docs/deployment.md) — production profiles, reverse-proxy patterns
+
+**Python:**
+- [Python API reference](docs/python-api.md) — `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, handler classes
+- [Python compatibility contract](docs/python-http-server-compatibility.md) — deviations from `http.server`
+- [Python packaging](docs/python-packaging.md) — wheel architecture, build from source
+- [Request body migration](docs/body-migration.md) — body modes, one-shot enforcement, error hierarchy
+
+**Rust library:**
+- [Rust HTTP primitives](docs/http-primitives.md) — HTTP/1.1 primitive contract
+- [Public API boundary](docs/public-api-boundary.md) — stability tiers, semver policy
+- [Library capability matrix](docs/library-capability-matrix.md) — cross-surface feature inventory
+
+**Security:**
+- [Security policy](docs/security-policy.md) — safe defaults and enforcement
+- [Threat model](docs/threat-model.md) — attacker profiles, trust boundaries
+- [Security review](docs/security-review.md) — posture summary for adopters
+- [Non-goals](docs/non-goals.md) — explicit exclusions
+
+**Architecture:**
+- [Architecture overview](architecture/overview.md) — workspace layout, module map, data flow
+- [Examples](examples/) — all runnable demonstrations
 
 ## Local verification
 

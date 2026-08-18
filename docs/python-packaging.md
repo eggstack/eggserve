@@ -22,7 +22,8 @@ crates/eggserve-python/
 │   ├── run_all.sh          # fresh venv + install + run all smoke tests
 │   ├── test_imports.py     # import validation, version, native extension
 │   ├── test_server_smoke.py # server lifecycle, callback, HEAD, range
-│   ├── test_client_smoke.py # HTTP client local request
+│   ├── test_body_smoke.py  # request body support validation
+│   ├── test_lifecycle_smoke.py # process lifecycle validation
 │   └── test_cli_smoke.py   # CLI help, native entry point
 └── README.md
 ```

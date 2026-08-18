@@ -65,7 +65,7 @@ The filesystem confinement guarantee rests on two pillars, reflected in the test
 - **Proof by design** — tests that exercise code paths relying on kernel-enforced invariants (`O_NOFOLLOW`, `ELOOP`/`EMLINK`). These fail deterministically if the kernel invariant is violated. The structural argument is: if the kernel rejects symlinks at `openat` time, no software-level TOCTOU can bypass it.
 - **Stress evidence** — bounded concurrent mutation tests that demonstrate no outside-root bytes are served under adversarial scheduling. These complement the structural argument but cannot prove absence of all races.
 
-See [architecture/filesystem-confinement.md](architecture/filesystem-confinement.md#filesystem-race-test-taxonomy-plan-corrective-closure-phases-31-35-track-g) for the full test taxonomy and invariant matrix.
+See [architecture/filesystem-confinement.md](../architecture/filesystem-confinement.md) for the full test taxonomy and invariant matrix.
 
 ## Request body policy
 

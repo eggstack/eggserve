@@ -57,7 +57,7 @@ eggserve currently does not support:
 - **HTTP/2** — HTTP/1.1 only
 - **CGI** — not supported (deferred as a non-goal)
 - **PUT/POST/DELETE** — read-only by design
-- **IPv6** — supported via `--bind`/`--addr` flags; default bind is IPv4 loopback (127.0.0.1)
+- **IPv6** — supported via `--bind`/`--addr` flags with IPv6 addresses; default bind is IPv4 loopback (127.0.0.1)
 - **Multiple directory roots** — single root directory only
 
 These are documented limitations, not bugs. See [non-goals.md](non-goals.md) for the full list.

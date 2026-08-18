@@ -22,7 +22,6 @@ a body mode.
 
 ```python
 from eggserve._native import Server
-```
 
 def handler(req):
     return Response.text(200, "ok")

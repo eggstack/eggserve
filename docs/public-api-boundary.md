@@ -14,7 +14,7 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 | `config` | `pub` | Stable-ish | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `limits` | `pub` | Stable-ish | `Limits` (connections, streams, timeouts) |
 | `policy` | `pub` | Stable-ish | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
-| `service` | `pub` | Deprecated/experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
+| `server::service` | `pub` | Experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
 
 ## Internal modules (not public API)
 
