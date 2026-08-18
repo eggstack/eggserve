@@ -18,6 +18,19 @@ def request(server, payload):
             chunks.append(chunk)
 
 
+def parse_response(raw):
+    header_bytes, separator, body = raw.partition(b"\r\n\r\n")
+    if not separator:
+        raise AssertionError(f"response has no header/body separator: {raw!r}")
+    lines = header_bytes.split(b"\r\n")
+    status_line = lines.pop(0).split(b" ", 2)
+    headers = {}
+    for line in lines:
+        name, value = line.split(b":", 1)
+        headers.setdefault(name.lower(), []).append(value.strip())
+    return int(status_line[1]), headers, body
+
+
 class CompatTests(unittest.TestCase):
     def run_server(self, handler, server_class=HTTPServer, **kwargs):
         server = server_class(("127.0.0.1", 0), handler, **kwargs)
@@ -94,15 +107,72 @@ class CompatTests(unittest.TestCase):
                 self.send_error(418, "<bad>", "details & more")
 
             def do_HEAD(self):
-                self.send_error(418, "head", "details")
+                self.send_error(418, "<bad>", "details & more")
 
         server, _ = self.run_server(Handler)
-        response = request(server, b"GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
-        self.assertIn(b"418|&lt;bad&gt;|details &amp; more", response)
-        self.assertIn(b"text/custom", response)
-        head = request(server, b"HEAD / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
-        self.assertIn(b"content-length", head.lower())
-        self.assertTrue(head.endswith(b"\r\n\r\n"))
+        get_status, get_headers, get_body = parse_response(
+            request(server, b"GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        )
+        head_status, head_headers, head_body = parse_response(
+            request(server, b"HEAD / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
+        )
+        self.assertEqual(get_status, 418)
+        self.assertEqual(head_status, 418)
+        self.assertEqual(get_body, b"418|&lt;bad&gt;|details &amp; more")
+        self.assertEqual(head_body, b"")
+        self.assertEqual(get_headers[b"content-type"], [b"text/custom"])
+        self.assertEqual(head_headers[b"content-type"], get_headers[b"content-type"])
+        self.assertEqual(head_headers[b"content-length"], [str(len(get_body)).encode()])
+
+    def test_send_error_body_forbidden_statuses_do_not_generate_entities(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_error(int(self.path[1:]))
+
+            def do_HEAD(self):
+                self.send_error(int(self.path[1:]))
+
+        server, _ = self.run_server(Handler)
+        for code in (204, 205, 304):
+            with self.subTest(code=code):
+                for method in ("GET", "HEAD"):
+                    with self.subTest(method=method):
+                        status, headers, body = parse_response(
+                            request(
+                                server,
+                                f"{method} /{code} HTTP/1.1\r\n"
+                                "Host: test\r\nConnection: close\r\n\r\n".encode(),
+                            )
+                        )
+                        self.assertEqual(status, code)
+                        self.assertEqual(body, b"")
+                        self.assertNotIn(b"content-type", headers)
+                        if code == 304:
+                            self.assertNotIn(b"content-length", headers)
+
+    def test_send_error_informational_status_does_not_generate_entity(self):
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_error(100)
+
+            def do_HEAD(self):
+                self.send_error(100)
+
+        server, _ = self.run_server(Handler)
+        for method in ("GET", "HEAD"):
+            with self.subTest(method=method):
+                status, headers, body = parse_response(
+                    request(
+                        server,
+                        f"{method} / HTTP/1.1\r\n"
+                        "Host: test\r\nConnection: close\r\n\r\n".encode(),
+                    )
+                )
+                # Hyper does not expose a final 1xx response; the existing
+                # runtime fail-closed path returns 500 instead.
+                self.assertEqual(status, 500)
+                self.assertEqual(body, b"")
+                self.assertNotIn(b"content-type", headers)
 
     def test_protocol_version_is_fixed_and_log_helper_is_available(self):
         class Incompatible(BaseHTTPRequestHandler):

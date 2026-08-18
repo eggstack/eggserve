@@ -13,8 +13,9 @@ opened or validated. `SimpleHTTPRequestHandler` is the separate static branch an
 constructs one confined `StaticService`. Both branches use the server-wide
 runtime file-stream semaphore for canonical file responses.
 
-Stock `SimpleHTTPRequestHandler` (or a `functools.partial` wrapping it with only
-a `directory=` keyword) with all default settings bypasses Python entirely. The
+Stock `SimpleHTTPRequestHandler` (or a `functools.partial` wrapping it with
+only `directory=` and/or `extra_response_headers=` keywords) with all default
+settings bypasses Python entirely. The
 Rust `Server::start()` static path owns request handling directly — no
 `PythonCallbackService`, no GIL acquisition, and no Python-side
 `StaticResponder` construction. Subclasses and non-default settings fall back to

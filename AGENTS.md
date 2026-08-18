@@ -163,7 +163,7 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has historical design and implementation records through Plan 136;
+`plans/` has historical design and implementation records through Plan 137;
 the current product and compatibility contract is recorded in README.md,
 the relevant docs/ pages, and the architecture pages. Plans record evidence
 and change history; they are not normative API documentation.

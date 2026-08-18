@@ -19,7 +19,7 @@ not a general `socketserver` implementation or application framework.
 | Raw socket access | Available through socketserver internals | No | No | Listener/runtime APIs only |
 | `translate_path()` | Available | N/A | Intentionally unavailable | Hardened resolver primitives |
 | Raw `list_directory()` path | Available to handler | N/A | Intentionally unavailable | N/A |
-| Static metadata hooks | `--content-type`, `-H/--header` | N/A | `default_content_type`, `extra_response_headers` | Builder metadata |
+| Static metadata hooks | `--content-type`, `-H/--header` | `--content-type`, `-H/--header` | `default_content_type`, `extra_response_headers` | Builder metadata |
 | ASGI/WSGI | No | No | No | No |
 
 The matrix describes product boundaries rather than Python-version trivia. The

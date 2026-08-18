@@ -25,7 +25,7 @@ Three crates:
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
 `plans/` (historical design/implementation records, currently through Plan
-136),
+137),
 `examples/` (canonical CLI/Python examples plus Cargo examples and tiny
 fixtures), `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
 plus package/release checks). The example index is `examples/README.md`.

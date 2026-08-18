@@ -48,7 +48,8 @@ them—for example, `eggserve --port 9000 1234` serves directory `1234`. Use
 port; a single positional numeric token continues to mean PORT.
 
 The CLI is a static file server. Directory listings, symlink following, and
-dotfile serving are separate explicit flags; see the [CLI reference](docs/cli.md)
+dotfile serving are separate explicit flags. Static metadata can be set with
+`--content-type` and repeatable `-H/--header`; see the [CLI reference](docs/cli.md)
 and [security policy](docs/security-policy.md).
 
 ## Python `http.server` facade

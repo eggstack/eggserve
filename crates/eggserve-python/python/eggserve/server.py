@@ -272,8 +272,9 @@ class BaseHTTPRequestHandler:
             short, long = "???", "???"
         message = short if message is None else str(message)
         explain = long if explain is None else str(explain)
+        entity_allowed = code >= 200 and code not in (204, 205, 304)
         body = b""
-        if code >= 200 and code not in (204, 205, 304):
+        if entity_allowed:
             limit = self.server.max_handler_response_bytes
             if len(self.error_message_format) + len(message) + len(explain) > limit:
                 raise ValueError("handler error response exceeds max_handler_response_bytes")
@@ -288,11 +289,11 @@ class BaseHTTPRequestHandler:
 
         self.log_error("code %d, message %s", code, message)
         self.send_response_only(code, message)
-        if body or self.command == "HEAD":
+        if entity_allowed:
             self.send_header("Content-Type", self.error_content_type)
             self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        if self.command != "HEAD" and body:
+        if self.command != "HEAD" and entity_allowed:
             self.wfile.write(body)
 
     def version_string(self) -> str:
@@ -488,8 +489,11 @@ class HTTPServer:
         - the handler is either the bare class, or a ``functools.partial``
           whose ``.func`` is exactly ``SimpleHTTPRequestHandler``, whose
           ``.args`` is empty, and whose keyword names are a subset of
-          ``{"directory"}``; and
+          ``{"directory", "extra_response_headers"}``; and
         - all static-serving class attributes are at their supported defaults.
+
+        Supported static metadata is captured natively, so it does not require
+        Python per-request dispatch.
 
         Anything else falls back to the Python callback path. Unsupported
         partial ``args`` or partial ``keywords`` are never silently ignored;

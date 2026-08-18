@@ -36,7 +36,7 @@ its status using a constrained vocabulary.
 | Capability | CLI | Rust stable | Runtime experimental | Python stable | Python experimental | Built-in static service | Generic callback server |
 |---|---|---|---|---|---|---|---|
 | Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
-| Plaintext HTTP/1.x | stable | — | experimental | stable | — | stable | stable |
+| Plaintext HTTP/1.1 | stable | — | experimental | stable | — | stable | stable |
 | TLS server (rustls, HTTP/1.1 ALPN) | stable | — | — | stable | — | stable | stable |
 | GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
 | Request-target validation | stable | stable | experimental | stable | — | stable | — |
