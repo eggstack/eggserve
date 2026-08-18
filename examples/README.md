@@ -118,7 +118,7 @@ python examples/python_custom_headers.py
 ## Rust library
 
 The Rust examples are Cargo examples and use only public `eggserve-core` APIs.
-Both default to `127.0.0.1:8000`, accept an optional bind address as their
+They default to `127.0.0.1:8000`, accept an optional bind address as their
 second argument, and shut down gracefully on Ctrl+C. Passing
 `127.0.0.1:0` makes the operating system choose a free port.
 
@@ -142,6 +142,27 @@ This demonstrates a deliberately tiny `service_fn` match on method and path:
 `GET /health` returns 200, `GET /` returns a small welcome body, and other
 requests return a controlled 404. It demonstrates the transport/service
 boundary, not routing, middleware, or an application framework.
+
+### Custom response headers: `custom_headers.rs`
+
+```sh
+cargo run -p eggserve-core --example custom_headers -- ./examples/site
+```
+
+Shows the `default_content_type` and `extra_response_headers` static metadata
+hooks. Extra headers are emitted only on final 200 static responses and cannot
+override runtime-owned metadata. Verifiable with `curl -sI`.
+
+### HTTPS server: `https_server.rs`
+
+```sh
+cargo run -p eggserve-core --example https_server --features tls -- ./examples/site
+```
+
+Demonstrates the `tls` feature with rustls-backed HTTPS serving. Requires a
+PEM certificate and key; the file header shows how to generate a self-signed
+certificate for local testing. Without the `tls` feature, prints a helpful
+message.
 
 ### Primitives without a socket: `primitives.rs`
 

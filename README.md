@@ -6,7 +6,7 @@
 [![PyPI Downloads](https://static.pepy.tech/personalized-badge/eggserve?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/eggserve)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/eggstack/eggserve/blob/main/LICENSE)
 
-> EggServe is a hardened, HTTP-correct static file server and reusable Rust HTTP/static-serving library, with a Python `http.server`-shaped facade.
+EggServe is a hardened, HTTP-correct static file server and reusable Rust HTTP/static-serving library, with a Python `http.server`-shaped api.
 
 The CLI serves static files only. The Python package provides hardened static
 serving plus a bounded, synchronous custom-handler path shaped like
