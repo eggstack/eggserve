@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-18.**
+**COMPLETE — 2026-08-18.**
 
 Reviewed implementation baseline:
 
@@ -615,20 +615,30 @@ Do not mark the plan complete before the final implementation SHA has passed the
 
 Plan 137 is complete only when all applicable items are true:
 
-- [ ] `send_error()` no longer attaches generated error-entity metadata to body-forbidden statuses merely because the request method is HEAD;
-- [ ] ordinary HEAD error responses retain correct equivalent-GET representation metadata;
-- [ ] focused tests cover 1xx, 204, 205, 304, and an ordinary entity-bearing error control case;
-- [ ] the compatibility product matrix correctly reports EggServe CLI static metadata flags;
-- [ ] the library capability matrix describes the fixed HTTP/1.1 server contract truthfully;
-- [ ] the native fast-path docstring matches its actual allowed partial keywords;
-- [ ] existing Plan 136 static metadata, duplicate-header, hostname-bind, TLS, and protocol constraints remain unchanged;
-- [ ] focused installed-wheel compatibility tests pass;
-- [ ] `./scripts/verify.sh full` passes;
-- [ ] `git diff --check` passes;
-- [ ] normal hosted CI passes on the final implementation SHA when available;
-- [ ] manual platform qualification is not expanded unless the actual diff crosses the previously qualified native boundaries;
-- [ ] no dependency, workflow, release automation, or architectural scope expansion is introduced;
-- [ ] this plan is marked complete with exact implementation/verification evidence;
-- [ ] the `http.server` compatibility workstream returns to maintenance after this corrective patch.
+- [x] `send_error()` no longer attaches generated error-entity metadata to body-forbidden statuses merely because the request method is HEAD;
+- [x] ordinary HEAD error responses retain correct equivalent-GET representation metadata;
+- [x] focused tests cover 1xx, 204, 205, 304, and an ordinary entity-bearing error control case;
+- [x] the compatibility product matrix correctly reports EggServe CLI static metadata flags;
+- [x] the library capability matrix describes the fixed HTTP/1.1 server contract truthfully;
+- [x] the native fast-path docstring matches its actual allowed partial keywords;
+- [x] existing Plan 136 static metadata, duplicate-header, hostname-bind, TLS, and protocol constraints remain unchanged;
+- [x] focused installed-wheel compatibility tests pass;
+- [x] `./scripts/verify.sh full` passes;
+- [x] `git diff --check` passes;
+- [x] normal hosted CI passes on the final implementation SHA when available;
+- [x] manual platform qualification is not expanded because the final implementation diff did not cross the previously qualified native boundaries;
+- [x] no dependency, workflow, release automation, or architectural scope expansion is introduced;
+- [x] this plan is marked complete with exact implementation/verification evidence;
+- [x] the `http.server` compatibility workstream returns to maintenance after this corrective patch.
 
 After these conditions are met, do **not** create another general `http.server` parity plan absent a concrete regression or a deliberate future Python stdlib change that is independently worth adopting.
+
+## Completion evidence
+
+- Implementation commit: `88d267d` — close Python `send_error()` entity-generation and documentation drift.
+- Focused Python compatibility verification: installed the wheel built with `cd crates/eggserve-python && python3 -m maturin build --profile dist --interpreter python3`, then ran `PYTHONPATH=crates/eggserve-python/tests <temporary-venv>/bin/python -m unittest -v test_http_server_compat` — passed (21 tests).
+- Full verification: `PYTHON=python3 rtk bash scripts/verify.sh full` — passed.
+- Diff hygiene: `git diff --check` — passed.
+- Hosted CI: [run 32091054976](https://github.com/eggstack/eggserve/actions/runs/32091054976) on `88d267d` — passed (`rust` and `python`).
+- Manual platform qualification: not rerun because the final implementation diff did not modify native filesystem, bind, TLS, or platform-specific behavior.
+- Scope: no dependency, workflow, release, protocol, filesystem, TLS, or architecture expansion; the compatibility workstream returns to maintenance.
