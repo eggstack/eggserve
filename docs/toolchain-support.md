@@ -61,9 +61,20 @@ The Python bindings use PyO3 **0.24** with the `extension-module` and `abi3-py31
 
 | Platform | Wheel Target |
 |----------|-------------|
-| Linux x86_64 | `x86_64-unknown-linux-gnu` |
-| macOS arm64 | `aarch64-apple-darwin` |
-| Windows x86_64 | `x86_64-pc-windows-msvc` |
+| Linux x86_64 (glibc) | `manylinux_2_17_x86_64` |
+| Linux aarch64 (glibc) | `manylinux_2_17_aarch64` |
+| Linux armv7 (glibc) | `manylinux_2_17_armv7l` |
+| Linux x86_64 (musl) | `musllinux_1_2_x86_64` |
+| Linux aarch64 (musl) | `musllinux_1_2_aarch64` |
+| macOS arm64 | `macosx_11_0_arm64` |
+| macOS x86_64 | `macosx_11_0_x86_64` |
+| Windows x86_64 | `win_amd64` |
+| Windows arm64 | `win_arm64` |
+
+All wheels are `cp311-abi3`, compatible with CPython 3.11+. One wheel per
+platform serves all supported CPython minor versions. Release wheels are built
+against the minimum supported ABI baseline (CPython 3.11) rather than a newer
+interpreter.
 
 The wheel packages the platform-native extension, which includes the CLI entry
 point. Users do not need a separate Rust installation to use the CLI from a
@@ -74,11 +85,15 @@ directory.
 
 | Platform | Classification | Hardening |
 |----------|---------------|-----------|
-| Linux x86_64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile/reparse hardening. Pinned root identity. |
-| Linux aarch64 | supported-hardened | Same as Linux x86_64. |
+| Linux x86_64 (glibc) | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile/reparse hardening. Pinned root identity. |
+| Linux aarch64 (glibc) | supported-hardened | Same as Linux x86_64. |
+| Linux armv7 (glibc) | supported-hardened | Same as Linux x86_64. |
+| Linux x86_64 (musl) | supported-hardened | Same as Linux x86_64. musl libc uses the same descriptor-relative path. |
+| Linux aarch64 (musl) | supported-hardened | Same as Linux x86_64 (musl). |
 | macOS arm64 | supported-hardened | Descriptor-relative traversal via `statat` + `openat`. Full symlink/dotfile hardening. Pinned root identity. |
 | macOS x86_64 | supported-hardened | Same as macOS arm64. |
 | Windows x86_64 | supported-functional | Handle-relative confinement and manual qualification are complete for the executed classes. Two open-descendant root-rename cases remain explicitly skipped because NTFS rejects that external path operation; Windows remains trusted/local-content only. |
+| Windows arm64 | supported-functional | Same as Windows x86_64. Qualification requires native execution on ARM64 hardware before Tier 1 status. |
 
 ### Classification Definitions
 

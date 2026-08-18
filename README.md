@@ -160,8 +160,10 @@ See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/se
 ## Installation
 
 ```sh
-# Python wheel: CPython 3.11+; Linux, macOS, and Windows wheels are built
-# according to the support matrix.
+# Python wheel: CPython 3.11+ with prebuilt wheels for 9 platforms
+# including Linux (manylinux/musllinux, x86_64/aarch64/armv7),
+# macOS (x86_64/arm64), and Windows (x86_64/arm64).
+# Covers Raspberry Pi/SBC via aarch64/armv7 wheels and Alpine via musllinux.
 pip install eggserve
 
 pipx run eggserve

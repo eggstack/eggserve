@@ -7,9 +7,6 @@
 
 set -euo pipefail
 
-# PyO3 0.24 does not officially support CPython 3.14; forward compatibility
-# allows building abi3 wheels against 3.14 using the stable ABI.
-export PYO3_USE_ABI3_FORWARD_COMPATIBILITY=1
 export PYTHONNOUSERSITE=1
 unset PYTHONPATH
 

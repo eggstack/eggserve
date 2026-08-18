@@ -95,7 +95,8 @@ Routine CI is a small regression screen, not release certification:
 - No evidence upload, no gate registry, no generated checklists, no publication.
 - Deep verification is local/manual and selected by change risk.
 - Crates.io publishing is manual from a maintainer-controlled environment.
-- GitHub Actions never publishes.
+- PyPI publication uses OIDC Trusted Publishing via the release workflow; production upload requires the protected `pypi` GitHub Environment. No long-lived PyPI API tokens.
+- Release cadence is manual — no push/tag/merge automatically publishes.
 
 ## Toolchain notes
 
@@ -115,7 +116,7 @@ Routine CI is a small regression screen, not release certification:
   the port slot available; `--directory` occupies the directory slot.
 - **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
-- **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary). `python -m eggserve` uses the same in-process native CLI entry point.
+- **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary). `python -m eggserve` uses the same in-process native CLI entry point. Release wheels target 9 platforms: manylinux_2_17 (x86_64, aarch64, armv7l), musllinux_1_2 (x86_64, aarch64), macOS (x86_64, arm64), Windows (x86_64, arm64).
 - **Windows**: functionally qualified for the executed handle-relative child-resolution and directory-enumeration classes. Two open-descendant root-rename cases are explicitly skipped because NTFS rejects that external path operation, so Windows remains a trusted/local-content platform. See [docs/toolchain-support.md](docs/toolchain-support.md).
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
 - **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory", "extra_response_headers"}`. `default_content_type` and ordered safe extra headers are native static metadata; extras apply only to final 200 responses. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N). Handler `protocol_version` is constrained to HTTP/1.1.
@@ -170,7 +171,7 @@ Routine CI is a small regression screen, not release certification:
 - `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
 - `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
 
-`plans/` has historical design and implementation records through Plan 137;
+`plans/` has historical design and implementation records through Plan 141;
 the current product and compatibility contract is recorded in README.md,
 the relevant docs/ pages, and the architecture pages. Plans record evidence
 and change history; they are not normative API documentation.

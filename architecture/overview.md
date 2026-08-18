@@ -348,9 +348,14 @@ Five distinct error layers, each scoped to a specific subsystem:
 
 | Platform | Status | Security Model |
 |----------|--------|----------------|
-| **Linux** (x86_64, aarch64) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
-| **macOS** (x86_64, aarch64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
-| **Windows** (x86_64) | Supported-functional | Handle-relative child resolution, reparse-point denial, and directory enumeration are qualified for the executed classes. Two open-descendant root-rename cases remain skipped because NTFS rejects that external path operation; keep Windows for trusted/local content. |
+| **Linux x86_64** (glibc, manylinux_2_17) | Supported-hardened | Descriptor-relative traversal via `statat`+`openat` |
+| **Linux aarch64** (glibc, manylinux_2_17) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64 |
+| **Linux armv7** (glibc, manylinux_2_17) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64 |
+| **Linux x86_64** (musl, musllinux_1_2) | Supported-hardened | Same descriptor-relative guarantees; musl libc uses the same path |
+| **Linux aarch64** (musl, musllinux_1_2) | Supported-hardened | Same descriptor-relative guarantees as Linux x86_64 (musl) |
+| **macOS** (x86_64, arm64) | Supported-hardened | Same descriptor-relative guarantees as Linux |
+| **Windows x86_64** | Supported-functional | Handle-relative child resolution, reparse-point denial, and directory enumeration are qualified for the executed classes. Two open-descendant root-rename cases remain skipped because NTFS rejects that external path operation; keep Windows for trusted/local content. |
+| **Windows arm64** | Supported-functional | Same as Windows x86_64. Requires native ARM64 execution before Tier 1. |
 
 ---
 
@@ -551,12 +556,13 @@ python/eggserve/
 
 ## Release Process
 
-Release is a manual crates.io procedure. CI is a regression screen, not release certification:
+Release is a manual workflow dispatch. CI is a regression screen, not release certification:
 
 1. Run `./scripts/verify.sh full` (examples, Rust + Python wheel)
 2. Run `bash scripts/install-cargo-tools.sh` then `cargo audit` + `cargo deny check`
-3. Manual crates.io publish from maintainer-controlled environment
-4. GitHub Actions never publishes
+3. Manually dispatch the release workflow (builds, validates, and publishes via OIDC Trusted Publishing)
+4. Production PyPI upload requires the protected `pypi` GitHub Environment
+5. No push/tag/merge automatically publishes
 
 See [docs/release-process.md](../docs/release-process.md) for the full procedure.
 

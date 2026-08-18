@@ -87,23 +87,43 @@ This installs the package in the current virtualenv in development mode.
 
 ## Platform support
 
-The wheel is platform-specific because it contains a native extension. maturin automatically detects:
+The wheel is platform-specific because it contains a native extension. Release
+wheels are built for all 9 Tier 1 targets:
 
-- **OS**: linux, macos, windows
-- **Architecture**: x86_64, aarch64, arm64 (Apple Silicon)
+| Platform family | Wheel target |
+|---|---|
+| Linux x86_64 (glibc) | `manylinux_2_17_x86_64` |
+| Linux aarch64 (glibc) | `manylinux_2_17_aarch64` |
+| Linux armv7 (glibc) | `manylinux_2_17_armv7l` |
+| Linux x86_64 (musl) | `musllinux_1_2_x86_64` |
+| Linux aarch64 (musl) | `musllinux_1_2_aarch64` |
+| macOS x86_64 | `macosx_11_0_x86_64` |
+| macOS arm64 | `macosx_11_0_arm64` |
+| Windows x86_64 | `win_amd64` |
+| Windows arm64 | `win_arm64` |
 
-Routine CI builds and tests the Linux wheel with CPython 3.14. macOS and
-Windows wheels are built and tested manually. The abi3 wheel is compatible
-with CPython 3.11+. The wheel smoke suite runs outside the checkout with
-`PYTHONPATH` unset and requires the installed extension-backed CLI entry point.
+Each wheel is an abi3 wheel (`cp311-abi3`), compatible with CPython 3.11+.
+One wheel per platform serves all supported CPython minor versions.
+
+Routine CI builds and tests the Linux x86_64 wheel. Full matrix builds and
+cross-platform qualification happen at release time via the release workflow.
+The wheel smoke suite runs outside the checkout with `PYTHONPATH` unset and
+requires the installed extension-backed CLI entry point.
 
 ## Versioning
 
-The version is defined in three places and must be kept in sync:
+The release version must be identical across three packaging surfaces:
 
-1. `Cargo.toml` (`version = "0.1.0"`)
-2. `pyproject.toml` (`version = "0.1.0"`)
-3. `python/eggserve/__init__.py` (`__version__ = "0.1.0"`)
+1. `Cargo.toml` (`version = "X.Y.Z"`) — workspace and Python crate
+2. `pyproject.toml` (`version = "X.Y.Z"`) — Python distribution metadata
+3. `python/eggserve/__init__.py` — derives from installed distribution
+   metadata via `importlib.metadata.version("eggserve")`, so it cannot drift
+   independently after installation
+
+A preflight check script (`scripts/check-python-release-metadata.py`) validates
+that all version surfaces agree before any release build begins. This script
+uses only the Python standard library and runs as the first step of the release
+workflow.
 
 ## Entry points
 
@@ -136,7 +156,7 @@ Standalone tests in `packaging-tests/` validate the wheel works independently of
 cd crates/eggserve-python
 maturin build --profile dist --interpreter python3.11 -o dist
 cd packaging-tests
-bash run_all.sh ../dist/*.whl python3.14
+bash run_all.sh ../dist/*.whl python3.11
 ```
 
 ### What the tests validate

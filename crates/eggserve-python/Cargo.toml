@@ -1,6 +1,6 @@
 [package]
 name = "eggserve-python"
-version = "0.1.0"
+version = "0.1.2"
 edition = "2021"
 license = "MIT"
 description = "Python native bindings for eggserve hardened primitives"

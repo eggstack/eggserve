@@ -2,82 +2,265 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      publish_target:
+        description: "Publish target"
+        required: true
+        type: choice
+        options:
+          - none
+          - testpypi
+          - pypi
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
 
 env:
   CARGO_TERM_COLOR: always
-  PYTHON: "3.14"
 
 jobs:
+  preflight:
+    name: Preflight checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      sha: ${{ steps.sha.outputs.sha }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - name: Check release metadata
+        run: python3 scripts/check-python-release-metadata.py
+      - name: Record git SHA
+        id: sha
+        run: echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
   build:
     name: ${{ matrix.name }}
+    needs: preflight
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
         include:
-          - name: "Build wheel (Linux x86_64)"
+          # Linux glibc - manylinux_2_17
+          - name: "Build wheel (Linux x86_64 manylinux)"
             os: ubuntu-latest
-            artifact: wheel-linux-x86_64
-            maturin_flags: "--auditwheel repair"
+            target: x86_64-unknown-linux-gnu
+            manylinux: "2_17"
+            artifact: wheel-manylinux-x86_64
+            maturin_flags: "--compatibility pypi"
             venv_python: /tmp/smoke-venv/bin/python
             console_script: /tmp/smoke-venv/bin/eggserve
+          - name: "Build wheel (Linux aarch64 manylinux)"
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            manylinux: "2_17"
+            artifact: wheel-manylinux-aarch64
+            maturin_flags: "--compatibility pypi"
+            venv_python: /tmp/smoke-venv/bin/python
+            console_script: /tmp/smoke-venv/bin/eggserve
+          - name: "Build wheel (Linux armv7 manylinux)"
+            os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            manylinux: "2_17"
+            artifact: wheel-manylinux-armv7
+            maturin_flags: "--compatibility pypi"
+            venv_python: /tmp/smoke-venv/bin/python
+            console_script: /tmp/smoke-venv/bin/eggserve
+
+          # Linux musl - musllinux_1_2
+          - name: "Build wheel (Linux x86_64 musllinux)"
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: "musllinux_1_2"
+            artifact: wheel-musllinux-x86_64
+            maturin_flags: "--compatibility pypi"
+            venv_python: /tmp/smoke-venv/bin/python
+            console_script: /tmp/smoke-venv/bin/eggserve
+          - name: "Build wheel (Linux aarch64 musllinux)"
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            manylinux: "musllinux_1_2"
+            artifact: wheel-musllinux-aarch64
+            maturin_flags: "--compatibility pypi"
+            venv_python: /tmp/smoke-venv/bin/python
+            console_script: /tmp/smoke-venv/bin/eggserve
+
+          # macOS
           - name: "Build wheel (macOS arm64)"
             os: macos-14
+            target: aarch64-apple-darwin
+            manylinux: "auto"
             artifact: wheel-macos-arm64
             maturin_flags: ""
             venv_python: /tmp/smoke-venv/bin/python
             console_script: /tmp/smoke-venv/bin/eggserve
+          - name: "Build wheel (macOS x86_64)"
+            os: macos-13
+            target: x86_64-apple-darwin
+            manylinux: "auto"
+            artifact: wheel-macos-x86_64
+            maturin_flags: ""
+            venv_python: /tmp/smoke-venv/bin/python
+            console_script: /tmp/smoke-venv/bin/eggserve
+
+          # Windows
           - name: "Build wheel (Windows x86_64)"
             os: windows-latest
+            target: x86_64-pc-windows-msvc
+            manylinux: "auto"
             artifact: wheel-windows-x86_64
             maturin_flags: ""
             venv_python: /tmp/smoke-venv/Scripts/python
             console_script: /tmp/smoke-venv/Scripts/eggserve.exe
-    env:
-      PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
+          - name: "Build wheel (Windows arm64)"
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+            manylinux: "auto"
+            artifact: wheel-windows-arm64
+            maturin_flags: ""
+            venv_python: /tmp/smoke-venv/Scripts/python
+            console_script: /tmp/smoke-venv/Scripts/eggserve.exe
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: stable
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - uses: docker/setup-qemu-action@v3
+        if: contains(matrix.target, 'aarch64') || contains(matrix.target, 'armv7')
+        with:
+          platforms: linux/${{ startsWith(matrix.target, 'aarch64') && 'arm64' || 'arm/v7' }}
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          python-version: ${{ env.PYTHON }}
-      - name: Install Maturin
-        run: python -m pip install maturin==1.14.1
+          python-version: "3.11"
       - name: Build wheel
-        shell: bash
-        run: |
-          cd crates/eggserve-python
-          python -m maturin build --profile dist \
-            --interpreter python${{ env.PYTHON }} \
-            ${{ matrix.maturin_flags }} \
-            --out "$GITHUB_WORKSPACE/dist"
+        uses: PyO3/maturin-action@v1
+        with:
+          maturin-version: "1.14.1"
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: "--profile dist --locked --interpreter python3.11 ${{ matrix.maturin_flags }} --out dist"
+          working-directory: crates/eggserve-python
       - name: Verify wheel composition
         shell: bash
-        run: |
-          python "$GITHUB_WORKSPACE/scripts/check-wheel-composition.py" dist
+        run: python scripts/check-wheel-composition.py dist
       - name: Smoke test wheel
         shell: bash
         run: |
           python -m venv /tmp/smoke-venv
           ${{ matrix.venv_python }} -m pip install --disable-pip-version-check -q dist/*.whl
-
-          # Verify both supported entry forms
           ${{ matrix.console_script }} --help >/dev/null
-          echo "  eggserve --help OK"
           ${{ matrix.venv_python }} -m eggserve --help >/dev/null
-          echo "  python -m eggserve --help OK"
-
-          # Serve a real fixture from the installed wheel (no source-tree/Cargo binary on PATH)
-          ${{ matrix.venv_python }} "$GITHUB_WORKSPACE/scripts/release_smoke.py"
+          ${{ matrix.venv_python }} scripts/release_smoke.py
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: ${{ matrix.artifact }}
           path: dist/*.whl
+
+  aggregate:
+    name: Aggregate wheel set
+    needs: [preflight, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - name: Download all wheel artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          path: all-wheels
+          merge-multiple: true
+      - name: Aggregate and verify wheel set
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp all-wheels/*.whl dist/
+          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          python scripts/check-release-wheel-set.py dist --version "$VERSION"
+      - name: Upload release wheel set
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: release-wheel-set
+          path: dist/*.whl
+
+  publish-testpypi:
+    name: Publish to TestPyPI
+    needs: aggregate
+    if: inputs.publish_target == 'testpypi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+    environment: testpypi
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-wheel-set
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist/
+
+  publish-pypi:
+    name: Publish to PyPI
+    needs: aggregate
+    if: inputs.publish_target == 'pypi'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      id-token: write
+    environment: pypi
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: release-wheel-set
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist/
+
+  post-publish:
+    name: Post-publish smoke test
+    needs: [preflight, publish-testpypi, publish-pypi]
+    if: always() && (needs.publish-testpypi.result == 'success' || needs.publish-pypi.result == 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.preflight.outputs.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.11"
+      - name: Install from published index
+        shell: bash
+        run: |
+          VERSION=$(grep '^version' Cargo.toml | head -1 | cut -d'"' -f2)
+          if [ "${{ needs.publish-testpypi.result }}" = "success" ]; then
+            pip install --index-url https://test.pypi.org/simple/ --only-binary=:all: "eggserve==${VERSION}"
+          else
+            pip install --only-binary=:all: "eggserve==${VERSION}"
+          fi
+      - name: Smoke test published package
+        shell: bash
+        run: |
+          eggserve --help >/dev/null
+          python -m eggserve --help >/dev/null
+          python scripts/release_smoke.py
