@@ -185,6 +185,11 @@ jobs:
             '
       - name: "Stable ABI proof: same wheel on CPython 3.14"
         if: matrix.target == 'x86_64-unknown-linux-gnu'
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.14"
+      - name: Run ABI proof smoke
+        if: matrix.target == 'x86_64-unknown-linux-gnu'
         shell: bash
         run: |
           python3.14 -m venv /tmp/smoke-venv-314
