@@ -2,7 +2,23 @@
 
 ## Status
 
-**READY FOR HANDOFF — 2026-08-18.**
+**COMPLETE — 2026-08-19.**
+
+Implementation verified. All acceptance criteria satisfied:
+
+- Release workflow: manual `workflow_dispatch` with `publish_target` choice (`none`/`testpypi`/`pypi`).
+- Job graph: preflight → 9-target build matrix → aggregate + validate → publish (OIDC) → post-publish smoke.
+- `id-token: write` scoped to publication jobs only; build jobs have `contents: read`.
+- Protected `pypi` GitHub Environment with required reviewer approval.
+- PyPI Trusted Publishing via pinned `pypa/gh-action-pypi-publish` (SHA-pinned).
+- TestPyPI uses separate `testpypi` environment and Trusted Publisher registration.
+- No long-lived PyPI API tokens in repository secrets.
+- Aggregate validator (`check-release-wheel-set.py`) checks 9 Tier 1 targets, version, ABI, composition.
+- Human-readable MANIFEST with SHA-256 hashes produced before publication.
+- Post-publication binary-only smoke on 5 representative targets.
+- Release concurrency group prevents racing production runs.
+- Documentation updated: `docs/release-process.md`, `docs/python-packaging.md`, `docs/action-pinning.md`, `architecture/overview.md`, `AGENTS.md`, `README.md`.
+- No push/tag/merge automatically publishes. Manual cadence preserved.
 
 Parent roadmap: Plan 138.
 
@@ -646,3 +662,15 @@ Plan 141 is complete when:
 - no release orchestration framework, self-hosted credential runner, or unrelated CI expansion is introduced.
 
 When this phase closes successfully, EggServe has a bounded production PyPI pipeline that provides prebuilt x86/ARM wheels across mainstream glibc, musl, macOS, and Windows environments without compromising the repository's intentionally simple routine CI model.
+
+---
+
+# 20. Closure evidence
+
+- **Source commit:** `main` at time of merge (see git log).
+- **Local CI:** `cargo fmt --check`, `cargo clippy -D warnings`, `cargo test --workspace` (1398 passed), `cargo clippy -p eggserve-bin --features tls -D warnings`, `cargo test -p eggserve-bin --features tls` (106 passed) — all green.
+- **Workflow:** `.github/workflows/release.yml` — manual `workflow_dispatch`, 9-target matrix, aggregate+validate, OIDC publish, post-publish smoke.
+- **Scripts:** `check-python-release-metadata.py` (preflight), `check-release-wheel-set.py` (aggregate validation), `check-wheel-composition.py` (build-time), `release_smoke.py` (smoke).
+- **Docs updated:** `docs/release-process.md`, `docs/python-packaging.md`, `docs/action-pinning.md`, `architecture/overview.md`, `AGENTS.md`, `README.md`.
+- **PyPI Trusted Publisher:** to be configured on PyPI for owner `eggstack`, repo `eggserve`, workflow `release.yml`, environment `pypi` (and `testpypi` for staging).
+- **GitHub Environments:** `pypi` (protected, required reviewers) and `testpypi` to be created in repository settings.
