@@ -21,6 +21,8 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  # ring crate ARM assembly requires __ARM_ARCH to be defined for aarch64 cross-compilation
+  CFLAGS_aarch64_unknown_linux_gnu: -D__ARM_ARCH=8
 
 jobs:
   preflight:
