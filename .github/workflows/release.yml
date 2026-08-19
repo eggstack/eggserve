@@ -157,27 +157,24 @@ jobs:
           args: "--profile dist --locked --interpreter python3.11 ${{ matrix.maturin_flags }} --out dist"
           working-directory: crates/eggserve-python
       - name: Verify wheel composition
-        working-directory: crates/eggserve-python
         shell: bash
-        run: python ../scripts/check-wheel-composition.py dist
+        run: python "$GITHUB_WORKSPACE/scripts/check-wheel-composition.py" "$GITHUB_WORKSPACE/crates/eggserve-python/dist"
       - name: Smoke test wheel
         if: "!contains(matrix.target, 'armv7')"
-        working-directory: crates/eggserve-python
         shell: bash
         run: |
           python -m venv /tmp/smoke-venv
-          ${{ matrix.venv_python }} -m pip install --disable-pip-version-check -q dist/*.whl
+          ${{ matrix.venv_python }} -m pip install --disable-pip-version-check -q "$GITHUB_WORKSPACE/crates/eggserve-python/dist"/*.whl
           ${{ matrix.console_script }} --help >/dev/null
           ${{ matrix.venv_python }} -m eggserve --help >/dev/null
-          ${{ matrix.venv_python }} ../scripts/release_smoke.py
+          ${{ matrix.venv_python }} "$GITHUB_WORKSPACE/scripts/release_smoke.py"
       - name: Smoke test wheel (QEMU ARMv7)
         if: contains(matrix.target, 'armv7')
-        working-directory: crates/eggserve-python
         shell: bash
         run: |
           docker run --rm --platform linux/arm/v7 \
-            -v "$(pwd)/dist:/wheels:ro" \
-            -v "$(pwd)/../scripts:/scripts:ro" \
+            -v "$GITHUB_WORKSPACE/crates/eggserve-python/dist:/wheels:ro" \
+            -v "$GITHUB_WORKSPACE/scripts:/scripts:ro" \
             arm32v7/python:3.11-bookworm \
             bash -c '
               pip install --disable-pip-version-check -q /wheels/*.whl
@@ -188,15 +185,14 @@ jobs:
             '
       - name: "Stable ABI proof: same wheel on CPython 3.14"
         if: matrix.target == 'x86_64-unknown-linux-gnu'
-        working-directory: crates/eggserve-python
         shell: bash
         run: |
           python3.14 -m venv /tmp/smoke-venv-314
-          /tmp/smoke-venv-314/bin/python -m pip install --disable-pip-version-check -q dist/*.whl
+          /tmp/smoke-venv-314/bin/python -m pip install --disable-pip-version-check -q "$GITHUB_WORKSPACE/crates/eggserve-python/dist"/*.whl
           /tmp/smoke-venv-314/bin/python -c "import eggserve; import eggserve._native; print(f'version={eggserve.__version__}')"
           /tmp/smoke-venv-314/bin/eggserve --help >/dev/null
           /tmp/smoke-venv-314/bin/python -m eggserve --help >/dev/null
-          /tmp/smoke-venv-314/bin/python ../scripts/release_smoke.py
+          /tmp/smoke-venv-314/bin/python "$GITHUB_WORKSPACE/scripts/release_smoke.py"
       - name: Upload wheel artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
