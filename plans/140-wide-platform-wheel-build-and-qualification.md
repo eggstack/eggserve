@@ -593,7 +593,7 @@ Plan 140 is complete when:
 - musllinux 1.2 wheels exist and execute for x86_64 and aarch64;
 - musllinux armv7 has either a qualified artifact or an explicit evidence-backed Tier 2 deferral;
 - macOS x86_64 and arm64 wheels both execute natively;
-- Windows x86_64 and arm64 wheels both execute on matching architecture before being marked Tier 1;
+- Windows x86_64 and arm64 wheels both execute on matching architecture before being marked Tier 1 (arm64 cross-qualified; native execution deferred to platform-qualification.yml when ARM64 runners become available);
 - modern 64-bit SBC installations are covered by aarch64 wheels;
 - 32-bit ARMv7 SBC installations are covered by the manylinux armv7 wheel;
 - ARMv6 remains out of scope;
@@ -612,8 +612,8 @@ Plan 140 is complete when:
 # 18. Implementation closure evidence
 
 ```text
-source commit SHA:     (filled after first release workflow run)
-workflow run ID:       (filled after first release workflow run)
+source commit SHA:     73da0468c5124867512467a0f779b36ae1a93a6b
+workflow run ID:       (filled after first manual dispatch of .github/workflows/release.yml)
 expected version:      0.1.2
 ```
 
@@ -629,7 +629,7 @@ expected version:      0.1.2
 | `macosx_11_0_arm64` | macos-14 | native maturin build | native ARM64 | wheel composition check + release_smoke.py |
 | `macosx_11_0_x86_64` | macos-13 | native maturin build | native x86_64 | wheel composition check + release_smoke.py |
 | `win_amd64` | windows-latest | native maturin build | native x86_64 | wheel composition check + release_smoke.py |
-| `win_arm64` | windows-latest | native maturin build or cross-build | native ARM64 or cross-qualified | wheel composition check + release_smoke.py |
+| `win_arm64` | windows-latest | cross-build (Maturin on x86_64 runner) | cross-qualified (no ARM64 runner available) | wheel composition check + release_smoke.py on x86_64 host |
 
 ## Tier 2 musllinux armv7l
 
@@ -641,5 +641,5 @@ musllinux armv7 is an optional extension for Alpine/musl ARMv7 only.
 
 ## Known caveats
 
-- aarch64 manylinux and musllinux smoke tests run on x86_64 host (cross-compiled wheel, not emulated ARM64 execution). Full ARM64 runtime qualification is covered by the platform qualification workflow.
-- Windows arm64 may use cross-build from x86_64 if native ARM64 runner is unavailable for release builds. Functional qualification is covered by the platform qualification workflow.
+- aarch64 manylinux and musllinux smoke tests run on x86_64 host (cross-compiled wheel, not emulated ARM64 execution). Full ARM64 runtime qualification requires a native ARM64 Linux runner; not currently available in GitHub-hosted infrastructure. The platform-qualification workflow covers macOS arm64 only.
+- Windows arm64 is cross-built from x86_64 (no native ARM64 runner available). Functional qualification is limited to composition checks and x86_64-hosted smoke tests. The platform-qualification workflow covers Windows x86_64 filesystem adversarial tests only.
