@@ -159,7 +159,7 @@ jobs:
       - name: Verify wheel composition
         working-directory: crates/eggserve-python
         shell: bash
-        run: python scripts/check-wheel-composition.py dist
+        run: python ../scripts/check-wheel-composition.py dist
       - name: Smoke test wheel
         if: "!contains(matrix.target, 'armv7')"
         working-directory: crates/eggserve-python
