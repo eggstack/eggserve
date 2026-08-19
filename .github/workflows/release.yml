@@ -141,7 +141,7 @@ jobs:
           toolchain: stable
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@c7c53464625b32c7a7e944ae62b3e17d2b600130 # v3
         if: contains(matrix.target, 'aarch64') || contains(matrix.target, 'armv7')
         with:
           platforms: linux/${{ startsWith(matrix.target, 'aarch64') && 'arm64' || 'arm/v7' }}
@@ -149,7 +149,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Build wheel
-        uses: PyO3/maturin-action@v1
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           maturin-version: "1.14.1"
           target: ${{ matrix.target }}
@@ -254,7 +254,7 @@ jobs:
         with:
           name: release-wheel-set
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           repository-url: https://test.pypi.org/legacy/
           packages-dir: dist/
@@ -273,7 +273,7 @@ jobs:
         with:
           name: release-wheel-set
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
         with:
           packages-dir: dist/
 

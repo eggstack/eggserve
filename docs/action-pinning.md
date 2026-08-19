@@ -15,6 +15,9 @@ All third-party GitHub Actions used in CI/CD workflows are pinned to immutable c
 | `actions/upload-artifact` | `ea165f8d65b6e75b540449e92b4886f43607fa02` | v4.6.2 |
 | `actions/download-artifact` | `d3f86a106a0bac45b974a628896c90dbdf5c8093` | v4.3.0 |
 | `actions/cache` | `0057852bfaa89a56745cba8c7296529d2fc39830` | v4.3.0 |
+| `docker/setup-qemu-action` | `c7c53464625b32c7a7e944ae62b3e17d2b600130` | v3 |
+| `PyO3/maturin-action` | `e83996d129638aa358a18fbd1dfb82f0b0fb5d3b` | v1 |
+| `pypa/gh-action-pypi-publish` | `dc37677b2e1c63e2034f94d8a5b11f265b73ba33` | v1.14.2 |
 
 ## Update procedure
 
@@ -39,7 +42,8 @@ Any output indicates an action not pinned to a SHA digest.
 
 Release tooling is kept deterministic separately from action pinning:
 `scripts/install-cargo-tools.sh` installs and verifies the pinned
-`cargo-audit 0.22.2` and `cargo-deny 0.19.0` versions. The manually dispatched
-release workflow only builds cross-platform wheel artifacts for maintainer
-review; it has no publication input, credentials, or publish job. PyPI and
-crates.io publication remain local maintainer actions.
+`cargo-audit 0.22.2` and `cargo-deny 0.19.0` versions. The manually dispatched release workflow builds, qualifies, and optionally
+publishes cross-platform wheel artifacts. PyPI publication uses OIDC Trusted
+Publishing via the `pypa/gh-action-pypi-publish` action (pinned to commit SHA)
+through protected GitHub Environments. crates.io publication remains a local
+maintainer action.

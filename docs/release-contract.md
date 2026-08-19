@@ -413,11 +413,15 @@ Not part of the public contract. Used only for cross-crate communication (e.g. P
 
 | Platform | Status | CI | Security Level |
 |----------|--------|-----|---------------|
-| Linux x86_64 | Supported | Routine CI | Full (descriptor-relative) |
-| Linux aarch64 | Supported | Manual | Full (descriptor-relative) |
-| macOS arm64 | Supported | Manual | Full (descriptor-relative) |
-| macOS x86_64 | Supported | Manual | Full (descriptor-relative) |
-| Windows x86_64 | Supported | Manual | Partial (handle-relative child resolution + directory enumeration are qualified; two open-descendant root-rename cases are skipped by NTFS path-rename semantics) |
+| Linux x86_64 (glibc) | Supported | Routine CI | Full (descriptor-relative) |
+| Linux aarch64 (glibc) | Supported | Release matrix | Full (descriptor-relative) |
+| Linux armv7 (glibc) | Supported | Release matrix | Full (descriptor-relative) |
+| Linux x86_64 (musl) | Supported | Release matrix | Full (descriptor-relative) |
+| Linux aarch64 (musl) | Supported | Release matrix | Full (descriptor-relative) |
+| macOS arm64 | Supported | Release matrix | Full (descriptor-relative) |
+| macOS x86_64 | Supported | Release matrix | Full (descriptor-relative) |
+| Windows x86_64 | Supported | Release matrix | Partial (handle-relative child resolution + directory enumeration are qualified; two open-descendant root-rename cases are skipped by NTFS path-rename semantics) |
+| Windows arm64 | Supported | Release matrix | Partial (same as Windows x86_64; cross-qualified) |
 
 ## Deployment Status
 

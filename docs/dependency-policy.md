@@ -118,7 +118,7 @@ cargo deny check
 Routine CI intentionally does not run `cargo audit` or `cargo deny check`.
 Maintainers install the pinned tools and run both checks during manual release
 preparation (see `scripts/install-cargo-tools.sh`). The manually dispatched
-release workflow only builds and smoke-tests wheel artifacts; it does not
-publish or run the supply-chain audit tools.
+release workflow builds, qualifies, and optionally publishes wheel artifacts;
+it does not run the supply-chain audit tools.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.

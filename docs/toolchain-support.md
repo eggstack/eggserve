@@ -14,13 +14,17 @@ There is no formal minimum supported Rust version. eggserve tracks the current s
 
 ### Supported Targets
 
-| Target | Status |
-|--------|--------|
-| `x86_64-unknown-linux-gnu` | Supported |
-| `aarch64-unknown-linux-gnu` | Supported |
-| `x86_64-apple-darwin` | Supported |
-| `aarch64-apple-darwin` | Supported |
-| `x86_64-pc-windows-msvc` | Supported |
+| Target | Status | Notes |
+|--------|--------|-------|
+| `x86_64-unknown-linux-gnu` | Supported | Routine CI |
+| `aarch64-unknown-linux-gnu` | Supported | Cross-compiled for release |
+| `armv7-unknown-linux-gnueabihf` | Supported | Cross-compiled for release |
+| `x86_64-unknown-linux-musl` | Supported | Cross-compiled for release |
+| `aarch64-unknown-linux-musl` | Supported | Cross-compiled for release |
+| `x86_64-apple-darwin` | Supported | Release matrix |
+| `aarch64-apple-darwin` | Supported | Release matrix |
+| `x86_64-pc-windows-msvc` | Supported | Release matrix |
+| `aarch64-pc-windows-msvc` | Supported | Cross-compiled or native for release |
 
 Other targets may compile but are not tested in CI and are not supported.
 
