@@ -89,8 +89,22 @@ def parse_args() -> argparse.Namespace:
 
 
 def parse_platform_tags(tag_string: str) -> list[str]:
-    """Wheel platform tags are dot-separated."""
-    return tag_string.split(".")
+    """Wheel platform tags are dot-separated. Normalize manylinux2014_* to
+    manylinux_2_17_* (PEP 600 alias) so the set comparison treats them as
+    equivalent."""
+    tags = tag_string.split(".")
+    return [MANYLINUX_2014_TO_2_17.get(t, t) for t in tags]
+
+
+# PEP 600: manylinux2014_* is an alias for manylinux_2_17_* on the same arch.
+MANYLINUX_2014_TO_2_17 = {
+    "manylinux2014_x86_64": "manylinux_2_17_x86_64",
+    "manylinux2014_aarch64": "manylinux_2_17_aarch64",
+    "manylinux2014_armv7l": "manylinux_2_17_armv7l",
+    "manylinux2014_ppc64": "manylinux_2_17_ppc64",
+    "manylinux2014_ppc64le": "manylinux_2_17_ppc64le",
+    "manylinux2014_s390x": "manylinux_2_17_s390x",
+}
 
 
 def format_targets(targets: set[str]) -> str:
