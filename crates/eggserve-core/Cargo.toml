@@ -40,7 +40,7 @@ tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "i
 
 # TLS dependencies (feature-gated)
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
-tokio-rustls = { version = "0.26", optional = true }
+tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
 rustls-pemfile = { version = "2", optional = true }
 
 [target.'cfg(unix)'.dependencies]
