@@ -141,7 +141,7 @@ def main() -> int:
         abi_tag = match.group("abi")
         platform_tag = match.group("platform")
 
-        platforms = parse_platform_tags(platform_tag)
+        platforms = list(dict.fromkeys(parse_platform_tags(platform_tag)))
 
         parsed.append({
             "wheel": wheel,
