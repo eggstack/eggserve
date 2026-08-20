@@ -8,7 +8,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
-import configparser
+import base64
 import hashlib
 import re
 import sys
@@ -47,21 +47,22 @@ def verify_record(archive: zipfile.ZipFile) -> list[str]:
         # RECORD entry for RECORD itself has empty hash
         if member == record_names[0] or not hash_digest:
             continue
-        # The hash format is sha256=HEX
+        # The hash format is sha256=<urlsafe-base64-no-padding>
+        # per PEP 376 / wheel RECORD spec.
         if not hash_digest.startswith("sha256="):
             errors.append(f"unexpected hash algorithm for {member}: {hash_digest}")
             continue
-        expected_hex = hash_digest[len("sha256="):]
+        expected_b64 = hash_digest[len("sha256="):]
         try:
             data = archive.read(member)
         except KeyError:
             errors.append(f"RECORD lists member '{member}' not found in archive")
             continue
-        actual_hex = hashlib.sha256(data).hexdigest()
-        if actual_hex != expected_hex:
+        actual_b64 = base64.urlsafe_b64encode(hashlib.sha256(data).digest()).rstrip(b"=").decode()
+        if actual_b64 != expected_b64:
             errors.append(
-                f"sha256 mismatch for {member}: RECORD={expected_hex[:16]}... "
-                f"actual={actual_hex[:16]}..."
+                f"sha256 mismatch for {member}: RECORD={expected_b64[:16]}... "
+                f"actual={actual_b64[:16]}..."
             )
     return errors
 
@@ -170,11 +171,17 @@ def main() -> int:
             else:
                 try:
                     raw_metadata = archive.read(metadata_names[0]).decode("utf-8", errors="replace")
-                    metadata = configparser.RawConfigParser()
-                    metadata.read_string("[metadata]\n" + raw_metadata)
+                    # configparser can't handle METADATA with multi-line
+                    # descriptions (markdown body, backticks, etc.). Extract
+                    # the scalar fields we care about with a simple line scan.
+                    def _scalar(name: str) -> str | None:
+                        for line in raw_metadata.splitlines():
+                            if line.startswith(f"{name}:"):
+                                return line.split(":", 1)[1].strip()
+                        return None
 
-                    meta_name = metadata.get("metadata", "Name")
-                    meta_version = metadata.get("metadata", "Version")
+                    meta_name = _scalar("Name")
+                    meta_version = _scalar("Version")
 
                     if meta_name != "eggserve":
                         print(
@@ -194,7 +201,7 @@ def main() -> int:
                     else:
                         print(f"  OK: METADATA Version = '{expected_version}'")
 
-                except (configparser.Error, KeyError) as exc:
+                except (KeyError, ValueError) as exc:
                     print(f"  FAIL: could not parse METADATA: {exc}", file=sys.stderr)
                     failures += 1
 
