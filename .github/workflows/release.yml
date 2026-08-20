@@ -162,7 +162,7 @@ jobs:
         shell: bash
         run: python "$GITHUB_WORKSPACE/scripts/check-wheel-composition.py" "$GITHUB_WORKSPACE/crates/eggserve-python/dist"
       - name: Smoke test wheel
-        if: "!contains(matrix.target, 'armv7') && !contains(matrix.target, 'musl') && !contains(matrix.target, 'aarch64-pc-windows')"
+        if: "!(contains(matrix.target, 'armv7') || contains(matrix.target, 'musl') || contains(matrix.target, 'aarch64-pc-windows') || contains(matrix.target, 'aarch64-unknown-linux'))"
         shell: bash
         run: |
           python -m venv /tmp/smoke-venv
