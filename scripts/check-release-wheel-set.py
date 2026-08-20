@@ -22,7 +22,7 @@ REQUIRED_TARGETS = {
     "musllinux_1_2_x86_64",
     "musllinux_1_2_aarch64",
     "macosx_11_0_arm64",
-    "macosx_11_0_x86_64",
+    "macosx_10_12_x86_64",
     "win_amd64",
     "win_arm64",
 }
