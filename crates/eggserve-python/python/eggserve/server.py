@@ -231,8 +231,14 @@ class BaseHTTPRequestHandler:
                 raise TypeError("coroutine handlers are not supported")
             if self._response_status is None and not hasattr(self, "_native_response"):
                 raise RuntimeError("handler did not send a response")
-        except Exception:
-            self.log_error("handler failed")
+        except BaseException as exc:
+            # Deliberate contract: every handler exception, including
+            # SystemExit and KeyboardInterrupt, converts to a generic 500.
+            # Handlers execute on runtime worker threads, so unwinding
+            # cannot terminate the process. Only the exception type name is
+            # logged; exception text is never logged because it may carry
+            # untrusted request data.
+            self.log_error("handler failed (%s)", type(exc).__name__)
             self._response_status = 500
             self._response_headers = [("Content-Type", self.error_content_type)]
             self._headers_ended = True

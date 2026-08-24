@@ -199,6 +199,16 @@ mod tests {
     }
 
     #[test]
+    fn reject_percent_encoded_slash_does_not_alias() {
+        // `/foo%2fbar` must not alias `/foo/bar`: encoded delimiters are
+        // rejected instead of decoded before segmentation.
+        assert_eq!(
+            ConfinedPath::parse("/foo%2fbar", &default_policy()).unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
     fn reject_windows_drive_prefix() {
         assert_eq!(
             ConfinedPath::parse("/C:/Windows/System32", &default_policy()).unwrap_err(),

@@ -14,8 +14,15 @@ pub fn percent_decode(input: &str) -> Result<String, PathRejection> {
                 let hi = hex_digit(bytes[i + 1]).ok_or(PathRejection::MalformedPercentEncoding)?;
                 let lo = hex_digit(bytes[i + 2]).ok_or(PathRejection::MalformedPercentEncoding)?;
                 let byte = (hi << 4) | lo;
-                if byte == 0 {
-                    return Err(PathRejection::NulByte);
+                match byte {
+                    0 => return Err(PathRejection::NulByte),
+                    // RFC 9110 § 4.2.1: pct-encoded octets must remain
+                    // distinguishable from delimiters. Decoding an encoded
+                    // separator before segmentation would alias distinct
+                    // targets (`/foo%2fbar` == `/foo/bar`), so reject
+                    // encoded '/' and '\\' outright.
+                    b'/' | b'\\' => return Err(PathRejection::SeparatorAmbiguity),
+                    _ => {}
                 }
                 result.push(byte);
                 i += 3;
@@ -97,6 +104,37 @@ mod tests {
     #[test]
     fn reject_nul() {
         assert_eq!(percent_decode("/%00").unwrap_err(), PathRejection::NulByte);
+    }
+
+    #[test]
+    fn reject_encoded_slash() {
+        assert_eq!(
+            percent_decode("/foo%2fbar").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+        assert_eq!(
+            percent_decode("/foo%2Fbar").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
+    fn reject_encoded_backslash() {
+        assert_eq!(
+            percent_decode("/foo%5cbar").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+        assert_eq!(
+            percent_decode("/foo%5Cbar").unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
+    fn double_encoded_separator_stays_encoded() {
+        // %252f decodes to the literal text "%2f", which is not a
+        // delimiter and must not be decoded again.
+        assert_eq!(percent_decode("/foo%252fbar").unwrap(), "/foo%2fbar");
     }
 
     #[test]

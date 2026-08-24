@@ -142,6 +142,14 @@ non-byte bodies, and `Content-Length` mismatches are not treated as successful
 empty responses. Diagnostics use fixed categories and do not log untrusted
 exception text or response data.
 
+Every handler exception — including `SystemExit` and `KeyboardInterrupt` — is
+deliberately converted to a generic 500. Handlers execute on runtime worker
+threads, so an unwinding exception cannot terminate the server process (this
+differs from stock `http.server`, where such exceptions propagate through the
+accept loop). Diagnostics record only the exception type name; message text
+and tracebacks are never logged because they may carry untrusted request
+data.
+
 Static resolution rejects traversal, backslashes, dotfiles, and denied
 symlinks before a host path can be reopened. Unknown MIME types use
 `application/octet-stream`, and static responses retain `nosniff`.

@@ -115,6 +115,12 @@ pub fn validate_request_target(target: &str) -> Result<(), RequestValidationErro
     if target.is_empty() || !target.starts_with('/') {
         return Err(RequestValidationError::InvalidRequestTarget);
     }
+    // Reject NUL and other ASCII control characters: they are not valid
+    // target octets, and embedders using this API without the full
+    // transport pipeline must not admit them.
+    if target.chars().any(|c| c.is_ascii_control()) {
+        return Err(RequestValidationError::InvalidRequestTarget);
+    }
     if target.contains(char::is_whitespace) {
         return Err(RequestValidationError::InvalidRequestTarget);
     }
@@ -312,6 +318,17 @@ mod tests {
             validate_request_target("/foo bar").unwrap_err(),
             RequestValidationError::InvalidRequestTarget
         );
+    }
+
+    #[test]
+    fn control_characters_in_request_target_rejected() {
+        for target in ["/foo\0bar", "/fo\ro", "/foo\u{7f}", "/\t"] {
+            assert_eq!(
+                validate_request_target(target).unwrap_err(),
+                RequestValidationError::InvalidRequestTarget,
+                "target {target:?} must be rejected"
+            );
+        }
     }
 
     #[test]

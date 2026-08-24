@@ -19,11 +19,11 @@ This document defines every timeout and deadline in the eggserve runtime, its se
 ### 1. Listener backoff
 
 - **Clock starts**: Immediately after an accept error.
-- **Progress resets**: Yes — on successful accept, `backoff_idx` resets to 0. On a different error kind, `error_repeat_count` resets to 1.
+- **Progress resets**: Yes — on successful accept, `backoff_idx` resets to 0. On a different error kind, `error_repeat_count` resets to 1 and `backoff_idx` resets to 0 so a new kind starts its own ramp.
 - **Progress definition**: Successful `listener.accept()` call.
 - **Enforcement**: `classify_accept_error()` applies bounded exponential backoff: `[1, 2, 4, 8, 50]` ms. The backoff is interruptible by the shutdown broadcast channel.
 - **Terminal behavior**: Fatal errors (persistent non-transient errors) break the accept loop, transitioning to Draining → Stopped.
-- **Cleanup**: Backoff state (`backoff_idx`, `error_repeat_count`, `last_error_kind`) resets on success.
+- **Cleanup**: Backoff state (`backoff_idx`, `error_repeat_count`, `last_error_kind`) resets on success; `backoff_idx` also resets when the error kind changes.
 
 ### 2. TLS handshake timeout
 
@@ -67,10 +67,12 @@ This document defines every timeout and deadline in the eggserve runtime, its se
 - **Progress resets**: No — this is a total connection lifetime limit, not an inactivity timeout.
 - **Progress definition**: N/A (timer never resets).
 - **Enforcement**: `tokio::time::timeout(connection_total_timeout, &mut conn)` wrapping the entire Hyper connection future.
-- **Terminal behavior**: Hyper connection is gracefully shut down (`conn.graceful_shutdown()`), then awaited.
+- **Terminal behavior**: Hyper connection is gracefully shut down (`conn.graceful_shutdown()`), then awaited. The post-shutdown drain is bounded by `min(graceful_shutdown_timeout, 5s)` so a stalled client cannot hold its admission permit indefinitely.
 - **Cleanup**: Connection dropped; permits released.
 
 **Design note**: This was originally named `response_write_timeout` but was renamed to `connection_total_timeout` because it wraps the entire Hyper connection future, not just response writes. Hyper does not expose a reliable per-write hook at the current abstraction level, so progress-aware write enforcement cannot be safely implemented without a transport wrapper. See "Known limitations" below.
+
+**Precedence**: This is the hard ceiling for a connection. When it expires before the handler or body budget, the request dies mid-flight regardless of those wider budgets. Setting `handler_timeout` or `body_read_timeout` above an explicit `connection_total_timeout` via the `RuntimeConfig` builder is rejected as dead configuration; lowering only the total below the default budgets is accepted with this documented precedence. The Python facade caps forwarded handler/body budgets to the total and logs when adjustment occurs.
 
 ### 7. Graceful shutdown timeout
 

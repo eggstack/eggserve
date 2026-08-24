@@ -126,6 +126,10 @@ fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), Pa
     if dotfiles_denied && child.starts_with('.') {
         return Err(PathRejection::DotfileDenied);
     }
+    // Parity with the parse-level component check: Windows reserved
+    // names, ADS syntax, drive prefixes, and trailing dots/spaces get the
+    // specific PathRejection variants instead of generic OS failures.
+    crate::path::platform::check_component(child)?;
     Ok(())
 }
 
@@ -151,6 +155,14 @@ pub(crate) fn may_be_short_name_alias(component: &str) -> bool {
 /// detects such swaps; when the name no longer resolves to a confined
 /// resource (or cannot be canonicalized at all), the opened handle must not
 /// be used and resolution fails closed.
+///
+/// Accepted limitation: this re-verify validates the *pathname*, not the
+/// opened handle. A writer who swaps the symlink away and back within the
+/// nanoseconds-wide window between open and re-canonicalize can pass
+/// verification with an outside-root handle. This residual double-swap race
+/// is documented as an accepted limitation of follow-symlinks mode in
+/// `docs/threat-model.md`; hardened profiles (symlinks denied) resolve
+/// descriptor-relative and never reach this function.
 fn fallback_reverify(candidate: &Path, canonical_root: &Path) -> Option<()> {
     match fs::canonicalize(candidate) {
         Ok(p) if p.starts_with(canonical_root) => Some(()),
@@ -827,8 +839,18 @@ mod tests {
     }
 
     #[test]
-    fn validate_child_only_spaces() {
-        assert!(validate_child_component("   ", false).is_ok());
+    fn validate_child_trailing_space_matches_parse_layer_rejection() {
+        // Parity with parse-level platform checks: trailing dots/spaces
+        // are rejected (Windows normalization aliasing), not silently
+        // passed to the OS.
+        assert_eq!(
+            validate_child_component("   ", false),
+            Err(PathRejection::WindowsReservedNameDenied)
+        );
+        assert_eq!(
+            validate_child_component("file.", false),
+            Err(PathRejection::WindowsReservedNameDenied)
+        );
     }
 
     #[test]

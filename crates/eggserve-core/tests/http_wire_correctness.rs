@@ -264,17 +264,19 @@ async fn ws_a_query_string_allowed() {
 }
 
 #[tokio::test]
-async fn ws_a_percent_encoded_slash_resolves() {
+async fn ws_a_percent_encoded_slash_rejected() {
     let s = start_server(None).await;
     let line = status_line(
         s.addr,
         b"GET /%2Fhello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    // %2F decodes to /; the decoded path /hello.txt resolves to the file.
+    // RFC 9110 § 4.2.1: encoded delimiters must stay distinguishable from
+    // real ones, so an encoded slash is rejected rather than decoded into
+    // a separator that would alias `/hello.txt`.
     assert!(
-        line.contains("200"),
-        "Percent-encoded slash resolves to file, expected 200, got: {}",
+        line.contains("400") || line.contains("403"),
+        "Percent-encoded slash must be rejected, got: {}",
         line
     );
 }

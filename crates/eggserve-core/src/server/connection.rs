@@ -38,6 +38,21 @@ use crate::server::config::RuntimeConfig;
 use crate::server::service::{Service, ServiceError};
 use crate::server::RuntimeState;
 
+/// Upper bound on the post-`graceful_shutdown()` drain wait.
+///
+/// Hyper's graceful shutdown still waits for the in-flight response to
+/// finish; a client that stops reading its response body applies TCP
+/// backpressure forever. Capping the drain releases the connection's
+/// admission permit promptly instead of letting stalled clients pin pool
+/// slots after their lifetime budget has already expired.
+const MAX_POST_SHUTDOWN_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
+
+fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
+    config
+        .graceful_shutdown_timeout
+        .min(MAX_POST_SHUTDOWN_DRAIN)
+}
+
 /// Serve a single HTTP/1.1 connection.
 ///
 /// This is the core connection executor used by both the CLI and embedded
@@ -105,13 +120,40 @@ pub async fn serve_connection<I, S>(
                         .connection_id(conn_id),
                     );
                     conn.as_mut().graceful_shutdown();
-                    let _ = conn.await;
+                    if tokio::time::timeout(
+                        post_shutdown_drain_budget(config),
+                        conn.as_mut(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::ClientDisconnect,
+                                "post-shutdown drain budget expired; closing connection",
+                            )
+                            .connection_id(conn_id),
+                        );
+                    }
                 }
             }
         }
         _ = shutdown_rx.recv() => {
             conn.as_mut().graceful_shutdown();
-            let _ = conn.await;
+            if tokio::time::timeout(post_shutdown_drain_budget(config), conn.as_mut())
+                .await
+                .is_err()
+            {
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ClientDisconnect,
+                        "post-shutdown drain budget expired; closing connection",
+                    )
+                    .connection_id(conn_id),
+                );
+            }
         }
     }
 }
@@ -595,16 +637,20 @@ fn body_error_to_response(
     err: crate::primitives::request_body_error::RequestBodyError,
     _head: &crate::primitives::request_head::RequestHead,
 ) -> hyper::Response<BoxBodyInner> {
-    let status = err.to_status_code();
+    let raw_status = err.to_status_code();
     let status =
-        hyper::StatusCode::from_u16(status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
-    let should_close = matches!(
-        status,
-        hyper::StatusCode::BAD_REQUEST
-            | hyper::StatusCode::REQUEST_TIMEOUT
-            | hyper::StatusCode::PAYLOAD_TOO_LARGE
-            | hyper::StatusCode::HTTP_VERSION_NOT_SUPPORTED
-    );
+        hyper::StatusCode::from_u16(raw_status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
+    // Cancelled/disconnected reads report the non-standard 499, which
+    // Hyper refuses on the wire; the response collapses to 500 but the
+    // connection must still close because the request ended mid-body.
+    let should_close = raw_status == 499
+        || matches!(
+            status,
+            hyper::StatusCode::BAD_REQUEST
+                | hyper::StatusCode::REQUEST_TIMEOUT
+                | hyper::StatusCode::PAYLOAD_TOO_LARGE
+                | hyper::StatusCode::HTTP_VERSION_NOT_SUPPORTED
+        );
     let body_text = match status.as_u16() {
         400 => "400 Bad Request\n",
         408 => "408 Request Timeout\n",

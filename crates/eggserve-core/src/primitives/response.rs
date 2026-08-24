@@ -92,6 +92,16 @@ pub struct FileRange {
 }
 
 impl FileRange {
+    /// Construct a byte range without validation.
+    ///
+    /// # Panics (via [`Self::len`])
+    ///
+    /// `new` performs no endpoint validation. A range whose endpoints are
+    /// not already constrained to a representable file range — e.g.
+    /// `FileRange::new(0, u64::MAX)` — makes [`Self::len`] panic on
+    /// overflow. Use [`Self::checked_len`] at consumption points that
+    /// cannot guarantee representable endpoints; planner-produced ranges
+    /// are always bounded by real file lengths.
     pub fn new(start: u64, end_inclusive: u64) -> Self {
         Self {
             start,

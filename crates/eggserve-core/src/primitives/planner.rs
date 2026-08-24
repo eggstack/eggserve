@@ -239,13 +239,25 @@ fn if_range_allows_range(
 
 fn is_strong_entity_tag(value: &str) -> bool {
     let bytes = value.as_bytes();
-    bytes.len() >= 2
-        && bytes[0] == b'"'
-        && bytes[bytes.len() - 1] == b'"'
-        && bytes[1..bytes.len() - 1].iter().all(|byte| {
-            // RFC 7230 qdtext permits HTAB and SP inside quoted strings.
-            *byte == b'!' || *byte == b'\t' || *byte == b' ' || (0x23..=0x7e).contains(byte)
-        })
+    if bytes.len() < 2 || bytes[0] != b'"' || bytes[bytes.len() - 1] != b'"' {
+        return false;
+    }
+    // RFC 9110 § 5.6.4: the interior is etagc (%x21 / %x23-7E / obs-text)
+    // with DQUOTE and backslash permitted only as quoted-pair escapes.
+    let mut interior = bytes[1..bytes.len() - 1].iter().copied();
+    while let Some(byte) = interior.next() {
+        match byte {
+            b'"' => return false,
+            b'\\' => match interior.next() {
+                Some(b'"') | Some(b'\\') | Some(b'\t') | Some(b' ') => {}
+                Some(b) if (0x21..=0x7e).contains(&b) || (0x80..=0xff).contains(&b) => {}
+                _ => return false,
+            },
+            b'\t' | b' ' | b'!' | 0x23..=0x7e | 0x80..=0xff => {}
+            _ => return false,
+        }
+    }
+    true
 }
 
 /// Generate a weak ETag from file metadata.

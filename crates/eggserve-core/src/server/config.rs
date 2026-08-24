@@ -57,9 +57,17 @@ pub struct RuntimeConfig {
     /// for its next request/response cycle.
     pub connection_total_timeout: Duration,
     /// Timeout for a single handler invocation. Default: 30s.
+    ///
+    /// `connection_total_timeout` is the hard ceiling: when the total
+    /// connection lifetime expires first, the request is killed
+    /// mid-flight regardless of this budget.
     pub handler_timeout: Duration,
     /// Timeout for reading the request body. Default: 30s.
     /// This is a total deadline for body consumption, not an idle timeout.
+    ///
+    /// `connection_total_timeout` is the hard ceiling: when the total
+    /// connection lifetime expires first, body consumption is killed
+    /// regardless of this budget.
     pub body_read_timeout: Duration,
     /// Graceful shutdown grace period. Default: 10s.
     pub graceful_shutdown_timeout: Duration,
@@ -179,6 +187,9 @@ impl RuntimeConfigBuilder {
     }
 
     /// Set the handler invocation timeout.
+    ///
+    /// Must be <= `connection_total_timeout` when both are set explicitly;
+    /// the total connection lifetime is the hard ceiling.
     pub fn handler_timeout(mut self, timeout: Duration) -> Self {
         self.handler_timeout = Some(timeout);
         self
@@ -187,6 +198,8 @@ impl RuntimeConfigBuilder {
     /// Set the body read timeout.
     ///
     /// This is a total deadline for body consumption, not an idle timeout.
+    /// Must be <= `connection_total_timeout` when both are set explicitly;
+    /// the total connection lifetime is the hard ceiling.
     pub fn body_read_timeout(mut self, timeout: Duration) -> Self {
         self.body_read_timeout = Some(timeout);
         self
@@ -299,6 +312,19 @@ impl RuntimeConfigBuilder {
         if body_read_timeout.is_zero() {
             return Err(crate::server::errors::ServerError::Config(
                 "body_read_timeout must be > 0".into(),
+            ));
+        }
+        // A handler or body budget wider than the total connection
+        // lifetime is dead configuration: the connection budget always
+        // fires first and kills the request mid-flight.
+        if handler_timeout > connection_total_timeout {
+            return Err(crate::server::errors::ServerError::Config(
+                "handler_timeout must be <= connection_total_timeout".into(),
+            ));
+        }
+        if body_read_timeout > connection_total_timeout {
+            return Err(crate::server::errors::ServerError::Config(
+                "body_read_timeout must be <= connection_total_timeout".into(),
             ));
         }
         if graceful_shutdown_timeout.is_zero() {
@@ -510,6 +536,30 @@ mod tests {
             .unwrap_err()
             .to_string()
             .contains("header_read_timeout must be <= connection_total_timeout"));
+    }
+
+    #[test]
+    fn handler_timeout_cannot_exceed_connection_total_timeout() {
+        let result = RuntimeConfig::builder()
+            .handler_timeout(Duration::from_secs(60))
+            .connection_total_timeout(Duration::from_secs(30))
+            .build();
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("handler_timeout must be <= connection_total_timeout"));
+    }
+
+    #[test]
+    fn body_read_timeout_cannot_exceed_connection_total_timeout() {
+        let result = RuntimeConfig::builder()
+            .body_read_timeout(Duration::from_secs(60))
+            .connection_total_timeout(Duration::from_secs(30))
+            .build();
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("body_read_timeout must be <= connection_total_timeout"));
     }
 
     #[test]

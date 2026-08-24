@@ -1074,7 +1074,7 @@ impl ServerSecureRoot {
     }
 }
 
-#[pyclass(name = "ServerBodySource")]
+#[pyclass(frozen, name = "ServerBodySource")]
 pub struct ServerBodySource {
     pub(crate) inner: std::sync::Mutex<Option<BodySource>>,
 }
@@ -1214,11 +1214,19 @@ impl PythonCallbackService {
                 .into_pyobject(py)
                 .map_err(|e| ServiceError::internal(format!("failed to create request: {e}")))?;
 
-            let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|_| {
+            let result = handler_py.bind(py).call1((py_req_obj,)).map_err(|err| {
+                // Log the exception type only; exception text may carry
+                // untrusted request data and must not reach logs.
+                let type_name = err
+                    .value(py)
+                    .get_type()
+                    .name()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_else(|_| "<unknown>".to_string());
                 eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
                     eggserve_core::ops::Severity::Error,
                     eggserve_core::ops::EventKind::ServiceError,
-                    "Python handler raised an exception",
+                    format!("Python handler raised an exception ({type_name})"),
                 ));
                 ServiceError::internal("handler raised an exception")
             })?;
@@ -1877,6 +1885,23 @@ impl PyServer {
             )
         };
 
+        // The connection total timeout is the hard ceiling on each
+        // connection's lifetime. Cap handler/body budgets to it so the
+        // total budget can never fire first and kill requests a wider
+        // budget promised to allow.
+        let capped_handler_timeout = handler_timeout.min(connection_total_timeout);
+        let capped_body_read_timeout = body_read_timeout.min(connection_total_timeout);
+        if capped_handler_timeout != handler_timeout || capped_body_read_timeout != body_read_timeout
+        {
+            eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
+                eggserve_core::ops::Severity::Warn,
+                eggserve_core::ops::EventKind::ProcessStarting,
+                "handler/body timeout exceeds connection_total_timeout; capped to connection_total_timeout",
+            ));
+        }
+        let handler_timeout = capped_handler_timeout;
+        let body_read_timeout = capped_body_read_timeout;
+
         let mut runtime_builder = RuntimeConfig::builder()
             .bind(bind_addr)
             .max_connections(max_connections)
@@ -1981,11 +2006,17 @@ impl PyServer {
     }
 
     fn stop(&self, py: Python<'_>) -> PyResult<()> {
-        let mut handle_guard = self
-            .handle
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        if let Some(handle) = handle_guard.take() {
+        // Take the handle and release the mutex immediately: the blocking
+        // drain below must not stall other threads calling state(),
+        // wait_ready(), start(), or stop().
+        let handle = {
+            let mut handle_guard = self
+                .handle
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            handle_guard.take()
+        };
+        if let Some(handle) = handle {
             handle.shutdown();
             let runtime_guard = self
                 .runtime
@@ -2001,7 +2032,6 @@ impl PyServer {
             }
             drop(runtime_guard);
         }
-        drop(handle_guard);
 
         let mut runtime_guard = self
             .runtime

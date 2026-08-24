@@ -35,6 +35,26 @@ pub struct Args {
     pub tls_key: Option<PathBuf>,
 }
 
+/// Consume the next argument as a value-taking flag's argument.
+///
+/// A following token that looks like a flag is never a valid value; it is
+/// almost certainly a mistyped command line (e.g.
+/// `--directory --port 8080`), so report a missing argument instead of
+/// silently swallowing the flag as the value. A bare `-` is accepted as a
+/// literal value, matching `--bind`'s guard.
+fn require_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, String> {
+    *i += 1;
+    let value = args
+        .get(*i)
+        .ok_or_else(|| format!("{flag} requires an argument"))?;
+    if value.starts_with('-') && value != "-" {
+        return Err(format!(
+            "{flag} requires an argument (found flag '{value}')"
+        ));
+    }
+    Ok(value.clone())
+}
+
 fn split_bind_host_port(value: &str) -> Option<(&str, Option<u16>)> {
     if value.starts_with('[') {
         let end = value.find(']')?;
@@ -131,8 +151,7 @@ impl Args {
                         return Err("--directory may only be specified once".to_string());
                     }
                     directory_seen = true;
-                    i += 1;
-                    let dir = args.get(i).ok_or("--directory requires an argument")?;
+                    let dir = require_value(&args, &mut i, "--directory")?;
                     root = Some(PathBuf::from(dir));
                 }
                 "--bind" => {
@@ -143,19 +162,12 @@ impl Args {
                         return Err("--bind and --addr cannot be used together".to_string());
                     }
                     bind_seen = true;
-                    i += 1;
-                    let addr = args.get(i).ok_or("--bind requires an argument")?;
-                    // A following flag is never a valid bind value; report a
-                    // missing argument rather than a confusing resolution
-                    // error later.
-                    if addr.starts_with('-') && addr != "-" {
-                        return Err(format!("--bind requires an argument (found flag '{addr}')"));
-                    }
+                    let addr = require_value(&args, &mut i, "--bind")?;
                     let (host, port) = if let Ok(parsed) = addr.parse::<SocketAddr>() {
                         (parsed.ip().to_string(), Some(parsed.port()))
                     } else if let Ok(ip) = addr.parse::<IpAddr>() {
                         (ip.to_string(), None)
-                    } else if let Some((host, port)) = split_bind_host_port(addr) {
+                    } else if let Some((host, port)) = split_bind_host_port(&addr) {
                         (host.to_string(), port)
                     } else {
                         return Err(format!(
@@ -363,18 +375,12 @@ impl Args {
                         return Err("--content-type may only be specified once".to_string());
                     }
                     content_type_seen = true;
-                    i += 1;
-                    default_content_type = args
-                        .get(i)
-                        .ok_or("--content-type requires an argument")?
-                        .clone();
+                    default_content_type = require_value(&args, &mut i, "--content-type")?;
                 }
                 "-H" | "--header" => {
-                    i += 1;
-                    let name = args.get(i).ok_or("--header requires NAME and VALUE")?;
-                    i += 1;
-                    let value = args.get(i).ok_or("--header requires NAME and VALUE")?;
-                    extra_response_headers.push((name.clone(), value.clone()));
+                    let name = require_value(&args, &mut i, "--header")?;
+                    let value = require_value(&args, &mut i, "--header")?;
+                    extra_response_headers.push((name, value));
                 }
                 #[cfg(feature = "tls")]
                 "--tls-cert" => {
@@ -382,8 +388,7 @@ impl Args {
                         return Err("--tls-cert may only be specified once".to_string());
                     }
                     tls_cert_seen = true;
-                    i += 1;
-                    let path = args.get(i).ok_or("--tls-cert requires an argument")?;
+                    let path = require_value(&args, &mut i, "--tls-cert")?;
                     tls_cert = Some(PathBuf::from(path));
                 }
                 #[cfg(feature = "tls")]
@@ -392,8 +397,7 @@ impl Args {
                         return Err("--tls-key may only be specified once".to_string());
                     }
                     tls_key_seen = true;
-                    i += 1;
-                    let path = args.get(i).ok_or("--tls-key requires an argument")?;
+                    let path = require_value(&args, &mut i, "--tls-key")?;
                     tls_key = Some(PathBuf::from(path));
                 }
                 #[cfg(not(feature = "tls"))]
@@ -737,6 +741,66 @@ mod tests {
             error.contains("--bind requires an argument"),
             "unexpected error: {error}"
         );
+    }
+
+    #[test]
+    fn directory_followed_by_flag_reports_missing_argument() {
+        // The flag must be reported, not swallowed as the root directory
+        // (which previously surfaced later as a misleading positional error).
+        let error = parse(&["--directory", "--port", "8080", "public"]).unwrap_err();
+        assert!(
+            error.contains("--directory requires an argument"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn content_type_followed_by_flag_reports_missing_argument() {
+        let error = parse(&["--content-type", "--port", "text/html"]).unwrap_err();
+        assert!(
+            error.contains("--content-type requires an argument"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn header_name_and_value_reject_flag_like_arguments() {
+        let error = parse(&["-H", "--port", "8080", "X-Value", "value"]).unwrap_err();
+        assert!(
+            error.contains("--header requires an argument"),
+            "unexpected error: {error}"
+        );
+
+        let error = parse(&["--header", "X-Name", "--value"]).unwrap_err();
+        assert!(
+            error.contains("--header requires an argument"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[cfg(feature = "tls")]
+    #[test]
+    fn tls_paths_reject_flag_like_arguments() {
+        let error = parse(&["--tls-cert", "--tls-key"]).unwrap_err();
+        assert!(
+            error.contains("--tls-cert requires an argument"),
+            "unexpected error: {error}"
+        );
+        let error = parse(&["--tls-cert", "cert.pem", "--tls-key", "--public"]).unwrap_err();
+        assert!(
+            error.contains("--tls-key requires an argument"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn bare_dash_value_is_accepted_for_value_taking_flags() {
+        let args = parse(&["--directory", "-"]).unwrap();
+        assert_eq!(args.root, PathBuf::from("-"));
+
+        let args = parse(&["-H", "X-Name", "-", "--content-type", "-"]).unwrap();
+        assert_eq!(args.extra_response_headers, [("X-Name".into(), "-".into())]);
+        assert_eq!(args.default_content_type, "-");
     }
 
     #[test]

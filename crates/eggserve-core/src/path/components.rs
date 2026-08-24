@@ -54,6 +54,18 @@ pub fn split_components(path: &str) -> Vec<String> {
         .collect()
 }
 
+/// Collapse duplicate slashes and strip leading slashes.
+///
+/// # Safety invariant (call-order)
+///
+/// This function deliberately does NOT resolve `.` or `..` segments: dot
+/// segments survive normalization and are only rejected by
+/// [`validate_components`]. The two must always be used together, in this
+/// order (`normalize_path` → `split_components` → `validate_components`),
+/// as [`super::ConfinedPath::parse`] does. A caller that resolves or
+/// consumes components without running `validate_components` afterwards
+/// has no confinement guarantee: `..`, dotfiles, NUL, and platform
+/// hazards would pass through unvalidated.
 pub fn normalize_path(path: &str) -> String {
     if path == "/" {
         return String::new();

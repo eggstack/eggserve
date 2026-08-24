@@ -768,6 +768,10 @@ async fn classify_accept_error(
     } else {
         *error_repeat_count = 1;
         *last_error_kind = Some(current_kind);
+        // A different error kind starts its own backoff ramp; otherwise a
+        // burst of one transient kind would saddle a different kind with
+        // the maximum inherited delay.
+        *backoff_idx = 0;
     }
 
     // Emit on first occurrence, then every 10th.

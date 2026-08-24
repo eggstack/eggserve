@@ -408,6 +408,30 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ready_starting_then_drain_returns_error() {
+        // Shutdown landing mid-startup must not leave ready() blocked
+        // forever; the waiter observes Stopped and errors out.
+        let lifecycle = Arc::new(Lifecycle::new());
+        lifecycle.start().unwrap();
+        let (tx, _) = broadcast::channel(1);
+        let join = tokio::spawn(async { ShutdownResult::Clean });
+        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle.clone());
+
+        let drainer_lc = Arc::clone(&lifecycle);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+            let _ = drainer_lc.drain();
+        });
+
+        let result = tokio::time::timeout(Duration::from_secs(5), handle.ready()).await;
+        assert!(
+            result.is_ok(),
+            "ready() must not hang when shutdown lands mid-startup"
+        );
+        assert!(result.unwrap().is_err());
+    }
+
+    #[tokio::test]
     async fn ready_draining_is_error() {
         let handle = make_handle_with_state(crate::server::lifecycle::LifecycleState::Draining);
         let result = handle.ready().await;

@@ -203,7 +203,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
 
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
 
-            tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
+            let signal_task = tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
 
             match server.start().await {
                 Ok(handle) => {
@@ -217,7 +217,18 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                     );
 
                     let mut signal_rx = shutdown_rx;
-                    let _ = signal_rx.recv().await;
+                    // A closed channel means the signal-handler task died
+                    // before arming its handlers; nothing can deliver a
+                    // termination signal, so stop instead of waiting forever
+                    // on a server nobody can stop.
+                    if signal_rx.recv().await.is_err() {
+                        Logger::global().emit(Event::new(
+                            Severity::Warn,
+                            EventKind::ShutdownRequested,
+                            "shutdown signal handler unavailable; shutting down",
+                        ));
+                    }
+                    signal_task.abort();
 
                     Logger::global().emit(Event::new(
                         Severity::Info,
@@ -247,6 +258,9 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                                 EventKind::ShutdownComplete,
                                 format!("shutdown error: {}", e),
                             ));
+                            // A fatal runtime failure during drain is a
+                            // dirty stop; signal it to supervisors.
+                            return 1;
                         }
                         Err(_) => {
                             Logger::global().emit(Event::new(
@@ -308,7 +322,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
             };
 
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
-            tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
+            let signal_task = tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
 
             match server.start().await {
                 Ok(handle) => {
@@ -322,7 +336,18 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                     );
 
                     let mut signal_rx = shutdown_rx;
-                    let _ = signal_rx.recv().await;
+                    // A closed channel means the signal-handler task died
+                    // before arming its handlers; nothing can deliver a
+                    // termination signal, so stop instead of waiting forever
+                    // on a server nobody can stop.
+                    if signal_rx.recv().await.is_err() {
+                        Logger::global().emit(Event::new(
+                            Severity::Warn,
+                            EventKind::ShutdownRequested,
+                            "shutdown signal handler unavailable; shutting down",
+                        ));
+                    }
+                    signal_task.abort();
 
                     Logger::global().emit(Event::new(
                         Severity::Info,
@@ -351,6 +376,9 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                                 EventKind::ShutdownComplete,
                                 format!("shutdown error: {}", e),
                             ));
+                            // A fatal runtime failure during drain is a
+                            // dirty stop; signal it to supervisors.
+                            return 1;
                         }
                         Err(_) => {
                             Logger::global().emit(Event::new(

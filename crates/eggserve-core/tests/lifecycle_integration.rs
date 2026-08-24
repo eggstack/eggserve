@@ -1123,6 +1123,8 @@ async fn short_connection_total_timeout_closes_connection() {
     let config = RuntimeConfig::builder()
         .bind("127.0.0.1:0".parse().unwrap())
         .header_read_timeout(Duration::from_millis(50))
+        .handler_timeout(Duration::from_millis(50))
+        .body_read_timeout(Duration::from_millis(50))
         .connection_total_timeout(Duration::from_millis(100))
         .graceful_shutdown_timeout(Duration::from_secs(5))
         .build()

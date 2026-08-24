@@ -183,7 +183,10 @@ impl Lifecycle {
             Err(actual) => {
                 let state = LifecycleState::from_u8(actual);
                 if state == LifecycleState::Created || state == LifecycleState::Starting {
-                    // Make shutdown-before-start terminal so waiters cannot hang.
+                    // Make shutdown-before-start terminal so waiters cannot
+                    // hang. Signal both channels: terminal for shutdown
+                    // waiters, ready for readiness waiters (they will
+                    // re-check state and see Stopped).
                     if self
                         .state
                         .compare_exchange(
@@ -194,6 +197,7 @@ impl Lifecycle {
                         )
                         .is_ok()
                     {
+                        let _ = self.ready_tx.send(true);
                         let _ = self.terminal_tx.send(());
                         Ok(())
                     } else {
@@ -302,6 +306,47 @@ mod tests {
         let lc = Lifecycle::new();
         assert_eq!(lc.state(), LifecycleState::Created);
         assert!(!lc.state().is_terminal());
+    }
+
+    #[tokio::test]
+    async fn drain_during_starting_unblocks_ready_waiters() {
+        let lc = std::sync::Arc::new(Lifecycle::new());
+        assert!(lc.start().is_ok());
+
+        let waiter_lc = std::sync::Arc::clone(&lc);
+        let waiter = tokio::spawn(async move {
+            waiter_lc.wait_ready().await;
+            waiter_lc.state()
+        });
+
+        // Give the waiter time to block on the ready channel, then shut
+        // down mid-startup. The waiter must wake and observe Stopped.
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(lc.drain().is_ok());
+        assert_eq!(lc.state(), LifecycleState::Stopped);
+
+        let state = tokio::time::timeout(std::time::Duration::from_secs(5), waiter)
+            .await
+            .expect("ready waiters must not hang after drain during Starting")
+            .unwrap();
+        assert_eq!(state, LifecycleState::Stopped);
+    }
+
+    #[tokio::test]
+    async fn drain_during_created_unblocks_ready_waiters() {
+        let lc = std::sync::Arc::new(Lifecycle::new());
+        let waiter_lc = std::sync::Arc::clone(&lc);
+        let waiter = tokio::spawn(async move {
+            waiter_lc.wait_ready().await;
+            waiter_lc.state()
+        });
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        assert!(lc.drain().is_ok());
+        let state = tokio::time::timeout(std::time::Duration::from_secs(5), waiter)
+            .await
+            .expect("ready waiters must not hang after drain during Created")
+            .unwrap();
+        assert_eq!(state, LifecycleState::Stopped);
     }
 
     #[test]
