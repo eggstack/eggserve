@@ -874,6 +874,25 @@ pub(crate) fn resolve_to_resource(
             }
         }
 
+        // 8.3 alias defense: a requested component that syntactically
+        // resembles an NTFS short-name alias may resolve to a long name
+        // that begins with `.` (e.g., `ENV~1` → `.env`). Re-check the
+        // resolved long name against the dotfile policy before use.
+        if dotfiles_denied && super::may_be_short_name_alias(component) {
+            match get_final_path(child.raw()) {
+                Ok(final_path) => {
+                    if final_path
+                        .file_name()
+                        .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+                    {
+                        return ResolvedResource::Denied(crate::path::PathRejection::DotfileDenied);
+                    }
+                }
+                // Fail closed when the long name cannot be confirmed.
+                Err(_) => return ResolvedResource::NotFound,
+            }
+        }
+
         if is_final {
             // Determine if this is a file or directory.
             let is_dir = match get_file_standard_info(child.raw()) {
@@ -883,7 +902,15 @@ pub(crate) fn resolve_to_resource(
 
             let canonical_path = match get_final_path(child.raw()) {
                 Ok(p) => p,
-                Err(_) => canonical_root.join(component),
+                // Diagnostic fallback only: join every component traversed
+                // so far, not just the final one.
+                Err(_) => {
+                    let mut constructed = canonical_root.to_path_buf();
+                    for traversed in &components[..=i] {
+                        constructed.push(traversed);
+                    }
+                    constructed
+                }
             };
 
             let safe_components = components.to_vec();
@@ -990,6 +1017,24 @@ pub(crate) fn resolve_child_relative(
             Err(WindowsFsError::ReparsePointDenied) => {
                 return ResolvedResource::Denied(crate::path::PathRejection::SymlinkDenied);
             }
+            Err(_) => return ResolvedResource::NotFound,
+        }
+    }
+
+    // 8.3 alias defense (see resolve_to_resource): a child that resembles
+    // an NTFS short-name alias is re-checked against the dotfile policy
+    // using its resolved long name.
+    if dotfiles_denied && super::may_be_short_name_alias(child) {
+        match get_final_path(child_handle.raw()) {
+            Ok(final_path) => {
+                if final_path
+                    .file_name()
+                    .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+                {
+                    return ResolvedResource::Denied(crate::path::PathRejection::DotfileDenied);
+                }
+            }
+            // Fail closed when the long name cannot be confirmed.
             Err(_) => return ResolvedResource::NotFound,
         }
     }

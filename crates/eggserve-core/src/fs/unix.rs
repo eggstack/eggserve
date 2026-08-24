@@ -58,13 +58,24 @@ pub(crate) fn resolve_fd_relative(
                 Ok(s) => s,
                 Err(_) => return ResolvedResource::NotFound,
             };
-            if (stat.st_mode as u32 & S_IFMT) == S_IFLNK {
+            let file_type = stat.st_mode as u32 & S_IFMT;
+            if file_type == S_IFLNK {
                 return ResolvedResource::Denied(PathRejection::SymlinkDenied);
+            }
+            // Reject non-regular/non-directory types before opening: POSIX
+            // open(O_RDONLY) blocks on a FIFO until a writer appears (and
+            // device nodes may have side effects), so the post-open type
+            // check below would be too late to protect the serving loop.
+            if is_final && file_type != S_IFREG && file_type != S_IFDIR {
+                return ResolvedResource::NotFound;
             }
         }
 
         let flags = if is_final {
-            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW
+            // O_NONBLOCK is a no-op for regular files and directories but
+            // guarantees the open cannot block on a FIFO swapped in after
+            // the statat pre-check above.
+            OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK
         } else {
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW
         };
@@ -135,12 +146,18 @@ pub(crate) fn resolve_child_fd(
             Ok(s) => s,
             Err(_) => return ResolvedResource::NotFound,
         };
-        if (stat.st_mode as u32 & S_IFMT) == S_IFLNK {
+        let file_type = stat.st_mode as u32 & S_IFMT;
+        if file_type == S_IFLNK {
             return ResolvedResource::Denied(PathRejection::SymlinkDenied);
+        }
+        // Same pre-open type rejection as resolve_fd_relative: never block
+        // on FIFOs or open device nodes while resolving a final component.
+        if file_type != S_IFREG && file_type != S_IFDIR {
+            return ResolvedResource::NotFound;
         }
     }
 
-    let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW;
+    let flags = OFlags::RDONLY | OFlags::CLOEXEC | OFlags::NOFOLLOW | OFlags::NONBLOCK;
     let new_fd = match openat(dir_fd, child, flags, Mode::empty()) {
         Ok(fd) => fd,
         Err(e) => {

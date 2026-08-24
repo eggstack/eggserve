@@ -83,13 +83,13 @@ async fn panic_in_service_returns_500() {
     let _ = client.read_to_end(&mut buf).await;
     let _ = server.await;
 
-    // When a service panics, the connection task panics and the TCP
-    // connection is dropped. The client sees a connection reset with no
-    // complete HTTP response.
+    // Panics during service execution are contained by the runtime: the
+    // client receives a complete RFC-correct 500 response instead of a
+    // connection reset.
     let response = String::from_utf8_lossy(&buf);
     assert!(
-        !response.starts_with("HTTP/1.1 200"),
-        "service panic should not produce 200: {}",
+        response.starts_with("HTTP/1.1 500"),
+        "service panic should produce 500, got: {}",
         response
     );
 }

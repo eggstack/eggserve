@@ -302,7 +302,13 @@ impl PyRequestBody {
         _py: Python<'_>,
         chunk_size: Option<usize>,
     ) -> PyResult<PyBodyChunkIterator> {
-        let _ = chunk_size;
+        if let Some(size) = chunk_size {
+            if size == 0 {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "chunk_size must be greater than zero",
+                ));
+            }
+        }
         let body = {
             let mut guard = self
                 .inner
@@ -318,27 +324,51 @@ impl PyRequestBody {
         let final_bytes = Arc::clone(&self.final_bytes_received);
         let final_complete = Arc::clone(&self.final_complete);
 
+        // Dropping the iterator before EOF leaves `complete` False for both
+        // exit paths (consumer abandonment and transport error): the body is
+        // genuinely incomplete in both cases, and observers cannot rely on
+        // completion unless iteration ran to exhaustion or `read()` finished.
         handle.spawn(async move {
             let mut body = body;
-            loop {
+            // When a chunk size is requested, buffer native chunks and emit
+            // exactly-sized chunks; the final partial chunk is flushed at EOF.
+            let mut pending: Vec<u8> = Vec::new();
+            'producer: loop {
                 match body.next_chunk().await {
                     Ok(Some(chunk)) => {
-                        let data = chunk.to_vec();
                         final_bytes.store(body.bytes_received(), Ordering::Release);
-                        if sender.send(Ok(data)).await.is_err() {
-                            break;
+                        match chunk_size {
+                            None => {
+                                let data = chunk.to_vec();
+                                if sender.send(Ok(data)).await.is_err() {
+                                    break 'producer;
+                                }
+                            }
+                            Some(size) => {
+                                pending.extend_from_slice(&chunk);
+                                while pending.len() >= size {
+                                    let rest = pending.split_off(size);
+                                    if sender.send(Ok(pending)).await.is_err() {
+                                        break 'producer;
+                                    }
+                                    pending = rest;
+                                }
+                            }
                         }
                     }
                     Ok(None) => {
+                        if !pending.is_empty() && sender.send(Ok(pending)).await.is_err() {
+                            break 'producer;
+                        }
                         final_bytes.store(body.bytes_received(), Ordering::Release);
                         final_complete.store(true, Ordering::Release);
-                        break;
+                        break 'producer;
                     }
                     Err(e) => {
                         let bytes = body.bytes_received();
                         final_bytes.store(bytes, Ordering::Release);
                         let _ = sender.send(Err(e.into())).await;
-                        break;
+                        break 'producer;
                     }
                 }
             }
@@ -1521,6 +1551,11 @@ impl Service for PythonCallbackService {
 // Python Server — delegates to Rust runtime
 // ---------------------------------------------------------------------------
 
+/// Dropping a started `Server` without calling `stop()` (or leaving the
+/// context manager) drops the native tokio runtime synchronously when the
+/// last Python reference disappears; that teardown waits for in-flight
+/// tasks, so interpreter shutdown or GC can stall while connections drain.
+/// Always stop a running server explicitly.
 #[pyclass(frozen, name = "Server")]
 #[allow(dead_code)]
 pub struct PyServer {
@@ -1775,11 +1810,13 @@ impl PyServer {
         }
 
         let result = Self::start_reserved(slf.clone_ref(py), py);
-        if result.is_ok() {
-            slf.borrow(py)
-                .starting
-                .store(false, std::sync::atomic::Ordering::Release);
-        }
+        // Reset the concurrency guard unconditionally: its only purpose is
+        // to prevent concurrent starts, not to record failure. Leaving it
+        // set after a failed startup would permanently brick the object
+        // ("Server already started" on every retry).
+        slf.borrow(py)
+            .starting
+            .store(false, std::sync::atomic::Ordering::Release);
         result
     }
 

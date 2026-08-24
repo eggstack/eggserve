@@ -242,9 +242,10 @@ fn is_strong_entity_tag(value: &str) -> bool {
     bytes.len() >= 2
         && bytes[0] == b'"'
         && bytes[bytes.len() - 1] == b'"'
-        && bytes[1..bytes.len() - 1]
-            .iter()
-            .all(|byte| *byte == b'!' || (0x23..=0x7e).contains(byte))
+        && bytes[1..bytes.len() - 1].iter().all(|byte| {
+            // RFC 7230 qdtext permits HTAB and SP inside quoted strings.
+            *byte == b'!' || *byte == b'\t' || *byte == b' ' || (0x23..=0x7e).contains(byte)
+        })
 }
 
 /// Generate a weak ETag from file metadata.

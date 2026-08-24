@@ -127,6 +127,13 @@ accepted. This does not change the CLI rule that wildcard binds require
 event-driven. `server_bind()` and `server_activate()` are bounded lifecycle
 facades; they do not expose the native listener.
 
+A server that has been started must be stopped explicitly with `stop()` or by
+leaving the context manager. Abandoning a running server without `stop()`
+drops the native runtime when the last Python reference disappears, and that
+teardown waits for in-flight handler tasks; interpreter shutdown or garbage
+collection can therefore stall until active connections drain. There is no
+`__del__`-based shutdown.
+
 ## Failure and security behavior
 
 Malformed handler responses fail closed with a generic 500: invalid status or

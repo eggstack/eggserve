@@ -50,7 +50,12 @@ fn split_bind_host_port(value: &str) -> Option<(&str, Option<u16>)> {
         return None;
     }
     match value.split_once(':') {
-        Some((host, port)) if !host.is_empty() => Some((host, Some(port.parse().ok()?))),
+        // ":PORT" is accepted as shorthand for 0.0.0.0:PORT (still subject
+        // to the --public acknowledgment below).
+        Some((host, port)) => Some((
+            if host.is_empty() { "0.0.0.0" } else { host },
+            Some(port.parse().ok()?),
+        )),
         None if !value.is_empty() => Some((value, None)),
         _ => None,
     }
@@ -140,6 +145,12 @@ impl Args {
                     bind_seen = true;
                     i += 1;
                     let addr = args.get(i).ok_or("--bind requires an argument")?;
+                    // A following flag is never a valid bind value; report a
+                    // missing argument rather than a confusing resolution
+                    // error later.
+                    if addr.starts_with('-') && addr != "-" {
+                        return Err(format!("--bind requires an argument (found flag '{addr}')"));
+                    }
                     let (host, port) = if let Ok(parsed) = addr.parse::<SocketAddr>() {
                         (parsed.ip().to_string(), Some(parsed.port()))
                     } else if let Ok(ip) = addr.parse::<IpAddr>() {
@@ -410,16 +421,31 @@ impl Args {
 
         for pos in positional_args {
             if !port_from_flag {
+                let trimmed = pos.trim();
+                let all_digits =
+                    |s: &str| !s.is_empty() && s.bytes().all(|byte| byte.is_ascii_digit());
+                // A whitespace-padded digit string (" 8000") or a signed
+                // digit string ("+8000"/"-8000") is almost certainly a
+                // mistyped port, not a directory name; reject it instead of
+                // silently treating it as the serve root.
+                let padded_port_like = all_digits(trimmed) && trimmed != pos.as_str();
+                let signed_port_like = trimmed.len() > 1
+                    && (trimmed.starts_with('+') || trimmed.starts_with('-'))
+                    && all_digits(&trimmed[1..]);
+                if padded_port_like || signed_port_like {
+                    return Err(format!(
+                        "invalid positional port '{pos}': must be a decimal number between 0 and 65535"
+                    ));
+                }
                 match pos.parse::<u16>() {
                     Ok(port) => {
                         bind_port = port;
                         port_from_flag = true;
                         continue;
                     }
-                    Err(_) if pos.bytes().all(|byte| byte.is_ascii_digit()) => {
+                    Err(_) if all_digits(&pos) => {
                         return Err(format!(
-                            "invalid positional port '{}': must be between 0 and 65535",
-                            pos
+                            "invalid positional port '{pos}': must be between 0 and 65535",
                         ));
                     }
                     Err(_) => {}
@@ -659,6 +685,58 @@ mod tests {
     fn out_of_range_positional_port_is_rejected() {
         let result = parse(&["99999"]);
         assert!(result.unwrap_err().contains("invalid positional port"));
+    }
+
+    #[test]
+    fn whitespace_padded_positional_port_is_rejected() {
+        let result = parse(&[" 8000"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid positional port"));
+
+        let result = parse(&["8000 "]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid positional port"));
+    }
+
+    #[test]
+    fn signed_positional_port_is_rejected() {
+        let result = parse(&["+8000"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid positional port"));
+
+        let result = parse(&["--", "-8000"]);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("invalid positional port"));
+    }
+
+    #[test]
+    fn whitespace_padded_port_after_directory_slot_is_verbatim() {
+        // Once the port slot is occupied, the next positional is a directory
+        // name and is taken verbatim.
+        let args = parse(&["8000", " my dir"]).unwrap();
+        assert_eq!(args.bind.port(), 8000);
+        assert_eq!(args.root, PathBuf::from(" my dir"));
+    }
+
+    #[test]
+    fn colon_shorthand_bind_maps_to_unspecified_host() {
+        let result = parse(&["--bind", ":8080"]);
+        let error = result.unwrap_err();
+        assert!(error.contains("--public"), "{error}");
+        assert!(error.contains("0.0.0.0"), "{error}");
+
+        let args = parse(&["--bind", ":8080", "--public"]).unwrap();
+        assert_eq!(args.bind, "0.0.0.0:8080".parse().unwrap());
+    }
+
+    #[test]
+    fn bind_followed_by_flag_reports_missing_argument() {
+        let result = parse(&["--bind", "--tls-cert", "x"]);
+        let error = result.unwrap_err();
+        assert!(
+            error.contains("--bind requires an argument"),
+            "unexpected error: {error}"
+        );
     }
 
     #[test]

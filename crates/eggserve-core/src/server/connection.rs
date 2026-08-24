@@ -15,6 +15,13 @@
 //! 7. Transport-body conversion
 //! 8. Permit release and connection termination
 
+// Panics raised while executing a [`Service`] are contained at the
+// invocation boundary and mapped to [`ServiceError::panic`], so the client
+// receives an RFC-correct 500 response instead of a dropped connection.
+// The standard panic hook still runs, keeping diagnostics on stderr; panics
+// outside service execution (e.g., during transport-body conversion) still
+// propagate to the JoinSet task boundary.
+
 use std::convert::Infallible;
 use std::sync::Arc;
 
@@ -117,9 +124,11 @@ pub async fn serve_connection<I, S>(
 /// - Service error to response conversion
 /// - Canonical response normalization
 ///
-/// Panics in the service propagate to the tokio task boundary and are
-/// caught by the `JoinSet` in the accept loop. The connection is dropped
-/// and a `ConnectionPanic` event is emitted.
+/// Panics raised while polling the service future are contained and mapped
+/// to [`ServiceError::panic`], producing a 500 response. Panics outside
+/// service execution propagate to the tokio task boundary, are caught by
+/// the `JoinSet` in the accept loop, and drop the connection with a
+/// `ConnectionPanic` event.
 #[allow(clippy::too_many_arguments)]
 pub async fn serve_connection_with_runtime_state<I, S>(
     io: TokioIo<I>,
@@ -327,7 +336,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
-                    let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+                    let result = tokio::time::timeout(
+                        handler_timeout,
+                        contain_service_panic(service.call(request)),
+                    )
+                    .await;
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
@@ -405,7 +418,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
-                    let result = tokio::time::timeout(handler_timeout, service.call(request)).await;
+                    let result = tokio::time::timeout(
+                        handler_timeout,
+                        contain_service_panic(service.call(request)),
+                    )
+                    .await;
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
@@ -452,8 +469,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
-                    let result =
-                        tokio::time::timeout(effective_timeout, service.call(request)).await;
+                    let result = tokio::time::timeout(
+                        effective_timeout,
+                        contain_service_panic(service.call(request)),
+                    )
+                    .await;
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
@@ -518,6 +538,29 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     });
 
     serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
+}
+
+/// Contain panics raised while polling a service future.
+///
+/// On panic, the payload is converted into [`ServiceError::panic`] so the
+/// connection produces a 500 response instead of being dropped.
+async fn contain_service_panic<F>(
+    future: F,
+) -> Result<crate::primitives::canonical::Response, ServiceError>
+where
+    F: std::future::Future<Output = Result<crate::primitives::canonical::Response, ServiceError>>,
+{
+    match futures_util::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(future)).await {
+        Ok(result) => result,
+        Err(payload) => {
+            let message = payload
+                .downcast_ref::<&str>()
+                .map(|s| (*s).to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "service panicked".to_string());
+            Err(ServiceError::panic(message))
+        }
+    }
 }
 
 /// Select the effective body policy from service preference and runtime ceiling.

@@ -277,12 +277,13 @@ class TestRequestBodyIterChunks(unittest.TestCase):
         self._captured = {}
         self._handler_done = threading.Event()
         self._handler_error = None
+        self._chunk_size = None
 
         def handler(req):
             try:
                 if req.method == "POST" and req.has_body:
                     chunks = []
-                    it = req.body.iter_chunks()
+                    it = req.body.iter_chunks(chunk_size=self._chunk_size)
                     for chunk in it:
                         chunks.append(chunk)
                     self._captured["chunks"] = chunks
@@ -335,6 +336,27 @@ class TestRequestBodyIterChunks(unittest.TestCase):
         self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
         self.assertIsNone(self._handler_error, f"Handler raised: {self._handler_error}")
         self.assertNotIn("chunks", self._captured)
+
+    def test_iter_chunks_honors_chunk_size(self):
+        """iter_chunks(chunk_size=N) yields exactly-sized chunks (bug #5)."""
+        body = b"0123456789abcdef"
+        self._chunk_size = 5
+        self._send_and_wait(body)
+        chunks = self._captured.get("chunks", [])
+        self.assertEqual(b"".join(chunks), body)
+        for chunk in chunks[:-1]:
+            self.assertEqual(len(chunk), 5)
+        self.assertLessEqual(len(chunks[-1]), 5)
+
+    def test_iter_chunks_zero_chunk_size_raises_value_error(self):
+        """chunk_size=0 is rejected rather than silently ignored."""
+        self._chunk_size = 0
+        self._handler_done.clear()
+        self._captured.clear()
+        self._handler_error = None
+        _send_post(self._addr, "/index.txt", b"data")
+        self.assertTrue(self._handler_done.wait(timeout=5.0), "Handler did not complete")
+        self.assertIsInstance(self._handler_error, ValueError)
 
 
 

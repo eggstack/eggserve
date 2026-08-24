@@ -180,8 +180,10 @@ impl From<RequestBodyError> for ServiceError {
 ///
 /// - The service is called once per request.
 /// - The service must not write to raw sockets or access transport internals.
-/// - Panics are caught at the task boundary (JoinSet) and logged; the
-///   connection is dropped without a response.
+/// - Panics raised during service execution are contained by the runtime and
+///   produce a 500 response (see `ServiceError::panic`). Panics outside
+///   service execution are caught at the task boundary and drop the
+///   connection.
 /// - The response goes through runtime normalization (hop-by-hop stripping,
 ///   content-length computation) before transport.
 ///

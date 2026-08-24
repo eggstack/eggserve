@@ -432,7 +432,6 @@ async fn accept_loop_generic<S: Service>(
                         last_error_kind = None;
                         let conn_id = correlation.next();
                         counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                         crate::ops::Logger::global().emit(
                             crate::ops::Event::new(
@@ -447,7 +446,6 @@ async fn accept_loop_generic<S: Service>(
                             Ok(p) => p,
                             Err(_) => {
                                 counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                counters.active_connections.fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
                                 crate::ops::Logger::global().emit(
                                     crate::ops::Event::new(
                                         crate::ops::Severity::Debug,
@@ -467,6 +465,11 @@ async fn accept_loop_generic<S: Service>(
                         let service = service.clone();
                         let remote_addr = peer_addr;
                         let local_addr_pre_tls = stream.local_addr().unwrap_or(local_addr);
+
+                        // Count the connection as active only after it has
+                        // been admitted; rejected connections must not skew
+                        // the gauge.
+                        counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                         tasks.spawn(async move {
                             let _permit = permit;

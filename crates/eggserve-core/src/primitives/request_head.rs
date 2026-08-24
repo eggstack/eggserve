@@ -22,6 +22,8 @@ pub enum RequestHeadError {
     HeaderValue(crate::primitives::header_block::HeaderError),
     /// The request uses an authority-form or absolute-form URI.
     AbsoluteForm,
+    /// The method is not a valid HTTP token.
+    InvalidMethod,
 }
 
 impl std::fmt::Display for RequestHeadError {
@@ -32,6 +34,7 @@ impl std::fmt::Display for RequestHeadError {
             Self::HeaderName(e) => write!(f, "invalid header name: {e}"),
             Self::HeaderValue(e) => write!(f, "invalid header value: {e}"),
             Self::AbsoluteForm => write!(f, "absolute-form URI not supported"),
+            Self::InvalidMethod => write!(f, "invalid request method token"),
         }
     }
 }
@@ -44,6 +47,7 @@ impl std::error::Error for RequestHeadError {
             Self::HeaderName(e) => Some(e),
             Self::HeaderValue(e) => Some(e),
             Self::AbsoluteForm => None,
+            Self::InvalidMethod => None,
         }
     }
 }
@@ -149,7 +153,7 @@ impl RequestHead {
     /// headers are invalid.
     pub fn try_from_hyper<B>(req: &hyper::Request<B>) -> Result<Self, RequestHeadError> {
         let method =
-            Method::new(req.method().as_str()).map_err(|_| RequestHeadError::AbsoluteForm)?;
+            Method::new(req.method().as_str()).map_err(|_| RequestHeadError::InvalidMethod)?;
 
         let uri = req.uri();
         if uri.authority().is_some() {
@@ -164,7 +168,16 @@ impl RequestHead {
         for (name, value) in req.headers().iter() {
             let header_name = crate::primitives::header_block::HeaderName::new(name.as_str())
                 .map_err(RequestHeadError::HeaderName)?;
-            let value_str = value.to_str().unwrap_or("").to_string();
+            // Reject non-UTF-8 values, matching the runtime connection path
+            // rather than silently coercing them to an empty string.
+            let value_str = value
+                .to_str()
+                .map_err(|_| {
+                    RequestHeadError::HeaderValue(
+                        crate::primitives::header_block::HeaderError::InvalidValue,
+                    )
+                })?
+                .to_string();
             let header_value = crate::primitives::header_block::HeaderValue::new(value_str)
                 .map_err(RequestHeadError::HeaderValue)?;
             headers.push(header_name, header_value);

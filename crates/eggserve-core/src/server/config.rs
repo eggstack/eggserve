@@ -50,6 +50,11 @@ pub struct RuntimeConfig {
     /// Timeout for reading request headers. Default: 10s.
     pub header_read_timeout: Duration,
     /// Timeout wrapping the entire Hyper connection future. Default: 60s.
+    ///
+    /// This is a maximum connection lifetime: the budget is shared across
+    /// all requests on a keep-alive connection, not reset per request. A
+    /// connection idle for most of the budget has only the remainder left
+    /// for its next request/response cycle.
     pub connection_total_timeout: Duration,
     /// Timeout for a single handler invocation. Default: 30s.
     pub handler_timeout: Duration,

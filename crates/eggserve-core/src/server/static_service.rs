@@ -213,7 +213,14 @@ fn plan_static_request(
         ResolvedResource::Directory(dir) => {
             let raw_path = confined.as_str();
             if !raw_path.ends_with('/') {
-                let mut location = raw_path.to_string();
+                // Build the redirect target from percent-encoded components:
+                // `as_str()` is the decoded path and must not leak raw
+                // spaces/control bytes into the `Location` header value.
+                let mut location = String::new();
+                for component in confined.components() {
+                    location.push('/');
+                    location.push_str(&percent_encode_path_segment(component));
+                }
                 location.push('/');
                 if let Some(q) = target.query() {
                     location.push('?');

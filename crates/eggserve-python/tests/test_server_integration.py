@@ -1494,6 +1494,30 @@ class TestLifecycleParity(unittest.TestCase):
         s.stop()
         self._servers.append(s)
 
+    def test_failed_start_can_be_retried(self):
+        """A failed start() must not permanently brick the object."""
+        import socket as socket_mod
+
+        with socket_mod.socket() as blocker:
+            blocker.bind(("127.0.0.1", 0))
+            blocker.listen(1)
+            occupied = blocker.getsockname()[1]
+
+            s = Server(root=self._td, port=occupied,
+                       header_timeout_secs=10,
+                       connection_total_timeout_secs=10)
+            self._servers.append(s)
+            with self.assertRaises(Exception) as ctx:
+                s.start()
+            self.assertNotIn("already started", str(ctx.exception))
+
+        # The port is free again: the retry must attempt a real startup
+        # instead of failing with a stale "Server already started" guard.
+        s.start()
+        self.assertEqual(s.state, "running")
+        url = f"http://{s.addr}/index.txt"
+        self.assertTrue(_wait_for_server(url))
+
     def test_handler_timeout_parameter(self):
         """Server accepts handler_timeout_secs parameter."""
         def handler(req):

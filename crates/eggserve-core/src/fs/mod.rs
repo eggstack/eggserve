@@ -129,6 +129,35 @@ fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), Pa
     Ok(())
 }
 
+/// Returns `true` if a requested component syntactically resembles an NTFS
+/// 8.3 short-name alias (a tilde followed by a digit).
+///
+/// NTFS generates short aliases that need not begin with `.`, so requesting
+/// e.g. `ENV~1` can resolve to `.env`. When the dotfile policy denies
+/// dotfiles, callers use this predicate to decide whether the resolved long
+/// name must be re-checked against the policy.
+pub(crate) fn may_be_short_name_alias(component: &str) -> bool {
+    let bytes = component.as_bytes();
+    bytes
+        .windows(2)
+        .any(|pair| pair[0] == b'~' && pair[1].is_ascii_digit())
+}
+
+/// Post-open containment re-verification for the link-following fallback.
+///
+/// Between the pre-open containment check and the path-based open, a writer
+/// with access to the tree can swap a symlink into place so the open follows
+/// it outside the root. Re-canonicalizing the same pathname after the open
+/// detects such swaps; when the name no longer resolves to a confined
+/// resource (or cannot be canonicalized at all), the opened handle must not
+/// be used and resolution fails closed.
+fn fallback_reverify(candidate: &Path, canonical_root: &Path) -> Option<()> {
+    match fs::canonicalize(candidate) {
+        Ok(p) if p.starts_with(canonical_root) => Some(()),
+        _ => None,
+    }
+}
+
 /// A pinned root directory opened once at server startup.
 ///
 /// The root is opened during server/static-service construction and retained
@@ -326,6 +355,10 @@ impl<'a> RootGuard<'a> {
     /// `resolve_to_resource` or `resolve_child_relative` without falling
     /// through to this function.
     fn resolve_fallback(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
+        debug_assert!(
+            policy.symlinks != SymlinkPolicy::Denied,
+            "resolve_fallback is only reachable under SymlinkPolicy::Follow"
+        );
         let mut candidate = self.pinned.canonical_root().to_path_buf();
 
         for component in components {
@@ -334,17 +367,6 @@ impl<'a> RootGuard<'a> {
             }
 
             candidate.push(component);
-
-            if policy.symlinks == SymlinkPolicy::Denied {
-                match fs::symlink_metadata(&candidate) {
-                    Ok(meta) => {
-                        if meta.file_type().is_symlink() {
-                            return ResolvedResource::Denied(PathRejection::SymlinkDenied);
-                        }
-                    }
-                    Err(_) => return ResolvedResource::NotFound,
-                }
-            }
         }
 
         let canonical = match fs::canonicalize(&candidate) {
@@ -356,17 +378,39 @@ impl<'a> RootGuard<'a> {
             return ResolvedResource::Denied(PathRejection::RootEscapeDenied);
         }
 
+        // 8.3 alias defense: an NTFS short-name alias need not begin with
+        // `.`, so a component that resembles an alias must be re-checked
+        // against the dotfile policy using the resolved long name.
+        if policy.dotfiles == DotfilePolicy::Denied {
+            if let Some(requested) = components.last() {
+                if may_be_short_name_alias(requested)
+                    && canonical
+                        .file_name()
+                        .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+                {
+                    return ResolvedResource::Denied(PathRejection::DotfileDenied);
+                }
+            }
+        }
+
         match fs::metadata(&canonical) {
             Ok(meta) => {
                 if meta.is_dir() {
                     #[cfg(unix)]
                     {
                         match fs::File::open(&canonical) {
-                            Ok(dir_fd) => ResolvedResource::Directory(ResolvedDirectory {
-                                dir_fd,
-                                canonical_path: canonical,
-                                components: components.to_vec(),
-                            }),
+                            Ok(dir_fd) => {
+                                if fallback_reverify(&candidate, self.pinned.canonical_root())
+                                    .is_none()
+                                {
+                                    return ResolvedResource::NotFound;
+                                }
+                                ResolvedResource::Directory(ResolvedDirectory {
+                                    dir_fd,
+                                    canonical_path: canonical,
+                                    components: components.to_vec(),
+                                })
+                            }
                             Err(_) => ResolvedResource::NotFound,
                         }
                     }
@@ -377,11 +421,18 @@ impl<'a> RootGuard<'a> {
                     #[cfg(windows)]
                     {
                         match windows::open_root_handle(&canonical) {
-                            Ok(dir_handle) => ResolvedResource::Directory(ResolvedDirectory {
-                                dir_handle,
-                                canonical_path: canonical,
-                                components: components.to_vec(),
-                            }),
+                            Ok(dir_handle) => {
+                                if fallback_reverify(&candidate, self.pinned.canonical_root())
+                                    .is_none()
+                                {
+                                    return ResolvedResource::NotFound;
+                                }
+                                ResolvedResource::Directory(ResolvedDirectory {
+                                    dir_handle,
+                                    canonical_path: canonical,
+                                    components: components.to_vec(),
+                                })
+                            }
                             Err(_) => ResolvedResource::NotFound,
                         }
                     }
@@ -396,11 +447,17 @@ impl<'a> RootGuard<'a> {
                     ResolvedResource::NotFound
                 } else {
                     match fs::File::open(&canonical) {
-                        Ok(file) => ResolvedResource::File(ResolvedFile {
-                            file,
-                            metadata: meta,
-                            safe_relative_components: components.to_vec(),
-                        }),
+                        Ok(file) => {
+                            if fallback_reverify(&candidate, self.pinned.canonical_root()).is_none()
+                            {
+                                return ResolvedResource::NotFound;
+                            }
+                            ResolvedResource::File(ResolvedFile {
+                                file,
+                                metadata: meta,
+                                safe_relative_components: components.to_vec(),
+                            })
+                        }
                         Err(_) => ResolvedResource::NotFound,
                     }
                 }
@@ -1099,31 +1156,54 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn resolve_fifo_rejected_via_openat() {
-        use std::time::Duration;
-
+    fn resolve_fifo_rejected_without_blocking() {
         let tmp = TempDir::new().unwrap();
         let fifo_path = tmp.path().join("pipe.fifo");
         let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
         let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
         assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
 
-        let fifo_clone = fifo_path.clone();
-        let writer = std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(50));
-            let _ = std::fs::OpenOptions::new().write(true).open(&fifo_clone);
-        });
-
         let pinned = PinnedRoot::new(tmp.path()).unwrap();
         let guard = RootGuard::new(&pinned);
         let path = parse_path("/pipe.fifo");
         let policy = StaticPolicy::safe_default();
+        // No writer is ever opened on the FIFO: if the resolver blocks in
+        // openat, this test would hang instead of failing.
         let result = guard.resolve(&path, &policy);
-        let _ = writer.join();
 
         assert!(
             matches!(result, ResolvedResource::NotFound),
-            "FIFO should be rejected as NotFound, got {result:?}"
+            "FIFO should be rejected as NotFound without blocking, got {result:?}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_child_fifo_rejected_without_blocking() {
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir(tmp.path().join("dir")).unwrap();
+        let fifo_path = tmp.path().join("dir").join("pipe.fifo");
+        let c_path = std::ffi::CString::new(fifo_path.to_str().unwrap()).unwrap();
+        let ret = unsafe { libc::mkfifo(c_path.as_ptr(), 0o644) };
+        assert_eq!(ret, 0, "mkfifo failed: {}", std::io::Error::last_os_error());
+
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+        let policy = StaticPolicy::safe_default();
+
+        let dir_result = guard.resolve(&parse_path("/dir"), &policy);
+        let dir = match dir_result {
+            ResolvedResource::Directory(d) => d,
+            other => panic!("expected Directory, got {other:?}"),
+        };
+
+        // No writer is ever opened on the FIFO: a blocking openat would
+        // hang this test.
+        let result = guard.resolve_child(&dir, "pipe.fifo", &policy);
+
+        assert!(
+            matches!(result, ResolvedResource::NotFound),
+            "FIFO child should be rejected as NotFound without blocking, got {result:?}"
         );
     }
 

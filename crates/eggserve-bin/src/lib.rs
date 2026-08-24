@@ -254,6 +254,9 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                                 EventKind::ShutdownComplete,
                                 "shutdown timed out, forcing",
                             ));
+                            // A forced abort after the grace period is a
+                            // dirty stop; signal it to supervisors.
+                            return 1;
                         }
                     }
                     0
@@ -355,6 +358,9 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                                 EventKind::ShutdownComplete,
                                 "shutdown timed out, forcing",
                             ));
+                            // A forced abort after the grace period is a
+                            // dirty stop; signal it to supervisors.
+                            return 1;
                         }
                     }
                     0

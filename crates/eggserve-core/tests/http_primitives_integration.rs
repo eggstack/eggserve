@@ -174,6 +174,20 @@ async fn live_directory_with_index_returns_200() {
 }
 
 #[tokio::test]
+async fn live_directory_redirect_encodes_location() {
+    let tmp = TempDir::new().unwrap();
+    fs::create_dir(tmp.path().join("my dir")).unwrap();
+    let (addr, _handle) = start_server(&tmp, StaticPolicy::safe_default()).await;
+
+    // The Location value must remain a valid URI-reference: encoded
+    // characters from the request target stay percent-encoded.
+    let resp = send_request(addr, get_req("/my%20dir")).await;
+    assert_eq!(resp.status(), StatusCode::MOVED_PERMANENTLY);
+    let location = resp.headers().get("location").unwrap().to_str().unwrap();
+    assert_eq!(location, "/my%20dir/");
+}
+
+#[tokio::test]
 async fn live_post_returns_405_with_allow_header() {
     let tmp = TempDir::new().unwrap();
     fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
