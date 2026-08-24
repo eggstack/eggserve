@@ -751,16 +751,32 @@ impl PyResolvedFile {
         method: &str,
         headers: Option<&Bound<'_, PyList>>,
     ) -> PyResult<PyResponsePlan> {
-        let _ = headers_from_list(headers)?;
+        let hdrs = headers_from_list(headers)?;
         let ro = parse_method(method)?;
+
+        let mut if_none_match: Option<String> = None;
+        let mut if_modified_since: Option<String> = None;
+        let mut range_header: Option<String> = None;
+        let mut if_range: Option<String> = None;
+
+        for (name, value) in &hdrs {
+            match name.to_lowercase().as_str() {
+                "if-none-match" => if_none_match = Some(value.clone()),
+                "if-modified-since" => if_modified_since = Some(value.clone()),
+                "range" => range_header = Some(value.clone()),
+                "if-range" => if_range = Some(value.clone()),
+                _ => {}
+            }
+        }
+
         let plan = planner::plan_file_response(
             ro,
             &self.metadata,
             &self.content_type,
-            None,
-            None,
-            None,
-            None,
+            if_none_match.as_deref(),
+            if_modified_since.as_deref(),
+            range_header.as_deref(),
+            if_range.as_deref(),
         );
         Ok(PyResponsePlan { inner: plan })
     }

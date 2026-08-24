@@ -954,6 +954,7 @@ pub(crate) fn resolve_to_resource(
 pub(crate) fn resolve_child_relative(
     parent_handle: HANDLE,
     parent_components: &[String],
+    parent_path: &std::path::Path,
     child: &str,
     deny_reparse: bool,
     dotfiles_denied: bool,
@@ -1006,7 +1007,7 @@ pub(crate) fn resolve_child_relative(
         ResolvedResource::Directory(ResolvedDirectory {
             #[cfg(windows)]
             dir_handle: child_handle,
-            canonical_path: std::path::PathBuf::new(), // diagnostic only
+            canonical_path: parent_path.join(child),
             components,
         })
     } else {
@@ -1425,7 +1426,7 @@ pub fn parse_directory_buffer(
         }
 
         // Read NextEntryOffset (first field, LE u32).
-        let next_entry_offset = u32::from_ne_bytes([
+        let next_entry_offset = u32::from_le_bytes([
             buffer[offset],
             buffer[offset + 1],
             buffer[offset + 2],
@@ -1434,7 +1435,7 @@ pub fn parse_directory_buffer(
 
         // Read FileNameLength (at offset 60 within the record, LE u32).
         let name_length_offset = offset + FILE_ID_BOTH_DIR_INFO_FILE_NAME_LENGTH_OFFSET;
-        let file_name_length = u32::from_ne_bytes([
+        let file_name_length = u32::from_le_bytes([
             buffer[name_length_offset],
             buffer[name_length_offset + 1],
             buffer[name_length_offset + 2],
@@ -1455,7 +1456,7 @@ pub fn parse_directory_buffer(
 
         // Read file_attributes (at offset 56 within the record, LE u32).
         let attrs_offset = offset + FILE_ID_BOTH_DIR_INFO_FILE_ATTRIBUTES_OFFSET;
-        let file_attributes = u32::from_ne_bytes([
+        let file_attributes = u32::from_le_bytes([
             buffer[attrs_offset],
             buffer[attrs_offset + 1],
             buffer[attrs_offset + 2],
@@ -1464,7 +1465,7 @@ pub fn parse_directory_buffer(
 
         // Read FileId (at offset 96 within the record, LE u64) for identity.
         let file_index_offset = offset + FILE_ID_BOTH_DIR_INFO_FILE_ID_OFFSET;
-        let file_index = u64::from_ne_bytes([
+        let file_index = u64::from_le_bytes([
             buffer[file_index_offset],
             buffer[file_index_offset + 1],
             buffer[file_index_offset + 2],
@@ -1479,7 +1480,7 @@ pub fn parse_directory_buffer(
         let name_u16: Vec<u16> = (0..file_name_length / 2)
             .map(|i| {
                 let idx = name_start + i * 2;
-                u16::from_ne_bytes([buffer[idx], buffer[idx + 1]])
+                u16::from_le_bytes([buffer[idx], buffer[idx + 1]])
             })
             .collect();
 

@@ -161,7 +161,11 @@ impl BodySource {
             }
             Self::FileRange { file, range, .. } => {
                 file.seek(SeekFrom::Start(range.start))?;
-                let len = (range.len() as usize).min(max_bytes);
+                let len = usize::try_from(range.len())
+                    .map_err(|_| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "body range too large")
+                    })?
+                    .min(max_bytes);
                 let mut buf = vec![0u8; len];
                 file.read_exact(&mut buf)?;
                 Ok(buf)
@@ -239,7 +243,12 @@ impl BodySource {
                 let absolute_start = range.start.checked_add(start).ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidInput, "absolute offset overflow")
                 })?;
-                let absolute_end = absolute_start + sub_len - 1;
+                let absolute_end = absolute_start
+                    .checked_add(sub_len)
+                    .and_then(|end| end.checked_sub(1))
+                    .ok_or_else(|| {
+                        io::Error::new(io::ErrorKind::InvalidInput, "absolute offset overflow")
+                    })?;
                 if absolute_end > range.end_inclusive {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
@@ -454,6 +463,19 @@ mod tests {
             mime: "text/plain",
         };
         let result = bs.read_range(5, 10);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn read_range_file_range_end_overflow_rejected() {
+        let (_tmp, file) = make_file(b"hello world");
+        let mut bs = BodySource::FileRange {
+            file,
+            range: FileRange::new(1, u64::MAX),
+            total_len: 11,
+            mime: "text/plain",
+        };
+        let result = bs.read_range(0, u64::MAX - 1);
         assert!(result.is_err());
     }
 

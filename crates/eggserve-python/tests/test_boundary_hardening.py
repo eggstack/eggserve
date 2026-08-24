@@ -748,6 +748,28 @@ class TestRequestRepresentation(_TestServerBase):
         self.assertIn("x-custom", captured[-1])
         self.assertEqual(captured[-1]["x-custom"], "test-value")
 
+    def test_duplicate_request_headers_dict_is_first_wins(self):
+        """The convenience header map preserves its documented first value."""
+        captured = []
+
+        def handler(req):
+            captured.append(req.headers["x-test"])
+            return Response.text(200, "ok")
+
+        s = self._make_server(handler=handler)
+        self.assertTrue(_wait_for_tcp(s.addr))
+        host, port = s.addr.split(":")
+        with socket.create_connection((host, int(port)), timeout=2) as sock:
+            sock.sendall(
+                b"GET /index.txt HTTP/1.1\r\n"
+                b"Host: test\r\n"
+                b"X-Test: first\r\n"
+                b"X-Test: second\r\n"
+                b"Connection: close\r\n\r\n"
+            )
+            sock.recv(4096)
+        self.assertEqual(captured, ["first"])
+
     def test_request_has_body_false_for_get(self):
         """has_body is False for GET requests."""
         captured = []

@@ -120,6 +120,7 @@ pub(crate) fn resolve_fd_relative(
 pub(crate) fn resolve_child_fd(
     dir_fd: &fs::File,
     dir_components: &[String],
+    canonical_root: &Path,
     child: &str,
     policy: &StaticPolicy,
 ) -> ResolvedResource {
@@ -127,10 +128,6 @@ pub(crate) fn resolve_child_fd(
         super::validate_child_component(child, policy.dotfiles == DotfilePolicy::Denied)
     {
         return ResolvedResource::Denied(rejection);
-    }
-
-    if policy.dotfiles == DotfilePolicy::Denied && child.starts_with('.') {
-        return ResolvedResource::Denied(PathRejection::DotfileDenied);
     }
 
     if policy.symlinks == SymlinkPolicy::Denied {
@@ -168,7 +165,7 @@ pub(crate) fn resolve_child_fd(
     if metadata.is_dir() {
         ResolvedResource::Directory(ResolvedDirectory {
             dir_fd: std_file,
-            canonical_path: PathBuf::new(),
+            canonical_path: construct_path(canonical_root, &components),
             components,
         })
     } else {

@@ -11,7 +11,7 @@ use std::fmt;
 pub enum HeaderError {
     /// The header name is empty or contains invalid characters.
     InvalidName,
-    /// The header value contains a carriage return, line feed, or NUL byte.
+    /// The header value contains an invalid control character.
     InvalidValue,
     /// The header name is too long.
     NameTooLong,
@@ -21,7 +21,7 @@ impl fmt::Display for HeaderError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::InvalidName => write!(f, "invalid header name"),
-            Self::InvalidValue => write!(f, "invalid header value (contains CR/LF/NUL)"),
+            Self::InvalidValue => write!(f, "invalid header value (contains a control character)"),
             Self::NameTooLong => write!(f, "header name too long"),
         }
     }
@@ -109,11 +109,11 @@ impl HeaderValue {
     ///
     /// # Errors
     ///
-    /// Returns [`HeaderError::InvalidValue`] if the value contains a
-    /// carriage return (CR), line feed (LF), or NUL byte.
+    /// Returns [`HeaderError::InvalidValue`] if the value contains a control
+    /// character other than horizontal tab.
     pub fn new(value: impl Into<String>) -> Result<Self, HeaderError> {
         let s = value.into();
-        if s.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0) {
+        if s.bytes().any(|b| b.is_ascii_control() && b != b'\t') {
             return Err(HeaderError::InvalidValue);
         }
         Ok(Self(s.trim_matches([' ', '\t']).to_owned()))
@@ -342,6 +342,17 @@ mod tests {
             HeaderValue::new("foo\0bar").unwrap_err(),
             HeaderError::InvalidValue
         );
+    }
+
+    #[test]
+    fn header_value_other_controls_rejected() {
+        for byte in [0x01, 0x1f, 0x7f] {
+            let value = format!("before{}after", char::from(byte));
+            assert_eq!(
+                HeaderValue::new(value).unwrap_err(),
+                HeaderError::InvalidValue
+            );
+        }
     }
 
     #[test]

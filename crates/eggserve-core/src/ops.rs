@@ -473,7 +473,12 @@ pub(crate) fn escape_json_string(s: &str) -> String {
             '\r' => out.push_str("\\r"),
             '\t' => out.push_str("\\t"),
             c if (c as u32) < 0x20 => {
-                out.push_str(&format!("\\u{:04x}", c as u32));
+                out.push_str("\\u");
+                let value = c as u32;
+                for shift in [12, 8, 4, 0] {
+                    let digit = ((value >> shift) & 0xf) as u8;
+                    out.push(char::from(b"0123456789abcdef"[digit as usize]));
+                }
             }
             _ => out.push(c),
         }

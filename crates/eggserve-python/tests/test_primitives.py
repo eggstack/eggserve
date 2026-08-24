@@ -448,6 +448,17 @@ class TestResolvedFile(unittest.TestCase):
         self.assertEqual(plan.status, 304)
         self.assertEqual(plan.body_kind, "empty")
 
+    def test_plan_response_applies_conditional_headers(self):
+        f = self._make_file()
+        etag = generate_etag(f)
+        plan = f.plan_response("GET", headers=[("if-none-match", etag)])
+        self.assertEqual(plan.status, 304)
+        self.assertEqual(plan.body_kind, "empty")
+
+        plan = f.plan_response("GET", headers=[("range", "bytes=0-0")])
+        self.assertEqual(plan.status, 206)
+        self.assertEqual(plan.range, (0, 0))
+
     def test_plan_conditional_200_no_match(self):
         f = self._make_file()
         plan = f.plan_conditional_response(

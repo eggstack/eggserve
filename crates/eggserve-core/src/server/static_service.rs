@@ -8,7 +8,6 @@
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::UNIX_EPOCH;
 
 use crate::config::{ServeConfig, ServeState};
 use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
@@ -512,17 +511,6 @@ fn percent_encode_path_segment(value: &str) -> String {
         }
     }
     out
-}
-
-#[allow(dead_code)]
-fn _generate_etag(metadata: &std::fs::Metadata) -> Option<String> {
-    let epoch = metadata.modified().ok()?.duration_since(UNIX_EPOCH).ok()?;
-    Some(format!(
-        "W/\"{}-{}-{}\"",
-        metadata.len(),
-        epoch.as_secs(),
-        epoch.subsec_nanos()
-    ))
 }
 
 #[cfg(test)]

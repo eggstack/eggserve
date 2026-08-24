@@ -530,8 +530,7 @@ pub fn is_hop_by_hop_header(name: &str) -> bool {
 
 /// Remove all headers with the given name (case-insensitive).
 fn remove_header(headers: &mut HeaderBlock, name: &str) {
-    let lower = name.to_ascii_lowercase();
-    headers.retain(|f| f.name.as_str().to_ascii_lowercase() != lower);
+    headers.retain(|f| !f.name.as_str().eq_ignore_ascii_case(name));
 }
 
 /// Remove all hop-by-hop headers from the block.
@@ -642,14 +641,14 @@ fn file_body(
     };
 
     let stream = stream::unfold(
-        (file, start, remaining, permit),
-        |(mut file, offset, remaining, permit)| async move {
+        (file, start, remaining, start > 0, permit),
+        |(mut file, offset, remaining, needs_seek, permit)| async move {
             if remaining == 0 {
                 return None;
             }
-            if offset > 0 {
+            if needs_seek {
                 if let Err(error) = file.seek(std::io::SeekFrom::Start(offset)).await {
-                    return Some((Err(error), (file, offset, 0, permit)));
+                    return Some((Err(error), (file, offset, 0, false, permit)));
                 }
             }
             let chunk_len = remaining.min(64 * 1024) as usize;
@@ -661,10 +660,11 @@ fn file_body(
                         file,
                         offset + chunk_len as u64,
                         remaining - chunk_len as u64,
+                        false,
                         permit,
                     ),
                 )),
-                Err(error) => Some((Err(error), (file, offset, 0, permit))),
+                Err(error) => Some((Err(error), (file, offset, 0, false, permit))),
             }
         },
     );

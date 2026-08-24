@@ -744,7 +744,9 @@ impl PyStaticResponder {
                 self.policy.directory_listing,
                 policy::DirectoryListingPolicy::Enabled
             ) {
-                let entries = dir.list(&self.root, 1000).map_err(|e| {
+                let entries = dir
+                    .list(&self.root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
+                    .map_err(|e| {
                     pyo3::exceptions::PyRuntimeError::new_err(format!(
                         "directory listing failed: {e}"
                     ))
@@ -1220,10 +1222,12 @@ impl PythonCallbackService {
             .iter()
             .map(|f| (f.name.to_string(), f.value.to_string()))
             .collect();
-        let headers: HashMap<String, String> = header_items
-            .iter()
-            .map(|(name, value)| (name.to_ascii_lowercase(), value.clone()))
-            .collect();
+        let mut headers = HashMap::new();
+        for (name, value) in &header_items {
+            headers
+                .entry(name.to_ascii_lowercase())
+                .or_insert_with(|| value.clone());
+        }
         let http_version = head.version().to_string();
 
         let remote_addr = Some(connection.remote_addr.to_string());
@@ -1300,6 +1304,8 @@ fn convert_python_response_to_canonical<'py>(
         .map_err(|_| ServiceError::internal("Python handler response headers are missing"))?
         .extract()
         .or_else(|_| {
+            // Native Response exposes a dict; structural responses may
+            // provide an ordered list of header pairs.
             obj.getattr("headers")
                 .and_then(|v| v.extract::<HashMap<String, String>>())
                 .map(|map| map.into_iter().collect())

@@ -27,13 +27,18 @@ impl ConfinedPath {
         let decoded = decode::percent_decode(path)?;
 
         let normalized = components::normalize_path(&decoded);
+        let normalized_path = if normalized.is_empty() {
+            "/".to_owned()
+        } else {
+            format!("/{}", normalized)
+        };
 
         let parts = components::split_components(&normalized);
 
         components::validate_components(&parts, policy)?;
 
         Ok(Self {
-            decoded,
+            decoded: normalized_path,
             components: parts,
             path_policy: policy.clone(),
         })
@@ -117,6 +122,7 @@ mod tests {
     #[test]
     fn normalize_consecutive_slashes() {
         let p = ConfinedPath::parse("/foo//bar", &default_policy()).unwrap();
+        assert_eq!(p.as_str(), "/foo/bar");
         assert_eq!(p.components(), &["foo", "bar"]);
     }
 
@@ -301,13 +307,13 @@ mod tests {
     }
 
     #[test]
-    fn reject_double_slash_root() {
+    fn accept_double_slash_as_root() {
         let p = ConfinedPath::parse("//", &default_policy()).unwrap();
         assert_eq!(p.components().len(), 0);
     }
 
     #[test]
-    fn reject_triple_slash() {
+    fn accept_triple_slash_as_root() {
         let p = ConfinedPath::parse("///", &default_policy()).unwrap();
         assert_eq!(p.components().len(), 0);
     }

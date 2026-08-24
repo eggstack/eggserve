@@ -275,13 +275,20 @@ impl<'a> RootGuard<'a> {
         }
         #[cfg(unix)]
         if policy.symlinks == SymlinkPolicy::Denied {
-            return unix::resolve_child_fd(&dir.dir_fd, &dir.components, child, policy);
+            return unix::resolve_child_fd(
+                &dir.dir_fd,
+                &dir.components,
+                self.pinned.canonical_root(),
+                child,
+                policy,
+            );
         }
         #[cfg(windows)]
         if policy.symlinks == SymlinkPolicy::Denied {
             return windows::resolve_child_relative(
                 dir.dir_handle.raw(),
                 &dir.components,
+                &dir.canonical_path,
                 child,
                 true,
                 policy.dotfiles == DotfilePolicy::Denied,
@@ -335,24 +342,14 @@ impl<'a> RootGuard<'a> {
                             return ResolvedResource::Denied(PathRejection::SymlinkDenied);
                         }
                     }
-                    Err(e) => {
-                        if e.kind() == std::io::ErrorKind::NotFound {
-                            return ResolvedResource::NotFound;
-                        }
-                        return ResolvedResource::NotFound;
-                    }
+                    Err(_) => return ResolvedResource::NotFound,
                 }
             }
         }
 
         let canonical = match fs::canonicalize(&candidate) {
             Ok(p) => p,
-            Err(e) => {
-                if e.kind() == std::io::ErrorKind::NotFound {
-                    return ResolvedResource::NotFound;
-                }
-                return ResolvedResource::NotFound;
-            }
+            Err(_) => return ResolvedResource::NotFound,
         };
 
         if !canonical.starts_with(self.pinned.canonical_root()) {
@@ -490,6 +487,26 @@ mod tests {
         let policy = StaticPolicy::safe_default();
         let result = guard.resolve(&path, &policy);
         assert!(matches!(result, ResolvedResource::Directory(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resolve_child_directory_retains_canonical_path() {
+        let (tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
+        let policy = StaticPolicy::safe_default();
+        let root = match guard.resolve(&parse_path("/"), &policy) {
+            ResolvedResource::Directory(dir) => dir,
+            other => panic!("expected root directory, got {other:?}"),
+        };
+
+        let child = guard.resolve_child(&root, "subdir", &policy);
+        match child {
+            ResolvedResource::Directory(dir) => {
+                assert_eq!(dir.canonical_path, tmp.path().join("subdir"));
+            }
+            other => panic!("expected child directory, got {other:?}"),
+        }
     }
 
     #[test]

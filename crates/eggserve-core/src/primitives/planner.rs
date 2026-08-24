@@ -417,7 +417,12 @@ fn parse_http_date(s: &str) -> Option<SystemTime> {
 pub fn plan_directory_listing(content_length: usize, is_head: bool) -> StaticResponsePlan {
     let mut headers = HeaderMapPlan::new();
     headers.push("content-type", "text/html; charset=utf-8".to_owned());
-    headers.push("content-length", content_length.to_string());
+    // A GET caller supplies the listing bytes after planning; leaving this
+    // header out prevents the placeholder empty body from advertising the
+    // eventual representation length. HEAD has no body to carry that length.
+    if is_head {
+        headers.push("content-length", content_length.to_string());
+    }
     headers.push("x-content-type-options", "nosniff".to_owned());
     headers.push(
         "content-security-policy",
@@ -952,7 +957,7 @@ mod tests {
             plan.headers.get("content-type"),
             Some("text/html; charset=utf-8")
         );
-        assert_eq!(plan.headers.get("content-length"), Some("1234"));
+        assert_eq!(plan.headers.get("content-length"), None);
         assert_eq!(
             plan.headers.get("content-security-policy"),
             Some("default-src 'none'; base-uri 'none'; form-action 'none'")
