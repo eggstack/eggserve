@@ -9,6 +9,7 @@ owner, enforcement path, and cross-frontend mapping.
 
 - `RuntimeConfig` fields — connection limits, timeouts, body ceiling
 - `Limits` fields — validated subset fed into `RuntimeConfig`
+- `Limits::stream_chunk_size` — translated once into `RuntimeConfig`
 - CLI flags (`--max-connections`, `--handler-timeout`, etc.)
 - Python `Server()` constructor params (`max_connections`, `handler_timeout_secs`, etc.)
 
@@ -19,7 +20,6 @@ owner, enforcement path, and cross-frontend mapping.
 - `Limits::max_file_streams` — translated once into `RuntimeConfig` and the
   one runtime-owned file-stream semaphore
 - `Limits::max_listing_entries`, `max_listing_response_bytes`
-- `Limits::stream_chunk_size`
 
 A setting may be shared by reference, but only one validated value owns enforcement.
 
@@ -70,7 +70,7 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `directory_listing` | `StaticPolicy` | Disabled | enum | `--directory-listing` | `directory_listing` (StaticPolicy) | Directory listing response |
 | `symlinks` | `StaticPolicy` | Denied | enum | `--follow-symlinks` | `follow_symlinks` (StaticPolicy) | Path traversal resolution |
 | `dotfiles` | `StaticPolicy` | Denied | enum | `--allow-dotfiles` | `allow_dotfiles` (StaticPolicy) | Dotfile path component check |
-| `stream_chunk_size` | `Limits` | 8192 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size |
+| `stream_chunk_size` | `Limits` / `RuntimeConfig` | 8192 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size |
 
 ### TLS (feature-gated)
 

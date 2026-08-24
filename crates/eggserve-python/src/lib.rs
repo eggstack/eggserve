@@ -993,13 +993,13 @@ impl PyResponsePlan {
     }
 
     #[getter]
-    fn headers(&self, py: Python<'_>) -> PyObject {
+    fn headers(&self, py: Python<'_>) -> PyResult<PyObject> {
         let list = pyo3::types::PyList::empty(py);
         for h in self.inner.headers.iter() {
-            let tup = pyo3::types::PyTuple::new(py, [h.name.as_str(), h.value.as_str()]).unwrap();
-            list.append(tup).unwrap();
+            let tup = pyo3::types::PyTuple::new(py, [h.name.as_str(), h.value.as_str()])?;
+            list.append(tup)?;
         }
-        list.into_any().unbind()
+        Ok(list.into_any().unbind())
     }
 
     #[getter]

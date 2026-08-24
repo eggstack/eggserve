@@ -154,10 +154,20 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         ));
     }
 
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let rt = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .unwrap();
+    {
+        Ok(rt) => rt,
+        Err(e) => {
+            Logger::global().emit(Event::new(
+                Severity::Error,
+                EventKind::ProcessStarting,
+                format!("failed to build runtime: {}", e),
+            ));
+            return 1;
+        }
+    };
 
     #[cfg(not(feature = "tls"))]
     {
@@ -175,11 +185,21 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
 
         return rt.block_on(async {
-            let server = Server::builder()
+            let server = match Server::builder()
                 .runtime(runtime_config)
                 .serve_config(serve_config)
                 .build()
-                .unwrap();
+            {
+                Ok(server) => server,
+                Err(e) => {
+                    Logger::global().emit(Event::new(
+                        Severity::Error,
+                        EventKind::ProcessStarting,
+                        format!("failed to build server: {}", e),
+                    ));
+                    return 1;
+                }
+            };
 
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
 
@@ -268,11 +288,21 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
 
         return rt.block_on(async {
-            let server = Server::builder()
+            let server = match Server::builder()
                 .runtime(runtime_config)
                 .serve_config(serve_config)
                 .build()
-                .unwrap();
+            {
+                Ok(server) => server,
+                Err(e) => {
+                    Logger::global().emit(Event::new(
+                        Severity::Error,
+                        EventKind::ProcessStarting,
+                        format!("failed to build server: {}", e),
+                    ));
+                    return 1;
+                }
+            };
 
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
             tokio::spawn(shutdown::shutdown_signal(shutdown_tx));

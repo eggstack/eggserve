@@ -69,63 +69,110 @@ impl Args {
         let mut port_from_flag = false;
         let mut bind_seen = false;
         let mut addr_seen = false;
+        let mut directory_seen = false;
         let mut public = false;
+        let mut public_seen = false;
         let mut directory_listing = DirectoryListingPolicy::Disabled;
+        let mut directory_listing_seen = false;
         let mut symlinks = SymlinkPolicy::Denied;
+        let mut symlinks_seen = false;
         let mut dotfiles = DotfilePolicy::Denied;
+        let mut dotfiles_seen = false;
         let mut log_format = LogFormat::Text;
+        let mut log_format_seen = false;
         let mut quiet = false;
+        let mut quiet_seen = false;
         let mut max_connections: Option<usize> = None;
+        let mut max_connections_seen = false;
         let mut max_file_streams: Option<usize> = None;
+        let mut max_file_streams_seen = false;
         let mut header_read_timeout: Option<Duration> = None;
+        let mut header_read_timeout_seen = false;
         let mut connection_total_timeout: Option<Duration> = None;
+        let mut connection_total_timeout_seen = false;
         let mut handler_timeout: Option<Duration> = None;
+        let mut handler_timeout_seen = false;
         let mut body_read_timeout: Option<Duration> = None;
+        let mut body_read_timeout_seen = false;
         let mut default_content_type = "application/octet-stream".to_string();
+        let mut content_type_seen = false;
         let mut extra_response_headers = Vec::new();
         #[cfg(feature = "tls")]
         let mut tls_cert: Option<PathBuf> = None;
         #[cfg(feature = "tls")]
         let mut tls_key: Option<PathBuf> = None;
+        #[cfg(feature = "tls")]
+        let mut tls_cert_seen = false;
+        #[cfg(feature = "tls")]
+        let mut tls_key_seen = false;
         let mut positional_args: Vec<String> = Vec::new();
+        let mut end_of_options = false;
 
         let mut i = 0;
         while i < args.len() {
+            if end_of_options {
+                positional_args.push(args[i].clone());
+                i += 1;
+                continue;
+            }
+            if args[i] == "--" {
+                end_of_options = true;
+                i += 1;
+                continue;
+            }
             match args[i].as_str() {
                 "--directory" => {
+                    if directory_seen {
+                        return Err("--directory may only be specified once".to_string());
+                    }
+                    directory_seen = true;
                     i += 1;
                     let dir = args.get(i).ok_or("--directory requires an argument")?;
                     root = Some(PathBuf::from(dir));
                 }
                 "--bind" => {
+                    if bind_seen {
+                        return Err("--bind may only be specified once".to_string());
+                    }
                     if addr_seen {
                         return Err("--bind and --addr cannot be used together".to_string());
                     }
                     bind_seen = true;
                     i += 1;
                     let addr = args.get(i).ok_or("--bind requires an argument")?;
-                    if let Ok(parsed) = addr.parse::<SocketAddr>() {
-                        bind_host = parsed.ip().to_string();
-                        bind_port = parsed.port();
-                        port_from_flag = true;
+                    let (host, port) = if let Ok(parsed) = addr.parse::<SocketAddr>() {
+                        (parsed.ip().to_string(), Some(parsed.port()))
                     } else if let Ok(ip) = addr.parse::<IpAddr>() {
-                        bind_host = ip.to_string();
+                        (ip.to_string(), None)
                     } else if let Some((host, port)) = split_bind_host_port(addr) {
-                        bind_host = host.to_string();
-                        if let Some(port) = port {
-                            bind_port = port;
-                            port_from_flag = true;
-                        }
+                        (host.to_string(), port)
                     } else {
                         return Err(format!(
                             "invalid bind address '{}': expected HOST or HOST:PORT",
                             addr
                         ));
+                    };
+                    if port.is_some() && port_from_flag {
+                        return Err(
+                            "port may only be specified once (via --port, --addr, or --bind HOST:PORT)"
+                                .to_string(),
+                        );
+                    }
+                    bind_host = host;
+                    if let Some(port) = port {
+                        bind_port = port;
+                        port_from_flag = true;
                     }
                 }
                 "--port" => {
                     if addr_seen {
                         return Err("--port cannot be used with --addr (the port is set in --addr HOST:PORT)".into());
+                    }
+                    if port_from_flag {
+                        return Err(
+                            "port may only be specified once (via --port, --addr, or --bind HOST:PORT)"
+                                .to_string(),
+                        );
                     }
                     i += 1;
                     let port_str = args.get(i).ok_or("--port requires an argument")?;
@@ -138,6 +185,14 @@ impl Args {
                     if bind_seen {
                         return Err("--bind and --addr cannot be used together".to_string());
                     }
+                    if addr_seen {
+                        return Err("--addr may only be specified once".to_string());
+                    }
+                    if port_from_flag {
+                        return Err(
+                            "--addr cannot be used with --port (the port is already set)".into(),
+                        );
+                    }
                     addr_seen = true;
                     i += 1;
                     let addr = args.get(i).ok_or("--addr requires an argument")?;
@@ -149,18 +204,38 @@ impl Args {
                     port_from_flag = true;
                 }
                 "--public" => {
+                    if public_seen {
+                        return Err("--public may only be specified once".to_string());
+                    }
+                    public_seen = true;
                     public = true;
                 }
                 "--directory-listing" => {
+                    if directory_listing_seen {
+                        return Err("--directory-listing may only be specified once".to_string());
+                    }
+                    directory_listing_seen = true;
                     directory_listing = DirectoryListingPolicy::Enabled;
                 }
                 "--follow-symlinks" => {
+                    if symlinks_seen {
+                        return Err("--follow-symlinks may only be specified once".to_string());
+                    }
+                    symlinks_seen = true;
                     symlinks = SymlinkPolicy::Follow;
                 }
                 "--allow-dotfiles" => {
+                    if dotfiles_seen {
+                        return Err("--allow-dotfiles may only be specified once".to_string());
+                    }
+                    dotfiles_seen = true;
                     dotfiles = DotfilePolicy::Serve;
                 }
                 "--log-format" => {
+                    if log_format_seen {
+                        return Err("--log-format may only be specified once".to_string());
+                    }
+                    log_format_seen = true;
                     i += 1;
                     let fmt = args.get(i).ok_or("--log-format requires an argument")?;
                     log_format = match fmt.as_str() {
@@ -176,9 +251,17 @@ impl Args {
                     };
                 }
                 "--quiet" => {
+                    if quiet_seen {
+                        return Err("--quiet may only be specified once".to_string());
+                    }
+                    quiet_seen = true;
                     quiet = true;
                 }
                 "--max-connections" => {
+                    if max_connections_seen {
+                        return Err("--max-connections may only be specified once".to_string());
+                    }
+                    max_connections_seen = true;
                     i += 1;
                     let val = args
                         .get(i)
@@ -192,6 +275,10 @@ impl Args {
                     max_connections = Some(parsed);
                 }
                 "--max-file-streams" => {
+                    if max_file_streams_seen {
+                        return Err("--max-file-streams may only be specified once".to_string());
+                    }
+                    max_file_streams_seen = true;
                     i += 1;
                     let val = args
                         .get(i)
@@ -205,6 +292,10 @@ impl Args {
                     max_file_streams = Some(parsed);
                 }
                 "--header-timeout" => {
+                    if header_read_timeout_seen {
+                        return Err("--header-timeout may only be specified once".to_string());
+                    }
+                    header_read_timeout_seen = true;
                     i += 1;
                     let val = args.get(i).ok_or("--header-timeout requires an argument")?;
                     let secs: u64 = val
@@ -213,6 +304,12 @@ impl Args {
                     header_read_timeout = Some(Duration::from_secs(secs));
                 }
                 "--connection-total-timeout" => {
+                    if connection_total_timeout_seen {
+                        return Err(
+                            "--connection-total-timeout may only be specified once".to_string()
+                        );
+                    }
+                    connection_total_timeout_seen = true;
                     i += 1;
                     let val = args
                         .get(i)
@@ -223,6 +320,10 @@ impl Args {
                     connection_total_timeout = Some(Duration::from_secs(secs));
                 }
                 "--handler-timeout" => {
+                    if handler_timeout_seen {
+                        return Err("--handler-timeout may only be specified once".to_string());
+                    }
+                    handler_timeout_seen = true;
                     i += 1;
                     let val = args
                         .get(i)
@@ -233,6 +334,10 @@ impl Args {
                     handler_timeout = Some(Duration::from_secs(secs));
                 }
                 "--body-read-timeout" => {
+                    if body_read_timeout_seen {
+                        return Err("--body-read-timeout may only be specified once".to_string());
+                    }
+                    body_read_timeout_seen = true;
                     i += 1;
                     let val = args
                         .get(i)
@@ -243,6 +348,10 @@ impl Args {
                     body_read_timeout = Some(Duration::from_secs(secs));
                 }
                 "--content-type" => {
+                    if content_type_seen {
+                        return Err("--content-type may only be specified once".to_string());
+                    }
+                    content_type_seen = true;
                     i += 1;
                     default_content_type = args
                         .get(i)
@@ -258,12 +367,20 @@ impl Args {
                 }
                 #[cfg(feature = "tls")]
                 "--tls-cert" => {
+                    if tls_cert_seen {
+                        return Err("--tls-cert may only be specified once".to_string());
+                    }
+                    tls_cert_seen = true;
                     i += 1;
                     let path = args.get(i).ok_or("--tls-cert requires an argument")?;
                     tls_cert = Some(PathBuf::from(path));
                 }
                 #[cfg(feature = "tls")]
                 "--tls-key" => {
+                    if tls_key_seen {
+                        return Err("--tls-key may only be specified once".to_string());
+                    }
+                    tls_key_seen = true;
                     i += 1;
                     let path = args.get(i).ok_or("--tls-key requires an argument")?;
                     tls_key = Some(PathBuf::from(path));
@@ -293,10 +410,19 @@ impl Args {
 
         for pos in positional_args {
             if !port_from_flag {
-                if let Ok(port) = pos.parse::<u16>() {
-                    bind_port = port;
-                    port_from_flag = true;
-                    continue;
+                match pos.parse::<u16>() {
+                    Ok(port) => {
+                        bind_port = port;
+                        port_from_flag = true;
+                        continue;
+                    }
+                    Err(_) if pos.bytes().all(|byte| byte.is_ascii_digit()) => {
+                        return Err(format!(
+                            "invalid positional port '{}': must be between 0 and 65535",
+                            pos
+                        ));
+                    }
+                    Err(_) => {}
                 }
             }
 
@@ -527,6 +653,68 @@ mod tests {
         let args = parse(&["8000", "1234"]).unwrap();
         assert_eq!(args.bind.port(), 8000);
         assert_eq!(args.root, PathBuf::from("1234"));
+    }
+
+    #[test]
+    fn out_of_range_positional_port_is_rejected() {
+        let result = parse(&["99999"]);
+        assert!(result.unwrap_err().contains("invalid positional port"));
+    }
+
+    #[test]
+    fn end_of_options_allows_flag_like_directory_names() {
+        let args = parse(&["--", "-dev"]).unwrap();
+        assert_eq!(args.root, PathBuf::from("-dev"));
+    }
+
+    #[test]
+    fn duplicate_nonrepeatable_options_are_rejected() {
+        let cases: &[&[&str]] = &[
+            &["--directory", "one", "--directory", "two"],
+            &["--bind", "127.0.0.1", "--bind", "localhost"],
+            &["--port", "8000", "--port", "8001"],
+            &["--addr", "127.0.0.1:8000", "--addr", "127.0.0.1:8001"],
+            &["--log-format", "text", "--log-format", "json"],
+            &["--max-connections", "1", "--max-connections", "2"],
+            &["--max-file-streams", "1", "--max-file-streams", "2"],
+            &["--header-timeout", "1", "--header-timeout", "2"],
+            &[
+                "--connection-total-timeout",
+                "2",
+                "--connection-total-timeout",
+                "3",
+            ],
+            &["--handler-timeout", "1", "--handler-timeout", "2"],
+            &["--body-read-timeout", "1", "--body-read-timeout", "2"],
+            &[
+                "--content-type",
+                "text/plain",
+                "--content-type",
+                "text/html",
+            ],
+            &["--public", "--public"],
+            &["--directory-listing", "--directory-listing"],
+            &["--follow-symlinks", "--follow-symlinks"],
+            &["--allow-dotfiles", "--allow-dotfiles"],
+            &["--quiet", "--quiet"],
+        ];
+        for case in cases {
+            let error = parse(case).unwrap_err();
+            assert!(
+                error.contains("may only be specified once"),
+                "unexpected error for {case:?}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn port_sources_cannot_overwrite_each_other() {
+        assert!(parse(&["--bind", "127.0.0.1:8000", "--port", "8001"])
+            .unwrap_err()
+            .contains("port may only be specified once"));
+        assert!(parse(&["--port", "8000", "--addr", "127.0.0.1:8001"])
+            .unwrap_err()
+            .contains("cannot be used with --port"));
     }
 
     #[test]

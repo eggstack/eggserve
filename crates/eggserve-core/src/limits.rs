@@ -6,6 +6,7 @@ use std::time::Duration;
 /// Default maximum number of entries to enumerate in a directory listing.
 pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
 pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 8192;
 
 /// Error returned when a [`Limits`] field violates its constraint.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -65,7 +66,7 @@ impl Default for Limits {
             graceful_shutdown_timeout: Duration::from_secs(10),
             max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
             max_listing_response_bytes: 1024 * 1024, // 1 MiB
-            stream_chunk_size: 8192,
+            stream_chunk_size: DEFAULT_STREAM_CHUNK_SIZE,
         }
     }
 }

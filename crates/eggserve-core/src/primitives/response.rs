@@ -99,6 +99,13 @@ impl FileRange {
         }
     }
 
+    /// Return the number of bytes in this range.
+    ///
+    /// # Panics
+    ///
+    /// Panics if the range describes more than `u64::MAX` bytes. Call
+    /// [`Self::checked_len`] when the endpoints are not already constrained
+    /// to a representable file range.
     pub fn len(&self) -> u64 {
         self.checked_len().expect("FileRange length overflow")
     }

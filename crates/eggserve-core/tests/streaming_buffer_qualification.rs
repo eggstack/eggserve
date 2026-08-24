@@ -205,8 +205,11 @@ async fn zero_length_file_head() {
     fs::write(_tmp.path().join("empty.txt"), "").unwrap();
     let resp = svc.call(head_req("/empty.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
-    // HEAD with empty body suppresses Content-Length per normalize_metadata
-    assert!(resp.headers().get_first("content-length").is_none());
+    // HEAD with empty body preserves Content-Length: 0 per normalize_metadata
+    assert_eq!(
+        resp.headers().get_first("content-length").unwrap().as_str(),
+        "0"
+    );
 }
 
 #[tokio::test]

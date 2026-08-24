@@ -45,6 +45,8 @@ pub struct RuntimeConfig {
     pub max_connections: usize,
     /// Maximum concurrent file-stream responses. Default: 32.
     pub max_file_streams: usize,
+    /// File streaming read chunk size. Default: 8 KiB.
+    pub stream_chunk_size: usize,
     /// Timeout for reading request headers. Default: 10s.
     pub header_read_timeout: Duration,
     /// Timeout wrapping the entire Hyper connection future. Default: 60s.
@@ -74,6 +76,7 @@ impl Default for RuntimeConfig {
             bind: "127.0.0.1:8000".parse().unwrap(),
             max_connections: 64,
             max_file_streams: 32,
+            stream_chunk_size: crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
             header_read_timeout: Duration::from_secs(10),
             connection_total_timeout: Duration::from_secs(60),
             handler_timeout: Duration::from_secs(30),
@@ -94,6 +97,7 @@ impl RuntimeConfig {
             bind: None,
             max_connections: None,
             max_file_streams: None,
+            stream_chunk_size: None,
             header_read_timeout: None,
             connection_total_timeout: None,
             handler_timeout: None,
@@ -114,6 +118,7 @@ pub struct RuntimeConfigBuilder {
     bind: Option<SocketAddr>,
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
+    stream_chunk_size: Option<usize>,
     header_read_timeout: Option<Duration>,
     connection_total_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
@@ -145,6 +150,14 @@ impl RuntimeConfigBuilder {
     /// Must be > 0. Default: 32.
     pub fn max_file_streams(mut self, max: usize) -> Self {
         self.max_file_streams = Some(max);
+        self
+    }
+
+    /// Set the file streaming read chunk size.
+    ///
+    /// Must be between 64 bytes and 1 MiB. Default: 8 KiB.
+    pub fn stream_chunk_size(mut self, size: usize) -> Self {
+        self.stream_chunk_size = Some(size);
         self
     }
 
@@ -234,6 +247,19 @@ impl RuntimeConfigBuilder {
                 max_semaphore_permits, max_file_streams
             )));
         }
+        let stream_chunk_size = self
+            .stream_chunk_size
+            .unwrap_or(crate::limits::DEFAULT_STREAM_CHUNK_SIZE);
+        if stream_chunk_size < 64 {
+            return Err(crate::server::errors::ServerError::Config(
+                "stream_chunk_size must be >= 64".into(),
+            ));
+        }
+        if stream_chunk_size > 1024 * 1024 {
+            return Err(crate::server::errors::ServerError::Config(
+                "stream_chunk_size must be <= 1048576 (1 MiB)".into(),
+            ));
+        }
 
         let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
         let connection_total_timeout = self
@@ -290,6 +316,7 @@ impl RuntimeConfigBuilder {
                 .unwrap_or_else(|| "127.0.0.1:8000".parse().unwrap()),
             max_connections,
             max_file_streams,
+            stream_chunk_size,
             header_read_timeout,
             connection_total_timeout,
             handler_timeout,
@@ -326,6 +353,7 @@ pub fn try_from_serve_config(
         bind: config.bind,
         max_connections: config.limits.max_connections,
         max_file_streams: config.limits.max_file_streams,
+        stream_chunk_size: config.limits.stream_chunk_size,
         header_read_timeout: config.limits.header_read_timeout,
         connection_total_timeout: config.limits.connection_total_timeout,
         handler_timeout: config.limits.handler_timeout,
@@ -349,6 +377,10 @@ mod tests {
         assert_eq!(config.bind.port(), 8000);
         assert_eq!(config.max_connections, 64);
         assert_eq!(config.max_file_streams, 32);
+        assert_eq!(
+            config.stream_chunk_size,
+            crate::limits::DEFAULT_STREAM_CHUNK_SIZE
+        );
         assert_eq!(config.header_read_timeout, Duration::from_secs(10));
         assert_eq!(config.connection_total_timeout, Duration::from_secs(60));
         assert_eq!(config.handler_timeout, Duration::from_secs(30));
@@ -364,6 +396,7 @@ mod tests {
             .bind("0.0.0.0:9000".parse().unwrap())
             .max_connections(128)
             .max_file_streams(64)
+            .stream_chunk_size(64)
             .header_read_timeout(Duration::from_secs(5))
             .connection_total_timeout(Duration::from_secs(30))
             .handler_timeout(Duration::from_secs(15))
@@ -376,6 +409,7 @@ mod tests {
         assert_eq!(config.bind.port(), 9000);
         assert_eq!(config.max_connections, 128);
         assert_eq!(config.max_file_streams, 64);
+        assert_eq!(config.stream_chunk_size, 64);
         assert_eq!(config.header_read_timeout, Duration::from_secs(5));
         assert_eq!(config.connection_total_timeout, Duration::from_secs(30));
         assert_eq!(config.handler_timeout, Duration::from_secs(15));
@@ -395,6 +429,15 @@ mod tests {
     }
 
     #[test]
+    fn invalid_stream_chunk_size_is_rejected() {
+        let err = RuntimeConfig::builder()
+            .stream_chunk_size(63)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("stream_chunk_size"));
+    }
+
+    #[test]
     fn from_serve_config() {
         let serve_config = crate::config::ServeConfig::default();
         let runtime = try_from_serve_config(&serve_config).unwrap();
@@ -403,6 +446,10 @@ mod tests {
         assert_eq!(
             runtime.max_file_streams,
             serve_config.limits.max_file_streams
+        );
+        assert_eq!(
+            runtime.stream_chunk_size,
+            serve_config.limits.stream_chunk_size
         );
         assert_eq!(
             runtime.max_request_body_bytes,
@@ -498,6 +545,7 @@ mod tests {
         let runtime = RuntimeConfig::default();
         assert_eq!(limits.max_connections, runtime.max_connections);
         assert_eq!(limits.max_file_streams, runtime.max_file_streams);
+        assert_eq!(limits.stream_chunk_size, runtime.stream_chunk_size);
         assert_eq!(limits.header_read_timeout, runtime.header_read_timeout);
         assert_eq!(
             limits.connection_total_timeout,

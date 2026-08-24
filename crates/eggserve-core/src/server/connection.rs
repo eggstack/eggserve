@@ -143,6 +143,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     let max_body_bytes = config.max_request_body_bytes;
     let tls_info = std::sync::Arc::new(tls_info);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+    let stream_chunk_size = config.stream_chunk_size;
     let response_config = config.clone();
 
     let hyper_service = service_fn(move |req: Request<Incoming>| {
@@ -330,7 +331,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(canonical, &file_stream_semaphore) {
+                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(canonical, &file_stream_semaphore, stream_chunk_size) {
                                 Ok(r) => r,
                                 Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
                                 Err(_) => crate::response::internal_error(),
@@ -408,7 +409,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(canonical, &file_stream_semaphore) {
+                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(canonical, &file_stream_semaphore, stream_chunk_size) {
                                 Ok(r) => r,
                                 Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
                                 Err(_) => crate::response::internal_error(),
@@ -456,7 +457,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
 
                     let response = match result {
                         Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore(canonical, &file_stream_semaphore) {
+                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(canonical, &file_stream_semaphore, stream_chunk_size) {
                                 Ok(r) => r,
                                 Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
                                 Err(_) => crate::response::internal_error(),
@@ -619,10 +620,11 @@ fn finalize_runtime_response(
 /// framing policy applied before body construction.
 ///
 /// Note: Hyper 1.x strips the Content-Length header when
-/// Transfer-Encoding is present. In that case, Hyper's own behavior
-/// prevents request smuggling — it processes the chunked body and
-/// ignores the removed Content-Length. The duplicate-CL check remains
-/// because Hyper does not strip duplicate CL fields.
+/// Transfer-Encoding is present and rejects conflicting duplicate
+/// Content-Length fields while decoding the request. Consequently, these
+/// branches are defense-in-depth for a future or alternate parser and are
+/// normally unreachable behind Hyper; keeping them makes the framing policy
+/// explicit at this boundary.
 fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
     let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
     let cl_values: Vec<_> = headers

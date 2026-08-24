@@ -447,9 +447,8 @@ pub fn normalize_response(
 /// file-backed response producers. It applies:
 ///
 /// 1. Strip runtime-owned `Transfer-Encoding`.
-/// 2. HEAD responses: suppress `Content-Length` only when `body_len` is 0
-///    (empty body). Non-empty HEAD responses retain `Content-Length` to
-///    match the equivalent GET representation.
+/// 2. HEAD responses retain `Content-Length` to match the equivalent GET
+///    representation, including for zero-length bodies.
 /// 3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`,
 ///    except that 304 may retain a matching representation length.
 /// 4. Normal payloads: set `Content-Length` to `body_len`.
@@ -473,12 +472,12 @@ pub fn normalize_response(
 /// - Content-Length is set from actual body length for payload-permitting responses
 /// - Content-Length is suppressed for body-forbidden (1xx/204/304) responses,
 ///   except for a matching 304 representation length
-/// - Content-Length is suppressed only when HEAD body is empty (body_len == 0)
+/// - HEAD responses retain Content-Length, including when body_len is zero
 pub fn normalize_metadata(
     status: StatusCode,
     headers: &mut HeaderBlock,
     body_len: u64,
-    is_head: bool,
+    _is_head: bool,
 ) -> Result<(), ResponseConstructionError> {
     // Rule 1: Strip all hop-by-hop headers.
     strip_hop_by_hop(headers);
@@ -499,9 +498,7 @@ pub fn normalize_metadata(
     // Rule 2-4: Content-Length handling.
     remove_header(headers, "content-length");
 
-    if (status.permits_payload_body() && !(is_head && body_len == 0))
-        || not_modified_length.is_some()
-    {
+    if status.permits_payload_body() || not_modified_length.is_some() {
         let length = not_modified_length.unwrap_or(body_len);
         headers
             .push_str("content-length", length.to_string())
@@ -547,7 +544,11 @@ pub fn to_hyper_response(
     hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
 > {
-    to_hyper_response_with_optional_file_stream_semaphore(response, None)
+    to_hyper_response_with_optional_file_stream_semaphore(
+        response,
+        None,
+        crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
+    )
 }
 
 /// Convert a canonical response while enforcing the runtime file-stream
@@ -559,12 +560,33 @@ pub fn to_hyper_response_with_file_stream_semaphore(
     hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
 > {
-    to_hyper_response_with_optional_file_stream_semaphore(response, Some(semaphore))
+    to_hyper_response_with_optional_file_stream_semaphore(
+        response,
+        Some(semaphore),
+        crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
+    )
+}
+
+/// Convert a canonical response using a configured file-stream chunk size.
+pub(crate) fn to_hyper_response_with_file_stream_semaphore_and_chunk_size(
+    response: Response,
+    semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+) -> Result<
+    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    ResponseConstructionError,
+> {
+    to_hyper_response_with_optional_file_stream_semaphore(
+        response,
+        Some(semaphore),
+        stream_chunk_size,
+    )
 }
 
 fn to_hyper_response_with_optional_file_stream_semaphore(
     response: Response,
     semaphore: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
+    stream_chunk_size: usize,
 ) -> Result<
     hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
@@ -596,7 +618,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
                 .transpose()
                 .map_err(|_| ResponseConstructionError::FileStreamLimit)?;
             let permit = permit.map(CountingFileStreamPermit::new);
-            file_body(source, permit)
+            file_body(source, permit, stream_chunk_size)
         }
         Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
             .map_err(|never| match never {})
@@ -616,6 +638,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
 fn file_body(
     source: BodySource,
     permit: Option<CountingFileStreamPermit>,
+    stream_chunk_size: usize,
 ) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
     use bytes::Bytes;
     use futures_util::stream;
@@ -642,7 +665,7 @@ fn file_body(
 
     let stream = stream::unfold(
         (file, start, remaining, start > 0, permit),
-        |(mut file, offset, remaining, needs_seek, permit)| async move {
+        move |(mut file, offset, remaining, needs_seek, permit)| async move {
             if remaining == 0 {
                 return None;
             }
@@ -651,7 +674,7 @@ fn file_body(
                     return Some((Err(error), (file, offset, 0, false, permit)));
                 }
             }
-            let chunk_len = remaining.min(64 * 1024) as usize;
+            let chunk_len = remaining.min(stream_chunk_size as u64) as usize;
             let mut buffer = vec![0; chunk_len];
             match file.read_exact(&mut buffer).await {
                 Ok(_) => Some((
@@ -765,6 +788,29 @@ mod tests {
             &semaphore
         )
         .is_ok());
+    }
+
+    #[tokio::test]
+    async fn file_transport_uses_configured_chunk_size() {
+        use futures_util::StreamExt;
+
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("chunked.bin");
+        std::fs::write(&path, vec![b'x'; 130]).unwrap();
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let response = to_hyper_response_with_file_stream_semaphore_and_chunk_size(
+            file_response(&path, None),
+            &semaphore,
+            64,
+        )
+        .unwrap();
+
+        let mut body = response.into_body().into_data_stream();
+        let mut chunk_lengths = Vec::new();
+        while let Some(chunk) = body.next().await {
+            chunk_lengths.push(chunk.unwrap().len());
+        }
+        assert_eq!(chunk_lengths, [64, 64, 2]);
     }
 
     #[test]
@@ -1208,16 +1254,17 @@ mod tests {
     }
 
     #[test]
-    fn normalize_metadata_head_suppresses_content_length_when_body_empty() {
+    fn normalize_metadata_head_preserves_zero_content_length_when_body_empty() {
         let code = StatusCode::OK;
         let mut headers = HeaderBlock::new();
         headers.push_str("content-length", "100").unwrap();
 
         normalize_metadata(code, &mut headers, 0, true).unwrap();
 
-        assert!(
-            !headers.contains("content-length"),
-            "HEAD with empty body must suppress Content-Length"
+        assert_eq!(
+            headers.get_first("content-length").unwrap().as_str(),
+            "0",
+            "HEAD with empty body must preserve zero Content-Length"
         );
     }
 }

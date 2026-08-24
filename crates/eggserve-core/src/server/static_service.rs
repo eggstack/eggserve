@@ -214,9 +214,7 @@ fn plan_static_request(
             let raw_path = confined.as_str();
             if !raw_path.ends_with('/') {
                 let mut location = raw_path.to_string();
-                if !location.ends_with('/') {
-                    location.push('/');
-                }
+                location.push('/');
                 if let Some(q) = target.query() {
                     location.push('?');
                     location.push_str(q);
@@ -595,6 +593,30 @@ mod tests {
         assert_eq!(
             head.headers().get_first("content-length").unwrap().as_str(),
             "5"
+        );
+    }
+
+    #[tokio::test]
+    async fn head_empty_file_preserves_zero_content_length() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::write(tmp.path().join("empty.txt"), b"").unwrap();
+        let service = StaticService::builder(tmp.path()).build().unwrap();
+
+        let get = service
+            .call(request(Method::get(), "/empty.txt"))
+            .await
+            .unwrap();
+        let head = service
+            .call(request(Method::head(), "/empty.txt"))
+            .await
+            .unwrap();
+        assert_eq!(
+            get.headers().get_first("content-length").unwrap().as_str(),
+            "0"
+        );
+        assert_eq!(
+            head.headers().get_first("content-length").unwrap().as_str(),
+            "0"
         );
     }
 

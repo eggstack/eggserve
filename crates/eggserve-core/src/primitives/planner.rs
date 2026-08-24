@@ -364,7 +364,7 @@ fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
             Err(_) => return RangeRequestOutcome::MalformedOrUnsupported,
         };
         if suffix_len == 0 {
-            return RangeRequestOutcome::MalformedOrUnsupported;
+            return RangeRequestOutcome::NotSatisfiable;
         }
         let start = file_size.saturating_sub(suffix_len);
         if start >= file_size {
@@ -862,7 +862,7 @@ mod tests {
     #[test]
     fn evaluate_range_header_suffix_zero() {
         let result = evaluate_range_header("bytes=-0", 100);
-        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
     }
 
     #[test]

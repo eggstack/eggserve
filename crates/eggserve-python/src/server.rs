@@ -1775,9 +1775,11 @@ impl PyServer {
         }
 
         let result = Self::start_reserved(slf.clone_ref(py), py);
-        slf.borrow(py)
-            .starting
-            .store(false, std::sync::atomic::Ordering::Release);
+        if result.is_ok() {
+            slf.borrow(py)
+                .starting
+                .store(false, std::sync::atomic::Ordering::Release);
+        }
         result
     }
 
@@ -2087,11 +2089,9 @@ impl PyServer {
         }
     }
 
-    fn __enter__(slf: Py<Self>) -> PyResult<Py<Self>> {
-        Python::with_gil(|py| {
-            Self::start(slf.clone_ref(py), py)?;
-            Ok(slf)
-        })
+    fn __enter__(slf: Py<Self>, py: Python<'_>) -> PyResult<Py<Self>> {
+        Self::start(slf.clone_ref(py), py)?;
+        Ok(slf)
     }
 
     fn __exit__(

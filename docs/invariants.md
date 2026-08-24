@@ -95,7 +95,7 @@ This document enumerates the security and behavioral invariants enforced by eggs
 
 | Invariant | Test coverage |
 |-----------|---------------|
-| Each chunk allocates a fresh bounded buffer (configurable via `Limits::stream_chunk_size`, default 8 KiB) | `response.rs` — `stream_chunk_size` from config |
+| Each chunk allocates a fresh bounded buffer (configurable via `Limits::stream_chunk_size`, default 8 KiB) | `canonical.rs` — `file_transport_uses_configured_chunk_size` |
 | Chunk buffer never exceeds remaining range bytes | `streaming_buffer_qualification` — exact range boundary tests |
 | No stale cross-request data exposure | `streaming_buffer_qualification` — `buffer_isolation` |
 | Client disconnect releases stream permit | `streaming_buffer_qualification` — `client_disconnect_releases_stream_permits` |

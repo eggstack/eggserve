@@ -773,7 +773,7 @@ fn head_preserves_content_length_when_body_nonempty() {
 }
 
 #[test]
-fn head_suppresses_content_length_when_body_empty() {
+fn head_preserves_zero_content_length_when_body_empty() {
     let resp = Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/plain")
@@ -782,9 +782,14 @@ fn head_suppresses_content_length_when_body_empty() {
         .unwrap();
     let req = NormalizeRequest::new(true);
     let normalized = normalize_response(resp, &req).unwrap();
-    assert!(
-        !normalized.headers().contains("content-length"),
-        "HEAD with empty body must not contain Content-Length"
+    assert_eq!(
+        normalized
+            .headers()
+            .get_first("content-length")
+            .unwrap()
+            .as_str(),
+        "0",
+        "HEAD with empty body must preserve zero Content-Length"
     );
     assert!(normalized.body().unwrap().is_empty());
 }
