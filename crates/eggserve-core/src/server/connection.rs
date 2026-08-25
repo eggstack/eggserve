@@ -520,8 +520,9 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     Ok::<_, Infallible>(finalize_runtime_response(response, &config))
                 }
                 RequestBodyPolicy::Stream { .. } => {
-                    // For Stream mode, enforce body_read_timeout as a total deadline
-                    // on the service call (which includes body consumption).
+                    // For Stream mode the service call (including body
+                    // consumption) runs under a total deadline of
+                    // min(body_read_timeout, handler_timeout).
                     let effective_timeout = body_read_timeout.min(handler_timeout);
                     let connection =
                         build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
@@ -663,7 +664,11 @@ fn body_error_to_response(
     // Cancelled/disconnected reads report the non-standard 499, which
     // Hyper refuses on the wire; the response collapses to 500 but the
     // connection must still close because the request ended mid-body.
+    // Transport failures (raw_status 500) also end the request mid-body
+    // with wire framing unknown, so they force close too; consumption-
+    // state 500s are application bugs with no wire anomaly and stay alive.
     let should_close = raw_status == 499
+        || err.is_transport()
         || matches!(
             status,
             hyper::StatusCode::BAD_REQUEST
@@ -960,6 +965,54 @@ mod tests {
                 .iter()
                 .count(),
             1
+        );
+    }
+
+    #[test]
+    fn body_error_transport_forces_connection_close() {
+        fn head() -> crate::primitives::request_head::RequestHead {
+            crate::primitives::request_head::RequestHead::new(
+                crate::primitives::method::Method::get(),
+                crate::primitives::request_target::RequestTarget::parse("/x").unwrap(),
+                crate::primitives::version::HttpVersion::Http11,
+                crate::primitives::header_block::HeaderBlock::new(),
+            )
+        }
+
+        // Transport failures (500) must force close: the body stream broke
+        // mid-read, so wire framing state is unknown.
+        let transport = body_error_to_response(
+            crate::primitives::request_body_error::RequestBodyError::Transport("io".into()),
+            &head(),
+        );
+        assert_eq!(transport.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            transport
+                .headers()
+                .get(hyper::header::CONNECTION)
+                .map(|v| v.as_bytes()),
+            Some(&b"close"[..])
+        );
+
+        // Application-state 500s have no wire anomaly and stay reusable.
+        let consumed = body_error_to_response(
+            crate::primitives::request_body_error::RequestBodyError::AlreadyConsumed,
+            &head(),
+        );
+        assert_eq!(consumed.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
+        assert!(consumed.headers().get(hyper::header::CONNECTION).is_none());
+
+        // 499-collapsed disconnects still force close.
+        let disconnected = body_error_to_response(
+            crate::primitives::request_body_error::RequestBodyError::Disconnected,
+            &head(),
+        );
+        assert_eq!(
+            disconnected
+                .headers()
+                .get(hyper::header::CONNECTION)
+                .map(|v| v.as_bytes()),
+            Some(&b"close"[..])
         );
     }
 }

@@ -770,7 +770,7 @@ async fn classify_accept_error(
     let current_kind = format!("{}", event_kind);
     let is_same_kind = last_error_kind.as_deref() == Some(&current_kind);
     if is_same_kind {
-        *error_repeat_count += 1;
+        *error_repeat_count = error_repeat_count.saturating_add(1);
     } else {
         *error_repeat_count = 1;
         *last_error_kind = Some(current_kind);
@@ -815,6 +815,13 @@ fn is_fd_exhaustion(error: &std::io::Error) -> bool {
     if let Some(raw) = error.raw_os_error() {
         return raw == rustix::io::Errno::MFILE.raw_os_error().abs()
             || raw == rustix::io::Errno::NFILE.raw_os_error().abs();
+    }
+
+    // Windows accept() failures carry raw Winsock codes; WSAEMFILE is the
+    // fd-exhaustion equivalent and must back off like Unix EMFILE/ENFILE.
+    #[cfg(windows)]
+    if let Some(raw) = error.raw_os_error() {
+        return raw == 10024; // WSAEMFILE
     }
 
     if error.raw_os_error().is_some() {

@@ -102,20 +102,17 @@ pub fn plan_file_response_with_preconditions(
         }
     }
 
-    if let Some(ref etag_val) = etag {
-        let outcome = evaluate_conditional_headers(
-            etag_val,
-            last_modified_str.as_deref(),
-            if_none_match,
-            if_modified_since,
-        );
-        if let ConditionalRequestOutcome::NotModified(headers) = outcome {
-            return StaticResponsePlan {
-                status: ResponseStatus::NOT_MODIFIED,
-                headers,
-                body: BodyPlan::Empty,
-            };
-        }
+    if let Some(headers) = evaluate_cache_validation(
+        etag.as_deref(),
+        last_modified_str.as_deref(),
+        if_none_match,
+        if_modified_since,
+    ) {
+        return StaticResponsePlan {
+            status: ResponseStatus::NOT_MODIFIED,
+            headers,
+            body: BodyPlan::Empty,
+        };
     }
 
     if let Some(range) = range_header {
@@ -163,6 +160,36 @@ pub fn plan_file_response_with_preconditions(
         &etag,
         last_modified_str.as_deref(),
     )
+}
+
+/// Evaluate the cache-validation preconditions (RFC 9110 § 13.2.2 step 3)
+/// from precomputed validators. Returns `Some(headers)` when the request is
+/// NotModified, `None` when a full response must be built.
+///
+/// When no ETag can be generated, only `If-None-Match: *` still applies:
+/// RFC 9110 § 13.1.2 makes it mean "if a current representation exists",
+/// needing neither an ETag nor a modification date.
+fn evaluate_cache_validation(
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+) -> Option<HeaderMapPlan> {
+    if let Some(etag_val) = etag {
+        return match evaluate_conditional_headers(
+            etag_val,
+            last_modified,
+            if_none_match,
+            if_modified_since,
+        ) {
+            ConditionalRequestOutcome::NotModified(headers) => Some(headers),
+            _ => None,
+        };
+    }
+    if if_none_match.is_some_and(|inm| inm.trim() == "*") {
+        return Some(HeaderMapPlan::new());
+    }
+    None
 }
 
 /// Evaluate conditional request headers (If-None-Match, If-Modified-Since).
@@ -483,6 +510,17 @@ fn build_not_range_satisfiable(file_size: u64) -> StaticResponsePlan {
     }
 }
 
+/// Parse a digits-only `u64` per RFC 9110 § 14.1.2 (`first-pos` /
+/// `last-pos` are `1*DIGIT`). Unlike `u64::from_str`, this rejects the
+/// leading `+` that would otherwise make an invalid ranges-specifier
+/// parse successfully (an invalid specifier must be ignored).
+fn parse_u64_digits(s: &str) -> Option<u64> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse().ok()
+}
+
 fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
     if file_size == 0 {
         return RangeRequestOutcome::NotSatisfiable;
@@ -490,9 +528,9 @@ fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
 
     if let Some(suffix_len_str) = range.strip_prefix('-') {
         // Suffix: -N
-        let suffix_len: u64 = match suffix_len_str.parse() {
-            Ok(n) => n,
-            Err(_) => return RangeRequestOutcome::MalformedOrUnsupported,
+        let suffix_len: u64 = match parse_u64_digits(suffix_len_str) {
+            Some(n) => n,
+            None => return RangeRequestOutcome::MalformedOrUnsupported,
         };
         if suffix_len == 0 {
             return RangeRequestOutcome::NotSatisfiable;
@@ -510,9 +548,9 @@ fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
         return RangeRequestOutcome::MalformedOrUnsupported;
     }
 
-    let start: u64 = match parts[0].parse() {
-        Ok(n) => n,
-        Err(_) => return RangeRequestOutcome::MalformedOrUnsupported,
+    let start: u64 = match parse_u64_digits(parts[0]) {
+        Some(n) => n,
+        None => return RangeRequestOutcome::MalformedOrUnsupported,
     };
 
     if parts[1].is_empty() {
@@ -524,9 +562,9 @@ fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
     }
 
     // Start-End
-    let end: u64 = match parts[1].parse() {
-        Ok(n) => n,
-        Err(_) => return RangeRequestOutcome::MalformedOrUnsupported,
+    let end: u64 = match parse_u64_digits(parts[1]) {
+        Some(n) => n,
+        None => return RangeRequestOutcome::MalformedOrUnsupported,
     };
 
     if start > end {
@@ -1258,6 +1296,72 @@ mod tests {
     fn evaluate_range_header_non_numeric() {
         let result = evaluate_range_header("bytes=abc-def", 100);
         assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_leading_plus_is_malformed() {
+        // RFC 9110 § 14.1.2: first-pos/last-pos are 1*DIGIT; a leading '+'
+        // invalidates the specifier, which must be ignored (full response).
+        assert_eq!(
+            evaluate_range_header("bytes=+5-10", 100),
+            RangeRequestOutcome::MalformedOrUnsupported
+        );
+        assert_eq!(
+            evaluate_range_header("bytes=5-+10", 100),
+            RangeRequestOutcome::MalformedOrUnsupported
+        );
+        assert_eq!(
+            evaluate_range_header("bytes=-+5", 100),
+            RangeRequestOutcome::MalformedOrUnsupported
+        );
+    }
+
+    #[test]
+    fn plan_file_response_leading_plus_range_serves_full_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=+5-10"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn cache_validation_wildcard_inm_applies_without_etag() {
+        assert!(evaluate_cache_validation(None, None, Some("*"), None).is_some());
+    }
+
+    #[test]
+    fn cache_validation_listed_inm_without_etag_is_ignored() {
+        assert!(evaluate_cache_validation(None, None, Some("\"abc-123\""), None).is_none());
+    }
+
+    #[test]
+    fn cache_validation_no_headers_without_etag_is_full_response() {
+        assert!(evaluate_cache_validation(None, None, None, None).is_none());
+    }
+
+    #[test]
+    fn cache_validation_with_etag_still_uses_conditional_evaluation() {
+        // Matching listed INM yields NotModified headers carrying the ETag.
+        let headers =
+            evaluate_cache_validation(Some("\"abc-123\""), None, Some("\"abc-123\""), None)
+                .unwrap();
+        assert_eq!(headers.iter().count(), 1);
+
+        // Non-matching INM yields a full response.
+        assert!(
+            evaluate_cache_validation(Some("\"abc-123\""), None, Some("\"zzz\""), None).is_none()
+        );
     }
 
     #[test]

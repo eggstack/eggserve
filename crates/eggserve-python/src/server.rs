@@ -2128,11 +2128,17 @@ impl PyServer {
     fn force_shutdown(&self, py: Python<'_>, timeout_secs: f64) -> PyResult<String> {
         let timeout = Duration::from_secs_f64(timeout_secs);
 
-        let mut handle_guard = self
-            .handle
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        if let Some(handle) = handle_guard.take() {
+        // Take the handle and release the mutex immediately: the blocking
+        // drain below must not stall other threads calling state(),
+        // wait_ready(), stop(), shutdown(), or wait().
+        let handle = {
+            let mut handle_guard = self
+                .handle
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            handle_guard.take()
+        };
+        if let Some(handle) = handle {
             let runtime_guard = self
                 .runtime
                 .lock()
@@ -2182,11 +2188,17 @@ impl PyServer {
     }
 
     fn wait(&self, py: Python<'_>) -> PyResult<String> {
-        let mut handle_guard = self
-            .handle
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        if let Some(handle) = handle_guard.take() {
+        // Take the handle and release the mutex immediately: the blocking
+        // drain below must not stall other threads calling state(),
+        // wait_ready(), start(), stop(), or force_shutdown().
+        let handle = {
+            let mut handle_guard = self
+                .handle
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            handle_guard.take()
+        };
+        if let Some(handle) = handle {
             let runtime_guard = self
                 .runtime
                 .lock()
@@ -2201,10 +2213,27 @@ impl PyServer {
                 })?;
             }
             drop(runtime_guard);
-            Ok("stopped".to_string())
-        } else {
-            Ok("stopped".to_string())
+
+            // Consuming the handle ends this server instance, so tear the
+            // runtime down exactly as stop() does: post-wait() must not
+            // leave a runtime alive or report a listening address.
+            let mut runtime_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            if let Some(rt) = runtime_guard.take() {
+                py.allow_threads(|| {
+                    drop(rt);
+                });
+            }
+            drop(runtime_guard);
+
+            *self
+                .addr
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? = None;
         }
+        Ok("stopped".to_string())
     }
 
     fn __enter__(slf: Py<Self>, py: Python<'_>) -> PyResult<Py<Self>> {

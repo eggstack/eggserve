@@ -223,19 +223,9 @@ pub fn sanitize_text_field(text: &str) -> String {
         .chars()
         .filter(|c| {
             let code = *c as u32;
-            if code < 0x20 {
-                return false;
-            }
-            if code == 0x7F {
-                return false;
-            }
-            if code == 0x1B {
-                return false;
-            }
-            if code > 0x7E {
-                return false;
-            }
-            true
+            // Printable ASCII only; this also excludes control characters
+            // (0x00-0x1F, including ESC) and DEL (0x7F).
+            (0x20..=0x7E).contains(&code)
         })
         .collect();
     truncate_str(&filtered, 512).into_owned()
@@ -246,10 +236,7 @@ pub fn sanitize_path(path: &str) -> String {
     let without_query = last_component.split('?').next().unwrap_or(last_component);
     let sanitized: String = without_query
         .chars()
-        .filter(|c| {
-            let code = *c as u32;
-            (0x20..0x7F).contains(&code) && code != 0x1B
-        })
+        .filter(|c| (0x20..0x7F).contains(&(*c as u32)))
         .collect();
     truncate_str(&sanitized, 127).into_owned()
 }

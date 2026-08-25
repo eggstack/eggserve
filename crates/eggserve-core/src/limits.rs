@@ -6,6 +6,9 @@ use std::time::Duration;
 /// Default maximum number of entries to enumerate in a directory listing.
 pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
 pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+/// Upper bound for `max_listing_entries`. This is an entry count, not a
+/// byte size; it numerically matches the historical acceptance range.
+pub const MAX_LISTING_ENTRIES: usize = 10 * 1024 * 1024;
 /// Upper bound for `max_request_body_bytes`. The default of `0` rejects all
 /// bodies; explicit values are capped so a single config value cannot become
 /// an unbounded per-request buffering knob.
@@ -205,11 +208,11 @@ impl Limits {
                 value: "0".into(),
                 constraint: "> 0".into(),
             });
-        } else if self.max_listing_entries > MAX_LISTING_RESPONSE_BYTES {
+        } else if self.max_listing_entries > MAX_LISTING_ENTRIES {
             errors.push(LimitsError {
                 field: "max_listing_entries",
                 value: self.max_listing_entries.to_string(),
-                constraint: format!("<= {} (10 MiB)", MAX_LISTING_RESPONSE_BYTES),
+                constraint: format!("<= {MAX_LISTING_ENTRIES} (entries)"),
             });
         }
         if self.max_request_body_bytes > MAX_REQUEST_BODY_BYTES {
@@ -516,7 +519,7 @@ mod tests {
     #[test]
     fn excessive_max_listing_entries_is_invalid() {
         let limits = Limits {
-            max_listing_entries: MAX_LISTING_RESPONSE_BYTES + 1,
+            max_listing_entries: MAX_LISTING_ENTRIES + 1,
             ..Default::default()
         };
         let errs = limits.validate().unwrap_err();

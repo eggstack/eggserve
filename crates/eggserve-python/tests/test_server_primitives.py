@@ -458,6 +458,17 @@ class TestServer(unittest.TestCase):
         result = s.wait()
         self.assertEqual(result, "stopped")
 
+    def test_wait_completes_teardown_like_stop(self):
+        """wait() tears down fully: addr is None and state is 'stopped'."""
+        s = Server(root=self._td, port=0)
+        s.start()
+        self.assertIsNotNone(s.addr)
+        s.shutdown()
+        result = s.wait()
+        self.assertEqual(result, "stopped")
+        self.assertIsNone(s.addr)
+        self.assertEqual(s.state, "stopped")
+
     def test_force_shutdown_returns_string(self):
         """force_shutdown returns 'clean' or 'timeout'."""
         s = Server(root=self._td, port=0)

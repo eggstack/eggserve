@@ -6,14 +6,11 @@ pub fn parse_origin_form(raw: &str) -> Result<&str, PathRejection> {
     }
 
     if !raw.starts_with('/') {
+        // Also rejects asterisk-form ("*"): it lacks the leading '/'.
         return Err(PathRejection::UnsupportedUriForm);
     }
 
     if raw.contains("://") {
-        return Err(PathRejection::UnsupportedUriForm);
-    }
-
-    if raw == "*" {
         return Err(PathRejection::UnsupportedUriForm);
     }
 

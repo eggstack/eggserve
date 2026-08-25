@@ -120,6 +120,14 @@ impl RequestBodyError {
         matches!(self, Self::AlreadyConsumed | Self::MixedConsumptionMode)
     }
 
+    /// Returns `true` if this error is a transport-level failure.
+    ///
+    /// Transport failures end the request mid-body with framing state
+    /// unknown on the wire, so the connection must not be reused.
+    pub fn is_transport(&self) -> bool {
+        matches!(self, Self::Transport(_))
+    }
+
     /// Returns the appropriate HTTP status code for this error.
     pub fn to_status_code(&self) -> u16 {
         match self {
@@ -177,6 +185,18 @@ mod tests {
         assert!(RequestBodyError::ReadTimeout.is_timeout());
         assert!(RequestBodyError::Disconnected.is_disconnect());
         assert!(RequestBodyError::AlreadyConsumed.is_consumption_state());
+        assert!(RequestBodyError::Transport("oops".into()).is_transport());
+        assert!(!RequestBodyError::AlreadyConsumed.is_transport());
+    }
+
+    #[test]
+    fn transport_errors_report_transport_classification() {
+        // Transport failures end the request mid-body, so they must be
+        // distinguishable from application-state 500s (which keep alive).
+        let transport = RequestBodyError::Transport("socket reset".into());
+        assert!(transport.is_transport());
+        assert_eq!(transport.to_status_code(), 500);
+        assert!(!transport.is_consumption_state());
     }
 
     #[test]
