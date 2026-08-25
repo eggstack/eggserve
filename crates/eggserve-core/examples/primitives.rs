@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     validate_request_body(None, None, 0)?;
     let path = ConfinedPath::parse("/Cargo.toml", &PathPolicy::default())?;
 
-    match resolve_and_plan(&root, &path, method, None, None, None, None) {
+    match resolve_and_plan(&root, &path, method, None, None, None, None, None, None) {
         Ok((plan, _body)) => {
             println!("Status: {}", plan.status);
             println!("Body plan: {:?}", plan.body);

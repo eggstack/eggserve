@@ -20,6 +20,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 
+# shellcheck source=../lib.sh
+. "$SCRIPT_DIR/../lib.sh"
+
 PROFILE="${1:-unix-reverse-proxy}"
 DURATION_HOURS="${SOAK_DURATION_HOURS:-24}"
 DURATION_SECS="${SOAK_DURATION_SECS:-0}"
@@ -87,14 +90,17 @@ dd if=/dev/urandom of="$WORK_DIR/root/subdir/deep.bin" bs=1024 count=50 2>/dev/n
 touch "$WORK_DIR/root/empty.txt"
 
 # Start eggserve
-EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
+EGGSERVE_PORT="$(pick_free_port)"
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
 EGGSERVE_PID=$!
 trap 'kill $EGGSERVE_PID 2>/dev/null; rm -rf "$WORK_DIR"' EXIT
-sleep 1
 
 if ! kill -0 "$EGGSERVE_PID" 2>/dev/null; then
     echo "FAIL: eggserve failed to start"
+    exit 1
+fi
+if ! wait_for_tcp 127.0.0.1 "$EGGSERVE_PORT" 15; then
+    echo "FAIL: eggserve did not become ready"
     exit 1
 fi
 
@@ -276,14 +282,21 @@ while [[ $(date +%s) -lt $END_TIME ]]; do
         kill -TERM "$EGGSERVE_PID" 2>/dev/null || true
         wait "$EGGSERVE_PID" 2>/dev/null || true
 
-        sleep 2
+        # Wait for the listener port to be released before rebinding.
+        if ! wait_for_tcp_absent 127.0.0.1 "$EGGSERVE_PORT" 15; then
+            echo "FAIL: eggserve did not release its port after graceful restart"
+            exit 1
+        fi
 
         "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
         EGGSERVE_PID=$!
-        sleep 1
 
         if ! kill -0 "$EGGSERVE_PID" 2>/dev/null; then
             echo "FAIL: eggserve failed to restart after cycle $CYCLE"
+            exit 1
+        fi
+        if ! wait_for_tcp 127.0.0.1 "$EGGSERVE_PORT" 15; then
+            echo "FAIL: eggserve did not become ready after restart at cycle $CYCLE"
             exit 1
         fi
     fi

@@ -37,6 +37,8 @@ Under the default zero-body policy (`max_request_body_bytes: 0`):
 |-----------|--------|------|
 | Normal file GET | 200 OK | Full file |
 | Normal file HEAD | 200 OK | Empty |
+| `If-Match` fails (strong comparison) | 412 Precondition Failed | Empty |
+| `If-Unmodified-Since` fails (no `If-Match`) | 412 Precondition Failed | Empty |
 | `If-None-Match` matches | 304 Not Modified | Empty |
 | `If-Modified-Since` matches (no ETag condition) | 304 Not Modified | Empty |
 | `Range: bytes=0-` or `bytes=0-99` | 206 Partial Content | Byte range |
@@ -50,6 +52,29 @@ Under the default zero-body policy (`max_request_body_bytes: 0`):
 | Directory listing HEAD | 200 OK | Empty |
 
 ## Conditional request support
+
+Preconditions are evaluated in the order mandated by RFC 9110 § 13.2.2:
+`If-Match` → `If-Unmodified-Since` → `If-None-Match` → `If-Modified-Since`
+→ (`Range` +) `If-Range`.
+
+### If-Match
+
+- Strong comparison per RFC 9110 § 13.1.1: a failed condition yields
+  `412 Precondition Failed` with an empty body.
+- Wildcard `*` matches whenever a current representation exists.
+- Generated metadata ETags are weak, so they never satisfy strong
+  comparison — the same rationale that keeps them ineligible for
+  `If-Range`.
+- Evaluated before all cache-validation conditions; a failed `If-Match`
+  takes precedence over a matching `If-None-Match` or a satisfiable range.
+
+### If-Unmodified-Since
+
+- Evaluated only when `If-Match` is absent (RFC 9110 § 13.1.4).
+- The condition fails when the file's modification time is newer than the
+  provided date; failure yields `412 Precondition Failed`.
+- Malformed dates and files without an available modification time are
+  ignored, per RFC 9110 § 13.1.4.
 
 ### If-None-Match
 
@@ -66,7 +91,10 @@ Under the default zero-body policy (`max_request_body_bytes: 0`):
 
 ### Limitations
 
-- No `If-Match` / `If-Unmodified-Since` support (not needed for static file serving).
+- Files with pre-epoch (before 1970) modification times receive a weak ETag
+  with a negative seconds component, but no `Last-Modified` header:
+  HTTP-date formatting supports epoch-or-later timestamps only. Such files
+  remain conditionally cacheable via their ETag.
 - No `Vary` header management.
 - No full cache framework — the planner evaluates validators and returns the appropriate status, but does not enforce cache-control policy.
 

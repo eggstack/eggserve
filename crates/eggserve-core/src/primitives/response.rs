@@ -12,6 +12,7 @@ impl ResponseStatus {
     pub const NOT_MODIFIED: Self = Self(304);
     pub const PARTIAL_CONTENT: Self = Self(206);
     pub const NOT_RANGE_SATISFIABLE: Self = Self(416);
+    pub const PRECONDITION_FAILED: Self = Self(412);
     pub const METHOD_NOT_ALLOWED: Self = Self(405);
     pub const NOT_FOUND: Self = Self(404);
     pub const FORBIDDEN: Self = Self(403);

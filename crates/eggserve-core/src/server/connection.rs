@@ -100,11 +100,32 @@ pub async fn serve_connection<I, S>(
                     );
                 }
                 Ok(Err(e)) => {
+                    // Hyper reports an expired header-read timeout as a
+                    // timeout-class connection error; classify it so the
+                    // ops counter tracks the event it is named for.
+                    let header_timeout = e.is_timeout();
+                    if header_timeout {
+                        crate::ops::global_counters()
+                            .header_timeouts
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
                     crate::ops::Logger::global().emit(
                         crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::ClientDisconnect,
-                            format!("connection error: {}", e),
+                            if header_timeout {
+                                crate::ops::Severity::Warn
+                            } else {
+                                crate::ops::Severity::Debug
+                            },
+                            if header_timeout {
+                                crate::ops::EventKind::HeaderTimeout
+                            } else {
+                                crate::ops::EventKind::ClientDisconnect
+                            },
+                            if header_timeout {
+                                "header read timeout".to_string()
+                            } else {
+                                format!("connection error: {}", e)
+                            },
                         )
                         .connection_id(conn_id),
                     );

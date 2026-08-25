@@ -85,9 +85,9 @@ The Python `Server` delegates logging to the Rust runtime's stderr log sink. Ope
 - `active_connections` — currently active connections
 - `active_file_streams` — currently streaming file responses
 - `parser_rejects` — HTTP parsing failures
-- `header_timeouts` — header/body read timeouts
+- `header_timeouts` — header read timeouts
+- `body_read_timeouts` — request body read timeouts
 - `connection_total_timeouts` — total connection lifetime timeouts
-- `bytes_sent` — total bytes sent to clients
 - `graceful_shutdowns` — clean shutdowns without timeout
 - `forced_shutdowns` — shutdowns where drain deadline was exceeded
 - `listener_errors` — accept loop errors (all classifications)

@@ -2,9 +2,12 @@
 
 Shows the Python 3.15-shaped static metadata hooks:
 
-- ``default_content_type`` sets the Content-Type for unknown file extensions.
+- ``default_content_type`` is class-attribute metadata: set it on a
+  ``SimpleHTTPRequestHandler`` subclass. A subclass disables the native fast
+  path, so requests are served through the Python callback path.
 - ``extra_response_headers`` adds ordered headers to final 200 responses.
-  These cannot override runtime-owned metadata (Content-Length, ETag, etc.).
+  Pass a sequence of ``(name, value)`` pairs. These cannot override
+  runtime-owned metadata (Content-Length, ETag, etc.).
 """
 
 from functools import partial
@@ -15,12 +18,20 @@ from eggserve.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 SITE = Path(__file__).with_name("site")
 
 
+class CustomHeadersHandler(SimpleHTTPRequestHandler):
+    """Static metadata hooks must be class attributes, not init kwargs."""
+
+    default_content_type = "application/octet-stream"
+
+
 def create_server(address=("127.0.0.1", 8000), directory=SITE):
     handler = partial(
-        SimpleHTTPRequestHandler,
+        CustomHeadersHandler,
         directory=directory,
-        default_content_type="application/octet-stream",
-        extra_response_headers={"X-Served-By": "eggserve", "Cache-Control": "no-cache"},
+        extra_response_headers=[
+            ("X-Served-By", "eggserve"),
+            ("Cache-Control", "no-cache"),
+        ],
     )
     return ThreadingHTTPServer(address, handler)
 

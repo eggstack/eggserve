@@ -148,6 +148,26 @@ try:
 finally:
     server.server_close()
 
+custom_headers = runpy.run_path(str(repo / "examples" / "python_custom_headers.py"))
+server = custom_headers["create_server"](("127.0.0.1", 0), repo / "examples" / "site")
+try:
+    assert not server._native_fast_path, "metadata subclass must use the callback path"
+    connection = http.client.HTTPConnection(*server.server_address, timeout=5)
+    try:
+        connection.request("GET", "/assets/example.txt", headers={"Connection": "close"})
+        response = connection.getresponse()
+        body = response.read()
+        status = response.status
+        served_by = response.getheader("X-Served-By")
+        cache_control = response.getheader("Cache-Control")
+    finally:
+        connection.close()
+    assert status == 200 and b"example" in body.lower(), (status, body[:80])
+    assert served_by == "eggserve", f"missing X-Served-By: {served_by!r}"
+    assert cache_control == "no-cache", f"missing Cache-Control: {cache_control!r}"
+finally:
+    server.server_close()
+
 print("  canonical Python examples passed")
 PYEOF
 

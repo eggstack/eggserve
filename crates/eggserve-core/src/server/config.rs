@@ -621,6 +621,7 @@ mod tests {
             max_file_streams: 77,
             handler_timeout: Duration::from_secs(42),
             body_read_timeout: Duration::from_secs(99),
+            connection_total_timeout: Duration::from_secs(120),
             ..Default::default()
         };
         let serve = crate::config::ServeConfig {
@@ -632,6 +633,40 @@ mod tests {
         assert_eq!(runtime.max_file_streams, 77);
         assert_eq!(runtime.handler_timeout, Duration::from_secs(42));
         assert_eq!(runtime.body_read_timeout, Duration::from_secs(99));
+    }
+
+    #[test]
+    fn try_from_serve_config_rejects_handler_wider_than_total() {
+        let limits = crate::limits::Limits {
+            handler_timeout: Duration::from_secs(60),
+            connection_total_timeout: Duration::from_secs(30),
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let err = try_from_serve_config(&serve).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("handler_timeout must be <= connection_total_timeout"));
+    }
+
+    #[test]
+    fn try_from_serve_config_rejects_body_wider_than_total() {
+        let limits = crate::limits::Limits {
+            body_read_timeout: Duration::from_secs(60),
+            connection_total_timeout: Duration::from_secs(30),
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let err = try_from_serve_config(&serve).unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("body_read_timeout must be <= connection_total_timeout"));
     }
 
     #[test]

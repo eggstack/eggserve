@@ -83,8 +83,9 @@ pub use http::{
 pub use incomplete_body_policy::IncompleteBodyPolicy;
 pub use method::{Method, MethodError};
 pub use planner::{
-    evaluate_conditional_headers, evaluate_if_none_match, evaluate_if_range, evaluate_range_header,
-    generate_etag, plan_directory_listing, plan_file_response,
+    evaluate_conditional_headers, evaluate_if_match, evaluate_if_none_match, evaluate_if_range,
+    evaluate_range_header, generate_etag, plan_directory_listing, plan_file_response,
+    plan_file_response_with_preconditions,
 };
 pub use request::Request;
 pub use request_body::{BodyState, RequestBody};

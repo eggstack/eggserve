@@ -727,10 +727,11 @@ impl PyResolvedFile {
 
     #[getter]
     fn modified(&self) -> Option<f64> {
-        self.metadata.modified().ok().and_then(|t| {
-            t.duration_since(std::time::UNIX_EPOCH)
-                .ok()
-                .map(|d| d.as_secs_f64())
+        self.metadata.modified().ok().map(|t| match t
+            .duration_since(std::time::UNIX_EPOCH)
+        {
+            Ok(elapsed) => elapsed.as_secs_f64(),
+            Err(err) => -err.duration().as_secs_f64(),
         })
     }
 
@@ -754,6 +755,8 @@ impl PyResolvedFile {
         let hdrs = headers_from_list(headers)?;
         let ro = parse_method(method)?;
 
+        let mut if_match: Option<String> = None;
+        let mut if_unmodified_since: Option<String> = None;
         let mut if_none_match: Option<String> = None;
         let mut if_modified_since: Option<String> = None;
         let mut range_header: Option<String> = None;
@@ -761,6 +764,8 @@ impl PyResolvedFile {
 
         for (name, value) in &hdrs {
             match name.to_lowercase().as_str() {
+                "if-match" => if_match = Some(value.clone()),
+                "if-unmodified-since" => if_unmodified_since = Some(value.clone()),
                 "if-none-match" => if_none_match = Some(value.clone()),
                 "if-modified-since" => if_modified_since = Some(value.clone()),
                 "range" => range_header = Some(value.clone()),
@@ -769,10 +774,12 @@ impl PyResolvedFile {
             }
         }
 
-        let plan = planner::plan_file_response(
+        let plan = planner::plan_file_response_with_preconditions(
             ro,
             &self.metadata,
             &self.content_type,
+            if_match.as_deref(),
+            if_unmodified_since.as_deref(),
             if_none_match.as_deref(),
             if_modified_since.as_deref(),
             range_header.as_deref(),
@@ -791,6 +798,8 @@ impl PyResolvedFile {
         let hdrs = headers_from_list(headers)?;
         let ro = parse_method(method)?;
 
+        let mut if_match: Option<String> = None;
+        let mut if_unmodified_since: Option<String> = None;
         let mut if_none_match: Option<String> = None;
         let mut if_modified_since: Option<String> = None;
         let mut range_header: Option<String> = None;
@@ -798,6 +807,8 @@ impl PyResolvedFile {
 
         for (name, value) in &hdrs {
             match name.to_lowercase().as_str() {
+                "if-match" => if_match = Some(value.clone()),
+                "if-unmodified-since" => if_unmodified_since = Some(value.clone()),
                 "if-none-match" => if_none_match = Some(value.clone()),
                 "if-modified-since" => if_modified_since = Some(value.clone()),
                 "range" => range_header = Some(value.clone()),
@@ -806,10 +817,12 @@ impl PyResolvedFile {
             }
         }
 
-        let plan = planner::plan_file_response(
+        let plan = planner::plan_file_response_with_preconditions(
             ro,
             &self.metadata,
             &self.content_type,
+            if_match.as_deref(),
+            if_unmodified_since.as_deref(),
             if_none_match.as_deref(),
             if_modified_since.as_deref(),
             range_header.as_deref(),

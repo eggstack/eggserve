@@ -19,6 +19,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 PROCS_TO_KILL=()
 
+# shellcheck source=../lib.sh
+. "$SCRIPT_DIR/../lib.sh"
+
 cleanup() {
     for pid in "${PROCS_TO_KILL[@]+"${PROCS_TO_KILL[@]}"}"; do
         kill "$pid" 2>/dev/null || true
@@ -54,15 +57,18 @@ mkdir -p "$WORK_DIR/root/subdir"
 echo "nested" > "$WORK_DIR/root/subdir/nested.txt"
 
 # Start eggserve on loopback (no TLS, with directory listing)
-EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
+EGGSERVE_PORT="$(pick_free_port)"
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" --directory-listing &
 EGGSERVE_PID=$!
 PROCS_TO_KILL+=("$EGGSERVE_PID")
-sleep 1
 
-# Verify eggserve is running
+# Verify eggserve is running and ready
 if ! kill -0 "$EGGSERVE_PID" 2>/dev/null; then
     echo "FAIL: eggserve failed to start"
+    exit 1
+fi
+if ! wait_for_tcp 127.0.0.1 "$EGGSERVE_PORT" 15; then
+    echo "FAIL: eggserve did not become ready"
     exit 1
 fi
 
@@ -72,7 +78,7 @@ openssl req -x509 -newkey rsa:2048 -keyout "$WORK_DIR/key.pem" \
     -subj "/CN=localhost" 2>/dev/null
 
 # Generate nginx config
-NGINX_PORT=$(shuf -i 50000-60000 -n 1)
+NGINX_PORT="$(pick_free_port)"
 NGINX_WORKER_PROCS=$(nproc 2>/dev/null || echo 1)
 
 cat > "$WORK_DIR/nginx.conf" <<EOF
@@ -117,9 +123,8 @@ EOF
 "$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" 2>&1 &
 NGINX_PID=$!
 PROCS_TO_KILL+=("$NGINX_PID")
-sleep 3
 
-# Verify nginx is running
+# Verify nginx is running and ready
 if ! kill -0 "$NGINX_PID" 2>/dev/null; then
     echo "FAIL: nginx failed to start"
     echo "  nginx config:"
@@ -129,6 +134,10 @@ if ! kill -0 "$NGINX_PID" 2>/dev/null; then
         cat "$WORK_DIR/nginx_error.log"
     fi
     "$NGINX_BIN" -c "$WORK_DIR/nginx.conf" -p "$WORK_DIR" -t 2>&1 || true
+    exit 1
+fi
+if ! wait_for_tcp 127.0.0.1 "$NGINX_PORT" 15; then
+    echo "FAIL: nginx did not become ready"
     exit 1
 fi
 

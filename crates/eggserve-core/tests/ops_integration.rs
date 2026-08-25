@@ -612,7 +612,6 @@ fn ops_counters_snapshot() {
     counters
         .connections_accepted
         .fetch_add(5, Ordering::Relaxed);
-    counters.bytes_sent.fetch_add(1024, Ordering::Relaxed);
     counters.listener_errors.fetch_add(1, Ordering::Relaxed);
     counters.active_connections.fetch_add(3, Ordering::Relaxed);
     counters.active_file_streams.fetch_add(2, Ordering::Relaxed);
@@ -630,7 +629,6 @@ fn ops_counters_snapshot() {
 
     let snap = counters.snapshot();
     assert_eq!(snap.connections_accepted, 5);
-    assert_eq!(snap.bytes_sent, 1024);
     assert_eq!(snap.listener_errors, 1);
     assert_eq!(snap.active_connections, 3);
     assert_eq!(snap.active_file_streams, 2);

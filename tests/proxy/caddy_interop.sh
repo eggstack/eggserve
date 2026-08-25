@@ -19,6 +19,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 PROCS_TO_KILL=()
 
+# shellcheck source=../lib.sh
+. "$SCRIPT_DIR/../lib.sh"
+
 cleanup() {
     for pid in "${PROCS_TO_KILL[@]+"${PROCS_TO_KILL[@]}"}"; do
         kill "$pid" 2>/dev/null || true
@@ -54,20 +57,23 @@ mkdir -p "$WORK_DIR/root/subdir"
 echo "nested" > "$WORK_DIR/root/subdir/nested.txt"
 
 # Start eggserve on loopback (no TLS, with directory listing)
-EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
+EGGSERVE_PORT="$(pick_free_port)"
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" --directory-listing &
 EGGSERVE_PID=$!
 PROCS_TO_KILL+=("$EGGSERVE_PID")
-sleep 1
 
-# Verify eggserve is running
+# Verify eggserve is running and ready
 if ! kill -0 "$EGGSERVE_PID" 2>/dev/null; then
     echo "FAIL: eggserve failed to start"
     exit 1
 fi
+if ! wait_for_tcp 127.0.0.1 "$EGGSERVE_PORT" 15; then
+    echo "FAIL: eggserve did not become ready"
+    exit 1
+fi
 
 # Generate Caddyfile
-CADDY_PORT=$(shuf -i 50000-60000 -n 1)
+CADDY_PORT="$(pick_free_port)"
 cat > "$WORK_DIR/Caddyfile" <<EOF
 {
     admin off
@@ -88,11 +94,14 @@ EOF
 "$CADDY_BIN" run --config "$WORK_DIR/Caddyfile" --adapter caddyfile &
 CADDY_PID=$!
 PROCS_TO_KILL+=("$CADDY_PID")
-sleep 2
 
-# Verify Caddy is running
+# Verify Caddy is running and ready
 if ! kill -0 "$CADDY_PID" 2>/dev/null; then
     echo "FAIL: Caddy failed to start"
+    exit 1
+fi
+if ! wait_for_tcp 127.0.0.1 "$CADDY_PORT" 15; then
+    echo "FAIL: Caddy did not become ready"
     exit 1
 fi
 

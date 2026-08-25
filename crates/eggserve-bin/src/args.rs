@@ -197,11 +197,10 @@ impl Args {
                                 .to_string(),
                         );
                     }
-                    i += 1;
-                    let port_str = args.get(i).ok_or("--port requires an argument")?;
-                    bind_port = port_str
-                        .parse()
-                        .map_err(|e| format!("invalid port '{}': {}", port_str, e))?;
+                    let port_str = require_value(&args, &mut i, "--port")?;
+                    bind_port = port_str.parse().map_err(|_| {
+                        format!("invalid port '{port_str}': must be between 0 and 65535")
+                    })?;
                     port_from_flag = true;
                 }
                 "--addr" => {
@@ -217,8 +216,7 @@ impl Args {
                         );
                     }
                     addr_seen = true;
-                    i += 1;
-                    let addr = args.get(i).ok_or("--addr requires an argument")?;
+                    let addr = require_value(&args, &mut i, "--addr")?;
                     let parsed: SocketAddr = addr
                         .parse()
                         .map_err(|e| format!("invalid address '{}': {}", addr, e))?;
@@ -259,8 +257,7 @@ impl Args {
                         return Err("--log-format may only be specified once".to_string());
                     }
                     log_format_seen = true;
-                    i += 1;
-                    let fmt = args.get(i).ok_or("--log-format requires an argument")?;
+                    let fmt = require_value(&args, &mut i, "--log-format")?;
                     log_format = match fmt.as_str() {
                         "text" => LogFormat::Text,
                         "json" => LogFormat::Json,
@@ -285,10 +282,7 @@ impl Args {
                         return Err("--max-connections may only be specified once".to_string());
                     }
                     max_connections_seen = true;
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--max-connections requires an argument")?;
+                    let val = require_value(&args, &mut i, "--max-connections")?;
                     let parsed: usize = val
                         .parse()
                         .map_err(|e| format!("invalid max-connections '{}': {}", val, e))?;
@@ -302,10 +296,7 @@ impl Args {
                         return Err("--max-file-streams may only be specified once".to_string());
                     }
                     max_file_streams_seen = true;
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--max-file-streams requires an argument")?;
+                    let val = require_value(&args, &mut i, "--max-file-streams")?;
                     let parsed: usize = val
                         .parse()
                         .map_err(|e| format!("invalid max-file-streams '{}': {}", val, e))?;
@@ -319,8 +310,7 @@ impl Args {
                         return Err("--header-timeout may only be specified once".to_string());
                     }
                     header_read_timeout_seen = true;
-                    i += 1;
-                    let val = args.get(i).ok_or("--header-timeout requires an argument")?;
+                    let val = require_value(&args, &mut i, "--header-timeout")?;
                     let secs: u64 = val
                         .parse()
                         .map_err(|e| format!("invalid header-timeout '{}': {}", val, e))?;
@@ -333,10 +323,7 @@ impl Args {
                         );
                     }
                     connection_total_timeout_seen = true;
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--connection-total-timeout requires an argument")?;
+                    let val = require_value(&args, &mut i, "--connection-total-timeout")?;
                     let secs: u64 = val.parse().map_err(|e| {
                         format!("invalid connection-total-timeout '{}': {}", val, e)
                     })?;
@@ -347,10 +334,7 @@ impl Args {
                         return Err("--handler-timeout may only be specified once".to_string());
                     }
                     handler_timeout_seen = true;
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--handler-timeout requires an argument")?;
+                    let val = require_value(&args, &mut i, "--handler-timeout")?;
                     let secs: u64 = val
                         .parse()
                         .map_err(|e| format!("invalid handler-timeout '{}': {}", val, e))?;
@@ -361,10 +345,7 @@ impl Args {
                         return Err("--body-read-timeout may only be specified once".to_string());
                     }
                     body_read_timeout_seen = true;
-                    i += 1;
-                    let val = args
-                        .get(i)
-                        .ok_or("--body-read-timeout requires an argument")?;
+                    let val = require_value(&args, &mut i, "--body-read-timeout")?;
                     let secs: u64 = val
                         .parse()
                         .map_err(|e| format!("invalid body-read-timeout '{}': {}", val, e))?;
@@ -1020,6 +1001,63 @@ mod tests {
         let result = parse(&["--port", "99999"]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("invalid port"));
+    }
+
+    #[test]
+    fn invalid_flag_port_reports_range() {
+        // The flag path must surface the same range guidance as the
+        // positional path, not the raw ParseIntError text.
+        let error = parse(&["--port", "99999"]).unwrap_err();
+        assert!(
+            error.contains("must be between 0 and 65535"),
+            "unexpected error: {error}"
+        );
+    }
+
+    #[test]
+    fn value_taking_flags_reject_flag_like_values() {
+        // Every value-taking flag must report a missing argument instead of
+        // swallowing a following flag (which would misparse the rest of the
+        // command line far from the user's actual mistake).
+        let cases: &[&[&str]] = &[
+            &["--port", "--bind"],
+            &["--addr", "--bind"],
+            &["--log-format", "--quiet"],
+            &["--max-connections", "--public"],
+            &["--max-file-streams", "--quiet"],
+            &["--header-timeout", "--quiet"],
+            &["--connection-total-timeout", "--quiet"],
+            &["--handler-timeout", "--quiet"],
+            &["--body-read-timeout", "--quiet"],
+        ];
+        for case in cases {
+            let error = parse(case).unwrap_err();
+            let flag = case[0];
+            assert!(
+                error.starts_with(&format!("{flag} requires an argument")),
+                "unexpected error for {case:?}: {error}"
+            );
+        }
+        // The reproduced regression from the bug report: the trailing value
+        // must not be consumed as the positional directory.
+        let error = parse(&["--port", "--bind", "127.0.0.1"]).unwrap_err();
+        assert!(error.contains("--port requires an argument"), "{error}");
+    }
+
+    #[test]
+    fn numeric_flags_reject_negative_values_as_flag_like() {
+        for case in [
+            &["--header-timeout", "-5"][..],
+            &["--handler-timeout", "-5"][..],
+            &["--body-read-timeout", "-5"][..],
+            &["--max-connections", "-5"][..],
+        ] {
+            let error = parse(case).unwrap_err();
+            assert!(
+                error.contains("requires an argument"),
+                "unexpected error for {case:?}: {error}"
+            );
+        }
     }
 
     #[test]

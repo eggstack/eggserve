@@ -16,6 +16,11 @@ use super::response::{
 ///
 /// For HEAD requests, the body is empty but headers match what GET would
 /// return. Handles conditional and range request evaluation internally.
+///
+/// Evaluates only the cache-validation preconditions (`If-None-Match`,
+/// `If-Modified-Since`, `If-Range`). Use
+/// [`plan_file_response_with_preconditions`] to also evaluate the
+/// lost-update preconditions (`If-Match`, `If-Unmodified-Since`).
 pub fn plan_file_response(
     method: ReadOnlyMethod,
     metadata: &Metadata,
@@ -25,12 +30,77 @@ pub fn plan_file_response(
     range_header: Option<&str>,
     if_range: Option<&str>,
 ) -> StaticResponsePlan {
+    plan_file_response_with_preconditions(
+        method,
+        metadata,
+        content_type,
+        None,
+        None,
+        if_none_match,
+        if_modified_since,
+        range_header,
+        if_range,
+    )
+}
+
+/// Generate a baseline file response plan, evaluating all conditional
+/// request preconditions in the order mandated by RFC 9110 § 13.2.2:
+///
+/// 1. `If-Match` (strong comparison; failure yields 412)
+/// 2. `If-Unmodified-Since` (only when `If-Match` is absent; failure
+///    yields 412; malformed dates and unavailable modification times are
+///    ignored per § 13.1.4)
+/// 3. `If-None-Match` → `If-Modified-Since` (failure yields 304 for
+///    GET/HEAD)
+/// 5. `Range` + `If-Range`
+#[allow(clippy::too_many_arguments)]
+pub fn plan_file_response_with_preconditions(
+    method: ReadOnlyMethod,
+    metadata: &Metadata,
+    content_type: &str,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range_header: Option<&str>,
+    if_range: Option<&str>,
+) -> StaticResponsePlan {
     let etag = generate_etag(metadata);
-    let last_modified = metadata.modified().ok();
-    let last_modified_str = last_modified
-        .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-        .map(|d| httpdate::fmt_http_date(UNIX_EPOCH + d));
+    // `httpdate::fmt_http_date` only supports epoch-or-later timestamps, so
+    // pre-epoch mtimes omit Last-Modified entirely rather than panicking.
+    let last_modified_str = metadata
+        .modified()
+        .ok()
+        .filter(|t| t.duration_since(UNIX_EPOCH).is_ok())
+        .map(httpdate::fmt_http_date);
     let len = metadata.len();
+
+    // RFC 9110 § 13.2.2 steps 1-2: lost-update preconditions take
+    // precedence over cache-validation preconditions. If-Unmodified-Since
+    // MUST be ignored when If-Match is present.
+    match if_match {
+        Some(ifm) => {
+            let matches = etag
+                .as_deref()
+                .is_some_and(|current| evaluate_if_match(ifm, Some(current)));
+            if !matches {
+                return build_precondition_failed();
+            }
+        }
+        None => {
+            if let Some(ius) = if_unmodified_since {
+                if let Some(ius_time) = parse_http_date(ius) {
+                    if let Some(lm_time) = last_modified_str.as_deref().and_then(parse_http_date) {
+                        if lm_time > ius_time {
+                            return build_precondition_failed();
+                        }
+                    }
+                }
+                // Malformed date or no modification date available: ignore
+                // the precondition per RFC 9110 § 13.1.4.
+            }
+        }
+    }
 
     if let Some(ref etag_val) = etag {
         let outcome = evaluate_conditional_headers(
@@ -169,6 +239,31 @@ pub fn evaluate_if_none_match(if_none_match: &str, current_etag: &str) -> bool {
     false
 }
 
+/// Evaluate an `If-Match` header value against the current ETag.
+///
+/// Per RFC 9110 § 13.1.1, `If-Match` requires strong comparison: a weak
+/// current ETag never matches any listed tag. The wildcard `*` succeeds
+/// whenever a current representation exists.
+pub fn evaluate_if_match(if_match: &str, current_etag: Option<&str>) -> bool {
+    let trimmed = if_match.trim();
+    if trimmed == "*" {
+        return true;
+    }
+
+    let Some(current) = current_etag else {
+        return false;
+    };
+    // Strong comparison: both tags must be non-weak and identical.
+    if current.starts_with("W/") {
+        return false;
+    }
+
+    trimmed
+        .split(',')
+        .map(str::trim)
+        .any(|candidate| !candidate.is_empty() && candidate == current)
+}
+
 /// Evaluate range request headers.
 pub fn evaluate_range_header(range: &str, file_size: u64) -> RangeRequestOutcome {
     let range = range.trim();
@@ -264,14 +359,37 @@ fn is_strong_entity_tag(value: &str) -> bool {
 ///
 /// Uses file size, mtime seconds, and mtime nanoseconds to produce a stable
 /// weak validator. Nanosecond precision distinguishes rapid same-size
-/// modifications where millisecond precision would collide.
+/// modifications where millisecond precision would collide. Pre-epoch
+/// mtimes are represented with a negative seconds component so they still
+/// yield a stable validator instead of `None`.
 pub fn generate_etag(metadata: &Metadata) -> Option<String> {
     let size = metadata.len();
     let mtime = metadata.modified().ok()?;
-    let epoch = mtime.duration_since(UNIX_EPOCH).ok()?;
-    let mtime_secs = epoch.as_secs();
-    let mtime_nanos = epoch.subsec_nanos();
-    Some(format!("W/\"{}-{}-{}\"", size, mtime_secs, mtime_nanos))
+    // Represent pre-epoch mtimes by negating the seconds component; the
+    // sub-second nanoseconds stay non-negative either way, so the encoding
+    // remains injective.
+    let (sign, elapsed) = match mtime.duration_since(UNIX_EPOCH) {
+        Ok(elapsed) => ("", elapsed),
+        Err(err) => ("-", err.duration()),
+    };
+    Some(format!(
+        "W/\"{}-{}{}-{}\"",
+        size,
+        sign,
+        elapsed.as_secs(),
+        elapsed.subsec_nanos()
+    ))
+}
+
+fn build_precondition_failed() -> StaticResponsePlan {
+    let mut headers = HeaderMapPlan::new();
+    headers.push("content-length", "0".to_owned());
+
+    StaticResponsePlan {
+        status: ResponseStatus::PRECONDITION_FAILED,
+        headers,
+        body: BodyPlan::Empty,
+    }
 }
 
 fn build_full_response(
@@ -656,6 +774,237 @@ mod tests {
             "text/plain",
             None,
             Some("not-a-date"),
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    // -----------------------------------------------------------------------
+    // RFC 9110 § 13.1.1 / § 13.2.2: If-Match (strong comparison, 412).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn plan_file_response_if_match_mismatched_412() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("\"mismatched\""),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("0"));
+    }
+
+    #[test]
+    fn plan_file_response_if_match_wildcard_continues_to_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("*"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_if_match_weak_tag_never_strongly_matches_412() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        // Even the exact current tag value fails strong comparison because
+        // generated metadata ETags are weak.
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+    }
+
+    #[test]
+    fn plan_file_response_if_match_takes_precedence_over_if_none_match() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        // The If-None-Match would produce 304, but the failed If-Match
+        // precondition must be evaluated first and yield 412.
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("\"mismatched\""),
+            None,
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+    }
+
+    #[test]
+    fn plan_file_response_if_match_takes_precedence_over_range() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("\"mismatched\""),
+            None,
+            None,
+            None,
+            Some("bytes=0-49"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn evaluate_if_match_strong_comparison_rules() {
+        assert!(evaluate_if_match("\"abc\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("\"abc\"", Some("\"abd\"")));
+        // Strong comparison rejects weak tags on either side.
+        assert!(!evaluate_if_match("W/\"abc\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("\"abc\"", Some("W/\"abc\"")));
+        // Wildcard succeeds whenever a current representation exists.
+        assert!(evaluate_if_match("*", Some("\"abc\"")));
+        assert!(evaluate_if_match("*", Some("W/\"abc\"")));
+        assert!(evaluate_if_match("*", None));
+        // Lists match when any member strongly matches.
+        assert!(evaluate_if_match("\"x\", \"abc\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("\"x\", \"y\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("", Some("\"abc\"")));
+    }
+
+    // -----------------------------------------------------------------------
+    // RFC 9110 § 13.1.4 / § 13.2.2: If-Unmodified-Since.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn plan_file_response_stale_if_unmodified_since_412() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ius = httpdate::fmt_http_date(past);
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some(&ius),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+    }
+
+    #[test]
+    fn plan_file_response_fresh_if_unmodified_since_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let future = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs + 3600);
+        let ius = httpdate::fmt_http_date(future);
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some(&ius),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_malformed_if_unmodified_since_is_ignored() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some("not-a-date"),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_if_unmodified_since_ignored_when_if_match_present() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ius = httpdate::fmt_http_date(past);
+
+        // A wildcard If-Match succeeds and suppresses the stale
+        // If-Unmodified-Since condition per RFC 9110 § 13.1.4.
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("*"),
+            Some(&ius),
+            None,
+            None,
             None,
             None,
         );
@@ -1870,18 +2219,54 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn etag_pre_epoch_mtime_returns_none() {
-        // generate_etag uses duration_since(UNIX_EPOCH) which returns Err for
-        // pre-epoch times, causing the function to return None. We verify this
-        // by confirming the function returns Some for normal files and None is
-        // the documented fallback for pre-epoch timestamps.
+    fn etag_pre_epoch_mtime_produces_validator() {
+        // Pre-epoch mtimes must still yield an ETag so conditional requests
+        // keep working through the entity-tag validator. A Last-Modified
+        // header cannot be produced for them: `httpdate::fmt_http_date`
+        // only supports epoch-or-later timestamps.
         let tmp = make_file_with_size(100);
+        let pre_epoch = UNIX_EPOCH - std::time::Duration::from_secs(86_400);
+        {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(tmp.path())
+                .unwrap();
+            file.set_times(std::fs::FileTimes::new().set_modified(pre_epoch))
+                .unwrap();
+        }
         let meta = std::fs::metadata(tmp.path()).unwrap();
-        // Normal case should always succeed
+
+        let etag = generate_etag(&meta).expect("pre-epoch mtime must still produce an ETag");
         assert!(
-            generate_etag(&meta).is_some(),
-            "generate_etag should return Some for normal file metadata"
+            etag.starts_with("W/\"100--"),
+            "pre-epoch ETag encodes a negative seconds component: {etag}"
         );
+
+        // The ETag validator drives conditional requests even without a
+        // Last-Modified date.
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan.status.as_u16(), 304);
+        assert_eq!(plan.headers.get("last-modified"), None);
+
+        let full_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(full_plan.status.as_u16(), 200);
+        assert_eq!(full_plan.headers.get("last-modified"), None);
     }
 
     // -----------------------------------------------------------------------

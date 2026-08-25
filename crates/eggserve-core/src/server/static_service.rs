@@ -19,7 +19,7 @@ use crate::primitives::canonical::{
 };
 use crate::primitives::header_block::{HeaderName, HeaderValue};
 use crate::primitives::http::ReadOnlyMethod;
-use crate::primitives::planner::plan_file_response;
+use crate::primitives::planner::plan_file_response_with_preconditions;
 use crate::primitives::request::Request;
 use crate::primitives::request_head::RequestHead;
 use crate::primitives::response::HeaderMapPlan;
@@ -183,6 +183,11 @@ fn plan_static_request(
     };
 
     let guard = RootGuard::new(state.pinned_root());
+    let if_match = request.headers().get_first("if-match").map(|v| v.as_str());
+    let if_unmodified_since = request
+        .headers()
+        .get_first("if-unmodified-since")
+        .map(|v| v.as_str());
     let if_none_match = request
         .headers()
         .get_first("if-none-match")
@@ -204,6 +209,8 @@ fn plan_static_request(
             file,
             config,
             method,
+            if_match,
+            if_unmodified_since,
             if_none_match,
             if_modified_since,
             range,
@@ -245,6 +252,8 @@ fn plan_static_request(
                 dir,
                 config,
                 method,
+                if_match,
+                if_unmodified_since,
                 if_none_match,
                 if_modified_since,
                 range,
@@ -266,13 +275,15 @@ fn planned_file_response(
     file: crate::fs::ResolvedFile,
     config: &ServeConfig,
     method: ReadOnlyMethod,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
     if_none_match: Option<&str>,
     if_modified_since: Option<&str>,
     range: Option<&str>,
     if_range: Option<&str>,
     is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
-    let mut plan = plan_file_response(
+    let mut plan = plan_file_response_with_preconditions(
         method,
         &file.metadata,
         {
@@ -285,6 +296,8 @@ fn planned_file_response(
                 detected
             }
         },
+        if_match,
+        if_unmodified_since,
         if_none_match,
         if_modified_since,
         range,
@@ -305,6 +318,8 @@ fn plan_directory_response(
     dir: ResolvedDirectory,
     config: &ServeConfig,
     method: ReadOnlyMethod,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
     if_none_match: Option<&str>,
     if_modified_since: Option<&str>,
     range: Option<&str>,
@@ -318,6 +333,8 @@ fn plan_directory_response(
                     file,
                     config,
                     method,
+                    if_match,
+                    if_unmodified_since,
                     if_none_match,
                     if_modified_since,
                     range,

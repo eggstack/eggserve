@@ -19,6 +19,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 PROCS_TO_KILL=()
 
+# shellcheck source=../lib.sh
+. "$SCRIPT_DIR/../lib.sh"
+
 cleanup() {
     for pid in "${PROCS_TO_KILL[@]+"${PROCS_TO_KILL[@]}"}"; do
         kill "$pid" 2>/dev/null || true
@@ -48,13 +51,16 @@ echo "ok" > "$WORK_DIR/root/status.txt"
 dd if=/dev/urandom of="$WORK_DIR/root/large.bin" bs=1024 count=64 2>/dev/null
 
 # Start eggserve on loopback
-EGGSERVE_PORT=$(shuf -i 50000-60000 -n 1)
+EGGSERVE_PORT="$(pick_free_port)"
 "$EGGSERVE_BIN" --bind "127.0.0.1:${EGGSERVE_PORT}" --directory "$WORK_DIR/root" &
 PROCS_TO_KILL+=($!)
-sleep 1
 
 if ! kill -0 "${PROCS_TO_KILL[0]}" 2>/dev/null; then
     echo "FAIL: eggserve failed to start"
+    exit 1
+fi
+if ! wait_for_tcp 127.0.0.1 "$EGGSERVE_PORT" 15; then
+    echo "FAIL: eggserve did not become ready"
     exit 1
 fi
 
@@ -177,7 +183,7 @@ CADDY_PORT=""
 if [[ -n "$CADDY_BIN" ]]; then
     echo ""
     echo "=== Desynchronization Corpus — Through Caddy ==="
-    CADDY_PORT=$(shuf -i 50000-60000 -n 1)
+    CADDY_PORT="$(pick_free_port)"
 
     mkdir -p "$WORK_DIR/caddy"
     cat > "$WORK_DIR/caddy/Caddyfile" <<CADDY_EOF
@@ -192,9 +198,8 @@ CADDY_EOF
 
     "$CADDY_BIN" run --config "$WORK_DIR/caddy/Caddyfile" --adapter caddyfile &
     PROCS_TO_KILL+=($!)
-    sleep 2
 
-    if kill -0 "${PROCS_TO_KILL[-1]}" 2>/dev/null; then
+    if kill -0 "${PROCS_TO_KILL[-1]}" 2>/dev/null && wait_for_tcp 127.0.0.1 "$CADDY_PORT" 15; then
         echo "Caddy started on port $CADDY_PORT"
 
         # Critical desync payloads through Caddy
@@ -217,7 +222,7 @@ CADDY_EOF
 else
     echo ""
     echo "SKIP: Caddy not found in PATH — proxy-through tests skipped"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # --- nginx proxy-through tests ---
@@ -225,7 +230,7 @@ NGINX_PORT=""
 if [[ -n "$NGINX_BIN" ]]; then
     echo ""
     echo "=== Desynchronization Corpus — Through nginx ==="
-    NGINX_PORT=$(shuf -i 50000-60000 -n 1)
+    NGINX_PORT="$(pick_free_port)"
 
     mkdir -p "$WORK_DIR/nginx"
     cat > "$WORK_DIR/nginx/nginx.conf" <<NGINX_EOF
@@ -249,9 +254,8 @@ NGINX_EOF
 
     "$NGINX_BIN" -c "$WORK_DIR/nginx/nginx.conf" &
     PROCS_TO_KILL+=($!)
-    sleep 2
 
-    if kill -0 "${PROCS_TO_KILL[-1]}" 2>/dev/null; then
+    if kill -0 "${PROCS_TO_KILL[-1]}" 2>/dev/null && wait_for_tcp 127.0.0.1 "$NGINX_PORT" 15; then
         echo "nginx started on port $NGINX_PORT"
 
         for test_num in 1 3 5 14 17; do
@@ -273,7 +277,7 @@ NGINX_EOF
 else
     echo ""
     echo "SKIP: nginx not found in PATH — proxy-through tests skipped"
-    ((SKIP++))
+    SKIP=$((SKIP + 1))
 fi
 
 # --- Summary ---

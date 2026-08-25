@@ -88,18 +88,23 @@ impl ResolvedFile {
 
     /// Plan a response using the metadata of this already-resolved file.
     /// This keeps directory-index resolution on the originating capability.
+    #[allow(clippy::too_many_arguments)]
     pub fn plan_response(
         &self,
         method: ReadOnlyMethod,
+        if_match: Option<&str>,
+        if_unmodified_since: Option<&str>,
         if_none_match: Option<&str>,
         if_modified_since: Option<&str>,
         range_header: Option<&str>,
         if_range: Option<&str>,
     ) -> StaticResponsePlan {
-        crate::primitives::planner::plan_file_response(
+        crate::primitives::planner::plan_file_response_with_preconditions(
             method,
             &self.inner.metadata,
             self.content_type(),
+            if_match,
+            if_unmodified_since,
             if_none_match,
             if_modified_since,
             range_header,
@@ -379,10 +384,13 @@ impl SecureRoot {
 /// Returns `(StaticResponsePlan, BodySource)` on success, or a
 /// [`ResourceDeniedReason`] / [`PathRejection`] on failure.
 #[allow(dead_code)]
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_and_plan(
     root: &SecureRoot,
     path: &ConfinedPath,
     method: ReadOnlyMethod,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
     if_none_match: Option<&str>,
     if_modified_since: Option<&str>,
     range_header: Option<&str>,
@@ -392,10 +400,12 @@ pub fn resolve_and_plan(
     match resource {
         ResolvedResource::File(file) => {
             let content_type = file.content_type();
-            let plan = crate::primitives::planner::plan_file_response(
+            let plan = crate::primitives::planner::plan_file_response_with_preconditions(
                 method,
                 &file.inner.metadata,
                 content_type,
+                if_match,
+                if_unmodified_since,
                 if_none_match,
                 if_modified_since,
                 range_header,

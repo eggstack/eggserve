@@ -140,6 +140,25 @@ impl Limits {
                 constraint: "> 0".into(),
             });
         }
+        // A handler or body budget wider than the total connection
+        // lifetime is dead configuration: the connection budget always
+        // fires first and kills the request mid-flight. This mirrors the
+        // RuntimeConfigBuilder::build() cross-field checks so the
+        // ServeConfig bridge cannot bypass them.
+        if self.handler_timeout > self.connection_total_timeout {
+            errors.push(LimitsError {
+                field: "handler_timeout",
+                value: format!("{}s", self.handler_timeout.as_secs()),
+                constraint: "<= connection_total_timeout".into(),
+            });
+        }
+        if self.body_read_timeout > self.connection_total_timeout {
+            errors.push(LimitsError {
+                field: "body_read_timeout",
+                value: format!("{}s", self.body_read_timeout.as_secs()),
+                constraint: "<= connection_total_timeout".into(),
+            });
+        }
         if self.graceful_shutdown_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "graceful_shutdown_timeout",
@@ -241,6 +260,40 @@ mod tests {
         };
         let errs = limits.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.field == "header_read_timeout"));
+    }
+
+    #[test]
+    fn handler_timeout_cannot_exceed_connection_timeout() {
+        let limits = Limits {
+            handler_timeout: Duration::from_secs(2),
+            connection_total_timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "handler_timeout"));
+    }
+
+    #[test]
+    fn body_read_timeout_cannot_exceed_connection_timeout() {
+        let limits = Limits {
+            body_read_timeout: Duration::from_secs(2),
+            connection_total_timeout: Duration::from_secs(1),
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "body_read_timeout"));
+    }
+
+    #[test]
+    fn timeouts_equal_to_connection_timeout_are_valid() {
+        let limits = Limits {
+            header_read_timeout: Duration::from_secs(5),
+            handler_timeout: Duration::from_secs(5),
+            body_read_timeout: Duration::from_secs(5),
+            connection_total_timeout: Duration::from_secs(5),
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
     }
 
     #[test]

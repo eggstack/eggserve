@@ -15,6 +15,9 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 WORK_DIR="$(mktemp -d)"
 trap cleanup EXIT
 
+# shellcheck source=lib.sh
+. "$SCRIPT_DIR/lib.sh"
+
 cleanup() {
     kill "$SERVER_PID" 2>/dev/null || true
     wait "$SERVER_PID" 2>/dev/null || true
@@ -87,12 +90,11 @@ run_test "eggserve --version exits 0" "$ISOLATED_DIR/eggserve" --version
 
 # --- Test 3: Serve a directory ---
 echo "Test 3: Serve directory and fetch file"
-PORT=$(shuf -i 50000-60000 -n 1)
+PORT="$(pick_free_port)"
 "$ISOLATED_DIR/eggserve" --bind "127.0.0.1:${PORT}" --directory "$ISOLATED_DIR/www" &
 SERVER_PID=$!
-sleep 1
 
-if kill -0 "$SERVER_PID" 2>/dev/null; then
+if kill -0 "$SERVER_PID" 2>/dev/null && wait_for_tcp 127.0.0.1 "$PORT" 15; then
     echo "  PASS: server started"
     PASS=$((PASS + 1))
 else

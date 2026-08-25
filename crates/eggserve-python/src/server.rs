@@ -703,6 +703,8 @@ impl PyStaticResponder {
         };
 
         let hdrs = headers.unwrap_or_default();
+        let if_match = hdrs.get("if-match").map(|s| s.as_str());
+        let if_unmodified_since = hdrs.get("if-unmodified-since").map(|s| s.as_str());
         let if_none_match = hdrs.get("if-none-match").map(|s| s.as_str());
         let if_modified_since = hdrs.get("if-modified-since").map(|s| s.as_str());
         let range = hdrs.get("range").map(|s| s.as_str());
@@ -713,8 +715,15 @@ impl PyStaticResponder {
         let extra_response_headers = extra_response_headers.unwrap_or_default();
         validate_extra_response_headers(&default_content_type, &extra_response_headers)?;
         let plan_file = |file: eggserve_core::primitives::ResolvedFile| -> PyResult<PyResponse> {
-            let plan =
-                file.plan_response(ro_method, if_none_match, if_modified_since, range, if_range);
+            let plan = file.plan_response(
+                ro_method,
+                if_match,
+                if_unmodified_since,
+                if_none_match,
+                if_modified_since,
+                range,
+                if_range,
+            );
             let body = file.into_body(&plan).map_err(|e| {
                 pyo3::exceptions::PyRuntimeError::new_err(format!("body error: {e}"))
             })?;
@@ -819,6 +828,8 @@ impl PyStaticResponder {
             &self.root,
             &path,
             ro_method,
+            if_match,
+            if_unmodified_since,
             if_none_match,
             if_modified_since,
             range,

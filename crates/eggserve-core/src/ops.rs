@@ -565,7 +565,6 @@ pub struct OpsCounters {
     pub header_timeouts: AtomicU64,
     pub body_read_timeouts: AtomicU64,
     pub connection_total_timeouts: AtomicU64,
-    pub bytes_sent: AtomicU64,
     pub graceful_shutdowns: AtomicU64,
     pub forced_shutdowns: AtomicU64,
     pub listener_errors: AtomicU64,
@@ -591,7 +590,6 @@ impl OpsCounters {
             header_timeouts: AtomicU64::new(0),
             body_read_timeouts: AtomicU64::new(0),
             connection_total_timeouts: AtomicU64::new(0),
-            bytes_sent: AtomicU64::new(0),
             graceful_shutdowns: AtomicU64::new(0),
             forced_shutdowns: AtomicU64::new(0),
             listener_errors: AtomicU64::new(0),
@@ -611,7 +609,6 @@ impl OpsCounters {
             header_timeouts: self.header_timeouts.load(Ordering::Relaxed),
             body_read_timeouts: self.body_read_timeouts.load(Ordering::Relaxed),
             connection_total_timeouts: self.connection_total_timeouts.load(Ordering::Relaxed),
-            bytes_sent: self.bytes_sent.load(Ordering::Relaxed),
             graceful_shutdowns: self.graceful_shutdowns.load(Ordering::Relaxed),
             forced_shutdowns: self.forced_shutdowns.load(Ordering::Relaxed),
             listener_errors: self.listener_errors.load(Ordering::Relaxed),
@@ -632,7 +629,6 @@ pub struct OpsSnapshot {
     pub header_timeouts: u64,
     pub body_read_timeouts: u64,
     pub connection_total_timeouts: u64,
-    pub bytes_sent: u64,
     pub graceful_shutdowns: u64,
     pub forced_shutdowns: u64,
     pub listener_errors: u64,
@@ -695,12 +691,12 @@ mod tests {
         counters
             .connections_accepted
             .fetch_add(5, Ordering::Relaxed);
-        counters.bytes_sent.fetch_add(1024, Ordering::Relaxed);
+        counters.header_timeouts.fetch_add(1, Ordering::Relaxed);
         counters.listener_errors.fetch_add(1, Ordering::Relaxed);
 
         let snap = counters.snapshot();
         assert_eq!(snap.connections_accepted, 5);
-        assert_eq!(snap.bytes_sent, 1024);
+        assert_eq!(snap.header_timeouts, 1);
         assert_eq!(snap.listener_errors, 1);
         assert_eq!(snap.connections_rejected, 0);
         assert_eq!(snap.active_connections, 0);
