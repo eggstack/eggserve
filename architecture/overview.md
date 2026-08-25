@@ -209,10 +209,13 @@ HTTP Request
                   ▼
 ┌─────────────────────────────────────────────────────┐
 │ eggserve-core::server: accept loop + lifecycle      │
-│  • TCP accept with connection semaphore (64 max)    │
+│  • Shared RuntimeState admission pool               │
+│    (connection semaphore, default 64; server-wide   │
+│     file-stream semaphore cloned per connection)    │
 │  • Optional TLS handshake (feature-gated)           │
 │  • HTTP/1 connection via Hyper                      │
-│  • Lifecycle: Created → Starting → Running          │
+│  • Lifecycle: Created → Starting → Running →        │
+│    Draining → Stopped/Failed                        │
 │  • Canonical RequestHead extraction                 │
 └─────────────────┬───────────────────────────────────┘
                   │
@@ -326,8 +329,8 @@ Five distinct error layers, each scoped to a specific subsystem:
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
 | `PathRejection` | Path parsing | 16 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
-| `RequestValidationError` | HTTP-level | `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding` |
-| `ServerError` | Server lifecycle | `Bind`, `Config`, `AlreadyStarted`, `Accept`, `TlsSetup`, `ShutdownTimeout`, `Startup`, `Terminal` |
+| `RequestValidationError` | HTTP-level | 6 variants: `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding`, `ConflictingBodyHeaders`, `InvalidRequestTarget` |
+| `ServerError` | Server lifecycle | 10 variants: `Bind`, `Config`, `AlreadyStarted`, `NotStarted`, `Accept`, `TlsSetup`, `Transport`, `ShutdownTimeout`, `Startup`, `Terminal` |
 | `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
 | `RequestBodyError` | Body consumption | 12 variants: `RejectedByPolicy`, `LimitExceeded`, `ReadTimeout`, `PrematureEof`, `AlreadyConsumed`, ... |
 
@@ -366,7 +369,7 @@ Multi-layered testing spans the Python and Rust suites, 11 fuzz targets, and 2 c
 | Layer | Location | Scope |
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS (34 files) |
+| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS (30 files in core, 4 in bin) |
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
@@ -415,8 +418,10 @@ The `scripts/` directory provides a small, layered verification hierarchy:
 | `test-python-wheel.sh` | Build wheel, install in venv, run smoke + tests — the authoritative Python test entry point |
 | `test-examples.sh` | Compile Cargo examples and smoke-test canonical Python/Rust demos on loopback port 0 |
 | `verify-cargo-packages.sh` | Package dry-run gates (`--mode all`) for release validation |
-| `verify-conformance-matrix.py` | Validate conformance corpus consistency |
+| `verify-conformance-matrix.py` | Validate conformance corpus consistency (CI runs this first) |
 | `check-wheel-composition.py` | Inspect wheel contents for correctness |
+| `check-release-wheel-set.py` | Validate that a release directory contains the expected 9-platform wheel set |
+| `check-python-release-metadata.py` | Validate release metadata (versions, tags, artifact naming) |
 | `release_smoke.py` | Release artifact smoke tests |
 | `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` for manual security checks |
 
@@ -453,9 +458,11 @@ Full results: `benchmarks/088-baseline/results.json`. The old Criterion harness 
 |------|---------|
 | `python_http_server_static.py` | Stock `SimpleHTTPRequestHandler` — fast-path, no Python dispatch |
 | `python_custom_handler.py` | Custom `BaseHTTPRequestHandler` — callback path |
+| `python_custom_headers.py` | Static metadata: `default_content_type`, ordered `extra_response_headers` |
+| `python_https_server.py` | Rust-runtime TLS server via the facade (`HTTPSServer`) |
 | `python_subprocess.py` | `eggserve.subprocess` lifecycle helpers |
 | `python_safe_download.py` | Safe download with bounded response |
-| `README.md` | Example index with descriptions |
+| `README.md` | Mechanically checked example index |
 
 ### Rust examples (`crates/eggserve-core/examples/`)
 
@@ -463,6 +470,8 @@ Full results: `benchmarks/088-baseline/results.json`. The old Criterion harness 
 |------|---------|
 | `static_server.rs` | Built-in confined static service via `Server::builder()` |
 | `custom_service.rs` | Custom `Service` via `service_fn` |
+| `custom_headers.rs` | Static metadata: `default_content_type`, ordered `extra_response_headers` (final 200 responses only) |
+| `https_server.rs` | TLS serving via `load_tls_config` + `tls_config()` (`--features tls`) |
 | `primitives.rs` | Response planning without opening a socket |
 
 All examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. They are compiled and smoke-tested by `scripts/verify.sh full`.
@@ -471,7 +480,7 @@ All examples bind loopback, support port `0` for smoke tests, wait for readiness
 
 ## Crate Source Structure
 
-### eggserve-core (50 source files)
+### eggserve-core (44 source files)
 
 ```
 src/
@@ -540,14 +549,17 @@ src/
 
 ```
 src/
-├── lib.rs     # PyO3 module registration: 18 exceptions, 13 classes, 7 functions, 10 server classes
+├── lib.rs     # PyO3 module registration: 20 exceptions, 24 classes, 7 functions
 └── server.rs  # PyRequestBody, PyRequest, PyResponse, PythonCallbackService, PyServer
 
 python/eggserve/
 ├── __init__.py     # top-level namespace (version, serve_directory, facade classes)
+├── __init__.pyi    # type stub for the facade namespace
 ├── _bin.py         # CLI entry point via native _run_cli
 ├── __main__.py     # python -m eggserve support
+├── _native.pyi     # type stub over the native extension surface
 ├── server.py       # six-class Rust-runtime compatibility facade
+├── server.pyi      # type stub for the facade classes
 ├── lowlevel.py     # advanced native exports (SecureRoot, StaticPolicy, canonical types)
 └── subprocess.py   # subprocess lifecycle exports (ServeConfig, ServerProcess)
 ```
