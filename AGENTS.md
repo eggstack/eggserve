@@ -20,66 +20,62 @@ compatibility contract lives in [docs/python-http-server-compatibility.md](docs/
 ## Layout
 
 ```
-eggserve/
-├── Cargo.toml              # workspace root
-├── crates/
-│   ├── eggserve-core/      # security policy, path confinement, HTTP serving, response construction
-│   ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
-│   └── eggserve-python/    # Python wheel packaging (maturin)
-├── architecture/           # deep-dive docs for each subsystem
-├── benchmarks/             # benchmark baselines
-├── conformance/            # test corpora and conformance matrix
-├── docs/                   # project documentation
-├── examples/               # canonical CLI/Python examples and tiny fixtures
-├── fuzz/                   # fuzz targets, seed corpora, fuzz README
-├── plans/                  # design plans and roadmap
-├── release/                # release artifacts
-├── scripts/                # small fast/full/deep verification hierarchy and package/release checks
-└── tests/                  # integration tests (proxy interop, soak, installed-binary qual)
+crates/
+├── eggserve-core/      # library: security policy, path confinement, HTTP serving, response construction
+├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
+└── eggserve-python/    # Python wheel packaging (maturin) — EXCLUDED from workspace
+architecture/           # deep-dive docs per subsystem (filenames match subsystems)
+benchmarks/             # benchmark baselines
+conformance/            # test corpora + conformance_matrix.toml
+docs/                   # reference documentation
+examples/               # canonical CLI/Python/Cargo examples; index: examples/README.md
+fuzz/                   # fuzz targets, seed corpora
+plans/                  # historical design/change records (not normative)
+release/                # release artifacts
+scripts/                # verification hierarchy + package/release checks
+tests/                  # repo-level integration tests (proxy interop, soak, installed-binary qual)
 ```
 
 ## Common commands
 
-Routine CI runs these in two concurrent jobs (`rust` and `python`):
+Routine CI (`.github/workflows/ci.yml`) runs two concurrent jobs:
 
 ```sh
-# Rust job
-cargo fmt --all -- --check                                 # format check
-cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
-cargo test --workspace                                     # tests
+# rust job
+python3 scripts/verify-conformance-matrix.py                # corpus/matrix consistency gate (runs first!)
+cargo fmt --all -- --check
+cargo clippy --workspace --lib --bins --tests -- -D warnings   # warnings are errors
+cargo test --workspace
 cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
-cargo test -p eggserve-bin --features tls                  # TLS tests
+cargo test -p eggserve-bin --features tls                   # TLS tests
 
-# Python job (via scripts/test-python-wheel.sh)
-# Builds wheel, installs in venv, runs smoke + tests
+# python job: bash scripts/test-python-wheel.sh
+# builds wheel with maturin, installs in venv, runs smoke + tests
 ```
 
 Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
-
-The `tests/` directory at the repo root holds integration tests (proxy interop, soak, installed-binary qual) that are distinct from in-crate unit/integration tests.
 
 ### Local verification script
 
 ```sh
 ./scripts/verify.sh fast                 # routine dev check (Rust only)
-./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel)
-./scripts/verify.sh deep                 # expensive suites (manual)
+./scripts/verify.sh full                 # pre-release: fast + TLS + examples + Python wheel
+./scripts/verify.sh deep                 # expensive suites (manual): fuzz replay, races, proxy interop
 ```
 
-### Optional manual security/package checks
+Gotcha: `verify.sh full` **dies** without Python 3.14 + maturin installed (it defaults to `python3.14`; override with `PYTHON=`). Use `fast` for Rust-only work.
 
-Not run in routine CI. Run manually when preparing a release:
+### Optional manual checks (release prep only)
 
 ```sh
-bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation
-cargo audit                             # vulnerability check
-cargo deny check                        # license/policy check
+bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation (required first)
+cargo audit && cargo deny check
 bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
 
 ### Distribution builds
 
-The `dist` profile produces stripped, size-optimized release artifacts:
+The `dist` profile produces stripped, size-optimized artifacts:
 
 ```sh
 cargo build --profile dist --locked -p eggserve-bin              # default CLI
@@ -88,93 +84,73 @@ cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
 
 ## CI policy
 
-Routine CI is a small regression screen, not release certification:
-
-- Routine CI remains one workflow (`.github/workflows/ci.yml`) with two jobs: `rust` and `python`.
-- Platform/product qualification is manual-only in `.github/workflows/platform-qualification.yml`; it exercises the installed wheel on macOS arm64 and the Windows adversarial filesystem suites without expanding routine CI.
-- No evidence upload, no gate registry, no generated checklists, no publication.
-- Deep verification is local/manual and selected by change risk.
-- Crates.io publishing is manual from a maintainer-controlled environment.
-- PyPI publication uses OIDC Trusted Publishing via the release workflow; production upload requires the protected `pypi` GitHub Environment. No long-lived PyPI API tokens.
-- Release cadence is manual — no push/tag/merge automatically publishes.
+Routine CI is a small regression screen, not release certification. Platform qualification (macOS arm64 + Windows adversarial FS suites) is manual-only via `.github/workflows/platform-qualification.yml` (`gh workflow run platform-qualification.yml --ref main`). Publishing is manual (crates.io from maintainer env; PyPI via OIDC Trusted Publishing requiring the protected `pypi` GitHub Environment) — no push/tag/merge ever publishes.
 
 ## Toolchain notes
 
-- Rust edition 2021, workspace `resolver = "2"`.
-- No `rustfmt.toml` / `clippy.toml` — defaults apply; CI enforces `-D warnings`.
-- `target/` is gitignored; `cargo build` / `cargo test` are sufficient setup (no pre-build step, no codegen).
-- `cargo run -p eggserve-bin` starts an HTTP server on `127.0.0.1:8000` serving static files from the current directory. See [crates/eggserve-bin/src/main.rs](crates/eggserve-bin/src/main.rs).
+- Rust edition 2021, resolver `"2"`. No `rustfmt.toml`/`clippy.toml` — defaults apply; CI enforces `-D warnings`.
+- No pre-build/codegen steps: `cargo build` / `cargo test` are sufficient setup.
+- `cargo run -p eggserve-bin` serves static files from CWD on `127.0.0.1:8000`.
 
-## Important quirks
+## Quirks and pitfalls
 
-- **eggserve-python is excluded from the workspace** — it has its own `Cargo.lock` and is built independently via `maturin`. Don't run `cargo test --workspace` expecting to cover Python crate code.
-- **Two DotfilePolicy types**: `path::DotfilePolicy` (parsing level) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served. Don't confuse them.
-- **Manual argument parsing** in `args.rs` — no clap dependency. The CLI grammar
-  is `[OPTIONS] [PORT] [DIRECTORY]`; positional parsing owns those two logical
-  slots, treats a directory after an occupied port slot verbatim (including a
-  numeric name), and rejects excess positionals. A host-only `--bind` leaves
-  the port slot available; `--directory` occupies the directory slot.
-- **`#[allow(dead_code)]` on public API types** — these are consumed externally (Python bindings), not dead.
-- **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability is enforced at both layers.
-- **Python wheels**: CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. The wheel includes an `eggserve` console script backed by the native extension (no separate bundled binary). `python -m eggserve` uses the same in-process native CLI entry point. Release wheels target 9 platforms: manylinux_2_17 (x86_64, aarch64, armv7l), musllinux_1_2 (x86_64, aarch64), macOS (x86_64, arm64), Windows (x86_64, arm64).
-- **Windows**: functionally qualified for the executed handle-relative child-resolution and directory-enumeration classes. Two open-descendant root-rename cases are explicitly skipped because NTFS rejects that external path operation, so Windows remains a trusted/local-content platform. See [docs/toolchain-support.md](docs/toolchain-support.md).
-- **RequestBody is one-shot** — `RequestBody` can only be consumed once (via `read_all` or streaming). The `Service::call` method takes `Request` by value, consuming it. Python `RequestBody.read()` and `iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
-- **Python server facade** — The supported Python API is `eggserve.server` with `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, and `SimpleHTTPRequestHandler`. Native callback and client types are not top-level supported APIs. Advanced primitives are grouped under `eggserve.lowlevel`, CLI subprocess helpers under `eggserve.subprocess`. Stock `SimpleHTTPRequestHandler` with default settings bypasses Python per-request dispatch entirely; subclasses and non-default settings fall back to the Python callback path. The fast path's eligibility contract is exact: the bare class or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` is empty, and `.keywords` is a subset of `{"directory", "extra_response_headers"}`. `default_content_type` and ordered safe extra headers are native static metadata; extras apply only to final 200 responses. The compatibility facade's effective concurrency is enforced through the native connection admission limit when the fast path is active (`HTTPServer`/`HTTPSServer` → 1, `ThreadingHTTPServer(N)`/`ThreadingHTTPSServer(N)` → N). Handler `protocol_version` is constrained to HTTP/1.1.
-- **CLI runtime is current-thread** — The standalone CLI uses `Builder::new_current_thread()`. The Python facade uses `rt-multi-thread` with 2 worker threads for GIL scheduling. The library is runtime-agnostic. CLI `--bind` accepts hostnames and resolves them once before listener startup; `--tls-cert` may name a combined certificate/private-key PEM when `--tls-key` is omitted.
-- **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
-- **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
-- **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
-- **Structured logging** — `eggserve-core::ops` provides the event model. `Logger::global().emit(Event::new(...))` is the primary API. The CLI initializes the logger with `StderrLogSink`. `--log-format none` disables output; `--quiet` filters to warn/error only. Library code must not use `println!`/`eprintln!`.
-- **Listener error classification** — Accept errors are classified by `io::ErrorKind` into transient/resource-exhaustion/persistent categories with bounded exponential backoff. Use `classify_accept_error()` helper.
-- **Canonical examples** — `examples/README.md` is the index. The supported demonstrations are `python_http_server_static.py`, `python_custom_handler.py`, `python_subprocess.py`, `python_safe_download.py`, and the Cargo examples `static_server`, `custom_service`, and `primitives`. Keep examples small, loopback-bound, safe by default, and mechanically checked by `scripts/verify.sh full`. Rust embedders should use `eggserve-core`; `eggserve-bin::run_cli` is integration plumbing for the Python wheel, not a general embedding API.
-- **Rust closure verification** — For library/CLI usability work, run `cargo test --doc -p eggserve-core`, `cargo check -p eggserve-core --examples`, both dist builds, and `bash scripts/verify-cargo-packages.sh --mode all`. For native bind/TLS changes, run the manual platform qualification workflow after pushing.
+### Crate boundaries
 
-## Common pitfalls
+- **eggserve-python is excluded from the workspace** — own `Cargo.lock`, built independently via maturin. `cargo test --workspace` does not cover it.
+- **Package roles**: `eggserve-core::primitives` is the semver-considered facade; `eggserve-core::server` is experimental (API may change). `eggserve-bin::run_cli` is plumbing for the Python wheel's extension-backed CLI, **not** a general embedding API — Rust embedders use `eggserve-core`.
+- `crates/eggserve-bin/src/main.rs` is a 2-line shim; real logic is in `lib.rs`/`args.rs`.
 
-- `telemetry.rs` is referenced in some older docs/plans but does not exist — do not create it
-- Range requests ARE implemented (despite some docs saying otherwise).
-- `clap` was removed — manual arg parsing in `args.rs`.
-- `tracing` was never added — logging is custom.
-- `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`.
-- `ResponseStatus` is a struct with associated constants, not an enum.
-- `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum.
+### Code shapes agents get wrong
+
+- **Two DotfilePolicy types**: `path::DotfilePolicy` (parsing level) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served.
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`.
-- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
-- **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization. Do not call `Logger::init()` twice.
-- **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
-- **No println/eprintln in library code** — The core library must use `Logger::global().emit()` for all operational output.
-- **Semaphore bounds** — `max_connections` and `max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS`. Values above this bound are rejected.
-- **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
-- **Production profiles** — Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functionally qualified but remains trusted/local-content only. See `docs/deployment.md`.
+- `ResponseStatus` is a struct with associated constants, not an enum. `FileRange` is a struct `{ start, end_inclusive }`, not an enum. `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`.
+- **Error taxonomy** — five types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-facing), `ServerError` (10 variants, lifecycle), `ServiceErrorKind` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
+- Range requests ARE implemented (some older docs claim otherwise).
+- `telemetry.rs` does not exist — do not create it. `clap` was removed (manual parsing in `args.rs`). `tracing` was never added (custom logging).
+- `#[allow(dead_code)]` on public API types — consumed externally by Python bindings, not dead.
+- Frozen Python classes — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability enforced at both layers.
+- `ResolvedFile::from_parts()/into_std_file()/into_parts()` are `pub` for cross-crate bindings, but the confinement guarantee ends after extraction.
+
+### HTTP semantics
+
+- **RequestBody is one-shot** — consumable once via `read_all` or streaming. `Service::call` takes `Request` by value. Python `read()`/`iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
+- Canonical response semantics: `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags satisfy `If-None-Match` but never `If-Range`; exactly one authoritative `Date` header added at final construction. All producers converge on `primitives::canonical::normalize_metadata()`.
+- Stable canonical types: `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()`.
+- Listener accept errors are classified by `io::ErrorKind` (transient/resource-exhaustion/persistent) with bounded exponential backoff — use `classify_accept_error()`.
+
+### CLI
+
+- **Manual argument parsing** in `args.rs` — no clap. Grammar `[OPTIONS] [PORT] [DIRECTORY]`; positionals own those two slots; a directory after an occupied port slot is taken verbatim even if numeric; excess positionals rejected. Host-only `--bind` leaves the port slot free; `--directory` occupies the directory slot. `--bind` accepts hostnames resolved once before listener startup; `--tls-cert` may name a combined cert/key PEM when `--tls-key` is omitted.
+- **CLI runtime is current-thread**; the Python facade uses `rt-multi-thread` with 2 worker threads (GIL scheduling). The library itself is runtime-agnostic.
+- Logging flags: `--log-format none` → `NopLogSink`; `--quiet` → `FilteredLogSink` (warn/error). Argument-validation errors printed before logger init may still hit stderr.
+
+### Structured logging
+
+- Library code must not use `println!`/`eprintln!` — use `eggserve-core::ops`: `Logger::global().emit(Event::new(...))`.
+- `Logger` uses `OnceLock`; `try_init()` exists for Python bindings coexisting with CLI init. Never call `Logger::init()` twice.
+- `max_connections`/`max_file_streams` are validated against `tokio::sync::Semaphore::MAX_PERMITS`; larger values are rejected.
+
+### Python facade
+
+- Supported API is `eggserve.server`: `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, `SimpleHTTPRequestHandler`. Advanced primitives live in `eggserve.lowlevel`; CLI subprocess helpers in `eggserve.subprocess`. Native callback/client types are not top-level supported APIs.
+- Stock `SimpleHTTPRequestHandler` with default settings bypasses Python dispatch entirely (native fast path). Eligibility is exact: bare class, or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` empty, `.keywords` ⊆ `{directory, extra_response_headers}`. Subclasses and other settings fall back to the Python callback path.
+- `default_content_type` and ordered `extra_response_headers` are native static metadata; extras apply only to final 200 responses. Fast-path concurrency is enforced natively (non-threading classes → 1 connection, `Threading*(N)` → N). Handler `protocol_version` is constrained to HTTP/1.1.
+- Wheels: CPython 3.11+ (abi3). Routine CI tests Linux only; release wheels target 9 platforms (manylinux_2_17 x86_64/aarch64/armv7, musllinux_1_2 x86_64/aarch64, macOS x86_64/arm64, Windows x86_64/arm64). Wheel ships the `eggserve` console script and `python -m eggserve` backed by the native extension — no separate bundled binary.
+- Windows is functionally qualified for handle-relative child resolution and directory enumeration, but remains **trusted/local-content only** (NTFS rejects the two open-descendant root-rename cases). See [docs/toolchain-support.md](docs/toolchain-support.md).
+
+### Examples
+
+`examples/README.md` is the mechanically checked index (`scripts/test-examples.sh` in `verify.sh full`). Supported demos: Python `python_http_server_static.py`, `python_custom_handler.py`, `python_subprocess.py`, `python_safe_download.py`, `python_https_server.py`, `python_custom_headers.py`; Cargo examples `static_server`, `custom_service`, `custom_headers`, `https_server` (`--features tls`), `primitives`. Keep examples small, loopback-bound, safe by default; do not turn them into a framework or second policy reference.
+
+### Verification beyond routine CI
+
+- For library/CLI usability work also run: `cargo test --doc -p eggserve-core`, `cargo check -p eggserve-core --examples`, both dist builds, and `bash scripts/verify-cargo-packages.sh --mode all`.
+- For native bind/TLS changes, run the manual platform qualification workflow after pushing.
+- Production profiles: every production claim must name a profile ([docs/deployment.md](docs/deployment.md)). Hardened profiles must not allow symlink following.
 
 ## Reference docs
 
-`docs/` has reference docs (security-policy, threat-model, non-goals, dependency-policy, compatibility, release-process, deployment, http-primitives, python-api, cli, etc.). `architecture/` has deep-dive docs per subsystem:
+`docs/` holds reference pages (security-policy, threat-model, non-goals, dependency-policy, deployment, release-process, cli, python-api, http-primitives, public-api-boundary, etc.). `architecture/` holds deep-dives named after their subsystem — most useful entry points: `overview.md`, `error-taxonomy.md`, `runtime.md`, `filesystem-confinement.md`, `testing-and-conformance.md`.
 
-- `architecture/overview.md` — workspace structure, data flow, architectural decisions
-- `architecture/eggserve-core.md` — core library module map, key types, error taxonomy
-- `architecture/eggserve-bin.md` — CLI binary, accept loop, signal handling
-- `architecture/eggserve-python.md` — Python bindings, PyO3, maturin packaging
-- `architecture/path-confinement.md` — path validation pipeline
-- `architecture/filesystem-confinement.md` — SecureRoot, symlink-aware resolution
-- `architecture/policy-system.md` — StaticPolicy, symlink/dotfile/listing policies
-- `architecture/primitives-api.md` — public API boundary for embedding consumers
-- `architecture/response-planning.md` — conditional/range/ETag response planning
-- `architecture/runtime.md` — runtime service boundary, Server, Service trait, StaticService
-- `architecture/security-model.md` — trust boundaries, defensive layers, attacker model
-- `architecture/testing-and-conformance.md` — test layers, conformance corpora, fuzzing
-- `architecture/configuration.md` — configuration inventory, ownership model, field inventory
-- `architecture/structured-logging.md` — event model, event kinds, operational counters, log sinks
-- `architecture/error-taxonomy.md` — five error layers, variant inventory, conversion flow
-- `architecture/tls.md` — TLS support, feature gates, PEM loading
-- `architecture/adr-002-windows-handle-relative-filesystem.md` — Windows handle-relative confinement design
-- `architecture/adr-003-custom-service-ownership.md` — custom service ownership model
-
-`plans/` has historical design and implementation records through Plan 141;
-the current product and compatibility contract is recorded in README.md,
-the relevant docs/ pages, and the architecture pages. Plans record evidence
-and change history; they are not normative API documentation.
-Plans are repository navigation and change-trace records, not prerequisites
-for understanding runtime behavior; use the owning docs and architecture
-pages for current invariants.
+`plans/` records design history through Plan 144 plus roadmap files. Plans are change-trace records, **not** normative API documentation; treat README.md, `docs/`, and `architecture/` as owning current invariants.
