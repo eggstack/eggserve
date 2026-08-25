@@ -60,6 +60,13 @@ Safe defaults match or strengthen CLI defaults. Configuration is validated at bu
 
 ```rust
 pub trait Service: Send + Sync + 'static {
+    fn request_body_policy(
+        &self,
+        _head: &RequestHead,
+    ) -> RequestBodyPolicy {
+        RequestBodyPolicy::Reject
+    }
+
     fn call(
         &self,
         request: Request,
@@ -67,6 +74,7 @@ pub trait Service: Send + Sync + 'static {
 }
 ```
 
+- `request_body_policy()` declares the service's body policy per request head; default is `Reject` (safe static default). The runtime enforces the hard `max_request_body_bytes` ceiling — services may lower it, never raise it
 - Receives canonical `Request` envelope (RequestHead + RequestBody + ConnectionInfo)
 - Returns canonical `Response` or `ServiceError`
 - Must be `Send + Sync` for sharing across connections
@@ -129,16 +137,18 @@ States:
 - **Stopped** — all connections drained; terminal state
 - **Failed** — fatal error during startup or drain; terminal state
 
-Allowed operations per state:
+Allowed operations per state (`ok` = succeeds, `err` = returns error, `yes` = accepted, `noop` = no-op, `idempot` = idempotent):
 
 | State     | build | start | ready | shutdown | force_shutdown | wait |
 |-----------|-------|-------|-------|----------|----------------|------|
-| Created   | yes   | yes   | —     | yes      | yes            | yes  |
+| Created   | yes   | yes   | err   | yes      | yes            | yes  |
 | Starting  | —     | err   | yes   | yes      | yes            | yes  |
 | Running   | —     | err   | ok    | ok       | ok             | yes  |
 | Draining  | —     | err   | err   | idempot  | ok             | yes  |
 | Stopped   | —     | err   | err   | noop     | noop           | ok   |
 | Failed    | —     | err   | err   | noop     | noop           | err  |
+
+`ready()` before `start()` returns a not-started/config error rather than waiting — callers must invoke `start()` first.
 
 Race safety: state is stored in an `AtomicU8` with `compare_exchange` for all transitions. Channel notifications (`watch` for readiness, `broadcast` for terminal state) ensure waiters are awakened without polling.
 

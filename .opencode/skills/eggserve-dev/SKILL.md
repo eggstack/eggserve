@@ -5,6 +5,10 @@ description: Use when working on eggserve code, plans, docs, or architecture. Co
 
 # eggserve Development Skill
 
+`AGENTS.md` at the repository root is the canonical agent-facing index (CI
+commands, quirks, architecture/docs index). This skill adds working detail;
+keep the two consistent.
+
 ## Project identity
 
 EggServe is a hardened, HTTP-correct static file server and reusable Rust
@@ -24,8 +28,8 @@ Three crates:
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
-`plans/` (historical design/implementation records, currently through Plan
-141),
+`plans/` (historical design/implementation records, currently through Plan 144
+plus the `ROADMAP.md` and `RELEASE-READINESS-ROADMAP.md` roadmap files),
 `examples/` (canonical CLI/Python examples plus Cargo examples and tiny
 fixtures), `fuzz/`, and `scripts/` (small fast/full/deep verification hierarchy
 plus package/release checks). The example index is `examples/README.md`.
@@ -99,7 +103,7 @@ bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 - **eggserve-python excluded from workspace** — has its own Cargo.lock, built via maturin. Don't run `cargo test --workspace` for Python crate.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
-- **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-only), `ServerError` (10 variants, server lifecycle), `ServiceError` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
+- **Error taxonomy** — Five distinct error types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-facing), `ServerError` (10 variants, server lifecycle), `ServiceErrorKind` (private kind enum behind the public `ServiceError` struct; 4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See `architecture/error-taxonomy.md`.
 - **Plan status** — Plans are historical change-trace records. The current product and compatibility contract is owned by `README.md`, `docs/python-http-server-compatibility.md`, and the relevant architecture pages. Production servers use the shared `RuntimeState` admission pool.
 - **Canonical HTTP types (stable)** — `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()` are all stable.
 - **Canonical response semantics** — `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags may satisfy `If-None-Match` but never `If-Range`; and the runtime adds exactly one authoritative `Date` header at final response construction. Python callback conversion stages headers and body ownership atomically; malformed body state never falls back to an empty response.
@@ -139,7 +143,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - Range requests ARE implemented (despite some docs saying otherwise)
 - `clap` was removed — manual arg parsing in `args.rs`
 - `tracing` was never added — logging is custom
-- Error taxonomy: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level), `ServerError` (10 variants, lifecycle), `ServiceError` (4 kinds), `RequestBodyError` (12 variants, body consumption)
+- Error taxonomy: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level), `ServerError` (10 variants, lifecycle), `ServiceErrorKind` (private, 4 kinds behind the public `ServiceError` struct), `RequestBodyError` (12 variants, body consumption)
 - `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`
 - `ResponseStatus` is a struct with associated constants, not an enum
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum

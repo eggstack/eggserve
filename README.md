@@ -184,6 +184,7 @@ point; it does not bundle a second standalone CLI binary. See
 
 **CLI and installation:**
 - [CLI reference](https://github.com/eggstack/eggserve/blob/main/docs/cli.md) — all flags, positional parsing, and examples
+- [Timeout reference](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md) — every runtime timeout, semantics, and precedence
 - [TLS support](https://github.com/eggstack/eggserve/blob/main/docs/tls.md) — building with `--features tls`, certificate requirements
 - [Toolchain and wheel support](https://github.com/eggstack/eggserve/blob/main/docs/toolchain-support.md) — platform matrix, Python versions
 - [Deployment guidance](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md) — production profiles, reverse-proxy patterns
@@ -197,7 +198,11 @@ point; it does not bundle a second standalone CLI binary. See
 **Rust library:**
 - [Rust HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md) — HTTP/1.1 primitive contract
 - [Public API boundary](https://github.com/eggstack/eggserve/blob/main/docs/public-api-boundary.md) — stability tiers, semver policy
+- [Migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md) — legacy → canonical type mappings, breaking-change policy
 - [Library capability matrix](https://github.com/eggstack/eggserve/blob/main/docs/library-capability-matrix.md) — cross-surface feature inventory
+
+**Operations:**
+- [Operations logging guide](https://github.com/eggstack/eggserve/blob/main/docs/ops-logging.md) — JSON Lines schema, event reference, counters, troubleshooting
 
 **Security:**
 - [Security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md) — safe defaults and enforcement

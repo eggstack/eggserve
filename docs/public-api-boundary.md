@@ -72,6 +72,10 @@ After 1.0:
 
 ## Migration guide
 
+Historical type removals/renames and their replacements (for example
+`ReadOnlyMethod` → `Method`, `response_write_timeout` → `connection_total_timeout`)
+are catalogued in [the migration guide](migration-guide.md).
+
 When a type is removed or renamed:
 1. Check `docs/release-process.md` for the release timeline.
 2. Use the new type name or re-export path.

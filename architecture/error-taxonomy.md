@@ -12,6 +12,8 @@ eggserve uses five distinct error layers, each scoped to a specific subsystem. T
 | Per-request | `ServiceError` | Service handler failures | 4 (kinds) |
 | Body consumption | `RequestBodyError` | Request body reading | 12 |
 
+The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) are carried by a private kind enum; the public surface is the `ServiceError` struct plus its constructors.
+
 ---
 
 ## `PathRejection` — Path Parsing Errors

@@ -105,8 +105,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 - **Two DotfilePolicy types**: `path::DotfilePolicy` (parsing level) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served.
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`.
 - `ResponseStatus` is a struct with associated constants, not an enum. `FileRange` is a struct `{ start, end_inclusive }`, not an enum. `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`.
-- **Error taxonomy** — five types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-facing), `ServerError` (10 variants, lifecycle), `ServiceErrorKind` (4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
-- Range requests ARE implemented (some older docs claim otherwise).
+- **Error taxonomy** — five types: `PathRejection` (16 variants, path validation), `RequestValidationError` (6 variants, HTTP-level, Python-facing), `ServerError` (10 variants, lifecycle), `ServiceErrorKind` (private kind enum behind the public `ServiceError` struct; 4 kinds: `Internal`, `Rejected(u16)`, `Panic`, `Timeout`), `RequestBodyError` (12 variants, body consumption). See [architecture/error-taxonomy.md](architecture/error-taxonomy.md).
 - `telemetry.rs` does not exist — do not create it. `clap` was removed (manual parsing in `args.rs`). `tracing` was never added (custom logging).
 - `#[allow(dead_code)]` on public API types — consumed externally by Python bindings, not dead.
 - Frozen Python classes — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability enforced at both layers.
@@ -151,6 +150,57 @@ Routine CI is a small regression screen, not release certification. Platform qua
 
 ## Reference docs
 
-`docs/` holds reference pages (security-policy, threat-model, non-goals, dependency-policy, deployment, release-process, cli, python-api, http-primitives, public-api-boundary, etc.). `architecture/` holds deep-dives named after their subsystem — most useful entry points: `overview.md`, `error-taxonomy.md`, `runtime.md`, `filesystem-confinement.md`, `testing-and-conformance.md`.
+### Agent assets
 
-`plans/` records design history through Plan 144 plus roadmap files. Plans are change-trace records, **not** normative API documentation; treat README.md, `docs/`, and `architecture/` as owning current invariants.
+The project skill lives at `.opencode/skills/eggserve-dev/SKILL.md`
+(symlinked from `.agents/skills/eggserve-dev`) — load it before working on
+code, plans, docs, or architecture. Keep it and this file consistent; both are
+maintained against the codebase.
+
+### Architecture index (`architecture/`)
+
+Deep-dive pages, named after their subsystems. Start at `overview.md`; it
+indexes every page below.
+
+| Subsystem | Page |
+|-----------|------|
+| Workspace structure, data flow, decisions | [overview.md](architecture/overview.md) |
+| Core library module map | [eggserve-core.md](architecture/eggserve-core.md) |
+| CLI binary, accept loop, signals | [eggserve-bin.md](architecture/eggserve-bin.md) |
+| Python bindings, PyO3/maturin packaging | [eggserve-python.md](architecture/eggserve-python.md) |
+| Path validation pipeline | [path-confinement.md](architecture/path-confinement.md) |
+| SecureRoot, symlink-aware resolution | [filesystem-confinement.md](architecture/filesystem-confinement.md) |
+| StaticPolicy / policy flags | [policy-system.md](architecture/policy-system.md) |
+| Public primitives facade for embedders | [primitives-api.md](architecture/primitives-api.md) |
+| Conditional/range/ETag planning | [response-planning.md](architecture/response-planning.md) |
+| Server, Service trait, StaticService | [runtime.md](architecture/runtime.md) |
+| Trust boundaries, defensive layers | [security-model.md](architecture/security-model.md) |
+| Test layers, corpora, fuzzing | [testing-and-conformance.md](architecture/testing-and-conformance.md) |
+| Configuration field inventory | [configuration.md](architecture/configuration.md) |
+| Event model, sinks, counters | [structured-logging.md](architecture/structured-logging.md) |
+| Five error layers, variant inventory | [error-taxonomy.md](architecture/error-taxonomy.md) |
+| TLS feature gates, PEM loading | [tls.md](architecture/tls.md) |
+| ADR: Windows handle-relative FS | [adr-002-windows-handle-relative-filesystem.md](architecture/adr-002-windows-handle-relative-filesystem.md) |
+| ADR: custom service ownership | [adr-003-custom-service-ownership.md](architecture/adr-003-custom-service-ownership.md) |
+
+### Reference pages (`docs/`)
+
+Normative user-facing contracts: [security-policy](docs/security-policy.md),
+[threat-model](docs/threat-model.md),
+[python-http-server-compatibility](docs/python-http-server-compatibility.md)
+(the Python compatibility contract), [cli](docs/cli.md),
+[python-api](docs/python-api.md), [http-primitives](docs/http-primitives.md),
+[public-api-boundary](docs/public-api-boundary.md),
+[deployment](docs/deployment.md) (production profiles),
+[timeout-reference](docs/timeout-reference.md) (runtime timeout catalog),
+[ops-logging](docs/ops-logging.md) (log schema/event reference),
+[migration-guide](docs/migration-guide.md) (legacy → canonical mappings),
+[action-pinning](docs/action-pinning.md) (CI supply-chain policy),
+plus non-goals, dependency-policy, toolchain-support, release-process,
+release-contract, python-packaging, secure-root, api-stability, fuzzing,
+invariants, compatibility, body-migration, extension-contract.
+
+`plans/` records design history through Plan 144 plus roadmap files
+(`ROADMAP.md`, `RELEASE-READINESS-ROADMAP.md`). Plans are change-trace
+records, **not** normative API documentation; treat README.md, `docs/`, and
+`architecture/` as owning current invariants.

@@ -21,7 +21,7 @@ eggserve ships with the following safe defaults. These are not configurable with
 | **malformed request targets rejected** | Invalid paths (traversal, encoding abuse, null bytes) return 400 |
 | **logs sanitized** | Paths and headers are sanitized before writing to logs |
 | **resource limits enabled** | Max 64 concurrent connections, 32 server-wide file streams, 10s header timeout, 60s connection total timeout |
-| **directory listing bounded** | Max 4096 entries, 1 MiB response body, 255-byte filenames, 30s enumeration timeout |
+| **directory listing bounded** | Max 4096 entries and a 1 MiB response body; enumeration runs under the request handler timeout (default 30s); filename lengths are bounded by the filesystem |
 
 These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access.
 

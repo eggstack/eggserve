@@ -16,9 +16,12 @@ are stored in repository secrets.
 The workflow is manually dispatched with a `publish_target` input
 (`none` | `testpypi` | `pypi`) and follows this job graph:
 
+All third-party GitHub Actions used by the workflow are pinned to immutable
+commit SHAs; the pinned digests and the update procedure are maintained in
+[the action pinning policy](action-pinning.md).
+
 ```
-workflow_dispatch (publish_target: none|testpypi|pypi)
-  │
+workflow_dispatch (publish_target: none|testpypi|pypi)  │
   ▼
 preflight (version-sync check, source commit)
   │

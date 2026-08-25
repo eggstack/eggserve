@@ -116,6 +116,8 @@ eggserve emits structured operational logs to stderr. Use `--log-format` to sele
 - `--log-format text` — Human-readable text to stderr (default). Format: `[severity] event_name: message`. Control characters are sanitized and long fields are truncated.
 - `--log-format none` — Disables all operational logs. No structured output is emitted during normal operation.
 
+The full JSON Lines schema, complete event reference, operational counters, and troubleshooting recipes live in [the operations logging guide](ops-logging.md).
+
 ### Event Categories
 
 | Category | Examples |

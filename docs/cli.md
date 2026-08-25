@@ -83,6 +83,8 @@ hop-by-hop headers are rejected rather than silently overridden.
 | `--handler-timeout SECS` | Handler invocation timeout (seconds) | `30` |
 | `--body-read-timeout SECS` | Request body read timeout (seconds) | `30` |
 
+Full semantics for every timeout — clock start, progress rules, precedence, and terminal behavior — are catalogued in [the timeout reference](timeout-reference.md).
+
 ### Output
 
 | Flag | Description | Default |
