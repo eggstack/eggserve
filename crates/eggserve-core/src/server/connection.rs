@@ -196,7 +196,7 @@ pub async fn serve_connection<I, S>(
 pub async fn serve_connection_with_runtime_state<I, S>(
     io: TokioIo<I>,
     service: S,
-    config: &RuntimeConfig,
+    config: Arc<RuntimeConfig>,
     runtime_state: Arc<RuntimeState>,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
@@ -209,7 +209,6 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     S: Service,
 {
     let service = std::sync::Arc::new(service);
-    let config = Arc::new(config.clone());
     let handler_timeout = config.handler_timeout;
     let body_read_timeout = config.body_read_timeout;
     let max_body_bytes = config.max_request_body_bytes;
@@ -894,7 +893,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         std::fs::write(tmp.path().join("hello.txt"), "hello").unwrap();
         let state = build_state(&tmp);
-        let config = RuntimeConfig::default();
+        let config = Arc::new(RuntimeConfig::default());
 
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -908,7 +907,7 @@ mod tests {
             serve_connection_with_runtime_state(
                 TokioIo::new(stream),
                 StaticService::from_state(state_clone),
-                &config,
+                config,
                 runtime_state,
                 &mut shutdown_rx,
                 1,

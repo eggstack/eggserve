@@ -32,12 +32,19 @@ pub fn validate_components(
             return Err(PathRejection::DotfileDenied);
         }
 
-        if let Ok(decoded) = decode::percent_decode(component) {
-            if decoded == "." {
-                return Err(PathRejection::CurrentComponent);
-            }
-            if decoded == ".." {
-                return Err(PathRejection::ParentComponent);
+        // The path was already percent-decoded once by `ConfinedPath::parse`;
+        // this conservative re-check only denies components that are
+        // dot-segments after one more decode (e.g. a file literally named
+        // "%2e%2e"). Skip the allocation entirely for the common case of a
+        // component with no `%`.
+        if component.contains('%') {
+            if let Ok(decoded) = decode::percent_decode(component) {
+                if decoded == "." {
+                    return Err(PathRejection::CurrentComponent);
+                }
+                if decoded == ".." {
+                    return Err(PathRejection::ParentComponent);
+                }
             }
         }
 

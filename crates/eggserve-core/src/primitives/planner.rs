@@ -580,9 +580,9 @@ mod tests {
     use proptest::prelude::*;
     use std::io::Write;
 
-    fn make_file_with_size(size: u64) -> tempfile::NamedTempFile {
+    fn make_file_with_size(size: usize) -> tempfile::NamedTempFile {
         let mut tmp = tempfile::NamedTempFile::new().unwrap();
-        let data = vec![0u8; size as usize];
+        let data = vec![0u8; size];
         tmp.write_all(&data).unwrap();
         tmp.flush().unwrap();
         tmp
@@ -1583,7 +1583,7 @@ mod tests {
 
     #[test]
     fn property_etag_format() {
-        let sizes = [0u64, 1, 42, 1024, 1024 * 1024];
+        let sizes = [0usize, 1, 42, 1024, 1024 * 1024];
         for size in sizes {
             let tmp = make_file_with_size(size);
             let meta = std::fs::metadata(tmp.path()).unwrap();
@@ -1707,7 +1707,7 @@ mod tests {
         }
 
         #[test]
-        fn generate_etag_never_panics(size in 0u64..=1_000_000) {
+        fn generate_etag_never_panics(size in 0usize..=1_000_000) {
             let tmp = make_file_with_size(size);
             let meta = std::fs::metadata(tmp.path()).unwrap();
             let _ = generate_etag(&meta);

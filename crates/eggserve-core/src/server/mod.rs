@@ -493,7 +493,7 @@ async fn accept_loop_generic<S: Service>(
                                             connection::serve_connection_with_runtime_state(
                                                 io,
                                                 ArcService(service),
-                                                &config,
+                                                config.clone(),
                                                 runtime_state.clone(),
                                                 &mut shutdown_rx,
                                                 conn_id,
@@ -515,7 +515,7 @@ async fn accept_loop_generic<S: Service>(
                             connection::serve_connection_with_runtime_state(
                                 io,
                                 ArcService(service),
-                                &config,
+                                config.clone(),
                                 runtime_state.clone(),
                                 &mut shutdown_rx,
                                 conn_id,

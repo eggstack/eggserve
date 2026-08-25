@@ -47,7 +47,7 @@ fn static_root_is_validated_during_build() {
 async fn panic_in_service_returns_500() {
     let tmp = TempDir::new().unwrap();
     let _state = build_state(&tmp);
-    let config = RuntimeConfig::default();
+    let config = Arc::new(RuntimeConfig::default());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -62,7 +62,7 @@ async fn panic_in_service_returns_500() {
         serve_connection_with_runtime_state(
             io,
             svc,
-            &config,
+            Arc::clone(&config),
             Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
@@ -98,10 +98,12 @@ async fn panic_in_service_returns_500() {
 async fn slow_handler_returns_504() {
     let tmp = TempDir::new().unwrap();
     let _state = build_state(&tmp);
-    let config = RuntimeConfig::builder()
-        .handler_timeout(Duration::from_millis(50))
-        .build()
-        .unwrap();
+    let config = Arc::new(
+        RuntimeConfig::builder()
+            .handler_timeout(Duration::from_millis(50))
+            .build()
+            .unwrap(),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -120,7 +122,7 @@ async fn slow_handler_returns_504() {
         serve_connection_with_runtime_state(
             io,
             svc,
-            &config,
+            Arc::clone(&config),
             Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
@@ -153,7 +155,7 @@ async fn slow_handler_returns_504() {
 async fn malformed_request_rejected_before_service() {
     let tmp = TempDir::new().unwrap();
     let _state = build_state(&tmp);
-    let config = RuntimeConfig::default();
+    let config = Arc::new(RuntimeConfig::default());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -178,7 +180,7 @@ async fn malformed_request_rejected_before_service() {
         serve_connection_with_runtime_state(
             io,
             svc,
-            &config,
+            Arc::clone(&config),
             Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
@@ -209,7 +211,7 @@ async fn malformed_request_rejected_before_service() {
 async fn custom_service_bytes_through_pipeline() {
     let tmp = TempDir::new().unwrap();
     let _state = build_state(&tmp);
-    let config = RuntimeConfig::default();
+    let config = Arc::new(RuntimeConfig::default());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -227,7 +229,7 @@ async fn custom_service_bytes_through_pipeline() {
         serve_connection_with_runtime_state(
             io,
             svc,
-            &config,
+            Arc::clone(&config),
             Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,
@@ -265,7 +267,7 @@ async fn request_custom_file(runtime_state: Arc<RuntimeState>, path: PathBuf) ->
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
-    let config = RuntimeConfig::default();
+    let config = Arc::new(RuntimeConfig::default());
 
     let server = tokio::spawn(async move {
         let (stream, peer_addr) = listener.accept().await.unwrap();
@@ -291,7 +293,7 @@ async fn request_custom_file(runtime_state: Arc<RuntimeState>, path: PathBuf) ->
         serve_connection_with_runtime_state(
             io,
             svc,
-            &config,
+            Arc::clone(&config),
             runtime_state,
             &mut shutdown_rx,
             1,
@@ -465,7 +467,7 @@ async fn connection_metadata_propagated_to_service() {
 
     let tmp = TempDir::new().unwrap();
     let _state = build_state(&tmp);
-    let config = RuntimeConfig::default();
+    let config = Arc::new(RuntimeConfig::default());
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let (tx, _rx) = broadcast::channel::<()>(1);
@@ -498,7 +500,7 @@ async fn connection_metadata_propagated_to_service() {
         serve_connection_with_runtime_state(
             io,
             svc,
-            &config,
+            Arc::clone(&config),
             Arc::new(RuntimeState::new_for_testing(config.max_file_streams)),
             &mut shutdown_rx,
             1,

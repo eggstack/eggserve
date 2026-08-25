@@ -100,14 +100,23 @@ impl FileRange {
     /// `new` performs no endpoint validation. A range whose endpoints are
     /// not already constrained to a representable file range — e.g.
     /// `FileRange::new(0, u64::MAX)` — makes [`Self::len`] panic on
-    /// overflow. Use [`Self::checked_len`] at consumption points that
-    /// cannot guarantee representable endpoints; planner-produced ranges
-    /// are always bounded by real file lengths.
+    /// overflow. Use [`Self::try_new`] at construction points that cannot
+    /// guarantee representable endpoints, or [`Self::checked_len`] at
+    /// consumption points; planner-produced ranges are always bounded by
+    /// real file lengths.
     pub fn new(start: u64, end_inclusive: u64) -> Self {
         Self {
             start,
             end_inclusive,
         }
+    }
+
+    /// Construct a byte range, returning `None` when [`Self::len`] would
+    /// panic on the given endpoints.
+    pub fn try_new(start: u64, end_inclusive: u64) -> Option<Self> {
+        let range = Self::new(start, end_inclusive);
+        range.checked_len()?;
+        Some(range)
     }
 
     /// Return the number of bytes in this range.
@@ -250,6 +259,26 @@ mod tests {
     fn overflowing_file_range_is_reported() {
         let range = FileRange::new(0, u64::MAX);
         assert_eq!(range.checked_len(), None);
+    }
+
+    #[test]
+    fn try_new_accepts_representable_ranges() {
+        assert_eq!(FileRange::try_new(0, 4), Some(FileRange::new(0, 4)));
+        assert_eq!(FileRange::try_new(10, 9), Some(FileRange::new(10, 9)));
+        assert_eq!(
+            FileRange::try_new(0, u64::MAX - 1),
+            Some(FileRange::new(0, u64::MAX - 1))
+        );
+    }
+
+    #[test]
+    fn try_new_rejects_overflowing_ranges() {
+        // The only endpoint pair whose length exceeds u64::MAX.
+        assert_eq!(FileRange::try_new(0, u64::MAX), None);
+        assert_eq!(
+            FileRange::try_new(1, u64::MAX),
+            Some(FileRange::new(1, u64::MAX))
+        );
     }
 
     #[test]

@@ -450,6 +450,9 @@ pub(crate) enum WindowsFsError {
     AccessDenied,
     TooManyLinks,
     ReparsePointDenied,
+    /// The component name's UTF-16 encoding exceeds the 16-bit byte-length
+    /// fields of `UNICODE_STRING` (64 KiB).
+    NameTooLong,
     IoError(DWORD),
 }
 
@@ -461,6 +464,7 @@ impl std::fmt::Display for WindowsFsError {
             Self::AccessDenied => write!(f, "access denied"),
             Self::TooManyLinks => write!(f, "too many links"),
             Self::ReparsePointDenied => write!(f, "reparse point denied"),
+            Self::NameTooLong => write!(f, "name too long"),
             Self::IoError(code) => write!(f, "I/O error: {code}"),
         }
     }
@@ -512,6 +516,35 @@ fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
 
 // ── Track B: Root-relative open functions ────────────────────────────────────
 
+/// Builds an [`NtUnicodeString`] over `name`, including its NUL terminator.
+///
+/// Returns the string struct and its backing buffer; the caller must keep
+/// both alive for the duration of the native call. `length` covers the
+/// name's UTF-16 bytes only, while `maximum_length` additionally includes
+/// the two-byte NUL terminator carried by the buffer.
+///
+/// Returns [`WindowsFsError::NameTooLong`] instead of silently truncating
+/// when the encoded name exceeds the 16-bit byte-length fields NT uses.
+fn build_nt_unicode_string(name: &str) -> Result<(NtUnicodeString, Vec<u16>), WindowsFsError> {
+    let buffer = to_utf16_null(name);
+    let utf16_byte_len = buffer
+        .len()
+        .checked_mul(2)
+        .ok_or(WindowsFsError::NameTooLong)?;
+    if utf16_byte_len > u16::MAX as usize {
+        return Err(WindowsFsError::NameTooLong);
+    }
+    let utf16_byte_len = utf16_byte_len as u16;
+    Ok((
+        NtUnicodeString {
+            length: utf16_byte_len - 2,
+            maximum_length: utf16_byte_len,
+            buffer: buffer.as_ptr() as *mut u16,
+        },
+        buffer,
+    ))
+}
+
 /// Opens a directory relative to a parent directory handle.
 ///
 /// Uses `NtOpenFile` with `ObjectAttributes.RootDirectory` set to the parent
@@ -529,20 +562,15 @@ fn utf16_slice_to_pathbuf(slice: &[u16]) -> PathBuf {
 /// # Errors
 ///
 /// Returns `WindowsFsError::NotFound` if the component does not exist,
-/// `WindowsFsError::AccessDenied` if the handle lacks permission, or
-/// `WindowsFsError::IoError` for other failures.
+/// `WindowsFsError::AccessDenied` if the handle lacks permission,
+/// `WindowsFsError::NameTooLong` if the name cannot fit NT's 16-bit
+/// length fields, or `WindowsFsError::IoError` for other failures.
 pub(crate) fn open_directory_relative(
     parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
     debug_assert!(!name.is_empty(), "child name must not be empty");
-    let name_utf16 = to_utf16_null(name);
-    let utf16_byte_len = (name_utf16.len() * 2) as u16;
-    let mut obj_name = NtUnicodeString {
-        length: utf16_byte_len - 2,
-        maximum_length: utf16_byte_len,
-        buffer: name_utf16.as_ptr() as *mut u16,
-    };
+    let (mut obj_name, _name_buf) = build_nt_unicode_string(name)?;
     let mut obj_attr = ObjectAttributes {
         length: std::mem::size_of::<ObjectAttributes>() as u32,
         root_directory: parent,
@@ -596,20 +624,15 @@ pub(crate) fn open_directory_relative(
 /// # Errors
 ///
 /// Returns `WindowsFsError::NotFound` if the component does not exist,
-/// `WindowsFsError::NotADirectory` if the target is a directory, or
-/// `WindowsFsError::IoError` for other failures.
+/// `WindowsFsError::NotADirectory` if the target is a directory,
+/// `WindowsFsError::NameTooLong` if the name cannot fit NT's 16-bit
+/// length fields, or `WindowsFsError::IoError` for other failures.
 pub(crate) fn open_file_relative(
     parent: HANDLE,
     name: &str,
 ) -> Result<OwnedHandle, WindowsFsError> {
     debug_assert!(!name.is_empty(), "child name must not be empty");
-    let name_utf16 = to_utf16_null(name);
-    let utf16_byte_len = (name_utf16.len() * 2) as u16;
-    let mut obj_name = NtUnicodeString {
-        length: utf16_byte_len - 2,
-        maximum_length: utf16_byte_len,
-        buffer: name_utf16.as_ptr() as *mut u16,
-    };
+    let (mut obj_name, _name_buf) = build_nt_unicode_string(name)?;
     let mut obj_attr = ObjectAttributes {
         length: std::mem::size_of::<ObjectAttributes>() as u32,
         root_directory: parent,
