@@ -24,10 +24,10 @@ Every security default is enforced at the library level unless the user explicit
 |---------|----------|-------------|
 | Bind to loopback | `127.0.0.1` only | `--public` |
 | GET/HEAD only (static) | Other methods → 405 | N/A (hardcoded) |
-| Request bodies rejected (static) | Body-bearing requests rejected before dispatch | Custom service body policy |
+| Request bodies rejected (static) | Body-bearing requests rejected before dispatch (413); bodyless requests reach handler | Custom service body policy |
 | No symlink following | Denied at path + filesystem layers | `--follow-symlinks` |
 | No dotfile serving | `.` components rejected | `--allow-dotfiles` |
-| No directory listing | Directories → 404 | `--directory-listing` |
+| No directory listing | Directories → 403 | `--directory-listing` |
 | Unknown MIME → octet-stream | Safe binary fallback | N/A |
 | Malformed targets → 400 | Traversal, encoding abuse, NUL | N/A |
 | Sanitized logs | Paths/headers sanitized | N/A |
@@ -71,7 +71,7 @@ These defaults are not advisory — the code rejects non-conforming requests bef
 
 ## Defensive Layers
 
-### 1. Path Confinement (7-stage pipeline)
+### 1. Path Confinement (6-stage pipeline)
 
 All request paths pass through `ConfinedPath::parse()` before touching the filesystem:
 
@@ -79,9 +79,9 @@ All request paths pass through `ConfinedPath::parse()` before touching the files
 2. **Single-pass percent decoding** — `%XX` decoded exactly once; double-encoded traversal (`%252e%252e`) becomes literal `%2e%2e`, not `..`
 3. **Normalization** — `//` collapsed, trailing slashes trimmed; `.` and `..` rejected by validation
 4. **Component splitting** — path split into segments
-5. **Per-component validation** — reject `.`, `..`, NUL bytes, backslash (default), dotfiles (default)
-6. **Platform checks** — Windows reserved names, ADS syntax, drive prefixes (cross-platform)
-7. **Root confinement** — resolved path verified to remain within root
+5. **Per-component validation** — reject `.`, `..`, NUL bytes, backslash (default), dotfiles (default), Windows reserved names, ADS syntax, drive prefixes (cross-platform)
+
+Root confinement (resolved path verified to remain within root) is enforced during filesystem resolution, after `ConfinedPath::parse()` returns.
 
 See [path-confinement.md](path-confinement.md) for the full pipeline.
 
@@ -145,14 +145,14 @@ See [filesystem-confinement.md](filesystem-confinement.md) for the full traversa
 | Connection total timeout | 60s | Slow response protection (wraps entire Hyper connection future) |
 | Graceful shutdown timeout | 10s | Drain period after SIGTERM |
 | Request body size | 0 (rejected) | No bodies processed by default |
-| Handler timeout | configurable | Per-request timeout for service processing |
+| Handler timeout | 30s | Per-request timeout for service processing |
 
 ### 6. Response Normalization
 
 All response producers converge on a single normalization path:
 
 - **HEAD suppression** — body bytes discarded, representation headers preserved
-- **Body-forbidden enforcement** — 1xx, 204, 304 bodies discarded
+- **Body-forbidden enforcement** — 1xx, 204, 205, 304 bodies discarded
 - **Hop-by-hop stripping** — `Transfer-Encoding` removed (runtime-owned)
 - **Content-Length computation** — set to actual body length
 - **Duplicate preservation** — end-to-end duplicate headers preserved

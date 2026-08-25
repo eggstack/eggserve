@@ -61,6 +61,7 @@ shutdown; the process harness uses only Python's standard library.
 | `production_path.rs` (bin) | — | Binary production path validation |
 | `cli_validation.rs` (bin) | — | CLI argument validation |
 | `tls_abuse.rs` (bin) | `tls` | TLS error handling and abuse resistance |
+| `logging_modes.rs` (bin) | — | CLI logging mode verification: default text, JSON, quiet, none |
 | `fault_injection.rs` | — | Fault injection for filesystem and I/O error paths |
 | `filesystem_race_qualification.rs` | — | Filesystem race condition qualification |
 | `ops_integration.rs` | — | Structured logging integration |

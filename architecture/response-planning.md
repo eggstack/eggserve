@@ -206,7 +206,7 @@ The canonical response types (`primitives::canonical`) provide a transport-indep
 The `normalize_response()` function is the single final normalization path. It applies:
 
 1. **HEAD suppression** — body bytes discarded, representation headers preserved
-2. **Body-forbidden enforcement** — 1xx, 204, 304 bodies discarded
+2. **Body-forbidden enforcement** — 1xx, 204, 205, 304 bodies discarded
 3. **Hop-by-hop stripping** — `Transfer-Encoding` removed (runtime-owned)
 4. **Content-Length computation** — set to actual body length
 5. **Duplicate preservation** — end-to-end duplicate headers preserved
@@ -263,7 +263,8 @@ as `normalize_response()` but without consuming a `Response` value:
 1. Strip runtime-owned `Transfer-Encoding`
 2. HEAD responses: suppress `Content-Length` only for an empty
    representation; retain the equivalent GET length for non-empty bodies
-3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`
+3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`,
+   except that 304 may retain a matching representation length
 4. Normal payloads: set `Content-Length` to actual body length
 5. Preserve all other headers (including duplicates)
 
@@ -386,7 +387,7 @@ Full benchmark results: `benchmarks/088-baseline/results.json`
 
 The response planner has extensive test coverage:
 
-- **Unit tests** (`planner.rs`): 52 tests covering ETag generation, conditional headers, range parsing, If-Range evaluation, HEAD parity, directory listing planning, and edge cases.
+- **Unit tests** (`planner.rs`): 98 tests covering ETag generation, conditional headers, range parsing, If-Range evaluation, HEAD parity, directory listing planning, and edge cases.
 - **Integration tests** (`integration.rs`): tests for the full request handling path including method validation, body rejection, conditional requests, range requests, and HEAD parity.
 - **Live HTTP tests** (`http_primitives_integration.rs`): 15 tests exercising real TCP connections through hyper's client/server stack, covering GET, HEAD, POST (405), 404, 403, 400, 413, 206, 416, and 304 responses.
 - **Python tests** (`test_primitives.py`): comprehensive tests for method validation, body validation, request target validation, response planning, range responses, conditional responses, and HEAD parity through PyO3 bindings.

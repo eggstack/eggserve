@@ -39,7 +39,7 @@ opening a socket. They are compiled by `scripts/verify.sh full`.
 
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
-| `server/connection.rs` | **pub** (experimental) | Body ingestion pipeline, Hyper incoming-body adapter, transfer decoding, error mapping |
+| `server/connection.rs` | **pub** (experimental) | Connection execution pipeline: TLS handshake, HTTP/1 setup, request conversion, policy validation, service invocation, response normalization, transport-body conversion |
 | `ops` | **pub** | Operational event model, structured logging, listener error classification, operational counters |
 
 ## Key Types
@@ -70,8 +70,8 @@ responses, including custom-service responses.
 
 ```rust
 pub struct ServeState {
-    pub config: ServeConfig,
-    pinned_root: PinnedRoot,
+    pub(crate) config: Arc<ServeConfig>,
+    pub(crate) pinned_root: Arc<PinnedRoot>,
 }
 ```
 
@@ -86,7 +86,12 @@ Resource limits with safe defaults:
 | `max_request_body_bytes` | 0 | Runtime hard ceiling; services may opt into bodies only when greater than zero |
 | `header_read_timeout` | 10s | Time to read full request headers |
 | `connection_total_timeout` | 60s | Total connection lifetime timeout |
+| `handler_timeout` | 30s | Per-request handler timeout |
+| `body_read_timeout` | 30s | Total deadline for body consumption |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
+| `max_listing_entries` | 4096 | Maximum entries to enumerate in a directory listing |
+| `max_listing_response_bytes` | 1 MiB | Maximum size in bytes for a directory listing response body |
+| `stream_chunk_size` | 8 KiB | Chunk size in bytes for file streaming reads |
 
 ## Server Module (`server/`)
 
@@ -119,19 +124,28 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `bind` | `127.0.0.1:8000` | Listen address |
 | `max_connections` | 64 | Concurrent TCP connections |
 | `max_file_streams` | 32 | Concurrent file streams |
+| `stream_chunk_size` | 8 KiB | File streaming read chunk size |
 | `header_read_timeout` | 10s | Time to read request headers |
 | `connection_total_timeout` | 60s | Timeout wrapping the entire Hyper connection future |
 | `handler_timeout` | 30s | Per-request handler timeout |
+| `body_read_timeout` | 30s | Total deadline for body consumption |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
+| `server_header` | None | Optional `Server` header value on responses |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
-| `body_read_timeout` | 30s | Total deadline for body consumption in Buffer mode |
 
-Note: `Limits::connection_total_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by the `From<&ServeConfig>` impl.
+Note: `Limits::connection_total_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by `RuntimeConfigBuilder::try_from_serve_config()`.
 
 ### `Service` Trait
 
 ```rust
 pub trait Service: Send + Sync + 'static {
+    fn request_body_policy(
+        &self,
+        _head: &RequestHead,
+    ) -> RequestBodyPolicy {
+        RequestBodyPolicy::Reject
+    }
+
     fn call(
         &self,
         request: Request,
@@ -144,7 +158,7 @@ pub trait Service: Send + Sync + 'static {
 - Must be `Send + Sync` for sharing across connections
 - Panics caught at tokio task boundary
 
-`service_fn` creates a `Service` from an `Fn(Request) -> Future<Output = Result<Response, ServiceError>> + Send + Sync`.
+`service_fn` creates a `Service` from an `Fn(Request) -> Future<Output = Result<Response, ServiceError>> + Send + Sync`. `service_fn_head` creates a service from a closure that only receives the request head (discarding the body); it uses `Reject` body policy. `service_fn_with_policy` creates a service with an explicit `RequestBodyPolicy`.
 
 ### `StaticService`
 
@@ -175,14 +189,14 @@ Control handle returned by `Server::start()`:
 - `shutdown()` — trigger graceful shutdown
 - `wait()` — wait for server to finish
 - `ready()` — wait for server to be ready to accept connections
-- `force_shutdown()` — immediately terminate without draining
+- `force_shutdown(deadline)` — trigger graceful shutdown and wait with a deadline; forcibly abort if deadline exceeded
 - `state()` — query current `LifecycleState`
 
 ### Error Types
 
-- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal)
+- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal)
 - `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout)
-- `ShutdownResult` — returned by shutdown operations, carries final `LifecycleState`
+- `ShutdownResult` — returned by shutdown operations, carries final `LifecycleState` (variants: `Clean`, `Timeout`, `Forced`)
 
 ## Dependencies
 

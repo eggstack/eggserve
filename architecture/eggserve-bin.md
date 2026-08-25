@@ -1,16 +1,16 @@
 # eggserve-bin — Deep Dive
 
-The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, accept loop, connection management, signal handling, and graceful shutdown. Contains optional TLS support via rustls. Uses a current-thread Tokio runtime.
+The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, signal handling, and graceful shutdown. Delegates accept loop, connection management, and TLS to `eggserve-core::server`. Uses a current-thread Tokio runtime.
 
 ## Module Map
 
 | Module | Purpose |
 |--------|---------|
 | `main.rs` | Thin `fn main()` → `eggserve_bin::run()` |
-| `lib.rs` | `run()` executable entrypoint and integration-only `run_cli(argv) -> i32`; accept loop; connection serving with timeouts |
+| `lib.rs` | `run()` executable entrypoint and integration-only `run_cli(argv) -> i32`; delegates to core server |
 | `args.rs` | Manual argument parsing (no clap dependency) |
-| `shutdown.rs` | Signal handling (Ctrl+C, SIGTERM) with broadcast channel |
-| `tls.rs` | TLS certificate loading and rustls config (behind `tls` feature) |
+| `shutdown.rs` | Signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel |
+| `tls.rs` | Re-exports `eggserve_core::tls` (feature-gated: `tls`); loading lives in core |
 
 ## Entry Points
 
@@ -41,46 +41,29 @@ launches `python -m eggserve` as a subprocess.
 
 ## Accept Loop Architecture
 
-The non-TLS path delegates to `ServerBuilder`/`ServerHandle` from `eggserve-core::server`, which manages the accept loop, connection semaphore, lifecycle state machine, and graceful shutdown internally. The TLS path retains its own accept loop with per-connection TLS handshake via rustls.
+The accept loop lives entirely in `eggserve-core::server::accept_loop_generic()`.
+Both TLS and non-TLS paths use `Server::builder()` → `Server::start()`.
+When `RuntimeConfig.tls_config` is set, the accept loop performs a per-connection
+TLS handshake via `tokio_rustls::TlsAcceptor` before dispatching to the HTTP
+connection handler.
 
-### Non-TLS path (uses core server)
+### Unified accept loop (core server)
 
 ```
 ┌─────────────────────────────────────────────┐
-│ ServerBuilder::start() → ServerHandle       │
+│ accept_loop_generic()                       │
 │  • TCP accept with connection semaphore     │
 │  • Lifecycle state machine                  │
 │  • Spawn Tokio task per connection          │
+│  • (TLS): per-connection TLS handshake      │
 │  • On shutdown signal: drain and stop       │
 └─────────────────┬───────────────────────────┘
                   │
                   ▼
 ┌─────────────────────────────────────────────┐
-│ serve_connection()                          │
+│ per-connection handler                      │
 │  • Read headers with header_read_timeout    │
-│  • Call Server::start() with StaticService │
-│  • Write response with connection_total_timeout│
-│  • Drop semaphore permit on completion      │
-└─────────────────────────────────────────────┘
-```
-
-### TLS path (own accept loop)
-
-```
-┌─────────────────────────────────────────────┐
-│ accept_loop() with TLS                      │
-│  • Accept TCP connections                   │
-│  • Acquire semaphore permit (connection limit)│
-│  • TLS handshake per connection             │
-│  • Spawn Tokio task per connection          │
-│  • On shutdown signal: break loop           │
-└─────────────────┬───────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────┐
-│ serve_connection_tls()                      │
-│  • Read headers with header_read_timeout    │
-│  • Call Server::start() with StaticService │
+│  • Call service with StaticService           │
 │  • Write response with connection_total_timeout│
 │  • Drop semaphore permit on completion      │
 └─────────────────────────────────────────────┘
@@ -94,22 +77,25 @@ Manual parsing — no clap. Arguments:
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--directory` / `-d` | `.` | Root directory to serve |
-| `--bind` / `-b` | `127.0.0.1` | Bind host, hostname, or host:port |
-| `--port` / `-p` | `8000` | Port number |
+| `--directory` | `.` | Root directory to serve |
+| `--bind` | `127.0.0.1` | Bind host, hostname, or host:port |
+| `--port` | `8000` | Port number |
+| `--addr` | — | Full socket address (HOST:PORT); cannot combine with `--bind` |
 | `--public` | off | Bind to `0.0.0.0` or `::` (requires explicit opt-in) |
 | `--directory-listing` | off | Enable directory listing |
 | `--follow-symlinks` | off | Follow symbolic links |
 | `--allow-dotfiles` | off | Serve dotfiles |
-| `--log-format` | `text` | Log format (`text` or `json`) |
-| `--quiet` | off | Suppress startup output |
+| `--log-format` | `text` | Log format (`text`, `json`, or `none`) |
+| `--quiet` | off | Wrap log sink with warn/error filter |
 | `--max-connections` | `64` | Connection limit |
 | `--max-file-streams` | `32` | File stream limit |
 | `--header-timeout` | `10s` | Header read timeout |
 | `--connection-total-timeout` | `60s` | Total connection lifetime timeout |
-| `--tls-cert` | — | TLS certificate PEM path |
-| `--tls-key` | — | TLS private key PEM path |
-| `--content-type` | `application/octet-stream` | Unknown-suffix static content type |
+| `--handler-timeout` | `30s` | Handler invocation timeout |
+| `--body-read-timeout` | `30s` | Request body read timeout |
+| `--tls-cert` | — | TLS certificate PEM path (feature-gated: `tls`) |
+| `--tls-key` | — | TLS private key PEM path (feature-gated: `tls`) |
+| `--content-type` | `application/octet-stream` | Fallback MIME type for unknown extensions |
 | `-H` / `--header` | — | Repeatable safe header for final 200 static responses |
 
 Positional parsing has two logical slots: `PORT` and `DIRECTORY` (in that
@@ -126,35 +112,42 @@ and hop-by-hop fields. With TLS enabled, omitting `--tls-key` makes
 
 ## Signal Handling (`shutdown.rs`)
 
-Uses `tokio::sync::broadcast` channel. On Ctrl+C (all platforms) or SIGTERM (Unix):
+Uses `tokio::sync::broadcast` channel. On Ctrl+C (all platforms), SIGTERM (Unix),
+or SIGHUP (Unix):
 
 1. Signal handler sends shutdown message
 2. Accept loop receives message → breaks
 3. In-flight connections get `graceful_shutdown_timeout` to complete
 4. Server exits
 
-Only the first Ctrl+C or SIGTERM is acted on. Additional signals received
-during graceful shutdown are consumed but do not escalate; use the platform's
-normal external termination mechanism if a stuck process must be stopped.
+SIGHUP is treated as a graceful stop rather than its default immediate-terminate
+action, matching daemon-management expectations. Only the first Ctrl+C, SIGTERM,
+or SIGHUP is acted on. Additional signals received during graceful shutdown are
+consumed but do not escalate; use the platform's normal external termination
+mechanism if a stuck process must be stopped.
 
-## TLS Support (`tls.rs`)
+## TLS Support
 
 Behind the `tls` feature flag. Uses `rustls` + `tokio-rustls`.
 
+`bin/src/tls.rs` is a one-line re-export (`pub use eggserve_core::tls::*`).
+All loading logic lives in `eggserve-core::tls::load_tls_config()`:
+
 - Loads PEM certificate chain and private key
 - Supports PKCS#1, PKCS#8, and SEC1 key formats
-- Rejects encrypted keys and multiple private keys
+- Validates exactly one private key is present
 - Handshake timeout enforced per connection
 
 ## Dependencies
 
 | Dependency | Purpose |
 |------------|---------|
-| `eggserve-core` | Request handling, config, policy, HTTP serving |
+| `eggserve-core` | Request handling, config, policy, HTTP serving, TLS loading |
 | `tokio` | Async runtime |
-| `rustls` (optional) | TLS implementation |
-| `tokio-rustls` (optional) | Async TLS |
-| `rustls-pemfile` (optional) | PEM parsing |
+
+`rustls`, `tokio-rustls`, and `rustls-pemfile` are transitive through
+`eggserve-core` (optional, behind `tls` feature). `bin/Cargo.toml` lists
+them only as dev-dependencies for integration tests.
 
 ## See Also
 

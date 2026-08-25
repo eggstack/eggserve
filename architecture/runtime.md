@@ -133,8 +133,8 @@ Allowed operations per state:
 
 | State     | build | start | ready | shutdown | force_shutdown | wait |
 |-----------|-------|-------|-------|----------|----------------|------|
-| Created   | yes   | yes   | —     | noop     | noop           | err  |
-| Starting  | —     | err   | yes   | pending  | pending        | err  |
+| Created   | yes   | yes   | —     | yes      | yes            | yes  |
+| Starting  | —     | err   | yes   | yes      | yes            | yes  |
 | Running   | —     | err   | ok    | ok       | ok             | yes  |
 | Draining  | —     | err   | err   | idempot  | ok             | yes  |
 | Stopped   | —     | err   | err   | noop     | noop           | ok   |

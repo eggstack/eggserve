@@ -8,13 +8,13 @@ eggserve uses structured JSON Lines logging for machine-consumable operational e
 
 Every operational event has:
 - `schema_version` (u32) — currently 1
-- `severity` — Debug, Info, Warn, Error
+- `severity` — DEBUG, INFO, WARN, ERROR
 - `event` — stable event kind name (ProcessStarting, RequestCompleted, etc.)
 - `timestamp` — RFC 3339 format
 - `message` — human-readable description
 - `connection_id` (optional) — unique per-process connection identifier
 - `request_seq` (optional) — request sequence number within connection
-- `fields` — structured key-value pairs
+- `fields` — array of single-key objects (serialized as `[{"key": value}, ...]`)
 
 ## Event Categories
 
@@ -51,6 +51,8 @@ Every operational event has:
 - `service_timeout` — handler timed out (504 response)
 - `service_error` — handler returned error
 - `directory_listing_limit` — listing entry limit reached
+- `incomplete_body_close` — request body connection closed before completion
+- `service_invocation_suppressed` — service invocation suppressed (e.g. duplicate or concurrent)
 
 ### Operational
 - `listener_transient_error` — retryable accept error with backoff
@@ -84,6 +86,8 @@ The Python `Server` delegates logging to the Rust runtime's stderr log sink. Ope
 - `connections_rejected` — connections rejected by admission limit
 - `active_connections` — currently active connections
 - `active_file_streams` — currently streaming file responses
+- `connection_panics` — handler panics contained
+- `body_rejections` — request body rejections by policy
 - `parser_rejects` — HTTP parsing failures
 - `header_timeouts` — header read timeouts
 - `body_read_timeouts` — request body read timeouts
@@ -113,13 +117,13 @@ Backoff is interruptible by shutdown via `tokio::select!`.
 ## Example Events
 
 ```json
-{"schema_version":1,"severity":"Info","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.1.0 starting","fields":{"version":"0.1.0","bind":"127.0.0.1:8000","root":"./public","symlinks":"denied","dotfiles":"denied"}}
+{"schema_version":1,"severity":"INFO","event":"process_starting","timestamp":"2026-07-22T10:00:00Z","message":"eggserve 0.1.0 starting","fields":[{"version":"0.1.0"},{"bind":"127.0.0.1:8000"},{"root":"./public"},{"symlinks":"denied"},{"dotfiles":"denied"}]}
 ```
 
 ```json
-{"schema_version":1,"severity":"Info","event":"request_completed","timestamp":"2026-07-22T10:00:01Z","message":"GET /style.css 200","connection_id":42,"request_seq":1,"fields":{"method":"GET","path":"/style.css","status":200,"bytes":1024,"duration_ms":3}}
+{"schema_version":1,"severity":"INFO","event":"request_completed","timestamp":"2026-07-22T10:00:01Z","message":"GET /style.css 200","connection_id":42,"request_seq":1,"fields":[{"method":"GET"},{"path":"/style.css"},{"status":200},{"bytes":1024},{"duration_ms":3}]}
 ```
 
 ```json
-{"schema_version":1,"severity":"Warn","event":"listener_transient_error","timestamp":"2026-07-22T10:00:02Z","message":"accept error, retrying in 2ms","fields":{"error":"connection refused","backoff_ms":2}}
+{"schema_version":1,"severity":"WARN","event":"listener_transient_error","timestamp":"2026-07-22T10:00:02Z","message":"accept error, retrying in 2ms","fields":[{"error":"connection refused"},{"backoff_ms":2}]}
 ```

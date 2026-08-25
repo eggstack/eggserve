@@ -39,7 +39,7 @@ Returned by the 6-stage path validation pipeline when a request target fails any
 | `SymlinkDenied` | Symlink denied by policy | Symlink in path |
 | `RootEscapeDenied` | Canonical path escapes root | Symlink to `/etc` |
 
-**HTTP mapping:** All path rejections produce 404 (Not Found) or 403 (Forbidden) responses. The rejection reason is logged but never exposed to the client.
+**HTTP mapping:** All path rejections produce 400 (Bad Request) or 403 (Forbidden) responses. The rejection reason is logged but never exposed to the client.
 
 ---
 
@@ -148,7 +148,7 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 ## Error Conversion Flow
 
 ```
-PathRejection ──→ 404/403
+PathRejection ──→ 400/403
 RequestValidationError ──→ 400/405/413
 ServerError ──→ process exit (startup) or log (runtime)
 ServiceError ──→ 500/504

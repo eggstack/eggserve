@@ -4,6 +4,8 @@ The path confinement pipeline validates and normalizes every incoming request ta
 
 ## Pipeline Stages
 
+`ConfinedPath::parse()` (`path/mod.rs:21-38`) runs these stages in order:
+
 ```
 Raw Request Target
     │
@@ -15,14 +17,14 @@ Raw Request Target
                   │
                   ▼
 ┌─────────────────────────────────┐
-│ 2. percent_decode()             │  Single-pass decode, reject malformed/NUL/invalid UTF-8
-│    path/decode.rs               │
+│ 2. percent_decode()             │  Single-pass decode, reject malformed/NUL/invalid UTF-8,
+│    path/decode.rs               │  encoded separators (/ and \)
 └─────────────────┬───────────────┘
                   │
                   ▼
 ┌─────────────────────────────────┐
-│ 3. normalize_path()             │  Collapse `//`, trailing slashes; `.` and `..` are rejected by validation
-│    path/components.rs           │
+│ 3. normalize_path()             │  Collapse `//`, strip leading slashes;
+│    path/components.rs           │  `.` and `..` survive normalization (rejected in stage 5)
 └─────────────────┬───────────────┘
                   │
                   ▼
@@ -33,17 +35,13 @@ Raw Request Target
                   │
                   ▼
 ┌─────────────────────────────────┐
-│ 5. validate_components()        │  Per-component checks:
-│    path/components.rs           │    - Reject `.` and `..`
+│ 5. validate_components()        │  Per-component checks (includes platform checks):
+│    path/components.rs           │    - Reject `.` and `..` (and double-encoded variants)
 │                                  │    - Reject NUL bytes
-│                                  │    - Reject backslash (if policy requires)
+│                                  │    - Reject literal `/` or `\` in component
 │                                  │    - Reject dotfiles (if policy requires)
-└─────────────────┬───────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────┐
-│ 6. platform_checks()            │  Windows: reserved names, ADS, drive prefixes
-│    path/platform.rs             │  (skipped on non-Windows)
+│                                  │    - Platform checks (reserved names, ADS, drive prefixes,
+│                                  │      trailing dots/spaces) via platform::check_component()
 └─────────────────┬───────────────┘
                   │
                   ▼
@@ -68,14 +66,16 @@ The output of the pipeline. An opaque, validated type:
 
 ```rust
 pub struct ConfinedPath {
-    decoded_path: String,      // percent-decoded, normalized
+    decoded: String,           // percent-decoded, normalized
     components: Vec<String>,   // non-empty path segments
+    path_policy: PathPolicy,   // retained for downstream resolution
 }
 ```
 
 Methods:
-- `decoded_path()` — The full decoded path string
-- `components()` — Iterator over path segments
+- `as_str()` — The full decoded path string
+- `components()` — Slice of path segments
+- `path_policy()` — The policy used during validation
 
 ## Rejection Types (`PathRejection`)
 
@@ -88,11 +88,11 @@ Methods:
 | `UnsupportedUriForm` | parse | Not origin-form (absolute or authority form) |
 | `MalformedPercentEncoding` | decode | Invalid `%XX` sequence |
 | `InvalidUtf8` | decode | Decoded bytes are not valid UTF-8 |
-| `NulByte` | decode | Decoded path contains NUL |
-| `AbsolutePath` | components | Path starts with `/` (after normalization) |
+| `NulByte` | decode, components | Decoded path contains NUL |
+| `AbsolutePath` | (unused) | Path starts with `/` (after normalization) — reserved variant |
 | `ParentComponent` | components | `..` component found |
 | `CurrentComponent` | components | `.` component found |
-| `SeparatorAmbiguity` | components | Backslash found (if policy requires) |
+| `SeparatorAmbiguity` | decode, components | Encoded or literal `/` or `\` found |
 | `DotfileDenied` | components | Dotfile component (if policy requires) |
 | `WindowsPrefixDenied` | platform | Windows drive prefix (`C:\`) |
 | `WindowsReservedNameDenied` | platform | Reserved name (`CON`, `NUL`, etc.) |
@@ -115,11 +115,12 @@ Note: This is distinct from `policy::DotfilePolicy` (serving level). Both must a
 
 ## Platform Checks (`platform.rs`)
 
-Windows-only (compiled but only effective on Windows targets):
+Runs on all platforms, rejecting Windows-specific path patterns:
 
-- **Drive prefixes** — Rejects `C:\`, `\\server\share`, etc.
+- **Drive prefixes** — Rejects `C:`, `\\server\share`, etc.
 - **Reserved names** — Rejects `CON`, `NUL`, `PRN`, `AUX`, `COM1`–`COM9`, `LPT1`–`LPT9`
 - **Alternate data streams** — Rejects `file:stream` syntax
+- **Trailing dots/spaces** — Rejects components ending with `.` or ` ` (Windows normalization aliasing)
 
 ## Security Properties
 

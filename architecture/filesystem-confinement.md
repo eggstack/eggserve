@@ -165,8 +165,8 @@ This section traces every path from HTTP request target to response body, provin
 | 3. Root guard | `fs/mod.rs: RootGuard::new` | Borrows `PinnedRoot`; resolver duplicates root fd on Unix or uses retained root handle on Windows | Request-scoped traversal authority |
 | 4a. Resolve (Unix) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `unix::resolve_fd_relative` (safe defaults) or `resolve_fallback` (follow-symlinks) | `root_fd` used for traversal |
 | 4b. Resolve (Windows) | `fs/mod.rs: RootGuard::resolve` | Dispatches to `windows::resolve_to_resource` (handle-relative) or `resolve_fallback` (follow-symlinks) | `root_handle` used for traversal |
-| 5. fd-relative traversal (Unix) | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
-| 5b. handle-relative traversal (Windows) | `fs/windows.rs: resolve_to_resource` | Per component: dotfile check → `NtOpenFile` with `FILE_NON_DIRECTORY_FILE` (final) or `FILE_DIRECTORY_FILE` (intermediate). Reparse check via `GetFileInformationByHandleEx`. Previous handle dropped. | Per-component handles opened and dropped; final handle → `ResolvedFile.file` or retained in `ResolvedDirectory` |
+| 5. fd-relative traversal (Unix) | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NONBLOCK\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
+| 5b. handle-relative traversal (Windows) | `fs/windows.rs: resolve_to_resource` | Per component: dotfile check → `NtOpenFile` (via `open_directory_relative` or `open_file_relative`). Intermediate dir check via `get_file_standard_info`. Reparse check via `deny_all_reparse_check` / `GetFileInformationByHandleEx`. Previous handle dropped. | Per-component handles opened and dropped; final handle → `ResolvedFile.file` or retained in `ResolvedDirectory` |
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
 | 7. Response plan | `service.rs` → `primitives/planner.rs` | `plan_file_response()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
 | 8. Body conversion | `fs/mod.rs: ResolvedFile::into_body` | Consumes `self.file` into `BodySource::FileFull` or `BodySource::FileRange` | `file` moved into `BodySource` |
@@ -179,28 +179,28 @@ This section traces every path from HTTP request target to response body, provin
 **After resolution, no code path reopens a file by path.** The `File` handle opened during resolution is carried through `ResolvedFile` → `BodySource` → `tokio::fs::File` → streaming body without any intermediate path reconstruction or reopening.
 
 Evidence:
-- `safe_relative_components` is used **only** for MIME detection (`fs/mod.rs:49`, `secure_root.rs:84,151,168`)
-- `construct_path()` in `unix.rs:238-243` builds `canonical_path` for `ResolvedDirectory` — this is a logical path for `starts_with` verification, never opened after initial resolution
-- `resolve_child` in `secure_root.rs:215-219` creates a new `RootGuard` and calls `guard.resolve_child()` — re-resolves from the parent `dir_fd`, not from a reconstructed absolute path
+- `safe_relative_components` is used **only** for MIME detection (`fs/mod.rs:52,69`, `secure_root.rs:85,178,195,218`)
+- `construct_path()` in `unix.rs:259-265` builds `canonical_path` for `ResolvedDirectory` — this is a logical path for `starts_with` verification, never opened after initial resolution
+- `resolve_child` in `secure_root.rs:241-244` creates a new `RootGuard` and calls `guard.resolve_child()` — re-resolves from the parent `dir_fd`, not from a reconstructed absolute path
 
 ### Handle lifecycle summary
 
 | Stage | Handle opened? | Where | Consumed/transferred? |
 |-------|---------------|-------|----------------------|
-| `RootGuard::new` | Borrows `PinnedRoot` | `fs/mod.rs:190` | Lives until request ends |
-| `unix::resolve_fd_relative` | Per-component `openat` fd | `fs/unix.rs:72` | Previous fd dropped; final fd → `ResolvedFile.file` |
-| `windows::resolve_to_resource` | Per-component `NtOpenFile` handle | `fs/windows.rs:791` | Previous handle dropped; final handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
-| `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:945` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
-| `windows::list_directory_handle` | `NtQueryDirectoryFile` on retained handle | `fs/windows.rs:1662` | Buffer owned by call; no handle transfer |
-| `ResolvedFile::into_body` | No new open | `fs/mod.rs:40-76` | Moves `self.file` into `BodySource` |
+| `RootGuard::new` | Borrows `PinnedRoot` | `fs/mod.rs:275` | Lives until request ends |
+| `unix::resolve_fd_relative` | Per-component `openat` fd | `fs/unix.rs:83` | Previous fd dropped; final fd → `ResolvedFile.file` |
+| `windows::resolve_to_resource` | Per-component `NtOpenFile` handle | `fs/windows.rs:565` (dir), `631` (file) | Previous handle dropped; final handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
+| `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:1001-1005` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
+| `windows::list_directory_handle` | `NtQueryDirectoryFile` on retained handle | `fs/windows.rs:1079` | Buffer owned by call; no handle transfer |
+| `ResolvedFile::into_body` | No new open | `fs/mod.rs:43-79` | Moves `self.file` into `BodySource` |
 | canonical runtime transport conversion | No new open | `server/connection.rs` | `file` → `tokio::fs::File::from_std()` |
 | `file_response` / `file_response_range` | No new open | `response.rs:93,143` | File + semaphore permit owned by stream unfold closure |
 
 ### Non-regular file rejection
 
-- Unix fd-relative: `unix.rs:100-103` checks `(mode & S_IFMT) != S_IFREG` → `NotFound`
-- Windows handle-relative: `windows.rs:870-873` checks `get_file_standard_info(directory == 0)` to distinguish files from directories; reparse points rejected by `deny_all_reparse_check`
-- Fallback: `fs/mod.rs:249-250` checks `!meta.is_file()` → `NotFound`
+- Unix fd-relative: `unix.rs:111-113` checks `(mode & S_IFMT) != S_IFREG` → `NotFound`
+- Windows handle-relative: `windows.rs:898-901` checks `get_file_standard_info(directory == 0)` to distinguish files from directories; reparse points rejected by `deny_all_reparse_check`
+- Fallback: `fs/mod.rs:458-459` checks `!meta.is_file()` → `NotFound`
 - FIFOs, sockets, block/char devices all rejected. Symlinks caught by `statat` pre-check (Unix) or `FILE_ATTRIBUTE_REPARSE_POINT` check (Windows).
 
 ## Pathname-Bearing Type Inventory

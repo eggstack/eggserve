@@ -10,11 +10,15 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 
 ## Dependencies
 
-When `tls` is enabled:
+When `tls` is enabled in `eggserve-core`:
 
 - `rustls` — TLS implementation
 - `tokio-rustls` — Async TLS integration with tokio
 - `rustls-pemfile` — PEM file parsing
+
+`eggserve-bin` enables `eggserve-core/tls` and re-exports the module
+(`bin/src/tls.rs` is `pub use eggserve_core::tls::*`). All loading
+logic lives in `eggserve-core::tls`.
 
 ## Server TLS
 

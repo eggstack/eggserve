@@ -22,6 +22,12 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
+| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response` — canonical response types |
+| `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + connection info) |
+| `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body |
+| `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
+| `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 12-variant error type for body consumption failures |
+| `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 
 ## Public Types
 
@@ -31,7 +37,7 @@ The primary entry point for filesystem resolution. Wraps a canonicalized root di
 
 ```rust
 pub struct SecureRoot {
-    root: PathBuf,
+    pinned: Arc<PinnedRoot>,
     policy: StaticPolicy,
 }
 ```
@@ -39,7 +45,7 @@ pub struct SecureRoot {
 Methods:
 - `new(root, policy)` — Construct with validation
 - `resolve(&self, path: &ConfinedPath)` → `ResolvedResource`
-- `resolve_uri(&self, uri: &str)` → `ResolvedResource` (convenience: parse + resolve)
+- `resolve_uri(&self, uri: &str)` → `Result<ResolvedResource, PathRejection>` (convenience: parse + resolve)
 
 ### `ResolvedResource` (`secure_root.rs`)
 
@@ -77,29 +83,28 @@ Public methods:
 - `len()` → `u64`
 - `modified()` → `Option<SystemTime>`
 - `content_type()` → `&str`
-- `plan_response(...)` → `StaticResponsePlan`
-- `plan_conditional_response(...)` → `StaticResponsePlan`
+- `plan_response(method, if_match, if_unmodified_since, if_none_match, if_modified_since, range_header, if_range)` → `StaticResponsePlan`
 - `into_body(&StaticResponsePlan)` → `Result<BodySource, BodySourceError>`
 - `into_range_body(start, end_inclusive)` → `Result<BodySource, BodySourceError>`
-- `safe_relative_components()` → `Vec<String>`
+- `safe_relative_components()` → `&[String]`
 
 Extraction methods (behind `python-bindings-internal` feature only):
 - `into_std_file()` → `std::fs::File`
 - `into_parts()` → `(std::fs::File, std::fs::Metadata)`
-- `from_parts(file, metadata, content_type, total_len)` → `ResolvedFile`
+- `from_parts(file, metadata, safe_relative_components)` → `ResolvedFile`
 
 ### `ResolvedDirectory` (`secure_root.rs`)
 
 ```rust
 pub struct ResolvedDirectory {
-    pub(crate) path: PathBuf,
-    pub(crate) dir_fd: Option<OwnedFd>,
+    inner: crate::fs::ResolvedDirectory,
 }
 ```
 
 Public methods:
-- `list()` → `Vec<DirEntry>`
-- `resolve_child(child)` → `ResolvedResource`
+- `components()` → `&[String]`
+- `list(root, max_entries)` → `Result<Vec<(String, bool)>, std::io::Error>`
+- `resolve_child(child, root)` → `ResolvedResource`
 
 ### HTTP Validation (`http.rs`)
 
@@ -112,8 +117,8 @@ pub enum ReadOnlyMethod {
 }
 
 pub fn validate_method(method: &str) -> Result<ReadOnlyMethod, RequestValidationError>
-pub fn validate_request_body(method: &str, has_body: bool) -> Result<(), RequestValidationError>
-pub fn validate_request_target(target: &str) -> Result<ConfinedPath, RequestValidationError>
+pub fn validate_request_body(content_length: Option<&str>, transfer_encoding: Option<&str>, max_body_bytes: u64) -> Result<(), RequestValidationError>
+pub fn validate_request_target(target: &str) -> Result<(), RequestValidationError>
 ```
 
 `RequestValidationError` maps to HTTP status codes (405, 400, etc.).
@@ -128,7 +133,7 @@ pub fn evaluate_conditional_headers(...) -> ConditionalRequestOutcome
 pub fn evaluate_if_none_match(...) -> bool
 pub fn evaluate_range_header(...) -> RangeRequestOutcome
 pub fn evaluate_if_range(...) -> bool
-pub fn generate_etag(metadata: &Metadata) -> String
+pub fn generate_etag(metadata: &Metadata) -> Option<String>
 pub fn plan_directory_listing(...) -> StaticResponsePlan
 ```
 
@@ -160,7 +165,8 @@ use eggserve_core::primitives::{
 
 // 1. Validate request
 let method = validate_method("GET")?;
-let path = validate_request_target("/index.html")?;
+validate_request_target("/index.html")?;
+let path = ConfinedPath::parse("/index.html", &Default::default())?;
 
 // 2. Resolve filesystem
 let root = SecureRoot::new("/srv/www", StaticPolicy::safe_default())?;
@@ -169,7 +175,7 @@ let resource = root.resolve(&path);
 // 3. Plan response
 match resource {
     ResolvedResource::File(file) => {
-        let plan = file.plan_response(&method, None, None, None, None);
+        let plan = file.plan_response(method, None, None, None, None, None, None);
         // Use plan to construct HTTP response
     }
     _ => { /* handle other cases */ }
@@ -327,7 +333,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 - `RequestBody` — transport-independent, one-shot body
 - `BodyState` — Unread, Streaming, Complete, Error
-- Public methods: `read_all`, `next_chunk`, `declared_length`, `bytes_received`, `is_complete`
+- Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`
 - Internal methods (`pub(crate)`): `from_incoming()`, `consumed_flag()`, `was_fully_consumed()`
 - Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
 - No Hyper types in public API
@@ -363,7 +369,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `ResolvedResource` | Rust, Python | Implemented and stable-ish | Capability object — no public constructor, only obtainable through resolution | Serving decision (file, directory, denied, not-found) |
 | `ResolvedFile` | Rust, Python | Implemented but provisional | File handle opened under policy during resolution; no public constructor | Metadata access and response planning |
 | `ResolvedDirectory` | Rust, Python | Implemented but provisional | Directory listing filtered by policy; child resolution uses originating policy | Directory listing and navigation |
-| `StaticResponsePlan` / `ResponsePlan` | Rust, Python | Implemented and stable-ish | Framework-independent value object; status, headers, body plan | Response construction |
+| `StaticResponsePlan` | Rust, Python | Implemented and stable-ish | Framework-independent value object; status, headers, body plan | Response construction |
 | `HeaderMapPlan` | Rust | Implemented and stable-ish | Case-insensitive header storage | Response header construction |
 | `validate_method` | Rust, Python | Implemented and stable-ish | Only GET/HEAD allowed; all others rejected | Request method validation |
 | `validate_request_body` | Rust, Python | Implemented and stable-ish | Validates body framing and limits; service policy decides whether the actual method accepts content | Body framing validation |
@@ -382,7 +388,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (addrs, scheme, TLS); separate from headers | Connection-level metadata |
 | `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (100–599, three-digit only) with classification helpers | Canonical status code |
 | `ResponseHead` | Rust, Python | Implemented and stable | Status + HeaderBlock; transport-independent response metadata | Canonical response head |
-| `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes | Canonical response body |
+| `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes, File, EmptyWithLength | Canonical response body |
 | `Response` | Rust, Python | Implemented and stable | Complete response with one-shot body consumption | Canonical complete response |
 | `normalize_response()` | Rust | Implemented and stable | Single normalization path: HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation | Response normalization |
 | `normalize_metadata()` | Rust | Implemented and stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation | Response metadata normalization |

@@ -124,7 +124,7 @@ eggserve-python        → standalone, owns Python packaging
 ```
 
 - **`eggserve-core`** has no workspace dependencies. All security-critical logic lives here.
-- **`eggserve-bin`** depends on `eggserve-core` via path. Owns CLI parsing, signal handling, accept loop.
+- **`eggserve-bin`** depends on `eggserve-core` via path. Owns CLI parsing and signal handling; drives the core server runtime (accept loop, connection management, and TLS live in `eggserve-core::server` / `eggserve-core::tls`).
 - **`eggserve-python`** depends on `eggserve-core` and `eggserve-bin` via path. Excluded from workspace; has its own `Cargo.lock`. Built via maturin. Includes an `eggserve` console script backed by the native extension.
 
 ### Feature Flags
@@ -201,7 +201,7 @@ HTTP Request
 ┌─────────────────────────────────────────────────────┐
 │ eggserve-bin: process entry point                   │
 │  • CLI argument parsing (args.rs, no clap)          │
-│  • Optional TLS cert loading (tls.rs)               │
+│  • Optional TLS config load via eggserve_core::tls  │
 │  • Tokio runtime creation                           │
 │  • Signal handler registration (shutdown.rs)        │
 └─────────────────┬───────────────────────────────────┘
@@ -539,10 +539,10 @@ src/
 ```
 src/
 ├── main.rs    # thin fn main() → eggserve_bin::run()
-├── lib.rs     # run(), run_cli(argv), accept loop, connection serving
+├── lib.rs     # run(), run_cli(argv); delegates accept loop to core server
 ├── args.rs    # manual argument parsing (no clap)
-├── shutdown.rs# signal handling (Ctrl+C, SIGTERM) with broadcast channel
-└── tls.rs     # TLS certificate loading and rustls config (feature-gated)
+├── shutdown.rs# signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel
+└── tls.rs     # re-export shim for eggserve_core::tls (loading lives in core)
 ```
 
 ### eggserve-python (2 Rust source files + Python facade)
