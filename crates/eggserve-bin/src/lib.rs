@@ -303,6 +303,13 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         runtime_config.tls_config = tls_config;
 
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
+        // Log the actual serving scheme: the TLS-featured binary still
+        // serves plain HTTP when no certificate was provided.
+        let scheme = if runtime_config.tls_config.is_some() {
+            "https"
+        } else {
+            "http"
+        };
 
         return rt.block_on(async {
             let server = match Server::builder()
@@ -330,7 +337,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                         Event::new(
                             Severity::Info,
                             EventKind::ListenerReady,
-                            format!("Listening: https://{}", handle.local_addr()),
+                            format!("Listening: {}://{}", scheme, handle.local_addr()),
                         )
                         .field(Field::Str("addr".into(), handle.local_addr().to_string())),
                     );

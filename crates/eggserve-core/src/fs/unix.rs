@@ -263,3 +263,56 @@ fn construct_path(base: &Path, components: &[String]) -> PathBuf {
     }
     p
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // Third-layer dotfile defense: even when parsing-level policy
+    // (`path::DotfilePolicy::Allow`) lets a dotfile component through to the
+    // fd-relative resolver, the serving-level policy must deny it here.
+    #[test]
+    fn fd_relative_denies_dotfiles_despite_parsing_allow() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join(".secret"), "dotfile").unwrap();
+
+        let root_fd = fs::File::open(tmp.path()).unwrap();
+        let denied_policy = StaticPolicy {
+            symlinks: SymlinkPolicy::Denied,
+            dotfiles: DotfilePolicy::Denied,
+            ..StaticPolicy::default()
+        };
+
+        let resolved = resolve_fd_relative(
+            &root_fd,
+            tmp.path(),
+            &[".secret".to_string()],
+            &denied_policy,
+        );
+        assert!(matches!(
+            resolved,
+            ResolvedResource::Denied(PathRejection::DotfileDenied)
+        ));
+    }
+
+    #[test]
+    fn fd_relative_serves_dotfiles_when_policy_allows() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        std::fs::write(tmp.path().join(".secret"), "dotfile").unwrap();
+
+        let root_fd = fs::File::open(tmp.path()).unwrap();
+        let allowed_policy = StaticPolicy {
+            symlinks: SymlinkPolicy::Denied,
+            dotfiles: DotfilePolicy::Serve,
+            ..StaticPolicy::default()
+        };
+
+        let resolved = resolve_fd_relative(
+            &root_fd,
+            tmp.path(),
+            &[".secret".to_string()],
+            &allowed_policy,
+        );
+        assert!(matches!(resolved, ResolvedResource::File(_)));
+    }
+}

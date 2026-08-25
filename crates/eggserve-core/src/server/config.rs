@@ -279,6 +279,15 @@ impl RuntimeConfigBuilder {
             ));
         }
 
+        let max_request_body_bytes = self.max_request_body_bytes.unwrap_or(0);
+        if max_request_body_bytes > crate::limits::MAX_REQUEST_BODY_BYTES {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_request_body_bytes must be <= {} (1 GiB), or 0 to reject bodies: got {}",
+                crate::limits::MAX_REQUEST_BODY_BYTES,
+                max_request_body_bytes
+            )));
+        }
+
         let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
         let connection_total_timeout = self
             .connection_total_timeout
@@ -356,7 +365,7 @@ impl RuntimeConfigBuilder {
             server_header: self.server_header,
             #[cfg(feature = "tls")]
             tls_config: self.tls_config,
-            max_request_body_bytes: self.max_request_body_bytes.unwrap_or(0),
+            max_request_body_bytes,
         })
     }
 }
@@ -466,6 +475,15 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(err.to_string().contains("stream_chunk_size"));
+    }
+
+    #[test]
+    fn excessive_max_request_body_bytes_is_rejected() {
+        let err = RuntimeConfig::builder()
+            .max_request_body_bytes(u64::MAX)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_request_body_bytes"));
     }
 
     #[test]

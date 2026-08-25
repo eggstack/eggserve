@@ -85,9 +85,13 @@ pub fn load_tls_config(cert_path: &Path, key_path: &Path) -> Result<Arc<ServerCo
         return Err(TlsError::MultiplePrivateKeysFound);
     }
     let key = private_key.ok_or(TlsError::NoPrivateKeyFound)?;
-    ServerConfig::builder()
+    let mut config = ServerConfig::builder()
         .with_no_client_auth()
         .with_single_cert(certs, key)
-        .map(Arc::new)
-        .map_err(|e| TlsError::InvalidKey(e.to_string()))
+        .map_err(|e| TlsError::InvalidKey(e.to_string()))?;
+    // EggServe serves HTTP/1.1 only; advertise that over ALPN so the
+    // documented "HTTP/1.1 ALPN only" contract is enforced natively instead
+    // of being left to client defaults.
+    config.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(Arc::new(config))
 }

@@ -191,6 +191,34 @@ class CompatTests(unittest.TestCase):
         response = request(server, b"GET / HTTP/1.1\r\nHost: test\r\nConnection: close\r\n\r\n")
         self.assertRegex(response, rb"\d{2}/[A-Z][a-z]{2}/\d{4} \d{2}:\d{2}:\d{2}")
 
+    def test_constructor_rejects_invalid_worker_and_response_limits(self):
+        """Public kwargs are validated under their public names."""
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_GET(self):
+                self.send_response(200)
+                self.end_headers()
+
+        with self.assertRaisesRegex(ValueError, "max_workers"):
+            ThreadingHTTPServer(("127.0.0.1", 0), Handler, max_workers=0)
+
+        with self.assertRaisesRegex(ValueError, "max_request_body_bytes"):
+            HTTPServer(("127.0.0.1", 0), Handler, max_request_body_bytes=0)
+
+        # The limit must always leave room for the handler-exception
+        # recovery body ("Internal Server Error", 21 bytes).
+        with self.assertRaisesRegex(ValueError, "max_handler_response_bytes"):
+            HTTPServer(("127.0.0.1", 0), Handler, max_handler_response_bytes=20)
+
+        server = ThreadingHTTPServer(
+            ("127.0.0.1", 0),
+            Handler,
+            bind_and_activate=False,
+            max_workers=1,
+            max_handler_response_bytes=21,
+        )
+        del server
+
     def test_callback_concurrency_is_bounded_at_public_server_boundary(self):
         """Callback handlers remain bounded by ThreadingHTTPServer workers."""
         state_lock = threading.Lock()

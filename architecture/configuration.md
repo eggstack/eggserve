@@ -32,7 +32,7 @@ A setting may be shared by reference, but only one validated value owns enforcem
 | `max_connections` | `RuntimeConfig` | 64 | > 0 | `--max-connections` | `max_connections` | Connection semaphore in accept loop |
 | `max_file_streams` | `RuntimeConfig` | 32 | > 0 | `--max-file-streams` | `max_file_streams` | One file-stream semaphore per running server |
 | `max_python_callbacks` | `PyServer` | 8 | > 0 | N/A | `max_python_callbacks` | Callback semaphore in `PythonCallbackService` |
-| `max_listing_entries` | `Limits` | 4096 | > 0 | N/A | N/A | Directory listing enumeration |
+| `max_listing_entries` | `Limits` | 4096 | > 0, <= 10485760 (10 MiB) | N/A | N/A | Directory listing enumeration |
 | `max_listing_response_bytes` | `Limits` | 1 MiB | > 0 | N/A | N/A | Directory listing response body cap |
 
 ### Timeouts
@@ -49,7 +49,7 @@ A setting may be shared by reference, but only one validated value owns enforcem
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `max_request_body_bytes` | `RuntimeConfig` | 0 | u64 | N/A | `max_request_body_bytes` | Hard ceiling, no service can exceed |
+| `max_request_body_bytes` | `RuntimeConfig` | 0 | 0 (reject bodies) or <= 1073741824 (1 GiB) | N/A | `max_request_body_bytes` | Hard ceiling, no service can exceed |
 
 Body policy is service-declared via `Service::request_body_policy(&RequestHead)` (method-aware). The runtime only enforces the `max_request_body_bytes` ceiling. Incomplete body handling always closes the connection (hardcoded, not configurable).
 

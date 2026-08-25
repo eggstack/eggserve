@@ -738,10 +738,16 @@ async fn classify_accept_error(
             true,
             false,
         ),
-        std::io::ErrorKind::OutOfMemory | std::io::ErrorKind::Other if fd_exhausted => {
+        // Kernel memory pressure (ENOMEM) surfaces as OutOfMemory without
+        // matching is_fd_exhaustion; like fd exhaustion it can be transient,
+        // so back off instead of terminating the server.
+        std::io::ErrorKind::OutOfMemory => {
             (Severity::Error, EventKind::ResourceExhaustion, true, false)
         }
-        std::io::ErrorKind::OutOfMemory | std::io::ErrorKind::Other => (
+        std::io::ErrorKind::Other if fd_exhausted => {
+            (Severity::Error, EventKind::ResourceExhaustion, true, false)
+        }
+        std::io::ErrorKind::Other => (
             Severity::Error,
             EventKind::ListenerPersistentError,
             false,

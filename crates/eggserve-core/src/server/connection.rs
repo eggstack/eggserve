@@ -387,9 +387,6 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                 ),
             };
 
-            // Clone the consumption flag before the body is moved into Request.
-            let consumed_flag = request_body.consumed_flag();
-
             // For Buffer policy, pre-buffer the body under timeout.
             match &effective_policy {
                 RequestBodyPolicy::Reject => {
@@ -529,6 +526,9 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     let effective_timeout = body_read_timeout.min(handler_timeout);
                     let connection =
                         build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
+                    // Clone the consumption flag before the body is moved into
+                    // Request; Stream mode is the only consumer.
+                    let consumed_flag = request_body.consumed_flag();
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 

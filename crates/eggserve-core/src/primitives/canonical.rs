@@ -473,6 +473,11 @@ pub fn normalize_response(
 /// - Content-Length is suppressed for body-forbidden (1xx/204/304) responses,
 ///   except for a matching 304 representation length
 /// - HEAD responses retain Content-Length, including when body_len is zero
+///
+/// The `_is_head` parameter is currently unused and reserved for API
+/// stability: callers encode HEAD retention entirely through the
+/// caller-supplied `body_len` (pre-computed before any body suppression).
+#[allow(unused_variables)]
 pub fn normalize_metadata(
     status: StatusCode,
     headers: &mut HeaderBlock,

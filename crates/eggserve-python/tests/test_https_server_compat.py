@@ -81,6 +81,20 @@ class HttpsCompatTests(unittest.TestCase):
         self.assertIn(b"200 OK", response)
         self.assertTrue(response.endswith(b"https"))
 
+    def test_alpn_negotiates_http_1_1_natively(self):
+        """The native rustls config must advertise the validated http/1.1 ALPN."""
+        server = self.run_server()
+        context = ssl._create_unverified_context()
+        context.set_alpn_protocols(["http/1.1"])
+        with socket.create_connection(server.server_address, timeout=3) as raw:
+            with context.wrap_socket(raw, server_hostname="localhost") as sock:
+                alpn = sock.selected_alpn_protocol()
+                if isinstance(alpn, bytes):
+                    alpn = alpn.decode("ascii")
+                self.assertEqual(alpn, "http/1.1")
+                sock.sendall(b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
+                self.assertIn(b"200 OK", sock.recv(4096))
+
     def test_tls_addresses_are_structured_tuples(self):
         server = self.run_server()
         response = _request(server, b"GET / HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")

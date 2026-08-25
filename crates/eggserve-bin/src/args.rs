@@ -217,9 +217,15 @@ impl Args {
                     }
                     addr_seen = true;
                     let addr = require_value(&args, &mut i, "--addr")?;
-                    let parsed: SocketAddr = addr
-                        .parse()
-                        .map_err(|e| format!("invalid address '{}': {}", addr, e))?;
+                    let parsed: SocketAddr = addr.parse().map_err(|e| {
+                        let mut msg = format!("invalid address '{}': {}", addr, e);
+                        if addr.matches(':').count() > 1 && !addr.starts_with('[') {
+                            msg.push_str(
+                                " (for IPv6 with a port, use the bracketed form: [::1]:8080)",
+                            );
+                        }
+                        msg
+                    })?;
                     bind_host = parsed.ip().to_string();
                     bind_port = parsed.port();
                     port_from_flag = true;
@@ -928,6 +934,36 @@ mod tests {
         let error = result.unwrap_err();
         assert!(error.contains("::"));
         assert!(error.contains("--public"));
+    }
+
+    #[test]
+    fn bracketed_ipv6_loopback_bind_with_port_zero() {
+        let args = parse(&["--bind", "[::1]:0"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
+        assert_eq!(args.bind.port(), 0);
+        assert!(!args.bind.ip().is_unspecified());
+    }
+
+    #[test]
+    fn bracketed_ipv6_host_only_bind_keeps_port_slot() {
+        let args = parse(&["--bind", "[::1]", "9094"]).unwrap();
+        assert!(args.bind.ip().is_loopback());
+        assert_eq!(args.bind.port(), 9094);
+    }
+
+    #[test]
+    fn bracketed_ipv6_addr_flag_is_accepted() {
+        let args = parse(&["--addr", "[::1]:9095"]).unwrap();
+        assert_eq!(args.bind, "[::1]:9095".parse().unwrap());
+    }
+
+    #[test]
+    fn unbracketed_ipv6_addr_error_hints_at_bracket_form() {
+        let error = parse(&["--addr", "::1:8080"]).unwrap_err();
+        assert!(
+            error.contains("bracketed form"),
+            "expected bracket hint in: {error}"
+        );
     }
 
     #[test]

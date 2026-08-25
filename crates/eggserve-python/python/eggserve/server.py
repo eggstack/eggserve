@@ -39,6 +39,11 @@ __all__ = [
     "SimpleHTTPRequestHandler",
 ]
 
+# The handler-exception recovery path writes this body into a fresh
+# ``_BodyWriter`` bounded by ``max_handler_response_bytes``, so the limit must
+# always leave room for it.
+_MIN_HANDLER_RESPONSE_BYTES = len(b"Internal Server Error")
+
 
 class _HTTPMessage:
     """Small, immutable-ish, duplicate-preserving request header view."""
@@ -423,8 +428,15 @@ class HTTPServer:
         factory = handler_class.func if isinstance(handler_class, partial) else handler_class
         if not isinstance(factory, type) or not issubclass(factory, BaseHTTPRequestHandler):
             raise TypeError("RequestHandlerClass must subclass BaseHTTPRequestHandler")
-        if max_request_body_bytes <= 0 or max_handler_response_bytes <= 0:
-            raise ValueError("body and response limits must be greater than zero")
+        if max_workers < 1:
+            raise ValueError("max_workers must be greater than zero")
+        if max_request_body_bytes <= 0:
+            raise ValueError("max_request_body_bytes must be greater than zero")
+        if max_handler_response_bytes < _MIN_HANDLER_RESPONSE_BYTES:
+            raise ValueError(
+                "max_handler_response_bytes must be at least "
+                f"{_MIN_HANDLER_RESPONSE_BYTES} so handler error recovery can emit a response"
+            )
         if getattr(factory, "protocol_version", None) != "HTTP/1.1":
             raise ValueError(
                 "EggServe compatibility servers support only handler protocol_version='HTTP/1.1'"

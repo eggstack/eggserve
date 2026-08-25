@@ -334,7 +334,16 @@ impl PyRequestBody {
             // exactly-sized chunks; the final partial chunk is flushed at EOF.
             let mut pending: Vec<u8> = Vec::new();
             'producer: loop {
-                match body.next_chunk().await {
+                // Race each read against receiver-drop: when the Python
+                // consumer abandons iteration, stop reading immediately
+                // instead of lingering on `next_chunk()` (which can park on a
+                // slow client upload) until the next send would fail.
+                let chunk = tokio::select! {
+                    biased;
+                    _ = sender.closed() => break 'producer,
+                    chunk = body.next_chunk() => chunk,
+                };
+                match chunk {
                     Ok(Some(chunk)) => {
                         final_bytes.store(body.bytes_received(), Ordering::Release);
                         match chunk_size {
@@ -2063,33 +2072,45 @@ impl PyServer {
     }
 
     fn wait_ready(&self, py: Python<'_>) -> PyResult<()> {
-        let handle_guard = self
-            .handle
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        let handle = handle_guard
-            .as_ref()
-            .ok_or_else(|| crate::LifecycleError::new_err("server not started"))?;
-
-        // Fast path: already running.
-        if handle.state() == LifecycleState::Running {
-            return Ok(());
+        // Poll the lifecycle state through short lock acquisitions: a
+        // blocking readiness wait must not hold the handle mutex, or
+        // concurrent state()/start()/stop() calls on other threads would
+        // stall for up to STARTUP_TIMEOUT (the same contract stop()
+        // observes when it releases the handle lock before draining).
+        let deadline = std::time::Instant::now() + STARTUP_TIMEOUT;
+        loop {
+            let state = {
+                let handle_guard = self
+                    .handle
+                    .lock()
+                    .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+                let handle = handle_guard
+                    .as_ref()
+                    .ok_or_else(|| crate::LifecycleError::new_err("server not started"))?;
+                handle.state()
+            };
+            match state {
+                LifecycleState::Running => return Ok(()),
+                LifecycleState::Failed => {
+                    return Err(pyo3::exceptions::PyRuntimeError::new_err(
+                        "server failed during startup",
+                    ));
+                }
+                LifecycleState::Starting => {}
+                other => {
+                    return Err(crate::LifecycleError::new_err(format!(
+                        "server not running: unexpected state {other}"
+                    )));
+                }
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(crate::LifecycleError::new_err(format!(
+                    "startup readiness timeout: server is starting after {}s",
+                    STARTUP_TIMEOUT.as_secs()
+                )));
+            }
+            py.allow_threads(|| std::thread::sleep(Duration::from_millis(10)));
         }
-
-        let runtime_guard = self
-            .runtime
-            .lock()
-            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
-        if runtime_guard.is_none() {
-            return Err(crate::LifecycleError::new_err("server not started"));
-        }
-
-        let result = py.allow_threads(|| {
-            let rt = runtime_guard.as_ref().unwrap();
-            rt.block_on(wait_until_running(handle, STARTUP_TIMEOUT))
-        });
-        drop(runtime_guard);
-        result
     }
 
     fn shutdown(&self) -> PyResult<()> {
@@ -2131,6 +2152,25 @@ impl PyServer {
                 None
             };
             drop(runtime_guard);
+
+            // The handle has been consumed either way, so tear the runtime
+            // down exactly as stop() does: force_shutdown() must be a
+            // complete teardown path, not a runtime leak. Shutdown runs in
+            // the background because connection/callback tasks can be
+            // parked in uninterruptible synchronous work; a blocking drop
+            // here would stall callers past their requested deadline.
+            let mut runtime_guard = self
+                .runtime
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            if let Some(rt) = runtime_guard.take() {
+                rt.shutdown_background();
+            }
+            drop(runtime_guard);
+            *self
+                .addr
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))? = None;
 
             match result {
                 Some(ShutdownResult::Clean) => Ok("clean".to_string()),

@@ -3,7 +3,8 @@
 //! Tests that the CLI binary produces actionable error messages for
 //! invalid configuration values and exits with non-zero status.
 
-use std::process::Command;
+use std::io::{BufRead, BufReader, Read, Write};
+use std::process::{Command, Stdio};
 
 fn eggserve_bin() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_eggserve"));
@@ -253,5 +254,101 @@ fn addr_and_port_conflict() {
         stderr.contains("--addr"),
         "stderr should mention --addr: {}",
         stderr
+    );
+}
+
+// ---------------------------------------------------------------------------
+// IPv6 bracketed bind end-to-end
+// ---------------------------------------------------------------------------
+
+#[test]
+fn ipv6_bracketed_bind_serves_end_to_end() {
+    // Skip on hosts without IPv6 loopback.
+    if std::net::TcpListener::bind("[::1]:0").is_err() {
+        return;
+    }
+    let tmp = tempfile::TempDir::new().unwrap();
+    std::fs::write(tmp.path().join("hello.txt"), "hello ipv6").unwrap();
+
+    let mut child = Command::new(env!("CARGO_BIN_EXE_eggserve"))
+        .arg("--bind")
+        .arg("[::1]:0")
+        .arg("--directory")
+        .arg(tmp.path())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn binary");
+
+    let stderr = child.stderr.take().expect("stderr was piped");
+    let (tx, rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let reader = BufReader::new(stderr);
+        for line in reader.lines() {
+            match line {
+                Ok(line) => {
+                    if tx.send(line).is_err() {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+
+    // The startup log must name the resolved local address, including the
+    // OS-assigned port for a port-0 bind.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut listening = None;
+    while std::time::Instant::now() < deadline {
+        match rx.recv_timeout(std::time::Duration::from_millis(200)) {
+            Ok(line) => {
+                let marker = "Listening: ";
+                if let Some(idx) = line.find(marker) {
+                    // Strip the scheme (http:// or https://); no certificate
+                    // is configured here, so the endpoint serves plain HTTP.
+                    let url = line[idx + marker.len()..].trim();
+                    let addr = url.split("://").nth(1).unwrap_or(url);
+                    listening = Some(addr.split_whitespace().next().unwrap_or("").to_string());
+                    break;
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+
+    let request_result = listening.as_ref().map(|addr| {
+        std::net::TcpStream::connect(addr).and_then(|mut stream| {
+            stream.write_all(
+                b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+            )?;
+            let mut response = String::new();
+            stream.read_to_string(&mut response)?;
+            Ok(response)
+        })
+    });
+
+    let _ = child.kill();
+    let _ = child.wait();
+
+    let addr = listening.expect("server did not report its listening address");
+    assert!(
+        addr.starts_with('['),
+        "expected bracketed IPv6 listen addr, got: {}",
+        addr
+    );
+    let response = request_result
+        .expect("request never ran")
+        .expect("request failed");
+    assert!(
+        response.starts_with("HTTP/1.1 200 OK"),
+        "unexpected status line: {}",
+        response
+    );
+    assert!(
+        response.ends_with("hello ipv6"),
+        "missing body: {}",
+        response
     );
 }

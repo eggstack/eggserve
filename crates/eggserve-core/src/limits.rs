@@ -6,6 +6,10 @@ use std::time::Duration;
 /// Default maximum number of entries to enumerate in a directory listing.
 pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
 pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
+/// Upper bound for `max_request_body_bytes`. The default of `0` rejects all
+/// bodies; explicit values are capped so a single config value cannot become
+/// an unbounded per-request buffering knob.
+pub const MAX_REQUEST_BODY_BYTES: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 8192;
 
 /// Error returned when a [`Limits`] field violates its constraint.
@@ -191,6 +195,31 @@ impl Limits {
                 field: "max_listing_response_bytes",
                 value: self.max_listing_response_bytes.to_string(),
                 constraint: format!("<= {} (10 MiB)", MAX_LISTING_RESPONSE_BYTES),
+            });
+        }
+        // Zero silently renders every directory listing empty; entries above
+        // the response-byte budget can never be fully rendered anyway.
+        if self.max_listing_entries == 0 {
+            errors.push(LimitsError {
+                field: "max_listing_entries",
+                value: "0".into(),
+                constraint: "> 0".into(),
+            });
+        } else if self.max_listing_entries > MAX_LISTING_RESPONSE_BYTES {
+            errors.push(LimitsError {
+                field: "max_listing_entries",
+                value: self.max_listing_entries.to_string(),
+                constraint: format!("<= {} (10 MiB)", MAX_LISTING_RESPONSE_BYTES),
+            });
+        }
+        if self.max_request_body_bytes > MAX_REQUEST_BODY_BYTES {
+            errors.push(LimitsError {
+                field: "max_request_body_bytes",
+                value: self.max_request_body_bytes.to_string(),
+                constraint: format!(
+                    "<= {} (1 GiB), or 0 to reject bodies",
+                    MAX_REQUEST_BODY_BYTES
+                ),
             });
         }
         if errors.is_empty() {
@@ -475,6 +504,45 @@ mod tests {
     }
 
     #[test]
+    fn zero_max_listing_entries_is_invalid() {
+        let limits = Limits {
+            max_listing_entries: 0,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "max_listing_entries"));
+    }
+
+    #[test]
+    fn excessive_max_listing_entries_is_invalid() {
+        let limits = Limits {
+            max_listing_entries: MAX_LISTING_RESPONSE_BYTES + 1,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "max_listing_entries"));
+    }
+
+    #[test]
+    fn maximum_request_body_bytes_are_valid() {
+        let limits = Limits {
+            max_request_body_bytes: MAX_REQUEST_BODY_BYTES,
+            ..Default::default()
+        };
+        assert!(limits.validate().is_ok());
+    }
+
+    #[test]
+    fn excessive_max_request_body_bytes_is_invalid() {
+        let limits = Limits {
+            max_request_body_bytes: u64::MAX,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "max_request_body_bytes"));
+    }
+
+    #[test]
     fn maximum_stream_chunk_size_is_valid() {
         let limits = Limits {
             stream_chunk_size: 1024 * 1024,
@@ -494,10 +562,12 @@ mod tests {
             body_read_timeout: Duration::ZERO,
             graceful_shutdown_timeout: Duration::ZERO,
             stream_chunk_size: 0,
+            max_listing_entries: 0,
+            max_request_body_bytes: u64::MAX,
             ..Default::default()
         };
         let errs = limits.validate().unwrap_err();
-        assert_eq!(errs.len(), 8);
+        assert_eq!(errs.len(), 10);
         let fields: Vec<&str> = errs.iter().map(|e| e.field).collect();
         assert!(fields.contains(&"max_connections"));
         assert!(fields.contains(&"max_file_streams"));
@@ -507,5 +577,7 @@ mod tests {
         assert!(fields.contains(&"body_read_timeout"));
         assert!(fields.contains(&"graceful_shutdown_timeout"));
         assert!(fields.contains(&"stream_chunk_size"));
+        assert!(fields.contains(&"max_listing_entries"));
+        assert!(fields.contains(&"max_request_body_bytes"));
     }
 }
