@@ -107,6 +107,7 @@ const IO_REPARSE_TAG_MOUNT_POINT: u32 = 0xA0000003;
 const ERROR_FILE_NOT_FOUND: DWORD = 2;
 const ERROR_PATH_NOT_FOUND: DWORD = 3;
 const ERROR_ACCESS_DENIED: DWORD = 5;
+const ERROR_INVALID_HANDLE: DWORD = 6;
 const ERROR_NOT_A_DIRECTORY: DWORD = 267;
 const ERROR_TOO_MANY_LINKS: DWORD = 1142;
 
@@ -375,7 +376,7 @@ impl OwnedHandle {
     /// handle-quota exhaustion or out of memory).
     pub(crate) fn try_clone(&self) -> Result<Self, WindowsFsError> {
         if !self.is_valid() {
-            return Ok(Self(INVALID_HANDLE_VALUE));
+            return Err(WindowsFsError::IoError(ERROR_INVALID_HANDLE));
         }
         let mut new_handle = INVALID_HANDLE_VALUE;
         // SAFETY: GetCurrentProcess() returns a pseudohandle valid for
@@ -1446,14 +1447,42 @@ pub enum DirBufParseError {
     OddFileNameLength,
     /// Filename range lies outside the returned buffer.
     FileNameOutOfRange,
-    /// NextEntryOffset is non-zero but would move before the current record.
+    /// NextEntryOffset is non-zero but would place the next record inside the
+    /// current record's fixed header extent (backward or overlapping move).
     OffsetUnderflow,
     /// NextEntryOffset exceeds the returned byte count.
     OffsetOverflow,
-    /// NextEntryOffset would create an infinite loop (visited all offsets).
+    /// Reserved cycle-detection variant. Unreachable while advances are
+    /// strictly monotonic (`checked_add` of a non-zero delta), retained as a
+    /// defensive contract for future non-monotonic parsing.
     OffsetLoop,
     /// The filename cannot be decoded as valid UTF-16.
     InvalidUtf16,
+}
+
+/// Validates a non-zero `NextEntryOffset` advance and returns the absolute
+/// offset of the next record.
+///
+/// # Errors
+///
+/// - `OffsetOverflow`: the advance leaves the buffer or overflows `usize`.
+/// - `OffsetUnderflow`: the advance would place the next record inside the
+///   current record's fixed header extent (backward/overlapping move).
+fn advance_offset(
+    offset: usize,
+    next_entry_offset: usize,
+    total_len: usize,
+) -> Result<usize, DirBufParseError> {
+    let next_offset = offset
+        .checked_add(next_entry_offset)
+        .ok_or(DirBufParseError::OffsetOverflow)?;
+    if next_offset >= total_len {
+        return Err(DirBufParseError::OffsetOverflow);
+    }
+    if next_offset - offset < FILE_ID_BOTH_DIR_INFO_HEADER_SIZE {
+        return Err(DirBufParseError::OffsetUnderflow);
+    }
+    Ok(next_offset)
 }
 
 /// Parses a Windows directory information buffer into a Vec of DirectoryEntryRecord.
@@ -1560,13 +1589,7 @@ pub fn parse_directory_buffer(
             if next_entry_offset == 0 {
                 break;
             }
-            let next_offset = offset
-                .checked_add(next_entry_offset)
-                .ok_or(DirBufParseError::OffsetOverflow)?;
-            if next_offset <= offset || next_offset >= total_len {
-                return Err(DirBufParseError::OffsetOverflow);
-            }
-            offset = next_offset;
+            offset = advance_offset(offset, next_entry_offset, total_len)?;
             continue;
         }
 
@@ -1600,15 +1623,9 @@ pub fn parse_directory_buffer(
             break;
         }
 
-        // Validate offset: must advance, must stay within buffer, must not loop.
-        let next_offset = offset
-            .checked_add(next_entry_offset)
-            .ok_or(DirBufParseError::OffsetOverflow)?;
-        if next_offset <= offset || next_offset >= total_len {
-            return Err(DirBufParseError::OffsetOverflow);
-        }
-
-        offset = next_offset;
+        // Validate offset: must advance past the current record's fixed
+        // extent, must stay within buffer.
+        offset = advance_offset(offset, next_entry_offset, total_len)?;
     }
 
     Ok(entries)
@@ -2081,8 +2098,10 @@ mod tests {
     #[test]
     fn owned_handle_invalid_try_clone() {
         let invalid = OwnedHandle(INVALID_HANDLE_VALUE);
-        let cloned = invalid.try_clone().unwrap();
-        assert!(!cloned.is_valid());
+        assert!(matches!(
+            invalid.try_clone(),
+            Err(WindowsFsError::IoError(ERROR_INVALID_HANDLE))
+        ));
     }
 
     // ── parse_directory_buffer tests ────────────────────────────────────────
@@ -2232,20 +2251,22 @@ mod tests {
     }
 
     #[test]
-    #[ignore = "Parse offset behavior differs from expected; needs Windows VM qualification"]
-    fn parse_offset_loop() {
-        let mut buf = build_dir_info_entry("a.txt", false, false, 0, 1);
+    fn parse_zero_next_offset_terminates_chain() {
+        let entry1 = build_dir_info_entry("a.txt", false, false, 0, 1);
         let entry2 = build_dir_info_entry("b.txt", false, false, 0, 2);
-        let offset2 = buf.len() as u32;
-        buf[0..4].copy_from_slice(&offset2.to_ne_bytes());
+        let mut buf = entry1.clone();
+        let next_offset = entry1.len() as u32;
+        buf[0..4].copy_from_slice(&next_offset.to_ne_bytes());
         buf.extend_from_slice(&entry2);
-        // Make entry2 point back to offset 0 (loop — backward offset).
-        let loop_offset = 0u32;
-        let pos = offset2 as usize;
-        buf[pos..pos + 4].copy_from_slice(&loop_offset.to_ne_bytes());
 
-        let result = parse_directory_buffer(&buf, 100);
-        assert!(matches!(result, Err(DirBufParseError::OffsetUnderflow)));
+        let result = parse_directory_buffer(&buf, 100).unwrap();
+        assert_eq!(
+            result
+                .iter()
+                .map(|entry| entry.name.as_str())
+                .collect::<Vec<_>>(),
+            ["a.txt", "b.txt"]
+        );
     }
 
     #[test]
@@ -2298,6 +2319,19 @@ mod tests {
         let underflow_offset = 1u32;
         let pos = offset2 as usize;
         buf[pos..pos + 4].copy_from_slice(&underflow_offset.to_ne_bytes());
+
+        let result = parse_directory_buffer(&buf, 100);
+        assert!(matches!(result, Err(DirBufParseError::OffsetUnderflow)));
+    }
+
+    #[test]
+    fn parse_underflow_rejected_at_dot_skip_site() {
+        let entry1 = build_dir_info_entry(".", true, false, 0, 1);
+        let entry2 = build_dir_info_entry("b.txt", false, false, 1, 2);
+        let mut buf = entry1.clone();
+        let next_offset = entry1.len() as u32;
+        buf[0..4].copy_from_slice(&next_offset.to_ne_bytes());
+        buf.extend_from_slice(&entry2);
 
         let result = parse_directory_buffer(&buf, 100);
         assert!(matches!(result, Err(DirBufParseError::OffsetUnderflow)));

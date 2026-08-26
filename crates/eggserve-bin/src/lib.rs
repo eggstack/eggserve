@@ -201,6 +201,9 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                 }
             };
 
+            // The receiver is created before the signal task and remains
+            // subscribed through startup, so a signal during `start()` is
+            // buffered instead of being lost.
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
 
             let signal_task = tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
@@ -328,6 +331,8 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                 }
             };
 
+            // Keep this receiver alive through startup: broadcast delivers a
+            // signal sent during `start()` to this already-subscribed receiver.
             let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
             let signal_task = tokio::spawn(shutdown::shutdown_signal(shutdown_tx));
 

@@ -55,6 +55,69 @@ fn require_value(args: &[String], i: &mut usize, flag: &str) -> Result<String, S
     Ok(value.clone())
 }
 
+fn expand_attached_long_values(args: Vec<String>) -> Result<Vec<String>, String> {
+    const VALUE_FLAGS: &[&str] = &[
+        "directory",
+        "bind",
+        "port",
+        "addr",
+        "log-format",
+        "max-connections",
+        "max-file-streams",
+        "header-timeout",
+        "connection-total-timeout",
+        "handler-timeout",
+        "body-read-timeout",
+        "content-type",
+        "header",
+        "tls-cert",
+        "tls-key",
+    ];
+    const BOOLEAN_FLAGS: &[&str] = &[
+        "public",
+        "directory-listing",
+        "follow-symlinks",
+        "allow-dotfiles",
+        "quiet",
+        "help",
+        "version",
+    ];
+
+    let mut expanded = Vec::with_capacity(args.len());
+    let mut end_of_options = false;
+    for arg in args {
+        if end_of_options {
+            expanded.push(arg);
+            continue;
+        }
+        if arg == "--" {
+            end_of_options = true;
+            expanded.push(arg);
+            continue;
+        }
+        let Some(long_arg) = arg.strip_prefix("--") else {
+            expanded.push(arg);
+            continue;
+        };
+        let Some((name, value)) = long_arg.split_once('=') else {
+            expanded.push(arg);
+            continue;
+        };
+
+        if VALUE_FLAGS.contains(&name) {
+            expanded.push(format!("--{name}"));
+            expanded.push(value.to_string());
+        } else if BOOLEAN_FLAGS.contains(&name) {
+            return Err(format!("--{name} does not take a value"));
+        } else {
+            // Preserve unknown flags verbatim so the normal diagnostic names
+            // exactly what the user entered.
+            expanded.push(arg);
+        }
+    }
+    Ok(expanded)
+}
+
 fn split_bind_host_port(value: &str) -> Option<(&str, Option<u16>)> {
     if value.starts_with('[') {
         let end = value.find(']')?;
@@ -88,6 +151,7 @@ impl Args {
     }
 
     pub fn parse_from(args: Vec<String>) -> Result<Self, String> {
+        let args = expand_attached_long_values(args)?;
         let mut bind_host = Ipv4Addr::LOCALHOST.to_string();
         let mut bind_port: u16 = 8000;
         let mut root: Option<PathBuf> = None;
@@ -1107,6 +1171,68 @@ mod tests {
         let result = parse(&["--bogus"]);
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("unknown flag"));
+    }
+
+    #[test]
+    fn long_flags_accept_attached_values() {
+        let args = parse(&[
+            "--bind=127.0.0.1",
+            "--port=0",
+            "--directory=/tmp",
+            "--log-format=none",
+            "--max-connections=2",
+            "--max-file-streams=3",
+            "--header-timeout=4",
+            "--connection-total-timeout=5",
+            "--handler-timeout=6",
+            "--body-read-timeout=7",
+            "--content-type=text/plain",
+        ])
+        .unwrap();
+        assert_eq!(args.bind, "127.0.0.1:0".parse().unwrap());
+        assert_eq!(args.root, PathBuf::from("/tmp"));
+        assert_eq!(args.log_format, LogFormat::None);
+        assert_eq!(args.max_connections, Some(2));
+        assert_eq!(args.max_file_streams, Some(3));
+        assert_eq!(args.header_read_timeout, Some(Duration::from_secs(4)));
+        assert_eq!(args.connection_total_timeout, Some(Duration::from_secs(5)));
+        assert_eq!(args.handler_timeout, Some(Duration::from_secs(6)));
+        assert_eq!(args.body_read_timeout, Some(Duration::from_secs(7)));
+        assert_eq!(args.default_content_type, "text/plain");
+    }
+
+    #[test]
+    fn header_flag_accepts_attached_name_then_separate_value() {
+        let args = parse(&["--header=X-Test", "value"]).unwrap();
+        assert_eq!(
+            args.extra_response_headers,
+            [("X-Test".into(), "value".into())]
+        );
+    }
+
+    #[test]
+    fn attached_value_duplicate_detection_still_applies() {
+        let error = parse(&["--port=8000", "--port=9000"]).unwrap_err();
+        assert!(error.contains("port may only be specified once"), "{error}");
+    }
+
+    #[test]
+    fn boolean_flags_reject_attached_values() {
+        let error = parse(&["--quiet=true"]).unwrap_err();
+        assert_eq!(error, "--quiet does not take a value");
+    }
+
+    #[test]
+    fn unknown_flags_with_attached_values_report_verbatim() {
+        let error = parse(&["--bogus=value"]).unwrap_err();
+        assert_eq!(error, "unknown flag: --bogus=value");
+    }
+
+    #[test]
+    fn end_of_options_prevents_attached_value_splitting() {
+        let args = parse(&["--", "--quiet=true"]).unwrap();
+        assert_eq!(args.root, PathBuf::from("--quiet=true"));
+        assert!(!args.quiet);
     }
 
     #[test]

@@ -72,12 +72,17 @@ pub fn validate_method(method: &str) -> Result<ReadOnlyMethod, RequestValidation
     }
 }
 
-/// Validate that a request has no body, as expected for GET/HEAD.
+/// Validate request body framing metadata for one `Content-Length` value.
 ///
 /// Checks:
 /// - No `Content-Length` and `Transfer-Encoding` together
 /// - No non-empty `Transfer-Encoding`
-/// - `Content-Length` (if present) is zero or valid and within `max_body_bytes`
+/// - `Content-Length` (if present) is a valid non-negative decimal value within
+///   `max_body_bytes`
+///
+/// This function accepts only one `Content-Length` value, so duplicate header
+/// detection is the caller's responsibility. It does not enforce method
+/// semantics or require a zero-length body.
 pub fn validate_request_body(
     content_length: Option<&str>,
     transfer_encoding: Option<&str>,
