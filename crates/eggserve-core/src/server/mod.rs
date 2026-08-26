@@ -797,7 +797,7 @@ async fn classify_accept_error(
     }
 
     if should_backoff {
-        static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];
+        static BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];
         let idx = (*backoff_idx).min(BACKOFF_MS.len() - 1);
         *backoff_idx = backoff_idx.saturating_add(1);
         let backoff = std::time::Duration::from_millis(BACKOFF_MS[idx]);

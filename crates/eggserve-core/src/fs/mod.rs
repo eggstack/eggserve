@@ -391,16 +391,28 @@ impl<'a> RootGuard<'a> {
         }
 
         // 8.3 alias defense: an NTFS short-name alias need not begin with
-        // `.`, so a component that resembles an alias must be re-checked
-        // against the dotfile policy using the resolved long name.
+        // `.`, so every component that resembles an alias must be re-checked
+        // against the dotfile policy using its resolved long name. Checking
+        // only the final component would allow an intermediate alias such as
+        // `ENV~1` to resolve to a hidden directory.
         if policy.dotfiles == DotfilePolicy::Denied {
-            if let Some(requested) = components.last() {
-                if may_be_short_name_alias(requested)
-                    && canonical
+            for (index, requested) in components.iter().enumerate() {
+                if may_be_short_name_alias(requested) {
+                    let mut alias_candidate = self.pinned.canonical_root().to_path_buf();
+                    alias_candidate.extend(&components[..=index]);
+                    let alias_canonical = match fs::canonicalize(alias_candidate) {
+                        Ok(path) => path,
+                        Err(_) => return ResolvedResource::NotFound,
+                    };
+                    if !alias_canonical.starts_with(self.pinned.canonical_root()) {
+                        return ResolvedResource::Denied(PathRejection::RootEscapeDenied);
+                    }
+                    if alias_canonical
                         .file_name()
                         .is_some_and(|name| name.to_string_lossy().starts_with('.'))
-                {
-                    return ResolvedResource::Denied(PathRejection::DotfileDenied);
+                    {
+                        return ResolvedResource::Denied(PathRejection::DotfileDenied);
+                    }
                 }
             }
         }

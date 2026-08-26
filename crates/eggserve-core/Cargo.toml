@@ -23,7 +23,7 @@ include = [
 
 [features]
 default = []
-tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pemfile"]
+tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pki-types"]
 python-bindings-internal = []
 windows-adversarial-qualification = []
 
@@ -41,7 +41,7 @@ tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "i
 # TLS dependencies (feature-gated)
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
-rustls-pemfile = { version = "2", optional = true }
+rustls-pki-types = { version = "1", optional = true, features = ["std"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }
@@ -56,4 +56,3 @@ tempfile = "3"
 rcgen = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-rustls = "0.26"
-rustls-pki-types = "1"

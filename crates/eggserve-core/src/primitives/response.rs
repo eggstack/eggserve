@@ -93,17 +93,7 @@ pub struct FileRange {
 }
 
 impl FileRange {
-    /// Construct a byte range without validation.
-    ///
-    /// # Panics (via [`Self::len`])
-    ///
-    /// `new` performs no endpoint validation. A range whose endpoints are
-    /// not already constrained to a representable file range — e.g.
-    /// `FileRange::new(0, u64::MAX)` — makes [`Self::len`] panic on
-    /// overflow. Use [`Self::try_new`] at construction points that cannot
-    /// guarantee representable endpoints, or [`Self::checked_len`] at
-    /// consumption points; planner-produced ranges are always bounded by
-    /// real file lengths.
+    /// Construct a byte range without endpoint validation.
     pub fn new(start: u64, end_inclusive: u64) -> Self {
         Self {
             start,
@@ -111,23 +101,18 @@ impl FileRange {
         }
     }
 
-    /// Construct a byte range, returning `None` when [`Self::len`] would
-    /// panic on the given endpoints.
+    /// Construct a byte range, returning `None` when its length is not
+    /// representable as a `u64`.
     pub fn try_new(start: u64, end_inclusive: u64) -> Option<Self> {
         let range = Self::new(start, end_inclusive);
         range.checked_len()?;
         Some(range)
     }
 
-    /// Return the number of bytes in this range.
-    ///
-    /// # Panics
-    ///
-    /// Panics if the range describes more than `u64::MAX` bytes. Call
-    /// [`Self::checked_len`] when the endpoints are not already constrained
-    /// to a representable file range.
+    /// Return the number of bytes in this range, saturating at `u64::MAX` if
+    /// the endpoints describe more bytes than the return type can represent.
     pub fn len(&self) -> u64 {
-        self.checked_len().expect("FileRange length overflow")
+        self.checked_len().unwrap_or(u64::MAX)
     }
 
     pub fn checked_len(&self) -> Option<u64> {
@@ -259,6 +244,7 @@ mod tests {
     fn overflowing_file_range_is_reported() {
         let range = FileRange::new(0, u64::MAX);
         assert_eq!(range.checked_len(), None);
+        assert_eq!(range.len(), u64::MAX);
     }
 
     #[test]

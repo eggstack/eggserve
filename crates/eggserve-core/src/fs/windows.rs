@@ -921,7 +921,7 @@ pub(crate) fn resolve_to_resource(
             // Determine if this is a file or directory.
             let is_dir = match get_file_standard_info(child.raw()) {
                 Ok(info) => info.directory != 0,
-                Err(_) => false,
+                Err(_) => return ResolvedResource::NotFound,
             };
 
             let canonical_path = match get_final_path(child.raw()) {
@@ -955,7 +955,10 @@ pub(crate) fn resolve_to_resource(
                     Ok(h) => h,
                     Err(_) => return ResolvedResource::NotFound,
                 };
-                let std_file = handle_to_std_file(file_handle);
+                let std_file = match handle_to_std_file(file_handle) {
+                    Ok(file) => file,
+                    Err(_) => return ResolvedResource::NotFound,
+                };
                 let metadata = match std_file.metadata() {
                     Ok(m) => m,
                     Err(_) => return ResolvedResource::NotFound,
@@ -1066,7 +1069,7 @@ pub(crate) fn resolve_child_relative(
     // Determine if this is a file or directory.
     let is_dir = match get_file_standard_info(child_handle.raw()) {
         Ok(info) => info.directory != 0,
-        Err(_) => false,
+        Err(_) => return ResolvedResource::NotFound,
     };
 
     let mut components = parent_components.to_vec();
@@ -1080,7 +1083,10 @@ pub(crate) fn resolve_child_relative(
             components,
         })
     } else {
-        let std_file = handle_to_std_file(child_handle);
+        let std_file = match handle_to_std_file(child_handle) {
+            Ok(file) => file,
+            Err(_) => return ResolvedResource::NotFound,
+        };
         let metadata = match std_file.metadata() {
             Ok(m) => m,
             Err(_) => return ResolvedResource::NotFound,
@@ -1378,15 +1384,16 @@ pub(crate) fn get_final_path(handle: HANDLE) -> Result<PathBuf, WindowsFsError> 
 /// The caller must `std::mem::forget` the `OwnedHandle` or otherwise prevent
 /// its `Drop` implementation from running.
 ///
-/// # Safety
+/// # Errors
 ///
-/// The handle must be valid for `GENERIC_READ` access and must not be
-/// `INVALID_HANDLE_VALUE` or null.
-pub(crate) fn handle_to_std_file(handle: OwnedHandle) -> std::fs::File {
-    assert!(
-        handle.is_valid(),
-        "handle_to_std_file called with invalid handle"
-    );
+/// Returns an I/O error when the handle is null or
+/// `INVALID_HANDLE_VALUE`.
+pub(crate) fn handle_to_std_file(handle: OwnedHandle) -> std::io::Result<std::fs::File> {
+    if !handle.is_valid() {
+        return Err(std::io::Error::from_raw_os_error(
+            ERROR_INVALID_HANDLE as i32,
+        ));
+    }
 
     let raw = handle.raw();
 
@@ -1398,7 +1405,7 @@ pub(crate) fn handle_to_std_file(handle: OwnedHandle) -> std::fs::File {
     // SAFETY: the raw handle is valid for read access (GENERIC_READ or
     // FILE_LIST_DIRECTORY). `from_raw_handle` is safe to call on any valid
     // Windows HANDLE that was opened with appropriate access rights.
-    unsafe { std::fs::File::from_raw_handle(raw as RawHandle) }
+    Ok(unsafe { std::fs::File::from_raw_handle(raw as RawHandle) })
 }
 
 /// Verifies that a handle is still valid after conversion (for testing).
@@ -2060,11 +2067,18 @@ mod tests {
     fn handle_to_std_file_read() {
         let (_tmp, root_handle) = setup_test_root();
         let file_handle = open_file_relative(root_handle.raw(), "hello.txt").unwrap();
-        let std_file = handle_to_std_file(file_handle);
+        let std_file = handle_to_std_file(file_handle).unwrap();
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();
         assert_eq!(contents, "hello");
+    }
+
+    #[test]
+    fn handle_to_std_file_rejects_invalid_handle() {
+        let invalid = unsafe { OwnedHandle::from_raw(std::ptr::null_mut()) };
+        let error = handle_to_std_file(invalid).unwrap_err();
+        assert_eq!(error.raw_os_error(), Some(ERROR_INVALID_HANDLE as i32));
     }
 
     #[test]
@@ -2546,7 +2560,7 @@ mod tests {
 
         // Open the file and verify original content.
         let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
-        let std_file = handle_to_std_file(file_handle);
+        let std_file = handle_to_std_file(file_handle).unwrap();
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();
@@ -2558,7 +2572,7 @@ mod tests {
 
         // Open again — should see the new content (new handle, new inode).
         let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
-        let std_file = handle_to_std_file(file_handle);
+        let std_file = handle_to_std_file(file_handle).unwrap();
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();
@@ -2610,7 +2624,7 @@ mod tests {
 
         // Open after recreation — should succeed with new content.
         let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
-        let std_file = handle_to_std_file(file_handle);
+        let std_file = handle_to_std_file(file_handle).unwrap();
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();
@@ -2673,7 +2687,7 @@ mod tests {
         std::fs::set_permissions(root_path.join("target.txt"), perms).unwrap();
 
         let file_handle = open_file_relative(root_handle, "target.txt").unwrap();
-        let std_file = handle_to_std_file(file_handle);
+        let std_file = handle_to_std_file(file_handle).unwrap();
         let mut contents = String::new();
         std::io::Read::read_to_string(&mut std::io::BufReader::new(std_file), &mut contents)
             .unwrap();

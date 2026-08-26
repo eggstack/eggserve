@@ -31,7 +31,7 @@ The following dependency categories are approved for initial development:
 | Python bindings | `pyo3` (optional, eggserve-python only) | PyO3 bindings for Python wheel |
 | TLS | `rustls` (optional, feature-gated) | TLS termination |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
-| TLS | `rustls-pemfile` (optional, feature-gated) | PEM certificate and key parsing |
+| TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 
 ### Tokio feature ownership
@@ -65,19 +65,6 @@ The following dependency categories are approved for initial development:
   part of the default graph.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` are run manually during release preparation (see `scripts/install-cargo-tools.sh`); they are not part of routine CI
-
-## Accepted maintenance-risk dependencies
-
-- `rustls-pemfile` (optional, behind the `tls` feature) is flagged as
-  unmaintained by `cargo audit` under `RUSTSEC-2025-0134`. The crate is
-  still in the official `rustls` GitHub organization and is the supported
-  PEM parser consumed by `rustls` consumers; there is no published
-  drop-in replacement that integrates with the in-tree `rustls 0.23`
-  version pinned by `eggserve-bin`. We accept the risk because:
-  - It is only pulled in when the `tls` feature is enabled
-  - It is a small parser with a narrow surface (PEM → DER)
-  - It is not on a network or authentication code path
-  - The risk is tracked and re-evaluated each release via `cargo audit`
 
 ## Release validation tool versions
 

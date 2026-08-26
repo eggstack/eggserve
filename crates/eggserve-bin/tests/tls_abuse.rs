@@ -9,6 +9,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
@@ -51,17 +53,12 @@ async fn start_tls_server() -> TlsTestServer {
         .expect("Failed to generate test certificate");
 
     // Load certificate and key
-    let cert_file = std::fs::File::open(&cert_path).unwrap();
-    let mut cert_reader = std::io::BufReader::new(cert_file);
-    let certs: Vec<_> = rustls_pemfile::certs(&mut cert_reader)
+    let certs: Vec<_> = CertificateDer::pem_file_iter(&cert_path)
+        .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
 
-    let key_file = std::fs::File::open(&key_path).unwrap();
-    let mut key_reader = std::io::BufReader::new(key_file);
-    let key = rustls_pemfile::private_key(&mut key_reader)
-        .unwrap()
-        .unwrap();
+    let key = PrivateKeyDer::from_pem_file(&key_path).unwrap();
 
     let config = rustls::ServerConfig::builder()
         .with_no_client_auth()
@@ -330,9 +327,9 @@ async fn tls_large_file_streaming() {
 
     let mut root_store = rustls::RootCertStore::empty();
     let cert_path = server._tmp.path().join("cert.pem");
-    let cert_file = std::fs::File::open(&cert_path).unwrap();
-    let mut cert_reader = std::io::BufReader::new(cert_file);
-    if let Ok(certs) = rustls_pemfile::certs(&mut cert_reader).collect::<Result<Vec<_>, _>>() {
+    if let Ok(certs) = CertificateDer::pem_file_iter(&cert_path)
+        .and_then(|certs| certs.collect::<Result<Vec<_>, _>>())
+    {
         for cert in certs {
             let _ = root_store.add(cert);
         }

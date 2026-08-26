@@ -52,7 +52,7 @@ pub fn plan_file_response(
 ///    ignored per § 13.1.4)
 /// 3. `If-None-Match` → `If-Modified-Since` (failure yields 304 for
 ///    GET/HEAD)
-/// 5. `Range` + `If-Range`
+/// 4. `Range` + `If-Range`
 #[allow(clippy::too_many_arguments)]
 pub fn plan_file_response_with_preconditions(
     method: ReadOnlyMethod,

@@ -11,7 +11,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use rustls::ServerConfig;
-use rustls_pemfile::Item;
+use rustls_pki_types::pem::PemObject;
+use rustls_pki_types::{CertificateDer, PrivateKeyDer};
 
 #[derive(Debug)]
 pub enum TlsError {
@@ -50,8 +51,8 @@ impl std::error::Error for TlsError {}
 pub fn load_tls_config(cert_path: &Path, key_path: &Path) -> Result<Arc<ServerConfig>, TlsError> {
     let cert_file = File::open(cert_path)
         .map_err(|_| TlsError::CertFileNotFound(cert_path.display().to_string()))?;
-    let mut cert_reader = BufReader::new(cert_file);
-    let certs = rustls_pemfile::certs(&mut cert_reader)
+    let cert_reader = BufReader::new(cert_file);
+    let certs = CertificateDer::pem_reader_iter(cert_reader)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| TlsError::CertReadError(e.to_string()))?;
     if certs.is_empty() {
@@ -60,26 +61,13 @@ pub fn load_tls_config(cert_path: &Path, key_path: &Path) -> Result<Arc<ServerCo
 
     let key_file = File::open(key_path)
         .map_err(|_| TlsError::KeyFileNotFound(key_path.display().to_string()))?;
-    let mut key_reader = BufReader::new(key_file);
+    let key_reader = BufReader::new(key_file);
     let mut private_key = None;
     let mut key_count = 0;
-    for item in rustls_pemfile::read_all(&mut key_reader) {
-        match item {
-            Ok(Item::Pkcs1Key(key)) => {
-                key_count += 1;
-                private_key = Some(rustls::pki_types::PrivateKeyDer::Pkcs1(key));
-            }
-            Ok(Item::Pkcs8Key(key)) => {
-                key_count += 1;
-                private_key = Some(rustls::pki_types::PrivateKeyDer::Pkcs8(key));
-            }
-            Ok(Item::Sec1Key(key)) => {
-                key_count += 1;
-                private_key = Some(rustls::pki_types::PrivateKeyDer::Sec1(key));
-            }
-            Ok(_) => {}
-            Err(e) => return Err(TlsError::KeyReadError(e.to_string())),
-        }
+    for item in PrivateKeyDer::pem_reader_iter(key_reader) {
+        let key = item.map_err(|e| TlsError::KeyReadError(e.to_string()))?;
+        key_count += 1;
+        private_key = Some(key);
     }
     if key_count > 1 {
         return Err(TlsError::MultiplePrivateKeysFound);

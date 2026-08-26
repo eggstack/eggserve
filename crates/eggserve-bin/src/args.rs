@@ -104,7 +104,22 @@ fn expand_attached_long_values(args: Vec<String>) -> Result<Vec<String>, String>
             continue;
         };
 
-        if VALUE_FLAGS.contains(&name) {
+        if name == "header" {
+            if let Some((header_name, header_value)) = value.split_once('=') {
+                if header_value.contains('=') {
+                    return Err(
+                        "--header attached form accepts only one '='; use --header NAME VALUE"
+                            .to_string(),
+                    );
+                }
+                expanded.push("--header".to_string());
+                expanded.push(header_name.to_string());
+                expanded.push(header_value.to_string());
+            } else {
+                expanded.push("--header".to_string());
+                expanded.push(value.to_string());
+            }
+        } else if VALUE_FLAGS.contains(&name) {
             expanded.push(format!("--{name}"));
             expanded.push(value.to_string());
         } else if BOOLEAN_FLAGS.contains(&name) {
@@ -1208,6 +1223,21 @@ mod tests {
             args.extra_response_headers,
             [("X-Test".into(), "value".into())]
         );
+    }
+
+    #[test]
+    fn header_flag_accepts_attached_name_and_value() {
+        let args = parse(&["--header=X-Test=value"]).unwrap();
+        assert_eq!(
+            args.extra_response_headers,
+            [("X-Test".into(), "value".into())]
+        );
+    }
+
+    #[test]
+    fn header_flag_rejects_ambiguous_multiple_attached_equals() {
+        let error = parse(&["--header=X-Test=a=b"]).unwrap_err();
+        assert!(error.contains("use --header NAME VALUE"), "{error}");
     }
 
     #[test]

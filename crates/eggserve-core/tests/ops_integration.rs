@@ -548,7 +548,7 @@ async fn classify_accept_error_for_test(
     }
 
     if should_backoff {
-        static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];
+        static BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];
         let idx = (*backoff_idx).min(BACKOFF_MS.len() - 1);
         *backoff_idx = backoff_idx.saturating_add(1);
         let backoff = std::time::Duration::from_millis(BACKOFF_MS[idx]);
@@ -875,14 +875,14 @@ fn backoff_rate_limits_repeated_errors() {
 #[test]
 fn backoff_duration_is_bounded() {
     // The BACKOFF_MS array must have a bounded maximum
-    static BACKOFF_MS: [u64; 5] = [1, 2, 4, 8, 50];
+    static BACKOFF_MS: [u64; 8] = [1, 2, 4, 8, 50, 100, 250, 500];
     let max_backoff = *BACKOFF_MS.iter().max().unwrap();
     assert!(
-        max_backoff <= 100,
-        "max backoff must be ≤100ms, got {}ms",
+        max_backoff <= 500,
+        "max backoff must be ≤500ms, got {}ms",
         max_backoff
     );
-    assert_eq!(BACKOFF_MS.len(), 5);
+    assert_eq!(BACKOFF_MS.len(), 8);
     // Verify monotonic increase
     for w in BACKOFF_MS.windows(2) {
         assert!(w[0] <= w[1], "backoff must be non-decreasing");

@@ -145,7 +145,7 @@ All loading logic lives in `eggserve-core::tls::load_tls_config()`:
 | `eggserve-core` | Request handling, config, policy, HTTP serving, TLS loading |
 | `tokio` | Async runtime |
 
-`rustls`, `tokio-rustls`, and `rustls-pemfile` are transitive through
+`rustls`, `tokio-rustls`, and `rustls-pki-types` are transitive through
 `eggserve-core` (optional, behind `tls` feature). `bin/Cargo.toml` lists
 them only as dev-dependencies for integration tests.
 

@@ -31,4 +31,4 @@ tokio = { version = "1", features = ["macros", "net", "signal", "time", "sync"] 
 tempfile = "3"
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 tokio-rustls = "0.26"
-rustls-pemfile = "2"
+rustls-pki-types = "1"
