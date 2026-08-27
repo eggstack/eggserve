@@ -106,12 +106,6 @@ fn expand_attached_long_values(args: Vec<String>) -> Result<Vec<String>, String>
 
         if name == "header" {
             if let Some((header_name, header_value)) = value.split_once('=') {
-                if header_value.contains('=') {
-                    return Err(
-                        "--header attached form accepts only one '='; use --header NAME VALUE"
-                            .to_string(),
-                    );
-                }
                 expanded.push("--header".to_string());
                 expanded.push(header_name.to_string());
                 expanded.push(header_value.to_string());
@@ -1235,9 +1229,12 @@ mod tests {
     }
 
     #[test]
-    fn header_flag_rejects_ambiguous_multiple_attached_equals() {
-        let error = parse(&["--header=X-Test=a=b"]).unwrap_err();
-        assert!(error.contains("use --header NAME VALUE"), "{error}");
+    fn header_flag_accepts_equals_in_attached_value() {
+        let args = parse(&["--header=X-Test=a=b"]).unwrap();
+        assert_eq!(
+            args.extra_response_headers,
+            [("X-Test".into(), "a=b".into())]
+        );
     }
 
     #[test]

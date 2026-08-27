@@ -207,6 +207,10 @@ impl Lifecycle {
                     }
                 } else if state.is_terminal() {
                     Ok(())
+                } else if state == LifecycleState::Draining {
+                    // Shutdown is idempotent while the server is already
+                    // draining, as documented in the lifecycle table.
+                    Ok(())
                 } else {
                     Err(crate::server::errors::ServerError::Config(format!(
                         "cannot drain: server is in {} state",
@@ -358,6 +362,8 @@ mod tests {
         assert!(lc.mark_running().is_ok());
         assert_eq!(lc.state(), LifecycleState::Running);
 
+        assert!(lc.drain().is_ok());
+        assert_eq!(lc.state(), LifecycleState::Draining);
         assert!(lc.drain().is_ok());
         assert_eq!(lc.state(), LifecycleState::Draining);
 

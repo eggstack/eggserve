@@ -126,6 +126,19 @@ fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), Pa
     if dotfiles_denied && child.starts_with('.') {
         return Err(PathRejection::DotfileDenied);
     }
+    // Parity with parse-level component validation: a literal percent-encoded
+    // dot-segment must not be accepted by child resolution when the same name
+    // would be rejected through a request target.
+    if child.contains('%') {
+        if let Ok(decoded) = crate::path::decode::percent_decode(child) {
+            if decoded == "." {
+                return Err(PathRejection::CurrentComponent);
+            }
+            if decoded == ".." {
+                return Err(PathRejection::ParentComponent);
+            }
+        }
+    }
     // Parity with the parse-level component check: Windows reserved
     // names, ADS syntax, drive prefixes, and trailing dots/spaces get the
     // specific PathRejection variants instead of generic OS failures.
@@ -829,6 +842,18 @@ mod tests {
     fn validate_child_dotdot() {
         assert_eq!(
             validate_child_component("..", false),
+            Err(PathRejection::ParentComponent)
+        );
+    }
+
+    #[test]
+    fn validate_child_percent_encoded_dot_segments() {
+        assert_eq!(
+            validate_child_component("%2e", false),
+            Err(PathRejection::CurrentComponent)
+        );
+        assert_eq!(
+            validate_child_component("%2e%2e", false),
             Err(PathRejection::ParentComponent)
         );
     }

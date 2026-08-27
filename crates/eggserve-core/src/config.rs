@@ -48,8 +48,13 @@ pub fn validate_static_metadata(
     }
     for (name, value) in extra_response_headers {
         HeaderName::new(name.clone()).map_err(|e| format!("invalid extra response header: {e}"))?;
-        HeaderValue::new(value.clone())
+        let value = HeaderValue::new(value.clone())
             .map_err(|e| format!("invalid extra response header: {e}"))?;
+        if value.as_str().is_empty() {
+            return Err(format!(
+                "invalid extra response header: value for {name} must not be empty"
+            ));
+        }
         let lower = name.to_ascii_lowercase();
         if is_hop_by_hop_header(&lower)
             || matches!(
@@ -155,5 +160,24 @@ mod tests {
         assert!(!summary.dotfiles_served);
         assert_eq!(summary.max_connections, 64);
         assert_eq!(summary.max_file_streams, 32);
+    }
+
+    #[test]
+    fn extra_response_header_rejects_whitespace_only_value() {
+        let error = validate_static_metadata(
+            "application/octet-stream",
+            &[("X-Test".to_owned(), " \t ".to_owned())],
+        )
+        .unwrap_err();
+        assert!(error.contains("value for X-Test must not be empty"));
+    }
+
+    #[test]
+    fn extra_response_header_accepts_nonempty_value_with_ows() {
+        assert!(validate_static_metadata(
+            "application/octet-stream",
+            &[("X-Test".to_owned(), " value ".to_owned())],
+        )
+        .is_ok());
     }
 }

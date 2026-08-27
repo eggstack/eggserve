@@ -492,8 +492,9 @@ pub fn normalize_metadata(
     let not_modified_length = if status == StatusCode::NOT_MODIFIED {
         headers
             .get_unique("content-length")
-            .ok()
-            .flatten()
+            .map_err(|_| {
+                ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
+            })?
             .and_then(|value| value.as_str().parse::<u64>().ok())
             .filter(|length| *length == body_len)
     } else {
@@ -1201,6 +1202,20 @@ mod tests {
         let all_cl = headers.get_all("content-length");
         assert_eq!(all_cl.len(), 1, "only one Content-Length must remain");
         assert_eq!(all_cl[0].as_str(), "42");
+    }
+
+    #[test]
+    fn duplicate_content_length_rejected_for_not_modified() {
+        let mut headers = HeaderBlock::new();
+        headers.push_str("content-length", "42").unwrap();
+        headers.push_str("Content-Length", "42").unwrap();
+
+        let error =
+            normalize_metadata(StatusCode::NOT_MODIFIED, &mut headers, 42, false).unwrap_err();
+        assert_eq!(
+            error,
+            ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
+        );
     }
 
     #[test]

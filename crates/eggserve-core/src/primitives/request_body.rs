@@ -127,13 +127,14 @@ impl RequestBody {
     pub fn from_bytes(data: impl Into<Bytes>, max_bytes: u64) -> Self {
         let data = data.into();
         let len = data.len() as u64;
+        let is_empty = data.is_empty();
         Self {
             inner: Some(BodyInner::Fixed { data, offset: 0 }),
             declared_length: Some(len),
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes,
-            consumed: Arc::new(AtomicBool::new(false)),
+            consumed: Arc::new(AtomicBool::new(is_empty)),
         }
     }
 
@@ -599,6 +600,7 @@ mod tests {
     async fn zero_length_body() {
         let body = RequestBody::from_bytes(Vec::new(), u64::MAX);
         assert_eq!(body.declared_length(), Some(0));
+        assert!(body.was_fully_consumed());
         let data = body.read_all().await.unwrap();
         assert!(data.is_empty());
     }
@@ -715,9 +717,13 @@ mod tests {
     fn consumed_flag_set_after_read() {
         proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
             let rt = tokio::runtime::Runtime::new().unwrap();
+            let is_empty = data.is_empty();
             let body = RequestBody::from_bytes(data, u64::MAX);
             let flag = body.consumed_flag();
-            prop_assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
+            prop_assert_eq!(
+                flag.load(std::sync::atomic::Ordering::Acquire),
+                is_empty
+            );
             let _ = rt.block_on(body.read_all());
             prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
         });
