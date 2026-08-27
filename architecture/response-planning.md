@@ -139,11 +139,16 @@ Returns `None` if metadata has no modification time. Format when present: `W/"<s
 
 ### `plan_directory_listing()`
 
-Generates directory listing HTML with CSP headers.
+Plans directory-listing metadata with CSP headers. The planner does not own
+directory enumeration or HTML rendering: GET returns an empty byte placeholder
+and omits `Content-Length`, and the caller must replace that placeholder with
+the rendered bytes before constructing the response. HEAD returns an empty
+body with the supplied rendered length.
 
 ## HEAD Parity
 
-For `HEAD` requests, the planner produces the same `StaticResponsePlan` as `GET` but with `BodyPlan::Empty`. This ensures:
+For `HEAD` requests, the planner produces the same status and metadata as the
+corresponding GET but with `BodyPlan::Empty`. This ensures:
 - Same status code
 - Same headers (including `Content-Length`)
 - No body transfer

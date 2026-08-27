@@ -4,7 +4,7 @@ set -euo pipefail
 # verify.sh — Local verification for eggserve
 #
 # Modes:
-#   fast   Routine dev: format, clippy (lib/bins/tests), workspace tests
+#   fast   Routine dev: format, clippy, workspace tests, Python crate check
 #   full   Pre-release: fast + TLS feature tests, Python wheel, package dry-run
 #   deep   Expensive suites: full + corpus replay, fault injection, races, TLS abuse
 
@@ -54,6 +54,7 @@ cmd_fast() {
   run cargo fmt --all -- --check
   run cargo clippy --workspace --lib --bins --tests -- -D warnings
   run cargo test --workspace
+  run cargo check --manifest-path "$REPO_ROOT/crates/eggserve-python/Cargo.toml" --locked
 }
 
 cmd_full() {

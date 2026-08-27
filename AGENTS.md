@@ -58,20 +58,23 @@ Run a single crate with `-p <name>` (e.g. `cargo test -p eggserve-core`).
 ### Local verification script
 
 ```sh
-./scripts/verify.sh fast                 # routine dev check (Rust only)
+./scripts/verify.sh fast                 # routine dev check (Rust workspace + Python crate check)
 ./scripts/verify.sh full                 # pre-release: fast + TLS + examples + Python wheel
 ./scripts/verify.sh deep                 # expensive suites (manual): fuzz replay, races, proxy interop
 ```
 
 Gotcha: `verify.sh full` **dies** without Python 3.14 + maturin installed (it defaults to `python3.14`; override with `PYTHON=`). Use `fast` for Rust-only work.
 
-### Optional manual checks (release prep only)
+### Supply-chain and optional package checks
 
 ```sh
 bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation (required first)
 cargo audit && cargo deny check
 bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
+
+Routine CI runs the first two commands in its dedicated supply-chain job;
+`verify-cargo-packages.sh` remains a release-preparation check.
 
 ### Distribution builds
 

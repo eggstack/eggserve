@@ -64,7 +64,8 @@ The following dependency categories are approved for initial development:
   primitives; unused client and application-framework dependencies are not
   part of the default graph.
 - No dependency is added without updating this document
-- `cargo audit` and `cargo deny` are run manually during release preparation (see `scripts/install-cargo-tools.sh`); they are not part of routine CI
+- `cargo audit` and `cargo deny` run in the routine CI supply-chain job using
+  the pinned versions from `scripts/install-cargo-tools.sh`
 
 ## Release validation tool versions
 
@@ -102,10 +103,9 @@ cargo audit
 cargo deny check
 ```
 
-Routine CI intentionally does not run `cargo audit` or `cargo deny check`.
-Maintainers install the pinned tools and run both checks during manual release
-preparation (see `scripts/install-cargo-tools.sh`). The manually dispatched
-release workflow builds, qualifies, and optionally publishes wheel artifacts;
-it does not run the supply-chain audit tools.
+Routine CI runs `cargo audit` and `cargo deny check` in a dedicated,
+self-contained supply-chain job. Maintainers can reproduce that job locally
+with `scripts/install-cargo-tools.sh` followed by both commands. The manually
+dispatched release workflow also retains its separate release checks.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.

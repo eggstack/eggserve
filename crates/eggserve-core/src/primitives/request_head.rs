@@ -195,48 +195,52 @@ mod tests {
     use crate::primitives::request_target::RequestTarget;
     use crate::primitives::version::HttpVersion;
 
-    fn make_head(method: &str, target: &str) -> RequestHead {
-        RequestHead::new(
-            Method::new(method).unwrap(),
-            RequestTarget::parse(target).unwrap(),
+    fn make_head(method: &str, target: &str) -> Result<RequestHead, String> {
+        Ok(RequestHead::new(
+            Method::new(method).map_err(|error| error.to_string())?,
+            RequestTarget::parse(target).map_err(|error| error.to_string())?,
             HttpVersion::Http11,
             HeaderBlock::new(),
-        )
+        ))
     }
 
     #[test]
-    fn basic_construction() {
-        let head = make_head("GET", "/");
+    fn basic_construction() -> Result<(), String> {
+        let head = make_head("GET", "/")?;
         assert_eq!(head.method().as_str(), "GET");
         assert_eq!(head.target().path(), "/");
         assert_eq!(head.version(), HttpVersion::Http11);
         assert!(head.headers().is_empty());
+        Ok(())
     }
 
     #[test]
-    fn is_head() {
-        let head = make_head("HEAD", "/foo");
+    fn is_head() -> Result<(), String> {
+        let head = make_head("HEAD", "/foo")?;
         assert!(head.is_head());
         assert!(!head.is_get());
+        Ok(())
     }
 
     #[test]
-    fn is_get() {
-        let head = make_head("GET", "/foo");
+    fn is_get() -> Result<(), String> {
+        let head = make_head("GET", "/foo")?;
         assert!(head.is_get());
         assert!(!head.is_head());
+        Ok(())
     }
 
     #[test]
-    fn permits_static_resolution() {
-        let head = make_head("GET", "/");
+    fn permits_static_resolution() -> Result<(), String> {
+        let head = make_head("GET", "/")?;
         assert!(head.permits_static_resolution());
 
-        let head = make_head("HEAD", "/");
+        let head = make_head("HEAD", "/")?;
         assert!(head.permits_static_resolution());
 
-        let head = make_head("POST", "/");
+        let head = make_head("POST", "/")?;
         assert!(!head.permits_static_resolution());
+        Ok(())
     }
 
     #[test]
@@ -253,11 +257,18 @@ mod tests {
     }
 
     #[test]
-    fn clone_preserves_values() {
-        let head = make_head("GET", "/foo?bar");
+    fn clone_preserves_values() -> Result<(), String> {
+        let head = make_head("GET", "/foo?bar")?;
         let cloned = head.clone();
         assert_eq!(cloned.method().as_str(), "GET");
         assert_eq!(cloned.target().path(), "/foo");
         assert_eq!(cloned.target().query(), Some("bar"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_helper_reports_malformed_input() {
+        assert!(make_head("BAD METHOD", "/").is_err());
+        assert!(make_head("GET", "relative").is_err());
     }
 }

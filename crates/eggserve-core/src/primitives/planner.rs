@@ -582,7 +582,13 @@ fn parse_http_date(s: &str) -> Option<SystemTime> {
     httpdate::parse_http_date(s).ok()
 }
 
-/// Evaluate a directory listing response plan.
+/// Evaluate the metadata for a directory listing response.
+///
+/// The directory entries are rendered after planning, so a GET plan carries
+/// an empty byte placeholder and intentionally omits `Content-Length`.
+/// Callers must replace that placeholder with the renderer's bytes before
+/// constructing the response. HEAD uses the supplied rendered length and an
+/// empty body.
 pub fn plan_directory_listing(content_length: usize, is_head: bool) -> StaticResponsePlan {
     let mut headers = HeaderMapPlan::new();
     headers.push("content-type", "text/html; charset=utf-8".to_owned());
@@ -602,7 +608,7 @@ pub fn plan_directory_listing(content_length: usize, is_head: bool) -> StaticRes
     let body = if is_head {
         BodyPlan::Empty
     } else {
-        BodyPlan::FullBytes(Vec::new()) // Caller provides HTML bytes
+        BodyPlan::FullBytes(Vec::new()) // Caller replaces with rendered HTML
     };
 
     StaticResponsePlan {
@@ -1424,6 +1430,7 @@ mod tests {
             Some("text/html; charset=utf-8")
         );
         assert_eq!(plan.headers.get("content-length"), None);
+        assert_eq!(plan.body, BodyPlan::FullBytes(Vec::new()));
         assert_eq!(
             plan.headers.get("content-security-policy"),
             Some("default-src 'none'; base-uri 'none'; form-action 'none'")

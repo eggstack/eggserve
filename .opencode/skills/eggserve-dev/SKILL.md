@@ -76,12 +76,12 @@ open. Keep Windows support language aligned with the evidence in
 Or use the local verification script:
 
 ```sh
-./scripts/verify.sh fast                 # routine dev check (Rust only)
+./scripts/verify.sh fast                 # routine dev check (Rust workspace + Python crate check)
 ./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel)
 ./scripts/verify.sh deep                 # expensive suites (manual)
 ```
 
-### Optional manual security/package checks
+### Supply-chain and optional package checks
 
 Not run in routine CI. Run manually when preparing a release:
 
@@ -91,6 +91,10 @@ cargo audit                             # vulnerability check
 cargo deny check                        # license/policy check
 bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
+
+Routine CI runs `cargo audit` and `cargo deny check` in a dedicated
+supply-chain job after installing the pinned tools. The package dry-run remains
+manual release validation.
 
 ## Key conventions
 

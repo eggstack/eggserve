@@ -36,10 +36,29 @@ jobs:
         run: cargo clippy --workspace --lib --bins --tests -- -D warnings
       - name: Workspace tests
         run: cargo test --workspace
+      - name: Check excluded Python crate
+        run: cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked
       - name: Server TLS lint and tests
         run: |
           cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings
           cargo test -p eggserve-bin --features tls
+
+  supply-chain:
+    name: supply-chain
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Install pinned supply-chain tools
+        run: bash scripts/install-cargo-tools.sh
+      - name: Cargo audit
+        run: cargo audit
+      - name: Cargo deny
+        run: cargo deny check
 
   python:
     name: python

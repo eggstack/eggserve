@@ -447,8 +447,8 @@ pub fn normalize_response(
 /// file-backed response producers. It applies:
 ///
 /// 1. Strip runtime-owned `Transfer-Encoding`.
-/// 2. HEAD responses retain `Content-Length` to match the equivalent GET
-///    representation, including for zero-length bodies.
+/// 2. HEAD responses retain `Content-Length` from the caller-supplied
+///    equivalent GET representation length, including for zero-length bodies.
 /// 3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`,
 ///    except that 304 may retain a matching representation length.
 /// 4. Normal payloads: set `Content-Length` to `body_len`.
@@ -474,17 +474,12 @@ pub fn normalize_response(
 ///   except for a matching 304 representation length
 /// - HEAD responses retain Content-Length, including when body_len is zero
 ///
-/// The `_is_head` parameter is currently unused and reserved for API
-/// stability: callers encode HEAD retention entirely through the
-/// caller-supplied `body_len` (pre-computed before any body suppression).
-///
-/// **Footgun:** because `_is_head` is ignored, a caller that passes
-/// `body_len=0` (e.g. because they suppressed the body before calling
-/// here) and expects `_is_head=true` to recover the original length will
-/// silently emit `Content-Length: 0` for a HEAD on a non-empty file.
-/// Callers MUST supply the would-have-been-sent body length (which is
-/// zero for empty files, but the original length otherwise) and pass
-/// `body_len` rather than relying on `_is_head` to fix it.
+/// The `is_head` parameter is retained for API compatibility but does not
+/// determine the representation length. Callers MUST supply the
+/// would-have-been-sent body length (which is zero for empty files, but the
+/// original length otherwise), computed before suppressing a HEAD body.
+/// Passing a suppressed body's length silently emits the wrong
+/// `Content-Length` for HEAD.
 #[allow(unused_variables)]
 pub fn normalize_metadata(
     status: StatusCode,
@@ -658,7 +653,7 @@ fn file_body(
     use futures_util::stream;
     use http_body_util::{BodyExt, StreamBody};
     use hyper::body::Frame;
-    use tokio::io::{AsyncReadExt, AsyncSeekExt};
+    use tokio::io::AsyncSeekExt;
 
     let (file, start, remaining) = match source {
         BodySource::FileFull { file, len, .. } => (tokio::fs::File::from_std(file), 0, len),
@@ -690,22 +685,45 @@ fn file_body(
             }
             let chunk_len = remaining.min(stream_chunk_size as u64) as usize;
             let mut buffer = vec![0; chunk_len];
-            match file.read_exact(&mut buffer).await {
-                Ok(_) => Some((
-                    Ok(Frame::data(Bytes::from(buffer))),
-                    (
-                        file,
-                        offset + chunk_len as u64,
-                        remaining - chunk_len as u64,
-                        false,
-                        permit,
-                    ),
-                )),
+            match read_file_chunk(&mut file, &mut buffer).await {
+                Ok(0) => None,
+                Ok(bytes_read) => {
+                    let next_remaining = if bytes_read < chunk_len {
+                        0
+                    } else {
+                        remaining - bytes_read as u64
+                    };
+                    buffer.truncate(bytes_read);
+                    Some((
+                        Ok(Frame::data(Bytes::from(buffer))),
+                        (
+                            file,
+                            offset + bytes_read as u64,
+                            next_remaining,
+                            false,
+                            permit,
+                        ),
+                    ))
+                }
                 Err(error) => Some((Err(error), (file, offset, 0, false, permit))),
             }
         },
     );
     StreamBody::new(stream).boxed()
+}
+
+async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::io::Result<usize> {
+    use tokio::io::AsyncReadExt;
+
+    let mut bytes_read = 0;
+    while bytes_read < buffer.len() {
+        let count = file.read(&mut buffer[bytes_read..]).await?;
+        if count == 0 {
+            break;
+        }
+        bytes_read += count;
+    }
+    Ok(bytes_read)
 }
 
 struct CountingFileStreamPermit {
@@ -825,6 +843,31 @@ mod tests {
             chunk_lengths.push(chunk.unwrap().len());
         }
         assert_eq!(chunk_lengths, [64, 64, 2]);
+    }
+
+    #[tokio::test]
+    async fn truncated_file_transport_ends_after_available_bytes() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("truncated.bin");
+        std::fs::write(&path, b"short").unwrap();
+        let file = File::open(&path).unwrap();
+        let response = Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::File(BodySource::FileFull {
+                file,
+                len: 10,
+                mime: "application/octet-stream",
+            }))
+            .unwrap();
+
+        let body = to_hyper_response(response)
+            .unwrap()
+            .into_body()
+            .collect()
+            .await
+            .unwrap()
+            .to_bytes();
+        assert_eq!(&body[..], b"short");
     }
 
     #[test]
@@ -977,15 +1020,20 @@ mod tests {
     fn normalize_head_suppresses_body() {
         let resp = Response::builder()
             .status(StatusCode::OK)
-            .header("content-length", "5")
-            .unwrap()
             .body(ResponseBody::Bytes(b"hello".to_vec()))
             .unwrap();
 
         let req = NormalizeRequest::new(true);
         let normalized = normalize_response(resp, &req).unwrap();
         assert!(normalized.body().unwrap().is_empty());
-        // Content-Length header should still be present (preserved for HEAD)
+        assert_eq!(
+            normalized
+                .headers()
+                .get_first("content-length")
+                .unwrap()
+                .as_str(),
+            "5"
+        );
     }
 
     #[test]
