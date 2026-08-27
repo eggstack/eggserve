@@ -477,6 +477,14 @@ pub fn normalize_response(
 /// The `_is_head` parameter is currently unused and reserved for API
 /// stability: callers encode HEAD retention entirely through the
 /// caller-supplied `body_len` (pre-computed before any body suppression).
+///
+/// **Footgun:** because `_is_head` is ignored, a caller that passes
+/// `body_len=0` (e.g. because they suppressed the body before calling
+/// here) and expects `_is_head=true` to recover the original length will
+/// silently emit `Content-Length: 0` for a HEAD on a non-empty file.
+/// Callers MUST supply the would-have-been-sent body length (which is
+/// zero for empty files, but the original length otherwise) and pass
+/// `body_len` rather than relying on `_is_head` to fix it.
 #[allow(unused_variables)]
 pub fn normalize_metadata(
     status: StatusCode,

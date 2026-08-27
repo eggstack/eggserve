@@ -48,6 +48,11 @@ pub fn validate_static_metadata(
     }
     for (name, value) in extra_response_headers {
         HeaderName::new(name.clone()).map_err(|e| format!("invalid extra response header: {e}"))?;
+        if value.trim().is_empty() {
+            return Err(format!(
+                "invalid extra response header: value for {name} must contain non-whitespace"
+            ));
+        }
         let value = HeaderValue::new(value.clone())
             .map_err(|e| format!("invalid extra response header: {e}"))?;
         if value.as_str().is_empty() {
@@ -169,7 +174,7 @@ mod tests {
             &[("X-Test".to_owned(), " \t ".to_owned())],
         )
         .unwrap_err();
-        assert!(error.contains("value for X-Test must not be empty"));
+        assert!(error.contains("value for X-Test must contain non-whitespace"));
     }
 
     #[test]

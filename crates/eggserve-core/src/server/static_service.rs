@@ -141,10 +141,6 @@ fn plan_static_request(
     }
 
     let target = request.target();
-    if target.raw().contains("://") {
-        return error_response(StatusCode::BAD_REQUEST, "400 Bad Request\n", is_head, false);
-    }
-
     let config = state.config();
     let path_policy = PathPolicy {
         dotfiles: match config.static_policy.dotfiles {
@@ -230,6 +226,16 @@ fn plan_static_request(
                 }
                 location.push('/');
                 if let Some(q) = target.query() {
+                    // `RequestTarget::parse` already rejects CR/LF/SP/TAB in
+                    // the query, so this branch never produces a header
+                    // injection. The assert below is defense-in-depth should
+                    // that parsing invariant ever loosen; `HeaderValue::new`
+                    // on `location` below is the authoritative gate.
+                    debug_assert!(
+                        !q.bytes()
+                            .any(|b| b == b'\r' || b == b'\n' || b == b'\t' || b == b' '),
+                        "query contains header-injection bytes: {q:?}"
+                    );
                     location.push('?');
                     location.push_str(q);
                 }

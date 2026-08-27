@@ -510,38 +510,49 @@ pub(crate) enum PyResponseBody {
 #[pymethods]
 impl PyResponse {
     #[staticmethod]
-    fn empty(status: u16) -> Self {
-        Self {
+    fn empty(status: u16) -> PyResult<Self> {
+        validate_response_status(status)?;
+        Ok(Self {
             status,
             headers: HashMap::new(),
             body: std::sync::Mutex::new(PyResponseBody::Empty),
             extra_headers: Vec::new(),
-        }
+        })
     }
 
     #[staticmethod]
     #[pyo3(signature = (status, data, headers=None))]
-    fn bytes(status: u16, data: Vec<u8>, headers: Option<HashMap<String, String>>) -> Self {
-        Self {
+    fn bytes(
+        status: u16,
+        data: Vec<u8>,
+        headers: Option<HashMap<String, String>>,
+    ) -> PyResult<Self> {
+        validate_response_status(status)?;
+        Ok(Self {
             status,
             headers: headers.unwrap_or_default(),
             body: std::sync::Mutex::new(PyResponseBody::Bytes(data)),
             extra_headers: Vec::new(),
-        }
+        })
     }
 
     #[staticmethod]
     #[pyo3(signature = (status, text, headers=None))]
-    fn text(status: u16, text: String, headers: Option<HashMap<String, String>>) -> Self {
+    fn text(
+        status: u16,
+        text: String,
+        headers: Option<HashMap<String, String>>,
+    ) -> PyResult<Self> {
+        validate_response_status(status)?;
         let mut h = headers.unwrap_or_default();
         h.entry("content-type".to_string())
             .or_insert_with(|| "text/plain; charset=utf-8".to_string());
-        Self {
+        Ok(Self {
             status,
             headers: h,
             body: std::sync::Mutex::new(PyResponseBody::Bytes(text.into_bytes())),
             extra_headers: Vec::new(),
-        }
+        })
     }
 
     #[staticmethod]
@@ -550,6 +561,7 @@ impl PyResponse {
         body: &ServerBodySource,
         headers: Option<HashMap<String, String>>,
     ) -> PyResult<Self> {
+        validate_response_status(status)?;
         let mut taken = body
             .inner
             .lock()
@@ -763,7 +775,7 @@ impl PyStaticResponder {
                     location.push('?');
                     location.push_str(query);
                 }
-                let mut response = PyResponse::empty(301);
+                let mut response = PyResponse::empty(301)?;
                 response.headers.insert("location".to_string(), location);
                 return Ok(response);
             }
@@ -801,7 +813,7 @@ impl PyStaticResponder {
                 })?;
                 let body = directory_listing_bytes(&entries);
                 let body_len = body.len();
-                let mut response = PyResponse::bytes(200, body, None);
+                let mut response = PyResponse::bytes(200, body, None)?;
                 response
                     .headers
                     .insert("content-type".into(), "text/html; charset=utf-8".into());
@@ -963,6 +975,16 @@ fn apply_static_metadata(
     Ok(())
 }
 
+fn validate_response_status(status: u16) -> PyResult<()> {
+    if (100..600).contains(&status) {
+        Ok(())
+    } else {
+        Err(pyo3::exceptions::PyValueError::new_err(format!(
+            "status code {status} is outside 100-599"
+        )))
+    }
+}
+
 fn build_error_response(status: u16, reason: &str) -> PyResult<PyResponse> {
     let mut headers = HashMap::new();
     headers.insert(
@@ -1103,6 +1125,7 @@ pub struct ServerBodySource {
 impl ServerBodySource {
     #[pyo3(signature = (status=200))]
     fn to_response(&self, status: u16) -> PyResult<PyResponse> {
+        validate_response_status(status)?;
         let mut inner = self
             .inner
             .lock()

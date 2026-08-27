@@ -9,10 +9,14 @@ pub async fn shutdown_signal(tx: broadcast::Sender<()>) {
 
     #[cfg(unix)]
     let terminate = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(_) => {
+                let _ = tx.send(());
+            }
+        }
     };
 
     #[cfg(not(unix))]
@@ -20,10 +24,14 @@ pub async fn shutdown_signal(tx: broadcast::Sender<()>) {
 
     #[cfg(unix)]
     let hangup = async {
-        tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup())
-            .expect("failed to install signal handler")
-            .recv()
-            .await;
+        match tokio::signal::unix::signal(tokio::signal::unix::SignalKind::hangup()) {
+            Ok(mut sig) => {
+                sig.recv().await;
+            }
+            Err(_) => {
+                let _ = tx.send(());
+            }
+        }
     };
 
     #[cfg(not(unix))]

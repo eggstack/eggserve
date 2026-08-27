@@ -489,11 +489,11 @@ pub fn global_counters() -> &'static OpsCounters {
 
 #[allow(dead_code)]
 impl Logger {
-    pub fn init(sink: Box<dyn LogSink>) {
-        GLOBAL_LOGGER
-            .set(Logger { sink })
-            .ok()
-            .expect("Logger::init called more than once");
+    /// Install the global logger. Returns `Err(())` if a logger has already
+    /// been installed; embedders should prefer [`Logger::try_init`].
+    #[allow(clippy::result_unit_err)]
+    pub fn init(sink: Box<dyn LogSink>) -> Result<(), ()> {
+        GLOBAL_LOGGER.set(Logger { sink }).map_err(|_| ())
     }
 
     #[allow(clippy::result_unit_err)]
