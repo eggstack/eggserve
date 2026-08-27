@@ -425,6 +425,60 @@ class TestHandlerTimeout(unittest.TestCase):
         finally:
             s.stop()
 
+    def test_timed_out_callback_keeps_admission_permit_until_it_finishes(self):
+        import threading
+
+        active = 0
+        max_active = 0
+        lock = threading.Lock()
+        started = threading.Event()
+        finished = threading.Event()
+
+        def slow_handler(req):
+            nonlocal active, max_active
+            with lock:
+                active += 1
+                max_active = max(max_active, active)
+            started.set()
+            try:
+                time.sleep(3)
+            finally:
+                with lock:
+                    active -= 1
+                finished.set()
+            return Response.text(200, "never")
+
+        s = Server(
+            root=self._td,
+            port=0,
+            handler=slow_handler,
+            max_python_callbacks=1,
+            handler_timeout_secs=1,
+        )
+        s.start()
+
+        def request():
+            try:
+                urllib.request.urlopen(f"http://{s.addr}/", timeout=4)
+            except (urllib.error.HTTPError, urllib.error.URLError, OSError):
+                pass
+
+        first = threading.Thread(target=request)
+        first.start()
+        self.assertTrue(started.wait(2))
+        time.sleep(1.1)
+        second = threading.Thread(target=request)
+        second.start()
+        time.sleep(0.4)
+
+        with lock:
+            self.assertEqual(max_active, 1)
+
+        self.assertTrue(finished.wait(3))
+        first.join(2)
+        second.join(2)
+        s.stop()
+
 
 class TestGracefulShutdown(unittest.TestCase):
     """Graceful shutdown stops accepting new connections."""
@@ -500,6 +554,29 @@ class TestCallbackException(unittest.TestCase):
             body = e.read().decode()
             self.assertNotIn("secret internal error", body)
             self.assertNotIn("Traceback", body)
+        finally:
+            s.stop()
+
+
+class TestCallbackHeaderValidation(unittest.TestCase):
+    """Dynamic callback response headers reject empty field values."""
+
+    def setUp(self):
+        self._td = tempfile.mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self._td, ignore_errors=True)
+
+    def test_empty_header_value_returns_500(self):
+        def handler(req):
+            return Response.bytes(200, b"ok", {"X-Empty": ""})
+
+        s = Server(root=self._td, port=0, handler=handler)
+        s.start()
+        try:
+            with self.assertRaises(urllib.error.HTTPError) as context:
+                urllib.request.urlopen(f"http://{s.addr}/", timeout=2)
+            self.assertEqual(context.exception.code, 500)
         finally:
             s.stop()
 

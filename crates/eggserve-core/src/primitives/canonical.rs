@@ -398,8 +398,8 @@ impl NormalizeRequest {
 ///
 /// 1. **HEAD suppression**: HEAD responses transmit no body bytes while
 ///    preserving representation headers appropriate to the equivalent GET.
-/// 2. **Body-forbidden statuses**: 1xx, 204, and 304 responses transmit no
-///    payload body. Any provided body is discarded.
+/// 2. **Body-forbidden statuses**: 1xx, 204, 205, and 304 responses transmit
+///    no payload body. Any provided body is discarded.
 /// 3. **Hop-by-hop header removal**: `Transfer-Encoding` is stripped (it is
 ///    runtime-owned).
 /// 4. **Content-Length computation**: `Content-Length` is set to the actual
@@ -449,8 +449,10 @@ pub fn normalize_response(
 /// 1. Strip runtime-owned `Transfer-Encoding`.
 /// 2. HEAD responses retain `Content-Length` from the caller-supplied
 ///    equivalent GET representation length, including for zero-length bodies.
-/// 3. Body-forbidden statuses (1xx, 204, 304): suppress `Content-Length`,
-///    except that 304 may retain a matching representation length.
+/// 3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`,
+///    except that 304 may retain a matching representation length. A
+///    caller-supplied `Content-Length` on 205 is rejected because RFC 9110
+///    forbids it entirely.
 /// 4. Normal payloads: set `Content-Length` to `body_len`.
 /// 5. Preserve all other headers (including duplicates).
 ///
@@ -489,6 +491,12 @@ pub fn normalize_metadata(
 ) -> Result<(), ResponseConstructionError> {
     // Rule 1: Strip all hop-by-hop headers.
     strip_hop_by_hop(headers);
+
+    if status == StatusCode::RESET_CONTENT && headers.contains("content-length") {
+        return Err(ResponseConstructionError::ForbiddenFramingHeader(
+            "content-length".to_owned(),
+        ));
+    }
 
     // A 304 may retain the selected representation's length, but only when the
     // supplied value is unique, valid, and matches the planned representation.
@@ -1100,6 +1108,21 @@ mod tests {
         let normalized = normalize_response(resp, &NormalizeRequest::new(false)).unwrap();
         assert!(normalized.body().unwrap().is_empty());
         assert!(!normalized.headers().contains("content-length"));
+    }
+
+    #[test]
+    fn normalize_205_rejects_caller_content_length() {
+        let response = Response::builder()
+            .status(StatusCode::RESET_CONTENT)
+            .header("content-length", "5")
+            .unwrap()
+            .body(ResponseBody::Empty)
+            .unwrap();
+
+        assert_eq!(
+            normalize_response(response, &NormalizeRequest::new(false)).unwrap_err(),
+            ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
+        );
     }
 
     #[test]

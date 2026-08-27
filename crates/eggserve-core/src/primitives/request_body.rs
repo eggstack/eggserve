@@ -353,6 +353,7 @@ impl RequestBody {
                 self.bytes_received = new_total;
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
+                    self.consumed.store(true, Ordering::Release);
                 }
                 Ok(Some(Bytes::copy_from_slice(chunk)))
             }
@@ -563,6 +564,18 @@ mod tests {
         }
         let total: Vec<u8> = chunks.iter().flat_map(|c| c.iter().copied()).collect();
         assert_eq!(&total[..], b"hello world");
+    }
+
+    #[tokio::test]
+    async fn fixed_body_next_chunk_sets_consumed_on_final_chunk() {
+        let mut body = RequestBody::from_bytes(b"hello".to_vec(), u64::MAX);
+
+        assert_eq!(
+            body.next_chunk().await.unwrap().as_deref(),
+            Some(b"hello".as_slice())
+        );
+        assert!(body.was_fully_consumed());
+        assert_eq!(body.next_chunk().await.unwrap(), None);
     }
 
     #[tokio::test]

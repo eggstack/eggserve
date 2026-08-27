@@ -142,6 +142,18 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
                 ),
             )
 
+        for value in ("", " \t "):
+            with self.subTest(value=value):
+                with self.assertRaises((TypeError, ValueError)):
+                    ThreadingHTTPServer(
+                        ("127.0.0.1", 0),
+                        functools.partial(
+                            SimpleHTTPRequestHandler,
+                            directory=self.tmp.name,
+                            extra_response_headers=[("X-Empty", value)],
+                        ),
+                    )
+
     def test_extensions_map_and_guess_type_overrides(self):
         with open(os.path.join(self.tmp.name, "custom.blob"), "wb") as stream:
             stream.write(b"custom")

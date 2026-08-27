@@ -644,13 +644,13 @@ class TestFileBackedResponse(_TestServerBase):
             Response.body_source(200, body, {})
 
     def test_response_body_source_invalid_status_rejected(self):
-        """Response.body_source() with invalid status is rejected at wire level."""
+        """Response.body_source() rejects invalid status at construction."""
         root = ServerSecureRoot(self._td)
         responder = StaticResponder(root)
         resp = responder.respond("GET", "/hello.txt")
         body = resp.body
-        new_resp = Response.body_source(0, body, {})
-        self.assertEqual(new_resp.status, 0)
+        with self.assertRaises(ValueError):
+            Response.body_source(0, body, {})
 
     def test_response_body_getter_clones_bytes(self):
         """Response.body getter clones bytes body (not file-backed)."""

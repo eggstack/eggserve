@@ -110,7 +110,9 @@ impl HeaderValue {
     /// # Errors
     ///
     /// Returns [`HeaderError::InvalidValue`] if the value contains a control
-    /// character other than horizontal tab.
+    /// character other than horizontal tab. Surrounding optional whitespace
+    /// is removed so the stored value is the canonical field value, as
+    /// defined by RFC 9110 field-line parsing.
     pub fn new(value: impl Into<String>) -> Result<Self, HeaderError> {
         let s = value.into();
         if s.bytes().any(|b| b.is_ascii_control() && b != b'\t') {

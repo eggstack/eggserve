@@ -923,6 +923,7 @@ fn validate_extra_response_headers(
     for (name, value) in headers {
         let lower = name.to_ascii_lowercase();
         if HeaderName::new(name.clone()).is_err()
+            || value.trim().is_empty()
             || HeaderValue::new(value.clone()).is_err()
             || eggserve_core::primitives::canonical::is_hop_by_hop_header(&lower)
             || matches!(
@@ -1407,6 +1408,11 @@ fn convert_python_response_to_canonical<'py>(
                 "Python handler response header validation failed",
             ));
         }
+        if value.trim().is_empty() {
+            return Err(ServiceError::internal(
+                "Python handler response header validation failed",
+            ));
+        }
         let n = HeaderName::new(name.as_str()).map_err(|_| {
             ServiceError::internal("Python handler response header validation failed")
         })?;
@@ -1583,7 +1589,7 @@ impl Service for PythonCallbackService {
         let body_policy = self.body_policy;
 
         Box::pin(async move {
-            let _callback_permit = callback_semaphore
+            let callback_permit = callback_semaphore
                 .acquire_owned()
                 .await
                 .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
@@ -1591,8 +1597,11 @@ impl Service for PythonCallbackService {
             let (head, body, connection) = request.into_parts();
             let py_request = Self::build_py_request(head, body, body_policy, connection);
 
-            tokio::task::spawn_blocking(move || Self::call_python_callback(&handler, py_request))
-                .await
+            tokio::task::spawn_blocking(move || {
+                let _callback_permit = callback_permit;
+                Self::call_python_callback(&handler, py_request)
+            })
+            .await
                 .map_err(|e| ServiceError::internal(format!("callback task failed: {e}")))?
         })
     }
