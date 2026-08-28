@@ -236,7 +236,7 @@ pub fn sanitize_path(path: &str) -> String {
     let without_query = last_component.split('?').next().unwrap_or(last_component);
     let sanitized: String = without_query
         .chars()
-        .filter(|c| (0x20..0x7F).contains(&(*c as u32)))
+        .filter(|c| (0x20..=0x7E).contains(&(*c as u32)))
         .collect();
     truncate_str(&sanitized, 127).into_owned()
 }
@@ -246,16 +246,13 @@ pub fn truncate(text: &str, max_len: usize) -> Cow<'_, str> {
 }
 
 fn truncate_str(text: &str, max_len: usize) -> Cow<'_, str> {
-    if text.chars().count() <= max_len {
-        return Cow::Borrowed(text);
-    }
     // `max_len` counts characters, while the sentinel is appended after the
-    // retained prefix. Find the boundary after exactly that many characters.
-    let end = text
-        .char_indices()
-        .nth(max_len)
-        .map_or(text.len(), |(index, _)| index);
-    Cow::Owned(format!("{}…", &text[..end]))
+    // retained prefix. Finding the next boundary also proves whether the
+    // string needs truncation in the same pass.
+    match text.char_indices().nth(max_len) {
+        Some((end, _)) => Cow::Owned(format!("{}…", &text[..end])),
+        None => Cow::Borrowed(text),
+    }
 }
 
 pub trait LogSink: Send + Sync {
@@ -353,15 +350,17 @@ impl LogSink for StderrLogSink {
     fn emit(&self, event: &Event) {
         match self.log_format {
             LogFormat::Text => {
+                use std::fmt::Write;
+
                 let mut line = format!("[{}] {}: {}", event.severity, event.event, event.message);
                 if let Some(cid) = event.connection_id {
-                    line.push_str(&format!(" conn={}", cid));
+                    write!(&mut line, " conn={}", cid).expect("writing to String cannot fail");
                 }
                 if let Some(seq) = event.request_seq {
-                    line.push_str(&format!(" seq={}", seq));
+                    write!(&mut line, " seq={}", seq).expect("writing to String cannot fail");
                 }
                 for f in &event.fields {
-                    line.push_str(&format!(" {}", f));
+                    write!(&mut line, " {}", f).expect("writing to String cannot fail");
                 }
                 eprintln!("{}", line);
             }
@@ -656,6 +655,11 @@ mod tests {
         let result = sanitize_path(&format!("/prefix/{}", long_name));
         assert!(result.chars().count() <= 128);
         assert!(result.ends_with('…'));
+    }
+
+    #[test]
+    fn sanitize_path_excludes_del() {
+        assert_eq!(sanitize_path("/foo/a\x7Fb"), "ab");
     }
 
     #[test]

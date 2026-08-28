@@ -165,28 +165,32 @@ impl Lifecycle {
 
     /// Transition to `Draining`. Fails if not in `Running`.
     pub(crate) fn drain(&self) -> Result<(), crate::server::errors::ServerError> {
-        let prev = self.state.compare_exchange(
-            LifecycleState::Running as u8,
-            LifecycleState::Draining as u8,
-            Ordering::AcqRel,
-            Ordering::Acquire,
-        );
-        match prev {
-            Ok(_) => {
-                crate::ops::Logger::global().emit(crate::ops::Event::new(
-                    crate::ops::Severity::Info,
-                    crate::ops::EventKind::DrainingStarted,
-                    "draining in-flight connections",
-                ));
-                Ok(())
-            }
-            Err(actual) => {
-                let state = LifecycleState::from_u8(actual);
-                if state == LifecycleState::Created || state == LifecycleState::Starting {
+        loop {
+            let actual = self.state.load(Ordering::Acquire);
+            let state = LifecycleState::from_u8(actual);
+            match state {
+                LifecycleState::Running => {
+                    if self
+                        .state
+                        .compare_exchange(
+                            actual,
+                            LifecycleState::Draining as u8,
+                            Ordering::AcqRel,
+                            Ordering::Acquire,
+                        )
+                        .is_ok()
+                    {
+                        crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            crate::ops::Severity::Info,
+                            crate::ops::EventKind::DrainingStarted,
+                            "draining in-flight connections",
+                        ));
+                        return Ok(());
+                    }
+                }
+                LifecycleState::Created | LifecycleState::Starting => {
                     // Make shutdown-before-start terminal so waiters cannot
-                    // hang. Signal both channels: terminal for shutdown
-                    // waiters, ready for readiness waiters (they will
-                    // re-check state and see Stopped).
+                    // hang. Retry if startup changes the state concurrently.
                     if self
                         .state
                         .compare_exchange(
@@ -199,23 +203,11 @@ impl Lifecycle {
                     {
                         let _ = self.ready_tx.send(true);
                         let _ = self.terminal_tx.send(());
-                        Ok(())
-                    } else {
-                        Err(crate::server::errors::ServerError::Config(
-                            "server state changed while shutting down".into(),
-                        ))
+                        return Ok(());
                     }
-                } else if state.is_terminal() {
-                    Ok(())
-                } else if state == LifecycleState::Draining {
-                    // Shutdown is idempotent while the server is already
-                    // draining, as documented in the lifecycle table.
-                    Ok(())
-                } else {
-                    Err(crate::server::errors::ServerError::Config(format!(
-                        "cannot drain: server is in {} state",
-                        state
-                    )))
+                }
+                LifecycleState::Draining | LifecycleState::Stopped | LifecycleState::Failed => {
+                    return Ok(());
                 }
             }
         }

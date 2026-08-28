@@ -376,14 +376,16 @@ pub async fn serve_connection_with_runtime_state<I, S>(
 
             // For Buffer/Stream policies, create RequestBody with proper limits.
             // For Reject with no body, create an empty body (nothing to reject).
-            let body_limit = effective_policy.max_bytes().unwrap_or(u64::MAX);
             let request_body = match &effective_policy {
                 RequestBodyPolicy::Reject => crate::primitives::request_body::RequestBody::empty(),
-                _ => crate::primitives::request_body::RequestBody::from_incoming(
-                    wrap_incoming_body(body),
-                    declared_length,
-                    body_limit,
-                ),
+                RequestBodyPolicy::Buffer { max_bytes }
+                | RequestBodyPolicy::Stream { max_bytes } => {
+                    crate::primitives::request_body::RequestBody::from_incoming(
+                        wrap_incoming_body(body),
+                        declared_length,
+                        *max_bytes,
+                    )
+                }
             };
 
             // For Buffer policy, pre-buffer the body under timeout.
@@ -440,6 +442,10 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                 RequestBodyPolicy::Buffer { .. } => {
                     // Buffer: body is fully consumed during pre-buffering.
                     // No incomplete body handling needed.
+                    let body_limit = match effective_policy {
+                        RequestBodyPolicy::Buffer { max_bytes } => max_bytes,
+                        _ => unreachable!("buffer branch requires a buffer policy"),
+                    };
                     let request_body = match tokio::time::timeout(
                         body_read_timeout,
                         request_body.read_all(),
@@ -741,12 +747,9 @@ fn finalize_runtime_response(
 /// explicit at this boundary.
 fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
     let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
-    let cl_values: Vec<_> = headers
-        .get_all(hyper::header::CONTENT_LENGTH)
-        .iter()
-        .collect();
-    let has_cl = !cl_values.is_empty();
-    let duplicate_cl = cl_values.len() > 1;
+    let mut cl_values = headers.get_all(hyper::header::CONTENT_LENGTH).iter();
+    let has_cl = cl_values.next().is_some();
+    let duplicate_cl = cl_values.next().is_some();
 
     if has_te && has_cl {
         return Err(ServiceError::rejected(

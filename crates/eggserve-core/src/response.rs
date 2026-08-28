@@ -31,11 +31,15 @@ pub(crate) fn canonical_error(
     let code = crate::primitives::canonical::StatusCode::new(status.as_u16())
         .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
     let mut headers = crate::primitives::header_block::HeaderBlock::new();
+    // These headers are static, valid HTTP metadata; failure would indicate
+    // an implementation change rather than a runtime input problem.
     headers
         .push_str("content-type", "text/plain; charset=utf-8")
-        .unwrap();
+        .expect("canonical error content type is valid");
     if status == StatusCode::METHOD_NOT_ALLOWED {
-        headers.push_str("allow", "GET, HEAD").unwrap();
+        headers
+            .push_str("allow", "GET, HEAD")
+            .expect("canonical error Allow value is valid");
     }
     crate::primitives::canonical::normalize_metadata(
         code,
@@ -43,13 +47,19 @@ pub(crate) fn canonical_error(
         body.len() as u64,
         is_head,
     )
-    .unwrap();
+    // All current canonical error statuses permit a payload and therefore
+    // cannot trigger the normalizer's body-forbidden metadata error.
+    .expect("canonical error metadata is valid");
     let mut builder = Response::builder().status(status);
     for field in headers.iter() {
         builder = builder.header(field.name.as_str(), field.value.as_str());
     }
     let body = if is_head { "" } else { body };
-    finalize(builder.body(full_body(body)).unwrap())
+    finalize(
+        builder
+            .body(full_body(body))
+            .expect("canonical error response headers and body are valid"),
+    )
 }
 
 pub fn bad_request(is_head: bool) -> Response<BoxBodyInner> {

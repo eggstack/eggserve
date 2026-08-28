@@ -155,8 +155,16 @@ impl BodySource {
             }
             Self::FileFull { file, .. } => {
                 let mut buf = vec![0u8; max_bytes];
-                let n = file.read(&mut buf)?;
-                buf.truncate(n);
+                let mut total = 0;
+                while total < buf.len() {
+                    match file.read(&mut buf[total..]) {
+                        Ok(0) => break,
+                        Ok(n) => total += n,
+                        Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                        Err(error) => return Err(error),
+                    }
+                }
+                buf.truncate(total);
                 Ok(buf)
             }
             Self::FileRange { file, range, .. } => {
@@ -458,7 +466,7 @@ mod tests {
         let (_tmp, file) = make_file(b"hello world");
         let mut bs = BodySource::FileRange {
             file,
-            range: FileRange::new(u64::MAX - 2, u64::MAX),
+            range: FileRange::new(1, u64::MAX),
             total_len: 11,
             mime: "text/plain",
         };

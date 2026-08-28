@@ -524,6 +524,8 @@ fn render_directory_listing(
 }
 
 fn html_escape(value: &str) -> String {
+    use std::fmt::Write;
+
     let mut out = String::with_capacity(value.len());
     for c in value.chars() {
         match c {
@@ -533,7 +535,7 @@ fn html_escape(value: &str) -> String {
             '"' => out.push_str("&quot;"),
             '\'' => out.push_str("&#x27;"),
             c if !c.is_control() => out.push(c),
-            _ => {}
+            c => write!(&mut out, "&#x{:X};", c as u32).expect("writing to String cannot fail"),
         }
     }
     out
@@ -867,5 +869,10 @@ mod tests {
         headers.push("x-test", "   ");
         let error = canonical_response(200, &headers, BodySource::Empty, false).unwrap_err();
         assert!(error.to_string().contains("header value must not be empty"));
+    }
+
+    #[test]
+    fn html_escape_preserves_control_characters_distinctly() {
+        assert_eq!(html_escape("a\x1Bb\x7F"), "a&#x1B;b&#x7F;");
     }
 }
