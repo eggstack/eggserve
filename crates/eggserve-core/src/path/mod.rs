@@ -167,6 +167,16 @@ mod tests {
     }
 
     #[test]
+    fn triple_encoded_dotdot_does_not_traverse() {
+        let path = ConfinedPath::parse("/%25252e%25252e/etc/passwd", &default_policy());
+        assert!(
+            path.is_ok(),
+            "the third decode is not part of this pipeline"
+        );
+        assert_eq!(path.unwrap().components()[0], "%252e%252e");
+    }
+
+    #[test]
     fn reject_dotdot_in_path() {
         assert_eq!(
             ConfinedPath::parse("/foo/../../bar", &default_policy()).unwrap_err(),

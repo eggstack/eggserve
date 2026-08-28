@@ -390,11 +390,13 @@ fn plan_directory_response(
 }
 
 fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
-    let owned_names: Vec<String> = headers.iter().map(|header| header.name.clone()).collect();
+    if config.extra_response_headers.is_empty() {
+        return;
+    }
     for (name, value) in &config.extra_response_headers {
-        if !owned_names
+        if !headers
             .iter()
-            .any(|existing| existing.eq_ignore_ascii_case(name))
+            .any(|existing| existing.name.eq_ignore_ascii_case(name))
         {
             headers.push(name.clone(), value.clone());
         }
@@ -410,9 +412,16 @@ fn canonical_response(
     let status = StatusCode::new(status).map_err(|e| ServiceError::internal(e.to_string()))?;
     let mut builder = CanonicalResponse::builder().status(status);
     for header in planned_headers.iter() {
+        let value =
+            HeaderValue::new(&header.value).map_err(|e| ServiceError::internal(e.to_string()))?;
+        if value.as_str().is_empty() {
+            return Err(ServiceError::internal(
+                "response header value must not be empty",
+            ));
+        }
         builder = builder.push_header(
             HeaderName::new(&header.name).map_err(|e| ServiceError::internal(e.to_string()))?,
-            HeaderValue::new(&header.value).map_err(|e| ServiceError::internal(e.to_string()))?,
+            value,
         );
     }
     let response_body = match body {
@@ -489,6 +498,7 @@ fn render_directory_listing(
         ));
     }
     let mut html = String::from(prefix);
+    html.reserve(entries.len().saturating_mul(64));
     for (name, is_dir) in entries {
         let visible = html_escape(name);
         let href = html_escape(&percent_encode_path_segment(name));
@@ -530,12 +540,15 @@ fn html_escape(value: &str) -> String {
 }
 
 fn percent_encode_path_segment(value: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
     let mut out = String::with_capacity(value.len());
     for byte in value.as_bytes() {
         if matches!(*byte, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~') {
             out.push(*byte as char);
         } else {
-            out.push_str(&format!("%{byte:02X}"));
+            out.push('%');
+            out.push(HEX[(byte >> 4) as usize] as char);
+            out.push(HEX[(byte & 0x0f) as usize] as char);
         }
     }
     out
@@ -846,5 +859,13 @@ mod tests {
         std::fs::remove_file(tmp.path().join("dir/index.htm")).unwrap();
         let listing = service.call(request(Method::get(), "/dir/")).await.unwrap();
         assert!(matches!(listing.body(), Some(ResponseBody::Bytes(_))));
+    }
+
+    #[test]
+    fn canonical_response_rejects_empty_header_value() {
+        let mut headers = HeaderMapPlan::new();
+        headers.push("x-test", "   ");
+        let error = canonical_response(200, &headers, BodySource::Empty, false).unwrap_err();
+        assert!(error.to_string().contains("header value must not be empty"));
     }
 }

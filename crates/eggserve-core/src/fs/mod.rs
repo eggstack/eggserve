@@ -387,8 +387,10 @@ impl<'a> RootGuard<'a> {
         let mut candidate = self.pinned.canonical_root().to_path_buf();
 
         for component in components {
-            if policy.dotfiles == DotfilePolicy::Denied && component.starts_with('.') {
-                return ResolvedResource::Denied(PathRejection::DotfileDenied);
+            if let Err(rejection) =
+                validate_child_component(component, policy.dotfiles == DotfilePolicy::Denied)
+            {
+                return ResolvedResource::Denied(rejection);
             }
 
             candidate.push(component);
@@ -685,6 +687,20 @@ mod tests {
         policy.symlinks = SymlinkPolicy::Follow;
         let result = guard.resolve(&path, &policy);
         assert!(matches!(result, ResolvedResource::File(_)));
+    }
+
+    #[test]
+    fn fallback_rejects_platform_invalid_child_components() {
+        let (_tmp, pinned) = setup_root();
+        let guard = RootGuard::new(&pinned);
+        let mut policy = StaticPolicy::safe_default();
+        policy.symlinks = SymlinkPolicy::Follow;
+
+        let result = guard.resolve_fallback(&["CON".to_owned()], &policy);
+        assert!(matches!(
+            result,
+            ResolvedResource::Denied(PathRejection::WindowsReservedNameDenied)
+        ));
     }
 
     #[cfg(unix)]

@@ -18,6 +18,9 @@
 //! - fatal conditions terminate with a truthful result
 //! - process does not claim stopped while owned work remains
 
+mod common;
+use common::extract_body_bytes;
+
 use std::fs;
 use std::path::Path;
 use std::time::Duration;
@@ -586,17 +589,6 @@ async fn fault_concurrent_streaming_stress() {
 
     for handle in handles {
         handle.await.unwrap();
-    }
-}
-
-// FIXME(extract_body_bytes): four duplicate helpers across integration tests; consolidated helper should replace these in a follow-up.
-fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
-    use eggserve_core::primitives::canonical::ResponseBody;
-    match resp.body() {
-        Some(ResponseBody::Bytes(b)) => b.clone(),
-        Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
-        Some(ResponseBody::File(_)) => vec![],
-        None => vec![],
     }
 }
 

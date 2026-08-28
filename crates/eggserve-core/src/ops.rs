@@ -246,14 +246,15 @@ pub fn truncate(text: &str, max_len: usize) -> Cow<'_, str> {
 }
 
 fn truncate_str(text: &str, max_len: usize) -> Cow<'_, str> {
-    if text.len() <= max_len {
+    if text.chars().count() <= max_len {
         return Cow::Borrowed(text);
     }
-    // Find a char boundary at or before max_len
-    let mut end = max_len;
-    while end > 0 && !text.is_char_boundary(end) {
-        end -= 1;
-    }
+    // `max_len` counts characters, while the sentinel is appended after the
+    // retained prefix. Find the boundary after exactly that many characters.
+    let end = text
+        .char_indices()
+        .nth(max_len)
+        .map_or(text.len(), |(index, _)| index);
     Cow::Owned(format!("{}…", &text[..end]))
 }
 
@@ -375,36 +376,38 @@ impl LogSink for StderrLogSink {
 }
 
 pub fn event_to_json(event: &Event) -> String {
+    use std::fmt::Write;
+
     let mut out = String::with_capacity(256);
     out.push('{');
 
     out.push_str("\"schema_version\":");
-    out.push_str(&event.schema_version.to_string());
+    write!(&mut out, "{}", event.schema_version).unwrap();
 
     out.push_str(",\"severity\":\"");
-    out.push_str(&format!("{}", event.severity));
+    write!(&mut out, "{}", event.severity).unwrap();
     out.push('"');
 
     out.push_str(",\"event\":\"");
-    out.push_str(&format!("{}", event.event));
+    write!(&mut out, "{}", event.event).unwrap();
     out.push('"');
 
     out.push_str(",\"timestamp\":\"");
-    out.push_str(&escape_json_string(&event.timestamp));
+    escape_json_string_into(&mut out, &event.timestamp);
     out.push('"');
 
     out.push_str(",\"message\":\"");
-    out.push_str(&escape_json_string(&event.message));
+    escape_json_string_into(&mut out, &event.message);
     out.push('"');
 
     if let Some(cid) = event.connection_id {
         out.push_str(",\"connection_id\":");
-        out.push_str(&cid.to_string());
+        write!(&mut out, "{}", cid).unwrap();
     }
 
     if let Some(seq) = event.request_seq {
         out.push_str(",\"request_seq\":");
-        out.push_str(&seq.to_string());
+        write!(&mut out, "{}", seq).unwrap();
     }
 
     if !event.fields.is_empty() {
@@ -417,27 +420,27 @@ pub fn event_to_json(event: &Event) -> String {
             match f {
                 Field::Bool(k, v) => {
                     out.push('"');
-                    out.push_str(&escape_json_string(k));
+                    escape_json_string_into(&mut out, k);
                     out.push_str("\":");
                     out.push_str(if *v { "true" } else { "false" });
                 }
                 Field::I64(k, v) => {
                     out.push('"');
-                    out.push_str(&escape_json_string(k));
+                    escape_json_string_into(&mut out, k);
                     out.push_str("\":");
-                    out.push_str(&v.to_string());
+                    write!(&mut out, "{}", v).unwrap();
                 }
                 Field::U64(k, v) => {
                     out.push('"');
-                    out.push_str(&escape_json_string(k));
+                    escape_json_string_into(&mut out, k);
                     out.push_str("\":");
-                    out.push_str(&v.to_string());
+                    write!(&mut out, "{}", v).unwrap();
                 }
                 Field::Str(k, v) => {
                     out.push('"');
-                    out.push_str(&escape_json_string(k));
+                    escape_json_string_into(&mut out, k);
                     out.push_str("\":\"");
-                    out.push_str(&escape_json_string(v));
+                    escape_json_string_into(&mut out, v);
                     out.push('"');
                 }
             }
@@ -452,6 +455,11 @@ pub fn event_to_json(event: &Event) -> String {
 
 pub(crate) fn escape_json_string(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
+    escape_json_string_into(&mut out, s);
+    out
+}
+
+fn escape_json_string_into(out: &mut String, s: &str) {
     for c in s.chars() {
         match c {
             '"' => out.push_str("\\\""),
@@ -470,7 +478,6 @@ pub(crate) fn escape_json_string(s: &str) -> String {
             _ => out.push(c),
         }
     }
-    out
 }
 
 #[allow(dead_code)]

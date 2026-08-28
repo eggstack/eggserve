@@ -3,6 +3,12 @@
 //! These tests verify exact range boundaries, buffer isolation across
 //! requests, short-read behavior, and zero-length file handling.
 
+mod common;
+
+async fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+    common::extract_body_bytes(resp)
+}
+
 use std::fs;
 use tempfile::TempDir;
 
@@ -17,49 +23,6 @@ use eggserve_core::primitives::version::HttpVersion;
 use eggserve_core::server::service::Service;
 use eggserve_core::server::StaticService;
 use std::net::SocketAddr;
-
-#[allow(dead_code)]
-fn extract_body_bytes_from_ref(
-    body: &eggserve_core::primitives::canonical::ResponseBody,
-) -> Vec<u8> {
-    use eggserve_core::primitives::canonical::ResponseBody;
-    match body {
-        ResponseBody::Bytes(b) => b.clone(),
-        ResponseBody::Empty | ResponseBody::EmptyWithLength(_) => vec![],
-        ResponseBody::File(_) => vec![],
-    }
-}
-
-// FIXME(extract_body_bytes): four duplicate helpers across integration tests; consolidated helper should replace these in a follow-up.
-async fn extract_body_bytes(resp: &eggserve_core::primitives::canonical::Response) -> Vec<u8> {
-    use eggserve_core::primitives::body::BodySource;
-    use eggserve_core::primitives::canonical::ResponseBody;
-    use std::io::{Read, Seek, SeekFrom};
-    match resp.body() {
-        Some(ResponseBody::Bytes(b)) => b.clone(),
-        Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
-        Some(ResponseBody::File(source)) => match source {
-            BodySource::FileFull { file, len, .. } => {
-                let mut buf = vec![0u8; *len as usize];
-                let mut f = file.try_clone().expect("clone file handle");
-                f.read_exact(&mut buf).expect("read full file");
-                buf
-            }
-            BodySource::FileRange { file, range, .. } => {
-                let len = (range.end_inclusive - range.start + 1) as usize;
-                let mut buf = vec![0u8; len];
-                let mut f = file.try_clone().expect("clone file handle");
-                f.seek(SeekFrom::Start(range.start))
-                    .expect("seek to range start");
-                f.read_exact(&mut buf).expect("read range");
-                buf
-            }
-            BodySource::Empty => vec![],
-            BodySource::Bytes(b) => b.clone(),
-        },
-        None => vec![],
-    }
-}
 
 fn setup() -> (TempDir, StaticService) {
     let tmp = TempDir::new().unwrap();

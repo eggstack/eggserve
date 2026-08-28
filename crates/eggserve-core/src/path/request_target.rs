@@ -5,12 +5,16 @@ pub fn parse_origin_form(raw: &str) -> Result<&str, PathRejection> {
         return Err(PathRejection::Empty);
     }
 
-    if !raw.starts_with('/') {
-        // Also rejects asterisk-form ("*"): it lacks the leading '/'.
+    if raw.as_bytes().contains(&0) {
+        return Err(PathRejection::NulByte);
+    }
+
+    if raw.bytes().any(|byte| byte.is_ascii_whitespace()) {
         return Err(PathRejection::UnsupportedUriForm);
     }
 
-    if raw.contains("://") {
+    if !raw.starts_with('/') {
+        // Also rejects asterisk-form ("*"): it lacks the leading '/'.
         return Err(PathRejection::UnsupportedUriForm);
     }
 
@@ -97,5 +101,26 @@ mod tests {
     #[test]
     fn path_with_fragment() {
         assert_eq!(parse_origin_form("/a?b#frag").unwrap(), "/a");
+    }
+
+    #[test]
+    fn origin_form_allows_colons_in_path() {
+        assert_eq!(parse_origin_form("/foo://bar").unwrap(), "/foo://bar");
+    }
+
+    #[test]
+    fn reject_raw_controls() {
+        assert_eq!(
+            parse_origin_form("/foo\0bar").unwrap_err(),
+            PathRejection::NulByte
+        );
+        assert_eq!(
+            parse_origin_form("/foo\rbar").unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+        assert_eq!(
+            parse_origin_form("/foo bar").unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
     }
 }

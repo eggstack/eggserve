@@ -417,8 +417,9 @@ pub fn normalize_response(
 ) -> Result<Response, ResponseConstructionError> {
     let status = response.status();
 
-    // Compute body length before any suppression.
-    let body_len = response.body.as_ref().map_or(0, |b| b.len());
+    // Compute the would-have-been-sent length before HEAD suppression so HEAD
+    // can retain the equivalent GET representation length.
+    let mut body_len = response.body.as_ref().map_or(0, |b| b.len());
 
     // Rule 1: HEAD suppression — discard body, preserve headers.
     if request.is_head {
@@ -428,6 +429,7 @@ pub fn normalize_response(
     // Rule 2: Body-forbidden statuses — discard body.
     if !status.permits_payload_body() {
         response.body = Some(ResponseBody::Empty);
+        body_len = 0;
     }
 
     // Apply shared metadata normalization.
@@ -528,18 +530,19 @@ pub fn normalize_metadata(
 /// Returns `true` if the header is a hop-by-hop header that must not be
 /// forwarded by intermediaries per RFC 7230 § 4.1.2.
 pub fn is_hop_by_hop_header(name: &str) -> bool {
-    matches!(
-        name.to_ascii_lowercase().as_str(),
-        "connection"
-            | "keep-alive"
-            | "proxy-authenticate"
-            | "proxy-authorization"
-            | "proxy-connection"
-            | "te"
-            | "trailer"
-            | "transfer-encoding"
-            | "upgrade"
-    )
+    [
+        "connection",
+        "keep-alive",
+        "proxy-authenticate",
+        "proxy-authorization",
+        "proxy-connection",
+        "te",
+        "trailer",
+        "transfer-encoding",
+        "upgrade",
+    ]
+    .iter()
+    .any(|candidate| name.eq_ignore_ascii_case(candidate))
 }
 
 /// Remove all headers with the given name (case-insensitive).
@@ -694,13 +697,24 @@ fn file_body(
             let chunk_len = remaining.min(stream_chunk_size as u64) as usize;
             let mut buffer = vec![0; chunk_len];
             match read_file_chunk(&mut file, &mut buffer).await {
-                Ok(0) => None,
+                Ok(0) => Some((
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::UnexpectedEof,
+                        "file ended before the advertised response length",
+                    )),
+                    (file, offset, 0, false, permit),
+                )),
                 Ok(bytes_read) => {
-                    let next_remaining = if bytes_read < chunk_len {
-                        0
-                    } else {
-                        remaining - bytes_read as u64
-                    };
+                    if bytes_read < chunk_len {
+                        return Some((
+                            Err(std::io::Error::new(
+                                std::io::ErrorKind::UnexpectedEof,
+                                "file ended before the advertised response length",
+                            )),
+                            (file, offset, 0, false, permit),
+                        ));
+                    }
+                    let next_remaining = remaining - bytes_read as u64;
                     buffer.truncate(bytes_read);
                     Some((
                         Ok(Frame::data(Bytes::from(buffer))),
@@ -854,7 +868,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn truncated_file_transport_ends_after_available_bytes() {
+    async fn truncated_file_transport_reports_unexpected_eof() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("truncated.bin");
         std::fs::write(&path, b"short").unwrap();
@@ -868,14 +882,13 @@ mod tests {
             }))
             .unwrap();
 
-        let body = to_hyper_response(response)
+        let error = to_hyper_response(response)
             .unwrap()
             .into_body()
             .collect()
             .await
-            .unwrap()
-            .to_bytes();
-        assert_eq!(&body[..], b"short");
+            .unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
     }
 
     #[test]
@@ -1060,22 +1073,15 @@ mod tests {
     }
 
     #[test]
-    fn normalize_304_preserves_only_matching_content_length() {
-        let matching = Response::builder()
+    fn normalize_304_discards_buffered_body_length() {
+        let response = Response::builder()
             .status(StatusCode::NOT_MODIFIED)
             .header("content-length", "5")
             .unwrap()
             .body(ResponseBody::Bytes(b"hello".to_vec()))
             .unwrap();
-        let normalized = normalize_response(matching, &NormalizeRequest::new(false)).unwrap();
-        assert_eq!(
-            normalized
-                .headers()
-                .get_first("content-length")
-                .unwrap()
-                .as_str(),
-            "5"
-        );
+        let normalized = normalize_response(response, &NormalizeRequest::new(false)).unwrap();
+        assert!(!normalized.headers().contains("content-length"));
 
         let mismatched = Response::builder()
             .status(StatusCode::NOT_MODIFIED)

@@ -416,11 +416,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::Severity::Warn
                             };
                             crate::ops::Logger::global().emit(
-                                crate::ops::Event::new(
-                                    severity,
-                                    crate::ops::EventKind::ServiceError,
-                                    service_err.to_string(),
-                                )
+                                    crate::ops::Event::new(
+                                        severity,
+                                        crate::ops::EventKind::ServiceError,
+                                        crate::ops::sanitize_text_field(&service_err.to_string()),
+                                    )
                                 .connection_id(conn_id),
                             );
                             service_err.to_response()
@@ -498,11 +498,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::Severity::Warn
                             };
                             crate::ops::Logger::global().emit(
-                                crate::ops::Event::new(
-                                    severity,
-                                    crate::ops::EventKind::ServiceError,
-                                    service_err.to_string(),
-                                )
+                                    crate::ops::Event::new(
+                                        severity,
+                                        crate::ops::EventKind::ServiceError,
+                                        crate::ops::sanitize_text_field(&service_err.to_string()),
+                                    )
                                 .connection_id(conn_id),
                             );
                             service_err.to_response()
@@ -553,11 +553,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::Severity::Warn
                             };
                             crate::ops::Logger::global().emit(
-                                crate::ops::Event::new(
-                                    severity,
-                                    crate::ops::EventKind::ServiceError,
-                                    service_err.to_string(),
-                                )
+                                    crate::ops::Event::new(
+                                        severity,
+                                        crate::ops::EventKind::ServiceError,
+                                        crate::ops::sanitize_text_field(&service_err.to_string()),
+                                    )
                                 .connection_id(conn_id),
                             );
                             service_err.to_response()

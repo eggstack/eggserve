@@ -43,6 +43,12 @@
 //! - no path leakage
 //! - resources return to baseline
 
+mod common;
+
+fn extract_body_bytes(resp: &mut eggserve_core::primitives::canonical::Response) -> Vec<u8> {
+    common::extract_body_bytes(&*resp)
+}
+
 use std::fs;
 use std::path::Path;
 use std::sync::Arc;
@@ -798,16 +804,6 @@ async fn concurrent_symlink_swap_stress() {
 /// the descriptor-relative traversal invariant holds for intermediate path
 /// components under concurrent mutation.
 #[cfg(unix)]
-// FIXME(extract_body_bytes): four duplicate helpers across integration tests; consolidated helper should replace these in a follow-up.
-fn extract_body_bytes(resp: &mut eggserve_core::primitives::canonical::Response) -> Vec<u8> {
-    use eggserve_core::primitives::canonical::ResponseBody;
-    match resp.take_body() {
-        Some(ResponseBody::Bytes(b)) => b,
-        Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => vec![],
-        Some(ResponseBody::File(mut source)) => source.read_all().unwrap_or_default(),
-        None => vec![],
-    }
-}
 #[tokio::test]
 async fn concurrent_directory_swap_stress() {
     use std::sync::atomic::{AtomicBool, Ordering};
