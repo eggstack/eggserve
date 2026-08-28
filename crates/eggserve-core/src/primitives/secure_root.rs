@@ -191,7 +191,8 @@ impl ResolvedFile {
                 if *end_inclusive < *start || *end_inclusive >= total_len {
                     return Err(BodySourceError::InvalidRange);
                 }
-                let range = FileRange::new(*start, *end_inclusive);
+                let range = FileRange::try_new(*start, *end_inclusive)
+                    .ok_or(BodySourceError::InvalidRange)?;
                 let path: PathBuf = self.inner.safe_relative_components.iter().collect();
                 let mime = crate::mime::mime_for_path(&path);
                 Ok(BodySource::FileRange {
@@ -214,7 +215,8 @@ impl ResolvedFile {
         if end_inclusive < start || end_inclusive >= total_len {
             return Err(BodySourceError::InvalidRange);
         }
-        let range = FileRange::new(start, end_inclusive);
+        let range =
+            FileRange::try_new(start, end_inclusive).ok_or(BodySourceError::InvalidRange)?;
         let path: PathBuf = self.inner.safe_relative_components.iter().collect();
         let mime = crate::mime::mime_for_path(&path);
         Ok(BodySource::FileRange {

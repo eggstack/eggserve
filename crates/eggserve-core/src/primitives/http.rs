@@ -126,7 +126,7 @@ pub fn validate_request_target(target: &str) -> Result<(), RequestValidationErro
     if target.chars().any(|c| c.is_ascii_control()) {
         return Err(RequestValidationError::InvalidRequestTarget);
     }
-    if target.contains(char::is_whitespace) {
+    if target.bytes().any(|byte| byte.is_ascii_whitespace()) {
         return Err(RequestValidationError::InvalidRequestTarget);
     }
     Ok(())
@@ -323,6 +323,11 @@ mod tests {
             validate_request_target("/foo bar").unwrap_err(),
             RequestValidationError::InvalidRequestTarget
         );
+    }
+
+    #[test]
+    fn non_ascii_whitespace_is_not_an_http_target_delimiter() {
+        assert!(validate_request_target("/foo\u{00a0}bar").is_ok());
     }
 
     #[test]

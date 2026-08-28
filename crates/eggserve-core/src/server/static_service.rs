@@ -587,6 +587,15 @@ mod tests {
         )
     }
 
+    #[test]
+    fn default_content_type_is_validated_at_build() {
+        let tmp = TempDir::new().unwrap();
+        assert!(StaticService::builder(tmp.path())
+            .default_content_type(" \t ")
+            .build()
+            .is_err());
+    }
+
     #[tokio::test]
     async fn file_and_range_bodies_remain_canonical_file_sources() {
         let tmp = TempDir::new().unwrap();

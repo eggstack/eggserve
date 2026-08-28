@@ -278,6 +278,7 @@ impl RequestBody {
                 if let Some(declared) = self.declared_length {
                     if self.bytes_received < declared {
                         let received = self.bytes_received;
+                        self.state = BodyState::Error;
                         return Err(RequestBodyError::PrematureEof {
                             received,
                             expected: Some(declared),
@@ -387,6 +388,7 @@ impl RequestBody {
                         if let Some(declared) = self.declared_length {
                             if self.bytes_received < declared {
                                 let received = self.bytes_received;
+                                self.state = BodyState::Error;
                                 return Err(RequestBodyError::PrematureEof {
                                     received,
                                     expected: Some(declared),
@@ -683,6 +685,8 @@ mod tests {
             Err(RequestBodyError::PrematureEof { received, expected }) => {
                 assert_eq!(received, 2);
                 assert_eq!(expected, Some(10));
+                assert_eq!(body.state(), BodyState::Error);
+                assert!(!body.was_fully_consumed());
             }
             Ok(None) => {
                 panic!("expected PrematureEof, got Ok(None)");

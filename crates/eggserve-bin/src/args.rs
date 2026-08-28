@@ -153,6 +153,25 @@ fn split_bind_host_port(value: &str) -> Option<(&str, Option<u16>)> {
     }
 }
 
+fn select_bind_ip(mut addresses: Vec<SocketAddr>) -> Option<IpAddr> {
+    addresses.sort_by_key(|address| {
+        let ip = address.ip();
+        (!ip.is_loopback(), !ip.is_ipv4(), ip.to_string())
+    });
+    addresses.first().map(SocketAddr::ip)
+}
+
+fn resolve_bind_ip(bind_host: &str, bind_port: u16) -> Result<IpAddr, String> {
+    if let Ok(ip) = bind_host.parse::<IpAddr>() {
+        return Ok(ip);
+    }
+    let addresses = (bind_host, bind_port)
+        .to_socket_addrs()
+        .map_err(|e| format!("failed to resolve bind host '{}': {}", bind_host, e))?
+        .collect();
+    select_bind_ip(addresses).ok_or_else(|| format!("bind host '{}' did not resolve", bind_host))
+}
+
 impl Args {
     pub fn parse() -> Result<Self, String> {
         let args: Vec<String> = std::env::args().skip(1).collect();
@@ -525,12 +544,7 @@ impl Args {
 
         let root = root.unwrap_or_else(|| PathBuf::from("."));
 
-        let bind_ip = (bind_host.as_str(), bind_port)
-            .to_socket_addrs()
-            .map_err(|e| format!("failed to resolve bind host '{}': {}", bind_host, e))?
-            .next()
-            .ok_or_else(|| format!("bind host '{}' did not resolve", bind_host))?
-            .ip();
+        let bind_ip = resolve_bind_ip(&bind_host, bind_port)?;
 
         if !public && bind_ip.is_unspecified() {
             return Err(format!(
@@ -1054,6 +1068,19 @@ mod tests {
     }
 
     #[test]
+    fn hostname_bind_selection_is_deterministic() {
+        let addresses = vec![
+            "[2001:db8::1]:8000".parse().unwrap(),
+            "127.0.0.1:8000".parse().unwrap(),
+            "[::1]:8000".parse().unwrap(),
+        ];
+        assert_eq!(
+            select_bind_ip(addresses),
+            Some("127.0.0.1".parse().unwrap())
+        );
+    }
+
+    #[test]
     fn static_metadata_options_preserve_order() {
         let args = parse(&[
             "--content-type",
@@ -1076,6 +1103,7 @@ mod tests {
     #[test]
     fn unsafe_static_metadata_is_rejected() {
         assert!(parse(&["--content-type", "text/plain\r\nX-Leak: yes"]).is_err());
+        assert!(parse(&["--content-type", " \t "]).is_err());
         assert!(parse(&["-H", "Content-Length", "1"]).is_err());
     }
 

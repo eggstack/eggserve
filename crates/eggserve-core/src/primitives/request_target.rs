@@ -70,7 +70,7 @@ impl RequestTarget {
         if raw == "*" {
             return Err(RequestTargetError::AsteriskForm);
         }
-        if raw.contains(char::is_whitespace) {
+        if raw.bytes().any(|byte| byte.is_ascii_whitespace()) {
             return Err(RequestTargetError::ContainsWhitespace);
         }
         if raw.starts_with('/') {
@@ -232,6 +232,11 @@ mod tests {
             RequestTarget::parse("/foo\tbar").unwrap_err(),
             RequestTargetError::ContainsWhitespace
         );
+    }
+
+    #[test]
+    fn only_ascii_whitespace_is_rejected() {
+        assert!(RequestTarget::parse("/foo\u{00a0}bar").is_ok());
     }
 
     #[test]

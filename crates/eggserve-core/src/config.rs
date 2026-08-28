@@ -39,11 +39,9 @@ pub fn validate_static_metadata(
     default_content_type: &str,
     extra_response_headers: &[(String, String)],
 ) -> Result<(), String> {
-    if default_content_type.is_empty()
-        || default_content_type
-            .bytes()
-            .any(|b| b == b'\r' || b == b'\n' || b == 0)
-    {
+    let content_type = HeaderValue::new(default_content_type.trim())
+        .map_err(|e| format!("invalid default content type: {e}"))?;
+    if content_type.as_str().is_empty() {
         return Err("default content type must be a non-empty value without CR/LF/NUL".into());
     }
     for (name, value) in extra_response_headers {
@@ -184,5 +182,11 @@ mod tests {
             &[("X-Test".to_owned(), " value ".to_owned())],
         )
         .is_ok());
+    }
+
+    #[test]
+    fn default_content_type_rejects_whitespace_only_value() {
+        let error = validate_static_metadata(" \t ", &[]).unwrap_err();
+        assert!(error.contains("default content type must be a non-empty value"));
     }
 }

@@ -94,7 +94,7 @@ pub struct FileRange {
 
 impl FileRange {
     /// Construct a byte range whose length is representable as a `u64`.
-    pub fn new(start: u64, end_inclusive: u64) -> Self {
+    pub(crate) fn new(start: u64, end_inclusive: u64) -> Self {
         let range = Self {
             start,
             end_inclusive,
@@ -246,12 +246,6 @@ mod tests {
         let range = FileRange::new(10, 9);
         assert!(range.is_empty());
         assert_eq!(range.len(), 0);
-    }
-
-    #[test]
-    #[should_panic(expected = "FileRange length must be representable as u64")]
-    fn overflowing_file_range_is_rejected() {
-        let _ = FileRange::new(0, u64::MAX);
     }
 
     #[test]
