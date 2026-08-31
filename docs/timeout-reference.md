@@ -16,6 +16,12 @@ This document defines every timeout and deadline in the eggserve runtime, its se
 
 ## Per-field semantics
 
+Timeout values have no absolute upper ceiling. They must be positive and the
+request/handler/body budgets must not exceed `connection_total_timeout`, but a
+very large valid duration can effectively disable that deadline. Operators
+should choose an explicit finite timeout appropriate for the deployment rather
+than using an unbounded value.
+
 ### 1. Listener backoff
 
 - **Clock starts**: Immediately after an accept error.

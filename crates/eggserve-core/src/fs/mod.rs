@@ -103,6 +103,7 @@ pub(crate) enum ResolvedResource {
     Directory(ResolvedDirectory),
     NotFound,
     Denied(#[allow(dead_code)] PathRejection),
+    IoError(std::io::Error),
 }
 
 fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), PathRejection> {
@@ -139,6 +140,8 @@ fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), Pa
                 return Err(PathRejection::ParentComponent);
             }
         }
+        // Invalid percent escapes cannot decode to a dot segment, so retain
+        // the component verbatim and let the platform validator handle it.
     }
     // Parity with the parse-level component check: Windows reserved
     // names, ADS syntax, drive prefixes, and trailing dots/spaces get the

@@ -55,8 +55,12 @@ pub enum ResolvedResource {
     Directory(ResolvedDirectory),
     NotFound,
     Denied(ResourceDeniedReason),
+    IoError(std::io::Error),
 }
 ```
+
+`IoError` represents an operating-system resolution failure and must not be
+handled as `NotFound`.
 
 ### `ResourceDeniedReason`
 

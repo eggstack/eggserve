@@ -36,10 +36,14 @@ pub enum ResolvedResource {
     Directory(ResolvedDirectory),
     NotFound,
     Denied(ResourceDeniedReason),
+    IoError(std::io::Error),
 }
 ```
 
-**Accessor methods:** `is_file()`, `is_directory()`, `is_not_found()`, `is_denied()`, `as_file()`, `as_directory()`, `into_file()`, `into_directory()`.
+`IoError` represents an operating-system failure during resolution and is
+distinct from `NotFound`; callers should surface it as an internal error.
+
+**Accessor methods:** `is_file()`, `is_directory()`, `is_not_found()`, `is_denied()`, `is_error()`, `as_file()`, `as_directory()`, `into_file()`, `into_directory()`.
 
 ### `ResolvedFile`
 
@@ -157,6 +161,7 @@ match resource {
     }
     eggserve_core::primitives::ResolvedResource::NotFound => { /* 404 */ }
     eggserve_core::primitives::ResolvedResource::Denied(reason) => { /* 403 */ }
+    eggserve_core::primitives::ResolvedResource::IoError(error) => { /* 500 */ }
 }
 ```
 

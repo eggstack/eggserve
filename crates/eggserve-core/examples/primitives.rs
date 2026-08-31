@@ -23,6 +23,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             ResolvedResource::NotFound => println!("404 Not Found"),
             ResolvedResource::Denied(reason) => println!("403 Forbidden: {reason}"),
             ResolvedResource::File(_) => println!("Planning failed: {error}"),
+            ResolvedResource::IoError(error) => println!("Resolution failed: {error}"),
         },
     }
 

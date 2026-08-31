@@ -813,15 +813,16 @@ async fn classify_accept_error(
 fn is_fd_exhaustion(error: &std::io::Error) -> bool {
     #[cfg(unix)]
     if let Some(raw) = error.raw_os_error() {
-        return raw == rustix::io::Errno::MFILE.raw_os_error().abs()
-            || raw == rustix::io::Errno::NFILE.raw_os_error().abs();
+        return raw == rustix::io::Errno::MFILE.raw_os_error()
+            || raw == rustix::io::Errno::NFILE.raw_os_error();
     }
 
-    // Windows accept() failures carry raw Winsock codes; WSAEMFILE is the
-    // fd-exhaustion equivalent and must back off like Unix EMFILE/ENFILE.
+    // Windows accept() failures carry raw Winsock codes; WSAEMFILE and
+    // WSAENFILE are the fd-exhaustion equivalents and must back off like
+    // Unix EMFILE/ENFILE.
     #[cfg(windows)]
     if let Some(raw) = error.raw_os_error() {
-        return raw == 10024; // WSAEMFILE
+        return raw == 10024 || raw == 10023; // WSAEMFILE || WSAENFILE
     }
 
     if error.raw_os_error().is_some() {
@@ -886,5 +887,12 @@ mod tests {
             !classify_accept_error(&error, &mut rx, &mut backoff, &mut repeats, &mut last,).await
         );
         let _ = tx.send(());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn windows_fd_exhaustion_includes_process_handle_limit() {
+        let error = std::io::Error::from_raw_os_error(10023); // WSAENFILE
+        assert!(is_fd_exhaustion(&error));
     }
 }

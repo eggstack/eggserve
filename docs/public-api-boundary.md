@@ -22,6 +22,12 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 
 ## Primitives module
 
+`primitives::ResolvedResource::IoError` reports an operating-system
+resolution failure and must not be treated as `NotFound`. The feature-gated
+`ResolvedFile` extraction methods (`into_std_file`, `into_parts`, and
+`from_parts`) are internal Python-binding bridges, not general Rust APIs; once
+a handle is extracted, the confinement guarantee no longer applies.
+
 The `primitives` module re-exports the following types:
 
 ### Path validation

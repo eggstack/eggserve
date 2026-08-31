@@ -532,6 +532,7 @@ struct PyResolvedResource {
     root_path: Option<std::path::PathBuf>,
     denied_reason_msg: Option<String>,
     denied_code: Option<String>,
+    error_msg: Option<String>,
     static_policy: Option<RustStaticPolicy>,
 }
 
@@ -567,6 +568,11 @@ impl PyResolvedResource {
     #[getter]
     fn is_denied(&self) -> bool {
         self.kind == "denied"
+    }
+
+    #[getter]
+    fn is_error(&self) -> bool {
+        self.kind == "error"
     }
 
     #[getter]
@@ -632,6 +638,10 @@ impl PyResolvedResource {
                 "ResolvedResource(kind='denied', reason={:?})",
                 self.denied_reason_msg.as_deref().unwrap_or("")
             ),
+            "error" => format!(
+                "ResolvedResource(kind='error', error={:?})",
+                self.error_msg.as_deref().unwrap_or("")
+            ),
             _ => "ResolvedResource(kind='?')".to_string(),
         }
     }
@@ -657,6 +667,7 @@ impl PyResolvedResource {
                     root_path: None,
                     denied_reason_msg: None,
                     denied_code: None,
+                    error_msg: None,
                     static_policy: Some(static_policy),
                 }
             }
@@ -667,6 +678,7 @@ impl PyResolvedResource {
                 root_path: Some(root.root_path.clone()),
                 denied_reason_msg: None,
                 denied_code: None,
+                error_msg: None,
                 static_policy: Some(static_policy),
             },
             RustResolvedResource::NotFound => Self {
@@ -676,6 +688,7 @@ impl PyResolvedResource {
                 root_path: None,
                 denied_reason_msg: None,
                 denied_code: None,
+                error_msg: None,
                 static_policy: None,
             },
             RustResolvedResource::Denied(reason) => {
@@ -701,9 +714,20 @@ impl PyResolvedResource {
                     root_path: None,
                     denied_reason_msg: Some(msg),
                     denied_code: Some(code),
+                    error_msg: None,
                     static_policy: None,
                 }
             }
+            RustResolvedResource::IoError(error) => Self {
+                kind: "error".to_string(),
+                file_data: None,
+                dir_components: None,
+                root_path: None,
+                denied_reason_msg: None,
+                denied_code: None,
+                error_msg: Some(error.to_string()),
+                static_policy: None,
+            },
         }
     }
 }

@@ -262,6 +262,9 @@ pub enum ResolvedResource {
     Directory(ResolvedDirectory),
     NotFound,
     Denied(ResourceDeniedReason),
+    /// Resource resolution failed due to an operating-system I/O error.
+    /// This is distinct from [`ResolvedResource::NotFound`].
+    IoError(std::io::Error),
 }
 
 impl ResolvedResource {
@@ -283,6 +286,11 @@ impl ResolvedResource {
     #[allow(dead_code)]
     pub fn is_denied(&self) -> bool {
         matches!(self, Self::Denied(_))
+    }
+
+    #[allow(dead_code)]
+    pub fn is_error(&self) -> bool {
+        matches!(self, Self::IoError(_))
     }
 
     #[allow(dead_code)]
@@ -329,6 +337,7 @@ impl From<crate::fs::ResolvedResource> for ResolvedResource {
             }
             crate::fs::ResolvedResource::NotFound => ResolvedResource::NotFound,
             crate::fs::ResolvedResource::Denied(r) => ResolvedResource::Denied(r.into()),
+            crate::fs::ResolvedResource::IoError(error) => ResolvedResource::IoError(error),
         }
     }
 }
@@ -384,7 +393,8 @@ impl SecureRoot {
 /// `Metadata` field across crate boundaries.
 ///
 /// Returns `(StaticResponsePlan, BodySource)` on success, or a
-/// [`ResourceDeniedReason`] / [`PathRejection`] on failure.
+/// [`ResourceDeniedReason`] / [`PathRejection`] / an operating-system I/O
+/// error on failure.
 #[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 pub fn resolve_and_plan(
@@ -419,6 +429,7 @@ pub fn resolve_and_plan(
         ResolvedResource::Directory(_) => Err(ResolveAndPlanError::IsDirectory),
         ResolvedResource::NotFound => Err(ResolveAndPlanError::NotFound),
         ResolvedResource::Denied(reason) => Err(ResolveAndPlanError::Denied(reason)),
+        ResolvedResource::IoError(error) => Err(ResolveAndPlanError::Io(error)),
     }
 }
 
@@ -430,6 +441,7 @@ pub enum ResolveAndPlanError {
     IsDirectory,
     Denied(ResourceDeniedReason),
     Body(BodySourceError),
+    Io(std::io::Error),
 }
 
 impl fmt::Display for ResolveAndPlanError {
@@ -439,6 +451,7 @@ impl fmt::Display for ResolveAndPlanError {
             Self::IsDirectory => write!(f, "is a directory"),
             Self::Denied(r) => write!(f, "{}", r),
             Self::Body(e) => write!(f, "{}", e),
+            Self::Io(e) => write!(f, "filesystem resolution failed: {}", e),
         }
     }
 }
@@ -448,6 +461,7 @@ impl std::error::Error for ResolveAndPlanError {
         match self {
             Self::Denied(r) => Some(r),
             Self::Body(e) => Some(e),
+            Self::Io(e) => Some(e),
             _ => None,
         }
     }

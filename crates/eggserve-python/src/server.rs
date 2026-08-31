@@ -803,6 +803,11 @@ impl PyStaticResponder {
                     eggserve_core::primitives::ResolvedResource::Denied(_)
                     | eggserve_core::primitives::ResolvedResource::NotFound
                     | eggserve_core::primitives::ResolvedResource::Directory(_) => continue,
+                    eggserve_core::primitives::ResolvedResource::IoError(error) => {
+                        return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
+                            "filesystem resolution failed: {error}"
+                        )))
+                    }
                 }
             }
 
@@ -879,6 +884,9 @@ impl PyStaticResponder {
             Err(ResolveAndPlanError::NotFound) => build_error_response(404, "Not Found"),
             Err(ResolveAndPlanError::IsDirectory) => build_error_response(403, "Forbidden"),
             Err(ResolveAndPlanError::Denied(_)) => build_error_response(403, "Forbidden"),
+            Err(ResolveAndPlanError::Io(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(
+                format!("filesystem resolution failed: {e}"),
+            )),
             Err(ResolveAndPlanError::Body(e)) => Err(pyo3::exceptions::PyRuntimeError::new_err(
                 format!("body error: {e}"),
             )),

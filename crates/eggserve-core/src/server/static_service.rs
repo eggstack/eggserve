@@ -274,6 +274,9 @@ fn plan_static_request(
         ResolvedResource::Denied(_) => {
             error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
         }
+        ResolvedResource::IoError(error) => Err(ServiceError::internal(format!(
+            "filesystem resolution failed: {error}"
+        ))),
     }
 }
 
@@ -360,6 +363,11 @@ fn plan_directory_response(
                     is_head,
                     false,
                 )
+            }
+            ResolvedResource::IoError(error) => {
+                return Err(ServiceError::internal(format!(
+                    "filesystem resolution failed: {error}"
+                )))
             }
         }
     }

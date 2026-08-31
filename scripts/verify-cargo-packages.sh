@@ -72,6 +72,16 @@ package = next(
 )
 print(package["version"])
 ')"
+bin_version="$(cargo metadata --format-version 1 --no-deps | "$PYTHON" -c '
+import json
+import sys
+
+package = next(
+    package for package in json.load(sys.stdin)["packages"]
+    if package["name"] == "eggserve-bin"
+)
+print(package["version"])
+')"
 core_crate="target/package/eggserve-core-${core_version}.crate"
 if [ ! -f "$core_crate" ]; then
   echo "packaged core crate not found at $core_crate" >&2
@@ -137,8 +147,14 @@ git -C "$index_dir" commit -q -m 'stage crates.io index for release validation'
 mkdir -p "$validation_root/.cargo"
 printf '[registries.local]\nindex = "file://%s"\n' "$index_dir" > "$validation_root/.cargo/config.toml"
 bin_manifest="$validation_root/crates/eggserve-bin/Cargo.toml"
-sed -i.bak 's#eggserve-core = { path = "../eggserve-core", version = "0.1.0" }#eggserve-core = { version = "0.1.0", registry = "local" }#' "$bin_manifest"
+sed -i.bak "s#eggserve-core = { path = \"../eggserve-core\", version = \"${core_version}\" }#eggserve-core = { version = \"${core_version}\", registry = \"local\" }#" "$bin_manifest"
 rm -f "$bin_manifest.bak"
+if ! grep -Fq 'eggserve-core = {' "$bin_manifest" || \
+   ! grep -Fq 'registry = "local"' "$bin_manifest" || \
+   grep -Fq 'path = "../eggserve-core"' "$bin_manifest"; then
+  echo "failed to rewrite eggserve-bin's core dependency for the local registry" >&2
+  exit 1
+fi
 (cd "$validation_root" && cargo generate-lockfile)
 bin_listing="$(cd "$validation_root" && cargo package -p eggserve-bin "${package_flags[@]}" --registry local --no-verify --list)"
 for required in Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs; do
@@ -150,7 +166,7 @@ done
 
 cd "$validation_root"
 cargo package -p eggserve-bin "${package_flags[@]}" --registry local --no-verify
-bin_crate="target/package/eggserve-bin-${core_version}.crate"
+bin_crate="target/package/eggserve-bin-${bin_version}.crate"
 if [ ! -f "$bin_crate" ]; then
   echo "packaged bin crate not found at $bin_crate" >&2
   exit 1
@@ -162,7 +178,7 @@ mkdir -p "$core_unpack" "$bin_unpack"
 tar -xzf "$OLDPWD/$core_crate" -C "$core_unpack"
 tar -xzf "$bin_crate" -C "$bin_unpack"
 core_source="$core_unpack/eggserve-core-${core_version}"
-bin_source="$bin_unpack/eggserve-bin-${core_version}"
+bin_source="$bin_unpack/eggserve-bin-${bin_version}"
 if grep -Fq 'path = "../eggserve-core"' "$bin_source/Cargo.toml"; then
   echo "packaged eggserve-bin manifest retained a repository-only path dependency" >&2
   exit 1

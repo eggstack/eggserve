@@ -314,7 +314,7 @@ pub fn evaluate_range_header(range: &str, file_size: u64) -> RangeRequestOutcome
 /// Evaluate an `If-Range` header.
 pub fn evaluate_if_range(
     if_range: &str,
-    current_etag: Option<&str>,
+    _current_etag: Option<&str>,
     last_modified: Option<&str>,
 ) -> ConditionalRequestOutcome {
     let trimmed = if_range.trim();
@@ -325,12 +325,6 @@ pub fn evaluate_if_range(
     if trimmed.starts_with('"') || trimmed.starts_with("W/") {
         // If-Range requires strong comparison. The generated metadata ETag is
         // deliberately weak, so it cannot authorize a range response.
-        if is_strong_entity_tag(trimmed)
-            && current_etag.is_some_and(is_strong_entity_tag)
-            && current_etag == Some(trimmed)
-        {
-            return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
-        }
         return ConditionalRequestOutcome::FullResponse;
     }
 
@@ -357,29 +351,6 @@ fn if_range_allows_range(
         evaluate_if_range(if_range, current_etag, last_modified),
         ConditionalRequestOutcome::NotModified(_)
     )
-}
-
-fn is_strong_entity_tag(value: &str) -> bool {
-    let bytes = value.as_bytes();
-    if bytes.len() < 2 || bytes[0] != b'"' || bytes[bytes.len() - 1] != b'"' {
-        return false;
-    }
-    // RFC 9110 § 5.6.4: the interior is etagc (%x21 / %x23-7E / obs-text)
-    // with DQUOTE and backslash permitted only as quoted-pair escapes.
-    let mut interior = bytes[1..bytes.len() - 1].iter().copied();
-    while let Some(byte) = interior.next() {
-        match byte {
-            b'"' => return false,
-            b'\\' => match interior.next() {
-                Some(b'"') | Some(b'\\') | Some(b'\t') | Some(b' ') => {}
-                Some(b) if (0x21..=0x7e).contains(&b) || (0x80..=0xff).contains(&b) => {}
-                _ => return false,
-            },
-            b'\t' | b' ' | b'!' | 0x23..=0x7e | 0x80..=0xff => {}
-            _ => return false,
-        }
-    }
-    true
 }
 
 /// Generate a weak ETag from file metadata.
@@ -1398,6 +1369,18 @@ mod tests {
     #[test]
     fn evaluate_if_none_match_wildcard() {
         assert!(evaluate_if_none_match("*", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_range_etags_never_authorize_ranges_for_weak_metadata() {
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+        assert_eq!(
+            evaluate_if_range("W/\"100-1234\"", Some("W/\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
     }
 
     #[test]

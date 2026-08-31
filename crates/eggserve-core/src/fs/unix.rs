@@ -42,7 +42,7 @@ pub(crate) fn resolve_fd_relative(
 
     let mut current_fd = match try_clone_fd(root_fd) {
         Ok(fd) => fd,
-        Err(_) => return ResolvedResource::NotFound,
+        Err(error) => return ResolvedResource::IoError(error),
     };
 
     let total = components.len();
@@ -248,7 +248,7 @@ fn resolve_root(root_fd: &fs::File, canonical_root: &Path) -> ResolvedResource {
             canonical_path: canonical_root.to_path_buf(),
             components: vec![],
         }),
-        Err(_) => ResolvedResource::NotFound,
+        Err(error) => ResolvedResource::IoError(error),
     }
 }
 

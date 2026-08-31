@@ -403,6 +403,8 @@ def _validate_static_metadata(default_content_type, extra_response_headers):
             raise ValueError("invalid extra response header name")
         if any(c in value for c in ("\x00", "\r", "\n")):
             raise ValueError("invalid extra response header value")
+        if not value.strip():
+            raise ValueError("invalid extra response header value")
         if not all(c.isascii() and (c.isalnum() or c in "!#$%&'*+-.^_`|~") for c in name):
             raise ValueError("invalid extra response header name")
         if name.lower() in _STATIC_RESERVED_HEADERS:

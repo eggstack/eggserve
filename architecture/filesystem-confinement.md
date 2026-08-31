@@ -50,8 +50,12 @@ pub enum ResolvedResource {
     Directory(ResolvedDirectory),
     NotFound,
     Denied(PathRejection),
+    IoError(std::io::Error),
 }
 ```
+
+`IoError` represents an operating-system resolution failure and is distinct
+from a missing resource; the public primitives facade preserves that result.
 
 Each variant carries enough information for the response layer to proceed. `Denied` carries the specific rejection reason for error responses.
 

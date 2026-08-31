@@ -839,7 +839,7 @@ pub(crate) fn resolve_to_resource(
         // Root path — return the root directory itself, retaining a handle.
         let dir_handle = match duplicate_raw_handle(root) {
             Ok(h) => h,
-            Err(_) => return ResolvedResource::NotFound,
+            Err(error) => return ResolvedResource::IoError(std::io::Error::other(error)),
         };
         return ResolvedResource::Directory(ResolvedDirectory {
             #[cfg(windows)]
@@ -953,7 +953,7 @@ pub(crate) fn resolve_to_resource(
                 // original OwnedHandle for potential intermediate use.
                 let file_handle = match child.try_clone() {
                     Ok(h) => h,
-                    Err(_) => return ResolvedResource::NotFound,
+                    Err(error) => return ResolvedResource::IoError(std::io::Error::other(error)),
                 };
                 let std_file = match handle_to_std_file(file_handle) {
                     Ok(file) => file,
