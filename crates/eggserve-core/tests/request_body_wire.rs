@@ -1010,7 +1010,7 @@ async fn expect_100_continue_rejected_by_policy() {
         b"POST /test HTTP/1.1\r\n\
           Host: localhost\r\n\
           Content-Length: 5\r\n\
-          Expect: 100-continue\r\n\
+          Expect: 100-Continue\r\n\
           Connection: close\r\n\
           \r\n",
     )

@@ -253,7 +253,7 @@ File-backed path (e.g. file streaming):
 StaticResponsePlan + ResolvedFile
     │
     ▼
-normalize_metadata(status, headers, body_len, is_head)
+normalize_metadata(status, headers, body_len)
     │
     ▼
 Streaming transport (body_source_to_response)

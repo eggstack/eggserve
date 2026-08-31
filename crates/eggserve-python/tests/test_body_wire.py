@@ -170,7 +170,7 @@ class TestChunkedBody(unittest.TestCase):
         def handler(req):
             if req.has_body:
                 chunks = []
-                it = req.body.iter_chunks()
+                it = req.body.iter_chunks(chunk_size=8)
                 for chunk in it:
                     chunks.append(chunk)
                 self._captured["chunks"] = chunks
@@ -180,7 +180,7 @@ class TestChunkedBody(unittest.TestCase):
             root=self._td,
             port=0,
             handler=handler,
-            request_body_mode="buffer",
+            request_body_mode="stream",
             max_request_body_bytes=1024,
         )
         self._server.start()
@@ -228,6 +228,42 @@ class TestChunkedBody(unittest.TestCase):
         self.assertEqual(status, 200)
         all_data = b"".join(self._captured.get("chunks", []))
         self.assertEqual(all_data, b"abc")
+
+    def test_chunked_body_error_with_pending(self):
+        def handler(req):
+            chunks = []
+            try:
+                for chunk in req.body.iter_chunks(chunk_size=8):
+                    chunks.append(chunk)
+            except Exception as error:
+                self._captured["error"] = error
+            self._captured["chunks"] = chunks
+            return Response.text(200, "ok")
+
+        self._server.force_shutdown(2.0)
+        self._server = Server(
+            root=self._td,
+            port=0,
+            handler=handler,
+            request_body_mode="stream",
+            max_request_body_bytes=1024,
+        )
+        self._server.start()
+        self._addr = self._server.addr
+        _wait_for_tcp(self._addr)
+
+        req = (
+            f"POST /test.txt HTTP/1.1\r\n"
+            f"Host: {self._addr}\r\n"
+            f"Transfer-Encoding: chunked\r\n"
+            f"Connection: close\r\n"
+            f"\r\n"
+            f"5\r\nhello\r\n"
+            f"ZZ\r\n"
+        ).encode()
+        resp = _raw_request(self._addr, req)
+        self.assertEqual(self._captured["chunks"], [b"hello"])
+        self.assertIn("error", self._captured)
 
     def test_chunked_single_chunk(self):
         req = (

@@ -70,7 +70,10 @@ impl RequestTarget {
         if raw == "*" {
             return Err(RequestTargetError::AsteriskForm);
         }
-        if raw.bytes().any(|byte| byte.is_ascii_whitespace()) {
+        if raw
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        {
             return Err(RequestTargetError::ContainsWhitespace);
         }
         if raw.starts_with('/') {
@@ -230,6 +233,14 @@ mod tests {
         );
         assert_eq!(
             RequestTarget::parse("/foo\tbar").unwrap_err(),
+            RequestTargetError::ContainsWhitespace
+        );
+    }
+
+    #[test]
+    fn reject_all_ascii_controls() {
+        assert_eq!(
+            RequestTarget::parse("/foo\x1fbar").unwrap_err(),
             RequestTargetError::ContainsWhitespace
         );
     }

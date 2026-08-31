@@ -1178,7 +1178,6 @@ mod tests {
         ));
     }
 
-    #[cfg(unix)]
     #[test]
     fn directory_resolve_child_backslash() {
         let (_tmp, root) = setup();

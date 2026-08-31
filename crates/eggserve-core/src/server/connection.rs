@@ -316,7 +316,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
             // to send a body that will be rejected.
             if effective_policy.is_reject() {
                 if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
-                    if expect == "100-continue" {
+                    if expect
+                        .to_str()
+                        .ok()
+                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("100-continue"))
+                    {
                         crate::ops::global_counters()
                             .body_rejections
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);

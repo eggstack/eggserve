@@ -12,6 +12,10 @@ pub fn validate_components(
             return Err(PathRejection::NulByte);
         }
 
+        if component.chars().any(|c| c.is_ascii_control()) {
+            return Err(PathRejection::ControlCharacter);
+        }
+
         if component.contains('/') {
             return Err(PathRejection::SeparatorAmbiguity);
         }
@@ -166,6 +170,15 @@ mod tests {
         assert_eq!(
             validate_components(&comps, &policy).unwrap_err(),
             PathRejection::NulByte
+        );
+    }
+
+    #[test]
+    fn reject_control_character() {
+        let components = vec!["foo\x1fbar".to_string()];
+        assert_eq!(
+            validate_components(&components, &PathPolicy::default()).unwrap_err(),
+            PathRejection::ControlCharacter
         );
     }
 

@@ -314,7 +314,7 @@ class TestCorpusHeaders(unittest.TestCase):
 #   - "http://..."   → PathPolicyError(unsupported_uri_form)
 #   - "example.com:80" → PathPolicyError(unsupported_uri_form)
 #   - "*"            → PathPolicyError(unsupported_uri_form)
-#   - "/path with spaces" → succeeds (ConfinedPath allows whitespace)
+#   - "/path with spaces" → PathPolicyError(unsupported_uri_form)
 #   - "/search?q=hello"   → succeeds, query stripped (ConfinedPath returns /search)
 #
 # Valid-origin-form cases map cleanly; error cases are tested against the
@@ -370,9 +370,9 @@ class TestCorpusRequestTargets(unittest.TestCase):
         self.assertEqual(ctx.exception.args[1], "unsupported_uri_form")
 
     def test_target_whitespace_in_path(self):
-        rt = RequestTarget.parse("/path with spaces")
-        self.assertEqual(rt.decoded_path, "/path with spaces")
-        self.assertEqual(rt.components, ["path with spaces"])
+        with self.assertRaises(PathPolicyError) as ctx:
+            RequestTarget.parse("/path with spaces")
+        self.assertEqual(ctx.exception.args[1], "unsupported_uri_form")
 
 
 # ---------------------------------------------------------------------------

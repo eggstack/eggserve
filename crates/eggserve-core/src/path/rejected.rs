@@ -9,6 +9,7 @@ pub enum PathRejection {
     MalformedPercentEncoding,
     InvalidUtf8,
     NulByte,
+    ControlCharacter,
     #[allow(dead_code)]
     AbsolutePath,
     ParentComponent,
@@ -33,6 +34,7 @@ impl fmt::Display for PathRejection {
             }
             PathRejection::InvalidUtf8 => write!(f, "invalid UTF-8"),
             PathRejection::NulByte => write!(f, "NUL byte in path"),
+            PathRejection::ControlCharacter => write!(f, "control character in path"),
             PathRejection::AbsolutePath => write!(f, "absolute path"),
             PathRejection::ParentComponent => write!(f, "parent component (..)"),
             PathRejection::CurrentComponent => write!(f, "current component (.)"),
@@ -69,6 +71,7 @@ mod tests {
             ),
             (PathRejection::InvalidUtf8, "invalid UTF-8"),
             (PathRejection::NulByte, "NUL byte in path"),
+            (PathRejection::ControlCharacter, "control character in path"),
             (PathRejection::AbsolutePath, "absolute path"),
             (PathRejection::ParentComponent, "parent component (..)"),
             (PathRejection::CurrentComponent, "current component (.)"),

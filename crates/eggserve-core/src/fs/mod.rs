@@ -121,7 +121,7 @@ fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), Pa
     if child.contains('\0') {
         return Err(PathRejection::NulByte);
     }
-    if cfg!(unix) && child.contains('\\') {
+    if child.contains('\\') {
         return Err(PathRejection::SeparatorAmbiguity);
     }
     if dotfiles_denied && child.starts_with('.') {
@@ -883,9 +883,8 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     #[test]
-    fn validate_child_backslash_unix() {
+    fn validate_child_backslash_on_all_platforms() {
         assert_eq!(
             validate_child_component("foo\\bar", false),
             Err(PathRejection::SeparatorAmbiguity)

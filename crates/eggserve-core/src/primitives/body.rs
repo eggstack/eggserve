@@ -430,6 +430,17 @@ mod tests {
     }
 
     #[test]
+    fn read_range_file_full_inverted_is_empty() {
+        let (_tmp, file) = make_file(b"hello");
+        let mut bs = BodySource::FileFull {
+            file,
+            len: 5,
+            mime: "text/plain",
+        };
+        assert_eq!(bs.read_range(3, 1).unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
     fn read_range_file_range_within_bounds() {
         let (_tmp, file) = make_file(b"hello world");
         let mut bs = BodySource::FileRange {

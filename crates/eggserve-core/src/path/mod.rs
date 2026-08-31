@@ -299,6 +299,14 @@ mod tests {
     }
 
     #[test]
+    fn reject_percent_encoded_control() {
+        assert_eq!(
+            ConfinedPath::parse("/foo%0Abar", &default_policy()).unwrap_err(),
+            PathRejection::ControlCharacter
+        );
+    }
+
+    #[test]
     fn reject_malformed_percent() {
         assert_eq!(
             ConfinedPath::parse("/%ZZ", &default_policy()).unwrap_err(),

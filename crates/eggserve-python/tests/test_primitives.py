@@ -130,6 +130,11 @@ class TestRequestTarget(unittest.TestCase):
             RequestTarget.parse("/hello%00world")
         self.assertEqual(ctx.exception.args[1], "nul_byte")
 
+    def test_parse_control_character_denied(self):
+        with self.assertRaises(PathPolicyError) as ctx:
+            RequestTarget.parse("/hello%1fworld")
+        self.assertEqual(ctx.exception.args[1], "control_character")
+
     def test_parse_backslash_denied_by_default(self):
         with self.assertRaises(PathPolicyError) as ctx:
             RequestTarget.parse("/hello\\world")

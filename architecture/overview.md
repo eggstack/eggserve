@@ -328,7 +328,7 @@ Five distinct error layers, each scoped to a specific subsystem:
 
 | Error Type | Scope | Variants |
 |-----------|-------|----------|
-| `PathRejection` | Path parsing | 16 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
+| `PathRejection` | Path parsing | 17 variants: `Empty`, `TooLong`, `MalformedPercentEncoding`, `ControlCharacter`, `ParentComponent`, `DotfileDenied`, `SymlinkDenied`, `RootEscapeDenied`, ... |
 | `RequestValidationError` | HTTP-level | 6 variants: `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding`, `ConflictingBodyHeaders`, `InvalidRequestTarget` |
 | `ServerError` | Server lifecycle | 10 variants: `Bind`, `Config`, `AlreadyStarted`, `NotStarted`, `Accept`, `TlsSetup`, `Transport`, `ShutdownTimeout`, `Startup`, `Terminal` |
 | `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
@@ -497,7 +497,7 @@ src/
 │   ├── request_target.rs     # origin-form parsing
 │   ├── decode.rs             # single-pass percent decoding
 │   ├── components.rs         # normalization, splitting, validation
-│   ├── rejected.rs           # PathRejection (16 variants)
+│   ├── rejected.rs           # PathRejection (17 variants)
 │   ├── policy.rs             # PathPolicy, DotfilePolicy (path-level)
 │   └── platform.rs           # Windows reserved names, ADS, drive prefixes
 ├── fs/

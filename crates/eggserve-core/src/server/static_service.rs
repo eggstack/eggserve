@@ -157,6 +157,7 @@ fn plan_static_request(
                 crate::path::PathRejection::MalformedPercentEncoding
                     | crate::path::PathRejection::InvalidUtf8
                     | crate::path::PathRejection::NulByte
+                    | crate::path::PathRejection::ControlCharacter
                     | crate::path::PathRejection::Empty
                     | crate::path::PathRejection::UnsupportedUriForm
                     | crate::path::PathRejection::TooLong
@@ -393,10 +394,11 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
     if config.extra_response_headers.is_empty() {
         return;
     }
+    let existing_names: Vec<String> = headers.iter().map(|header| header.name.clone()).collect();
     for (name, value) in &config.extra_response_headers {
-        if !headers
+        if !existing_names
             .iter()
-            .any(|existing| existing.name.eq_ignore_ascii_case(name))
+            .any(|existing| existing.eq_ignore_ascii_case(name))
         {
             headers.push(name.clone(), value.clone());
         }

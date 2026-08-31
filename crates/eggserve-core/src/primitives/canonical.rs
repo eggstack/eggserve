@@ -433,12 +433,7 @@ pub fn normalize_response(
     }
 
     // Apply shared metadata normalization.
-    normalize_metadata(
-        status,
-        response.head.headers_mut(),
-        body_len,
-        request.is_head,
-    )?;
+    normalize_metadata(status, response.head.headers_mut(), body_len)?;
 
     Ok(response)
 }
@@ -478,18 +473,13 @@ pub fn normalize_response(
 ///   except for a matching 304 representation length
 /// - HEAD responses retain Content-Length, including when body_len is zero
 ///
-/// The `is_head` parameter is retained for API compatibility but does not
-/// determine the representation length. Callers MUST supply the
-/// would-have-been-sent body length (which is zero for empty files, but the
-/// original length otherwise), computed before suppressing a HEAD body.
-/// Passing a suppressed body's length silently emits the wrong
-/// `Content-Length` for HEAD.
-#[allow(unused_variables)]
+/// Callers MUST supply the would-have-been-sent representation length, which
+/// is computed before suppressing a HEAD body. Passing a suppressed body's
+/// length emits the wrong `Content-Length` for HEAD.
 pub fn normalize_metadata(
     status: StatusCode,
     headers: &mut HeaderBlock,
     body_len: u64,
-    _is_head: bool,
 ) -> Result<(), ResponseConstructionError> {
     // Rule 1: Strip all hop-by-hop headers.
     strip_hop_by_hop(headers);
@@ -552,7 +542,21 @@ fn remove_header(headers: &mut HeaderBlock, name: &str) {
 
 /// Remove all hop-by-hop headers from the block.
 fn strip_hop_by_hop(headers: &mut HeaderBlock) {
-    headers.retain(|f| !is_hop_by_hop_header(f.name.as_str()));
+    let connection_tokens: Vec<String> = headers
+        .iter()
+        .filter(|field| field.name.as_str().eq_ignore_ascii_case("connection"))
+        .flat_map(|field| field.value.as_str().split(','))
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_ascii_lowercase)
+        .collect();
+
+    headers.retain(|field| {
+        !is_hop_by_hop_header(field.name.as_str())
+            && !connection_tokens
+                .iter()
+                .any(|name| field.name.as_str().eq_ignore_ascii_case(name))
+    });
 }
 
 /// Convert a canonical [`Response`] into a Hyper response with a boxed body.
@@ -1264,7 +1268,7 @@ mod tests {
         headers.push_str("upgrade", "h2c").unwrap();
         headers.push_str("te", "deflate").unwrap();
 
-        normalize_metadata(code, &mut headers, 5, false).unwrap();
+        normalize_metadata(code, &mut headers, 5).unwrap();
 
         assert!(!headers.contains("transfer-encoding"));
         assert!(!headers.contains("connection"));
@@ -1276,13 +1280,29 @@ mod tests {
     }
 
     #[test]
+    fn normalize_metadata_strips_connection_nominated_headers() {
+        let mut headers = HeaderBlock::new();
+        headers
+            .push_str("Connection", "keep-alive, X-Secret")
+            .unwrap();
+        headers.push_str("X-Secret", "private").unwrap();
+        headers.push_str("x-visible", "public").unwrap();
+
+        normalize_metadata(StatusCode::OK, &mut headers, 0).unwrap();
+
+        assert!(!headers.contains("connection"));
+        assert!(!headers.contains("x-secret"));
+        assert!(headers.contains("x-visible"));
+    }
+
+    #[test]
     fn duplicate_content_length_replaced_by_normalized_value() {
         let code = StatusCode::OK;
         let mut headers = HeaderBlock::new();
         headers.push_str("content-length", "999").unwrap();
         headers.push_str("content-length", "888").unwrap();
 
-        normalize_metadata(code, &mut headers, 42, false).unwrap();
+        normalize_metadata(code, &mut headers, 42).unwrap();
 
         let all_cl = headers.get_all("content-length");
         assert_eq!(all_cl.len(), 1, "only one Content-Length must remain");
@@ -1295,8 +1315,7 @@ mod tests {
         headers.push_str("content-length", "42").unwrap();
         headers.push_str("Content-Length", "42").unwrap();
 
-        let error =
-            normalize_metadata(StatusCode::NOT_MODIFIED, &mut headers, 42, false).unwrap_err();
+        let error = normalize_metadata(StatusCode::NOT_MODIFIED, &mut headers, 42).unwrap_err();
         assert_eq!(
             error,
             ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
@@ -1335,7 +1354,7 @@ mod tests {
         headers.push_str("set-cookie", "a=1").unwrap();
         headers.push_str("set-cookie", "b=2").unwrap();
 
-        normalize_metadata(code, &mut headers, 0, false).unwrap();
+        normalize_metadata(code, &mut headers, 0).unwrap();
 
         let all = headers.get_all("set-cookie");
         assert_eq!(all.len(), 2);
@@ -1349,7 +1368,7 @@ mod tests {
         let mut headers = HeaderBlock::new();
         headers.push_str("content-length", "100").unwrap();
 
-        normalize_metadata(code, &mut headers, 100, true).unwrap();
+        normalize_metadata(code, &mut headers, 100).unwrap();
 
         assert_eq!(
             headers.get_first("content-length").unwrap().as_str(),
@@ -1364,7 +1383,7 @@ mod tests {
         let mut headers = HeaderBlock::new();
         headers.push_str("content-length", "100").unwrap();
 
-        normalize_metadata(code, &mut headers, 0, true).unwrap();
+        normalize_metadata(code, &mut headers, 0).unwrap();
 
         assert_eq!(
             headers.get_first("content-length").unwrap().as_str(),

@@ -286,7 +286,7 @@ fn stable_normalize_metadata_accessible() {
     headers.push_str("transfer-encoding", "chunked").unwrap();
     headers.push_str("connection", "keep-alive").unwrap();
 
-    normalize_metadata(StatusCode::OK, &mut headers, 42, false).unwrap();
+    normalize_metadata(StatusCode::OK, &mut headers, 42).unwrap();
 
     assert!(!headers.contains("transfer-encoding"));
     assert!(!headers.contains("connection"));
@@ -334,7 +334,7 @@ fn duplicate_set_cookie_preserved_through_normalize_metadata() {
     headers.push_str("set-cookie", "a=1").unwrap();
     headers.push_str("set-cookie", "b=2").unwrap();
 
-    normalize_metadata(StatusCode::OK, &mut headers, 0, false).unwrap();
+    normalize_metadata(StatusCode::OK, &mut headers, 0).unwrap();
 
     let all = headers.get_all("set-cookie");
     assert_eq!(

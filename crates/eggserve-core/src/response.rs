@@ -41,15 +41,10 @@ pub(crate) fn canonical_error(
             .push_str("allow", "GET, HEAD")
             .expect("canonical error Allow value is valid");
     }
-    crate::primitives::canonical::normalize_metadata(
-        code,
-        &mut headers,
-        body.len() as u64,
-        is_head,
-    )
-    // All current canonical error statuses permit a payload and therefore
-    // cannot trigger the normalizer's body-forbidden metadata error.
-    .expect("canonical error metadata is valid");
+    crate::primitives::canonical::normalize_metadata(code, &mut headers, body.len() as u64)
+        // All current canonical error statuses permit a payload and therefore
+        // cannot trigger the normalizer's body-forbidden metadata error.
+        .expect("canonical error metadata is valid");
     let mut builder = Response::builder().status(status);
     for field in headers.iter() {
         builder = builder.header(field.name.as_str(), field.value.as_str());

@@ -310,7 +310,7 @@ The canonical response types provide transport-independent, Hyper-independent va
   4. Content-Length computation — set to actual body length.
   5. Duplicate end-to-end headers preserved.
 
-- `normalize_metadata(status, headers, body_len, is_head)` is the shared normalization entry point for both in-memory and file-backed response producers. It applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) without consuming a `Response` value. File-streaming producers call this directly.
+- `normalize_metadata(status, headers, body_len)` is the shared normalization entry point for both in-memory and file-backed response producers. It applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) without consuming a `Response` value. File-streaming producers call this directly; `body_len` is the would-have-been-sent representation length for HEAD responses.
 
 **Conversion**: `to_hyper_response(response)` converts a normalized canonical `Response` into a Hyper `Response<BoxBody>`. This is the final step before sending on the wire.
 

@@ -16,6 +16,7 @@ pub fn percent_decode(input: &str) -> Result<String, PathRejection> {
                 let byte = (hi << 4) | lo;
                 match byte {
                     0 => return Err(PathRejection::NulByte),
+                    0x01..=0x1f | 0x7f => return Err(PathRejection::ControlCharacter),
                     // RFC 9110 § 4.2.1: pct-encoded octets must remain
                     // distinguishable from delimiters. Decoding an encoded
                     // separator before segmentation would alias distinct
@@ -28,6 +29,13 @@ pub fn percent_decode(input: &str) -> Result<String, PathRejection> {
                 i += 3;
             }
             b => {
+                if b.is_ascii_control() {
+                    return Err(if b == 0 {
+                        PathRejection::NulByte
+                    } else {
+                        PathRejection::ControlCharacter
+                    });
+                }
                 result.push(b);
                 i += 1;
             }
@@ -104,6 +112,20 @@ mod tests {
     #[test]
     fn reject_nul() {
         assert_eq!(percent_decode("/%00").unwrap_err(), PathRejection::NulByte);
+    }
+
+    #[test]
+    fn reject_ascii_controls() {
+        for encoded in ["/%01", "/%1f", "/%7f"] {
+            assert_eq!(
+                percent_decode(encoded).unwrap_err(),
+                PathRejection::ControlCharacter
+            );
+        }
+        assert_eq!(
+            percent_decode("/foo\x1fbar").unwrap_err(),
+            PathRejection::ControlCharacter
+        );
     }
 
     #[test]

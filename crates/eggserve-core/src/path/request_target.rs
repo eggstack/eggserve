@@ -9,7 +9,10 @@ pub fn parse_origin_form(raw: &str) -> Result<&str, PathRejection> {
         return Err(PathRejection::NulByte);
     }
 
-    if raw.bytes().any(|byte| byte.is_ascii_whitespace()) {
+    if raw
+        .bytes()
+        .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+    {
         return Err(PathRejection::UnsupportedUriForm);
     }
 
@@ -120,6 +123,10 @@ mod tests {
         );
         assert_eq!(
             parse_origin_form("/foo bar").unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+        assert_eq!(
+            parse_origin_form("/foo\x1fbar").unwrap_err(),
             PathRejection::UnsupportedUriForm
         );
     }

@@ -292,6 +292,8 @@ class ListingTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         with open(os.path.join(self.tmp.name, "<x>.txt"), "wb") as stream:
             stream.write(b"x")
+        with open(os.path.join(self.tmp.name, "a\x1b;b.txt"), "wb") as stream:
+            stream.write(b"control")
         self.server = ThreadingHTTPServer(
             ("127.0.0.1", 0), functools.partial(ListingHandler, directory=self.tmp.name)
         )
@@ -317,6 +319,7 @@ class ListingTests(unittest.TestCase):
         response, body = self.request("GET", "/")
         self.assertEqual(response.status, 200)
         self.assertIn(b"&lt;x&gt;.txt", body)
+        self.assertIn(b"a&#x1B;;b.txt", body)
         head, head_body = self.request("HEAD", "/")
         self.assertEqual(head.status, 200)
         self.assertEqual(head.getheader("Content-Length"), str(len(body)))

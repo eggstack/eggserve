@@ -374,6 +374,11 @@ impl PyRequestBody {
                         break 'producer;
                     }
                     Err(e) => {
+                        if !pending.is_empty()
+                            && sender.send(Ok(std::mem::take(&mut pending))).await.is_err()
+                        {
+                            break 'producer;
+                        }
                         let bytes = body.bytes_received();
                         final_bytes.store(bytes, Ordering::Release);
                         let _ = sender.send(Err(e.into())).await;
@@ -709,6 +714,7 @@ impl PyStaticResponder {
                     PathRejection::MalformedPercentEncoding
                         | PathRejection::InvalidUtf8
                         | PathRejection::NulByte
+                        | PathRejection::ControlCharacter
                         | PathRejection::Empty
                         | PathRejection::UnsupportedUriForm
                         | PathRejection::TooLong
@@ -1002,20 +1008,22 @@ fn build_error_response(status: u16, reason: &str) -> PyResult<PyResponse> {
 
 fn directory_listing_bytes(entries: &[(String, bool)]) -> Vec<u8> {
     fn escape(value: &str) -> String {
-        value
-            .chars()
-            .filter(|c| !c.is_control())
-            .fold(String::new(), |mut out, c| {
-                match c {
-                    '&' => out.push_str("&amp;"),
-                    '<' => out.push_str("&lt;"),
-                    '>' => out.push_str("&gt;"),
-                    '"' => out.push_str("&quot;"),
-                    '\'' => out.push_str("&#x27;"),
-                    _ => out.push(c),
-                }
-                out
-            })
+        use std::fmt::Write;
+
+        let mut out = String::with_capacity(value.len());
+        for c in value.chars() {
+            match c {
+                '&' => out.push_str("&amp;"),
+                '<' => out.push_str("&lt;"),
+                '>' => out.push_str("&gt;"),
+                '"' => out.push_str("&quot;"),
+                '\'' => out.push_str("&#x27;"),
+                c if !c.is_control() => out.push(c),
+                c => write!(&mut out, "&#x{:X};", c as u32)
+                    .expect("writing to String cannot fail"),
+            }
+        }
+        out
     }
     fn segment(value: &str) -> String {
         value.bytes().fold(String::new(), |mut out, byte| {
@@ -1334,8 +1342,9 @@ impl PythonCallbackService {
             // Empty bodies (Content-Length: 0 or no Content-Length with no
             // Transfer-Encoding) are treated as bodyless for the Python
             // handler, regardless of method.
-            let has_content =
-                body.declared_length().map_or(false, |len| len > 0) || body.bytes_received() > 0;
+            let has_content = body.declared_length().is_some_and(|len| len > 0)
+                || head.headers().contains("transfer-encoding")
+                || body.bytes_received() > 0;
             if has_content {
                 let declared_length = body.declared_length();
                 let py_body = PyRequestBody {

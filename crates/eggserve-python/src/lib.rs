@@ -169,6 +169,7 @@ fn path_rejection_code(rejection: &PathRejection) -> &'static str {
         PathRejection::MalformedPercentEncoding => "malformed_percent_encoding",
         PathRejection::InvalidUtf8 => "invalid_utf8",
         PathRejection::NulByte => "nul_byte",
+        PathRejection::ControlCharacter => "control_character",
         PathRejection::AbsolutePath => "absolute_path",
         PathRejection::ParentComponent => "traversal_denied",
         PathRejection::CurrentComponent => "current_component",
@@ -192,6 +193,7 @@ fn path_rejection_to_pyerr(rejection: PathRejection) -> PyErr {
         | "empty_path"
         | "unsupported_uri_form"
         | "nul_byte"
+        | "control_character"
         | "malformed_percent_encoding" => PathPolicyError::new_err((msg, code)),
         _ => RequestTargetError::new_err((msg, code)),
     }

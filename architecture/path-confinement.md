@@ -56,7 +56,7 @@ Raw Request Target
 | `request_target.rs` | `path/request_target.rs` | HTTP origin-form parsing |
 | `decode.rs` | `path/decode.rs` | Percent decoding |
 | `components.rs` | `path/components.rs` | Normalization, splitting, validation |
-| `rejected.rs` | `path/rejected.rs` | `PathRejection` enum (16 variants) |
+| `rejected.rs` | `path/rejected.rs` | `PathRejection` enum (17 variants) |
 | `policy.rs` | `path/policy.rs` | `PathPolicy`, `DotfilePolicy` (path-level) |
 | `platform.rs` | `path/platform.rs` | Windows-specific checks |
 
@@ -79,7 +79,7 @@ Methods:
 
 ## Rejection Types (`PathRejection`)
 
-16 variants covering every possible rejection reason:
+17 variants covering every possible rejection reason:
 
 | Variant | Stage | Meaning |
 |---------|-------|---------|
@@ -89,6 +89,7 @@ Methods:
 | `MalformedPercentEncoding` | decode | Invalid `%XX` sequence |
 | `InvalidUtf8` | decode | Decoded bytes are not valid UTF-8 |
 | `NulByte` | decode, components | Decoded path contains NUL |
+| `ControlCharacter` | decode | Decoded path contains an ASCII control character |
 | `AbsolutePath` | (unused) | Path starts with `/` (after normalization) — reserved variant |
 | `ParentComponent` | components | `..` component found |
 | `CurrentComponent` | components | `.` component found |
