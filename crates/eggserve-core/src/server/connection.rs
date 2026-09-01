@@ -391,6 +391,12 @@ pub async fn serve_connection_with_runtime_state<I, S>(
 
             // For Buffer/Stream policies, create RequestBody with proper limits.
             // For Reject with no body, create an empty body (nothing to reject).
+            // B-01: `declared_length > limit` is rejected above before `RequestBody`
+            // construction. For `Transfer-Encoding: chunked` (no declared length)
+            // enforcement is via `max_bytes` only. `Buffer` pre-buffers with
+            // `read_all()` and fails fast; `Stream` delegates to the handler
+            // under `min(body_read_timeout, handler_timeout)` and fails lazily
+            // as `RequestBody` is consumed — intentional behavioral difference.
             let request_body = match &effective_policy {
                 RequestBodyPolicy::Reject => crate::primitives::request_body::RequestBody::empty(),
                 RequestBodyPolicy::Buffer { max_bytes }
@@ -545,7 +551,9 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                 RequestBodyPolicy::Stream { .. } => {
                     // For Stream mode the service call (including body
                     // consumption) runs under a total deadline of
-                    // min(body_read_timeout, handler_timeout).
+                    // `min(body_read_timeout, handler_timeout)` (see
+                    // `docs/timeout-reference.md`). `Buffer` mode applies the
+                    // two timeouts separately; `Stream` collapses them.
                     let effective_timeout = body_read_timeout.min(handler_timeout);
                     let connection =
                         build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
@@ -586,13 +594,34 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                             service_err.to_response_with_head(is_head)
                         }
                         Err(_elapsed) => {
-                            crate::ops::Logger::global().emit(crate::ops::Event::new(
-                                crate::ops::Severity::Warn,
-                                crate::ops::EventKind::ServiceTimeout,
-                                "handler timed out",
-                            ));
-                            ServiceError::timeout("handler timed out".to_string())
-                                .to_response_with_head(is_head)
+                            // The collapsed `Stream` timeout hides whether the
+                            // stall was on body I/O or handler logic. When the
+                            // body is still unconsumed the stall is on I/O, so
+                            // surface it as a `BodyReadTimeout` (incrementing the
+                            // same counter as the `Buffer` path) for operator
+                            // observability; otherwise it is a handler timeout.
+                            let body_pending =
+                                !consumed_flag.load(std::sync::atomic::Ordering::Acquire);
+                            if body_pending {
+                                crate::ops::global_counters()
+                                    .body_read_timeouts
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                    crate::ops::Severity::Warn,
+                                    crate::ops::EventKind::BodyReadTimeout,
+                                    "body read timeout",
+                                ));
+                                ServiceError::timeout("body read timeout".to_string())
+                                    .to_response_with_head(is_head)
+                            } else {
+                                crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                    crate::ops::Severity::Warn,
+                                    crate::ops::EventKind::ServiceTimeout,
+                                    "handler timed out",
+                                ));
+                                ServiceError::timeout("handler timed out".to_string())
+                                    .to_response_with_head(is_head)
+                            }
                         }
                     };
 

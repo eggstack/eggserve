@@ -54,7 +54,10 @@ pub(crate) fn validate_static_metadata_with_limits(
     max_extra_headers: usize,
     max_extra_header_bytes: usize,
 ) -> Result<(), String> {
-    let content_type = HeaderValue::new(default_content_type.trim())
+    // `HeaderValue::new` trims OWS (SP/HTAB) and rejects control characters;
+    // no outer `trim()` is needed — passing the raw value preserves the
+    // precise `InvalidValue` signal for leading/trailing control bytes.
+    let content_type = HeaderValue::new(default_content_type)
         .map_err(|e| format!("invalid default content type: {e}"))?;
     if content_type.as_str().is_empty() {
         return Err("default content type must be a non-empty value without CR/LF/NUL".into());
@@ -79,16 +82,18 @@ pub(crate) fn validate_static_metadata_with_limits(
     }
     for (name, value) in extra_response_headers {
         HeaderName::new(name.clone()).map_err(|e| format!("invalid extra response header: {e}"))?;
-        if value.trim().is_empty() {
+        // `HeaderValue::new` canonicalizes by trimming SP/HTAB OWS; a value
+        // that is empty after that trimming is whitespace-only and must be
+        // rejected. No separate `value.trim()` check is needed — the stored
+        // header is later canonicalized again at emission time
+        // (`static_service::append_extra_headers` and Python
+        // `apply_static_metadata` trim via `HeaderValue`), so validation and
+        // wire value agree.
+        let canonical = HeaderValue::new(value.clone())
+            .map_err(|e| format!("invalid extra response header: {e}"))?;
+        if canonical.as_str().is_empty() {
             return Err(format!(
                 "invalid extra response header: value for {name} must contain non-whitespace"
-            ));
-        }
-        let value = HeaderValue::new(value.clone())
-            .map_err(|e| format!("invalid extra response header: {e}"))?;
-        if value.as_str().is_empty() {
-            return Err(format!(
-                "invalid extra response header: value for {name} must not be empty"
             ));
         }
         let lower = name.to_ascii_lowercase();

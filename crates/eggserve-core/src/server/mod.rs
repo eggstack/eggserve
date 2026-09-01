@@ -702,7 +702,14 @@ fn extract_tls_info(
 ///
 /// Rate-limits repeated identical errors: emits the first occurrence, then
 /// a summary every 10 consecutive identical errors, resetting on success
-/// or a different error kind.
+/// or a different error kind. Grouping is intentionally coarse: it keys on
+/// `EventKind` (`ListenerTransientError` / `ResourceExhaustion` /
+/// `ListenerPersistentError`) rather than `io::ErrorKind`, so a burst of
+/// `ConnectionAborted` followed by `TimedOut` (both `ListenerTransientError`)
+/// is seen as the same kind and rate-limited together. This is conservative
+/// — no error is lost forever (first + every 10th is emitted) — and a finer
+/// `format!("{:?}/{:?}", event_kind, kind)` key could be used if per-variant
+/// granularity is needed.
 ///
 /// Returns `true` if the error is fatal and the accept loop should terminate.
 #[allow(clippy::collapsible_match)]

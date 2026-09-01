@@ -414,12 +414,15 @@ def _validate_static_metadata(default_content_type, extra_response_headers):
             raise ValueError("invalid extra response header name")
         if name.lower() in _STATIC_RESERVED_HEADERS:
             raise ValueError(f"extra response header is runtime-owned: {name}")
+        # Canonicalize OWS (SP/HTAB) so validation and wire value agree — mirrors
+        # Rust's `HeaderValue::new` trimming in `config::validate_static_metadata`.
+        canonical_value = value.strip(" \t")
         total_bytes += len(name.encode()) + len(value.encode())
         if total_bytes > _MAX_EXTRA_HEADER_BYTES:
             raise ValueError(
                 f"extra_response_headers must not exceed {_MAX_EXTRA_HEADER_BYTES} bytes"
             )
-        result.append((name, value))
+        result.append((name, canonical_value))
     return default_content_type, result
 
 

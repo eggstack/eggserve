@@ -406,6 +406,9 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
     // preventing override of runtime-owned headers. Check only against the
     // original planned headers, not against other extra headers already
     // appended, so duplicate names within `extra_response_headers` are kept.
+    // Values are canonicalized via `HeaderValue` (trimming OWS) so validation
+    // (`config::validate_static_metadata`) and wire value agree — a value like
+    // `"  hello  "` is stored verbatim in `ServeConfig` but emitted as `"hello"`.
     let existing: Vec<String> = headers
         .iter()
         .map(|header| header.name.to_ascii_lowercase())
@@ -415,7 +418,13 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
             .iter()
             .any(|existing| existing.eq_ignore_ascii_case(name))
         {
-            headers.push(name.clone(), value.clone());
+            // `HeaderValue` is infallible here — `ServeConfig` was already
+            // validated — but fall back to the raw value if parsing fails so
+            // an invalid config cannot panic the service.
+            let canonical = crate::primitives::header_block::HeaderValue::new(value.clone())
+                .map(|v| v.as_str().to_owned())
+                .unwrap_or_else(|_| value.clone());
+            headers.push(name.clone(), canonical);
         }
     }
 }

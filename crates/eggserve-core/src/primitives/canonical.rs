@@ -443,11 +443,16 @@ pub fn normalize_response(
 /// Normalize response metadata without consuming a response body.
 ///
 /// This is the shared normalization entry point for both in-memory and
-/// file-backed response producers. It applies:
+/// file-backed response producers. `normalize_metadata` itself is
+/// HEAD-agnostic: callers MUST pass the would-have-been-sent representation
+/// length (the pre-suppression length for HEAD, i.e. the equivalent GET
+/// length) as `body_len`. The function then applies:
 ///
-/// 1. Strip runtime-owned `Transfer-Encoding`.
-/// 2. HEAD responses retain `Content-Length` from the caller-supplied
-///    equivalent GET representation length, including for zero-length bodies.
+/// 1. Strip runtime-owned `Transfer-Encoding` (and all hop-by-hop headers).
+/// 2. Payload-permitting statuses (including HEAD): set `Content-Length` to
+///    `body_len`, retaining the representation length even for zero-length
+///    bodies. HEAD callers pass the pre-suppression length so the header is
+///    correct.
 /// 3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`,
 ///    except that 304 may retain a matching representation length. A
 ///    caller-supplied `Content-Length` on 205 is rejected because RFC 9110
@@ -666,6 +671,11 @@ fn file_body(
     permit: Option<CountingFileStreamPermit>,
     stream_chunk_size: usize,
 ) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
+    // B-03 note: each chunk iteration allocates a fresh `vec![0; chunk_len]`
+    // (moved into `Bytes`). For the default 8 KiB chunk size the cost is modest;
+    // for large `stream_chunk_size` (up to 1 MiB) the allocation rate scales with
+    // `file_len / chunk_size`. `BytesMut` reuse would reduce this but is a
+    // pure optimization with no correctness impact (see `benchmarks/088-baseline`).
     use bytes::Bytes;
     use futures_util::stream;
     use http_body_util::{BodyExt, StreamBody};
@@ -743,6 +753,9 @@ fn file_body(
 async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::io::Result<usize> {
     use tokio::io::AsyncReadExt;
 
+    // `tokio::io::AsyncReadExt::read` retries `Interrupted` internally, so no
+    // explicit handling is needed here. `Ok(0)` is treated as EOF per the
+    // `AsyncRead` contract and bubbled as `UnexpectedEof` by the caller.
     let mut bytes_read = 0;
     while bytes_read < buffer.len() {
         let count = file.read(&mut buffer[bytes_read..]).await?;

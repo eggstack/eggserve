@@ -57,12 +57,16 @@ pub enum BodySource {
     /// An in-memory byte buffer.
     Bytes(Vec<u8>),
     /// A full static file. The file was opened during resolution.
+    /// `len` is the file length; `BodySource::len()` returns the same value
+    /// (the response length) for this variant.
     FileFull {
         file: File,
         len: u64,
         mime: &'static str,
     },
-    /// A byte range of a static file.
+    /// A byte range of a static file. `total_len` is the file length, while
+    /// `range` describes the response slice; `BodySource::len()` returns
+    /// `range.len()` (the response length), not `total_len`.
     FileRange {
         file: File,
         range: FileRange,
@@ -82,7 +86,10 @@ impl BodySource {
         }
     }
 
-    /// Returns the content length in bytes, if known without performing I/O.
+    /// Returns the response content length in bytes, if known without I/O.
+    ///
+    /// For `FileFull` this is the file length; for `FileRange` it is
+    /// `range.len()` (the response length), not `total_len` (the file length).
     pub fn len(&self) -> u64 {
         match self {
             Self::Empty => 0,
@@ -110,6 +117,15 @@ impl BodySource {
     /// This is suitable for small files and test verification. For production
     /// streaming, the service layer should convert the body source to a Hyper
     /// streaming body instead of reading into memory.
+    ///
+    /// # Cursor sensitivity
+    ///
+    /// `FileFull` reads from the current file cursor (`read_to_end` without a
+    /// preceding `seek`), while `FileRange` seeks to `range.start` first.
+    /// `BodySource` is one-shot — each `ResolvedFile` produces exactly one
+    /// `BodySource` and the transport consumes it once (`file_body` seeks
+    /// correctly). Reusing the same `BodySource` after a partial `read_all` or
+    /// `read_range` without seeking to `Start(0)` may return empty bytes.
     ///
     /// # Errors
     ///
@@ -141,6 +157,12 @@ impl BodySource {
     /// Returns at most `max_bytes` bytes. If the body is larger, the excess
     /// is silently truncated. This prevents unbounded allocation when reading
     /// file-backed bodies whose size may be large.
+    ///
+    /// # Cursor sensitivity
+    ///
+    /// `FileRange` seeks to `range.start`; `FileFull` reads from the current
+    /// cursor without seeking (consistent with `read_all`). The one-shot
+    /// contract applies — do not reuse after a prior read without seeking.
     ///
     /// # Errors
     ///

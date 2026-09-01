@@ -54,7 +54,7 @@ than using an unbounded value.
 - **Clock starts**: Body ingestion begins (after headers parsed).
 - **Progress resets**: No — this is a total deadline for body consumption, not an inactivity timeout.
 - **Progress definition**: All body frames consumed (EOF received).
-- **Enforcement**: `tokio::time::timeout(body_read_timeout, request_body.read_all())` for Buffer mode; combined `body_read_timeout.min(handler_timeout)` for Stream mode.
+- **Enforcement**: `tokio::time::timeout(body_read_timeout, request_body.read_all())` for Buffer mode; combined `body_read_timeout.min(handler_timeout)` for Stream mode. In Stream mode the collapsed deadline is distinguished at timeout time via the shared `consumed` flag: if the body is still unconsumed the timeout increments `body_read_timeouts` and emits `BodyReadTimeout`; otherwise it is surfaced as `ServiceTimeout`/`handler timed out`. This gives operators distinct counters for body stalls vs handler stalls even though the runtime collapses the deadline.
 - **Terminal behavior**: Returns `408 Request Timeout` response with `Connection: close`.
 - **Cleanup**: Body dropped; connection closed (body errors are terminal for the connection).
 

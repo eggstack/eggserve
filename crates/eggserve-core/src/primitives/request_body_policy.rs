@@ -28,7 +28,12 @@ pub enum RequestBodyPolicy {
     /// Stream the request body in chunks.
     ///
     /// `max_bytes` is the cumulative decoded-size limit across all chunks.
-    /// The stream is terminated when the limit is reached.
+    /// The stream is terminated when the limit is reached. Unlike `Buffer`,
+    /// which pre-buffers via `read_all()` under `body_read_timeout` and fails
+    /// fast on limit, `Stream` fails lazily as the handler reads (`Buffer`
+    /// vs `Stream` behavioral difference — intentional, not a bug; chunked
+    /// bodies without `Content-Length` are bounded only by `max_bytes` as
+    /// the handler consumes them).
     Stream { max_bytes: u64 },
 }
 

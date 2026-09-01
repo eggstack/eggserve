@@ -464,10 +464,15 @@ impl Stream for RequestBody {
                             received: new_total,
                         })));
                     }
+                    let data_len = data.len();
                     let chunk = Bytes::copy_from_slice(&data[*offset..*offset + chunk_size]);
-                    *offset += chunk_size;
+                    let new_offset = *offset + chunk_size;
+                    *offset = new_offset;
                     self.bytes_received = new_total;
-                    if self.state == BodyState::Unread {
+                    if new_offset >= data_len {
+                        self.state = BodyState::Complete;
+                        self.mark_consumed();
+                    } else if self.state == BodyState::Unread {
                         self.state = BodyState::Streaming;
                     }
                     Poll::Ready(Some(Ok(chunk)))

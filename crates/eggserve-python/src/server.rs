@@ -955,7 +955,14 @@ fn apply_static_metadata(
             .keys()
             .any(|existing| existing.eq_ignore_ascii_case(name))
         {
-            response.extra_headers.push((name.clone(), value.clone()));
+            // Canonicalize via `HeaderValue` (trims SP/HTAB OWS) so validation
+            // and wire value agree — mirrors `static_service::append_extra_headers`.
+            let canonical = eggserve_core::primitives::header_block::HeaderValue::new(
+                value.clone(),
+            )
+            .map(|v| v.as_str().to_owned())
+            .unwrap_or_else(|_| value.clone());
+            response.extra_headers.push((name.clone(), canonical));
         }
     }
     Ok(())
