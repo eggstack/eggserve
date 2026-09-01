@@ -211,8 +211,9 @@ fn text_log_sanitize_long_input() {
 #[test]
 fn sanitize_path_extracts_last_component() {
     assert_eq!(ops::sanitize_path("/foo/bar/baz.txt"), "baz.txt");
-    assert_eq!(ops::sanitize_path("no/slash/here/"), "");
+    assert_eq!(ops::sanitize_path("no/slash/here/"), "here");
     assert_eq!(ops::sanitize_path("only-one"), "only-one");
+    assert_eq!(ops::sanitize_path("/"), "/");
 }
 
 #[test]

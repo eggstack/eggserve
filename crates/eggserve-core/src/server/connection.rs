@@ -690,7 +690,6 @@ fn body_error_to_response(
         400 => "400 Bad Request\n",
         408 => "408 Request Timeout\n",
         413 => "413 Payload Too Large\n",
-        501 => "501 Not Implemented\n",
         _ => "500 Internal Server Error\n",
     };
     let is_head = _head.method().is_head();

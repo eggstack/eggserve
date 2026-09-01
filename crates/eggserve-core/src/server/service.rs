@@ -63,7 +63,15 @@ impl ServiceError {
     }
 
     /// Create a rejection with a specific status code.
+    ///
+    /// Status codes outside the canonical HTTP range (100..=599) are mapped
+    /// to 500 so service errors cannot bypass the response status invariant.
     pub fn rejected(status: u16, message: impl Into<String>) -> Self {
+        let status = if (100..=599).contains(&status) {
+            status
+        } else {
+            500
+        };
         Self {
             kind: ServiceErrorKind::Rejected(status),
             message: message.into(),
@@ -411,11 +419,23 @@ mod tests {
             hyper::StatusCode::SERVICE_UNAVAILABLE
         );
 
-        // Rejected(999) → 999 (valid status code, used as-is)
+        // Invalid rejection statuses collapse to the canonical internal error.
         let err = ServiceError::rejected(999, "weird");
         assert_eq!(
             err.to_response().status(),
-            hyper::StatusCode::from_u16(999).unwrap()
+            hyper::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let err = ServiceError::rejected(600, "too high");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::INTERNAL_SERVER_ERROR
+        );
+
+        let err = ServiceError::rejected(99, "too low");
+        assert_eq!(
+            err.to_response().status(),
+            hyper::StatusCode::INTERNAL_SERVER_ERROR
         );
     }
 

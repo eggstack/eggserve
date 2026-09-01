@@ -235,9 +235,18 @@ pub fn sanitize_text_field(text: &str) -> String {
 }
 
 pub fn sanitize_path(path: &str) -> String {
-    let last_component = path.rsplit('/').next().unwrap_or(path);
-    let without_query = last_component.split('?').next().unwrap_or(last_component);
-    let sanitized: String = without_query
+    let without_query = path.split('?').next().unwrap_or(path);
+    let last_component = without_query
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .unwrap_or(without_query);
+    let last_component = if last_component.is_empty() && without_query == "/" {
+        "/"
+    } else {
+        last_component
+    };
+    let sanitized: String = last_component
         .chars()
         .filter(|c| (0x20..=0x7E).contains(&(*c as u32)))
         .collect();
@@ -647,9 +656,10 @@ mod tests {
     #[test]
     fn sanitize_path_extracts_last_component() {
         assert_eq!(sanitize_path("/foo/bar/baz.txt"), "baz.txt");
-        assert_eq!(sanitize_path("no/slash/here/"), "");
+        assert_eq!(sanitize_path("no/slash/here/"), "here");
         assert_eq!(sanitize_path("only-one"), "only-one");
         assert_eq!(sanitize_path("/a/b/c/d/e/f.txt"), "f.txt");
+        assert_eq!(sanitize_path("/"), "/");
     }
 
     #[test]

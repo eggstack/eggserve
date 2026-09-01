@@ -492,7 +492,7 @@ impl PySecureRoot {
 
     fn resolve(&self, target: &PyRequestTarget) -> PyResult<PyResolvedResource> {
         let result = self.inner.resolve(&target.confined);
-        Ok(PyResolvedResource::from_rust(result, self))
+        Ok(PyResolvedResource::from_rust(result, &self.inner))
     }
 
     #[pyo3(signature = (raw_path, path_policy=None))]
@@ -512,7 +512,7 @@ impl PySecureRoot {
                 .resolve_uri(raw_path)
                 .map_err(path_rejection_to_pyerr)?,
         };
-        Ok(PyResolvedResource::from_rust(result, self))
+        Ok(PyResolvedResource::from_rust(result, &self.inner))
     }
 
     fn __repr__(&self) -> String {
@@ -529,11 +529,10 @@ struct PyResolvedResource {
     kind: String,
     file_data: Option<PyResolvedFileData>,
     dir_components: Option<Vec<String>>,
-    root_path: Option<std::path::PathBuf>,
     denied_reason_msg: Option<String>,
     denied_code: Option<String>,
     error_msg: Option<String>,
-    static_policy: Option<RustStaticPolicy>,
+    secure_root: Option<std::sync::Arc<RustSecureRoot>>,
 }
 
 struct PyResolvedFileData {
@@ -602,14 +601,10 @@ impl PyResolvedResource {
 
     #[getter]
     fn directory(&self) -> PyResult<PyResolvedDirectory> {
-        match (&self.dir_components, &self.root_path) {
-            (Some(comps), Some(rp)) => Ok(PyResolvedDirectory {
+        match (&self.dir_components, &self.secure_root) {
+            (Some(comps), Some(root)) => Ok(PyResolvedDirectory {
                 components: comps.clone(),
-                root_path: rp.clone(),
-                static_policy: self
-                    .static_policy
-                    .clone()
-                    .unwrap_or_else(RustStaticPolicy::safe_default),
+                root: std::sync::Arc::clone(root),
             }),
             _ => Err(EggserveError::new_err((
                 "resource is not a directory",
@@ -648,8 +643,7 @@ impl PyResolvedResource {
 }
 
 impl PyResolvedResource {
-    fn from_rust(resource: RustResolvedResource, root: &PySecureRoot) -> Self {
-        let static_policy = root.inner.policy().clone();
+    fn from_rust(resource: RustResolvedResource, root: &RustSecureRoot) -> Self {
         match resource {
             RustResolvedResource::File(f) => {
                 let ct = f.content_type().to_string();
@@ -664,32 +658,29 @@ impl PyResolvedResource {
                         content_type: ct,
                     }),
                     dir_components: None,
-                    root_path: None,
                     denied_reason_msg: None,
                     denied_code: None,
                     error_msg: None,
-                    static_policy: Some(static_policy),
+                    secure_root: None,
                 }
             }
             RustResolvedResource::Directory(d) => Self {
                 kind: "directory".to_string(),
                 file_data: None,
                 dir_components: Some(d.components().to_vec()),
-                root_path: Some(root.root_path.clone()),
                 denied_reason_msg: None,
                 denied_code: None,
                 error_msg: None,
-                static_policy: Some(static_policy),
+                secure_root: Some(std::sync::Arc::new(root.clone())),
             },
             RustResolvedResource::NotFound => Self {
                 kind: "not_found".to_string(),
                 file_data: None,
                 dir_components: None,
-                root_path: None,
                 denied_reason_msg: None,
                 denied_code: None,
                 error_msg: None,
-                static_policy: None,
+                secure_root: None,
             },
             RustResolvedResource::Denied(reason) => {
                 let (msg, code) = match &reason {
@@ -711,22 +702,20 @@ impl PyResolvedResource {
                     kind: "denied".to_string(),
                     file_data: None,
                     dir_components: None,
-                    root_path: None,
                     denied_reason_msg: Some(msg),
                     denied_code: Some(code),
                     error_msg: None,
-                    static_policy: None,
+                    secure_root: None,
                 }
             }
             RustResolvedResource::IoError(error) => Self {
                 kind: "error".to_string(),
                 file_data: None,
                 dir_components: None,
-                root_path: None,
                 denied_reason_msg: None,
                 denied_code: None,
                 error_msg: Some(error.to_string()),
-                static_policy: None,
+                secure_root: None,
             },
         }
     }
@@ -895,8 +884,7 @@ impl PyResolvedFile {
 #[pyclass(name = "ResolvedDirectory", frozen)]
 struct PyResolvedDirectory {
     components: Vec<String>,
-    root_path: std::path::PathBuf,
-    static_policy: RustStaticPolicy,
+    root: std::sync::Arc<RustSecureRoot>,
 }
 
 #[pymethods]
@@ -908,14 +896,15 @@ impl PyResolvedDirectory {
 
     fn list(&self) -> PyResult<PyObject> {
         Python::with_gil(|py| {
-            let root = RustSecureRoot::new(&self.root_path, self.static_policy.clone())
-                .map_err(io_err_to_pyerr)?;
             let confined = confined_from_components(&self.components)?;
-            let result = root.resolve(&confined);
+            let result = self.root.resolve(&confined);
             match result {
                 RustResolvedResource::Directory(dir) => {
                     let entries = dir
-                        .list(&root, eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES)
+                        .list(
+                            self.root.as_ref(),
+                            eggserve_core::limits::DEFAULT_MAX_LISTING_ENTRIES,
+                        )
                         .map_err(io_err_to_pyerr)?;
                     let py_list = PyList::empty(py);
                     for entry in &entries {
@@ -938,20 +927,12 @@ impl PyResolvedDirectory {
 
     fn resolve_child(&self, child: &str) -> PyResult<PyResolvedResource> {
         Python::with_gil(|_py| {
-            let root = RustSecureRoot::new(&self.root_path, self.static_policy.clone())
-                .map_err(io_err_to_pyerr)?;
             let confined = confined_from_components(&self.components)?;
-            let result = root.resolve(&confined);
+            let result = self.root.resolve(&confined);
             match result {
                 RustResolvedResource::Directory(dir) => {
-                    let child_result = dir.resolve_child(child, &root);
-                    Ok(PyResolvedResource::from_rust(
-                        child_result,
-                        &PySecureRoot {
-                            root_path: self.root_path.clone(),
-                            inner: root,
-                        },
-                    ))
+                    let child_result = dir.resolve_child(child, self.root.as_ref());
+                    Ok(PyResolvedResource::from_rust(child_result, self.root.as_ref()))
                 }
                 _ => Err(SecureRootError::new_err((
                     "path does not resolve to a directory",

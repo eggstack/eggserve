@@ -582,6 +582,21 @@ class TestResolvedDirectory(unittest.TestCase):
             f = child.file
             self.assertEqual(f.length, 5)
 
+    @unittest.skipUnless(os.name == "posix", "requires renameable open directories")
+    def test_directory_reuses_pinned_root_after_root_rename(self):
+        with tempfile.TemporaryDirectory() as td:
+            with open(os.path.join(td, "child.txt"), "w") as f:
+                f.write("child")
+            root = SecureRoot(td)
+            directory = root.resolve_path("/").directory
+            moved = td + ".moved"
+            os.rename(td, moved)
+            try:
+                self.assertIn("child.txt", [name for name, _ in directory.list()])
+                self.assertTrue(directory.resolve_child("child.txt").is_file)
+            finally:
+                os.rename(moved, td)
+
     def test_resolve_child_not_found(self):
         with tempfile.TemporaryDirectory() as td:
             sr = SecureRoot(td)
