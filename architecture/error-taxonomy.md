@@ -6,7 +6,7 @@ eggserve uses five distinct error layers, each scoped to a specific subsystem. T
 
 | Layer | Type | Scope | Variants |
 |-------|------|-------|----------|
-| Path parsing | `PathRejection` | Request target validation | 16 |
+| Path parsing | `PathRejection` | Request target validation | 17 |
 | HTTP-level | `RequestValidationError` | Request framing and method | 6 |
 | Server lifecycle | `ServerError` | Startup, bind, shutdown | 10 |
 | Per-request | `ServiceError` | Service handler failures | 4 (kinds) |
@@ -144,6 +144,7 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 - `is_timeout()` — read timeout
 - `is_disconnect()` — disconnect or premature EOF
 - `is_consumption_state()` — already consumed or mixed mode
+- `is_transport()` — transport-level failure (requires `Connection: close`)
 
 ---
 

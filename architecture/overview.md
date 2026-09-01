@@ -52,7 +52,7 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Covers |
 |----------|--------|
-| [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parsing, decoding, normalization, component validation, 16 rejection variants |
+| [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parsing, decoding, normalization, component validation, 17 rejection variants |
 | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows), TOCTOU prevention |
 | [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`, safe defaults, CLI/Python flag mapping |
 | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries, platform security |
@@ -153,7 +153,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
-| Path confinement | `eggserve-core::path` | [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parse, decode, normalize, validate, platform checks. 16 rejection variants |
+| Path confinement | `eggserve-core::path` | [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parse, decode, normalize, validate, platform checks. 17 rejection variants |
 | Filesystem confinement | `eggserve-core::fs` | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows). Prevents symlink escape and TOCTOU |
 | Policy system | `eggserve-core::policy` | [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`. Safe defaults enforced |
 | Security model | cross-cutting | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries |

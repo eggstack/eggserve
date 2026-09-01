@@ -402,15 +402,20 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
     if config.extra_response_headers.is_empty() {
         return;
     }
-    let mut seen: Vec<String> = headers
+    // Preserve duplicate extra headers (ordered, duplicate-preserving) while
+    // preventing override of runtime-owned headers. Check only against the
+    // original planned headers, not against other extra headers already
+    // appended, so duplicate names within `extra_response_headers` are kept.
+    let existing: Vec<String> = headers
         .iter()
         .map(|header| header.name.to_ascii_lowercase())
         .collect();
     for (name, value) in &config.extra_response_headers {
-        let lower = name.to_ascii_lowercase();
-        if !seen.iter().any(|existing| existing == &lower) {
+        if !existing
+            .iter()
+            .any(|existing| existing.eq_ignore_ascii_case(name))
+        {
             headers.push(name.clone(), value.clone());
-            seen.push(lower);
         }
     }
 }

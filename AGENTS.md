@@ -203,7 +203,7 @@ plus non-goals, dependency-policy, toolchain-support, release-process,
 release-contract, python-packaging, secure-root, api-stability, fuzzing,
 invariants, compatibility, body-migration, extension-contract.
 
-`plans/` records design history through Plan 144 plus roadmap files
+`plans/` records historical design/change records plus roadmap files
 (`ROADMAP.md`, `RELEASE-READINESS-ROADMAP.md`). Plans are change-trace
 records, **not** normative API documentation; treat README.md, `docs/`, and
 `architecture/` as owning current invariants.

@@ -122,7 +122,7 @@ documented separately in `docs/python-api.md`.
 | `StaticService` | experimental | Hardened static file service |
 | `StaticServiceBuilder` | experimental | Builder for StaticService |
 | `ServiceError` | experimental | Per-request errors: Internal, Rejected, Panic, Timeout |
-| `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal |
+| `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal |
 | `LifecycleState` | experimental | Lifecycle state machine: Created, Starting, Running, Draining, Stopped, Failed |
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
 
@@ -159,7 +159,7 @@ documented separately in `docs/python-api.md`.
 | `ConfinedPath` | stable | Parsed request target |
 | `PathDotfilePolicy` | stable | Alias for `path::DotfilePolicy` |
 | `PathPolicy` | stable | Parse-time dotfile/backslash policy |
-| `PathRejection` | stable | 16-variant rejection taxonomy |
+| `PathRejection` | stable | 17-variant rejection taxonomy |
 
 ### `primitives` Module — Policy Types (re-exported)
 

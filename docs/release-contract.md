@@ -47,7 +47,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `service_fn` | Create a `Service` from a closure |
 | `StaticService` | Hardened static file service implementing `Service` |
 | `ServiceError` | Per-request errors: Internal, Rejected, Panic, Timeout |
-| `ServerError` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, Accept, ShutdownTimeout, Startup, Terminal |
+| `ServerError` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal |
 | `LifecycleState` | Lifecycle state machine: Created → Starting → Running → Draining → Stopped/Failed |
 | `ShutdownResult` | Returned by shutdown operations, carries final `LifecycleState` |
 
