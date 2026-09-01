@@ -62,10 +62,12 @@ Binding to `0.0.0.0` or `::` without `--public` is rejected with an error.
 | Flag | Description | Default |
 |------|-------------|---------|
 | `--content-type TYPE` | Content type used when a file suffix has no detected MIME type | `application/octet-stream` |
-| `-H NAME VALUE`, `--header NAME VALUE` | Add a repeatable safe response header to final `200` static responses | none |
+| `-H NAME VALUE`, `--header NAME VALUE` | Add a repeatable safe response header to final `200` static responses; `--header=NAME=VALUE` is also accepted | none |
 
 Header values preserve command-line order. Runtime-owned metadata and
-hop-by-hop headers are rejected rather than silently overridden.
+hop-by-hop headers are rejected rather than silently overridden. Static
+metadata is bounded by 32 extra headers and 8 KiB of combined header names and
+values.
 
 ### Resource limits
 

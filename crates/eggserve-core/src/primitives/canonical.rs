@@ -429,7 +429,9 @@ pub fn normalize_response(
     // Rule 2: Body-forbidden statuses — discard body.
     if !status.permits_payload_body() {
         response.body = Some(ResponseBody::Empty);
-        body_len = 0;
+        if status != StatusCode::NOT_MODIFIED {
+            body_len = 0;
+        }
     }
 
     // Apply shared metadata normalization.
@@ -1085,7 +1087,14 @@ mod tests {
             .body(ResponseBody::Bytes(b"hello".to_vec()))
             .unwrap();
         let normalized = normalize_response(response, &NormalizeRequest::new(false)).unwrap();
-        assert!(!normalized.headers().contains("content-length"));
+        assert_eq!(
+            normalized
+                .headers()
+                .get_first("content-length")
+                .unwrap()
+                .as_str(),
+            "5"
+        );
 
         let mismatched = Response::builder()
             .status(StatusCode::NOT_MODIFIED)
@@ -1095,6 +1104,27 @@ mod tests {
             .unwrap();
         let normalized = normalize_response(mismatched, &NormalizeRequest::new(false)).unwrap();
         assert!(!normalized.headers().contains("content-length"));
+    }
+
+    #[test]
+    fn normalize_head_304_preserves_representation_length() {
+        let response = Response::builder()
+            .status(StatusCode::NOT_MODIFIED)
+            .header("content-length", "10")
+            .unwrap()
+            .body(ResponseBody::Bytes(vec![b'x'; 10]))
+            .unwrap();
+
+        let normalized = normalize_response(response, &NormalizeRequest::new(true)).unwrap();
+        assert!(normalized.body().unwrap().is_empty());
+        assert_eq!(
+            normalized
+                .headers()
+                .get_first("content-length")
+                .unwrap()
+                .as_str(),
+            "10"
+        );
     }
 
     #[test]

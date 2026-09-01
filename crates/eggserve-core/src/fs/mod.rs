@@ -107,6 +107,14 @@ pub(crate) enum ResolvedResource {
 }
 
 fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), PathRejection> {
+    validate_child_component_with_policy(child, dotfiles_denied, true)
+}
+
+fn validate_child_component_with_policy(
+    child: &str,
+    dotfiles_denied: bool,
+    reject_backslash: bool,
+) -> Result<(), PathRejection> {
     if child.is_empty() {
         return Err(PathRejection::Empty);
     }
@@ -122,7 +130,7 @@ fn validate_child_component(child: &str, dotfiles_denied: bool) -> Result<(), Pa
     if child.contains('\0') {
         return Err(PathRejection::NulByte);
     }
-    if child.contains('\\') {
+    if reject_backslash && child.contains('\\') {
         return Err(PathRejection::SeparatorAmbiguity);
     }
     if dotfiles_denied && child.starts_with('.') {
@@ -270,10 +278,12 @@ impl PinnedRoot {
             #[cfg(unix)]
             root_fd: self.root_fd.try_clone()?,
             #[cfg(windows)]
-            root_handle: self
-                .root_handle
-                .try_clone()
-                .map_err(std::io::Error::other)?,
+            root_handle: self.root_handle.try_clone().map_err(|error| match error {
+                windows::WindowsFsError::IoError(code) => {
+                    std::io::Error::from_raw_os_error(code as i32)
+                }
+                other => std::io::Error::other(other),
+            })?,
         })
     }
 }
@@ -317,7 +327,11 @@ impl<'a> RootGuard<'a> {
                 policy.dotfiles == DotfilePolicy::Denied,
             );
         }
-        self.resolve_fallback(confined.components(), policy)
+        self.resolve_fallback(
+            confined.components(),
+            policy,
+            confined.path_policy().reject_backslash,
+        )
     }
 
     pub(crate) fn resolve_child(
@@ -354,7 +368,7 @@ impl<'a> RootGuard<'a> {
         }
         let mut components = dir.components.clone();
         components.push(child.to_string());
-        self.resolve_fallback(&components, policy)
+        self.resolve_fallback(&components, policy, true)
     }
 
     pub(crate) fn list_directory(
@@ -383,7 +397,12 @@ impl<'a> RootGuard<'a> {
     /// used instead. The Windows hardened branch dispatches directly to
     /// `resolve_to_resource` or `resolve_child_relative` without falling
     /// through to this function.
-    fn resolve_fallback(&self, components: &[String], policy: &StaticPolicy) -> ResolvedResource {
+    fn resolve_fallback(
+        &self,
+        components: &[String],
+        policy: &StaticPolicy,
+        reject_backslash: bool,
+    ) -> ResolvedResource {
         debug_assert!(
             policy.symlinks != SymlinkPolicy::Denied,
             "resolve_fallback is only reachable under SymlinkPolicy::Follow"
@@ -391,9 +410,11 @@ impl<'a> RootGuard<'a> {
         let mut candidate = self.pinned.canonical_root().to_path_buf();
 
         for component in components {
-            if let Err(rejection) =
-                validate_child_component(component, policy.dotfiles == DotfilePolicy::Denied)
-            {
+            if let Err(rejection) = validate_child_component_with_policy(
+                component,
+                policy.dotfiles == DotfilePolicy::Denied,
+                reject_backslash,
+            ) {
                 return ResolvedResource::Denied(rejection);
             }
 
@@ -700,10 +721,31 @@ mod tests {
         let mut policy = StaticPolicy::safe_default();
         policy.symlinks = SymlinkPolicy::Follow;
 
-        let result = guard.resolve_fallback(&["CON".to_owned()], &policy);
+        let result = guard.resolve_fallback(&["CON".to_owned()], &policy, true);
         assert!(matches!(
             result,
             ResolvedResource::Denied(PathRejection::WindowsReservedNameDenied)
+        ));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn fallback_honors_backslash_path_policy() {
+        let tmp = TempDir::new().unwrap();
+        fs::write(tmp.path().join("a\\b"), "literal backslash").unwrap();
+        let pinned = PinnedRoot::new(tmp.path()).unwrap();
+        let guard = RootGuard::new(&pinned);
+        let mut static_policy = StaticPolicy::safe_default();
+        static_policy.symlinks = SymlinkPolicy::Follow;
+        let path_policy = PathPolicy {
+            reject_backslash: false,
+            ..PathPolicy::default()
+        };
+        let path = parse_path_with_policy("/a\\b", &path_policy);
+
+        assert!(matches!(
+            guard.resolve(&path, &static_policy),
+            ResolvedResource::File(_)
         ));
     }
 
@@ -890,6 +932,15 @@ mod tests {
     fn validate_child_backslash_on_all_platforms() {
         assert_eq!(
             validate_child_component("foo\\bar", false),
+            Err(PathRejection::SeparatorAmbiguity)
+        );
+    }
+
+    #[test]
+    fn validate_child_backslash_honors_path_policy() {
+        assert!(validate_child_component_with_policy("foo\\bar", false, false).is_ok());
+        assert_eq!(
+            validate_child_component_with_policy("foo\\bar", false, true),
             Err(PathRejection::SeparatorAmbiguity)
         );
     }

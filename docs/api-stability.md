@@ -139,7 +139,7 @@ documented separately in `docs/python-api.md`.
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `Limits` | stable | `max_connections`, `max_file_streams`, `header_read_timeout`, `connection_total_timeout`, `graceful_shutdown_timeout` are pub; `max_request_body_bytes` is pub(crate) |
+| `Limits` | stable | `max_connections`, `max_file_streams`, `header_read_timeout`, `tls_handshake_timeout`, `connection_total_timeout`, `graceful_shutdown_timeout`, and static metadata caps are pub; `max_request_body_bytes` is pub(crate) |
 | `Limits::default()` | stable | Safe defaults |
 
 ### `policy` Module

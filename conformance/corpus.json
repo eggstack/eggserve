@@ -495,8 +495,8 @@
           }
         },
         {
-          "id": "norm-304-buffered-body-does-not-supply-length",
-          "description": "304 buffered body is suppressed before metadata length normalization",
+          "id": "norm-304-buffered-body-supplies-matching-length",
+          "description": "304 buffered body is suppressed after metadata length normalization",
           "input": {
             "status": 304,
             "headers": [["content-length", "5"]],
@@ -506,7 +506,7 @@
           "expected": {
             "status": 304,
             "body": "",
-            "headers_not_contain": ["content-length"]
+            "headers_contain": {"content-length": "5"}
           }
         },
         {

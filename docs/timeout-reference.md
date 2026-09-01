@@ -7,7 +7,7 @@ This document defines every timeout and deadline in the eggserve runtime, its se
 | # | Name | Config field | Default | Clock starts | Progress resets | What constitutes progress | Enforcement owner | Terminal behavior | Cleanup |
 |---|------|-------------|---------|-------------|----------------|--------------------------|-------------------|-------------------|---------|
 | 1 | Listener backoff | *(internal)* | 1–50ms exponential | On accept error | On each backoff step | Successful accept or different error kind | `classify_accept_error()` in accept loop | Error classified as fatal → break accept loop | Backoff state resets on success |
-| 2 | TLS handshake timeout | `header_read_timeout` | 10s | TCP accept (TLS path) | No | N/A | `accept_tls()` in accept loop | Handshake aborted, connection dropped | Stream/acceptor dropped |
+| 2 | TLS handshake timeout | `tls_handshake_timeout` | 10s | TCP accept (TLS path) | No | N/A | `accept_tls()` in accept loop | Handshake aborted, connection dropped | Stream/acceptor dropped |
 | 3 | Request-header timeout | `header_read_timeout` | 10s | HTTP/1 connection created | No | Complete header block received | Hyper `http1::Builder::header_read_timeout` | 408 Request Timeout | Hyper closes connection |
 | 4 | Request-body timeout | `body_read_timeout` | 30s | Body ingestion begins | No | Body fully consumed (all frames read) | `serve_connection_with_service()` | 408 Request Timeout response | Body dropped, connection kept alive |
 | 5 | Handler timeout | `handler_timeout` | 30s | Service `call()` invoked | No | Service future completes | `tokio::time::timeout` in `serve_connection_with_service()` | 504 Gateway Timeout response | Service future dropped |
@@ -36,7 +36,7 @@ than using an unbounded value.
 - **Clock starts**: TCP connection accepted on TLS-enabled listener.
 - **Progress resets**: No — this is a one-shot deadline.
 - **Progress definition**: N/A (single operation).
-- **Enforcement**: `tokio::time::timeout(header_read_timeout, tls_acceptor.accept(stream))`.
+- **Enforcement**: `tokio::time::timeout(tls_handshake_timeout, tls_acceptor.accept(stream))`.
 - **Terminal behavior**: Handshake aborted, connection dropped. No event emitted beyond `TlsHandshakeTimeout`.
 - **Cleanup**: TCP stream and TLS acceptor dropped.
 
@@ -112,7 +112,7 @@ This is out of scope for the current plan and would require a new plan to implem
 ```text
 TCP Accept
   │
-  ├─ [TLS path] TLS handshake timeout (header_read_timeout)
+  ├─ [TLS path] TLS handshake timeout (tls_handshake_timeout)
   │
   ▼
 HTTP/1 Connection Created ──────────────────────────────────────────┐

@@ -479,7 +479,7 @@ async fn accept_loop_generic<S: Service>(
                             {
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    match accept_tls(stream, &tls_acceptor, config.header_read_timeout, conn_id).await {
+                                    match accept_tls(stream, &tls_acceptor, config.tls_handshake_timeout, conn_id).await {
                                         Some((tls_stream, tls_info)) => {
                                             crate::ops::Logger::global().emit(
                                                 crate::ops::Event::new(

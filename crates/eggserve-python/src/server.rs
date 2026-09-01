@@ -925,40 +925,11 @@ fn validate_extra_response_headers(
     default_content_type: &str,
     headers: &[(String, String)],
 ) -> PyResult<()> {
-    if default_content_type.is_empty()
-        || default_content_type
-            .bytes()
-            .any(|b| b == b'\r' || b == b'\n' || b == 0)
-    {
-        return Err(pyo3::exceptions::PyValueError::new_err(
-            "invalid default content type",
-        ));
-    }
-    for (name, value) in headers {
-        let lower = name.to_ascii_lowercase();
-        if HeaderName::new(name.clone()).is_err()
-            || value.trim().is_empty()
-            || HeaderValue::new(value.clone()).is_err()
-            || eggserve_core::primitives::canonical::is_hop_by_hop_header(&lower)
-            || matches!(
-                lower.as_str(),
-                "content-length"
-                    | "date"
-                    | "server"
-                    | "content-type"
-                    | "content-range"
-                    | "accept-ranges"
-                    | "etag"
-                    | "last-modified"
-                    | "x-content-type-options"
-            )
-        {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "invalid or runtime-owned extra response header",
-            ));
-        }
-    }
-    Ok(())
+    eggserve_core::config::validate_static_metadata(
+        default_content_type,
+        headers,
+    )
+    .map_err(pyo3::exceptions::PyValueError::new_err)
 }
 
 fn apply_static_metadata(

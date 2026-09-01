@@ -49,6 +49,8 @@ pub struct RuntimeConfig {
     pub stream_chunk_size: usize,
     /// Timeout for reading request headers. Default: 10s.
     pub header_read_timeout: Duration,
+    /// Timeout for a TLS handshake. Default: 10s.
+    pub tls_handshake_timeout: Duration,
     /// Timeout wrapping the entire Hyper connection future. Default: 60s.
     ///
     /// This is a maximum connection lifetime: the budget is shared across
@@ -91,6 +93,7 @@ impl Default for RuntimeConfig {
             max_file_streams: 32,
             stream_chunk_size: crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
             header_read_timeout: Duration::from_secs(10),
+            tls_handshake_timeout: Duration::from_secs(10),
             connection_total_timeout: Duration::from_secs(60),
             handler_timeout: Duration::from_secs(30),
             body_read_timeout: Duration::from_secs(30),
@@ -112,6 +115,7 @@ impl RuntimeConfig {
             max_file_streams: None,
             stream_chunk_size: None,
             header_read_timeout: None,
+            tls_handshake_timeout: None,
             connection_total_timeout: None,
             handler_timeout: None,
             body_read_timeout: None,
@@ -133,6 +137,7 @@ pub struct RuntimeConfigBuilder {
     max_file_streams: Option<usize>,
     stream_chunk_size: Option<usize>,
     header_read_timeout: Option<Duration>,
+    tls_handshake_timeout: Option<Duration>,
     connection_total_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
     body_read_timeout: Option<Duration>,
@@ -177,6 +182,12 @@ impl RuntimeConfigBuilder {
     /// Set the header-read timeout.
     pub fn header_read_timeout(mut self, timeout: Duration) -> Self {
         self.header_read_timeout = Some(timeout);
+        self
+    }
+
+    /// Set the TLS handshake timeout.
+    pub fn tls_handshake_timeout(mut self, timeout: Duration) -> Self {
+        self.tls_handshake_timeout = Some(timeout);
         self
     }
 
@@ -289,6 +300,9 @@ impl RuntimeConfigBuilder {
         }
 
         let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
+        let tls_handshake_timeout = self
+            .tls_handshake_timeout
+            .unwrap_or(Duration::from_secs(10));
         let connection_total_timeout = self
             .connection_total_timeout
             .unwrap_or(Duration::from_secs(60));
@@ -301,6 +315,11 @@ impl RuntimeConfigBuilder {
         if header_read_timeout.is_zero() {
             return Err(crate::server::errors::ServerError::Config(
                 "header_read_timeout must be > 0".into(),
+            ));
+        }
+        if tls_handshake_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "tls_handshake_timeout must be > 0".into(),
             ));
         }
         if connection_total_timeout.is_zero() {
@@ -358,6 +377,7 @@ impl RuntimeConfigBuilder {
             max_file_streams,
             stream_chunk_size,
             header_read_timeout,
+            tls_handshake_timeout,
             connection_total_timeout,
             handler_timeout,
             body_read_timeout,
@@ -395,6 +415,7 @@ pub fn try_from_serve_config(
         max_file_streams: config.limits.max_file_streams,
         stream_chunk_size: config.limits.stream_chunk_size,
         header_read_timeout: config.limits.header_read_timeout,
+        tls_handshake_timeout: config.limits.tls_handshake_timeout,
         connection_total_timeout: config.limits.connection_total_timeout,
         handler_timeout: config.limits.handler_timeout,
         body_read_timeout: config.limits.body_read_timeout,
@@ -422,6 +443,7 @@ mod tests {
             crate::limits::DEFAULT_STREAM_CHUNK_SIZE
         );
         assert_eq!(config.header_read_timeout, Duration::from_secs(10));
+        assert_eq!(config.tls_handshake_timeout, Duration::from_secs(10));
         assert_eq!(config.connection_total_timeout, Duration::from_secs(60));
         assert_eq!(config.handler_timeout, Duration::from_secs(30));
         assert_eq!(config.body_read_timeout, Duration::from_secs(30));
@@ -438,6 +460,7 @@ mod tests {
             .max_file_streams(64)
             .stream_chunk_size(64)
             .header_read_timeout(Duration::from_secs(5))
+            .tls_handshake_timeout(Duration::from_secs(7))
             .connection_total_timeout(Duration::from_secs(30))
             .handler_timeout(Duration::from_secs(15))
             .body_read_timeout(Duration::from_secs(20))
@@ -451,6 +474,7 @@ mod tests {
         assert_eq!(config.max_file_streams, 64);
         assert_eq!(config.stream_chunk_size, 64);
         assert_eq!(config.header_read_timeout, Duration::from_secs(5));
+        assert_eq!(config.tls_handshake_timeout, Duration::from_secs(7));
         assert_eq!(config.connection_total_timeout, Duration::from_secs(30));
         assert_eq!(config.handler_timeout, Duration::from_secs(15));
         assert_eq!(config.body_read_timeout, Duration::from_secs(20));
@@ -466,6 +490,15 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(err.to_string().contains("invalid server_header"));
+    }
+
+    #[test]
+    fn zero_tls_handshake_timeout_is_rejected() {
+        let err = RuntimeConfig::builder()
+            .tls_handshake_timeout(Duration::ZERO)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("tls_handshake_timeout"));
     }
 
     #[test]
@@ -499,6 +532,10 @@ mod tests {
         assert_eq!(
             runtime.stream_chunk_size,
             serve_config.limits.stream_chunk_size
+        );
+        assert_eq!(
+            runtime.tls_handshake_timeout,
+            serve_config.limits.tls_handshake_timeout
         );
         assert_eq!(
             runtime.max_request_body_bytes,

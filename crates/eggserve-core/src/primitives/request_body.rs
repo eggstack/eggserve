@@ -425,15 +425,6 @@ impl Stream for RequestBody {
             return Poll::Ready(None);
         }
 
-        // Check limit before polling.
-        if self.bytes_received >= self.max_bytes {
-            self.state = BodyState::Error;
-            return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
-                limit: self.max_bytes,
-                received: self.bytes_received,
-            })));
-        }
-
         let max_bytes = self.max_bytes;
         let bytes_received = self.bytes_received;
 
@@ -566,6 +557,14 @@ mod tests {
         }
         let total: Vec<u8> = chunks.iter().flat_map(|c| c.iter().copied()).collect();
         assert_eq!(&total[..], b"hello world");
+    }
+
+    #[tokio::test]
+    async fn stream_trait_exact_limit_ends_cleanly() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), 5);
+        let chunks: Vec<_> = body.collect::<Vec<_>>().await;
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].as_ref().unwrap().as_ref(), b"hello");
     }
 
     #[tokio::test]

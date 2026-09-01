@@ -224,7 +224,10 @@ pub fn sanitize_text_field(text: &str) -> String {
         .filter(|c| {
             let code = *c as u32;
             // Printable ASCII only; this also excludes control characters
-            // (0x00-0x1F, including ESC) and DEL (0x7F).
+            // (0x00-0x1F, including ESC) and DEL (0x7F). The directory-listing
+            // `server::static_service::html_escape` intentionally renders DEL
+            // distinctly as an entity; logs instead remove it to keep fields
+            // printable and bounded.
             (0x20..=0x7E).contains(&code)
         })
         .collect();

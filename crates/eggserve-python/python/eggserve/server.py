@@ -377,6 +377,8 @@ _STATIC_RESERVED_HEADERS = frozenset({
     "content-length", "date", "server", "content-type", "content-range",
     "accept-ranges", "etag", "last-modified", "x-content-type-options",
 })
+_MAX_EXTRA_HEADERS = 32
+_MAX_EXTRA_HEADER_BYTES = 8 * 1024
 
 
 def _validate_static_metadata(default_content_type, extra_response_headers):
@@ -393,6 +395,9 @@ def _validate_static_metadata(default_content_type, extra_response_headers):
         pairs = list(extra_response_headers)
     except TypeError as exc:
         raise TypeError("extra_response_headers must be a sequence of (name, value) pairs") from exc
+    if len(pairs) > _MAX_EXTRA_HEADERS:
+        raise ValueError(f"extra_response_headers must contain at most {_MAX_EXTRA_HEADERS} pairs")
+    total_bytes = 0
     for pair in pairs:
         if not isinstance(pair, (tuple, list)) or len(pair) != 2:
             raise TypeError("extra_response_headers must contain (name, value) pairs")
@@ -409,6 +414,11 @@ def _validate_static_metadata(default_content_type, extra_response_headers):
             raise ValueError("invalid extra response header name")
         if name.lower() in _STATIC_RESERVED_HEADERS:
             raise ValueError(f"extra response header is runtime-owned: {name}")
+        total_bytes += len(name.encode()) + len(value.encode())
+        if total_bytes > _MAX_EXTRA_HEADER_BYTES:
+            raise ValueError(
+                f"extra_response_headers must not exceed {_MAX_EXTRA_HEADER_BYTES} bytes"
+            )
         result.append((name, value))
     return default_content_type, result
 

@@ -14,6 +14,8 @@ pub const MAX_LISTING_ENTRIES: usize = 10 * 1024 * 1024;
 /// an unbounded per-request buffering knob.
 pub const MAX_REQUEST_BODY_BYTES: u64 = 1024 * 1024 * 1024;
 pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 8192;
+pub const DEFAULT_MAX_EXTRA_HEADERS: usize = 32;
+pub const DEFAULT_MAX_EXTRA_HEADER_BYTES: usize = 8 * 1024;
 
 /// Error returned when a [`Limits`] field violates its constraint.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -45,6 +47,8 @@ pub struct Limits {
     pub max_file_streams: usize,
     pub(crate) max_request_body_bytes: u64,
     pub header_read_timeout: Duration,
+    /// Timeout for a TLS handshake. Default: 10s.
+    pub tls_handshake_timeout: Duration,
     pub connection_total_timeout: Duration,
     /// Timeout for a single handler invocation. Default: 30s.
     pub handler_timeout: Duration,
@@ -58,6 +62,10 @@ pub struct Limits {
     pub max_listing_response_bytes: usize,
     /// Chunk size in bytes for file streaming reads.
     pub stream_chunk_size: usize,
+    /// Maximum number of extra response headers per response.
+    pub max_extra_headers: usize,
+    /// Maximum combined name and value bytes for extra response headers.
+    pub max_extra_header_bytes: usize,
 }
 
 impl Default for Limits {
@@ -67,6 +75,7 @@ impl Default for Limits {
             max_file_streams: 32,
             max_request_body_bytes: 0,
             header_read_timeout: Duration::from_secs(10),
+            tls_handshake_timeout: Duration::from_secs(10),
             connection_total_timeout: Duration::from_secs(60),
             handler_timeout: Duration::from_secs(30),
             body_read_timeout: Duration::from_secs(30),
@@ -74,6 +83,8 @@ impl Default for Limits {
             max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
             max_listing_response_bytes: 1024 * 1024, // 1 MiB
             stream_chunk_size: DEFAULT_STREAM_CHUNK_SIZE,
+            max_extra_headers: DEFAULT_MAX_EXTRA_HEADERS,
+            max_extra_header_bytes: DEFAULT_MAX_EXTRA_HEADER_BYTES,
         }
     }
 }
@@ -115,6 +126,13 @@ impl Limits {
         if self.header_read_timeout.is_zero() {
             errors.push(LimitsError {
                 field: "header_read_timeout",
+                value: "0s".into(),
+                constraint: "> 0".into(),
+            });
+        }
+        if self.tls_handshake_timeout.is_zero() {
+            errors.push(LimitsError {
+                field: "tls_handshake_timeout",
                 value: "0s".into(),
                 constraint: "> 0".into(),
             });
@@ -271,6 +289,16 @@ mod tests {
         };
         let errs = limits.validate().unwrap_err();
         assert!(errs.iter().any(|e| e.field == "header_read_timeout"));
+    }
+
+    #[test]
+    fn zero_tls_handshake_timeout_is_invalid() {
+        let limits = Limits {
+            tls_handshake_timeout: Duration::ZERO,
+            ..Default::default()
+        };
+        let errs = limits.validate().unwrap_err();
+        assert!(errs.iter().any(|e| e.field == "tls_handshake_timeout"));
     }
 
     #[test]

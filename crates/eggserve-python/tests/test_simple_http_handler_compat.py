@@ -154,6 +154,26 @@ class SimpleHandlerCompatibilityTests(unittest.TestCase):
                         ),
                     )
 
+        with self.assertRaises(ValueError):
+            ThreadingHTTPServer(
+                ("127.0.0.1", 0),
+                functools.partial(
+                    SimpleHTTPRequestHandler,
+                    directory=self.tmp.name,
+                    extra_response_headers=[(f"X-{index}", "ok") for index in range(33)],
+                ),
+            )
+
+        with self.assertRaises(ValueError):
+            ThreadingHTTPServer(
+                ("127.0.0.1", 0),
+                functools.partial(
+                    SimpleHTTPRequestHandler,
+                    directory=self.tmp.name,
+                    extra_response_headers=[("X-Large", "a" * (8 * 1024))],
+                ),
+            )
+
     def test_extensions_map_and_guess_type_overrides(self):
         with open(os.path.join(self.tmp.name, "custom.blob"), "wb") as stream:
             stream.write(b"custom")

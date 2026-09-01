@@ -39,10 +39,43 @@ pub fn validate_static_metadata(
     default_content_type: &str,
     extra_response_headers: &[(String, String)],
 ) -> Result<(), String> {
+    let limits = Limits::default();
+    validate_static_metadata_with_limits(
+        default_content_type,
+        extra_response_headers,
+        limits.max_extra_headers,
+        limits.max_extra_header_bytes,
+    )
+}
+
+pub(crate) fn validate_static_metadata_with_limits(
+    default_content_type: &str,
+    extra_response_headers: &[(String, String)],
+    max_extra_headers: usize,
+    max_extra_header_bytes: usize,
+) -> Result<(), String> {
     let content_type = HeaderValue::new(default_content_type.trim())
         .map_err(|e| format!("invalid default content type: {e}"))?;
     if content_type.as_str().is_empty() {
         return Err("default content type must be a non-empty value without CR/LF/NUL".into());
+    }
+    if extra_response_headers.len() > max_extra_headers {
+        return Err(format!(
+            "too many extra response headers: maximum is {max_extra_headers}"
+        ));
+    }
+    let total_header_bytes =
+        extra_response_headers
+            .iter()
+            .try_fold(0usize, |total, (name, value)| {
+                total
+                    .checked_add(name.len())
+                    .and_then(|total| total.checked_add(value.len()))
+            });
+    if total_header_bytes.is_none_or(|total| total > max_extra_header_bytes) {
+        return Err(format!(
+            "extra response headers exceed maximum size of {max_extra_header_bytes} bytes"
+        ));
     }
     for (name, value) in extra_response_headers {
         HeaderName::new(name.clone()).map_err(|e| format!("invalid extra response header: {e}"))?;
@@ -120,8 +153,13 @@ pub struct ServeState {
 
 impl ServeState {
     pub fn new(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
-        validate_static_metadata(&config.default_content_type, &config.extra_response_headers)
-            .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
+        validate_static_metadata_with_limits(
+            &config.default_content_type,
+            &config.extra_response_headers,
+            config.limits.max_extra_headers,
+            config.limits.max_extra_header_bytes,
+        )
+        .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
         let pinned_root = Arc::new(PinnedRoot::new(&config.root)?);
         Ok(Self {
             config,
@@ -188,5 +226,32 @@ mod tests {
     fn default_content_type_rejects_whitespace_only_value() {
         let error = validate_static_metadata(" \t ", &[]).unwrap_err();
         assert!(error.contains("default content type must be a non-empty value"));
+    }
+
+    #[test]
+    fn extra_response_headers_have_default_count_limit() {
+        let headers = (0..=Limits::default().max_extra_headers)
+            .map(|index| (format!("X-Test-{index}"), "ok".to_owned()))
+            .collect::<Vec<_>>();
+        let error = validate_static_metadata("application/octet-stream", &headers).unwrap_err();
+        assert!(error.contains("too many extra response headers"));
+    }
+
+    #[test]
+    fn extra_response_headers_have_default_size_limit() {
+        let headers = vec![("X-Test".to_owned(), "a".repeat(8 * 1024))];
+        let error = validate_static_metadata("application/octet-stream", &headers).unwrap_err();
+        assert!(error.contains("maximum size"));
+    }
+
+    #[test]
+    fn extra_response_header_limits_can_be_configured() {
+        assert!(validate_static_metadata_with_limits(
+            "application/octet-stream",
+            &[("X-Test".to_owned(), "ok".to_owned())],
+            1,
+            9,
+        )
+        .is_ok());
     }
 }

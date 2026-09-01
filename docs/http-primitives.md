@@ -121,6 +121,11 @@ Response headers are constructed as a `HeaderMapPlan` (ordered list of name/valu
 - `Last-Modified` — from file metadata (when available)
 - `ETag` — weak validator from size + mtime secs + mtime nanos (when available)
 
+Generated ETags use `W/"<size>-<mtime-secs>-<mtime-nanos>"`. For a
+pre-epoch mtime, the seconds component is negative, so the serialized form
+contains two adjacent hyphens (for example, `W/"100--86400-0"`); this is
+intentional and consumers should treat the ETag as an opaque value.
+
 **Platform limitations:** The ETag currently incorporates file size, mtime seconds, and mtime nanoseconds. It does not include Unix device/inode identity or Windows volume serial/file identifier. This means two distinct files with identical size and nanosecond-precision mtime may produce the same ETag. The weak validator is acceptable for static files where byte-for-byte identity semantics are not required. Content-based hashing is explicitly out of scope.
 
 ### Range response (206 Partial Content)

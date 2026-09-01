@@ -658,7 +658,7 @@ pub fn print_usage() {
     println!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
     println!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
     println!("  --content-type <TYPE>      Fallback MIME type for unknown extensions");
-    println!("  -H, --header <NAME> <VALUE>  Extra header for static 200 responses (repeatable)");
+    println!("  -H, --header <NAME> <VALUE>  Add a safe header to final 200 responses (repeatable; --header=NAME=VALUE also accepted)");
     #[cfg(feature = "tls")]
     {
         println!("  --tls-cert <PATH>          PEM certificate chain (enables TLS)");
@@ -1105,6 +1105,18 @@ mod tests {
         assert!(parse(&["--content-type", "text/plain\r\nX-Leak: yes"]).is_err());
         assert!(parse(&["--content-type", " \t "]).is_err());
         assert!(parse(&["-H", "Content-Length", "1"]).is_err());
+    }
+
+    #[test]
+    fn too_many_static_headers_are_rejected() {
+        let mut args = Vec::new();
+        for index in 0..=Limits::default().max_extra_headers {
+            args.push("--header".to_owned());
+            args.push(format!("X-Test-{index}"));
+            args.push("ok".to_owned());
+        }
+        let error = Args::parse_from(args).unwrap_err();
+        assert!(error.contains("too many extra response headers"));
     }
 
     #[test]

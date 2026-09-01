@@ -93,6 +93,17 @@ pub(crate) struct ResolvedDirectory {
 
 On Windows, `ResolvedDirectory` retains an `OwnedHandle` for handle-relative child resolution, analogous to the Unix `dir_fd`. This handle is used by `RootGuard::resolve_child` to traverse child entries without reopening by path.
 
+The fallback resolver's child-component check uses the `PathPolicy` captured
+by `ConfinedPath`, including its `reject_backslash` setting. Child names
+resolved from an already-open directory use the serving policy's conservative
+backslash rejection because they do not carry a request `PathPolicy`.
+
+The fallback's `may_be_short_name_alias` heuristic treats any requested
+component containing `~` immediately followed by an ASCII digit as a possible
+NTFS 8.3 alias. This can conservatively trigger an extra canonicalization on a
+non-NTFS or otherwise ordinary name; it is safe and avoids relying on the
+alias's position or suffix format.
+
 ## Unix Descriptor-Relative Traversal (`unix.rs`)
 
 The strongest security guarantee. Each path component is resolved using:

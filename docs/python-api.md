@@ -60,8 +60,9 @@ Unknown suffixes use `SimpleHTTPRequestHandler.default_content_type`, which
 defaults to `application/octet-stream`. `extra_response_headers` accepts an
 ordered sequence of safe `(name, value)` pairs on the handler class or stock
 `functools.partial`; those headers are added only to final `200` static
-responses. Runtime-owned and hop-by-hop headers are rejected during server
-construction.
+responses. At most 32 pairs and 8 KiB of combined header names and values are
+accepted by default. Runtime-owned and hop-by-hop headers are rejected during
+server construction.
 
 ## HTTPS
 
