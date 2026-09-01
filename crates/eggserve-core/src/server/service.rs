@@ -114,6 +114,14 @@ impl ServiceError {
     /// Rejected errors use the provided status code. No internal details
     /// are included in the response body.
     pub(crate) fn to_response(&self) -> hyper::Response<crate::response::BoxBodyInner> {
+        self.to_response_with_head(false)
+    }
+
+    /// Convert this error into an HTTP response, suppressing the body for `HEAD`.
+    pub(crate) fn to_response_with_head(
+        &self,
+        is_head: bool,
+    ) -> hyper::Response<crate::response::BoxBodyInner> {
         let status = match self.kind {
             ServiceErrorKind::Internal | ServiceErrorKind::Panic => {
                 hyper::StatusCode::INTERNAL_SERVER_ERROR
@@ -130,12 +138,14 @@ impl ServiceError {
                 403 => "403 Forbidden\n",
                 404 => "404 Not Found\n",
                 405 => "405 Method Not Allowed\n",
+                408 => "408 Request Timeout\n",
+                413 => "413 Payload Too Large\n",
                 503 => "503 Service Unavailable\n",
                 _ => "500 Internal Server Error\n",
             },
             ServiceErrorKind::Internal => "500 Internal Server Error\n",
         };
-        crate::response::canonical_error(status, body, false)
+        crate::response::canonical_error(status, body, is_head)
     }
 }
 

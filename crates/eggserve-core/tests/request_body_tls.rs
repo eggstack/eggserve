@@ -285,14 +285,7 @@ async fn tls_get_with_body_rejected() {
         .tls_config(ctx.server_config.clone())
         .build()
         .unwrap();
-    let (handle, _tmp) = start_tls_server(
-        config,
-        RequestBodyPolicy::Buffer {
-            max_bytes: 1024 * 1024,
-        },
-        &ctx,
-    )
-    .await;
+    let (handle, _tmp) = start_tls_server(config, RequestBodyPolicy::Reject, &ctx).await;
     let addr = handle.local_addr();
 
     let response = raw_tls_request_with_body(
@@ -304,8 +297,8 @@ async fn tls_get_with_body_rejected() {
     .await;
     let response = String::from_utf8_lossy(&response);
     assert!(
-        response.starts_with("HTTP/1.1 400"),
-        "TLS GET with body should return 400: {}",
+        response.starts_with("HTTP/1.1 413"),
+        "TLS GET with body should return 413: {}",
         response
     );
     handle.shutdown();

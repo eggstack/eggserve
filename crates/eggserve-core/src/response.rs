@@ -11,11 +11,9 @@ pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
 /// Add the origin server's single authoritative Date header.
 pub(crate) fn finalize_origin_headers(response: &mut Response<BoxBodyInner>, now: SystemTime) {
     response.headers_mut().remove(hyper::header::DATE);
-    response.headers_mut().insert(
-        hyper::header::DATE,
-        hyper::header::HeaderValue::from_str(&httpdate::fmt_http_date(now))
-            .expect("httpdate output is a valid header value"),
-    );
+    if let Ok(value) = hyper::header::HeaderValue::from_str(&httpdate::fmt_http_date(now)) {
+        response.headers_mut().insert(hyper::header::DATE, value);
+    }
 }
 
 fn finalize(mut response: Response<BoxBodyInner>) -> Response<BoxBodyInner> {

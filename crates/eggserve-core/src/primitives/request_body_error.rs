@@ -131,7 +131,7 @@ impl RequestBodyError {
     /// Returns the appropriate HTTP status code for this error.
     pub fn to_status_code(&self) -> u16 {
         match self {
-            Self::RejectedByPolicy => 400,
+            Self::RejectedByPolicy => 413,
             Self::DeclaredLengthTooLarge { .. } => 413,
             Self::LimitExceeded { .. } => 413,
             Self::ReadTimeout => 408,
@@ -201,7 +201,7 @@ mod tests {
 
     #[test]
     fn status_codes() {
-        assert_eq!(RequestBodyError::RejectedByPolicy.to_status_code(), 400);
+        assert_eq!(RequestBodyError::RejectedByPolicy.to_status_code(), 413);
         assert_eq!(
             RequestBodyError::LimitExceeded {
                 limit: 100,

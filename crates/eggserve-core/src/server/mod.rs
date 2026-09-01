@@ -401,6 +401,9 @@ async fn accept_loop_generic<S: Service>(
     let service = Arc::new(service);
 
     // Signal that we're running (listener bound, accept loop about to poll).
+    // If shutdown raced before this point, `drain()` has already transitioned
+    // `Starting` → `Stopped` and `mark_running()` will fail. `mark_failed()`
+    // is a no-op in that terminal state, so we return `Clean`.
     if lifecycle.mark_running().is_err() {
         let _ = lifecycle.mark_failed();
         return ShutdownResult::Clean;
@@ -829,6 +832,9 @@ fn is_fd_exhaustion(error: &std::io::Error) -> bool {
         return false;
     }
 
+    // Fallback string match for non-OS errors (e.g., mocked accept failures).
+    // `accept()` errors originate from the kernel and are not user-controlled,
+    // so the misclassification risk of matching the error string is negligible.
     let message = error.to_string().to_ascii_lowercase();
     message.contains("too many open files")
         || message.contains("emfile")

@@ -277,7 +277,7 @@ fn error_classifications() {
 
 #[test]
 fn error_status_codes() {
-    assert_eq!(RequestBodyError::RejectedByPolicy.to_status_code(), 400);
+    assert_eq!(RequestBodyError::RejectedByPolicy.to_status_code(), 413);
     assert_eq!(
         RequestBodyError::LimitExceeded {
             limit: 100,

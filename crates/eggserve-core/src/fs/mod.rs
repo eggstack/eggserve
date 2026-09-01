@@ -554,7 +554,13 @@ fn build_listing_entries_fallback(
             continue;
         }
 
-        let is_dir = meta.is_dir();
+        let is_dir = if meta.file_type().is_symlink() {
+            fs::metadata(entry.path())
+                .map(|m| m.is_dir())
+                .unwrap_or(false)
+        } else {
+            meta.is_dir()
+        };
         entries.push((name, is_dir));
 
         if entries.len() >= max_entries {

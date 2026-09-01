@@ -402,13 +402,15 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
     if config.extra_response_headers.is_empty() {
         return;
     }
-    let existing_names: Vec<String> = headers.iter().map(|header| header.name.clone()).collect();
+    let mut seen: Vec<String> = headers
+        .iter()
+        .map(|header| header.name.to_ascii_lowercase())
+        .collect();
     for (name, value) in &config.extra_response_headers {
-        if !existing_names
-            .iter()
-            .any(|existing| existing.eq_ignore_ascii_case(name))
-        {
+        let lower = name.to_ascii_lowercase();
+        if !seen.iter().any(|existing| existing == &lower) {
             headers.push(name.clone(), value.clone());
+            seen.push(lower);
         }
     }
 }

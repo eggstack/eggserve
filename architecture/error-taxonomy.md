@@ -125,7 +125,7 @@ Errors from request body reading. The runtime maps these to appropriate HTTP res
 
 | Variant | HTTP Status | Meaning |
 |---------|-------------|---------|
-| `RejectedByPolicy` | 400 | Body rejected by policy (e.g. static service) |
+| `RejectedByPolicy` | 413 | Body rejected by policy (e.g. static service) |
 | `DeclaredLengthTooLarge` | 413 | Content-Length exceeds limit |
 | `LimitExceeded` | 413 | Body exceeded byte limit during consumption |
 | `ReadTimeout` | 408 | Body read timed out |

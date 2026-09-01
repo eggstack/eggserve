@@ -254,6 +254,8 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                 return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
             }
 
+            let is_head = head.method().is_head();
+
             // Select effective body policy.
             let service_policy = service.request_body_policy(&head);
             let effective_policy = select_body_policy(service_policy, max_body_bytes);
@@ -274,7 +276,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     )
                     .connection_id(conn_id),
                 );
-                return Ok::<_, Infallible>(finalize_runtime_response(e.to_response(), &config));
+                let is_head = head.method().is_head();
+                return Ok::<_, Infallible>(finalize_runtime_response(
+                    e.to_response_with_head(is_head),
+                    &config,
+                ));
             }
 
             let declared_length = parts
@@ -332,7 +338,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                             )
                             .connection_id(conn_id),
                         );
-                        let mut response = crate::response::payload_too_large(false);
+                        let mut response = crate::response::payload_too_large(is_head);
                         response.headers_mut().insert(
                             hyper::header::CONNECTION,
                             hyper::header::HeaderValue::from_static("close"),
@@ -344,6 +350,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
 
             // Handle Reject policy — reject without invoking the service,
             // but only if the request actually carries a body.
+            // A `Transfer-Encoding` header is treated as has-body even for
+            // zero-length chunked input (`0\r\n\r\n`), since framing is
+            // unknown until the stream is consumed. Size enforcement for
+            // chunked bodies without `Content-Length` is deferred to the
+            // streaming limit.
             let has_body = declared_length.is_some_and(|len| len > 0)
                 || parts.headers.contains_key(hyper::header::TRANSFER_ENCODING);
             if effective_policy.is_reject() && has_body {
@@ -366,7 +377,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     )
                     .connection_id(conn_id),
                 );
-                let mut response = crate::response::payload_too_large(false);
+                let mut response = crate::response::payload_too_large(is_head);
                 // Do not drain the body — drop it and close the connection to
                 // prevent unread bytes from being interpreted as a subsequent
                 // request. Hyper handles cleanup of the unconsumed body when
@@ -429,7 +440,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                     )
                                 .connection_id(conn_id),
                             );
-                            service_err.to_response()
+                            service_err.to_response_with_head(is_head)
                         }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -437,7 +448,8 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::EventKind::ServiceTimeout,
                                 "handler timed out",
                             ));
-                            ServiceError::timeout("handler timed out".to_string()).to_response()
+                            ServiceError::timeout("handler timed out".to_string())
+                                .to_response_with_head(is_head)
                         }
                     };
 
@@ -515,7 +527,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                     )
                                 .connection_id(conn_id),
                             );
-                            service_err.to_response()
+                            service_err.to_response_with_head(is_head)
                         }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -523,7 +535,8 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::EventKind::ServiceTimeout,
                                 "handler timed out",
                             ));
-                            ServiceError::timeout("handler timed out".to_string()).to_response()
+                            ServiceError::timeout("handler timed out".to_string())
+                                .to_response_with_head(is_head)
                         }
                     };
 
@@ -570,7 +583,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                     )
                                 .connection_id(conn_id),
                             );
-                            service_err.to_response()
+                            service_err.to_response_with_head(is_head)
                         }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -578,7 +591,8 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::EventKind::ServiceTimeout,
                                 "handler timed out",
                             ));
-                            ServiceError::timeout("handler timed out".to_string()).to_response()
+                            ServiceError::timeout("handler timed out".to_string())
+                                .to_response_with_head(is_head)
                         }
                     };
 
