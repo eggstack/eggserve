@@ -99,7 +99,7 @@ Control handle returned by `Server::start()`. Not `Clone` — there is exactly o
 
 - `local_addr()` — bound address (useful for port-zero discovery)
 - `state()` — current `LifecycleState`
-- `ready().await` — wait for Running state; returns error if server failed during startup
+- `ready().await` — wait for Running state; returns `Startup` if the server failed during startup or if a shutdown raced startup (`Starting` → `Stopped` via `Lifecycle::drain`); other non-ready states return `Config`
 - `shutdown()` — trigger graceful shutdown (idempotent; multiple calls are safe)
 - `force_shutdown(deadline).await` — graceful shutdown followed by deadline; if the server doesn't stop within `deadline`, remaining tasks are abandoned and `ShutdownResult::Forced` is returned
 - `wait().await` — consume handle, trigger graceful shutdown if still running, wait for completion
@@ -149,6 +149,7 @@ Allowed operations per state (`ok` = succeeds, `err` = returns error, `yes` = ac
 | Failed    | —     | err   | err   | noop     | noop           | err  |
 
 `ready()` before `start()` returns a not-started/config error rather than waiting — callers must invoke `start()` first.
+`Lifecycle::drain()` from `Created` or `Starting` moves directly to `Stopped` (and wakes `ready()` waiters with a `Startup("shutdown raced with startup")` error) so that shutdown-before-ready does not hang.
 
 Race safety: state is stored in an `AtomicU8` with `compare_exchange` for all transitions. Channel notifications (`watch` for readiness, `broadcast` for terminal state) ensure waiters are awakened without polling.
 

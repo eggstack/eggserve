@@ -136,6 +136,11 @@ impl BodySource {
             Self::Empty => Ok(Vec::new()),
             Self::Bytes(b) => Ok(b.clone()),
             Self::FileFull { file, .. } => {
+                // Seek to start for idempotent one-shot reads. `BodySource` is
+                // documented as one-shot and `file_body` already seeks
+                // correctly, but `read_all` is a public helper that may be
+                // called after a prior `read_range`/`seek` without resetting.
+                file.seek(SeekFrom::Start(0))?;
                 let mut buf = Vec::new();
                 file.read_to_end(&mut buf)?;
                 Ok(buf)
@@ -176,6 +181,7 @@ impl BodySource {
                 Ok(b[..len].to_vec())
             }
             Self::FileFull { file, .. } => {
+                file.seek(SeekFrom::Start(0))?;
                 let mut buf = vec![0u8; max_bytes];
                 let mut total = 0;
                 while total < buf.len() {

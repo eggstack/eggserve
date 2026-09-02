@@ -405,10 +405,15 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
     // Preserve duplicate extra headers (ordered, duplicate-preserving) while
     // preventing override of runtime-owned headers. Check only against the
     // original planned headers, not against other extra headers already
-    // appended, so duplicate names within `extra_response_headers` are kept.
+    // appended, so:
+    // - duplicate non-runtime extras (e.g. `X-Foo: a`, `X-Foo: b`) are both kept;
+    // - duplicate runtime-owned extras (e.g. `Content-Type: x`, `Content-Type: y`)
+    //   are both suppressed because each checks against the same `existing` set.
+    // This matches `config::validate_static_metadata` which rejects hop-by-hop
+    // and runtime-owned names at config time but allows ordered duplicates.
     // Values are canonicalized via `HeaderValue` (trimming OWS) so validation
-    // (`config::validate_static_metadata`) and wire value agree — a value like
-    // `"  hello  "` is stored verbatim in `ServeConfig` but emitted as `"hello"`.
+    // and wire value agree — a value like `"  hello  "` is stored verbatim in
+    // `ServeConfig` but emitted as `"hello"`.
     let existing: Vec<String> = headers
         .iter()
         .map(|header| header.name.to_ascii_lowercase())

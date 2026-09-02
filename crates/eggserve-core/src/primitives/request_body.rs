@@ -469,11 +469,18 @@ impl Stream for RequestBody {
                     let new_offset = *offset + chunk_size;
                     *offset = new_offset;
                     self.bytes_received = new_total;
+                    // Mirror `next_chunk` ordering: a single-chunk body must
+                    // visit Streaming before completing. `next_chunk` marks
+                    // Streaming at entry then overwrites with Complete; here
+                    // the borrow on `data` must end before mutating
+                    // `self.state`, so mark Streaming after the copy and
+                    // before the completeness check.
+                    if self.state == BodyState::Unread {
+                        self.state = BodyState::Streaming;
+                    }
                     if new_offset >= data_len {
                         self.state = BodyState::Complete;
                         self.mark_consumed();
-                    } else if self.state == BodyState::Unread {
-                        self.state = BodyState::Streaming;
                     }
                     Poll::Ready(Some(Ok(chunk)))
                 }

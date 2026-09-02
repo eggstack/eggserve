@@ -379,7 +379,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `validate_request_body` | Rust, Python | Implemented and stable-ish | Validates body framing and limits; service policy decides whether the actual method accepts content | Body framing validation |
 | `validate_request_target` | Rust, Python | Implemented and provisional | Coarse origin-form check (starts with `/`, no whitespace) | Pre-validation before full path parsing |
 | `BodyPlan` | Rust | Implemented and provisional | Variants: Empty, FullBytes, FileFull, FileRange | Body source selection |
-| `BodySource` | Rust, Python | Implemented | Owns resolved file handle; converts to Hyper body without path reopening | Safe body streaming for downstream servers |
+| `BodySource` | Rust, Python | Implemented | Owns resolved file handle; converts to Hyper body without path reopening; `FileFull::read_all`/`read_all_bounded` seek to 0 for idempotent one-shot reads | Safe body streaming for downstream servers |
 | `BodyKind` | Rust, Python | Implemented | Discriminant: Empty, Bytes, FileFull, FileRange | Body type identification |
 | `BodySourceError` | Rust, Python | Implemented | InvalidRange, AlreadyConsumed | Error handling for body conversion |
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |

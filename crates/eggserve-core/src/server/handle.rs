@@ -115,6 +115,12 @@ impl ServerHandle {
                     crate::server::lifecycle::LifecycleState::Failed => {
                         Err(ServerError::Startup("server failed during startup".into()))
                     }
+                    crate::server::lifecycle::LifecycleState::Stopped => {
+                        // `Lifecycle::drain` moves Created/Starting directly to Stopped so
+                        // ready waiters are not left hanging. This is a shutdown that
+                        // raced startup, not a generic config misuse.
+                        Err(ServerError::Startup("shutdown raced with startup".into()))
+                    }
                     other => Err(ServerError::Config(format!(
                         "unexpected state after ready: {other}"
                     ))),

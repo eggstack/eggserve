@@ -117,7 +117,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 ### HTTP semantics
 
 - **RequestBody is one-shot** — consumable once via `read_all` or streaming. `Service::call` takes `Request` by value. Python `read()`/`iter_chunks()` are mutually exclusive; second use raises `RequestBodyConsumedError`.
-- Canonical response semantics: `StatusCode` accepts 100–599 only; 205 responses are body-forbidden; weak metadata ETags satisfy `If-None-Match` but never `If-Range`; exactly one authoritative `Date` header added at final construction. All producers converge on `primitives::canonical::normalize_metadata()`.
+- Canonical response semantics: `StatusCode` accepts 100–599 only; 1xx/204/205/304 are body-forbidden (only 304 may retain a matching representation `Content-Length`); weak metadata ETags satisfy `If-None-Match` but never `If-Range`; exactly one authoritative `Date` header added at final construction. `normalize_response` zeroes `body_len` for every body-forbidden status except 304. All producers converge on `primitives::canonical::normalize_metadata()`.
 - Stable canonical types: `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response()`.
 - Listener accept errors are classified by `io::ErrorKind` (transient/resource-exhaustion/persistent) with bounded exponential backoff — use `classify_accept_error()`.
 

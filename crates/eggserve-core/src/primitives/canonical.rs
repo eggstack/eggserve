@@ -427,6 +427,12 @@ pub fn normalize_response(
     }
 
     // Rule 2: Body-forbidden statuses — discard body.
+    // All body-forbidden statuses except 304 have body_len zeroed so the
+    // invariant `!permits_payload_body && status != 304 => body_len == 0`
+    // holds. For 304 the caller-supplied representation length is retained
+    // and validated in `normalize_metadata`; for 1xx/204/205 it is forced to 0
+    // so future changes to `permits_payload_body` cannot emit a stale
+    // Content-Length.
     if !status.permits_payload_body() {
         response.body = Some(ResponseBody::Empty);
         if status != StatusCode::NOT_MODIFIED {
