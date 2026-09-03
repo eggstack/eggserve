@@ -387,9 +387,18 @@ Python `Server` constructor parameters map to Rust `RuntimeConfig` fields:
 | `request_body_mode="buffer"` | service-declared via `request_body_policy()` | — |
 | `request_body_mode="stream"` | service-declared via `request_body_policy()` | — |
 | `max_request_body_bytes` | `max_request_body_bytes` | 0 |
-| `body_read_timeout_secs` | `body_read_timeout` | 30s |
+| `body_timeout_secs` | `body_read_timeout` | 30s |
 
 The runtime enforces `max_request_body_bytes` as a hard ceiling. Service-specific limits may only lower it. Body policy is service-declared, not a runtime field.
+
+`eggserve.lowlevel` additionally exposes the Plan 164 admission/parser set
+(`max_in_flight_requests`, `max_buf_size`, `max_headers`, `max_header_bytes`,
+`max_request_target_bytes`, `keep_alive_idle_timeout_secs`,
+`max_requests_per_connection`, `response_write_timeout_secs`) and the safe
+Plan 165 privacy subset, plus bounded `Response.stream` over a 16-chunk
+bridge (HEAD/body-forbidden never advance the iterator; async rejected).
+In-flight admission is held by the connection pipeline before the Python
+callback permit, so limits cannot deadlock or invert ownership.
 
 ## Python lifecycle mapping
 

@@ -29,8 +29,8 @@ A setting may be shared by reference, but only one validated value owns enforcem
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `max_connections` | `RuntimeConfig` | 64 | > 0 | `--max-connections` | `max_connections` | Connection semaphore in accept loop |
-| `max_in_flight_requests` | `RuntimeConfig` | 64 | > 0 | `--max-in-flight-requests` | N/A (compat default) | Service semaphore held across `Service::call`; 503 on exhaustion |
+| `max_connections` | `RuntimeConfig` | 64 | > 0 | `--max-connections` | `max_connections` (`Server` + `lowlevel.RuntimeConfig`) | Connection semaphore in accept loop |
+| `max_in_flight_requests` | `RuntimeConfig` | 64 | > 0 | `--max-in-flight-requests` | `max_in_flight_requests` (`lowlevel`; compat facade default) | Service semaphore held across `Service::call`; 503 on exhaustion |
 | `max_file_streams` | `RuntimeConfig` | 32 | > 0 | `--max-file-streams` | `max_file_streams` | One file-stream semaphore per running server |
 | `max_python_callbacks` | `PyServer` | 8 | > 0 | N/A | `max_python_callbacks` | Callback semaphore in `PythonCallbackService` |
 | `max_listing_entries` | `Limits` | 4096 | > 0, <= 10485760 (entries) | N/A | N/A | Directory listing enumeration |
@@ -40,10 +40,10 @@ A setting may be shared by reference, but only one validated value owns enforcem
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `max_buf_size` | `RuntimeConfig` | 65536 | 8192–4194304 | `--max-buf-size` | N/A (compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection |
-| `max_headers` | `RuntimeConfig` | 100 | 1–10000 | `--max-headers` | N/A (compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself) |
-| `max_header_bytes` | `RuntimeConfig` | 32768 | 1024–1048576 | `--max-header-bytes` | N/A (compat default) | Post-parse aggregate check in `convert_request_head`; 431 pre-service |
-| `max_request_target_bytes` | `RuntimeConfig` | 8192 | 128–65536 | `--max-request-target-bytes` | N/A (compat default) | Post-parse target check in `convert_request_head`; 414 pre-service |
+| `max_buf_size` | `RuntimeConfig` | 65536 | 8192–4194304 | `--max-buf-size` | `max_buf_size` (`lowlevel`; compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection |
+| `max_headers` | `RuntimeConfig` | 100 | 1–10000 | `--max-headers` | `max_headers` (`lowlevel`; compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself) |
+| `max_header_bytes` | `RuntimeConfig` | 32768 | 1024–1048576 | `--max-header-bytes` | `max_header_bytes` (`lowlevel`; compat default) | Post-parse aggregate check in `convert_request_head`; 431 pre-service |
+| `max_request_target_bytes` | `RuntimeConfig` | 8192 | 128–65536 | `--max-request-target-bytes` | `max_request_target_bytes` (`lowlevel`; compat default) | Post-parse target check in `convert_request_head`; 414 pre-service |
 
 Hyper exposes no aggregate header-byte, request-target, or request-line knob: the request line is bounded jointly by the parser buffer and the target ceiling.
 
@@ -55,9 +55,9 @@ Hyper exposes no aggregate header-byte, request-target, or request-line knob: th
 | `connection_total_timeout` | `RuntimeConfig` | 60s | > 0 | `--connection-total-timeout` | `connection_total_timeout_secs` | Hard maximum connection lifetime (driver deadline loop) |
 | `handler_timeout` | `RuntimeConfig` | 30s | > 0 | `--handler-timeout` | `handler_timeout_secs` | `tokio::time::timeout` around service call |
 | `body_read_timeout` | `RuntimeConfig` | 30s | > 0 | `--body-read-timeout` | `body_timeout_secs` | Total body consumption deadline |
-| `keep_alive_idle_timeout` | `RuntimeConfig` | 60s | > 0, independent of total | `--keep-alive-idle-timeout` | N/A (compat default) | Driver deadline loop; resets on request/transport activity |
-| `response_write_timeout` | `RuntimeConfig` | 30s | > 0, independent of total | `--response-write-timeout` | N/A (compat default) | Driver + `ProgressIo` no-progress tracking; steady progress never trips |
-| `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | N/A (compat default) | `Connection: close` on the limit response; every response counts |
+| `keep_alive_idle_timeout` | `RuntimeConfig` | 60s | > 0, independent of total | `--keep-alive-idle-timeout` | `keep_alive_idle_timeout_secs` (`lowlevel`; compat default) | Driver deadline loop; resets on request/transport activity |
+| `response_write_timeout` | `RuntimeConfig` | 30s | > 0, independent of total | `--response-write-timeout` | `response_write_timeout_secs` (`lowlevel`; compat default) | Driver + `ProgressIo` no-progress tracking; steady progress never trips |
+| `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | `max_requests_per_connection` (`lowlevel` `None`; compat default) | `Connection: close` on the limit response; every response counts |
 | `graceful_shutdown_timeout` | `RuntimeConfig` | 10s | > 0 | N/A | `graceful_shutdown_timeout_secs` | Drain deadline after SIGTERM |
 
 ### Body policy
@@ -75,10 +75,10 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `bind` | `ServeConfig` / `RuntimeConfig` | 127.0.0.1:8000 | SocketAddr | `--bind`, `--port`, `--addr` | `bind`, `port` | TCP listener bind |
 | `default_content_type` | `ServeConfig` | `application/octet-stream` | non-empty header-safe string | `--content-type` | `SimpleHTTPRequestHandler.default_content_type` | Unknown-suffix static responses |
 | `extra_response_headers` | `ServeConfig` | none | ordered safe name/value pairs | `-H`, `--header` | `SimpleHTTPRequestHandler.extra_response_headers` | Final static status-200 responses only |
-| `error_policy` | `ServeConfig` / `RuntimeConfig.response_policy` | Minimal | `Minimal` \| `Empty` | N/A (Rust-only) | N/A | Runtime-generated error bodies; application `Ok` never rewritten |
-| `response_policy.server_identification` | `RuntimeConfig` | None (suppressed) | None \| fixed string | N/A (Rust `server_header(..)`) | N/A | `Server` on responses; never versions |
-| `response_policy.date_policy` | `RuntimeConfig` | SystemClock | `SystemClock` \| `Custom` \| `Suppress` | N/A (Rust-only) | N/A | Sole `Date` authority; Hyper auto-`Date` disabled |
-| `response_policy.stripped_response_headers` | `RuntimeConfig` | none | validated denylist (no framing/`date`/`content-range`) | N/A (Rust-only) | N/A | Post-service removal; `minimal_fingerprint()` strips `x-powered-by` |
+| `error_policy` | `ServeConfig` / `RuntimeConfig.response_policy` | Minimal | `Minimal` \| `Empty` | N/A (Rust-only) | `error_policy` (`lowlevel` `minimal`/`empty`; compat default `minimal`) | Runtime-generated error bodies; application `Ok` never rewritten |
+| `response_policy.server_identification` | `RuntimeConfig` | None (suppressed) | None \| fixed string | N/A (Rust `server_header(..)`) | `server_header` (`lowlevel`; compat default suppressed) | `Server` on responses; never versions |
+| `response_policy.date_policy` | `RuntimeConfig` | SystemClock | `SystemClock` \| `Custom` \| `Suppress` | N/A (Rust-only) | `date_policy` (`lowlevel` `system`/`suppress`; `Custom` Rust-only) | Sole `Date` authority; Hyper auto-`Date` disabled |
+| `response_policy.stripped_response_headers` | `RuntimeConfig` | none | validated denylist (no framing/`date`/`content-range`) | N/A (Rust-only) | `stripped_response_headers` (`lowlevel`; compat default none) | Post-service removal; `minimal_fingerprint()` strips `x-powered-by` |
 
 ### Filesystem policy
 

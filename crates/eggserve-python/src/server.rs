@@ -6,15 +6,16 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use pyo3::prelude::*;
-use pyo3::types::PyBytes;
+use pyo3::types::{PyBytes, PyIterator};
 use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
+use bytes::Bytes;
 use eggserve_core::policy;
 use eggserve_core::primitives::body::BodySource;
 use eggserve_core::primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
-    StatusCode as CanonicalStatusCode,
+    ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
 use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
 use eggserve_core::primitives::http::ReadOnlyMethod;
@@ -212,6 +213,166 @@ fn raw_body_error_to_pyerr(err: RawBodyError) -> PyErr {
             crate::RequestBodyDisconnectedError::new_err(format!("transport error: {msg}"))
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Bounded Python iterator -> Rust ResponseStream bridge (Plan 166)
+// ---------------------------------------------------------------------------
+
+/// Bound for the Python producer -> Rust transport channel.
+///
+/// The producer thread blocks on `blocking_send` when full, so client
+/// backpressure eventually stops iterator advancement. No whole-body
+/// buffering occurs: at most this many chunks are in flight.
+const PYTHON_STREAM_CHANNEL_BOUND: usize = 16;
+
+/// `Stream` adapter over the bounded producer channel.
+///
+/// Wraps the receiver in a `Mutex` so the adapter is `Sync` as required by
+/// `ResponseStream::new` (tokio's `Receiver` is `Send` but single-consumer
+/// `!Sync`). Polls are sequential from the transport, so the lock is
+/// uncontended.
+struct PythonReceiverStream {
+    rx: std::sync::Mutex<mpsc::Receiver<Result<Bytes, ResponseStreamError>>>,
+}
+
+impl futures_util::Stream for PythonReceiverStream {
+    type Item = Result<Bytes, ResponseStreamError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+        match this.rx.lock() {
+            Ok(mut guard) => guard.poll_recv(cx),
+            Err(_) => std::task::Poll::Ready(Some(Err(ResponseStreamError::new(
+                "response stream lock failed",
+            )))),
+        }
+    }
+}
+
+/// Drive a Python iterable of bytes-like chunks into the bounded channel.
+///
+/// Runs on a dedicated `std` thread (never a Tokio worker): iterator `next()`
+/// calls acquire the GIL per item, chunk bytes are copied to Rust while the
+/// GIL is held, then the GIL is released while blocking on channel capacity
+/// so slow clients apply backpressure without stalling the interpreter.
+/// Dropping the stream (HEAD suppression, disconnect, shutdown) drops the
+/// receiver; the next send fails and this thread exits, releasing all
+/// `PyObject` references promptly.
+///
+/// Non-bytes items and iterator exceptions become stream errors: the wire
+/// sees a truncated/closed connection and diagnostics carry only the
+/// sanitized exception type name, never request/response content.
+fn spawn_python_stream_producer(
+    iterable: Py<PyAny>,
+    sender: mpsc::Sender<Result<Bytes, ResponseStreamError>>,
+) {
+    std::thread::spawn(move || {
+        let iterator = Python::with_gil(|py| {
+            let bound = iterable.bind(py);
+            PyIterator::from_object(&bound)
+                .map(|it| it.into_any().unbind())
+                .map_err(|e| {
+                    let type_name = e
+                        .get_type(py)
+                        .name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|_| "<unknown>".to_string());
+                    (type_name, e.to_string())
+                })
+        });
+        let iterator_obj: Py<PyAny> = match iterator {
+            Ok(obj) => obj,
+            Err((type_name, _)) => {
+                eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
+                    eggserve_core::ops::Severity::Error,
+                    eggserve_core::ops::EventKind::ServiceError,
+                    format!("Python response iterator is not iterable ({type_name})"),
+                ));
+                let _ = sender.blocking_send(Err(ResponseStreamError::new(
+                    "python response iterator is not iterable",
+                )));
+                return;
+            }
+        };
+        loop {
+            // Pull one item under the GIL and copy bytes to Rust.
+            enum Pulled {
+                Chunk(Vec<u8>),
+                Empty,
+                Finished,
+                ItemError(String),
+                NonBytes,
+            }
+            let pulled = Python::with_gil(|py| {
+                let bound = iterator_obj.bind(py);
+                // `iterator_obj` is the single iterator created at thread
+                // start; advancing it via `__next__` preserves one-shot
+                // generator semantics (re-calling `iter()` on a list each
+                // lap would restart from the beginning).
+                match bound.call_method0("__next__") {
+                    Ok(item) => {
+                        if let Ok(data) = item.extract::<Vec<u8>>() {
+                            if data.is_empty() {
+                                Pulled::Empty
+                            } else {
+                                Pulled::Chunk(data)
+                            }
+                        } else {
+                            Pulled::NonBytes
+                        }
+                    }
+                    Err(e) => {
+                        if e.is_instance_of::<pyo3::exceptions::PyStopIteration>(py) {
+                            Pulled::Finished
+                        } else {
+                            let type_name = e
+                                .get_type(py)
+                                .name()
+                                .map(|n| n.to_string_lossy().into_owned())
+                                .unwrap_or_else(|_| "<unknown>".to_string());
+                            Pulled::ItemError(type_name)
+                        }
+                    }
+                }
+            });
+            match pulled {
+                Pulled::Finished => break,
+                Pulled::Empty => continue,
+                Pulled::Chunk(data) => {
+                    let bytes = Bytes::from(data);
+                    if sender.blocking_send(Ok(bytes)).is_err() {
+                        break;
+                    }
+                }
+                Pulled::NonBytes => {
+                    eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
+                        eggserve_core::ops::Severity::Error,
+                        eggserve_core::ops::EventKind::ServiceError,
+                        "Python response iterator yielded non-bytes chunk",
+                    ));
+                    let _ = sender.blocking_send(Err(ResponseStreamError::new(
+                        "python response iterator yielded non-bytes",
+                    )));
+                    break;
+                }
+                Pulled::ItemError(type_name) => {
+                    eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
+                        eggserve_core::ops::Severity::Error,
+                        eggserve_core::ops::EventKind::ServiceError,
+                        format!("Python response iterator failed ({type_name})"),
+                    ));
+                    let _ = sender.blocking_send(Err(ResponseStreamError::new(
+                        "python response iterator failed",
+                    )));
+                    break;
+                }
+            }
+        }
+    });
 }
 
 // ---------------------------------------------------------------------------
@@ -494,7 +655,6 @@ impl PyRequest {
 }
 
 #[pyclass(frozen, name = "Response")]
-#[derive(Debug)]
 pub struct PyResponse {
     #[pyo3(get)]
     status: u16,
@@ -504,12 +664,42 @@ pub struct PyResponse {
     pub(crate) extra_headers: Vec<(String, String)>,
 }
 
-#[derive(Debug)]
+impl std::fmt::Debug for PyResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyResponse")
+            .field("status", &self.status)
+            .field("headers", &self.headers)
+            .field("body", &self.body)
+            .finish_non_exhaustive()
+    }
+}
+
 pub(crate) enum PyResponseBody {
     Empty,
     Bytes(Vec<u8>),
     BodySource(BodySource),
+    Stream {
+        iterable: Py<PyAny>,
+        content_length: Option<u64>,
+    },
     Consumed,
+}
+
+impl std::fmt::Debug for PyResponseBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Empty => write!(f, "Empty"),
+            Self::Bytes(b) => f.debug_tuple("Bytes").field(&b.len()).finish(),
+            Self::BodySource(s) => f.debug_tuple("BodySource").field(&s.kind()).finish(),
+            Self::Stream {
+                content_length, ..
+            } => f
+                .debug_struct("Stream")
+                .field("content_length", content_length)
+                .finish_non_exhaustive(),
+            Self::Consumed => write!(f, "Consumed"),
+        }
+    }
 }
 
 #[pymethods]
@@ -582,6 +772,63 @@ impl PyResponse {
         })
     }
 
+    /// Incrementally produced response body from a synchronous iterable.
+    ///
+    /// The iterable must yield bytes-like chunks (`bytes`/`bytearray`;
+    /// empty chunks are skipped). It is consumed incrementally on a
+    /// dedicated producer thread through a bounded (16-chunk) channel, so
+    /// client backpressure eventually stops iterator advancement and the
+    /// full body is never buffered. `content_length`, when given, is the
+    /// exact representation length (Plan 162 known-length validation:
+    /// underrun/overrun closes the connection after commitment); when
+    /// omitted the runtime uses HTTP/1 chunked framing.
+    ///
+    /// HEAD and body-forbidden responses never advance the iterator. Raw
+    /// `Transfer-Encoding` cannot be set by the service (rejected as a
+    /// runtime-owned header). Non-bytes items and iterator exceptions
+    /// become stream failures: the wire sees a truncated connection and
+    /// diagnostics carry only the sanitized exception type. Async
+    /// generators/coroutines are not supported; keep asyncio ownership in
+    /// the downstream app server.
+    #[staticmethod]
+    #[pyo3(signature = (status, iterable, headers=None, content_length=None))]
+    fn stream(
+        py: Python<'_>,
+        status: u16,
+        iterable: Py<PyAny>,
+        headers: Option<HashMap<String, String>>,
+        content_length: Option<u64>,
+    ) -> PyResult<Self> {
+        validate_response_status(status)?;
+        // Fail fast on non-iterables so caller mistakes surface as
+        // TypeError at construction rather than truncated streams.
+        if PyIterator::from_object(iterable.bind(py)).is_err() {
+            // Coroutine/async-generator producers are explicitly unsupported.
+            let is_awaitable = iterable
+                .bind(py)
+                .hasattr("__await__")
+                .unwrap_or(false)
+                || iterable.bind(py).hasattr("__anext__").unwrap_or(false);
+            if is_awaitable {
+                return Err(pyo3::exceptions::PyTypeError::new_err(
+                    "async response producers are not supported; use a synchronous iterable of bytes",
+                ));
+            }
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "response iterable must be a synchronous iterable of bytes-like chunks",
+            ));
+        }
+        Ok(Self {
+            status,
+            headers: headers.unwrap_or_default(),
+            body: std::sync::Mutex::new(PyResponseBody::Stream {
+                iterable,
+                content_length,
+            }),
+            extra_headers: Vec::new(),
+        })
+    }
+
     /// Returns a clone of the body. The first call extracts; subsequent
     /// calls re-clone from internal state. For hot paths, use the
     /// internal conversion directly.
@@ -593,6 +840,11 @@ impl PyResponse {
         let source = match &*body {
             PyResponseBody::Empty => BodySource::Empty,
             PyResponseBody::Bytes(data) => BodySource::Bytes(data.clone()),
+            PyResponseBody::Stream { .. } => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "streamed response body is one-shot and cannot be cloned",
+                ))
+            }
             PyResponseBody::BodySource(source) => match source {
                 BodySource::Empty => BodySource::Empty,
                 BodySource::Bytes(data) => BodySource::Bytes(data.clone()),
@@ -1427,7 +1679,7 @@ fn convert_python_response_to_canonical<'py>(
     let representation_length = validated_headers
         .iter()
         .find_map(|(_, _, declared)| *declared);
-    let body = extract_python_response_body(obj, is_head, representation_length)?;
+    let body = extract_python_response_body(obj, code, is_head, representation_length)?;
 
     let body_len = body.len();
     for (_, _, declared) in &validated_headers {
@@ -1456,6 +1708,7 @@ fn convert_python_response_to_canonical<'py>(
 
 fn extract_python_response_body<'py>(
     obj: &Bound<'py, PyAny>,
+    status: CanonicalStatusCode,
     is_head: bool,
     representation_length: Option<u64>,
 ) -> Result<ResponseBody, ServiceError> {
@@ -1517,6 +1770,71 @@ fn extract_python_response_body<'py>(
                     Ok(ResponseBody::File(file))
                 }
             },
+            PyResponseBody::Stream {
+                iterable,
+                content_length,
+            } => {
+                // HEAD and body-forbidden statuses must not advance the
+                // iterator: drop the iterable (releasing Python references
+                // promptly) and retain only framing-relevant length.
+                // `normalize_response` drops streams without polling, but
+                // spawning the producer would still pull one item before
+                // observing the drop, so suppress here.
+                let suppress_forbidden = !status.permits_payload_body();
+                if is_head || suppress_forbidden {
+                    drop(iterable);
+                    // 304 may retain a matching representation length;
+                    // 1xx/204/205 are forced to zero by normalization.
+                    // HEAD with known length preserves it; HEAD unknown
+                    // omits Content-Length via an empty unknown stream
+                    // (Empty would invent `Content-Length: 0`).
+                    if status == CanonicalStatusCode::NOT_MODIFIED {
+                        if let Some(length) = content_length.or(representation_length) {
+                            Ok(ResponseBody::EmptyWithLength(length))
+                        } else {
+                            let empty =
+                                ResponseStream::new(futures_util::stream::empty::<
+                                    Result<Bytes, ResponseStreamError>,
+                                >());
+                            Ok(ResponseBody::Stream(empty))
+                        }
+                    } else if is_head {
+                        if let Some(length) = content_length.or(representation_length) {
+                            // Known HEAD length: preserve for framing. When
+                            // only the header supplied the length for an
+                            // unknown stream, the header is authoritative
+                            // (validation below already compared it against
+                            // the would-be body only for non-suppressed
+                            // paths; here the iterator never ran so accept
+                            // the declared header length).
+                            Ok(ResponseBody::EmptyWithLength(length))
+                        } else {
+                            // Unknown HEAD length: omit Content-Length.
+                            let empty =
+                                ResponseStream::new(futures_util::stream::empty::<
+                                    Result<Bytes, ResponseStreamError>,
+                                >());
+                            Ok(ResponseBody::Stream(empty))
+                        }
+                    } else {
+                        Ok(ResponseBody::Empty)
+                    }
+                } else {
+                    let (sender, receiver) =
+                        mpsc::channel::<Result<Bytes, ResponseStreamError>>(
+                            PYTHON_STREAM_CHANNEL_BOUND,
+                        );
+                    spawn_python_stream_producer(iterable, sender);
+                    let adapter = PythonReceiverStream {
+                        rx: std::sync::Mutex::new(receiver),
+                    };
+                    let stream = match content_length {
+                        Some(len) => ResponseStream::with_known_length(adapter, len),
+                        None => ResponseStream::new(adapter),
+                    };
+                    Ok(ResponseBody::Stream(stream))
+                }
+            }
         };
     }
 
@@ -1639,15 +1957,29 @@ pub struct PyServer {
     tls_config: Option<std::sync::Arc<rustls::ServerConfig>>,
     default_content_type: String,
     extra_response_headers: Vec<(String, String)>,
+    // Plan 164 production controls (operator-meaningful subset).
+    max_in_flight_requests: usize,
+    max_buf_size: usize,
+    max_headers: usize,
+    max_header_bytes: usize,
+    max_request_target_bytes: usize,
+    keep_alive_idle_timeout: Duration,
+    max_requests_per_connection: Option<u64>,
+    response_write_timeout: Duration,
+    // Plan 165 response privacy subset (safe for Python embedding).
+    server_header: Option<String>,
+    date_suppressed: bool,
+    stripped_response_headers: Vec<String>,
+    error_empty: bool,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None, default_content_type="application/octet-stream", extra_response_headers=None))]
+    #[pyo3(signature = (root=None, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None, default_content_type="application/octet-stream", extra_response_headers=None, max_in_flight_requests=64, max_buf_size=65536, max_headers=100, max_header_bytes=32768, max_request_target_bytes=8192, keep_alive_idle_timeout_secs=60, max_requests_per_connection=None, response_write_timeout_secs=30, server_header=None, date_policy="system", stripped_response_headers=None, error_policy="minimal"))]
     fn new(
-        root: String,
+        root: Option<String>,
         bind: &str,
         port: u16,
         policy: Option<PyStaticPolicyWrapper>,
@@ -1667,6 +1999,18 @@ impl PyServer {
         tls_keyfile: Option<String>,
         default_content_type: &str,
         extra_response_headers: Option<Vec<(String, String)>>,
+        max_in_flight_requests: usize,
+        max_buf_size: usize,
+        max_headers: usize,
+        max_header_bytes: usize,
+        max_request_target_bytes: usize,
+        keep_alive_idle_timeout_secs: u64,
+        max_requests_per_connection: Option<u64>,
+        response_write_timeout_secs: u64,
+        server_header: Option<String>,
+        date_policy: &str,
+        stripped_response_headers: Option<Vec<String>>,
+        error_policy: &str,
     ) -> PyResult<Self> {
         // rustls can be built with more than one provider through the
         // workspace's feature-unified dependency graph. Select the same
@@ -1724,6 +2068,115 @@ impl PyServer {
                 "body_timeout_secs must be greater than zero",
             ));
         }
+        // Plan 164 production controls: operator-meaningful subset with the
+        // same bounds as RuntimeConfig/Limits. `None` disables
+        // max_requests_per_connection; zero is rejected (no zero-means-
+        // unlimited overload).
+        if max_in_flight_requests == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "max_in_flight_requests must be greater than zero",
+            ));
+        }
+        if max_buf_size < eggserve_core::limits::MIN_MAX_BUF_SIZE {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "max_buf_size must be >= {} (Hyper minimum)",
+                eggserve_core::limits::MIN_MAX_BUF_SIZE
+            )));
+        }
+        if max_buf_size > eggserve_core::limits::MAX_MAX_BUF_SIZE {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "max_buf_size must be <= {} (4 MiB)",
+                eggserve_core::limits::MAX_MAX_BUF_SIZE
+            )));
+        }
+        if max_headers == 0 || max_headers > eggserve_core::limits::MAX_MAX_HEADERS {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "max_headers must be between 1 and {}",
+                eggserve_core::limits::MAX_MAX_HEADERS
+            )));
+        }
+        if max_header_bytes < eggserve_core::limits::MIN_MAX_HEADER_BYTES
+            || max_header_bytes > eggserve_core::limits::MAX_MAX_HEADER_BYTES
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "max_header_bytes must be between {} and {}",
+                eggserve_core::limits::MIN_MAX_HEADER_BYTES,
+                eggserve_core::limits::MAX_MAX_HEADER_BYTES
+            )));
+        }
+        if max_request_target_bytes < eggserve_core::limits::MIN_MAX_REQUEST_TARGET_BYTES
+            || max_request_target_bytes > eggserve_core::limits::MAX_MAX_REQUEST_TARGET_BYTES
+        {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "max_request_target_bytes must be between {} and {}",
+                eggserve_core::limits::MIN_MAX_REQUEST_TARGET_BYTES,
+                eggserve_core::limits::MAX_MAX_REQUEST_TARGET_BYTES
+            )));
+        }
+        if keep_alive_idle_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "keep_alive_idle_timeout_secs must be greater than zero",
+            ));
+        }
+        if max_requests_per_connection == Some(0) {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "max_requests_per_connection must be >= 1 or None (unlimited)",
+            ));
+        }
+        if response_write_timeout_secs == 0 {
+            return Err(pyo3::exceptions::PyValueError::new_err(
+                "response_write_timeout_secs must be greater than zero",
+            ));
+        }
+        // Plan 165 response privacy subset. Custom Rust clock providers stay
+        // Rust-only: Python selects the standards clock or explicit
+        // suppression, never a per-response GIL clock callback.
+        let date_suppressed = match date_policy {
+            "system" => false,
+            "suppress" => true,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "date_policy must be 'system' or 'suppress'",
+                ))
+            }
+        };
+        let error_empty = match error_policy {
+            "minimal" => false,
+            "empty" => true,
+            _ => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "error_policy must be 'minimal' or 'empty'",
+                ))
+            }
+        };
+        let stripped_response_headers = stripped_response_headers.unwrap_or_default();
+        // Validate privacy fields eagerly via the canonical validators so
+        // misconfiguration fails before listener startup.
+        {
+            let mut policy = eggserve_core::server::response_policy::ResponsePolicy::default();
+            if let Some(ref h) = server_header {
+                policy.server_identification = Some(h.clone());
+            }
+            policy.stripped_response_headers = stripped_response_headers.clone();
+            policy
+                .validate()
+                .map_err(pyo3::exceptions::PyValueError::new_err)?;
+            for name in &stripped_response_headers {
+                eggserve_core::server::response_policy::validate_stripped_header_name(name)
+                    .map_err(pyo3::exceptions::PyValueError::new_err)?;
+            }
+        }
+        // Handler-only mode requires no static root: custom services run
+        // without a filesystem root. Static mode still requires one.
+        let static_root = match (&root, &handler) {
+            (None, None) => {
+                return Err(pyo3::exceptions::PyValueError::new_err(
+                    "static root is required when no handler is given (handler-only servers may omit root)",
+                ))
+            }
+            (Some(r), None) => Some(std::path::PathBuf::from(r)),
+            (_, Some(_)) => None,
+        };
 
         // Parse body policy
         let body_policy = match request_body_mode {
@@ -1791,11 +2244,7 @@ impl PyServer {
             bind_address: bind_addr,
             public,
             addr: std::sync::Mutex::new(None),
-            static_root: if handler.is_none() {
-                Some(std::path::PathBuf::from(root))
-            } else {
-                None
-            },
+            static_root,
             static_policy,
             handler: handler.map(|h| std::sync::Mutex::new(Some(h))),
             handle: std::sync::Mutex::new(None),
@@ -1815,6 +2264,18 @@ impl PyServer {
             tls_config,
             default_content_type: default_content_type.to_string(),
             extra_response_headers,
+            max_in_flight_requests,
+            max_buf_size,
+            max_headers,
+            max_header_bytes,
+            max_request_target_bytes,
+            keep_alive_idle_timeout: Duration::from_secs(keep_alive_idle_timeout_secs),
+            max_requests_per_connection,
+            response_write_timeout: Duration::from_secs(response_write_timeout_secs),
+            server_header,
+            date_suppressed,
+            stripped_response_headers,
+            error_empty,
         })
     }
 
@@ -1894,6 +2355,18 @@ impl PyServer {
             body_policy,
             default_content_type,
             extra_response_headers,
+            max_in_flight_requests,
+            max_buf_size,
+            max_headers,
+            max_header_bytes,
+            max_request_target_bytes,
+            keep_alive_idle_timeout,
+            max_requests_per_connection,
+            response_write_timeout,
+            server_header,
+            date_suppressed,
+            stripped_response_headers,
+            error_empty,
         ) = {
             let this = slf.borrow(py);
             let handler = this
@@ -1929,6 +2402,18 @@ impl PyServer {
                 this.body_policy,
                 this.default_content_type.clone(),
                 this.extra_response_headers.clone(),
+                this.max_in_flight_requests,
+                this.max_buf_size,
+                this.max_headers,
+                this.max_header_bytes,
+                this.max_request_target_bytes,
+                this.keep_alive_idle_timeout,
+                this.max_requests_per_connection,
+                this.response_write_timeout,
+                this.server_header.clone(),
+                this.date_suppressed,
+                this.stripped_response_headers.clone(),
+                this.error_empty,
             )
         };
 
@@ -1958,10 +2443,38 @@ impl PyServer {
             .handler_timeout(handler_timeout)
             .graceful_shutdown_timeout(graceful_shutdown_timeout)
             .max_request_body_bytes(max_request_body_bytes)
-            .body_read_timeout(body_read_timeout);
+            .body_read_timeout(body_read_timeout)
+            .max_in_flight_requests(max_in_flight_requests)
+            .max_buf_size(max_buf_size)
+            .max_headers(max_headers)
+            .max_header_bytes(max_header_bytes)
+            .max_request_target_bytes(max_request_target_bytes)
+            .keep_alive_idle_timeout(keep_alive_idle_timeout)
+            .max_requests_per_connection(max_requests_per_connection)
+            .response_write_timeout(response_write_timeout);
         if let Some(tls_config) = &tls_config {
             runtime_builder = runtime_builder.tls_config(tls_config.clone());
         }
+        // Plan 165 privacy subset: fixed server value, system/suppressed
+        // date, validated denylist, minimal/empty errors. Custom clocks stay
+        // Rust-only so no per-response Python callback is introduced.
+        if let Some(header) = server_header {
+            runtime_builder = runtime_builder.server_header(header);
+        }
+        runtime_builder = runtime_builder.date_policy(if date_suppressed {
+            eggserve_core::server::response_policy::DatePolicy::Suppress
+        } else {
+            eggserve_core::server::response_policy::DatePolicy::SystemClock
+        });
+        if !stripped_response_headers.is_empty() {
+            runtime_builder =
+                runtime_builder.stripped_response_headers(stripped_response_headers);
+        }
+        runtime_builder = runtime_builder.error_policy(if error_empty {
+            eggserve_core::policy::ErrorRepresentationPolicy::Empty
+        } else {
+            eggserve_core::policy::ErrorRepresentationPolicy::Minimal
+        });
         let runtime_config = runtime_builder
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

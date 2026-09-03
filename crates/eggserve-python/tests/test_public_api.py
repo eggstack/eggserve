@@ -32,6 +32,17 @@ class PublicApiTests(unittest.TestCase):
         self.assertIsNotNone(SecureRoot)
         self.assertFalse(StaticPolicy().follow_symlinks)
 
+    def test_lowlevel_runtime_substrate(self):
+        from eggserve import lowlevel
+
+        self.assertTrue(callable(lowlevel.Server))
+        self.assertIsNotNone(lowlevel.RuntimeConfig())
+        self.assertTrue(callable(lowlevel.Response.stream))
+        self.assertIsNotNone(lowlevel.StaticResponder)
+        self.assertIsNotNone(lowlevel.ServerSecureRoot)
+        for name in ("RuntimeConfig", "Server", "StaticResponder", "ServerSecureRoot"):
+            self.assertIn(name, lowlevel.__all__)
+
     def test_subprocess_namespace(self):
         from eggserve.subprocess import ServeConfig, ServerProcess, serve_directory
 

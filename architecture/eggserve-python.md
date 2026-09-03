@@ -78,12 +78,18 @@ actual native `(host, port)` tuple.
 
 `eggserve.lowlevel` contains the advanced PyO3 wrappers (`SecureRoot`,
 `StaticPolicy`, `RequestTarget`, canonical HTTP types, and body/response
-primitives). `eggserve.subprocess` contains `ServeConfig`, `ServerProcess`,
+primitives) plus the Plan 166 public runtime substrate: frozen `RuntimeConfig`,
+handler-only `Server(config, handler)` over the shared native runtime (no
+second accept loop, no static root), bounded `Response.stream` (16-chunk
+backpressured bridge; HEAD/body-forbidden never advance the iterator; async
+rejected; `Transfer-Encoding` never service-set), and caller-owned
+`StaticResponder` composition. `eggserve.subprocess` contains `ServeConfig`, `ServerProcess`,
 `StaticPolicy`, and the `serve_directory` convenience. The top-level package
 only re-exports the version, `serve_directory`, and the six façade classes.
 
-The native callback `Server`, `StaticResponder`, `ServerSecureRoot`, and
-`ServerBodySource` remain internal implementation/test types.
+The native callback `Server` backs both the facade and `lowlevel.Server`;
+`StaticResponder`, `ServerSecureRoot`, and `ServerBodySource` back the public
+lowlevel composition primitives (previously internal/test-only).
 
 The canonical executable facade demonstrations are
 [`examples/python_http_server_static.py`](../examples/python_http_server_static.py)

@@ -254,6 +254,13 @@ class Response:
     def text(status: int, text: str, headers: dict[str, str] | None = None) -> Response: ...
     @staticmethod
     def body_source(status: int, body: ServerBodySource, headers: dict[str, str] | None = None) -> Response: ...
+    @staticmethod
+    def stream(
+        status: int,
+        iterable: Any,
+        headers: dict[str, str] | None = None,
+        content_length: int | None = None,
+    ) -> Response: ...
 
 class StaticPolicyWrapper:
     directory_listing: bool
@@ -297,7 +304,7 @@ class ServerBodySource:
 class Server:
     def __init__(
         self,
-        root: str,
+        root: str | None = None,
         bind: str = "127.0.0.1",
         port: int = 8000,
         policy: StaticPolicyWrapper | None = None,
@@ -317,6 +324,18 @@ class Server:
         tls_keyfile: str | None = None,
         default_content_type: str = "application/octet-stream",
         extra_response_headers: list[tuple[str, str]] | None = None,
+        max_in_flight_requests: int = 64,
+        max_buf_size: int = 65536,
+        max_headers: int = 100,
+        max_header_bytes: int = 32768,
+        max_request_target_bytes: int = 8192,
+        keep_alive_idle_timeout_secs: int = 60,
+        max_requests_per_connection: int | None = None,
+        response_write_timeout_secs: int = 30,
+        server_header: str | None = None,
+        date_policy: str = "system",
+        stripped_response_headers: list[str] | None = None,
+        error_policy: str = "minimal",
     ) -> None: ...
 
     @property

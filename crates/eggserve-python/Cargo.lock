@@ -74,8 +74,10 @@ dependencies = [
 name = "eggserve-python"
 version = "0.1.2"
 dependencies = [
+ "bytes",
  "eggserve-bin",
  "eggserve-core",
+ "futures-util",
  "pyo3",
  "rustls",
  "tokio",

@@ -88,11 +88,49 @@ client certificates, ACME, or certificate reload is provided.
 `SecureRoot`, `StaticPolicy`, `RequestTarget`, and canonical HTTP types live
 in `eggserve.lowlevel`.
 
-The six-class `eggserve.server` façade is the primary supported Python server
-surface. The bespoke native callback `Server` and the experimental Python HTTP
-client are not part of the supported default package surface. Advanced
-primitives remain available under `eggserve.lowlevel`; subprocess lifecycle
-helpers are under `eggserve.subprocess`.
+## Low-level runtime/service substrate (Plan 166)
+
+`eggserve.lowlevel` is the public substrate for a downstream bounded HTTP
+application server. It reuses the same native runtime as the facade (no
+second accept loop) without the `http.server` compatibility shapes:
+
+```python
+from eggserve import lowlevel
+
+config = lowlevel.RuntimeConfig(bind="127.0.0.1", port=0)
+server = lowlevel.Server(config=config, handler=my_handler)
+server.start()
+server.wait_ready()
+...
+server.shutdown()
+server.wait()
+```
+
+- Handler-only: no static root is required or validated. Optional static
+  composition uses a distinct `StaticResponder` owned by the caller; EggServe
+  adds no routing.
+- `RuntimeConfig` is frozen and validated: bind/port, connection/in-flight/
+  callback limits, body ceiling/mode, parser ceilings, all timeouts,
+  `max_requests_per_connection` (`None` disables, `0` rejected), TLS files,
+  and the safe privacy subset (`server_header`, `date_policy`
+  `system`/`suppress`, `stripped_response_headers`, `error_policy`
+  `minimal`/`empty`). Custom Rust clocks stay Rust-only.
+- `Response.stream(status, iterable, headers, content_length)` consumes a
+  synchronous bytes iterable incrementally through a bounded 16-chunk bridge:
+  backpressure stalls the iterator, `content_length` selects known-length
+  validation (mismatch truncates), omission selects chunked framing, HEAD and
+  1xx/204/205/304 never advance the iterator, non-bytes items and iterator
+  exceptions truncate with sanitized type-only diagnostics, and
+  `Transfer-Encoding` cannot be set by services. Async producers are rejected.
+- GIL/networking split: Rust owns I/O; at most `max_python_callbacks`
+  handlers run concurrently; in-flight admission is held before the callback
+  permit. Timeouts close the HTTP request but cannot kill Python code.
+
+The six-class `eggserve.server` façade is the primary stdlib-shaped surface;
+`eggserve.lowlevel` is the public runtime/service substrate for downstream
+bounded application servers. The experimental Python HTTP client is not part
+of the supported package surface. Subprocess lifecycle helpers are under
+`eggserve.subprocess`; `_native` remains private implementation detail.
 
 ## Compatibility boundary
 

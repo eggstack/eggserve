@@ -10,9 +10,11 @@ EggServe is a hardened, HTTP-correct static file server and reusable Rust HTTP/s
 
 The CLI serves static files only. The Python package provides hardened static
 serving plus a bounded, synchronous custom-handler path shaped like
-`http.server`. The Rust crate exposes a low-level, embeddable HTTP runtime and
-service boundary. EggServe itself is not an application framework, ASGI/WSGI
-runtime, proxy, or general-purpose `socketserver` replacement.
+`http.server`, and a public `eggserve.lowlevel` handler-only runtime/service
+substrate for downstream bounded application servers. The Rust crate exposes a
+low-level, embeddable HTTP runtime and service boundary. EggServe itself is not
+an application framework, ASGI/WSGI runtime, proxy, or general-purpose
+`socketserver` replacement.
 
 ## Secure alternative to `python -m http.server`
 
@@ -87,10 +89,15 @@ When the `tls` feature is available, HTTPS serving uses
 [examples/python_https_server.py](https://github.com/eggstack/eggserve/blob/main/examples/python_https_server.py).
 
 Custom handlers are synchronous and receive bounded in-memory `rfile`/`wfile`
-facades. They do not receive raw sockets, do not provide unbounded streaming,
-and do not turn EggServe into an application server. The optional subprocess
-helpers are under `eggserve.subprocess`; the primary API is `eggserve.server`.
-See the [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) for the full six-class
+facades. They do not receive raw sockets and do not turn EggServe itself into
+an application framework. For a downstream bounded application server, use the
+public `eggserve.lowlevel` runtime/service substrate: handler-only
+`Server(config, handler)` with no static root, frozen `RuntimeConfig` (admission,
+parser, timeout, and safe privacy controls), bounded `Response.stream` over a
+16-chunk backpressured bridge (HEAD/body-forbidden never advance the iterator;
+async producers rejected), and caller-owned `StaticResponder` composition. The
+optional subprocess helpers are under `eggserve.subprocess`; the primary API is
+`eggserve.server`. See the [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) for the full six-class
 surface and [the compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md)
 for intentional deviations from the stdlib.
 
@@ -169,7 +176,7 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
   metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
   `--tls-key` is omitted.
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
-  async Python handlers, unbounded Python response streaming, and ASGI/WSGI are
+  async Python handlers, unbounded response generators, and ASGI/WSGI are
   intentionally unavailable.
 
 See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),

@@ -110,7 +110,7 @@ These behaviors are unavailable by design, not pending work:
 | Python thread-per-connection behavior | Bounded native/callback admission |
 | Arbitrary `ssl.SSLContext`, SNI multi-cert selection, or client certificates | Rustls facade constraints |
 | Async handler coroutines | Synchronous handler contract |
-| Unbounded streaming Python response bodies | Bounded response policy |
+| Unbounded streaming Python response bodies | Bounded response policy (facade is buffered; `eggserve.lowlevel.Response.stream` offers bounded 16-chunk streaming) |
 
 The facade also does not expose routing, middleware, proxying, decompression,
 cookies, retries, or ASGI/WSGI adaptation.

@@ -25,3 +25,8 @@ pyo3 = { version = "0.24", features = ["extension-module", "abi3-py311", "genera
 tokio = { version = "1", features = ["rt-multi-thread", "net", "io-util", "sync", "time"] }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", default-features = false, features = ["ring"] }
+# Bounded Python iterator -> Rust stream bridge (Plan 166): chunk bytes and
+# Stream impl for the mpsc-backed producer. Already in the workspace tree via
+# eggserve-core; pinned directly so the bridge does not rely on transitive re-exports.
+bytes = "1"
+futures-util = "0.3"
