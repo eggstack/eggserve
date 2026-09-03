@@ -249,12 +249,14 @@ documented separately in `docs/python-api.md`.
 |------|------|-------|
 | `StatusCode` | stable | Validated HTTP status code (100–599, three-digit only) |
 | `ResponseHead` | stable | Status + `HeaderBlock`; transport-independent response metadata |
-| `ResponseBody` | stable | Body representation: Empty, Bytes, File, EmptyWithLength |
+| `ResponseBody` | stable | Body representation: Empty, Bytes, File, Stream, EmptyWithLength |
 | `Response` | stable | Complete response: head + body; one-shot consumption |
 | `ResponseBuilder` | stable | Validated builder for Response |
 | `NormalizeRequest` | stable | Context for response normalization (is_head flag) |
 | `ResponseConstructionError` | stable | InvalidStatus, InvalidHeader, ForbiddenFramingHeader, BodyAlreadyConsumed, ContentLengthMismatch |
-| `normalize_response()` | stable | Applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation |
+| `BodyLength` | stable | Known(u64) vs Unknown representation length; Unknown never becomes Content-Length: 0 |
+| `ResponseStream` / `ResponseStreamError` | stable | Transport-independent one-shot byte stream with optional known length; Hyper-free |
+| `normalize_response()` | stable | Applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation (Known sets, Unknown omits for chunked) |
 | `normalize_metadata()` | stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation |
 | `to_hyper_response()` | stable | Converts canonical Response to Hyper Response |
 

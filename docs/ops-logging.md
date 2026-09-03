@@ -120,6 +120,12 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `request_completed` | INFO | Request fully processed |
 | `directory_listing_limit` | WARN | Directory listing entry or size limit reached |
 | `blocking_worker_saturation` | WARN | Blocking worker pool fully utilized |
+| `response_stream_started` | DEBUG | Streaming response started |
+| `response_stream_completed` | DEBUG | Streaming response completed cleanly |
+| `response_stream_length_mismatch` | WARN | Known-length overrun/underrun; connection closed |
+| `response_stream_producer_error` | WARN | Producer failed after commitment; connection closed |
+| `response_stream_producer_panic` | ERROR | Producer panicked while polling; connection closed |
+| `response_stream_cancelled` | DEBUG | Stream dropped before completion (disconnect/shutdown/HEAD suppression) |
 
 ### Operational faults
 
@@ -149,6 +155,12 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `forced_shutdowns` | Shutdowns with timeout |
 | `listener_errors` | Accept loop errors |
 | `dropped_log_events` | Events dropped due to sink failures |
+| `streaming_started` | Streaming responses started |
+| `streaming_completed` | Streaming responses completed cleanly |
+| `stream_length_mismatches` | Known-length mismatches (closed) |
+| `stream_producer_errors` | Producer failures after commitment |
+| `stream_producer_panics` | Producer panics while polling |
+| `stream_cancelled` | Streams cancelled before completion |
 
 ## Troubleshooting
 

@@ -98,5 +98,13 @@ smoke(
         ("GET", "/missing", (404, b"not found\n")),
     ],
 )
+smoke(
+    "streaming_service",
+    [],
+    [
+        ("GET", "/known", (200, b"hello world")),
+        ("GET", "/stream", (200, b"tick tock")),
+    ],
+)
 print("Rust example smoke checks passed")
 PYEOF

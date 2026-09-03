@@ -19,7 +19,12 @@ eggserve exposes a documented, reusable HTTP/1.1 primitive contract for downstre
 - Static full-file responses.
 - Static range responses.
 - Empty responses.
-- Byte responses for future dynamic primitive work.
+- Byte responses for small dynamic bodies.
+- Streaming responses via `ResponseBody::Stream` (`ResponseStream` with
+  optional known length). Known lengths emit runtime-generated
+  `Content-Length`; unknown lengths omit it and let HTTP/1 select chunked
+  framing. Empty chunks are skipped, large chunks are split (not rejected),
+  and `HEAD`/1xx/204/205/304 never poll the producer.
 - Conditional GET/HEAD via `If-None-Match` and `If-Modified-Since`.
 - Range requests via `Range` and `If-Range`.
 - Generic 400/403/404/405/413/416/500/503 behavior for the CLI path.
@@ -28,7 +33,8 @@ eggserve exposes a documented, reusable HTTP/1.1 primitive contract for downstre
 
 - Request body streaming into Python callbacks.
 - Multipart range responses.
-- Chunked response construction as a public primitive.
+- Manual chunked construction (`Transfer-Encoding` stays runtime-owned;
+  services use `ResponseStream::new` and let the runtime frame).
 - HTTP trailers.
 - Upgrade semantics.
 - Absolute-form proxy requests.

@@ -124,6 +124,7 @@ handle.wait().await?;
 
 The executable, mechanically checked examples are [the static server](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/static_server.rs),
 [the custom service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/custom_service.rs),
+[the streaming service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/streaming_service.rs),
 and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/primitives.rs).
 They use public EggServe modules only, include readiness plus graceful
 shutdown, and are the recommended starting points for custom services.
@@ -139,12 +140,15 @@ is experimental before 1.0. See the [Rust architecture overview](https://github.
 - Loopback bind, no symlinks, no dotfiles, and no directory listing are the
   safe defaults for static serving.
 - Static serving is GET/HEAD only and rejects request bodies; custom services
-  may opt into bounded bodies under the runtime ceiling.
+  may opt into bounded bodies under the runtime ceiling and return
+  known/unknown-length streaming responses (`ResponseBody::Stream`) without
+  importing Hyper.
 - Path traversal and symlink escape are denied at library level. Unix safe
   defaults use descriptor-relative resolution; Windows is qualified for the
   executed handle-relative classes but remains trusted/local-content only.
-- HTTP/1.1, ranges, conditional requests, canonical response normalization,
-  and bounded resource admission are part of the implemented contract.
+- HTTP/1.1, ranges, conditional requests, canonical response normalization
+  (including known/unknown-length streaming bodies with runtime-owned
+  framing), and bounded resource admission are part of the implemented contract.
 - The CLI accepts hostnames in `--bind`, repeatable safe `-H/--header` static
   metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
   `--tls-key` is omitted.

@@ -22,7 +22,8 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
-| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response` — canonical response types |
+| `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
+| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody` (incl. `Stream`), `BodyLength`, `ResponseStream`/`ResponseStreamError`, `Response`, `normalize_response` — canonical response types |
 | `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + connection info) |
 | `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |

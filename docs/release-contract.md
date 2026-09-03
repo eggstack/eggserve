@@ -295,7 +295,7 @@ The canonical response types provide transport-independent, Hyper-independent va
 |------|--------|-------------|
 | `StatusCode` | `primitives::canonical` | Validated HTTP status code (100–599, three-digit only). |
 | `ResponseHead` | `primitives::canonical` | Status + validated `HeaderBlock`. |
-| `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`, `File`, and `EmptyWithLength`. |
+| `ResponseBody` | `primitives::canonical` | Body representation: `Empty`, `Bytes`, `File`, `Stream`, and `EmptyWithLength`. |
 | `Response` | `primitives::canonical` | Complete response: head + body. One-shot consumption. |
 | `ResponseBuilder` | `primitives::canonical` | Validated builder for `Response`. |
 | `NormalizeRequest` | `primitives::canonical` | Context for response normalization. |
@@ -303,14 +303,14 @@ The canonical response types provide transport-independent, Hyper-independent va
 
 **Normalization functions**:
 
-- `normalize_response(response, request)` applies the following rules before transport conversion:
-  1. HEAD suppression — body discarded, representation headers preserved.
-  2. Body-forbidden statuses — 1xx, 204, 205, and 304 bodies discarded.
-  3. Hop-by-hop header stripping — `Transfer-Encoding` removed.
-  4. Content-Length computation — set to actual body length.
+- `normalize_response(response, request)` applies the following rules before transport conversion (idempotent; `Response::is_normalized`):
+  1. HEAD suppression — body (including streams, dropped without polling) discarded, representation headers preserved (known length kept, unknown omits `Content-Length`).
+  2. Body-forbidden statuses — 1xx, 204, 205, and 304 bodies (including streams, dropped without polling) discarded.
+  3. Hop-by-hop header stripping — `Transfer-Encoding` (runtime-owned) removed.
+  4. Content-Length computation — `Known` sets `Content-Length`, `Unknown` (streaming) omits it for chunked framing; unknown never becomes `0`.
   5. Duplicate end-to-end headers preserved.
 
-- `normalize_metadata(status, headers, body_len)` is the shared normalization entry point for both in-memory and file-backed response producers. It applies the same framing rules (Transfer-Encoding stripping, Content-Length computation) without consuming a `Response` value. File-streaming producers call this directly; `body_len` is the would-have-been-sent representation length for HEAD responses.
+- `normalize_metadata(status, headers, body_length)` is the shared normalization entry point for in-memory, file-backed, and streaming producers. It applies the same framing rules without consuming a `Response` value. File-streaming producers call this directly; callers pass the would-have-been-sent representation length (`Known`/`Unknown`) for HEAD responses.
 
 **Conversion**: `to_hyper_response(response)` converts a normalized canonical `Response` into a Hyper `Response<BoxBody>`. This is the final step before sending on the wire.
 
@@ -319,13 +319,12 @@ The canonical response types provide transport-independent, Hyper-independent va
 All response producers converge on `normalize_metadata()` for metadata normalization. This function is the shared normalization entry point for both in-memory and file-backed response producers. It applies:
 
 1. Strip runtime-owned `Transfer-Encoding` — always removed regardless of status.
-2. HEAD responses: suppress `Content-Length` only for an empty
-   representation; retain the equivalent GET length for non-empty bodies.
-3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`.
-4. Normal payloads: set `Content-Length` to actual body length.
+2. HEAD responses: retain the known equivalent-GET length (including zero); omit `Content-Length` when unknown.
+3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length` (except matching 304 representation length).
+4. Normal payloads: `Known` sets `Content-Length`, `Unknown` omits it (chunked).
 5. Preserve all other headers (including duplicates).
 
-File and byte responses share the same framing policy: `Transfer-Encoding` is always stripped, and `Content-Length` is computed from actual body length. Handler-provided `Content-Length` is overwritten with the computed value.
+File, byte, and streaming responses share the same framing policy: `Transfer-Encoding` is always stripped, and `Content-Length` is runtime-computed (`Known`) or omitted (`Unknown`). Handler-provided framing is overwritten/removed.
 
 `normalize_metadata()` is called by `normalize_response()` (for complete `Response` values) and directly by file-streaming producers (for file-backed responses that bypass the canonical `Response` type).
 

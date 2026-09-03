@@ -35,6 +35,7 @@ opening a socket. They are compiled by `scripts/verify.sh full`.
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map |
 | `primitives/` | **pub** | Public facade for embedding consumers |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
+| `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
 
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
@@ -91,7 +92,7 @@ Resource limits with safe defaults:
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
 | `max_listing_entries` | 4096 | Maximum entries to enumerate in a directory listing |
 | `max_listing_response_bytes` | 1 MiB | Maximum size in bytes for a directory listing response body |
-| `stream_chunk_size` | 8 KiB | Chunk size in bytes for file streaming reads |
+| `stream_chunk_size` | 8 KiB | Chunk size in bytes for file streaming reads and app-stream framing splits |
 
 ## Server Module (`server/`)
 

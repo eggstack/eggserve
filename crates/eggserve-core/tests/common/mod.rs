@@ -6,6 +6,7 @@ pub fn extract_body_bytes(resp: &Response) -> Vec<u8> {
     match resp.body() {
         Some(ResponseBody::Bytes(bytes)) => bytes.clone(),
         Some(ResponseBody::Empty) | Some(ResponseBody::EmptyWithLength(_)) => Vec::new(),
+        Some(ResponseBody::Stream(_)) => Vec::new(),
         Some(ResponseBody::File(source)) => match source {
             BodySource::FileFull { file, len, .. } => {
                 let mut bytes = vec![0; *len as usize];

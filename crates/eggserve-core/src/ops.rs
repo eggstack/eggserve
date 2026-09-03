@@ -64,6 +64,13 @@ pub enum EventKind {
     ServiceTimeout,
     ServiceError,
     DirectoryListingLimit,
+    // Streaming responses (Plan 162)
+    ResponseStreamStarted,
+    ResponseStreamCompleted,
+    ResponseStreamLengthMismatch,
+    ResponseStreamProducerError,
+    ResponseStreamProducerPanic,
+    ResponseStreamCancelled,
 
     // Operational
     ListenerTransientError,
@@ -110,6 +117,12 @@ impl fmt::Display for EventKind {
             EventKind::ServiceTimeout => "service_timeout",
             EventKind::ServiceError => "service_error",
             EventKind::DirectoryListingLimit => "directory_listing_limit",
+            EventKind::ResponseStreamStarted => "response_stream_started",
+            EventKind::ResponseStreamCompleted => "response_stream_completed",
+            EventKind::ResponseStreamLengthMismatch => "response_stream_length_mismatch",
+            EventKind::ResponseStreamProducerError => "response_stream_producer_error",
+            EventKind::ResponseStreamProducerPanic => "response_stream_producer_panic",
+            EventKind::ResponseStreamCancelled => "response_stream_cancelled",
 
             EventKind::ListenerTransientError => "listener_transient_error",
             EventKind::ListenerPersistentError => "listener_persistent_error",
@@ -574,6 +587,12 @@ pub struct OpsCounters {
     pub forced_shutdowns: AtomicU64,
     pub listener_errors: AtomicU64,
     pub dropped_log_events: AtomicU64,
+    pub streaming_started: AtomicU64,
+    pub streaming_completed: AtomicU64,
+    pub stream_length_mismatches: AtomicU64,
+    pub stream_producer_errors: AtomicU64,
+    pub stream_producer_panics: AtomicU64,
+    pub stream_cancelled: AtomicU64,
 }
 
 impl Default for OpsCounters {
@@ -599,6 +618,12 @@ impl OpsCounters {
             forced_shutdowns: AtomicU64::new(0),
             listener_errors: AtomicU64::new(0),
             dropped_log_events: AtomicU64::new(0),
+            streaming_started: AtomicU64::new(0),
+            streaming_completed: AtomicU64::new(0),
+            stream_length_mismatches: AtomicU64::new(0),
+            stream_producer_errors: AtomicU64::new(0),
+            stream_producer_panics: AtomicU64::new(0),
+            stream_cancelled: AtomicU64::new(0),
         }
     }
 
@@ -618,6 +643,12 @@ impl OpsCounters {
             forced_shutdowns: self.forced_shutdowns.load(Ordering::Relaxed),
             listener_errors: self.listener_errors.load(Ordering::Relaxed),
             dropped_log_events: self.dropped_log_events.load(Ordering::Relaxed),
+            streaming_started: self.streaming_started.load(Ordering::Relaxed),
+            streaming_completed: self.streaming_completed.load(Ordering::Relaxed),
+            stream_length_mismatches: self.stream_length_mismatches.load(Ordering::Relaxed),
+            stream_producer_errors: self.stream_producer_errors.load(Ordering::Relaxed),
+            stream_producer_panics: self.stream_producer_panics.load(Ordering::Relaxed),
+            stream_cancelled: self.stream_cancelled.load(Ordering::Relaxed),
         }
     }
 }
@@ -638,6 +669,12 @@ pub struct OpsSnapshot {
     pub forced_shutdowns: u64,
     pub listener_errors: u64,
     pub dropped_log_events: u64,
+    pub streaming_started: u64,
+    pub streaming_completed: u64,
+    pub stream_length_mismatches: u64,
+    pub stream_producer_errors: u64,
+    pub stream_producer_panics: u64,
+    pub stream_cancelled: u64,
 }
 
 #[cfg(test)]

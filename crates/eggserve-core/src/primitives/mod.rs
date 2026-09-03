@@ -60,6 +60,7 @@ pub mod request_body_policy;
 pub mod request_head;
 pub mod request_target;
 pub mod response;
+pub mod response_stream;
 pub mod version;
 
 pub use crate::path::decode::percent_decode;
@@ -68,9 +69,9 @@ pub use crate::path::platform::{
 };
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use canonical::{
-    is_hop_by_hop_header, normalize_metadata, normalize_response, to_hyper_response,
+    is_hop_by_hop_header, normalize_metadata, normalize_response, to_hyper_response, BodyLength,
     NormalizeRequest, Response, ResponseBody, ResponseBuilder, ResponseConstructionError,
-    StatusCode,
+    ResponseStream, ResponseStreamError, StatusCode,
 };
 pub use connection_info::{ConnectionInfo, Scheme, TlsInfo};
 pub use header_block::{
@@ -97,6 +98,7 @@ pub use response::{
     BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,
     ResponseHeader, ResponseStatus, StaticResponsePlan,
 };
+pub use response_stream::MAX_RESPONSE_STREAM_CHUNK_BYTES;
 pub use version::{HttpVersion, HttpVersionError};
 
 #[cfg(test)]

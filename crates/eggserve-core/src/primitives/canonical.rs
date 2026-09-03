@@ -13,11 +13,59 @@
 //! impls. The normalization function consumes the response body for HEAD and
 //! body-forbidden statuses, enforcing the invariant that no body bytes are
 //! transmitted for these responses.
+//!
+//! # Streaming bodies (Plan 162)
+//!
+//! A Rust [`crate::server::Service`] may return [`ResponseBody::Stream`] for
+//! incrementally produced bodies. The runtime remains the only authority for
+//! `Content-Length`, `Transfer-Encoding`, and connection reuse:
+//!
+//! - known-length streams send runtime-generated `Content-Length`; underrun or
+//!   overrun closes the connection after commitment;
+//! - unknown-length streams omit `Content-Length` and let HTTP/1 select
+//!   chunked framing; successful completion may keep the connection reusable;
+//! - `HEAD` and 1xx/204/205/304 never poll the stream; dropping releases the
+//!   producer promptly.
+//!
+//! `handler_timeout` bounds only the service future (time to produce the
+//! `Response`), not the subsequent body stream. Streaming is bounded by
+//! `connection_total_timeout` and shutdown. Plan 164 will add
+//! write/no-progress controls.
 
 use std::fmt;
 
 use super::body::BodySource;
 use super::header_block::{HeaderBlock, HeaderError, HeaderName, HeaderValue};
+pub use super::response_stream::{ResponseStream, ResponseStreamError};
+
+/// Representation length for normalization.
+///
+/// `Known(n)` means the exact payload length is known before transport and
+/// the runtime must emit `Content-Length: n` for payload-permitting
+/// responses. `Unknown` means the length is not known (streaming) and the
+/// runtime must omit `Content-Length` and let HTTP/1 select chunked framing.
+/// Unknown must never become `Content-Length: 0` accidentally.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyLength {
+    Known(u64),
+    Unknown,
+}
+
+impl From<u64> for BodyLength {
+    fn from(len: u64) -> Self {
+        Self::Known(len)
+    }
+}
+
+impl BodyLength {
+    /// Returns the known length, if any.
+    pub fn known(&self) -> Option<u64> {
+        match self {
+            Self::Known(len) => Some(*len),
+            Self::Unknown => None,
+        }
+    }
+}
 
 /// Errors from response construction.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -195,6 +243,11 @@ impl ResponseHead {
 ///
 /// Body ownership is one-shot: once the body is consumed (e.g. by
 /// [`normalize_response`] or transport conversion), it cannot be reused.
+///
+/// `Stream` is the transport-independent application stream from Plan 162.
+/// It is pull/backpressure driven with no Hyper types. The runtime owns
+/// framing: known-length streams emit `Content-Length`, unknown-length
+/// streams use chunked framing selected by HTTP/1.
 #[derive(Debug)]
 pub enum ResponseBody {
     /// No body content.
@@ -204,6 +257,8 @@ pub enum ResponseBody {
     /// An already-resolved file capability. The transport consumes the
     /// capability directly; it is never reopened by path.
     File(BodySource),
+    /// Incrementally produced application bytes with optional known length.
+    Stream(ResponseStream),
     /// No bytes are sent, but metadata must retain this representation length
     /// (used for HEAD responses crossing an adapter boundary).
     EmptyWithLength(u64),
@@ -211,28 +266,58 @@ pub enum ResponseBody {
 
 impl ResponseBody {
     /// Returns the body length in bytes, if known without performing I/O.
+    ///
+    /// For unknown-length streams this returns 0, but callers must not use
+    /// it for framing — use [`ResponseBody::body_length`] instead. Using
+    /// `len()` for an unknown stream would invent a bogus `Content-Length: 0`.
     pub fn len(&self) -> u64 {
         match self {
             Self::Empty => 0,
             Self::Bytes(b) => b.len() as u64,
             Self::File(source) => source.len(),
+            Self::Stream(s) => s.known_length().unwrap_or(0),
             Self::EmptyWithLength(len) => *len,
         }
     }
 
+    /// Returns the representation length as [`BodyLength`].
+    ///
+    /// This is the framing-authoritative length: `Known` for buffered, file,
+    /// and known-length streams; `Unknown` for unknown-length streams.
+    pub fn body_length(&self) -> BodyLength {
+        match self {
+            Self::Empty => BodyLength::Known(0),
+            Self::Bytes(b) => BodyLength::Known(b.len() as u64),
+            Self::File(source) => BodyLength::Known(source.len()),
+            Self::Stream(s) => match s.known_length() {
+                Some(len) => BodyLength::Known(len),
+                None => BodyLength::Unknown,
+            },
+            Self::EmptyWithLength(len) => BodyLength::Known(*len),
+        }
+    }
+
     /// Returns `true` if the body is known to be zero-length.
+    ///
+    /// Unknown-length streams are never considered empty: their length is
+    /// not known without polling.
     pub fn is_empty(&self) -> bool {
-        self.len() == 0
+        match self {
+            Self::Stream(s) => matches!(s.known_length(), Some(0)),
+            _ => self.len() == 0,
+        }
     }
 
     /// Consume the body and return the bytes.
     ///
-    /// Returns `None` if the body was already consumed or is empty.
+    /// Returns `None` if the body was already consumed, is empty, is a file,
+    /// or is a stream (streams require transport polling, not buffering).
     pub fn into_bytes(self) -> Option<Vec<u8>> {
         match self {
             Self::Empty => None,
             Self::Bytes(b) => Some(b),
             Self::File(_) => None,
+            Self::Stream(_) => None,
             Self::EmptyWithLength(_) => None,
         }
     }
@@ -244,6 +329,13 @@ impl ResponseBody {
 /// The body is one-shot: consuming the response via [`normalize_response`] or
 /// transport conversion consumes the body.
 ///
+/// Normalization is idempotent: [`normalize_response`] sets an internal flag
+/// and a second call is a no-op. This lets the static service normalize
+/// eagerly while the connection pipeline normalizes every service response
+/// without double-suppression losing a HEAD length or inventing
+/// `Content-Length` for unknown-length streams. Mutating via
+/// [`Response::head_mut`] or [`Response::take_body`] clears the flag.
+///
 /// # Construction
 ///
 /// Use [`Response::builder()`] for validated construction, or convert from
@@ -251,6 +343,7 @@ impl ResponseBody {
 pub struct Response {
     head: ResponseHead,
     body: Option<ResponseBody>,
+    normalized: bool,
 }
 
 impl Response {
@@ -268,7 +361,11 @@ impl Response {
     }
 
     /// Returns a mutable reference to the response head.
+    ///
+    /// This invalidates prior normalization: any header mutation requires a
+    /// fresh normalize before transport.
     pub fn head_mut(&mut self) -> &mut ResponseHead {
+        self.normalized = false;
         &mut self.head
     }
 
@@ -282,10 +379,17 @@ impl Response {
         self.head.headers()
     }
 
+    /// Returns true if normalize has been applied since last mutation.
+    pub fn is_normalized(&self) -> bool {
+        self.normalized
+    }
+
     /// Take the body out of the response, leaving an empty body.
     ///
-    /// Returns `None` if the body was already consumed.
+    /// Returns `None` if the body was already consumed. Invalidates prior
+    /// normalization.
     pub fn take_body(&mut self) -> Option<ResponseBody> {
+        self.normalized = false;
         self.body.take()
     }
 
@@ -300,6 +404,7 @@ impl fmt::Debug for Response {
         f.debug_struct("Response")
             .field("head", &self.head)
             .field("body", &self.body)
+            .field("normalized", &self.normalized)
             .finish()
     }
 }
@@ -370,6 +475,7 @@ impl ResponseBuilder {
         Ok(Response {
             head: ResponseHead::new(status, self.headers),
             body: Some(body),
+            normalized: false,
         })
     }
 
@@ -398,15 +504,26 @@ impl NormalizeRequest {
 ///
 /// 1. **HEAD suppression**: HEAD responses transmit no body bytes while
 ///    preserving representation headers appropriate to the equivalent GET.
+///    The application stream is dropped without polling, releasing producer
+///    resources promptly. A known equivalent-GET length is preserved as
+///    `Content-Length`; an unknown length omits `Content-Length` (never
+///    invents `0`).
 /// 2. **Body-forbidden statuses**: 1xx, 204, 205, and 304 responses transmit
-///    no payload body. Any provided body is discarded.
-/// 3. **Hop-by-hop header removal**: `Transfer-Encoding` is stripped (it is
-///    runtime-owned).
-/// 4. **Content-Length computation**: `Content-Length` is set to the actual
-///    body length when the body is buffered.
-/// 5. **Conflicting framing rejection**: If both `Content-Length` and
-///    `Transfer-Encoding` are present after stripping, `Transfer-Encoding`
-///    is removed.
+///    no payload body. Any provided body (including streams) is dropped
+///    without polling.
+/// 3. **Hop-by-hop header removal**: `Transfer-Encoding` (and all hop-by-hop
+///    headers) is stripped — it is runtime-owned.
+/// 4. **Content-Length computation**: `Content-Length` is set from the
+///    representation length when known (`Known`), omitted when unknown
+///    (`Unknown`). Unknown never becomes `Content-Length: 0`.
+/// 5. **Conflicting framing rejection**: service-provided framing is removed
+///    centrally; the runtime is the only framing authority.
+///
+/// Normalization is idempotent: a second call is a no-op. Mutating via
+/// `head_mut`/`take_body` clears the flag.
+///
+/// Tests must prove a stream with side effects is not polled for
+/// HEAD/body-forbidden responses.
 ///
 /// # Errors
 ///
@@ -415,56 +532,70 @@ pub fn normalize_response(
     mut response: Response,
     request: &NormalizeRequest,
 ) -> Result<Response, ResponseConstructionError> {
+    if response.normalized {
+        return Ok(response);
+    }
     let status = response.status();
 
-    // Compute the would-have-been-sent length before HEAD suppression so HEAD
-    // can retain the equivalent GET representation length.
-    let mut body_len = response.body.as_ref().map_or(0, |b| b.len());
+    // Representation length before suppression (equivalent-GET length for
+    // HEAD). For streams this is Known or Unknown; dropping below never polls.
+    let pre_length: BodyLength = response
+        .body
+        .as_ref()
+        .map(|b| b.body_length())
+        .unwrap_or(BodyLength::Known(0));
 
-    // Rule 1: HEAD suppression — discard body, preserve headers.
+    // Rule 1: HEAD suppression — drop without polling, preserve length.
     if request.is_head {
         response.body = Some(ResponseBody::Empty);
     }
 
-    // Rule 2: Body-forbidden statuses — discard body.
-    // All body-forbidden statuses except 304 have body_len zeroed so the
-    // invariant `!permits_payload_body && status != 304 => body_len == 0`
-    // holds. For 304 the caller-supplied representation length is retained
-    // and validated in `normalize_metadata`; for 1xx/204/205 it is forced to 0
-    // so future changes to `permits_payload_body` cannot emit a stale
-    // Content-Length.
+    // Rule 2: Body-forbidden statuses — drop without polling.
+    // All body-forbidden statuses except 304 have length zeroed so the
+    // invariant `!permits_payload_body && status != 304 => Known(0)` holds.
+    // For 304 the pre-suppression length (Known or Unknown) is retained and
+    // validated in `normalize_metadata`; for 1xx/204/205 it is forced to
+    // Known(0) so future changes to `permits_payload_body` cannot emit stale
+    // framing. Dropping a suppressed stream releases producer resources.
+    let mut body_len = pre_length;
     if !status.permits_payload_body() {
         response.body = Some(ResponseBody::Empty);
         if status != StatusCode::NOT_MODIFIED {
-            body_len = 0;
+            body_len = BodyLength::Known(0);
         }
     }
 
     // Apply shared metadata normalization.
+    // `head` is private to this module so direct field access is used here;
+    // external callers must go through `head_mut` (which clears `normalized`).
     normalize_metadata(status, response.head.headers_mut(), body_len)?;
 
+    response.normalized = true;
     Ok(response)
 }
 
 /// Normalize response metadata without consuming a response body.
 ///
-/// This is the shared normalization entry point for both in-memory and
-/// file-backed response producers. `normalize_metadata` itself is
-/// HEAD-agnostic: callers MUST pass the would-have-been-sent representation
+/// This is the shared normalization entry point for both in-memory,
+/// file-backed, and streaming response producers. `normalize_metadata` itself
+/// is HEAD-agnostic: callers MUST pass the would-have-been-sent representation
 /// length (the pre-suppression length for HEAD, i.e. the equivalent GET
-/// length) as `body_len`. The function then applies:
+/// length) as `body_length`. The function then applies:
 ///
-/// 1. Strip runtime-owned `Transfer-Encoding` (and all hop-by-hop headers).
+/// 1. Strip runtime-owned framing (all hop-by-hop headers, including
+///    `Transfer-Encoding`). Service-provided `Transfer-Encoding` remains
+///    forbidden/stripped as runtime-owned.
 /// 2. Payload-permitting statuses (including HEAD): set `Content-Length` to
-///    `body_len`, retaining the representation length even for zero-length
-///    bodies. HEAD callers pass the pre-suppression length so the header is
-///    correct.
+///    the known length, retaining the representation length even for
+///    zero-length bodies. When the length is `Unknown` (streaming), omit
+///    `Content-Length` and let HTTP/1 select chunked framing — never invent
+///    `Content-Length: 0`. HEAD callers pass the pre-suppression length so
+///    the header is correct; unknown HEAD lengths omit the header.
 /// 3. Body-forbidden statuses (1xx, 204, 205, 304): suppress `Content-Length`,
 ///    except that 304 may retain a matching representation length. A
 ///    caller-supplied `Content-Length` on 205 is rejected because RFC 9110
 ///    forbids it entirely.
-/// 4. Normal payloads: set `Content-Length` to `body_len`.
-/// 5. Preserve all other headers (including duplicates).
+/// 4. Preserve all other headers (including duplicates).
 ///
 /// # Response architecture
 ///
@@ -477,23 +608,29 @@ pub fn normalize_response(
 ///
 /// // For file-backed bodies:
 /// producer -> normalize_metadata(headers, body_len) -> streaming transport
+///
+/// // For streaming bodies:
+/// producer -> Response(Stream) -> normalize_response() -> to_hyper_response()
 /// ```
 ///
 /// `normalize_metadata()` enforces:
 /// - Transfer-Encoding is always stripped (runtime-owned)
-/// - Content-Length is set from actual body length for payload-permitting responses
-/// - Content-Length is suppressed for body-forbidden (1xx/204/304) responses,
-///   except for a matching 304 representation length
-/// - HEAD responses retain Content-Length, including when body_len is zero
+/// - Content-Length is set from actual body length for known payload-permitting
+///   responses (including HEAD with known length, including zero)
+/// - Content-Length is omitted for unknown-length payload-permitting responses
+/// - Content-Length is suppressed for body-forbidden (1xx/204/205/304)
+///   responses, except for a matching 304 representation length
 ///
 /// Callers MUST supply the would-have-been-sent representation length, which
 /// is computed before suppressing a HEAD body. Passing a suppressed body's
-/// length emits the wrong `Content-Length` for HEAD.
+/// length emits the wrong `Content-Length` for HEAD. Unknown lengths must be
+/// passed as `BodyLength::Unknown`, never as `0`.
 pub fn normalize_metadata(
     status: StatusCode,
     headers: &mut HeaderBlock,
-    body_len: u64,
+    body_length: impl Into<BodyLength>,
 ) -> Result<(), ResponseConstructionError> {
+    let body_length: BodyLength = body_length.into();
     // Rule 1: Strip all hop-by-hop headers.
     strip_hop_by_hop(headers);
 
@@ -505,14 +642,18 @@ pub fn normalize_metadata(
 
     // A 304 may retain the selected representation's length, but only when the
     // supplied value is unique, valid, and matches the planned representation.
+    // Unknown lengths never retain: no Content-Length is invented.
     let not_modified_length = if status == StatusCode::NOT_MODIFIED {
-        headers
-            .get_unique("content-length")
-            .map_err(|_| {
-                ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
-            })?
-            .and_then(|value| value.as_str().parse::<u64>().ok())
-            .filter(|length| *length == body_len)
+        match body_length {
+            BodyLength::Known(known) => headers
+                .get_unique("content-length")
+                .map_err(|_| {
+                    ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
+                })?
+                .and_then(|value| value.as_str().parse::<u64>().ok())
+                .filter(|length| *length == known),
+            BodyLength::Unknown => None,
+        }
     } else {
         None
     };
@@ -520,8 +661,18 @@ pub fn normalize_metadata(
     // Rule 2-4: Content-Length handling.
     remove_header(headers, "content-length");
 
-    if status.permits_payload_body() || not_modified_length.is_some() {
-        let length = not_modified_length.unwrap_or(body_len);
+    if status.permits_payload_body() {
+        match body_length {
+            BodyLength::Known(length) => {
+                headers
+                    .push_str("content-length", length.to_string())
+                    .map_err(ResponseConstructionError::from)?;
+            }
+            BodyLength::Unknown => {
+                // Omit: HTTP/1 transport selects chunked framing.
+            }
+        }
+    } else if let Some(length) = not_modified_length {
         headers
             .push_str("content-length", length.to_string())
             .map_err(ResponseConstructionError::from)?;
@@ -657,6 +808,20 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
             let permit = permit.map(CountingFileStreamPermit::new);
             file_body(source, permit, stream_chunk_size)
         }
+        Some(ResponseBody::Stream(stream)) => {
+            // Defense-in-depth: body-forbidden statuses must never emit
+            // application bytes even if a caller forgot `normalize_response`.
+            // HEAD suppression requires request context and must happen in
+            // `normalize_response`/pipeline; here we only guard statuses.
+            if !status.permits_payload_body() {
+                drop(stream);
+                Full::new(Bytes::new())
+                    .map_err(|never| match never {})
+                    .boxed()
+            } else {
+                stream_body(stream, stream_chunk_size)
+            }
+        }
         Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
             .map_err(|never| match never {})
             .boxed(),
@@ -771,6 +936,258 @@ async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::
         bytes_read += count;
     }
     Ok(bytes_read)
+}
+
+/// Convert a transport-independent [`ResponseStream`] into a Hyper body.
+///
+/// Contract:
+/// - pull/backpressure driven: polls the producer only when downstream is
+///   ready; no unbounded channel;
+/// - empty chunks skipped (never emit empty DATA frames);
+/// - chunks larger than `stream_chunk_size` split zero-copy via `Bytes`
+///   (not rejected), keeping downstream framing bounded;
+/// - known-length overrun/underrun and producer failure close the connection
+///   after commitment (Hyper closes on body error); no second HTTP error is
+///   attempted and no producer detail reaches the client;
+/// - panics while polling are contained at this task boundary, counted
+///   separately, and close deterministically with a sanitized event;
+/// - cancellation (client disconnect/shutdown) drops the producer promptly
+///   and is counted via `Drop` when the stream never completed.
+fn stream_body(
+    stream: ResponseStream,
+    stream_chunk_size: usize,
+) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
+    use http_body_util::{BodyExt, StreamBody};
+    crate::ops::global_counters()
+        .streaming_started
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    crate::ops::Logger::global().emit(crate::ops::Event::new(
+        crate::ops::Severity::Debug,
+        crate::ops::EventKind::ResponseStreamStarted,
+        "streaming response started",
+    ));
+    let adapter = ResponseStreamAdapter::new(stream, stream_chunk_size);
+    StreamBody::new(adapter).boxed()
+}
+
+#[allow(clippy::type_complexity)]
+struct ResponseStreamAdapter {
+    inner: Option<
+        StdPin<
+            Box<
+                dyn futures_util::Stream<Item = Result<bytes::Bytes, ResponseStreamError>>
+                    + Send
+                    + Sync,
+            >,
+        >,
+    >,
+    declared: Option<u64>,
+    emitted: u64,
+    chunk_size: usize,
+    pending_split: Option<bytes::Bytes>,
+    finished: bool,
+}
+
+use std::pin::Pin as StdPin;
+use std::task::{Context as TaskContext, Poll as TaskPoll};
+
+impl ResponseStreamAdapter {
+    fn new(stream: ResponseStream, chunk_size: usize) -> Self {
+        let declared = stream.known_length();
+        let chunk_size = chunk_size.max(1);
+        Self {
+            inner: Some(stream.into_inner()),
+            declared,
+            emitted: 0,
+            chunk_size,
+            pending_split: None,
+            finished: false,
+        }
+    }
+
+    fn fail_length_mismatch(&mut self, emitted: u64) -> std::io::Error {
+        self.finished = true;
+        crate::ops::global_counters()
+            .stream_length_mismatches
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::ops::Logger::global().emit(
+            crate::ops::Event::new(
+                crate::ops::Severity::Warn,
+                crate::ops::EventKind::ResponseStreamLengthMismatch,
+                "streaming response length mismatch; closing connection",
+            )
+            .field(crate::ops::Field::U64(
+                "declared_bytes".into(),
+                self.declared.unwrap_or(0),
+            ))
+            .field(crate::ops::Field::U64("emitted_bytes".into(), emitted)),
+        );
+        std::io::Error::new(
+            std::io::ErrorKind::UnexpectedEof,
+            "response stream length mismatch",
+        )
+    }
+
+    fn fail_producer(&mut self) -> std::io::Error {
+        self.finished = true;
+        crate::ops::global_counters()
+            .stream_producer_errors
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Warn,
+            crate::ops::EventKind::ResponseStreamProducerError,
+            "streaming response producer failed; closing connection",
+        ));
+        std::io::Error::other("response stream failed")
+    }
+
+    fn fail_panic(&mut self) -> std::io::Error {
+        self.finished = true;
+        crate::ops::global_counters()
+            .stream_producer_panics
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Error,
+            crate::ops::EventKind::ResponseStreamProducerPanic,
+            "streaming response producer panicked; closing connection",
+        ));
+        std::io::Error::other("response stream failed")
+    }
+
+    fn complete_ok(&mut self) {
+        self.finished = true;
+        crate::ops::global_counters()
+            .streaming_completed
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        crate::ops::Logger::global().emit(crate::ops::Event::new(
+            crate::ops::Severity::Debug,
+            crate::ops::EventKind::ResponseStreamCompleted,
+            "streaming response completed",
+        ));
+    }
+
+    fn next_split_piece(&mut self) -> Option<bytes::Bytes> {
+        let mut pending = self.pending_split.take()?;
+        if pending.len() <= self.chunk_size {
+            return Some(pending);
+        }
+        // `Bytes::split_off(at)`: self keeps [..at], returned is [at..].
+        let remainder = pending.split_off(self.chunk_size);
+        self.pending_split = Some(remainder);
+        Some(pending)
+    }
+}
+
+impl Drop for ResponseStreamAdapter {
+    fn drop(&mut self) {
+        if !self.finished {
+            crate::ops::global_counters()
+                .stream_cancelled
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                crate::ops::Severity::Debug,
+                crate::ops::EventKind::ResponseStreamCancelled,
+                "streaming response cancelled",
+            ));
+        }
+    }
+}
+
+impl futures_util::Stream for ResponseStreamAdapter {
+    type Item = Result<hyper::body::Frame<bytes::Bytes>, std::io::Error>;
+
+    fn poll_next(
+        mut self: StdPin<&mut Self>,
+        cx: &mut TaskContext<'_>,
+    ) -> TaskPoll<Option<Self::Item>> {
+        // Emit any pending split remainder first (no producer poll → no busy loop).
+        if self.pending_split.is_some() {
+            if let Some(piece) = self.next_split_piece() {
+                let len = piece.len() as u64;
+                let emitted = self.emitted.saturating_add(len);
+                if let Some(declared) = self.declared {
+                    if emitted > declared {
+                        let err = self.fail_length_mismatch(emitted);
+                        return TaskPoll::Ready(Some(Err(err)));
+                    }
+                }
+                self.emitted = emitted;
+                return TaskPoll::Ready(Some(Ok(hyper::body::Frame::data(piece))));
+            }
+        }
+        if self.finished {
+            return TaskPoll::Ready(None);
+        }
+        let inner = match self.inner.as_mut() {
+            Some(i) => i,
+            None => return TaskPoll::Ready(None),
+        };
+        // Contain producer panics at this task boundary.
+        let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            inner.as_mut().poll_next(cx)
+        }));
+        let next = match polled {
+            Ok(n) => n,
+            Err(_) => {
+                let err = self.fail_panic();
+                return TaskPoll::Ready(Some(Err(err)));
+            }
+        };
+        match next {
+            TaskPoll::Pending => TaskPoll::Pending,
+            TaskPoll::Ready(None) => {
+                // End of producer stream.
+                if let Some(declared) = self.declared {
+                    if self.emitted != declared {
+                        let emitted = self.emitted;
+                        let err = self.fail_length_mismatch(emitted);
+                        return TaskPoll::Ready(Some(Err(err)));
+                    }
+                }
+                self.complete_ok();
+                TaskPoll::Ready(None)
+            }
+            TaskPoll::Ready(Some(Ok(chunk))) => {
+                if chunk.is_empty() {
+                    // Skip empty chunks: wake immediately for next poll
+                    // without emitting a frame. Producers that spam empty
+                    // chunks synchronously will spin here — that is a
+                    // producer bug; the contract says empty chunks are
+                    // skipped and producers should avoid them.
+                    cx.waker().wake_by_ref();
+                    return TaskPoll::Pending;
+                }
+                // Split large chunks zero-copy instead of rejecting.
+                let mut chunk = chunk;
+                if chunk.len() > self.chunk_size {
+                    let remainder = chunk.split_off(self.chunk_size);
+                    self.pending_split = Some(remainder);
+                    // `split_off` keeps [..chunk_size] in `chunk`? For
+                    // `Bytes`, `split_off(at)` returns [at..] and keeps
+                    // [..at] in self. So `chunk` is now the first piece.
+                }
+                let len = chunk.len() as u64;
+                let emitted = self.emitted.saturating_add(len);
+                if let Some(declared) = self.declared {
+                    if emitted > declared {
+                        // Buffer the overrun remainder? No — overrun is
+                        // fatal; drop pending split to avoid reuse ambiguity.
+                        self.pending_split = None;
+                        let err = self.fail_length_mismatch(emitted);
+                        return TaskPoll::Ready(Some(Err(err)));
+                    }
+                }
+                self.emitted = emitted;
+                TaskPoll::Ready(Some(Ok(hyper::body::Frame::data(chunk))))
+            }
+            TaskPoll::Ready(Some(Err(_detail))) => {
+                // Never serialize producer detail to the client; wire sees
+                // only a generic failure that closes the connection.
+                let err = self.fail_producer();
+                TaskPoll::Ready(Some(Err(err)))
+            }
+        }
+    }
 }
 
 struct CountingFileStreamPermit {

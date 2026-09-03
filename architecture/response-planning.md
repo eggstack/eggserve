@@ -203,8 +203,10 @@ The canonical response types (`primitives::canonical`) provide a transport-indep
 
 - `StatusCode` — validated HTTP status code (100–599, three-digit only) with classification helpers; 205 is body-forbidden
 - `ResponseHead` — status + `HeaderBlock` (duplicate-preserving headers)
-- `ResponseBody` — `Empty`, `Bytes`, `File`, or `EmptyWithLength` body representation
-- `Response` — complete response with one-shot body consumption
+- `ResponseBody` — `Empty`, `Bytes`, `File`, `Stream(ResponseStream)`, or `EmptyWithLength` body representation
+- `BodyLength` — `Known(u64)` vs `Unknown`; unknown never becomes `Content-Length: 0`
+- `ResponseStream`/`ResponseStreamError` — Hyper-free one-shot stream with optional known length
+- `Response` — complete response with one-shot body consumption and idempotent normalization (`is_normalized`)
 
 ### Normalization Algorithm
 
@@ -218,8 +220,8 @@ The `normalize_response()` function is the single final normalization path. It a
 
 ### Conversion Flow
 
-All response producers converge on a single normalization path. There are two
-allowed sequences depending on whether the body is in-memory or file-backed:
+All response producers converge on a single normalization path. There are three
+allowed sequences depending on body kind:
 
 ```
 For in-memory bodies:
@@ -227,6 +229,10 @@ For in-memory bodies:
 
 For file-backed bodies:
   producer → normalize_metadata(headers, body_len) → streaming transport
+
+For streaming bodies:
+  producer → Response(Stream) → normalize_response() → to_hyper_response()
+  (known → Content-Length; unknown → chunked; mismatch/error closes)
 ```
 
 In-memory path (e.g. Python handler responses, error responses):
@@ -355,6 +361,8 @@ This guarantees that `/directory/index.html` and `/directory/` (resolving to the
 ## Streaming Buffer Strategy
 
 File streaming uses `stream_chunk_size` from `Limits` (default 8 KiB, configurable 64 B–1 MiB) as the read buffer size for both full-file and range responses. Each chunk allocates a fresh `Vec<u8>`, reads into it, truncates to actual bytes read, and wraps in `Bytes::from(buf)` (zero-copy transfer of ownership). No buffer pool or reuse strategy is employed — each chunk allocation is bounded by the configured chunk size and released when consumed by the transport layer.
+
+Application streams (`ResponseStream`) are pull/backpressure driven with no unbounded channel. Empty chunks are skipped (never emit empty DATA frames); chunks larger than `stream_chunk_size` are split zero-copy via `Bytes` rather than rejected. Producers should keep chunks bounded (advisory 64 KiB, hard-split at transport size, 1 MiB `MAX_RESPONSE_STREAM_CHUNK_BYTES` ceiling for framing splits). Dropping (HEAD/body-forbidden, disconnect, shutdown) releases the producer promptly.
 
 The `stream_chunk_size` field is validated in `Limits::validate()` with bounds `>= 64` and `<= 1 MiB`. The `normalize_metadata()` function uses in-place `retain` for hop-by-hop header stripping and Content-Length removal, avoiding the previous clone+rebuild pattern.
 

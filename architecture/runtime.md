@@ -92,6 +92,9 @@ Hardened static file service implementing `Service`:
 - Static-service body policy is `Reject` for every request; bodyless unsupported
   methods reach the service and return 405, while body-bearing requests are
   rejected before invocation
+- Normalizes eagerly via `normalize_response`; the connection pipeline
+  normalizes again idempotently (`Response::is_normalized`) so custom
+  streaming responses share the single framing policy
 
 ### ServerHandle
 
@@ -214,10 +217,35 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 3. HTTP/1 connection setup via Hyper
 4. Request conversion to canonical types
 5. Body ingestion (policy selection, Content-Length preflight, transfer decoding)
-6. Service invocation with timeout
-7. Canonical response normalization
-8. Transport-body conversion
+6. Service invocation with timeout (`handler_timeout` bounds time-to-`Response`,
+   not the subsequent stream; streaming is bounded by
+   `connection_total_timeout` and shutdown until Plan 164)
+7. Canonical response normalization (`normalize_then_convert`: idempotent
+   `normalize_response` then Hyper conversion; runtime owns `Content-Length`,
+   `Transfer-Encoding`, reuse)
+8. Transport-body conversion (buffered/file/streaming; known-length mismatch
+   and producer failure close post-commitment; `HEAD`/body-forbidden never
+   poll)
 9. Permit release and connection termination
+
+### Streaming responses (Plan 162)
+
+Custom services return `ResponseBody::Stream(ResponseStream)` without Hyper:
+
+```rust
+ResponseBody::Stream(ResponseStream::with_known_length(stream, len))
+ResponseBody::Stream(ResponseStream::new(stream)) // chunked
+```
+
+- Known lengths emit runtime `Content-Length`; overrun/underrun close the
+  connection with `response_stream_length_mismatch` diagnostics.
+- Unknown lengths omit `Content-Length`; HTTP/1 selects chunked. Clean
+  completion may keep the connection reusable.
+- Empty chunks skipped, large chunks split zero-copy (not rejected).
+- Producer panics contained at the poll boundary
+  (`response_stream_producer_panic`); details never reach the client.
+- Cancellation (disconnect/shutdown/HEAD suppression) drops promptly
+  (`response_stream_cancelled`). See `streaming_service.rs`.
 
 ## Body ingestion pipeline
 

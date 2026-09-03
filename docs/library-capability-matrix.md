@@ -64,6 +64,7 @@ its status using a constrained vocabulary.
 | Conditional requests | stable | stable | experimental | stable | — | stable | — |
 | Range requests | stable | stable | experimental | stable | — | stable | — |
 | File streaming | stable | stable | experimental | stable | — | stable | stable |
+| Streaming response bodies (known/unknown) | — | stable | experimental | — | — | — | — |
 | Generic byte responses | — | stable | — | stable | — | — | stable |
 | Duplicate headers | — | stable | experimental | stable | — | stable | stable |
 | Callback handlers | — | — | — | stable | — | — | stable |

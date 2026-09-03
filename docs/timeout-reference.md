@@ -67,6 +67,13 @@ than using an unbounded value.
 - **Terminal behavior**: Returns `504 Gateway Timeout` response. The handler future is dropped.
 - **Cleanup**: Service state dropped; connection kept alive for next request (keep-alive).
 
+Streaming note (Plan 162, temporary until Plan 164): `handler_timeout`
+bounds only time-to-`Response`, not the subsequent body stream. Once the
+service returns `ResponseBody::Stream`, streaming is bounded by
+`connection_total_timeout` and shutdown, not by `handler_timeout`. Do not
+misuse `handler_timeout` as a total lifetime for long-lived streams. Plan 164
+will add production write/no-progress controls.
+
 ### 6. Connection total timeout
 
 - **Clock starts**: HTTP/1 connection created (after TCP accept, optional TLS handshake).

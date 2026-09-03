@@ -143,6 +143,18 @@ This demonstrates a deliberately tiny `service_fn` match on method and path:
 requests return a controlled 404. It demonstrates the transport/service
 boundary, not routing, middleware, or an application framework.
 
+### Streaming service: `streaming_service.rs`
+
+```sh
+cargo run -p eggserve-core --example streaming_service
+```
+
+Demonstrates transport-independent streaming bodies without Hyper:
+`GET /known` returns a known-length stream (`Content-Length`), and
+`GET /stream` returns an unknown-length stream (chunked framing selected by
+the runtime). Framing stays runtime-owned; `HEAD`/body-forbidden paths never
+poll the producer.
+
 ### Custom response headers: `custom_headers.rs`
 
 ```sh

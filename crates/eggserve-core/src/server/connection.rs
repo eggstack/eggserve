@@ -425,13 +425,12 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     .await;
 
                     let response = match result {
-                        Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(canonical, &file_stream_semaphore, stream_chunk_size) {
-                                Ok(r) => r,
-                                Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
-                                Err(_) => crate::response::internal_error(),
-                            }
-                        }
+                        Ok(Ok(canonical)) => normalize_then_convert(
+                            canonical,
+                            is_head,
+                            &file_stream_semaphore,
+                            stream_chunk_size,
+                        ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
                                 crate::ops::Severity::Error
@@ -439,11 +438,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::Severity::Warn
                             };
                             crate::ops::Logger::global().emit(
-                                    crate::ops::Event::new(
-                                        severity,
-                                        crate::ops::EventKind::ServiceError,
-                                        crate::ops::sanitize_text_field(&service_err.to_string()),
-                                    )
+                                crate::ops::Event::new(
+                                    severity,
+                                    crate::ops::EventKind::ServiceError,
+                                    crate::ops::sanitize_text_field(&service_err.to_string()),
+                                )
                                 .connection_id(conn_id),
                             );
                             service_err.to_response_with_head(is_head)
@@ -512,13 +511,12 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     .await;
 
                     let response = match result {
-                        Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(canonical, &file_stream_semaphore, stream_chunk_size) {
-                                Ok(r) => r,
-                                Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
-                                Err(_) => crate::response::internal_error(),
-                            }
-                        }
+                        Ok(Ok(canonical)) => normalize_then_convert(
+                            canonical,
+                            is_head,
+                            &file_stream_semaphore,
+                            stream_chunk_size,
+                        ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
                                 crate::ops::Severity::Error
@@ -526,11 +524,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::Severity::Warn
                             };
                             crate::ops::Logger::global().emit(
-                                    crate::ops::Event::new(
-                                        severity,
-                                        crate::ops::EventKind::ServiceError,
-                                        crate::ops::sanitize_text_field(&service_err.to_string()),
-                                    )
+                                crate::ops::Event::new(
+                                    severity,
+                                    crate::ops::EventKind::ServiceError,
+                                    crate::ops::sanitize_text_field(&service_err.to_string()),
+                                )
                                 .connection_id(conn_id),
                             );
                             service_err.to_response_with_head(is_head)
@@ -570,13 +568,12 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     .await;
 
                     let response = match result {
-                        Ok(Ok(canonical)) => {
-                            match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(canonical, &file_stream_semaphore, stream_chunk_size) {
-                                Ok(r) => r,
-                                Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => crate::response::service_unavailable(),
-                                Err(_) => crate::response::internal_error(),
-                            }
-                        }
+                        Ok(Ok(canonical)) => normalize_then_convert(
+                            canonical,
+                            is_head,
+                            &file_stream_semaphore,
+                            stream_chunk_size,
+                        ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
                                 crate::ops::Severity::Error
@@ -584,11 +581,11 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                                 crate::ops::Severity::Warn
                             };
                             crate::ops::Logger::global().emit(
-                                    crate::ops::Event::new(
-                                        severity,
-                                        crate::ops::EventKind::ServiceError,
-                                        crate::ops::sanitize_text_field(&service_err.to_string()),
-                                    )
+                                crate::ops::Event::new(
+                                    severity,
+                                    crate::ops::EventKind::ServiceError,
+                                    crate::ops::sanitize_text_field(&service_err.to_string()),
+                                )
                                 .connection_id(conn_id),
                             );
                             service_err.to_response_with_head(is_head)
@@ -654,6 +651,39 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     });
 
     serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
+}
+
+/// Normalize a service response then convert to Hyper.
+///
+/// The runtime is the only framing authority: every service response
+/// (static or custom, buffered or streaming) converges here. Normalization
+/// is idempotent so eagerly normalized static responses are preserved
+/// (HEAD equivalent-GET lengths, unknown-length omission). Conversion
+/// failures become generic 500/503 without leaking details.
+fn normalize_then_convert(
+    canonical: crate::primitives::canonical::Response,
+    is_head: bool,
+    file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+) -> hyper::Response<BoxBodyInner> {
+    let normalized = match crate::primitives::canonical::normalize_response(
+        canonical,
+        &crate::primitives::canonical::NormalizeRequest::new(is_head),
+    ) {
+        Ok(r) => r,
+        Err(_) => return crate::response::internal_error(),
+    };
+    match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
+        normalized,
+        file_stream_semaphore,
+        stream_chunk_size,
+    ) {
+        Ok(r) => r,
+        Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => {
+            crate::response::service_unavailable()
+        }
+        Err(_) => crate::response::internal_error(),
+    }
 }
 
 /// Contain panics raised while polling a service future.

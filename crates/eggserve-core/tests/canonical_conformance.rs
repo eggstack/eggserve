@@ -863,6 +863,7 @@ fn response_normalization_rules() {
                 ResponseBody::Bytes(v) => std::str::from_utf8(v).ok(),
                 ResponseBody::File(_) => None,
                 ResponseBody::EmptyWithLength(_) => Some(""),
+                ResponseBody::Stream(_) => None,
             });
             assert_eq!(actual, Some(expected_body.as_str()), "{}: body", f.id);
         }
