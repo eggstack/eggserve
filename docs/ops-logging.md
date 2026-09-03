@@ -94,10 +94,16 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `tls_handshake_success` | DEBUG | TLS handshake completed |
 | `tls_handshake_failure` | WARN | TLS handshake failed |
 | `tls_handshake_timeout` | WARN | TLS handshake timed out |
-| `header_timeout` | WARN | Header read timed out |
+| `header_timeout` | WARN | Header read timed out (also bounds idle keep-alive gaps; see timeout reference) |
 | `body_read_timeout` | WARN | Body read timed out |
-| `parser_rejection` | DEBUG | HTTP framing rejection |
+| `parser_rejection` | DEBUG | HTTP framing rejection (includes Hyper `max_buf_size`/`max_headers` parse failures) |
+| `header_bytes_rejected` | DEBUG | Aggregate request-header bytes exceeded (431, pre-service) |
+| `request_target_too_long` | DEBUG | Request target exceeded (414, pre-service) |
+| `service_admission_rejected` | WARN | In-flight service budget exhausted (503) |
 | `keep_alive_closed` | DEBUG | Keep-alive connection closed cleanly |
+| `keep_alive_idle_timeout` | DEBUG | Idle keep-alive connection closed after inactivity |
+| `max_requests_close` | DEBUG | Request limit reached; response completed with `Connection: close` |
+| `write_stall_timeout` | WARN | Response outstanding with no socket progress; connection closed |
 | `connection_total_timeout` | WARN | Total connection lifetime exceeded |
 | `client_disconnect` | DEBUG | Client disconnected |
 | `connection_panic` | ERROR | Handler panic contained |
@@ -143,13 +149,20 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | Counter | Description |
 |---------|-------------|
 | `connections_accepted` | TCP connections accepted |
-| `connections_rejected` | Rejected by admission limit |
+| `connections_rejected` | Rejected by connection admission limit |
 | `active_connections` | Currently active |
 | `active_file_streams` | Currently streaming file responses |
-| `parser_rejects` | HTTP parsing failures |
+| `active_service_requests` | Requests currently in the service pipeline |
+| `parser_rejects` | HTTP parsing failures (incl. Hyper parser-limit errors) |
+| `header_bytes_rejected` | Aggregate header-byte rejections (431) |
+| `request_target_rejected` | Request-target rejections (414) |
+| `service_admission_rejected` | Requests refused by the in-flight service budget (503) |
 | `body_rejections` | Request bodies rejected by policy |
-| `header_timeouts` | Header read timeouts |
+| `header_timeouts` | Header read timeouts (incl. idle-gap closes when shorter than the idle timeout) |
 | `body_read_timeouts` | Body read timeouts |
+| `keepalive_idle_timeouts` | Idle keep-alive closes |
+| `max_requests_closes` | Connections closed after reaching the request limit |
+| `write_stall_timeouts` | Write no-progress closes |
 | `connection_total_timeouts` | Total connection lifetime timeouts |
 | `graceful_shutdowns` | Clean shutdowns |
 | `forced_shutdowns` | Shutdowns with timeout |

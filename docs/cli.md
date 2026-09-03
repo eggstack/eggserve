@@ -75,6 +75,19 @@ values.
 |------|-------------|---------|
 | `--max-connections N` | Maximum concurrent connections | `64` |
 | `--max-file-streams N` | Maximum concurrent file streams | `32` |
+| `--max-in-flight-requests N` | Maximum concurrent service executions, independent of idle keep-alive connections (503 on exhaustion) | `64` |
+| `--max-requests-per-connection N` | Maximum completed requests per connection; `0` = unlimited | `0` (unlimited) |
+
+### Parser ceilings
+
+| Flag | Description | Default |
+|------|-------------|---------|
+| `--max-buf-size BYTES` | HTTP/1 parser/read buffer ceiling (min 8192) | `65536` |
+| `--max-headers N` | Maximum request header fields (Hyper answers excess with 431) | `100` |
+| `--max-header-bytes BYTES` | Aggregate request-header name+value bytes (431 on excess, pre-service) | `32768` |
+| `--max-request-target-bytes BYTES` | Request-target length (414 on excess, pre-service) | `8192` |
+
+Hyper exposes no aggregate header-byte, request-target, or request-line knob: the line is bounded jointly by the parser buffer and the target ceiling.
 
 ### Timeouts
 
@@ -84,6 +97,8 @@ values.
 | `--connection-total-timeout SECS` | Total connection lifetime timeout (seconds) | `60` |
 | `--handler-timeout SECS` | Handler invocation timeout (seconds) | `30` |
 | `--body-read-timeout SECS` | Request body read timeout (seconds) | `30` |
+| `--keep-alive-idle-timeout SECS` | Idle keep-alive close after inactivity (seconds; resets on activity) | `60` |
+| `--response-write-timeout SECS` | Response no-progress timeout (seconds; steady progress never trips it) | `30` |
 
 Full semantics for every timeout — clock start, progress rules, precedence, and terminal behavior — are catalogued in [the timeout reference](timeout-reference.md).
 
@@ -119,6 +134,13 @@ eggserve --log-format json --quiet
 
 # Custom resource limits
 eggserve --max-connections 128 --max-file-streams 64
+
+# Production admission and lifecycle controls
+eggserve --max-in-flight-requests 256 \
+  --keep-alive-idle-timeout 90 \
+  --connection-total-timeout 3600 \
+  --header-timeout 60 \
+  --max-requests-per-connection 0
 ```
 
 ## Python launcher

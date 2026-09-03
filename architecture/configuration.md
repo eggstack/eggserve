@@ -30,19 +30,34 @@ A setting may be shared by reference, but only one validated value owns enforcem
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
 | `max_connections` | `RuntimeConfig` | 64 | > 0 | `--max-connections` | `max_connections` | Connection semaphore in accept loop |
+| `max_in_flight_requests` | `RuntimeConfig` | 64 | > 0 | `--max-in-flight-requests` | N/A (compat default) | Service semaphore held across `Service::call`; 503 on exhaustion |
 | `max_file_streams` | `RuntimeConfig` | 32 | > 0 | `--max-file-streams` | `max_file_streams` | One file-stream semaphore per running server |
 | `max_python_callbacks` | `PyServer` | 8 | > 0 | N/A | `max_python_callbacks` | Callback semaphore in `PythonCallbackService` |
 | `max_listing_entries` | `Limits` | 4096 | > 0, <= 10485760 (entries) | N/A | N/A | Directory listing enumeration |
 | `max_listing_response_bytes` | `Limits` | 1 MiB | > 0 | N/A | N/A | Directory listing response body cap |
 
+### Parser ceilings
+
+| Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
+|---|---|---|---|---|---|---|
+| `max_buf_size` | `RuntimeConfig` | 65536 | 8192–4194304 | `--max-buf-size` | N/A (compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection |
+| `max_headers` | `RuntimeConfig` | 100 | 1–10000 | `--max-headers` | N/A (compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself) |
+| `max_header_bytes` | `RuntimeConfig` | 32768 | 1024–1048576 | `--max-header-bytes` | N/A (compat default) | Post-parse aggregate check in `convert_request_head`; 431 pre-service |
+| `max_request_target_bytes` | `RuntimeConfig` | 8192 | 128–65536 | `--max-request-target-bytes` | N/A (compat default) | Post-parse target check in `convert_request_head`; 414 pre-service |
+
+Hyper exposes no aggregate header-byte, request-target, or request-line knob: the request line is bounded jointly by the parser buffer and the target ceiling.
+
 ### Timeouts
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `header_read_timeout` | `RuntimeConfig` | 10s | > 0 | `--header-timeout` | `header_timeout_secs` | Hyper header read timeout |
-| `connection_total_timeout` | `RuntimeConfig` | 60s | > 0 | `--connection-total-timeout` | `connection_total_timeout_secs` | Maximum connection lifetime (wraps entire Hyper connection future) |
+| `header_read_timeout` | `RuntimeConfig` | 10s | > 0 | `--header-timeout` | `header_timeout_secs` | Hyper header read timeout (also bounds idle keep-alive gaps when shorter than the idle timeout) |
+| `connection_total_timeout` | `RuntimeConfig` | 60s | > 0 | `--connection-total-timeout` | `connection_total_timeout_secs` | Hard maximum connection lifetime (driver deadline loop) |
 | `handler_timeout` | `RuntimeConfig` | 30s | > 0 | `--handler-timeout` | `handler_timeout_secs` | `tokio::time::timeout` around service call |
 | `body_read_timeout` | `RuntimeConfig` | 30s | > 0 | `--body-read-timeout` | `body_timeout_secs` | Total body consumption deadline |
+| `keep_alive_idle_timeout` | `RuntimeConfig` | 60s | > 0, independent of total | `--keep-alive-idle-timeout` | N/A (compat default) | Driver deadline loop; resets on request/transport activity |
+| `response_write_timeout` | `RuntimeConfig` | 30s | > 0, independent of total | `--response-write-timeout` | N/A (compat default) | Driver + `ProgressIo` no-progress tracking; steady progress never trips |
+| `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | N/A (compat default) | `Connection: close` on the limit response; every response counts |
 | `graceful_shutdown_timeout` | `RuntimeConfig` | 10s | > 0 | N/A | `graceful_shutdown_timeout_secs` | Drain deadline after SIGTERM |
 
 ### Body policy

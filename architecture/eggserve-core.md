@@ -83,13 +83,21 @@ Resource limits with safe defaults:
 | Field | Default | Purpose |
 |-------|---------|---------|
 | `max_connections` | 64 | Concurrent TCP connections |
+| `max_in_flight_requests` | 64 | Concurrent service executions, independent of idle keep-alive connections |
 | `max_file_streams` | 32 | Concurrent file streams (body transfer) |
 | `max_request_body_bytes` | 0 | Runtime hard ceiling; services may opt into bodies only when greater than zero |
-| `header_read_timeout` | 10s | Time to read full request headers |
-| `connection_total_timeout` | 60s | Total connection lifetime timeout |
+| `header_read_timeout` | 10s | Time to read full request headers (also bounds idle gaps when shorter than the idle timeout) |
+| `connection_total_timeout` | 60s | Hard maximum connection lifetime (never reset) |
 | `handler_timeout` | 30s | Per-request handler timeout |
 | `body_read_timeout` | 30s | Total deadline for body consumption |
+| `keep_alive_idle_timeout` | 60s | Idle keep-alive close after inactivity (resets on activity) |
+| `max_requests_per_connection` | None | Completed requests per connection (`None` = unlimited) |
+| `response_write_timeout` | 30s | Response no-progress timeout (steady progress never trips) |
 | `graceful_shutdown_timeout` | 10s | Drain period after SIGTERM |
+| `max_buf_size` | 64 KiB | HTTP/1 parser/read buffer ceiling (min 8192) |
+| `max_headers` | 100 | Request header field count (Hyper answers 431) |
+| `max_header_bytes` | 32 KiB | Aggregate header name+value bytes (431 pre-service) |
+| `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
 | `max_listing_entries` | 4096 | Maximum entries to enumerate in a directory listing |
 | `max_listing_response_bytes` | 1 MiB | Maximum size in bytes for a directory listing response body |
 | `stream_chunk_size` | 8 KiB | Chunk size in bytes for file streaming reads and app-stream framing splits |
@@ -125,26 +133,35 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 |-------|---------|---------|
 | `bind` | `127.0.0.1:8000` | Listen address |
 | `max_connections` | 64 | Concurrent TCP connections |
+| `max_in_flight_requests` | 64 | Concurrent service executions (503 on exhaustion) |
 | `max_file_streams` | 32 | Concurrent file streams |
 | `stream_chunk_size` | 8 KiB | File streaming read chunk size |
 | `header_read_timeout` | 10s | Time to read request headers |
-| `connection_total_timeout` | 60s | Timeout wrapping the entire Hyper connection future |
+| `connection_total_timeout` | 60s | Hard maximum connection lifetime (never reset) |
 | `handler_timeout` | 30s | Per-request handler timeout |
 | `body_read_timeout` | 30s | Total deadline for body consumption |
+| `keep_alive_idle_timeout` | 60s | Idle keep-alive close after inactivity |
+| `max_requests_per_connection` | None | Completed requests per connection (`None` = unlimited) |
+| `response_write_timeout` | 30s | Response no-progress timeout |
 | `graceful_shutdown_timeout` | 10s | Drain period after shutdown signal |
+| `max_buf_size` | 64 KiB | HTTP/1 parser buffer ceiling, set explicitly on Hyper |
+| `max_headers` | 100 | Request header field count, set explicitly on Hyper |
+| `max_header_bytes` | 32 KiB | Aggregate header bytes (431 pre-service) |
+| `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
 | `server_header` | None | Optional `Server` header value on responses |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
 
-Note: `Limits::connection_total_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by `RuntimeConfigBuilder::try_from_serve_config()`.
+Note: `Limits` fields map onto `RuntimeConfig` by `try_from_serve_config()`. Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory.
 
 ### `RuntimeState`
 
-`RuntimeState::new(&config)` creates shared admission (file-stream semaphore)
+`RuntimeState::new(&config)` creates shared admission (file-stream and
+in-flight-service semaphores)
 for caller-owned streams. Callers must share one `Arc<RuntimeState>` across
 all their connections rather than constructing one per connection; otherwise
 file/response/service budgets become per-connection instead of server-wide.
-It owns only transport-runtime admission (file-stream permits, and after
-Plan 164, in-flight/service budgets); it never owns static filesystem state
+It owns only transport-runtime admission (file-stream and in-flight service
+permits); it never owns static filesystem state
 or routing. The TCP/TLS `Server` constructs this internally and shares it
 across connections.
 

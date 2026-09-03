@@ -140,6 +140,8 @@ impl ServiceError {
                 405 => "405 Method Not Allowed\n",
                 408 => "408 Request Timeout\n",
                 413 => "413 Payload Too Large\n",
+                414 => "414 URI Too Long\n",
+                431 => "431 Request Header Fields Too Large\n",
                 503 => "503 Service Unavailable\n",
                 _ => "500 Internal Server Error\n",
             },

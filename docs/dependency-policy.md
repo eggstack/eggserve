@@ -21,7 +21,7 @@ The following dependency categories are approved for initial development:
 | Category | Dependencies | Purpose |
 |----------|-------------|---------|
 | Async runtime | `tokio` | Event loop and async primitives |
-| HTTP server | `hyper`, `hyper-util`, `http-body-util` | HTTP protocol handling |
+| HTTP server | `hyper`, `hyper-util`, `http-body`, `http-body-util` | HTTP protocol handling; `http-body` is the `Body` trait for response-completion tracking (Plan 164) |
 | Buffer types | `bytes` | Efficient byte buffer management |
 | Streaming | `futures-util` | Async stream utilities for file streaming bodies |
 | Date formatting | `httpdate` | HTTP date formatting for Last-Modified headers |
@@ -48,7 +48,7 @@ The following dependency categories are approved for initial development:
 - The dependency graph is intentionally small: `eggserve-core` owns the HTTP,
   runtime, filesystem, and MIME capabilities; the CLI and Python crates add
   only their frontend/runtime requirements.
-- `tokio`, `hyper`, `hyper-util`, `http-body-util`, and `bytes` provide the
+- `tokio`, `hyper`, `hyper-util`, `http-body`, `http-body-util`, and `bytes` provide the
   HTTP/1 transport and body pipeline. Manual CLI parsing avoids a broad CLI
   framework dependency.
 - `futures-util`, `httpdate`, and `phf` support streaming, HTTP dates, and the

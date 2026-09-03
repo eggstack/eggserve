@@ -80,7 +80,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 
 **Stability**: All request body types are **experimental**. The interface may change in any release.
 
-**Framing strictness**: Requests containing both Transfer-Encoding and Content-Length are rejected with 400 before service invocation. When Hyper's HTTP parser normalizes headers (stripping Content-Length when Transfer-Encoding is present), the rejection occurs if both headers survive parser extraction. Duplicate Content-Length values are always rejected at the HTTP/1 wire level. This behavior applies uniformly to both built-in static service and custom services.
+  **Framing strictness**: a lone `Content-Length` alongside `Transfer-Encoding` is discarded by Hyper 1.11 during parsing (`Transfer-Encoding` wins per RFC 9112 §6.1) and reaches the service as chunked framing. Duplicate Content-Length values are rejected with 400 at the HTTP/1 wire level before service invocation. This behavior applies uniformly to both built-in static service and custom services.
 
 | Type | Description |
 |------|-------------|
@@ -165,9 +165,8 @@ These rules are enforced at the raw HTTP/1.1 socket boundary and are regression-
 - Semicolons in paths are literal characters (not path separators) → 404 if no matching file.
 - Positive content on the static service → 413.
 - Invalid `Content-Length` (non-numeric, negative, overflow) → 400 or connection close.
-- `Transfer-Encoding` on the static service → 400.
-- Both `Content-Length` and `Transfer-Encoding` present → 400.
-- `Transfer-Encoding` with unsupported codings (e.g. `chunked`) → 400.
+- `Transfer-Encoding` on the static service → 413 (body policy rejects any signaled body).
+- Both `Content-Length` and `Transfer-Encoding` present → lone `Content-Length` discarded by Hyper 1.11 (`Transfer-Encoding` wins); static service answers 413 via body policy.
 - Duplicate `Content-Length` with conflicting values → 400.
 - Duplicate `Content-Length` with identical values → treated as single `Content-Length`.
 - Comma-joined `Content-Length` values (e.g. `Content-Length: 0, 10`) → 400.

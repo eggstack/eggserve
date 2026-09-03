@@ -447,7 +447,24 @@ async fn ws_b_oversized_target_rejected() {
         long_path
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    // Over the default 8192-byte request-target ceiling: 414 URI Too Long
+    // from the EggServe-owned target bound (Plan 164), before service work.
+    assert!(line.contains("414"), "Expected 414, got: {}", line);
+}
+
+#[tokio::test]
+async fn ws_b_target_at_ceiling_passes_target_check() {
+    let s = start_server(None).await;
+    // Exactly 8192 bytes: passes the target-length ceiling, then falls
+    // through to normal handling (missing file → 404, not 414).
+    let path = "/".to_owned() + &"a".repeat(8191);
+    assert_eq!(path.len(), 8192);
+    let req = format!(
+        "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        path
+    );
+    let line = status_line(s.addr, req.as_bytes()).await;
+    assert!(line.contains("404"), "Expected 404, got: {}", line);
 }
 
 #[tokio::test]

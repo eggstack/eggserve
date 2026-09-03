@@ -130,7 +130,13 @@ They use public EggServe modules only, include readiness plus graceful
 shutdown, and are the recommended starting points for custom services.
 
 The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
-`Service` owns request handling and response construction. The `server` module
+`Service` owns request handling and response construction. Connections,
+in-flight service executions, and file streams have independent observable
+budgets; parser ceilings, keep-alive idle, per-connection request counts, and
+response write no-progress timeouts are configured via CLI flags, `Limits`, or
+`RuntimeConfig` (see the [per-profile defaults](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md)
+and [timeout reference](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md)).
+The `server` module
 is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`
 drives the same canonical pipeline over any `AsyncRead + AsyncWrite` stream

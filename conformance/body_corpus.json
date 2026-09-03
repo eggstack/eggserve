@@ -436,11 +436,11 @@
       ]
     },
     "te_plus_content_length_conflict": {
-      "description": "Requests with both Transfer-Encoding and Content-Length are rejected",
+      "description": "Requests with both Transfer-Encoding and Content-Length: a lone Content-Length is discarded by Hyper 1.11+ (Transfer-Encoding wins per RFC 9112 section 6.1) before EggServe policy runs; duplicate Content-Length values are still rejected by Hyper's decoder",
       "fixtures": [
         {
           "id": "te-and-cl-both-present",
-          "description": "Transfer-Encoding: chunked + Content-Length → 400 Bad Request",
+          "description": "Transfer-Encoding: chunked + lone Content-Length → Hyper 1.11 discards the Content-Length, chunked framing wins, handler echoes the body (requalified from 400 under Hyper 1.10)",
           "input": {
             "method": "POST",
             "body": "chunked-wins",
@@ -450,19 +450,20 @@
             "max_body_bytes": 1024
           },
           "expected": {
-            "status": 400,
-            "handler_called": false,
+            "status": 200,
+            "handler_called": true,
+            "echo_body": "chunked-wins",
             "connection_closed": true
           }
         }
       ]
     },
     "te_plus_cl_variants": {
-      "description": "Additional TE+CL rejection edge cases",
+      "description": "Additional TE+CL edge cases: lone Content-Length is discarded by Hyper 1.11+ (chunked wins); duplicate Content-Length values are still rejected with 400",
       "fixtures": [
         {
           "id": "te-chunked-plus-single-cl",
-          "description": "Transfer-Encoding: chunked + single Content-Length → 400",
+          "description": "Transfer-Encoding: chunked + single Content-Length → Hyper 1.11 discards the Content-Length, chunked framing wins (requalified from 400 under Hyper 1.10)",
           "input": {
             "method": "POST",
             "body": "data",
@@ -472,14 +473,14 @@
             "max_body_bytes": 1024
           },
           "expected": {
-            "status": 400,
-            "handler_called": false,
+            "status": 200,
+            "handler_called": true,
             "connection_closed": true
           }
         },
         {
           "id": "te-chunked-plus-duplicate-identical-cl",
-          "description": "Transfer-Encoding: chunked + two identical Content-Length → 400",
+          "description": "Transfer-Encoding: chunked + two identical Content-Length → agreeing values cause no decoder conflict, Hyper 1.11 discards both, chunked framing wins (requalified from 400 under Hyper 1.10)",
           "input": {
             "method": "POST",
             "body": "data",
@@ -490,8 +491,8 @@
             "extra_raw_headers": "Content-Length: 4\r\n"
           },
           "expected": {
-            "status": 400,
-            "handler_called": false,
+            "status": 200,
+            "handler_called": true,
             "connection_closed": true
           }
         },

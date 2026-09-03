@@ -34,13 +34,17 @@
 // propagate to the JoinSet task boundary.
 
 use std::convert::Infallible;
-use std::sync::atomic::AtomicU64;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::task::{Context, Poll};
 
+use bytes::Bytes;
+use http_body::{Body, Frame};
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::{Request, Response};
 use hyper_util::rt::{TokioIo, TokioTimer};
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::broadcast;
 
 use crate::primitives::connection_info::{Scheme, SocketEndpoints, TlsInfo};
@@ -242,6 +246,423 @@ impl ConnectionShutdown {
     }
 }
 
+/// Per-connection request/response activity shared between the Hyper service
+/// closure (which observes requests and responses) and the connection driver
+/// (which enforces keep-alive-idle, write-progress, and total-lifetime
+/// deadlines).
+///
+/// The driver sleeps until the next applicable deadline and recomputes on
+/// every state change: all transitions that create new (earlier) deadlines
+/// wake the driver via [`ConnectionActivity::notify`]. Transitions that only
+/// extend deadlines (read/write progress) do not notify; the driver wakes at
+/// the previously computed deadline, observes no expiry, and recomputes.
+#[derive(Debug)]
+pub(crate) struct ConnectionActivity {
+    start: std::time::Instant,
+    state: std::sync::Mutex<ActivityState>,
+    in_flight: AtomicU64,
+    outstanding: AtomicU64,
+    completed: AtomicU64,
+    notify: tokio::sync::Notify,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct ActivityState {
+    last_activity: std::time::Instant,
+    last_write: std::time::Instant,
+}
+
+impl ConnectionActivity {
+    fn new() -> Self {
+        let now = std::time::Instant::now();
+        Self {
+            start: now,
+            state: std::sync::Mutex::new(ActivityState {
+                last_activity: now,
+                last_write: now,
+            }),
+            in_flight: AtomicU64::new(0),
+            outstanding: AtomicU64::new(0),
+            completed: AtomicU64::new(0),
+            notify: tokio::sync::Notify::new(),
+        }
+    }
+
+    /// A request entered the Hyper service pipeline.
+    fn request_started(&self) {
+        self.in_flight.fetch_add(1, Ordering::Relaxed);
+        crate::ops::global_counters()
+            .active_service_requests
+            .fetch_add(1, Ordering::Relaxed);
+        self.notify.notify_one();
+    }
+
+    /// The service pipeline produced a response without invoking the
+    /// service (parse/validation rejection). The in-flight slot is released
+    /// but the request still counts toward per-connection totals.
+    fn request_finished_without_service(&self) {
+        self.in_flight.fetch_sub(1, Ordering::Relaxed);
+        crate::ops::global_counters()
+            .active_service_requests
+            .fetch_sub(1, Ordering::Relaxed);
+        self.touch();
+        self.notify.notify_one();
+    }
+
+    /// Record any client activity (request bytes, new request, completed
+    /// response) as keep-alive progress.
+    fn touch(&self) {
+        if let Ok(mut state) = self.state.lock() {
+            state.last_activity = std::time::Instant::now();
+        }
+    }
+
+    /// Record forward socket-write progress.
+    fn record_write(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        let now = std::time::Instant::now();
+        if let Ok(mut state) = self.state.lock() {
+            state.last_write = now;
+            state.last_activity = now;
+        }
+    }
+
+    /// Record inbound request bytes as connection activity. This extends
+    /// (never shortens) the keep-alive idle deadline, so no driver wake is
+    /// needed: the driver recomputes on its next scheduled wake.
+    fn record_read(&self, bytes: usize) {
+        if bytes == 0 {
+            return;
+        }
+        self.touch();
+    }
+
+    /// A response was handed to Hyper for transmission. Starts the
+    /// write-progress budget and marks the connection as busy so the
+    /// keep-alive idle timer cannot fire mid-response.
+    fn response_started(&self) {
+        self.outstanding.fetch_add(1, Ordering::Relaxed);
+        let now = std::time::Instant::now();
+        if let Ok(mut state) = self.state.lock() {
+            state.last_write = now;
+            state.last_activity = now;
+        }
+        self.notify.notify_one();
+    }
+
+    /// A response body reached end-of-stream, failed, or was dropped
+    /// (cancellation/disconnect/shutdown). Exactly-once per response via
+    /// [`TrackedBody`]'s done flag.
+    fn response_finished(&self) {
+        if self.outstanding.fetch_sub(1, Ordering::Relaxed) == 0 {
+            // Unreachable in correct operation (every finish pairs with one
+            // start); restore the counter instead of wrapping to zero.
+            self.outstanding.fetch_add(1, Ordering::Relaxed);
+        }
+        self.touch();
+        self.notify.notify_one();
+    }
+
+    fn snapshot(&self) -> (u64, u64, u64, ActivityState) {
+        let state = self
+            .state
+            .lock()
+            .map(|guard| *guard)
+            .unwrap_or(ActivityState {
+                last_activity: self.start,
+                last_write: self.start,
+            });
+        (
+            self.in_flight.load(Ordering::Relaxed),
+            self.outstanding.load(Ordering::Relaxed),
+            self.completed.load(Ordering::Relaxed),
+            state,
+        )
+    }
+}
+
+/// RAII guard for one in-flight `Service::call()` execution.
+///
+/// Created when the Hyper service closure starts; [`InFlightGuard::finish`]
+/// consumes it once the service pipeline has produced a Hyper response. If
+/// the closure exits without producing a response (implementation bug —
+/// all known paths go through `finish`), the slot is still released on drop
+/// so permits and gauges cannot leak.
+struct InFlightGuard {
+    activity: Arc<ConnectionActivity>,
+    service_permit: Option<tokio::sync::OwnedSemaphorePermit>,
+    finished: bool,
+}
+
+impl InFlightGuard {
+    fn new(activity: Arc<ConnectionActivity>) -> Self {
+        activity.request_started();
+        Self {
+            activity,
+            service_permit: None,
+            finished: false,
+        }
+    }
+
+    /// Try to admit one service execution under the server-wide in-flight
+    /// budget. Returns `None` when admitted; on exhaustion returns the
+    /// deterministic generic 503 and the caller must return it via
+    /// [`InFlightGuard::finish`] without invoking the service. The permit
+    /// is held until the guard is finished or dropped, so timeout,
+    /// cancellation, panic, disconnect, and shutdown paths all recover it.
+    fn admit(
+        &mut self,
+        semaphore: &Arc<tokio::sync::Semaphore>,
+        conn_id: u64,
+    ) -> Option<hyper::Response<BoxBodyInner>> {
+        match semaphore.clone().try_acquire_owned() {
+            Ok(permit) => {
+                self.service_permit = Some(permit);
+                None
+            }
+            Err(_) => {
+                crate::ops::global_counters()
+                    .service_admission_rejected
+                    .fetch_add(1, Ordering::Relaxed);
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::ServiceAdmissionRejected,
+                        "service saturated: in-flight request limit",
+                    )
+                    .connection_id(conn_id),
+                );
+                Some(crate::response::service_unavailable())
+            }
+        }
+    }
+
+    /// Complete the request: release the in-flight slot, count the response
+    /// toward the per-connection total (every response counts, including
+    /// HEAD, errors, and pre-service rejections), enforce
+    /// `max_requests_per_connection` with a clean `Connection: close`, arm
+    /// the write-progress budget, and wrap the body so its completion
+    /// releases the outstanding slot.
+    fn finish(
+        mut self,
+        mut response: hyper::Response<BoxBodyInner>,
+        config: &RuntimeConfig,
+        conn_id: u64,
+    ) -> hyper::Response<BoxBodyInner> {
+        self.finished = true;
+        self.service_permit.take();
+        self.activity.request_finished_without_service();
+        let completed = self.activity.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        if let Some(max) = config.max_requests_per_connection {
+            if completed >= max {
+                crate::ops::global_counters()
+                    .max_requests_closes
+                    .fetch_add(1, Ordering::Relaxed);
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::MaxRequestsClose,
+                        "max requests per connection reached; closing after response",
+                    )
+                    .connection_id(conn_id),
+                );
+                response.headers_mut().insert(
+                    hyper::header::CONNECTION,
+                    hyper::header::HeaderValue::from_static("close"),
+                );
+            }
+        }
+        self.activity.response_started();
+        let response = finalize_runtime_response(response, config);
+        let activity = self.activity.clone();
+        response.map(move |body| BoxBodyInner::new(TrackedBody::new(body, activity)))
+    }
+}
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        if !self.finished {
+            self.service_permit.take();
+            self.activity.request_finished_without_service();
+        }
+    }
+}
+
+/// Response-body wrapper that releases the connection's outstanding-response
+/// slot exactly once, when the body reaches end-of-stream, fails, or is
+/// dropped (client disconnect, shutdown, HEAD suppression, cancellation).
+/// This is what lets the driver distinguish a stalled response (writes
+/// outstanding, no progress) from an idle keep-alive connection (nothing
+/// outstanding).
+struct TrackedBody {
+    inner: BoxBodyInner,
+    activity: Arc<ConnectionActivity>,
+    done: AtomicBool,
+}
+
+impl TrackedBody {
+    fn new(inner: BoxBodyInner, activity: Arc<ConnectionActivity>) -> Self {
+        Self {
+            inner,
+            activity,
+            done: AtomicBool::new(false),
+        }
+    }
+
+    fn finish(&self) {
+        if !self.done.swap(true, Ordering::AcqRel) {
+            self.activity.response_finished();
+        }
+    }
+}
+
+impl Drop for TrackedBody {
+    fn drop(&mut self) {
+        self.finish();
+    }
+}
+
+impl Body for TrackedBody {
+    type Data = Bytes;
+    type Error = std::io::Error;
+
+    fn poll_frame(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<Frame<Bytes>, Self::Error>>> {
+        let this = self.get_mut();
+        match std::pin::Pin::new(&mut this.inner).poll_frame(cx) {
+            Poll::Ready(None) => {
+                this.finish();
+                Poll::Ready(None)
+            }
+            Poll::Ready(Some(Err(e))) => {
+                this.finish();
+                Poll::Ready(Some(Err(e)))
+            }
+            other => other,
+        }
+    }
+
+    fn is_end_stream(&self) -> bool {
+        self.inner.is_end_stream()
+    }
+
+    fn size_hint(&self) -> http_body::SizeHint {
+        self.inner.size_hint()
+    }
+}
+
+/// Transport wrapper at the Plan 163 transport boundary that records
+/// forward socket-write progress (and inbound activity) for the
+/// write-no-progress timeout. Transparent to Hyper's HTTP/1 framing; works
+/// for TCP, TLS, and caller-owned transports because all of them flow
+/// through this point before [`TokioIo`].
+struct ProgressIo<I> {
+    inner: I,
+    activity: Arc<ConnectionActivity>,
+}
+
+impl<I> ProgressIo<I> {
+    fn new(inner: I, activity: Arc<ConnectionActivity>) -> Self {
+        Self { inner, activity }
+    }
+}
+
+impl<I: AsyncRead + Unpin> AsyncRead for ProgressIo<I> {
+    fn poll_read(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let before = buf.filled().len();
+        let this = self.get_mut();
+        match std::pin::Pin::new(&mut this.inner).poll_read(cx, buf) {
+            Poll::Ready(Ok(())) => {
+                this.activity
+                    .record_read(buf.filled().len().saturating_sub(before));
+                Poll::Ready(Ok(()))
+            }
+            other => other,
+        }
+    }
+}
+
+impl<I: AsyncWrite + Unpin> AsyncWrite for ProgressIo<I> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        let this = self.get_mut();
+        match std::pin::Pin::new(&mut this.inner).poll_write(cx, buf) {
+            Poll::Ready(Ok(n)) => {
+                this.activity.record_write(n);
+                Poll::Ready(Ok(n))
+            }
+            other => other,
+        }
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Result<(), std::io::Error>> {
+        let this = self.get_mut();
+        std::pin::Pin::new(&mut this.inner).poll_shutdown(cx)
+    }
+
+    fn poll_write_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> Poll<Result<usize, std::io::Error>> {
+        let this = self.get_mut();
+        match std::pin::Pin::new(&mut this.inner).poll_write_vectored(cx, bufs) {
+            Poll::Ready(Ok(n)) => {
+                this.activity.record_write(n);
+                Poll::Ready(Ok(n))
+            }
+            other => other,
+        }
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+}
+
+/// Graceful-shutdown capability for the pinned Hyper connection future, so
+/// the shared driver below can close idle/stalled/expired connections
+/// without knowing the concrete Hyper connection type.
+trait ShutdownConn {
+    fn graceful_shutdown(self: std::pin::Pin<&mut Self>);
+}
+
+impl<I, S> ShutdownConn for hyper::server::conn::http1::UpgradeableConnection<I, S>
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin,
+    S: hyper::service::Service<
+        Request<Incoming>,
+        Response = Response<BoxBodyInner>,
+        Error = Infallible,
+    >,
+{
+    fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
+        hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown(self);
+    }
+}
+
 /// Outcome of driving one HTTP/1 connection to completion.
 ///
 /// Returned by [`serve_http1_connection`] for internal observability.
@@ -256,6 +677,12 @@ pub enum ConnectionOutcome {
     ClientError,
     /// Header-read timeout fired.
     HeaderTimeout,
+    /// Keep-alive idle timeout fired: no in-flight request and no
+    /// outstanding response body for the configured interval.
+    IdleTimeout,
+    /// Response write no-progress timeout fired: a response body was
+    /// outstanding but no forward socket progress was made in time.
+    WriteTimeout,
     /// Total connection lifetime expired.
     TotalTimeout,
     /// Graceful shutdown was requested (caller token or server signal).
@@ -266,8 +693,12 @@ pub enum ConnectionOutcome {
 
 impl ConnectionOutcome {
     /// Returns `true` for a clean close with no error or timeout.
+    ///
+    /// Keep-alive idle expiry counts as clean: the connection completed
+    /// every response and turned over routinely. Write-stall expiry does
+    /// not: a response was abandoned mid-transmission.
     pub fn is_clean(&self) -> bool {
-        matches!(self, Self::Normal | Self::Shutdown)
+        matches!(self, Self::Normal | Self::Shutdown | Self::IdleTimeout)
     }
 }
 
@@ -277,6 +708,8 @@ impl std::fmt::Display for ConnectionOutcome {
             Self::Normal => write!(f, "normal"),
             Self::ClientError => write!(f, "client-error"),
             Self::HeaderTimeout => write!(f, "header-timeout"),
+            Self::IdleTimeout => write!(f, "idle-timeout"),
+            Self::WriteTimeout => write!(f, "write-timeout"),
             Self::TotalTimeout => write!(f, "total-timeout"),
             Self::Shutdown => write!(f, "shutdown"),
             Self::Internal => write!(f, "internal"),
@@ -299,18 +732,255 @@ fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
         .min(MAX_POST_SHUTDOWN_DRAIN)
 }
 
+/// Build the Hyper HTTP/1 connection builder with EggServe-owned parser
+/// policy applied explicitly.
+///
+/// `max_buf_size` and `max_headers` are set on every connection so release
+/// upgrades cannot silently widen parser memory. Hyper documents both
+/// defaults as unstable; the EggServe-owned values in [`RuntimeConfig`] are
+/// the policy of record. `max_buf_size` below Hyper's 8192 minimum is
+/// clamped (builder validation rejects it first; the clamp only protects
+/// hand-constructed configs from panicking a connection task).
+fn hyper_builder(config: &RuntimeConfig) -> http1::Builder {
+    let mut builder = http1::Builder::new();
+    builder
+        .timer(TokioTimer::new())
+        .header_read_timeout(config.header_read_timeout)
+        .max_buf_size(config.max_buf_size.max(crate::limits::MIN_MAX_BUF_SIZE))
+        .max_headers(config.max_headers);
+    builder
+}
+
+/// Far-future deadline used when a timeout is effectively disabled by a huge
+/// configured duration. `Instant + Duration` panics on overflow, so
+/// unrepresentable deadlines saturate here instead.
+fn far_future() -> std::time::Instant {
+    std::time::Instant::now() + std::time::Duration::from_secs(365 * 24 * 3600)
+}
+
+/// Gracefully close a connection with a bounded post-shutdown drain.
+///
+/// Hyper's graceful shutdown still waits for the in-flight response to
+/// finish; a client that stops reading applies TCP backpressure forever.
+/// The bounded drain releases the connection's admission permit promptly
+/// instead of letting stalled clients pin pool slots.
+async fn graceful_close<C>(mut conn: std::pin::Pin<&mut C>, config: &RuntimeConfig, conn_id: u64)
+where
+    C: std::future::Future<Output = Result<(), hyper::Error>> + ShutdownConn,
+{
+    conn.as_mut().graceful_shutdown();
+    if tokio::time::timeout(post_shutdown_drain_budget(config), conn.as_mut())
+        .await
+        .is_err()
+    {
+        crate::ops::Logger::global().emit(
+            crate::ops::Event::new(
+                crate::ops::Severity::Debug,
+                crate::ops::EventKind::ClientDisconnect,
+                "post-shutdown drain budget expired; closing connection",
+            )
+            .connection_id(conn_id),
+        );
+    }
+}
+
+/// Classify a completed Hyper connection future into an outcome with
+/// observability.
+///
+/// Hyper reports an expired header-read timeout as a timeout-class
+/// connection error, and parser rejections (including `max_buf_size` /
+/// `max_headers` excess, which Hyper answers with 431 itself) as
+/// parse-class errors; each increments the counter named for it. Anything
+/// else is a client disconnect. Hostile bytes never reach the logs: parse
+/// errors are sanitized before emission.
+fn finish_conn_result(result: Result<(), hyper::Error>, conn_id: u64) -> ConnectionOutcome {
+    match result {
+        Ok(()) => {
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::KeepAliveClosed,
+                    "connection closed",
+                )
+                .connection_id(conn_id),
+            );
+            ConnectionOutcome::Normal
+        }
+        Err(e) => {
+            let header_timeout = e.is_timeout();
+            let parse_error = !header_timeout && e.is_parse();
+            if header_timeout {
+                crate::ops::global_counters()
+                    .header_timeouts
+                    .fetch_add(1, Ordering::Relaxed);
+            } else if parse_error {
+                crate::ops::global_counters()
+                    .parser_rejects
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    if header_timeout {
+                        crate::ops::Severity::Warn
+                    } else {
+                        crate::ops::Severity::Debug
+                    },
+                    if header_timeout {
+                        crate::ops::EventKind::HeaderTimeout
+                    } else if parse_error {
+                        crate::ops::EventKind::ParserRejection
+                    } else {
+                        crate::ops::EventKind::ClientDisconnect
+                    },
+                    if header_timeout {
+                        "header read timeout".to_string()
+                    } else if parse_error {
+                        crate::ops::sanitize_text_field(&format!("parser rejection: {e}"))
+                    } else {
+                        format!("connection error: {e}")
+                    },
+                )
+                .connection_id(conn_id),
+            );
+            if header_timeout {
+                ConnectionOutcome::HeaderTimeout
+            } else {
+                ConnectionOutcome::ClientError
+            }
+        }
+    }
+}
+
+/// Shared connection driver: polls one Hyper connection while enforcing
+/// four independent deadlines.
+///
+/// - `connection_total_timeout` — hard maximum connection lifetime, never
+///   reset (defense in depth);
+/// - `keep_alive_idle_timeout` — graceful close after inactivity, reset on
+///   every request/transport activity; only applies with no in-flight
+///   request and no outstanding response body;
+/// - `response_write_timeout` — close after no forward socket progress
+///   while a response body is outstanding; steady progress, however slow,
+///   never triggers it;
+/// - shutdown signal — graceful close with bounded post-shutdown drain.
+///
+/// The driver sleeps until the next applicable deadline and recomputes on
+/// every [`ConnectionActivity`] state change, so expiry precision does not
+/// depend on polling. Total lifetime is the hard ceiling: when it expires
+/// first, the request dies mid-flight regardless of the other budgets.
+async fn drive_connection<C, F>(
+    mut conn: std::pin::Pin<&mut C>,
+    config: &RuntimeConfig,
+    activity: &Arc<ConnectionActivity>,
+    conn_id: u64,
+    shutdown: F,
+) -> ConnectionOutcome
+where
+    C: std::future::Future<Output = Result<(), hyper::Error>> + ShutdownConn,
+    F: std::future::Future<Output = ()>,
+{
+    let total_deadline = activity.start.checked_add(config.connection_total_timeout);
+    let mut shutdown = std::pin::pin!(shutdown);
+    loop {
+        let now = std::time::Instant::now();
+        if total_deadline.is_some_and(|deadline| now >= deadline) {
+            crate::ops::global_counters()
+                .connection_total_timeouts
+                .fetch_add(1, Ordering::Relaxed);
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Warn,
+                    crate::ops::EventKind::ConnectionTotalTimeout,
+                    "connection total timeout",
+                )
+                .connection_id(conn_id),
+            );
+            graceful_close(conn.as_mut(), config, conn_id).await;
+            return ConnectionOutcome::TotalTimeout;
+        }
+        let (in_flight, outstanding, _completed, state) = activity.snapshot();
+        let idle = in_flight == 0 && outstanding == 0;
+        if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
+            crate::ops::global_counters()
+                .keepalive_idle_timeouts
+                .fetch_add(1, Ordering::Relaxed);
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::KeepAliveIdleTimeout,
+                    "keep-alive idle timeout",
+                )
+                .connection_id(conn_id),
+            );
+            graceful_close(conn.as_mut(), config, conn_id).await;
+            return ConnectionOutcome::IdleTimeout;
+        }
+        if outstanding > 0 && now.duration_since(state.last_write) >= config.response_write_timeout
+        {
+            crate::ops::global_counters()
+                .write_stall_timeouts
+                .fetch_add(1, Ordering::Relaxed);
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Warn,
+                    crate::ops::EventKind::WriteStallTimeout,
+                    "response write stall timeout",
+                )
+                .connection_id(conn_id),
+            );
+            graceful_close(conn.as_mut(), config, conn_id).await;
+            return ConnectionOutcome::WriteTimeout;
+        }
+        let mut wake = total_deadline.unwrap_or_else(far_future);
+        if idle {
+            wake = wake.min(
+                state
+                    .last_activity
+                    .checked_add(config.keep_alive_idle_timeout)
+                    .unwrap_or_else(far_future),
+            );
+        }
+        if outstanding > 0 {
+            wake = wake.min(
+                state
+                    .last_write
+                    .checked_add(config.response_write_timeout)
+                    .unwrap_or_else(far_future),
+            );
+        }
+        let sleep = tokio::time::sleep_until(tokio::time::Instant::from_std(wake));
+        tokio::select! {
+            result = &mut conn => return finish_conn_result(result, conn_id),
+            _ = &mut shutdown => {
+                graceful_close(conn.as_mut(), config, conn_id).await;
+                return ConnectionOutcome::Shutdown;
+            }
+            // A state change may have created an earlier deadline (new
+            // response arms the write timer); recompute immediately.
+            _ = activity.notify.notified() => continue,
+            _ = sleep => continue,
+        }
+    }
+}
+
 /// Low-level Hyper connection executor for the TCP accept loop.
 ///
 /// Crate-private: downstream callers must use
 /// [`serve_http1_connection`], which takes a canonical [`Service`] and a
 /// [`ConnectionContext`] instead of Hyper service types. This helper retains
-/// the exact TCP wire behavior (header-read timeout, total lifetime,
-/// graceful shutdown with bounded post-shutdown drain) and reports a
-/// [`ConnectionOutcome`] for observability.
+/// the TCP wire behavior (header-read timeout, explicit parser limits,
+/// idle/write/total lifetimes, graceful shutdown with bounded
+/// post-shutdown drain) and reports a [`ConnectionOutcome`] for
+/// observability.
+///
+/// The caller supplies the [`ConnectionActivity`] shared with the Hyper
+/// service so request/response observations drive the idle and
+/// write-progress deadlines.
 pub(crate) async fn serve_connection<I, S>(
     io: TokioIo<I>,
     service: S,
     config: &RuntimeConfig,
+    activity: &Arc<ConnectionActivity>,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
 ) -> ConnectionOutcome
@@ -322,111 +992,15 @@ where
             Error = Infallible,
         > + 'static,
 {
-    let conn = http1::Builder::new()
-        .timer(TokioTimer::new())
-        .header_read_timeout(config.header_read_timeout)
+    let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
+    let conn = hyper_builder(config)
         .serve_connection(io, service)
         .with_upgrades();
     let mut conn = std::pin::pin!(conn);
-    tokio::select! {
-        result = tokio::time::timeout(config.connection_total_timeout, &mut conn) => {
-            match result {
-                Ok(Ok(())) => {
-                    crate::ops::Logger::global().emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::KeepAliveClosed,
-                            "connection closed",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    ConnectionOutcome::Normal
-                }
-                Ok(Err(e)) => {
-                    // Hyper reports an expired header-read timeout as a
-                    // timeout-class connection error; classify it so the
-                    // ops counter tracks the event it is named for.
-                    let header_timeout = e.is_timeout();
-                    if header_timeout {
-                        crate::ops::global_counters()
-                            .header_timeouts
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    crate::ops::Logger::global().emit(
-                        crate::ops::Event::new(
-                            if header_timeout {
-                                crate::ops::Severity::Warn
-                            } else {
-                                crate::ops::Severity::Debug
-                            },
-                            if header_timeout {
-                                crate::ops::EventKind::HeaderTimeout
-                            } else {
-                                crate::ops::EventKind::ClientDisconnect
-                            },
-                            if header_timeout {
-                                "header read timeout".to_string()
-                            } else {
-                                format!("connection error: {}", e)
-                            },
-                        )
-                        .connection_id(conn_id),
-                    );
-                    if header_timeout {
-                        ConnectionOutcome::HeaderTimeout
-                    } else {
-                        ConnectionOutcome::ClientError
-                    }
-                }
-                Err(_elapsed) => {
-                    crate::ops::global_counters().connection_total_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    crate::ops::Logger::global().emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Warn,
-                            crate::ops::EventKind::ConnectionTotalTimeout,
-                            "connection total timeout",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    conn.as_mut().graceful_shutdown();
-                    if tokio::time::timeout(
-                        post_shutdown_drain_budget(config),
-                        conn.as_mut(),
-                    )
-                    .await
-                    .is_err()
-                    {
-                        crate::ops::Logger::global().emit(
-                            crate::ops::Event::new(
-                                crate::ops::Severity::Debug,
-                                crate::ops::EventKind::ClientDisconnect,
-                                "post-shutdown drain budget expired; closing connection",
-                            )
-                            .connection_id(conn_id),
-                        );
-                    }
-                    ConnectionOutcome::TotalTimeout
-                }
-            }
-        }
-        _ = shutdown_rx.recv() => {
-            conn.as_mut().graceful_shutdown();
-            if tokio::time::timeout(post_shutdown_drain_budget(config), conn.as_mut())
-                .await
-                .is_err()
-            {
-                crate::ops::Logger::global().emit(
-                    crate::ops::Event::new(
-                        crate::ops::Severity::Debug,
-                        crate::ops::EventKind::ClientDisconnect,
-                        "post-shutdown drain budget expired; closing connection",
-                    )
-                    .connection_id(conn_id),
-                );
-            }
-            ConnectionOutcome::Shutdown
-        }
-    }
+    let shutdown = async move {
+        let _ = shutdown_rx.recv().await;
+    };
+    drive_connection(conn.as_mut(), config, activity, conn_id, shutdown).await
 }
 
 /// Drive a Hyper connection with a caller-owned shutdown token.
@@ -434,10 +1008,12 @@ where
 /// Shared executor with [`serve_connection`] but selected on
 /// [`ConnectionShutdown::cancelled`] instead of the TCP accept-loop
 /// broadcast channel. Used only by [`serve_http1_connection`].
+#[allow(clippy::too_many_arguments)]
 async fn serve_hyper_with_token<I, S>(
     io: TokioIo<I>,
     service: S,
     config: &RuntimeConfig,
+    activity: &Arc<ConnectionActivity>,
     shutdown: &ConnectionShutdown,
     conn_id: u64,
 ) -> ConnectionOutcome
@@ -449,122 +1025,38 @@ where
             Error = Infallible,
         > + 'static,
 {
-    let conn = http1::Builder::new()
-        .timer(TokioTimer::new())
-        .header_read_timeout(config.header_read_timeout)
+    let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
+    let conn = hyper_builder(config)
         .serve_connection(io, service)
         .with_upgrades();
     let mut conn = std::pin::pin!(conn);
-    tokio::select! {
-        result = tokio::time::timeout(config.connection_total_timeout, &mut conn) => {
-            match result {
-                Ok(Ok(())) => {
-                    crate::ops::Logger::global().emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Debug,
-                            crate::ops::EventKind::KeepAliveClosed,
-                            "connection closed",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    ConnectionOutcome::Normal
-                }
-                Ok(Err(e)) => {
-                    let header_timeout = e.is_timeout();
-                    if header_timeout {
-                        crate::ops::global_counters()
-                            .header_timeouts
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    }
-                    crate::ops::Logger::global().emit(
-                        crate::ops::Event::new(
-                            if header_timeout {
-                                crate::ops::Severity::Warn
-                            } else {
-                                crate::ops::Severity::Debug
-                            },
-                            if header_timeout {
-                                crate::ops::EventKind::HeaderTimeout
-                            } else {
-                                crate::ops::EventKind::ClientDisconnect
-                            },
-                            if header_timeout {
-                                "header read timeout".to_string()
-                            } else {
-                                format!("connection error: {}", e)
-                            },
-                        )
-                        .connection_id(conn_id),
-                    );
-                    if header_timeout {
-                        ConnectionOutcome::HeaderTimeout
-                    } else {
-                        ConnectionOutcome::ClientError
-                    }
-                }
-                Err(_elapsed) => {
-                    crate::ops::global_counters().connection_total_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    crate::ops::Logger::global().emit(
-                        crate::ops::Event::new(
-                            crate::ops::Severity::Warn,
-                            crate::ops::EventKind::ConnectionTotalTimeout,
-                            "connection total timeout",
-                        )
-                        .connection_id(conn_id),
-                    );
-                    conn.as_mut().graceful_shutdown();
-                    if tokio::time::timeout(
-                        post_shutdown_drain_budget(config),
-                        conn.as_mut(),
-                    )
-                    .await
-                    .is_err()
-                    {
-                        crate::ops::Logger::global().emit(
-                            crate::ops::Event::new(
-                                crate::ops::Severity::Debug,
-                                crate::ops::EventKind::ClientDisconnect,
-                                "post-shutdown drain budget expired; closing connection",
-                            )
-                            .connection_id(conn_id),
-                        );
-                    }
-                    ConnectionOutcome::TotalTimeout
-                }
-            }
-        }
-        _ = shutdown.cancelled() => {
-            conn.as_mut().graceful_shutdown();
-            if tokio::time::timeout(post_shutdown_drain_budget(config), conn.as_mut())
-                .await
-                .is_err()
-            {
-                crate::ops::Logger::global().emit(
-                    crate::ops::Event::new(
-                        crate::ops::Severity::Debug,
-                        crate::ops::EventKind::ClientDisconnect,
-                        "post-shutdown drain budget expired; closing connection",
-                    )
-                    .connection_id(conn_id),
-                );
-            }
-            ConnectionOutcome::Shutdown
-        }
-    }
+    let shutdown = async move {
+        shutdown.cancelled().await;
+    };
+    drive_connection(conn.as_mut(), config, activity, conn_id, shutdown).await
 }
 
 /// Build the shared per-request canonical pipeline as a Hyper service.
 ///
 /// This is the single source of truth for the request lifecycle:
-/// Hyper parsing, TRACE check, body policy, service invocation,
-/// normalization, framing, incomplete-body close, and response finalization.
-/// Both the TCP/TLS accept loop and the transport-neutral driver
-/// ([`serve_http1_connection`]) share this pipeline.
+/// Hyper parsing, EggServe parser ceilings (header count/size,
+/// request-target length), TRACE check, body policy, service admission,
+/// service invocation, normalization, framing, incomplete-body close, and
+/// response finalization. Both the TCP/TLS accept loop and the
+/// transport-neutral driver ([`serve_http1_connection`]) share this
+/// pipeline.
+///
+/// Every response handed to Hyper — including parse rejections and policy
+/// errors — passes through [`InFlightGuard::finish`], which counts it
+/// toward `max_requests_per_connection`, arms the write-progress budget,
+/// and wraps the body so completion releases the outstanding slot.
 #[allow(clippy::too_many_arguments)]
 fn make_canonical_hyper_service<S>(
     service: Arc<S>,
     config: Arc<RuntimeConfig>,
     file_stream_semaphore: Arc<tokio::sync::Semaphore>,
+    service_semaphore: Arc<tokio::sync::Semaphore>,
+    activity: Arc<ConnectionActivity>,
     stream_chunk_size: usize,
     handler_timeout: std::time::Duration,
     body_read_timeout: std::time::Duration,
@@ -591,16 +1083,23 @@ where
         let service = service.clone();
         let context = context.clone();
         let file_stream_semaphore = file_stream_semaphore.clone();
+        let service_semaphore = service_semaphore.clone();
+        let activity = activity.clone();
         let config = config.clone();
         Box::pin(async move {
-            // Convert Hyper request to canonical RequestHead.
-            let head = match convert_request_head(&req) {
+            let mut guard = InFlightGuard::new(activity);
+            // Convert Hyper request to canonical RequestHead, enforcing the
+            // EggServe-owned request-target and aggregate header ceilings
+            // before any service work.
+            let head = match convert_request_head(
+                &req,
+                config.max_request_target_bytes,
+                config.max_header_bytes,
+                conn_id,
+            ) {
                 Ok(h) => h,
                 Err(e) => {
-                    return Ok::<_, Infallible>(finalize_runtime_response(
-                        e.to_response(),
-                        &config,
-                    ));
+                    return Ok::<_, Infallible>(guard.finish(e.to_response(), &config, conn_id));
                 }
             };
 
@@ -621,7 +1120,7 @@ where
                     hyper::header::CONNECTION,
                     hyper::header::HeaderValue::from_static("close"),
                 );
-                return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
+                return Ok::<_, Infallible>(guard.finish(response, &config, conn_id));
             }
 
             let is_head = head.method().is_head();
@@ -647,9 +1146,10 @@ where
                     .connection_id(conn_id),
                 );
                 let is_head = head.method().is_head();
-                return Ok::<_, Infallible>(finalize_runtime_response(
+                return Ok::<_, Infallible>(guard.finish(
                     e.to_response_with_head(is_head),
                     &config,
+                    conn_id,
                 ));
             }
 
@@ -680,9 +1180,10 @@ where
                             declared: len,
                             limit,
                         };
-                        return Ok::<_, Infallible>(finalize_runtime_response(
+                        return Ok::<_, Infallible>(guard.finish(
                             body_error_to_response(err, &head),
                             &config,
+                            conn_id,
                         ));
                     }
                 }
@@ -713,7 +1214,7 @@ where
                             hyper::header::CONNECTION,
                             hyper::header::HeaderValue::from_static("close"),
                         );
-                        return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
+                        return Ok::<_, Infallible>(guard.finish(response, &config, conn_id));
                     }
                 }
             }
@@ -756,7 +1257,7 @@ where
                     hyper::header::CONNECTION,
                     hyper::header::HeaderValue::from_static("close"),
                 );
-                return Ok::<_, Infallible>(finalize_runtime_response(response, &config));
+                return Ok::<_, Infallible>(guard.finish(response, &config, conn_id));
             }
 
             // For Buffer/Stream policies, create RequestBody with proper limits.
@@ -783,6 +1284,12 @@ where
             match &effective_policy {
                 RequestBodyPolicy::Reject => {
                     // Reject with no body — proceed to service with empty body.
+                    // Service admission is independent of idle keep-alive
+                    // connections: exhaustion fails with a deterministic
+                    // generic 503 before service invocation.
+                    if let Some(unavailable) = guard.admit(&service_semaphore, conn_id) {
+                        return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
+                    }
                     let connection = context.connection_info();
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
@@ -827,7 +1334,7 @@ where
                         }
                     };
 
-                    Ok::<_, Infallible>(finalize_runtime_response(response, &config))
+                    Ok::<_, Infallible>(guard.finish(response, &config, conn_id))
                 }
                 RequestBodyPolicy::Buffer { .. } => {
                     // Buffer: body is fully consumed during pre-buffering.
@@ -846,9 +1353,10 @@ where
                             bytes, body_limit,
                         ),
                         Ok(Err(err)) => {
-                            return Ok::<_, Infallible>(finalize_runtime_response(
+                            return Ok::<_, Infallible>(guard.finish(
                                 body_error_to_response(err, &head),
                                 &config,
+                                conn_id,
                             ));
                         }
                         Err(_elapsed) => {
@@ -861,13 +1369,17 @@ where
                                 "body read timeout",
                             ));
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
-                            return Ok::<_, Infallible>(finalize_runtime_response(
+                            return Ok::<_, Infallible>(guard.finish(
                                 body_error_to_response(err, &head),
                                 &config,
+                                conn_id,
                             ));
                         }
                     };
 
+                    if let Some(unavailable) = guard.admit(&service_semaphore, conn_id) {
+                        return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
+                    }
                     let connection = context.connection_info();
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
@@ -912,7 +1424,7 @@ where
                         }
                     };
 
-                    Ok::<_, Infallible>(finalize_runtime_response(response, &config))
+                    Ok::<_, Infallible>(guard.finish(response, &config, conn_id))
                 }
                 RequestBodyPolicy::Stream { .. } => {
                     // For Stream mode the service call (including body
@@ -921,6 +1433,9 @@ where
                     // `docs/timeout-reference.md`). `Buffer` mode applies the
                     // two timeouts separately; `Stream` collapses them.
                     let effective_timeout = body_read_timeout.min(handler_timeout);
+                    if let Some(unavailable) = guard.admit(&service_semaphore, conn_id) {
+                        return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
+                    }
                     let connection = context.connection_info();
                     // Clone the consumption flag before the body is moved into
                     // Request; Stream mode is the only consumer.
@@ -1004,7 +1519,7 @@ where
                         );
                     }
 
-                    let mut response = finalize_runtime_response(response, &config);
+                    let mut response = guard.finish(response, &config, conn_id);
                     if incomplete {
                         response.headers_mut().insert(
                             hyper::header::CONNECTION,
@@ -1054,10 +1569,14 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     };
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+    let service_semaphore = runtime_state.service_semaphore().clone();
+    let activity = Arc::new(ConnectionActivity::new());
     let hyper_service = make_canonical_hyper_service(
         service,
         config.clone(),
         file_stream_semaphore,
+        service_semaphore,
+        activity.clone(),
         config.stream_chunk_size,
         config.handler_timeout,
         config.body_read_timeout,
@@ -1065,7 +1584,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
         context,
         conn_id,
     );
-    let _ = serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
+    let _ = serve_connection(io, hyper_service, &config, &activity, shutdown_rx, conn_id).await;
 }
 
 /// Serve one HTTP/1 connection over any suitable bidirectional async byte
@@ -1167,10 +1686,14 @@ where
     let io = TokioIo::new(io);
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+    let service_semaphore = runtime_state.service_semaphore().clone();
+    let activity = Arc::new(ConnectionActivity::new());
     let hyper_service = make_canonical_hyper_service(
         service,
         config.clone(),
         file_stream_semaphore,
+        service_semaphore,
+        activity.clone(),
         config.stream_chunk_size,
         config.handler_timeout,
         config.body_read_timeout,
@@ -1178,7 +1701,7 @@ where
         context,
         conn_id,
     );
-    serve_hyper_with_token(io, hyper_service, &config, shutdown, conn_id).await
+    serve_hyper_with_token(io, hyper_service, &config, &activity, shutdown, conn_id).await
 }
 
 /// Normalize a service response then convert to Hyper.
@@ -1327,12 +1850,15 @@ fn finalize_runtime_response(
 /// duplicates (safe default). This is a hardened framing policy applied
 /// before body construction.
 ///
-/// Note: Hyper 1.x strips the Content-Length header when
-/// Transfer-Encoding is present and rejects conflicting duplicate
-/// Content-Length fields while decoding the request. Consequently, these
-/// branches are defense-in-depth for a future or alternate parser and are
-/// normally unreachable behind Hyper; keeping them makes the framing policy
-/// explicit at this boundary.
+/// Note: Hyper 1.x strips a lone Content-Length header when
+/// Transfer-Encoding is present (since 1.11, regardless of header order;
+/// TE wins per RFC 9112 §6.1) and rejects duplicate Content-Length fields
+/// while decoding the request. Consequently, the TE+CL branch below is
+/// defense-in-depth for a future or alternate parser and is unreachable
+/// behind Hyper 1.11 — the lone-CL+TE corpus cases now exercise Hyper's
+/// TE-wins normalization (200 with chunked framing) rather than this
+/// rejection. Keeping the branch makes the framing policy explicit at this
+/// boundary.
 fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
     let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
     let cl_values: Vec<_> = headers
@@ -1386,13 +1912,29 @@ fn wrap_incoming_body(
     })
 }
 
-/// Convert a Hyper request to a canonical [`RequestHead`].
+/// Convert a Hyper request to a canonical [`RequestHead`], enforcing the
+/// EggServe-owned request-target and aggregate header ceilings before any
+/// service work.
 ///
-/// This extracts method, URI, version, and headers from the Hyper request
-/// and constructs a canonical [`RequestHead`]. The body is not included —
-/// the runtime handles body rejection before service invocation.
+/// Hyper enforces `max_buf_size` (parse buffer) and `max_headers` (field
+/// count, answered with 431 by Hyper itself) during parsing; those rejections
+/// never reach this function and surface as parse-class connection errors.
+/// What Hyper cannot bound independently — aggregate header bytes and
+/// request-target length — is bounded here:
+///
+/// - request targets longer than `max_target_bytes` fail with 414;
+/// - aggregate post-parse header name+value bytes above `max_header_bytes`
+///   fail with 431.
+///
+/// There is no separate request-line knob: the request line is bounded
+/// jointly by the parser buffer (raw bytes) and this target-length ceiling
+/// (application semantics). Neither hostile targets nor header contents are
+/// logged; only lengths are recorded as fields.
 fn convert_request_head(
     req: &Request<Incoming>,
+    max_target_bytes: usize,
+    max_header_bytes: usize,
+    conn_id: u64,
 ) -> Result<crate::primitives::request_head::RequestHead, ServiceError> {
     use crate::primitives::header_block::HeaderBlock;
     use crate::primitives::method::Method;
@@ -1429,6 +1971,29 @@ fn convert_request_head(
         .map(|pq| pq.as_str())
         .unwrap_or("/");
 
+    if raw_target.len() > max_target_bytes {
+        crate::ops::global_counters()
+            .request_target_rejected
+            .fetch_add(1, Ordering::Relaxed);
+        crate::ops::Logger::global().emit(
+            crate::ops::Event::new(
+                crate::ops::Severity::Debug,
+                crate::ops::EventKind::RequestTargetTooLong,
+                "request target too long",
+            )
+            .connection_id(conn_id)
+            .field(crate::ops::Field::U64(
+                "target_bytes".into(),
+                raw_target.len() as u64,
+            ))
+            .field(crate::ops::Field::U64(
+                "limit_bytes".into(),
+                max_target_bytes as u64,
+            )),
+        );
+        return Err(ServiceError::rejected(414, "request target too long"));
+    }
+
     // Reject absolute-form URIs (authority present in raw target).
     // Hyper strips scheme/authority from path_and_query, so we must check
     // the full URI string.
@@ -1453,7 +2018,29 @@ fn convert_request_head(
         .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?;
 
     let mut headers = HeaderBlock::new();
+    let mut header_bytes: usize = 0;
     for (name, value) in req.headers().iter() {
+        header_bytes = header_bytes
+            .saturating_add(name.as_str().len())
+            .saturating_add(value.len());
+        if header_bytes > max_header_bytes {
+            crate::ops::global_counters()
+                .header_bytes_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::HeaderBytesRejected,
+                    "request headers too large",
+                )
+                .connection_id(conn_id)
+                .field(crate::ops::Field::U64(
+                    "limit_bytes".into(),
+                    max_header_bytes as u64,
+                )),
+            );
+            return Err(ServiceError::rejected(431, "request headers too large"));
+        }
         let header_name = crate::primitives::header_block::HeaderName::new(name.as_str())
             .map_err(|_| ServiceError::rejected(400, format!("invalid header name: {}", name)))?;
         let header_value = match value.to_str() {

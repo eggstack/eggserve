@@ -74,8 +74,7 @@ For read-only methods (GET, HEAD), eggserve rejects any request that signals a b
 - `Content-Length: 0` — allowed
 - `Content-Length: <positive integer>` — rejected with 413
 - `Content-Length: <malformed>` — rejected with 400
-- `Transfer-Encoding: <anything>` — rejected with 400
-- Both headers present — rejected with 400
+- `Transfer-Encoding: <anything>`, alone or with `Content-Length` — rejected with 413 (body policy; a lone `Content-Length` alongside `Transfer-Encoding` is discarded by Hyper 1.11 during parsing with `Transfer-Encoding` winning per RFC 9112 §6.1)
 
 This prevents request-smuggling and body-based attacks on a read-only server.
 

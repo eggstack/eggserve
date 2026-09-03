@@ -83,6 +83,46 @@ pub struct RuntimeConfig {
     /// Maximum allowed request body size in bytes. This is the hard ceiling
     /// that no service can exceed. Default: 0 (bodies rejected).
     pub max_request_body_bytes: u64,
+    /// Maximum HTTP/1 parser/read buffer size in bytes. Set explicitly on
+    /// Hyper so upgrades cannot silently widen parser memory. Minimum 8192
+    /// (Hyper panics below). Default: 64 KiB.
+    pub max_buf_size: usize,
+    /// Maximum request header field count. Set explicitly on Hyper (which
+    /// answers excess with 431). Default: 100.
+    ///
+    /// Note Hyper allocates header storage on the heap once a custom count
+    /// is set, costing roughly 5% header-parse performance.
+    pub max_headers: usize,
+    /// Maximum aggregate post-parse request-header name+value bytes.
+    /// Enforced before service invocation; excess fails with 431 without
+    /// invoking the service. Default: 32 KiB.
+    pub max_header_bytes: usize,
+    /// Maximum request-target length in bytes. Enforced before service
+    /// invocation; excess fails with 414. Default: 8192.
+    pub max_request_target_bytes: usize,
+    /// Maximum concurrent in-flight `Service::call()` executions,
+    /// independent of idle keep-alive connections. Exhaustion produces a
+    /// deterministic generic 503 without queuing unbounded work.
+    /// Default: 64.
+    pub max_in_flight_requests: usize,
+    /// Keep-alive idle timeout. A connection with no in-flight request and
+    /// no outstanding response body is gracefully closed after this much
+    /// inactivity; the deadline resets on request/transport activity.
+    /// Independent of `connection_total_timeout`, which remains the hard
+    /// maximum connection lifetime. Default: 60s.
+    pub keep_alive_idle_timeout: Duration,
+    /// Maximum completed requests per connection. `None` disables the
+    /// limit. When reached, the current response completes correctly with
+    /// `Connection: close`. Every response counts, including HEAD and
+    /// error responses and requests rejected before service invocation.
+    /// Default: `None` (unlimited).
+    pub max_requests_per_connection: Option<u64>,
+    /// Response write no-progress timeout. A connection with an
+    /// outstanding response body is closed after this much time with no
+    /// forward socket-write progress; steady progress — however slow —
+    /// never triggers it. Covers files, buffered bodies, and streams, on
+    /// TCP, TLS, and caller-owned transports. Default: 30s.
+    pub response_write_timeout: Duration,
 }
 
 impl Default for RuntimeConfig {
@@ -102,6 +142,14 @@ impl Default for RuntimeConfig {
             #[cfg(feature = "tls")]
             tls_config: None,
             max_request_body_bytes: 0,
+            max_buf_size: crate::limits::DEFAULT_MAX_BUF_SIZE,
+            max_headers: crate::limits::DEFAULT_MAX_HEADERS,
+            max_header_bytes: crate::limits::DEFAULT_MAX_HEADER_BYTES,
+            max_request_target_bytes: crate::limits::DEFAULT_MAX_REQUEST_TARGET_BYTES,
+            max_in_flight_requests: crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+            keep_alive_idle_timeout: Duration::from_secs(60),
+            max_requests_per_connection: None,
+            response_write_timeout: Duration::from_secs(30),
         }
     }
 }
@@ -124,6 +172,14 @@ impl RuntimeConfig {
             #[cfg(feature = "tls")]
             tls_config: None,
             max_request_body_bytes: None,
+            max_buf_size: None,
+            max_headers: None,
+            max_header_bytes: None,
+            max_request_target_bytes: None,
+            max_in_flight_requests: None,
+            keep_alive_idle_timeout: None,
+            max_requests_per_connection: None,
+            response_write_timeout: None,
         }
     }
 }
@@ -146,6 +202,14 @@ pub struct RuntimeConfigBuilder {
     #[cfg(feature = "tls")]
     tls_config: Option<Arc<rustls::ServerConfig>>,
     max_request_body_bytes: Option<u64>,
+    max_buf_size: Option<usize>,
+    max_headers: Option<usize>,
+    max_header_bytes: Option<usize>,
+    max_request_target_bytes: Option<usize>,
+    max_in_flight_requests: Option<usize>,
+    keep_alive_idle_timeout: Option<Duration>,
+    max_requests_per_connection: Option<Option<u64>>,
+    response_write_timeout: Option<Duration>,
 }
 
 impl RuntimeConfigBuilder {
@@ -246,6 +310,71 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the HTTP/1 parser/read buffer ceiling in bytes.
+    ///
+    /// Must be between 8192 (Hyper minimum) and 4 MiB. Default: 64 KiB.
+    pub fn max_buf_size(mut self, max: usize) -> Self {
+        self.max_buf_size = Some(max);
+        self
+    }
+
+    /// Set the maximum request header field count.
+    ///
+    /// Must be between 1 and 10_000. Default: 100 (Hyper's default, pinned
+    /// explicitly). Hyper answers excess with 431.
+    pub fn max_headers(mut self, max: usize) -> Self {
+        self.max_headers = Some(max);
+        self
+    }
+
+    /// Set the aggregate post-parse request-header ceiling in name+value
+    /// bytes. Must be between 1 KiB and 1 MiB. Default: 32 KiB.
+    pub fn max_header_bytes(mut self, max: usize) -> Self {
+        self.max_header_bytes = Some(max);
+        self
+    }
+
+    /// Set the maximum request-target length in bytes. Must be between 128
+    /// and 64 KiB. Default: 8192.
+    pub fn max_request_target_bytes(mut self, max: usize) -> Self {
+        self.max_request_target_bytes = Some(max);
+        self
+    }
+
+    /// Set the maximum concurrent in-flight service executions.
+    ///
+    /// Must be > 0. Default: 64.
+    pub fn max_in_flight_requests(mut self, max: usize) -> Self {
+        self.max_in_flight_requests = Some(max);
+        self
+    }
+
+    /// Set the keep-alive idle timeout.
+    ///
+    /// Independent of `connection_total_timeout`: this deadline resets on
+    /// request/transport activity, while the total lifetime never resets.
+    pub fn keep_alive_idle_timeout(mut self, timeout: Duration) -> Self {
+        self.keep_alive_idle_timeout = Some(timeout);
+        self
+    }
+
+    /// Set the maximum completed requests per connection.
+    ///
+    /// Pass `None` for unlimited (default). `Some(0)` is rejected.
+    pub fn max_requests_per_connection(mut self, max: Option<u64>) -> Self {
+        self.max_requests_per_connection = Some(max);
+        self
+    }
+
+    /// Set the response write no-progress timeout.
+    ///
+    /// Fires only after the configured interval with zero forward socket
+    /// progress while a response body is outstanding.
+    pub fn response_write_timeout(mut self, timeout: Duration) -> Self {
+        self.response_write_timeout = Some(timeout);
+        self
+    }
+
     /// Build the runtime configuration.
     ///
     /// Returns an error if `max_connections`, `max_file_streams`, or any
@@ -297,6 +426,107 @@ impl RuntimeConfigBuilder {
                 crate::limits::MAX_REQUEST_BODY_BYTES,
                 max_request_body_bytes
             )));
+        }
+
+        let max_buf_size = self
+            .max_buf_size
+            .unwrap_or(crate::limits::DEFAULT_MAX_BUF_SIZE);
+        if max_buf_size < crate::limits::MIN_MAX_BUF_SIZE {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_buf_size must be >= {} (Hyper minimum): got {}",
+                crate::limits::MIN_MAX_BUF_SIZE,
+                max_buf_size
+            )));
+        }
+        if max_buf_size > crate::limits::MAX_MAX_BUF_SIZE {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_buf_size must be <= {} (4 MiB): got {}",
+                crate::limits::MAX_MAX_BUF_SIZE,
+                max_buf_size
+            )));
+        }
+        let max_headers = self
+            .max_headers
+            .unwrap_or(crate::limits::DEFAULT_MAX_HEADERS);
+        if max_headers == 0 {
+            return Err(crate::server::errors::ServerError::Config(
+                "max_headers must be > 0".into(),
+            ));
+        }
+        if max_headers > crate::limits::MAX_MAX_HEADERS {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_headers must be <= {}: got {}",
+                crate::limits::MAX_MAX_HEADERS,
+                max_headers
+            )));
+        }
+        let max_header_bytes = self
+            .max_header_bytes
+            .unwrap_or(crate::limits::DEFAULT_MAX_HEADER_BYTES);
+        if max_header_bytes < crate::limits::MIN_MAX_HEADER_BYTES {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_header_bytes must be >= {}: got {}",
+                crate::limits::MIN_MAX_HEADER_BYTES,
+                max_header_bytes
+            )));
+        }
+        if max_header_bytes > crate::limits::MAX_MAX_HEADER_BYTES {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_header_bytes must be <= {} (1 MiB): got {}",
+                crate::limits::MAX_MAX_HEADER_BYTES,
+                max_header_bytes
+            )));
+        }
+        let max_request_target_bytes = self
+            .max_request_target_bytes
+            .unwrap_or(crate::limits::DEFAULT_MAX_REQUEST_TARGET_BYTES);
+        if max_request_target_bytes < crate::limits::MIN_MAX_REQUEST_TARGET_BYTES {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_request_target_bytes must be >= {}: got {}",
+                crate::limits::MIN_MAX_REQUEST_TARGET_BYTES,
+                max_request_target_bytes
+            )));
+        }
+        if max_request_target_bytes > crate::limits::MAX_MAX_REQUEST_TARGET_BYTES {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_request_target_bytes must be <= {} (64 KiB): got {}",
+                crate::limits::MAX_MAX_REQUEST_TARGET_BYTES,
+                max_request_target_bytes
+            )));
+        }
+        let max_in_flight_requests = self.max_in_flight_requests.unwrap_or(64);
+        if max_in_flight_requests == 0 {
+            return Err(crate::server::errors::ServerError::Config(
+                "max_in_flight_requests must be > 0".into(),
+            ));
+        }
+        if max_in_flight_requests > max_semaphore_permits {
+            return Err(crate::server::errors::ServerError::Config(format!(
+                "max_in_flight_requests must be <= {} (Semaphore::MAX_PERMITS): got {}",
+                max_semaphore_permits, max_in_flight_requests
+            )));
+        }
+        let keep_alive_idle_timeout = self
+            .keep_alive_idle_timeout
+            .unwrap_or(Duration::from_secs(60));
+        if keep_alive_idle_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "keep_alive_idle_timeout must be > 0".into(),
+            ));
+        }
+        let max_requests_per_connection = self.max_requests_per_connection.unwrap_or(None);
+        if max_requests_per_connection == Some(0) {
+            return Err(crate::server::errors::ServerError::Config(
+                "max_requests_per_connection must be >= 1 or None (unlimited)".into(),
+            ));
+        }
+        let response_write_timeout = self
+            .response_write_timeout
+            .unwrap_or(Duration::from_secs(30));
+        if response_write_timeout.is_zero() {
+            return Err(crate::server::errors::ServerError::Config(
+                "response_write_timeout must be > 0".into(),
+            ));
         }
 
         let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
@@ -386,6 +616,14 @@ impl RuntimeConfigBuilder {
             #[cfg(feature = "tls")]
             tls_config: self.tls_config,
             max_request_body_bytes,
+            max_buf_size,
+            max_headers,
+            max_header_bytes,
+            max_request_target_bytes,
+            max_in_flight_requests,
+            keep_alive_idle_timeout,
+            max_requests_per_connection,
+            response_write_timeout,
         })
     }
 }
@@ -424,6 +662,14 @@ pub fn try_from_serve_config(
         #[cfg(feature = "tls")]
         tls_config: None,
         max_request_body_bytes: config.limits.max_request_body_bytes,
+        max_buf_size: config.limits.max_buf_size,
+        max_headers: config.limits.max_headers,
+        max_header_bytes: config.limits.max_header_bytes,
+        max_request_target_bytes: config.limits.max_request_target_bytes,
+        max_in_flight_requests: config.limits.max_in_flight_requests,
+        keep_alive_idle_timeout: config.limits.keep_alive_idle_timeout,
+        max_requests_per_connection: config.limits.max_requests_per_connection,
+        response_write_timeout: config.limits.response_write_timeout,
     })
 }
 
@@ -450,6 +696,23 @@ mod tests {
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(10));
         assert_eq!(config.server_header, None);
         assert_eq!(config.max_request_body_bytes, 0);
+        assert_eq!(config.max_buf_size, crate::limits::DEFAULT_MAX_BUF_SIZE);
+        assert_eq!(config.max_headers, crate::limits::DEFAULT_MAX_HEADERS);
+        assert_eq!(
+            config.max_header_bytes,
+            crate::limits::DEFAULT_MAX_HEADER_BYTES
+        );
+        assert_eq!(
+            config.max_request_target_bytes,
+            crate::limits::DEFAULT_MAX_REQUEST_TARGET_BYTES
+        );
+        assert_eq!(
+            config.max_in_flight_requests,
+            crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS
+        );
+        assert_eq!(config.keep_alive_idle_timeout, Duration::from_secs(60));
+        assert_eq!(config.max_requests_per_connection, None);
+        assert_eq!(config.response_write_timeout, Duration::from_secs(30));
     }
 
     #[test]
@@ -467,6 +730,14 @@ mod tests {
             .graceful_shutdown_timeout(Duration::from_secs(5))
             .server_header("eggserve/0.1".into())
             .max_request_body_bytes(1024 * 1024)
+            .max_buf_size(8192)
+            .max_headers(50)
+            .max_header_bytes(4096)
+            .max_request_target_bytes(2048)
+            .max_in_flight_requests(16)
+            .keep_alive_idle_timeout(Duration::from_secs(25))
+            .max_requests_per_connection(Some(100))
+            .response_write_timeout(Duration::from_secs(12))
             .build()
             .unwrap();
         assert_eq!(config.bind.port(), 9000);
@@ -481,6 +752,14 @@ mod tests {
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(5));
         assert_eq!(config.server_header.as_deref(), Some("eggserve/0.1"));
         assert_eq!(config.max_request_body_bytes, 1024 * 1024);
+        assert_eq!(config.max_buf_size, 8192);
+        assert_eq!(config.max_headers, 50);
+        assert_eq!(config.max_header_bytes, 4096);
+        assert_eq!(config.max_request_target_bytes, 2048);
+        assert_eq!(config.max_in_flight_requests, 16);
+        assert_eq!(config.keep_alive_idle_timeout, Duration::from_secs(25));
+        assert_eq!(config.max_requests_per_connection, Some(100));
+        assert_eq!(config.response_write_timeout, Duration::from_secs(12));
     }
 
     #[test]
@@ -666,6 +945,29 @@ mod tests {
         assert_eq!(
             limits.graceful_shutdown_timeout,
             runtime.graceful_shutdown_timeout
+        );
+        assert_eq!(limits.max_buf_size, runtime.max_buf_size);
+        assert_eq!(limits.max_headers, runtime.max_headers);
+        assert_eq!(limits.max_header_bytes, runtime.max_header_bytes);
+        assert_eq!(
+            limits.max_request_target_bytes,
+            runtime.max_request_target_bytes
+        );
+        assert_eq!(
+            limits.max_in_flight_requests,
+            runtime.max_in_flight_requests
+        );
+        assert_eq!(
+            limits.keep_alive_idle_timeout,
+            runtime.keep_alive_idle_timeout
+        );
+        assert_eq!(
+            limits.max_requests_per_connection,
+            runtime.max_requests_per_connection
+        );
+        assert_eq!(
+            limits.response_write_timeout,
+            runtime.response_write_timeout
         );
     }
 
@@ -874,5 +1176,142 @@ mod tests {
         let serve = crate::config::ServeConfig::default();
         let runtime = try_from_serve_config(&serve).unwrap();
         assert_eq!(runtime.max_request_body_bytes, 0);
+    }
+
+    #[test]
+    fn builder_rejects_buf_size_below_hyper_minimum() {
+        let err = RuntimeConfig::builder()
+            .max_buf_size(8191)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_buf_size"));
+    }
+
+    #[test]
+    fn builder_rejects_zero_max_headers() {
+        let err = RuntimeConfig::builder().max_headers(0).build().unwrap_err();
+        assert!(err.to_string().contains("max_headers"));
+    }
+
+    #[test]
+    fn builder_rejects_small_max_header_bytes() {
+        let err = RuntimeConfig::builder()
+            .max_header_bytes(512)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_header_bytes"));
+    }
+
+    #[test]
+    fn builder_rejects_small_max_target_bytes() {
+        let err = RuntimeConfig::builder()
+            .max_request_target_bytes(64)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_request_target_bytes"));
+    }
+
+    #[test]
+    fn builder_rejects_zero_in_flight_requests() {
+        let err = RuntimeConfig::builder()
+            .max_in_flight_requests(0)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_in_flight_requests"));
+    }
+
+    #[test]
+    fn builder_rejects_zero_keep_alive_idle_timeout() {
+        let err = RuntimeConfig::builder()
+            .keep_alive_idle_timeout(Duration::ZERO)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("keep_alive_idle_timeout"));
+    }
+
+    #[test]
+    fn builder_rejects_zero_max_requests_per_connection() {
+        let err = RuntimeConfig::builder()
+            .max_requests_per_connection(Some(0))
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_requests_per_connection"));
+    }
+
+    #[test]
+    fn builder_rejects_zero_response_write_timeout() {
+        let err = RuntimeConfig::builder()
+            .response_write_timeout(Duration::ZERO)
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("response_write_timeout"));
+    }
+
+    #[test]
+    fn builder_accepts_unlimited_max_requests_per_connection() {
+        let config = RuntimeConfig::builder()
+            .max_requests_per_connection(None)
+            .build()
+            .unwrap();
+        assert_eq!(config.max_requests_per_connection, None);
+    }
+
+    #[test]
+    fn keep_alive_idle_is_independent_of_connection_total() {
+        // An idle deadline wider than the hard lifetime is accepted: the
+        // total lifetime simply fires first. Operators raising the total
+        // for persistent connections must not be forced to raise it here.
+        let config = RuntimeConfig::builder()
+            .connection_total_timeout(Duration::from_secs(60))
+            .keep_alive_idle_timeout(Duration::from_secs(3600))
+            .response_write_timeout(Duration::from_secs(3600))
+            .build()
+            .unwrap();
+        assert_eq!(config.keep_alive_idle_timeout, Duration::from_secs(3600));
+    }
+
+    #[test]
+    fn try_from_serve_config_preserves_plan164_limits() {
+        let limits = crate::limits::Limits {
+            max_buf_size: 16384,
+            max_headers: 50,
+            max_header_bytes: 4096,
+            max_request_target_bytes: 2048,
+            max_in_flight_requests: 16,
+            keep_alive_idle_timeout: Duration::from_secs(25),
+            max_requests_per_connection: Some(100),
+            response_write_timeout: Duration::from_secs(12),
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let runtime = try_from_serve_config(&serve).unwrap();
+        assert_eq!(runtime.max_buf_size, 16384);
+        assert_eq!(runtime.max_headers, 50);
+        assert_eq!(runtime.max_header_bytes, 4096);
+        assert_eq!(runtime.max_request_target_bytes, 2048);
+        assert_eq!(runtime.max_in_flight_requests, 16);
+        assert_eq!(runtime.keep_alive_idle_timeout, Duration::from_secs(25));
+        assert_eq!(runtime.max_requests_per_connection, Some(100));
+        assert_eq!(runtime.response_write_timeout, Duration::from_secs(12));
+    }
+
+    #[test]
+    fn try_from_serve_config_rejects_invalid_plan164_limits() {
+        let limits = crate::limits::Limits {
+            max_buf_size: 1024,
+            max_in_flight_requests: 0,
+            ..Default::default()
+        };
+        let serve = crate::config::ServeConfig {
+            limits,
+            ..Default::default()
+        };
+        let err = try_from_serve_config(&serve).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("max_buf_size"));
+        assert!(msg.contains("max_in_flight_requests"));
     }
 }

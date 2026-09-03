@@ -29,12 +29,18 @@ Every operational event has:
 
 ### Connection
 - `connection_accepted` — new TCP connection accepted with correlation ID
-- `connection_rejected` — admission limit reached
+- `connection_rejected` — connection admission limit reached
 - `tls_handshake_success/failure/timeout` — TLS events (feature-gated)
-- `header_timeout` — HTTP header read timeout
+- `header_timeout` — HTTP header read timeout (also idle keep-alive gaps when shorter than the idle timeout)
 - `body_read_timeout` — request body read timeout (buffer mode)
-- `parser_rejection` — HTTP framing rejection
+- `parser_rejection` — HTTP framing rejection (incl. Hyper parser-limit parse failures)
+- `header_bytes_rejected` — aggregate request-header bytes exceeded (431, pre-service)
+- `request_target_too_long` — request target exceeded (414, pre-service)
+- `service_admission_rejected` — in-flight service budget exhausted (503)
 - `keep_alive_closed` — keep-alive connection closed
+- `keep_alive_idle_timeout` — idle keep-alive connection closed after inactivity
+- `max_requests_close` — request limit reached; current response closes the connection
+- `write_stall_timeout` — response outstanding with no socket progress; connection closed
 - `connection_total_timeout` — total connection lifetime timeout
 - `client_disconnect` — client disconnected (Debug severity)
 - `connection_panic` — handler panic contained
@@ -86,11 +92,18 @@ The Python `Server` delegates logging to the Rust runtime's stderr log sink. Ope
 - `connections_rejected` — connections rejected by admission limit
 - `active_connections` — currently active connections
 - `active_file_streams` — currently streaming file responses
+- `active_service_requests` — requests currently in the service pipeline
 - `connection_panics` — handler panics contained
 - `body_rejections` — request body rejections by policy
-- `parser_rejects` — HTTP parsing failures
+- `parser_rejects` — HTTP parsing failures (incl. Hyper parser-limit errors)
+- `header_bytes_rejected` — aggregate header-byte rejections (431)
+- `request_target_rejected` — request-target rejections (414)
+- `service_admission_rejected` — in-flight service budget refusals (503)
 - `header_timeouts` — header read timeouts
 - `body_read_timeouts` — request body read timeouts
+- `keepalive_idle_timeouts` — idle keep-alive closes
+- `max_requests_closes` — connections closed after the request limit
+- `write_stall_timeouts` — write no-progress closes
 - `connection_total_timeouts` — total connection lifetime timeouts
 - `graceful_shutdowns` — clean shutdowns without timeout
 - `forced_shutdowns` — shutdowns where drain deadline was exceeded

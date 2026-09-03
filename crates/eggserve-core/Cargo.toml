@@ -30,6 +30,11 @@ windows-adversarial-qualification = []
 [dependencies]
 bytes = "1"
 futures-util = "0.3"
+# Direct use: TrackedBody implements http_body::Body to observe response-body
+# completion for the write-no-progress timeout (Plan 164). Already in the
+# tree via hyper; pinned directly so the impl does not rely on transitive
+# re-exports.
+http-body = "1"
 http-body-util = "0.1"
 httpdate = "1"
 hyper = { version = "1", features = ["http1", "server"] }

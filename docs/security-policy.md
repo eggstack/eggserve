@@ -71,13 +71,13 @@ No document should claim production support without naming a profile. Windows ha
 
 ## Request body metadata handling
 
-The built-in static service rejects any request that signals a body:
+The built-in static service rejects any request that signals a body
+(verified on the wire; the static policy is `Reject` for every request):
 
 - `Content-Length: 0` — allowed
 - `Content-Length: <positive integer>` — rejected with `413 Payload Too Large` under the default zero-body policy
 - `Content-Length: <non-integer, negative, or overflowing value>` — rejected with `400 Bad Request`
-- `Transfer-Encoding: <anything non-empty>` — rejected with `400 Bad Request`
-- Both `Content-Length` and `Transfer-Encoding` present — rejected with `400 Bad Request`
+- `Transfer-Encoding: <anything non-empty>`, alone or with `Content-Length` — rejected with `413 Payload Too Large` (body policy, before service invocation)
 
 This closes the previous behavior where malformed `Content-Length` values were silently ignored and `Transfer-Encoding` was not checked at all.
 
@@ -85,7 +85,7 @@ Custom services may opt into buffering or streaming bodies for the actual reques
 method. Regardless of service policy, eggserve enforces the following framing
 rules before body ingestion:
 
-- **TE+CL rejection**: Requests containing both `Transfer-Encoding` and any `Content-Length` field are rejected with 400 Bad Request before the service is invoked. No body is constructed. When Hyper's HTTP parser normalizes the headers first (e.g., stripping `Content-Length` when `Transfer-Encoding: chunked` is present), the rejection occurs if both headers survive parser extraction. Duplicate `Content-Length` fields are always rejected.
+- **TE+CL policy**: when both `Transfer-Encoding` and `Content-Length` survive to eggserve's validator, the request is rejected with 400 Bad Request before the service is invoked and no body is constructed. Under Hyper 1.11 a lone `Content-Length` alongside `Transfer-Encoding` is discarded during parsing (`Transfer-Encoding` wins per RFC 9112 §6.1), so such requests reach the service as chunked rather than failing here; duplicate `Content-Length` fields are rejected by Hyper's decoder regardless. The validator branch is retained as defense-in-depth for a future or alternate parser.
 - **Duplicate Content-Length rejection**: Requests with more than one `Content-Length` field are rejected with 400 Bad Request, even when values are identical. This minimizes intermediary disagreement and simplifies auditability.
 - **Wire-level validation**: Malformed `Content-Length` values (non-numeric, negative, signed, overflowing, non-decimal) are rejected at the HTTP/1 wire level by Hyper before eggserve processes them.
 

@@ -25,10 +25,18 @@ pub struct Args {
     pub quiet: bool,
     max_connections: Option<usize>,
     max_file_streams: Option<usize>,
+    max_in_flight_requests: Option<usize>,
     header_read_timeout: Option<Duration>,
     connection_total_timeout: Option<Duration>,
     handler_timeout: Option<Duration>,
     body_read_timeout: Option<Duration>,
+    keep_alive_idle_timeout: Option<Duration>,
+    max_requests_per_connection: Option<Option<u64>>,
+    response_write_timeout: Option<Duration>,
+    max_buf_size: Option<usize>,
+    max_headers: Option<usize>,
+    max_header_bytes: Option<usize>,
+    max_request_target_bytes: Option<usize>,
     #[cfg(feature = "tls")]
     pub tls_cert: Option<PathBuf>,
     #[cfg(feature = "tls")]
@@ -64,10 +72,18 @@ fn expand_attached_long_values(args: Vec<String>) -> Result<Vec<String>, String>
         "log-format",
         "max-connections",
         "max-file-streams",
+        "max-in-flight-requests",
         "header-timeout",
         "connection-total-timeout",
         "handler-timeout",
         "body-read-timeout",
+        "keep-alive-idle-timeout",
+        "max-requests-per-connection",
+        "response-write-timeout",
+        "max-buf-size",
+        "max-headers",
+        "max-header-bytes",
+        "max-request-target-bytes",
         "content-type",
         "header",
         "tls-cert",
@@ -203,6 +219,8 @@ impl Args {
         let mut max_connections_seen = false;
         let mut max_file_streams: Option<usize> = None;
         let mut max_file_streams_seen = false;
+        let mut max_in_flight_requests: Option<usize> = None;
+        let mut max_in_flight_requests_seen = false;
         let mut header_read_timeout: Option<Duration> = None;
         let mut header_read_timeout_seen = false;
         let mut connection_total_timeout: Option<Duration> = None;
@@ -211,6 +229,20 @@ impl Args {
         let mut handler_timeout_seen = false;
         let mut body_read_timeout: Option<Duration> = None;
         let mut body_read_timeout_seen = false;
+        let mut keep_alive_idle_timeout: Option<Duration> = None;
+        let mut keep_alive_idle_timeout_seen = false;
+        let mut max_requests_per_connection: Option<Option<u64>> = None;
+        let mut max_requests_per_connection_seen = false;
+        let mut response_write_timeout: Option<Duration> = None;
+        let mut response_write_timeout_seen = false;
+        let mut max_buf_size: Option<usize> = None;
+        let mut max_buf_size_seen = false;
+        let mut max_headers: Option<usize> = None;
+        let mut max_headers_seen = false;
+        let mut max_header_bytes: Option<usize> = None;
+        let mut max_header_bytes_seen = false;
+        let mut max_request_target_bytes: Option<usize> = None;
+        let mut max_request_target_bytes_seen = false;
         let mut default_content_type = "application/octet-stream".to_string();
         let mut content_type_seen = false;
         let mut extra_response_headers = Vec::new();
@@ -403,6 +435,22 @@ impl Args {
                     }
                     max_file_streams = Some(parsed);
                 }
+                "--max-in-flight-requests" => {
+                    if max_in_flight_requests_seen {
+                        return Err(
+                            "--max-in-flight-requests may only be specified once".to_string()
+                        );
+                    }
+                    max_in_flight_requests_seen = true;
+                    let val = require_value(&args, &mut i, "--max-in-flight-requests")?;
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-in-flight-requests '{}': {}", val, e))?;
+                    if parsed == 0 {
+                        return Err("--max-in-flight-requests must be greater than 0".to_string());
+                    }
+                    max_in_flight_requests = Some(parsed);
+                }
                 "--header-timeout" => {
                     if header_read_timeout_seen {
                         return Err("--header-timeout may only be specified once".to_string());
@@ -448,6 +496,94 @@ impl Args {
                         .parse()
                         .map_err(|e| format!("invalid body-read-timeout '{}': {}", val, e))?;
                     body_read_timeout = Some(Duration::from_secs(secs));
+                }
+                "--keep-alive-idle-timeout" => {
+                    if keep_alive_idle_timeout_seen {
+                        return Err(
+                            "--keep-alive-idle-timeout may only be specified once".to_string()
+                        );
+                    }
+                    keep_alive_idle_timeout_seen = true;
+                    let val = require_value(&args, &mut i, "--keep-alive-idle-timeout")?;
+                    let secs: u64 = val
+                        .parse()
+                        .map_err(|e| format!("invalid keep-alive-idle-timeout '{}': {}", val, e))?;
+                    keep_alive_idle_timeout = Some(Duration::from_secs(secs));
+                }
+                "--max-requests-per-connection" => {
+                    if max_requests_per_connection_seen {
+                        return Err(
+                            "--max-requests-per-connection may only be specified once".to_string()
+                        );
+                    }
+                    max_requests_per_connection_seen = true;
+                    let val = require_value(&args, &mut i, "--max-requests-per-connection")?;
+                    let parsed: u64 = val.parse().map_err(|e| {
+                        format!("invalid max-requests-per-connection '{}': {}", val, e)
+                    })?;
+                    // 0 means unlimited (the default); positive values bound
+                    // completed requests per connection.
+                    max_requests_per_connection =
+                        Some(if parsed == 0 { None } else { Some(parsed) });
+                }
+                "--response-write-timeout" => {
+                    if response_write_timeout_seen {
+                        return Err(
+                            "--response-write-timeout may only be specified once".to_string()
+                        );
+                    }
+                    response_write_timeout_seen = true;
+                    let val = require_value(&args, &mut i, "--response-write-timeout")?;
+                    let secs: u64 = val
+                        .parse()
+                        .map_err(|e| format!("invalid response-write-timeout '{}': {}", val, e))?;
+                    response_write_timeout = Some(Duration::from_secs(secs));
+                }
+                "--max-buf-size" => {
+                    if max_buf_size_seen {
+                        return Err("--max-buf-size may only be specified once".to_string());
+                    }
+                    max_buf_size_seen = true;
+                    let val = require_value(&args, &mut i, "--max-buf-size")?;
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-buf-size '{}': {}", val, e))?;
+                    max_buf_size = Some(parsed);
+                }
+                "--max-headers" => {
+                    if max_headers_seen {
+                        return Err("--max-headers may only be specified once".to_string());
+                    }
+                    max_headers_seen = true;
+                    let val = require_value(&args, &mut i, "--max-headers")?;
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-headers '{}': {}", val, e))?;
+                    max_headers = Some(parsed);
+                }
+                "--max-header-bytes" => {
+                    if max_header_bytes_seen {
+                        return Err("--max-header-bytes may only be specified once".to_string());
+                    }
+                    max_header_bytes_seen = true;
+                    let val = require_value(&args, &mut i, "--max-header-bytes")?;
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-header-bytes '{}': {}", val, e))?;
+                    max_header_bytes = Some(parsed);
+                }
+                "--max-request-target-bytes" => {
+                    if max_request_target_bytes_seen {
+                        return Err(
+                            "--max-request-target-bytes may only be specified once".to_string()
+                        );
+                    }
+                    max_request_target_bytes_seen = true;
+                    let val = require_value(&args, &mut i, "--max-request-target-bytes")?;
+                    let parsed: usize = val.parse().map_err(|e| {
+                        format!("invalid max-request-target-bytes '{}': {}", val, e)
+                    })?;
+                    max_request_target_bytes = Some(parsed);
                 }
                 "--content-type" => {
                     if content_type_seen {
@@ -582,10 +718,18 @@ impl Args {
             quiet,
             max_connections,
             max_file_streams,
+            max_in_flight_requests,
             header_read_timeout,
             connection_total_timeout,
             handler_timeout,
             body_read_timeout,
+            keep_alive_idle_timeout,
+            max_requests_per_connection,
+            response_write_timeout,
+            max_buf_size,
+            max_headers,
+            max_header_bytes,
+            max_request_target_bytes,
             #[cfg(feature = "tls")]
             tls_cert,
             #[cfg(feature = "tls")]
@@ -609,6 +753,9 @@ impl Args {
         if let Some(v) = self.max_file_streams {
             limits.max_file_streams = v;
         }
+        if let Some(v) = self.max_in_flight_requests {
+            limits.max_in_flight_requests = v;
+        }
         if let Some(v) = self.header_read_timeout {
             limits.header_read_timeout = v;
         }
@@ -620,6 +767,27 @@ impl Args {
         }
         if let Some(v) = self.body_read_timeout {
             limits.body_read_timeout = v;
+        }
+        if let Some(v) = self.keep_alive_idle_timeout {
+            limits.keep_alive_idle_timeout = v;
+        }
+        if let Some(v) = self.max_requests_per_connection {
+            limits.max_requests_per_connection = v;
+        }
+        if let Some(v) = self.response_write_timeout {
+            limits.response_write_timeout = v;
+        }
+        if let Some(v) = self.max_buf_size {
+            limits.max_buf_size = v;
+        }
+        if let Some(v) = self.max_headers {
+            limits.max_headers = v;
+        }
+        if let Some(v) = self.max_header_bytes {
+            limits.max_header_bytes = v;
+        }
+        if let Some(v) = self.max_request_target_bytes {
+            limits.max_request_target_bytes = v;
         }
         limits
             .validate()
@@ -653,10 +821,22 @@ pub fn print_usage() {
     println!("  --quiet                   Suppress routine informational output (warn/error only)");
     println!("  --max-connections <N>      Max concurrent connections (default: 64)");
     println!("  --max-file-streams <N>     Max concurrent file streams (default: 32)");
+    println!("  --max-in-flight-requests <N>  Max concurrent service executions (default: 64)");
     println!("  --header-timeout <SECS>    Header read timeout in seconds (default: 10)");
     println!("  --connection-total-timeout <SECS>  Total connection lifetime timeout in seconds (default: 60)");
     println!("  --handler-timeout <SECS>   Handler invocation timeout in seconds (default: 30)");
     println!("  --body-read-timeout <SECS> Request body read timeout in seconds (default: 30)");
+    println!("  --keep-alive-idle-timeout <SECS>  Idle keep-alive close in seconds (default: 60)");
+    println!("  --max-requests-per-connection <N>  Max requests per connection, 0 = unlimited (default: 0)");
+    println!(
+        "  --response-write-timeout <SECS>  Response no-progress timeout in seconds (default: 30)"
+    );
+    println!("  --max-buf-size <BYTES>     HTTP/1 parser buffer ceiling in bytes (default: 65536)");
+    println!("  --max-headers <N>          Max request header fields (default: 100)");
+    println!(
+        "  --max-header-bytes <BYTES> Max aggregate header bytes, 431 on excess (default: 32768)"
+    );
+    println!("  --max-request-target-bytes <BYTES>  Max request-target bytes, 414 on excess (default: 8192)");
     println!("  --content-type <TYPE>      Fallback MIME type for unknown extensions");
     println!("  -H, --header <NAME> <VALUE>  Add a safe header to final 200 responses (repeatable; --header=NAME=VALUE also accepted)");
     #[cfg(feature = "tls")]
@@ -893,6 +1073,12 @@ mod tests {
             &["--log-format", "text", "--log-format", "json"],
             &["--max-connections", "1", "--max-connections", "2"],
             &["--max-file-streams", "1", "--max-file-streams", "2"],
+            &[
+                "--max-in-flight-requests",
+                "1",
+                "--max-in-flight-requests",
+                "2",
+            ],
             &["--header-timeout", "1", "--header-timeout", "2"],
             &[
                 "--connection-total-timeout",
@@ -902,6 +1088,33 @@ mod tests {
             ],
             &["--handler-timeout", "1", "--handler-timeout", "2"],
             &["--body-read-timeout", "1", "--body-read-timeout", "2"],
+            &[
+                "--keep-alive-idle-timeout",
+                "1",
+                "--keep-alive-idle-timeout",
+                "2",
+            ],
+            &[
+                "--max-requests-per-connection",
+                "1",
+                "--max-requests-per-connection",
+                "2",
+            ],
+            &[
+                "--response-write-timeout",
+                "1",
+                "--response-write-timeout",
+                "2",
+            ],
+            &["--max-buf-size", "1", "--max-buf-size", "2"],
+            &["--max-headers", "1", "--max-headers", "2"],
+            &["--max-header-bytes", "1", "--max-header-bytes", "2"],
+            &[
+                "--max-request-target-bytes",
+                "1",
+                "--max-request-target-bytes",
+                "2",
+            ],
             &[
                 "--content-type",
                 "text/plain",
@@ -1174,10 +1387,18 @@ mod tests {
             &["--log-format", "--quiet"],
             &["--max-connections", "--public"],
             &["--max-file-streams", "--quiet"],
+            &["--max-in-flight-requests", "--quiet"],
             &["--header-timeout", "--quiet"],
             &["--connection-total-timeout", "--quiet"],
             &["--handler-timeout", "--quiet"],
             &["--body-read-timeout", "--quiet"],
+            &["--keep-alive-idle-timeout", "--quiet"],
+            &["--max-requests-per-connection", "--quiet"],
+            &["--response-write-timeout", "--quiet"],
+            &["--max-buf-size", "--quiet"],
+            &["--max-headers", "--quiet"],
+            &["--max-header-bytes", "--quiet"],
+            &["--max-request-target-bytes", "--quiet"],
         ];
         for case in cases {
             let error = parse(case).unwrap_err();
@@ -1231,10 +1452,18 @@ mod tests {
             "--log-format=none",
             "--max-connections=2",
             "--max-file-streams=3",
+            "--max-in-flight-requests=16",
             "--header-timeout=4",
             "--connection-total-timeout=5",
             "--handler-timeout=6",
             "--body-read-timeout=7",
+            "--keep-alive-idle-timeout=25",
+            "--max-requests-per-connection=100",
+            "--response-write-timeout=12",
+            "--max-buf-size=16384",
+            "--max-headers=50",
+            "--max-header-bytes=4096",
+            "--max-request-target-bytes=2048",
             "--content-type=text/plain",
         ])
         .unwrap();
@@ -1243,10 +1472,18 @@ mod tests {
         assert_eq!(args.log_format, LogFormat::None);
         assert_eq!(args.max_connections, Some(2));
         assert_eq!(args.max_file_streams, Some(3));
+        assert_eq!(args.max_in_flight_requests, Some(16));
         assert_eq!(args.header_read_timeout, Some(Duration::from_secs(4)));
         assert_eq!(args.connection_total_timeout, Some(Duration::from_secs(5)));
         assert_eq!(args.handler_timeout, Some(Duration::from_secs(6)));
         assert_eq!(args.body_read_timeout, Some(Duration::from_secs(7)));
+        assert_eq!(args.keep_alive_idle_timeout, Some(Duration::from_secs(25)));
+        assert_eq!(args.max_requests_per_connection, Some(Some(100)));
+        assert_eq!(args.response_write_timeout, Some(Duration::from_secs(12)));
+        assert_eq!(args.max_buf_size, Some(16384));
+        assert_eq!(args.max_headers, Some(50));
+        assert_eq!(args.max_header_bytes, Some(4096));
+        assert_eq!(args.max_request_target_bytes, Some(2048));
         assert_eq!(args.default_content_type, "text/plain");
     }
 
@@ -1354,6 +1591,66 @@ mod tests {
         let limits = args.limits().unwrap();
         assert_eq!(limits.max_connections, 128);
         assert_eq!(limits.max_file_streams, 64);
+    }
+
+    #[test]
+    fn plan164_limits_override_defaults() {
+        let args = parse(&[
+            "--max-in-flight-requests",
+            "16",
+            "--keep-alive-idle-timeout",
+            "25",
+            "--max-requests-per-connection",
+            "100",
+            "--response-write-timeout",
+            "12",
+            "--max-buf-size",
+            "16384",
+            "--max-headers",
+            "50",
+            "--max-header-bytes",
+            "4096",
+            "--max-request-target-bytes",
+            "2048",
+        ])
+        .unwrap();
+        let limits = args.limits().unwrap();
+        assert_eq!(limits.max_in_flight_requests, 16);
+        assert_eq!(limits.keep_alive_idle_timeout, Duration::from_secs(25));
+        assert_eq!(limits.max_requests_per_connection, Some(100));
+        assert_eq!(limits.response_write_timeout, Duration::from_secs(12));
+        assert_eq!(limits.max_buf_size, 16384);
+        assert_eq!(limits.max_headers, 50);
+        assert_eq!(limits.max_header_bytes, 4096);
+        assert_eq!(limits.max_request_target_bytes, 2048);
+    }
+
+    #[test]
+    fn max_requests_per_connection_zero_means_unlimited() {
+        let args = parse(&["--max-requests-per-connection", "0"]).unwrap();
+        assert_eq!(args.max_requests_per_connection, Some(None));
+        let limits = args.limits().unwrap();
+        assert_eq!(limits.max_requests_per_connection, None);
+    }
+
+    #[test]
+    fn plan164_limits_reject_invalid_values() {
+        // Zero in-flight admission is rejected by Limits validation.
+        let args = parse(&["--max-in-flight-requests", "0"]).unwrap_err();
+        assert!(args.contains("--max-in-flight-requests"), "{args}");
+        // Parser ceilings below their minima are rejected by validation.
+        let args = parse(&[
+            "--max-buf-size",
+            "1024",
+            "--connection-total-timeout",
+            "3600",
+        ])
+        .unwrap();
+        let err = args.limits().unwrap_err();
+        assert!(err.contains("max_buf_size"), "{err}");
+        let args = parse(&["--max-headers", "0"]).unwrap();
+        let err = args.limits().unwrap_err();
+        assert!(err.contains("max_headers"), "{err}");
     }
 
     #[test]

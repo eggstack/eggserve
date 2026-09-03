@@ -1,6 +1,6 @@
 # Timeout Reference
 
-This document defines every timeout and deadline in the eggserve runtime, its semantics, and enforcement behavior.
+This document defines every timeout and lifecycle deadline in the eggserve runtime, its semantics, and enforcement behavior.
 
 ## Timeout catalog
 
@@ -11,8 +11,12 @@ This document defines every timeout and deadline in the eggserve runtime, its se
 | 3 | Request-header timeout | `header_read_timeout` | 10s | HTTP/1 connection created | No | Complete header block received | Hyper `http1::Builder::header_read_timeout` | 408 Request Timeout | Hyper closes connection |
 | 4 | Request-body timeout | `body_read_timeout` | 30s | Body ingestion begins | No | Body fully consumed (all frames read) | `serve_connection_with_service()` | 408 Request Timeout response | Body dropped, connection kept alive |
 | 5 | Handler timeout | `handler_timeout` | 30s | Service `call()` invoked | No | Service future completes | `tokio::time::timeout` in `serve_connection_with_service()` | 504 Gateway Timeout response | Service future dropped |
-| 6 | Connection total timeout | `connection_total_timeout` | 60s | HTTP/1 connection created | No | N/A | `tokio::time::timeout` in `serve_connection()` | Graceful shutdown of Hyper connection | Connection dropped |
+| 6 | Connection total timeout | `connection_total_timeout` | 60s | HTTP/1 connection created | No | N/A | Connection driver deadline loop | Graceful shutdown of Hyper connection | Connection dropped |
 | 7 | Graceful shutdown timeout | `graceful_shutdown_timeout` | 10s | Shutdown requested | No | All connection tasks complete | `accept_loop()` drain loop | Abort remaining tasks, transition to Stopped | JoinSet aborted and joined |
+| 8 | Keep-alive idle timeout | `keep_alive_idle_timeout` | 60s | Last request/transport activity | Yes — every request completion and socket read/write | Completed response, new request bytes, any socket progress | Connection driver deadline loop | Graceful shutdown of Hyper connection | Connection dropped |
+| 9 | Response write no-progress timeout | `response_write_timeout` | 30s | Response handed to Hyper | Yes — every forward socket write | Socket bytes written | Connection driver + `ProgressIo` transport wrapper | Graceful shutdown of Hyper connection, producer cancelled | Connection dropped, permits released |
+
+Lifecycle controls that are not timeouts but bound connection use: `max_requests_per_connection` (default unlimited; when reached, the current response completes with `Connection: close`) and `max_in_flight_requests` (default 64; exhaustion answers 503 before service invocation).
 
 ## Per-field semantics
 
@@ -48,6 +52,13 @@ than using an unbounded value.
 - **Enforcement**: Hyper's built-in `header_read_timeout` mechanism.
 - **Terminal behavior**: Hyper returns an error; connection is closed.
 - **Cleanup**: Hyper internally cleans up.
+- **Keep-alive interaction**: Hyper also starts this timeout while a
+  keep-alive connection sits idle between requests. When the header timeout
+  is shorter than `keep_alive_idle_timeout`, an idle gap is closed by Hyper
+  and reported as a header timeout — not as an idle expiry. Operators
+  wanting healthy long-lived keep-alive connections must raise the header
+  timeout alongside the idle timeout (see the reverse-proxy profile in
+  `deployment.md`).
 
 ### 4. Request-body timeout
 
@@ -67,25 +78,27 @@ than using an unbounded value.
 - **Terminal behavior**: Returns `504 Gateway Timeout` response. The handler future is dropped.
 - **Cleanup**: Service state dropped; connection kept alive for next request (keep-alive).
 
-Streaming note (Plan 162, temporary until Plan 164): `handler_timeout`
-bounds only time-to-`Response`, not the subsequent body stream. Once the
-service returns `ResponseBody::Stream`, streaming is bounded by
-`connection_total_timeout` and shutdown, not by `handler_timeout`. Do not
-misuse `handler_timeout` as a total lifetime for long-lived streams. Plan 164
-will add production write/no-progress controls.
+Streaming note: `handler_timeout` bounds only time-to-`Response`, not
+the subsequent body stream. Once the service returns
+`ResponseBody::Stream`, streaming progress is bounded by
+`response_write_timeout` (no-progress) and `connection_total_timeout`
+(hard lifetime), not by `handler_timeout`. Do not misuse
+`handler_timeout` as a total lifetime for long-lived streams.
 
 ### 6. Connection total timeout
 
 - **Clock starts**: HTTP/1 connection created (after TCP accept, optional TLS handshake).
 - **Progress resets**: No — this is a total connection lifetime limit, not an inactivity timeout.
 - **Progress definition**: N/A (timer never resets).
-- **Enforcement**: `tokio::time::timeout(connection_total_timeout, &mut conn)` wrapping the entire Hyper connection future.
-- **Terminal behavior**: Hyper connection is gracefully shut down (`conn.graceful_shutdown()`), then awaited. The post-shutdown drain is bounded by `min(graceful_shutdown_timeout, 5s)` so a stalled client cannot hold its admission permit indefinitely.
+- **Enforcement**: The connection driver compares `Instant::now()` against `start + connection_total_timeout` on every wake; on expiry the Hyper connection is gracefully shut down (`conn.graceful_shutdown()`), then awaited. The post-shutdown drain is bounded by `min(graceful_shutdown_timeout, 5s)` so a stalled client cannot hold its admission permit indefinitely.
+- **Terminal behavior**: Hyper connection is gracefully shut down, then awaited within the bounded drain.
 - **Cleanup**: Connection dropped; permits released.
 
-**Design note**: This was originally named `response_write_timeout` but was renamed to `connection_total_timeout` because it wraps the entire Hyper connection future, not just response writes. Hyper does not expose a reliable per-write hook at the current abstraction level, so progress-aware write enforcement cannot be safely implemented without a transport wrapper. See "Known limitations" below.
+**Design note**: This was originally named `response_write_timeout` but was renamed to `connection_total_timeout` because it wrapped the entire Hyper connection future, not just response writes. The per-write no-progress control now exists separately as `response_write_timeout` (#9); the old name was reused for the new semantic, which is documented here rather than hidden.
 
 **Precedence**: This is the hard ceiling for a connection. When it expires before the handler or body budget, the request dies mid-flight regardless of those wider budgets. Setting `handler_timeout` or `body_read_timeout` above an explicit `connection_total_timeout` via the `RuntimeConfig` builder is rejected as dead configuration; lowering only the total below the default budgets is accepted with this documented precedence. The Python facade caps forwarded handler/body budgets to the total and logs when adjustment occurs.
+
+**Migration**: `connection_total_timeout` keeps its name, type (`Duration`), and hard-lifetime semantics — nothing is reinterpreted. What changes is that it is no longer the *only* way to bound idle or stalled clients: set `keep_alive_idle_timeout` for idle keep-alive turnover, `response_write_timeout` for stalled responses, and `max_requests_per_connection` for request-count bounds, and raise the total for deployments that want healthy long-lived keep-alive connections (see the per-profile defaults in `deployment.md`). The stdlib compatibility facade keeps the conservative 60-second default.
 
 ### 7. Graceful shutdown timeout
 
@@ -96,23 +109,45 @@ will add production write/no-progress controls.
 - **Terminal behavior**: `tasks.abort_all()` → join all aborted tasks → `lifecycle.mark_stopped()` → `ShutdownResult::Timeout`.
 - **Cleanup**: All permits released, JoinSet empty, lifecycle in `Stopped` state.
 
+### 8. Keep-alive idle timeout
+
+- **Clock starts**: Last request/transport activity (connection start, request completion, inbound bytes, socket writes).
+- **Progress resets**: Yes — every completed response, every new request byte, and every socket write moves the deadline.
+- **Progress definition**: Any request completion or transport activity.
+- **Enforcement**: The connection driver sleeps until the next applicable deadline and recomputes on every activity state change. Applies only when no request is in flight and no response body is outstanding; a connection mid-request or mid-response is never idle-closed.
+- **Terminal behavior**: Graceful shutdown of the Hyper connection (`KeepAliveIdleTimeout` event, `keepalive_idle_timeouts` counter, `IdleTimeout` outcome — a clean close).
+- **Cleanup**: Connection dropped; permits released.
+- **Interaction**: See the header-timeout note above: with default settings an idle gap is usually closed first by Hyper's 10-second header timeout and counted as a header timeout. Set the idle timeout *shorter* than the header timeout for distinct idle accounting, or raise both for long-lived keep-alive.
+
+### 9. Response write no-progress timeout
+
+- **Clock starts**: A response is handed to Hyper for transmission (all responses, including errors and rejections, arm the budget).
+- **Progress resets**: Yes — every forward socket write (`AsyncWrite::poll_write` / `poll_write_vectored` with `n > 0`) moves the deadline. Steady progress, however slow, never triggers it: this is a no-progress timer, not a total duration.
+- **Progress definition**: Socket bytes written, observed by the `ProgressIo` transport wrapper at the transport boundary (transparent to Hyper framing; identical for TCP, TLS, and caller-owned transports).
+- **Enforcement**: The connection driver closes the connection when a response body is outstanding and no socket progress was made for the interval. Distinguishing "stalled response" from "idle keep-alive" is exact: every response body is wrapped so its end-of-stream, failure, or drop (disconnect/shutdown/cancellation) releases the outstanding slot. Idle connections (nothing outstanding) never trip this timer.
+- **Terminal behavior**: Graceful shutdown of the Hyper connection (`WriteStallTimeout` event, `write_stall_timeouts` counter, `WriteTimeout` outcome), producer/file work cancelled via body drop. No secondary response is attempted after partial commitment; nothing is buffered to avoid the timeout.
+- **Cleanup**: Connection dropped; file-stream, service, and connection permits released.
+
+### Maximum requests per connection
+
+Not a timeout, but the third per-connection lifecycle bound alongside the idle and write timers:
+
+- **Semantics**: Counts every completed response on the connection — GET, HEAD, errors, and requests rejected before service invocation all count. After the configured count, the current response completes correctly with `Connection: close` (`MaxRequestsClose` event, `max_requests_closes` counter); framing is never corrupted.
+- **Default**: Unlimited (`None`). The control exists for anonymity-sensitive and resource-constrained profiles; the reverse-proxy and direct-TLS profiles leave it unlimited and rely on the idle and write timers instead.
+- **Configuration**: `max_requests_per_connection: Option<u64>` (`None` = unlimited); CLI `--max-requests-per-connection <N>` with `0` = unlimited.
+
 ## Known limitations
 
-### Progress-aware response write enforcement
-
-**Status**: Not implemented. Documented as a known limitation.
-
-The original `response_write_timeout` was intended to enforce a per-write inactivity deadline — closing a stalled writer while allowing steadily progressing responses. However, Hyper does not expose a reliable per-write hook at the current abstraction level. The `serve_connection` future bundles the entire connection lifecycle (multiple requests, keep-alive, response writing) into a single future, and there is no way to observe individual write completions from outside Hyper's internals.
-
-**Current behavior**: `connection_total_timeout` acts as a total connection lifetime limit. A response that steadily streams longer than the configured duration will be terminated when the total connection lifetime expires. This is documented and accurate — the field name matches the behavior.
-
-**Future work**: A transport-level wrapper (e.g., wrapping `TokioIo` with a progress-tracking layer) could provide per-write progress callbacks. This would allow an inactivity-based timeout that resets on successful write completion. The wrapper would need to:
-- Intercept `AsyncWrite::poll_write` calls
-- Reset an inactivity timer on each successful write
-- Close the connection when the inactivity timer expires
-- Be transparent to Hyper's HTTP/1 framing
-
-This is out of scope for the current plan and would require a new plan to implement.
+None open from the original production-lifecycle set. The former
+progress-aware write-enforcement limitation is closed: `response_write_timeout`
+is implemented via the `ProgressIo` transport wrapper plus response-body
+completion tracking, as the Plan 164 design spike prescribed. The remaining
+intentional non-goals (no per-IP/client rate limiting, no request routing or
+middleware, no custom parser solely for a finer request-line knob) are
+unchanged: Hyper still exposes no aggregate header-byte, request-target, or
+request-line knob, so those ceilings are enforced post-parse in
+`convert_request_head` (431/414 before service invocation) while
+`max_buf_size`/`max_headers` are set explicitly on every Hyper builder.
 
 ## Interaction diagram
 
@@ -125,7 +160,8 @@ TCP Accept
 HTTP/1 Connection Created ──────────────────────────────────────────┐
   │                                                                  │
   ├─ Header-read timeout (header_read_timeout)                       │
-  │   └─ 408 if headers incomplete                                   │
+  │   └─ 408 if headers incomplete (also bounds idle gaps when       │
+  │      shorter than keep_alive_idle_timeout)                       │
   │                                                                  │
   ├─ Body-read timeout (body_read_timeout)                           │
   │   └─ 408 if body incomplete                                      │
@@ -133,11 +169,23 @@ HTTP/1 Connection Created ──────────────────
   ├─ Handler timeout (handler_timeout)                               │
   │   └─ 504 if handler slow                                         │
   │                                                                  │
+  ├─ Service admission (max_in_flight_requests)                      │
+  │   └─ 503 before service invocation, no queue                     │
+  │                                                                  │
+  ├─ Keep-alive idle timeout (keep_alive_idle_timeout)               │
+  │   └─ graceful close after inactivity (resets on activity)        │
+  │                                                                  │
+  ├─ Response write no-progress timeout (response_write_timeout)     │
+  │   └─ close after no socket progress with body outstanding        │
+  │                                                                  │
+  ├─ Max requests per connection (max_requests_per_connection)       │
+  │   └─ current response completes with Connection: close           │
+  │                                                                  │
   ├─ Connection total timeout (connection_total_timeout) ────────────┘
-  │   └─ Graceful shutdown of connection
+  │   └─ Hard ceiling: graceful shutdown of connection
   │
   ▼
 Connection closed
   │
-  └─ Permit released (connection + file-stream)
+  └─ Permit released (connection + file-stream + in-flight service)
 ```

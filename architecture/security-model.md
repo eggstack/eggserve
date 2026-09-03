@@ -132,7 +132,7 @@ See [filesystem-confinement.md](filesystem-confinement.md) for the full traversa
 
 - **Percent decoding** — single-pass only; double-encoded traversal becomes literal
 - **Method validation** — only GET/HEAD for static serving; other methods return 405
-- **Body framing** — TE+CL conflict → 400 (when both headers survive Hyper's parser normalization); duplicate CL → 400; malformed CL → wire-level rejection
+- **Body framing** — lone CL alongside TE discarded by Hyper 1.11 (TE wins per RFC 9112 §6.1); duplicate CL → 400; malformed CL → wire-level rejection
 - **Request body policy** — static bodies are rejected before dispatch; custom services declare buffering or streaming for the actual method
 
 ### 5. Resource Limits

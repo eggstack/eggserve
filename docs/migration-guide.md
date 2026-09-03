@@ -130,7 +130,15 @@ The `response_write_timeout` field has been renamed to `connection_total_timeout
 | `--response-write-timeout` (CLI) | `--connection-total-timeout` (CLI) | Renamed; same default (60s) |
 | `response_write_timeout_secs` (Python) | `connection_total_timeout_secs` (Python) | Renamed; same default (60s) |
 
-**Migration**: Replace all references to `response_write_timeout` with `connection_total_timeout`. The behavior is unchanged — it remains a total connection lifetime limit. If you were relying on this timeout to close stalled writes, note that it still functions as a hard deadline for the entire connection. A progress-aware write timeout (inactivity-based) is not yet implemented.
+**Migration**: Replace all references to `response_write_timeout` with `connection_total_timeout`. The behavior is unchanged — it remains a total connection lifetime limit. If you were relying on this timeout to close stalled writes, note that it still functions as a hard deadline for the entire connection.
+
+> **Plan 164 update**: the `response_write_timeout` name now exists again with
+> different, no-progress semantics (close after 30s default with zero forward
+> socket progress while a response is outstanding; steady progress never
+> trips it). It is unrelated to the pre-077 total-lifetime field above. The
+> old name was reused deliberately and documented in
+> [the timeout reference](timeout-reference.md#6-connection-total-timeout).
+> A progress-aware write timeout (inactivity-based) is implemented.
 
 ### Zero-duration timeout validation
 

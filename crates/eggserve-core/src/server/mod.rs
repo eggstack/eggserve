@@ -26,7 +26,7 @@
 //! - Request conversion to canonical types
 //! - Response normalization
 //! - Timeout enforcement
-//! - Connection and file-stream permits
+//! - Connection, file-stream, and in-flight-service permits
 //! - Connection/task tracking
 //! - Graceful shutdown with drain deadline
 //! - Forced shutdown with task cancellation
@@ -125,8 +125,9 @@ pub struct Server {
 
 /// Transport state shared by every connection in one running server.
 ///
-/// In particular, file-stream admission is created once here and cloned into
-/// connection tasks. Static services never own or acquire this semaphore.
+/// In particular, file-stream and in-flight-service admission pools are
+/// created once here and cloned into connection tasks. Static services never
+/// own or acquire these semaphores.
 ///
 /// Callers driving caller-owned byte streams with
 /// [`connection::serve_http1_connection`] must share one `RuntimeState`
@@ -134,12 +135,13 @@ pub struct Server {
 /// connection; otherwise file/response/service budgets become per-connection
 /// instead of server-wide. Construct it with [`RuntimeState::new`] from the
 /// same [`RuntimeConfig`] used for the connections. It owns only
-/// transport-runtime admission (file-stream permits and, after Plan 164,
-/// in-flight/service budgets); it never owns static filesystem state or
+/// transport-runtime admission (file-stream permits and in-flight service
+/// permits); it never owns static filesystem state or
 /// application routing state.
 #[derive(Debug)]
 pub struct RuntimeState {
     pub(crate) file_stream_semaphore: Arc<tokio::sync::Semaphore>,
+    pub(crate) service_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl RuntimeState {
@@ -152,6 +154,7 @@ impl RuntimeState {
     pub fn new(config: &RuntimeConfig) -> Self {
         Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
+            service_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests)),
         }
     }
 
@@ -162,12 +165,23 @@ impl RuntimeState {
     pub fn new_for_testing(max_file_streams: usize) -> Self {
         Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(max_file_streams)),
+            service_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+            )),
         }
     }
 
     /// Return the server-wide file-stream admission pool.
     pub fn file_stream_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
         &self.file_stream_semaphore
+    }
+
+    /// Return the server-wide in-flight service admission pool.
+    ///
+    /// Bounds concurrent `Service::call()` executions independently of idle
+    /// keep-alive connections.
+    pub fn service_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
+        &self.service_semaphore
     }
 }
 

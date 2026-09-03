@@ -47,14 +47,17 @@ Configures and constructs a `Server` via a fluent builder API:
 
 Transport-level configuration separate from service-level concerns:
 - Bind address
-- Connection limits
+- Connection limits (`max_connections`)
+- In-flight service limit (`max_in_flight_requests`, independent of idle keep-alive connections)
 - File-stream limits
-- Timeouts (header read, connection total, handler, body read, graceful shutdown)
+- Parser ceilings (`max_buf_size`, `max_headers` set explicitly on Hyper; `max_header_bytes`, `max_request_target_bytes` enforced pre-service)
+- Timeouts (header read, connection total, handler, body read, graceful shutdown, keep-alive idle, response write no-progress)
+- Maximum requests per connection (`max_requests_per_connection`, `None` = unlimited)
 - Server header
 - TLS configuration (feature-gated)
 - Maximum request body size (hard ceiling)
 
-Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time.
+Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time. `connection_total_timeout` keeps its hard-lifetime semantics and is no longer the only way to bound idle/stalled clients; see `docs/timeout-reference.md` for the migration.
 
 ### Service Trait
 
@@ -165,18 +168,22 @@ Listener errors are classified by `io::ErrorKind` into transient, resource-exhau
 - Each accepted connection spawns a tokio task, tracked in a `JoinSet` with bounded concurrency
 - Graceful drain waits for each task up to the configured deadline; remaining tasks are dropped (aborted)
 - Forced shutdown abandons remaining tasks immediately
-- RAII permits ensure connection and file-stream permits are released on drop, even under cancellation. Canonical file-backed responses acquire the shared file-stream permit at transport conversion, so custom Rust services and the Python static façade share the same ceiling.
+- RAII permits ensure connection, file-stream, and in-flight-service permits are released on drop, even under cancellation. Canonical file-backed responses acquire the shared file-stream permit at transport conversion, so custom Rust services and the Python static façade share the same ceiling. Service permits are held across `Service::call()` and recovered on timeout, panic, cancellation, disconnect, and shutdown.
+- The per-connection driver enforces four independent deadlines (hard total lifetime, keep-alive idle, response write no-progress, shutdown) from shared `ConnectionActivity` state: the Hyper service closure observes requests/responses while `ProgressIo` observes socket progress and `TrackedBody` observes response completion, so a stalled response is distinguishable from an idle keep-alive connection.
 - Normal peer resets do not terminate the server; only fatal runtime errors transition to Failed
 - Python callback failures are converted to generic service errors with fixed diagnostic categories; handler exception text and response data are not logged.
 
 ### Runtime ownership corrective contract
 
 Each running server creates exactly one `RuntimeState`, including one
-`max_file_streams` semaphore. The accept loop clones that state into every
-connection; `StaticService` owns only its pinned root, policy, listing limits,
-and validated static representation metadata. All canonical file and range responses acquire the same permit at the
-single Hyper conversion boundary. Custom Rust and Python services have no
-implicit root or static state.
+`max_file_streams` semaphore and one `max_in_flight_requests` semaphore.
+The accept loop clones that state into every connection; `StaticService`
+owns only its pinned root, policy, listing limits, and validated static
+representation metadata. All canonical file and range responses acquire the
+same file-stream permit at the single Hyper conversion boundary, and every
+`Service::call()` execution holds an in-flight permit (acquired with
+`try_acquire`, so exhaustion answers 503 immediately with no hidden queue).
+Custom Rust and Python services have no implicit root or static state.
 
 The runtime asks the service for the body policy for the actual request. GET,
 HEAD, DELETE, OPTIONS, and extension methods are not globally body-forbidden;
@@ -220,19 +227,17 @@ Three entry paths converge on the same canonical driver (`serve_http1_connection
 
 All paths then share the same steps:
 
-4. HTTP/1 connection setup via Hyper
-5. Request conversion to canonical types
+4. HTTP/1 connection setup via Hyper (explicit `max_buf_size`/`max_headers` parser policy)
+5. Request conversion to canonical types (EggServe `max_request_target_bytes` → 414, `max_header_bytes` → 431, pre-service)
 6. Body ingestion (policy selection, Content-Length preflight, transfer decoding)
-7. Service invocation with timeout (`handler_timeout` bounds time-to-`Response`,
-   not the subsequent stream; streaming is bounded by
-   `connection_total_timeout` and shutdown until Plan 164)
+7. Service admission (`max_in_flight_requests`; 503 on exhaustion) and invocation with timeout (`handler_timeout` bounds time-to-`Response`; streaming progress is bounded by `response_write_timeout`, lifetime by `connection_total_timeout`)
 8. Canonical response normalization (`normalize_then_convert`: idempotent
    `normalize_response` then Hyper conversion; runtime owns `Content-Length`,
    `Transfer-Encoding`, reuse)
-9. Transport-body conversion (buffered/file/streaming; known-length mismatch
+9. Transport-body conversion with completion tracking (buffered/file/streaming; known-length mismatch
    and producer failure close post-commitment; `HEAD`/body-forbidden never
-   poll)
-10. Permit release and connection termination
+   poll; every body releases the outstanding-response slot on end/error/drop)
+10. Permit release and connection termination under the driver deadline loop (keep-alive idle, write no-progress, hard lifetime, shutdown)
 
 ### Transport-neutral connection driver (Plan 163)
 
@@ -249,7 +254,8 @@ bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
 - **`ConnectionShutdown`** — per-connection graceful-shutdown token, independent
   of `ServerHandle`. The caller calls `shutdown()` to signal; permits and
   producer tasks are released on driver exit regardless of outcome.
-- **`Arc<RuntimeState>`** — shared admission (file-stream semaphore). Callers
+- **`Arc<RuntimeState>`** — shared admission (file-stream and in-flight
+  service semaphores). Callers
   must share one `Arc` across all streams; `RuntimeState` owns only transport
   budgets, never static filesystem state or routing.
 
@@ -258,16 +264,19 @@ bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
 
 **`ConnectionOutcome`** is returned for observability. Variants: `Normal` (clean
 EOF/keep-alive close), `ClientError` (protocol or client error),
-`HeaderTimeout`, `TotalTimeout`, `Shutdown` (graceful shutdown requested),
-`Internal`. `is_clean()` returns `true` for `Normal` and `Shutdown`.
+`HeaderTimeout`, `IdleTimeout` (keep-alive idle expiry, clean),
+`WriteTimeout` (response no-progress expiry), `TotalTimeout`,
+`Shutdown` (graceful shutdown requested),
+`Internal`. `is_clean()` returns `true` for `Normal`, `Shutdown`, and
+`IdleTimeout`.
 
 **TCP/TLS Server** uses the same pipeline via `serve_http1_connection_with_id`,
 bridging its `broadcast` shutdown signal to a per-connection `ConnectionShutdown`
 token. Raw Hyper helpers (`serve_connection`, `serve_connection_with_runtime_state`)
 are `pub(crate)` — external callers must use `serve_http1_connection`.
 
-**Invariants retained:** Hyper HTTP/1.1 parsing, framing validation (TE+CL
-rejection), TRACE/body policy, canonical Request conversion, handler timeout
+**Invariants retained:** Hyper HTTP/1.1 parsing, framing validation
+(duplicate-CL rejection; lone TE+CL normalizes to TE-wins per RFC 9112 §6.1), TRACE/body policy, canonical Request conversion, handler timeout
 ceiling, panic containment, canonical response normalization, runtime-owned
 framing (`Content-Length`, `Transfer-Encoding`, reuse), privacy from Plan 165
 when implemented, file/stream admission via shared semaphore, incomplete-body
@@ -303,7 +312,7 @@ The runtime handles request body ingestion transparently for services:
 
 1. **Policy selection**: The runtime queries `Service::request_body_policy()` and enforces the global ceiling (`max_request_body_bytes`). The effective policy is the minimum of service preference and runtime ceiling.
 
-2. **Framing validation**: The runtime rejects requests containing both Transfer-Encoding and Content-Length before body construction. Duplicate Content-Length headers with conflicting values are also rejected at the HTTP/1 wire level. Identical duplicate Content-Length values are normalized by Hyper.
+2. **Framing validation**: the runtime rejects requests where both Transfer-Encoding and Content-Length survive to its validator before body construction (under Hyper 1.11 a lone Content-Length is discarded during parsing with Transfer-Encoding winning per RFC 9112 §6.1; duplicate Content-Length headers are rejected by Hyper's decoder). Identical duplicate Content-Length values without Transfer-Encoding are rejected as duplicates by the validator (safe default).
 
 3. **Content-Length preflight**: Before reading the body, the runtime validates `Content-Length` against the effective limit. Conflicting or oversized declarations are rejected with 413.
 

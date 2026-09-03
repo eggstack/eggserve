@@ -54,7 +54,7 @@ When eggserve runs behind a reverse proxy, connection metadata (`remote_addr`, `
 
 ### Body handling behind a reverse proxy
 
-eggserve rejects request bodies by default (safe default). When a reverse proxy forwards requests with bodies (e.g., POST, PUT), the runtime enforces body policy before invoking any service code. If the proxy and eggserve disagree on framing (TE+CL conflicts, duplicate Content-Length), the request is rejected with 400 at the origin. When Hyper's HTTP parser normalizes headers (e.g., stripping Content-Length when Transfer-Encoding is present), the rejection occurs if both headers survive parser extraction. When a handler returns without fully consuming the body, the connection is closed to prevent request smuggling through leftover bytes. Reverse proxies should be configured to forward `Content-Length` and `Transfer-Encoding` headers without modification to preserve framing integrity.
+eggserve rejects request bodies by default (safe default). When a reverse proxy forwards requests with bodies (e.g., POST, PUT), the runtime enforces body policy before invoking any service code. A lone `Content-Length` alongside `Transfer-Encoding` is discarded by Hyper 1.11 during parsing (`Transfer-Encoding` wins per RFC 9112 §6.1); duplicate `Content-Length` fields are rejected with 400 at the origin. When a handler returns without fully consuming the body, the connection is closed to prevent request smuggling through leftover bytes. Reverse proxies should be configured to forward `Content-Length` and `Transfer-Encoding` headers without modification to preserve framing integrity.
 
 ### Production profile: unix-reverse-proxy
 
@@ -63,6 +63,33 @@ The reverse-proxy profile is the preferred public deployment. eggserve binds to 
 ### Production profile: unix-direct-https
 
 Native TLS is functional for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. External qualification pending. See README.md for the full specification.
+
+## Per-profile resource defaults (Plan 164)
+
+Independent budgets for connections, in-flight service work, parser memory, and connection lifecycle. Tune via CLI flags, `Limits`, or `RuntimeConfig`; the stdlib Python compatibility facade keeps conservative defaults and does not expose every knob.
+
+| Setting (CLI flag) | Default | Reverse-proxy production | Direct TLS | Embedded anonymity-sensitive |
+|---|---|---|---|---|
+| `--max-connections` | 64 | 512–2048 (size to proxy concurrency) | 128 | 16–32 |
+| `--max-in-flight-requests` | 64 | 256–1024 (handler concurrency, independent of idle keep-alives) | 64–128 | 8–16 |
+| `--max-file-streams` | 32 | 64–256 | 32–64 | 8 |
+| `--max-buf-size` (bytes) | 65536 | 65536 | 65536 | 16384 |
+| `--max-headers` | 100 | 100 | 100 | 40–60 |
+| `--max-header-bytes` | 32768 | 32768 | 32768 | 8192 |
+| `--max-request-target-bytes` | 8192 | 8192 | 8192 | 2048–4096 |
+| `--header-timeout` (s) | 10 | 30–60 (must cover proxy keep-alive gaps; Hyper also applies it while idle) | 10–30 | 5 |
+| `--keep-alive-idle-timeout` (s) | 60 | 60–120 (shorter than the header timeout for distinct idle accounting) | 60 | 10–20 |
+| `--max-requests-per-connection` (0 = unlimited) | 0 | 0 (idle/write timers bound reuse instead) | 0 | 100–1000 |
+| `--response-write-timeout` (s) | 30 | 30–60 | 30 | 10–15 |
+| `--connection-total-timeout` (s) | 60 | 3600+ (hard lifetime only; idle/write timers do the routine bounding) | 600–3600 | 120–300 |
+| `--handler-timeout` / `--body-read-timeout` (s) | 30 / 30 | 30 / 30 (must stay ≤ total) | 30 / 30 | 10–15 |
+
+Notes:
+
+- **Reverse-proxy production** favors persistent connections, bounded parser memory, meaningful service concurrency, and idle/write-stall defense. Raise the total lifetime into the hours so it acts purely as defense-in-depth; the idle and write timers bound routine use. Keep `header-timeout` at or above the proxy's keep-alive gap, otherwise Hyper closes healthy idle connections and they count as header timeouts.
+- **Direct TLS** uses the same core bounds plus the existing TLS handshake budget (`--tls-*`, 10s default).
+- **Embedded anonymity-sensitive** uses stricter open-connection, header, keep-alive, request-count, and write-stall bounds suitable for resource-constrained direct origins. This is still not rate limiting: all clients share the same generic resource budgets — there are no per-IP/client/user token buckets, authentication quotas, or reputation logic anywhere in the core.
+- Every production claim must name a profile from the production profiles table in README.md. Hardened profiles must not allow symlink following.
 
 ## Pattern 3: Native TLS
 
