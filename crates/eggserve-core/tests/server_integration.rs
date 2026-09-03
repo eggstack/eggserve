@@ -482,12 +482,12 @@ async fn connection_metadata_propagated_to_service() {
                 let conn = req.connection();
                 // Verify real addresses are present (not placeholder 127.0.0.1:0).
                 assert_ne!(
-                    conn.remote_addr.port(),
+                    conn.remote_addr.unwrap().port(),
                     0,
                     "remote port should be a real ephemeral port"
                 );
-                assert_eq!(conn.remote_addr, peer_addr);
-                assert_eq!(conn.local_addr, addr);
+                assert_eq!(conn.remote_addr, Some(peer_addr));
+                assert_eq!(conn.local_addr, Some(addr));
                 assert_eq!(conn.scheme, Scheme::Http);
                 assert!(conn.tls.is_none());
                 METADATA_SEEN.store(true, Ordering::SeqCst);

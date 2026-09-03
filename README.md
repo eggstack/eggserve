@@ -131,7 +131,11 @@ shutdown, and are the recommended starting points for custom services.
 
 The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
 `Service` owns request handling and response construction. The `server` module
-is experimental before 1.0. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
+is experimental before 1.0. For caller-owned byte streams (for example an
+anonymity-network transport), `server::connection::serve_http1_connection`
+drives the same canonical pipeline over any `AsyncRead + AsyncWrite` stream
+with an explicit `ConnectionContext` (no fabricated socket addresses) and
+shared `RuntimeState` admission. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
 [primitives facade](https://github.com/eggstack/eggserve/blob/main/architecture/primitives-api.md), and
 [runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 

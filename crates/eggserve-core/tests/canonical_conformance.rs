@@ -959,8 +959,8 @@ fn connection_info_construction() {
         };
 
         let info = ConnectionInfo {
-            local_addr: "127.0.0.1:8000".parse().unwrap(),
-            remote_addr: "127.0.0.1:12345".parse().unwrap(),
+            local_addr: Some("127.0.0.1:8000".parse().unwrap()),
+            remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
             scheme,
             tls,
         };

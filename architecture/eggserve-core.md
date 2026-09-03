@@ -38,9 +38,9 @@ opening a socket. They are compiled by `scripts/verify.sh full`.
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
 
-| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError` |
+| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports `serve_http1_connection`, `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome` from `connection` |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
-| `server/connection.rs` | **pub** (experimental) | Connection execution pipeline: TLS handshake, HTTP/1 setup, request conversion, policy validation, service invocation, response normalization, transport-body conversion |
+| `server/connection.rs` | **pub** (experimental) | Transport-neutral driver: `serve_http1_connection`, `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome`; per-connection HTTP/1 handling, body ingestion |
 | `ops` | **pub** | Operational event model, structured logging, listener error classification, operational counters |
 
 ## Key Types
@@ -98,7 +98,7 @@ Resource limits with safe defaults:
 
 **Experimental** — API is subject to change without notice.
 
-The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and HTTP/1 connection handling. Downstream projects provide a `Service` implementation; the runtime handles everything else.
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and the canonical transport-neutral connection driver (`serve_http1_connection`). The driver serves both TCP/TLS connections from the accept loop and caller-owned byte streams sharing the same pipeline. Downstream projects provide a `Service` implementation; the runtime handles everything else.
 
 ### `Server` and `ServerBuilder`
 
@@ -114,7 +114,8 @@ let handle = server.start().await?;
 
 `ServerBuilder::bind()` overrides the configured socket address. Use
 `ServerBuilder::from_listener()` when transferring ownership of an existing
-Tokio `TcpListener`; the runtime is TCP-only.
+Tokio `TcpListener`; the runtime owns TCP acceptance, but the canonical driver
+(`serve_http1_connection`) also serves caller-owned streams.
 
 ### `RuntimeConfig`
 
@@ -135,6 +136,17 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
 
 Note: `Limits::connection_total_timeout` is mapped to `RuntimeConfig::connection_total_timeout` by `RuntimeConfigBuilder::try_from_serve_config()`.
+
+### `RuntimeState`
+
+`RuntimeState::new(&config)` creates shared admission (file-stream semaphore)
+for caller-owned streams. Callers must share one `Arc<RuntimeState>` across
+all their connections rather than constructing one per connection; otherwise
+file/response/service budgets become per-connection instead of server-wide.
+It owns only transport-runtime admission (file-stream permits, and after
+Plan 164, in-flight/service budgets); it never owns static filesystem state
+or routing. The TCP/TLS `Server` constructs this internally and shares it
+across connections.
 
 ### `Service` Trait
 

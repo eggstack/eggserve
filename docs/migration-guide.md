@@ -180,6 +180,39 @@ The Python `Request` object now includes `local_addr` (the server's local socket
 
 Connection metadata (`remote_addr`, `local_addr`, `scheme`) reflects the transport-level peer, not the end-client identity. When eggserve is behind a reverse proxy, `remote_addr` will be the proxy's address. End-client identity requires explicit proxy-header validation (see `docs/deployment.md`).
 
+## Plan 163: Transport-neutral connection driver and ConnectionInfo evolution
+
+### ConnectionInfo fields are now Optional
+
+`ConnectionInfo` fields `local_addr` and `remote_addr` are now `Option<SocketAddr>` instead of mandatory `SocketAddr`. TCP transports provide `Some(addr)`; non-socket transports (e.g., memory channels, piped I/O) expose `None`. Scheme and TLS remain caller-asserted.
+
+| Before | After | Change |
+|--------|-------|--------|
+| `ConnectionInfo.local_addr: SocketAddr` | `ConnectionInfo.local_addr: Option<SocketAddr>` | TCP = `Some`, non-socket = `None` |
+| `ConnectionInfo.remote_addr: SocketAddr` | `ConnectionInfo.remote_addr: Option<SocketAddr>` | TCP = `Some`, non-socket = `None` |
+
+New helpers: `with_socket_addrs()`, `without_socket_addrs()`, `socket_endpoints()` → `Option<SocketEndpoints>`, `has_socket_endpoints()` → `bool`. `SocketEndpoints` is a struct with `local`/`remote: SocketAddr`.
+
+**Migration**: Wrap existing addr access in `.unwrap()` or `?` for TCP-only code. Use `socket_endpoints()` when both must be present, or `has_socket_endpoints()` as a guard.
+
+### Transport-neutral connection driver
+
+`eggserve-core::server::connection` now exposes a transport-neutral driver:
+
+- `serve_http1_connection(io, service, config, context, runtime_state, shutdown)` — canonical HTTP/1 driver over any `AsyncRead + AsyncWrite`.
+- `serve_http1_connection_with_id(..., conn_id)` — same, with explicit connection ID for log correlation.
+- `ConnectionContext::for_tcp(local_addr, remote_addr, tls_info)` — TCP context.
+- `ConnectionContext::for_non_socket(scheme, tls_info)` — non-socket context (no addresses).
+- `ConnectionShutdown::new()` — shutdown token; clone for select.
+- `ConnectionOutcome` — return type: `Normal`, `HeaderTimeout`, `ClientError`, `TotalTimeout`, `Shutdown`.
+- `RuntimeState::new(&config)` — shared admission pool; construct once, `Arc::clone` per connection. `new_for_testing` is hidden.
+
+Raw Hyper `serve_connection` is now crate-private. TCP `Server` shares the same pipeline via `serve_http1_connection_with_id`.
+
+### Python: ConnectionInfo local/remote are Optional
+
+Python `ConnectionInfo` `local_addr` and `remote_addr` are now `Optional[str]` (default `None`). Existing positional string construction still works. Callers must check for `None` instead of assuming present.
+
 ## Breaking Change Policy
 
 Pre-1.0, minor releases may break stable APIs only with explicit release notes

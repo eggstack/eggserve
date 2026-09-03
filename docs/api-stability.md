@@ -20,7 +20,7 @@ Stable enum variants are exhaustive unless documented otherwise. Adding a new va
 
 ### Thread safety (Send/Sync)
 
-All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by `public_api_consumers::canonical_types_are_send_and_sync`.
+All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by `public_api_consumers::canonical_types_are_send_and_sync`.
 
 Error types (`MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
 
@@ -125,6 +125,12 @@ documented separately in `docs/python-api.md`.
 | `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal |
 | `LifecycleState` | experimental | Lifecycle state machine: Created, Starting, Running, Draining, Stopped, Failed |
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
+| `ConnectionContext` | experimental | Transport-neutral context for `serve_http1_connection`: `for_tcp()`, `for_non_socket()` |
+| `ConnectionShutdown` | experimental | Shutdown token for connection cancellation; clone for select |
+| `ConnectionOutcome` | experimental | Connection result: `Normal`, `HeaderTimeout`, `ClientError`, `TotalTimeout`, `Shutdown` |
+| `serve_http1_connection` | experimental | Transport-neutral HTTP/1 driver over any `AsyncRead + AsyncWrite` |
+| `serve_http1_connection_with_id` | experimental | Same as above with explicit connection ID for log correlation |
+| `RuntimeState` | experimental | Shared admission pool; `new(&config)` is public, `new_for_testing` is hidden |
 
 ### `config` Module
 
@@ -212,9 +218,10 @@ documented separately in `docs/python-api.md`.
 | `RequestTargetError` | stable | 6-variant target validation error |
 | `RequestHead` | stable | Canonical request head: method, target, version, headers |
 | `RequestHeadError` | stable | Conversion error from Hyper |
-| `ConnectionInfo` | stable | Transport metadata: addrs, scheme, TLS |
+| `ConnectionInfo` | stable | Transport metadata: optional local/remote addrs (`Option<SocketAddr>`), scheme, TLS. Use `socket_endpoints()` / `has_socket_endpoints()` for socket-aware access |
 | `Scheme` | stable | Http, Https |
 | `TlsInfo` | stable | Protocol version, server name |
+| `SocketEndpoints` | stable | `pub local: SocketAddr`, `pub remote: SocketAddr` — pair of socket endpoints |
 
 ### `primitives` Module — Response Planning
 

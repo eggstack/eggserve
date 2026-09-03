@@ -1306,16 +1306,16 @@ impl PythonCallbackService {
         }
         let http_version = head.version().to_string();
 
-        let remote_addr = Some(connection.remote_addr.to_string());
-        let local_addr = Some(connection.local_addr.to_string());
-        let remote_address = Some((
-            connection.remote_addr.ip().to_string(),
-            connection.remote_addr.port(),
-        ));
-        let local_address = Some((
-            connection.local_addr.ip().to_string(),
-            connection.local_addr.port(),
-        ));
+        // Non-socket transports expose no fabricated addresses: map absent
+        // endpoints to None rather than placeholder values.
+        let remote_addr = connection.remote_addr.map(|a| a.to_string());
+        let local_addr = connection.local_addr.map(|a| a.to_string());
+        let remote_address = connection
+            .remote_addr
+            .map(|a| (a.ip().to_string(), a.port()));
+        let local_address = connection
+            .local_addr
+            .map(|a| (a.ip().to_string(), a.port()));
         let scheme = Some(match connection.scheme {
             Scheme::Http => "http".to_string(),
             Scheme::Https => "https".to_string(),

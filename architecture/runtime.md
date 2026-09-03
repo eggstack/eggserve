@@ -38,7 +38,7 @@ Configures and constructs a `Server` via a fluent builder API:
   consumed into one `StaticService` during `build()` and is ignored by
   `start_with_service()` custom-service startup
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
-- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically
+- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, but the canonical driver (`serve_http1_connection`) also serves caller-owned streams
 - `build()` — validate configuration and construct the built-in `StaticService`
   once when `serve_config()` was supplied; invalid static roots fail here
 - `static_service(root)` — convenience: create a `StaticService` rooted at the given path
@@ -212,21 +212,71 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 
 ## Connection Pipeline
 
-1. TCP accept with connection permit
-2. Optional TLS handshake (feature-gated)
-3. HTTP/1 connection setup via Hyper
-4. Request conversion to canonical types
-5. Body ingestion (policy selection, Content-Length preflight, transfer decoding)
-6. Service invocation with timeout (`handler_timeout` bounds time-to-`Response`,
+Three entry paths converge on the same canonical driver (`serve_http1_connection`):
+
+1. TCP accept with connection permit → optional TLS handshake (feature-gated)
+2. TLS accept with connection permit → TLS handshake completed by caller
+3. Caller-owned stream (no socket, scheme asserted by caller)
+
+All paths then share the same steps:
+
+4. HTTP/1 connection setup via Hyper
+5. Request conversion to canonical types
+6. Body ingestion (policy selection, Content-Length preflight, transfer decoding)
+7. Service invocation with timeout (`handler_timeout` bounds time-to-`Response`,
    not the subsequent stream; streaming is bounded by
    `connection_total_timeout` and shutdown until Plan 164)
-7. Canonical response normalization (`normalize_then_convert`: idempotent
+8. Canonical response normalization (`normalize_then_convert`: idempotent
    `normalize_response` then Hyper conversion; runtime owns `Content-Length`,
    `Transfer-Encoding`, reuse)
-8. Transport-body conversion (buffered/file/streaming; known-length mismatch
+9. Transport-body conversion (buffered/file/streaming; known-length mismatch
    and producer failure close post-commitment; `HEAD`/body-forbidden never
    poll)
-9. Permit release and connection termination
+10. Permit release and connection termination
+
+### Transport-neutral connection driver (Plan 163)
+
+`serve_http1_connection(io, service, config, context, runtime_state, shutdown)`
+is the canonical connection driver. The caller supplies an already-established
+bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
+`Service`, and the following per-connection state:
+
+- **`ConnectionContext`** — transport description: `for_tcp(local, remote, tls)`
+  for real socket connections, `for_non_socket(scheme, tls)` for caller-owned
+  streams. No I2P types, no `Any` map, no fabricated addresses.
+  `Forwarded`/`X-Forwarded-*` headers are ordinary untrusted headers, not part
+  of this type. Scheme and TLS are asserted by the caller.
+- **`ConnectionShutdown`** — per-connection graceful-shutdown token, independent
+  of `ServerHandle`. The caller calls `shutdown()` to signal; permits and
+  producer tasks are released on driver exit regardless of outcome.
+- **`Arc<RuntimeState>`** — shared admission (file-stream semaphore). Callers
+  must share one `Arc` across all streams; `RuntimeState` owns only transport
+  budgets, never static filesystem state or routing.
+
+`serve_http1_connection_with_id` is the same pipeline with an explicit
+`conn_id` for structured log correlation (used by the TCP/TLS accept loop).
+
+**`ConnectionOutcome`** is returned for observability. Variants: `Normal` (clean
+EOF/keep-alive close), `ClientError` (protocol or client error),
+`HeaderTimeout`, `TotalTimeout`, `Shutdown` (graceful shutdown requested),
+`Internal`. `is_clean()` returns `true` for `Normal` and `Shutdown`.
+
+**TCP/TLS Server** uses the same pipeline via `serve_http1_connection_with_id`,
+bridging its `broadcast` shutdown signal to a per-connection `ConnectionShutdown`
+token. Raw Hyper helpers (`serve_connection`, `serve_connection_with_runtime_state`)
+are `pub(crate)` — external callers must use `serve_http1_connection`.
+
+**Invariants retained:** Hyper HTTP/1.1 parsing, framing validation (TE+CL
+rejection), TRACE/body policy, canonical Request conversion, handler timeout
+ceiling, panic containment, canonical response normalization, runtime-owned
+framing (`Content-Length`, `Transfer-Encoding`, reuse), privacy from Plan 165
+when implemented, file/stream admission via shared semaphore, incomplete-body
+close, and shutdown/drain semantics. All paths share a single normalization
+and framing authority.
+
+**Python impact:** No raw Python transports in this plan; `ConnectionInfo`
+views expose `None` for both `local_addr` and `remote_addr` on non-socket
+transports (Python `PyConnectionInfo` already mirrors this).
 
 ### Streaming responses (Plan 162)
 

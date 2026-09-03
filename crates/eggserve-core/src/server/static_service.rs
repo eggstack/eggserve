@@ -610,8 +610,8 @@ mod tests {
             ),
             crate::primitives::request_body::RequestBody::empty(),
             crate::primitives::connection_info::ConnectionInfo {
-                local_addr: "127.0.0.1:8000".parse().unwrap(),
-                remote_addr: "127.0.0.1:12345".parse().unwrap(),
+                local_addr: Some("127.0.0.1:8000".parse().unwrap()),
+                remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
                 scheme: crate::primitives::connection_info::Scheme::Http,
                 tls: None,
             },
@@ -652,8 +652,8 @@ mod tests {
             ),
             crate::primitives::request_body::RequestBody::empty(),
             crate::primitives::connection_info::ConnectionInfo {
-                local_addr: "127.0.0.1:8000".parse().unwrap(),
-                remote_addr: "127.0.0.1:12345".parse().unwrap(),
+                local_addr: Some("127.0.0.1:8000".parse().unwrap()),
+                remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
                 scheme: crate::primitives::connection_info::Scheme::Http,
                 tls: None,
             },

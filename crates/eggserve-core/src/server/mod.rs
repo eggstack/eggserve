@@ -59,6 +59,10 @@ pub mod static_service;
 
 pub use crate::primitives::request::Request;
 pub use config::{try_from_serve_config, RuntimeConfig, RuntimeConfigBuilder};
+pub use connection::{
+    serve_http1_connection, serve_http1_connection_with_id, ConnectionContext, ConnectionOutcome,
+    ConnectionShutdown,
+};
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
 pub use lifecycle::LifecycleState;
@@ -69,7 +73,6 @@ pub use static_service::{StaticService, StaticServiceBuilder};
 
 use std::sync::Arc;
 
-use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
@@ -124,13 +127,29 @@ pub struct Server {
 ///
 /// In particular, file-stream admission is created once here and cloned into
 /// connection tasks. Static services never own or acquire this semaphore.
+///
+/// Callers driving caller-owned byte streams with
+/// [`connection::serve_http1_connection`] must share one `RuntimeState`
+/// across all of their connections rather than constructing one per
+/// connection; otherwise file/response/service budgets become per-connection
+/// instead of server-wide. Construct it with [`RuntimeState::new`] from the
+/// same [`RuntimeConfig`] used for the connections. It owns only
+/// transport-runtime admission (file-stream permits and, after Plan 164,
+/// in-flight/service budgets); it never owns static filesystem state or
+/// application routing state.
 #[derive(Debug)]
 pub struct RuntimeState {
     pub(crate) file_stream_semaphore: Arc<tokio::sync::Semaphore>,
 }
 
 impl RuntimeState {
-    pub(crate) fn new(config: &RuntimeConfig) -> Self {
+    /// Create the shared admission context for a runtime configuration.
+    ///
+    /// Use the same [`RuntimeConfig`] that drives the connections so
+    /// budgets cannot be accidentally omitted. Clone the resulting
+    /// `Arc<RuntimeState>` into every
+    /// [`connection::serve_http1_connection`] invocation.
+    pub fn new(config: &RuntimeConfig) -> Self {
         Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
         }
@@ -462,7 +481,6 @@ async fn accept_loop_generic<S: Service>(
                             }
                         };
 
-                        let mut shutdown_rx = shutdown_rx.resubscribe();
                         let runtime_state = runtime_state.clone();
                         let config = config.clone();
                         let service = service.clone();
@@ -474,9 +492,21 @@ async fn accept_loop_generic<S: Service>(
                         // the gauge.
                         counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
+                        let forwarder_rx = shutdown_rx.resubscribe();
                         tasks.spawn(async move {
                             let _permit = permit;
                             let _active_connection = ActiveConnectionGuard;
+
+                            // Bridge the server broadcast shutdown to the
+                            // canonical per-connection token so TCP/TLS and
+                            // caller-owned streams share one driver pipeline.
+                            let conn_shutdown = connection::ConnectionShutdown::new();
+                            let forwarder_shutdown = conn_shutdown.clone();
+                            let mut forwarder_rx = forwarder_rx;
+                            tokio::spawn(async move {
+                                let _ = forwarder_rx.recv().await;
+                                forwarder_shutdown.shutdown();
+                            });
 
                             #[cfg(feature = "tls")]
                             {
@@ -492,18 +522,19 @@ async fn accept_loop_generic<S: Service>(
                                                 )
                                                 .connection_id(conn_id),
                                             );
-                                            let io = TokioIo::new(tls_stream);
-                                            connection::serve_connection_with_runtime_state(
-                                                io,
-                                                ArcService(service),
-                                                config.clone(),
-                                                runtime_state.clone(),
-                                                &mut shutdown_rx,
-                                                conn_id,
+                                            let context = connection::ConnectionContext::for_tcp(
                                                 local_addr_pre_tls,
                                                 remote_addr,
-                                                true,
                                                 Some(tls_info),
+                                            );
+                                            let _ = connection::serve_http1_connection_with_id(
+                                                tls_stream,
+                                                ArcService(service),
+                                                config.clone(),
+                                                context,
+                                                runtime_state.clone(),
+                                                &conn_shutdown,
+                                                conn_id,
                                             ).await;
                                             return;
                                         }
@@ -514,18 +545,19 @@ async fn accept_loop_generic<S: Service>(
                                 }
                             }
 
-                            let io = TokioIo::new(stream);
-                            connection::serve_connection_with_runtime_state(
-                                io,
-                                ArcService(service),
-                                config.clone(),
-                                runtime_state.clone(),
-                                &mut shutdown_rx,
-                                conn_id,
+                            let context = connection::ConnectionContext::for_tcp(
                                 local_addr_pre_tls,
                                 remote_addr,
-                                false,
                                 None,
+                            );
+                            let _ = connection::serve_http1_connection_with_id(
+                                stream,
+                                ArcService(service),
+                                config.clone(),
+                                context,
+                                runtime_state.clone(),
+                                &conn_shutdown,
+                                conn_id,
                             ).await;
                         });
                     }

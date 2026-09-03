@@ -73,7 +73,7 @@ pub use canonical::{
     NormalizeRequest, Response, ResponseBody, ResponseBuilder, ResponseConstructionError,
     ResponseStream, ResponseStreamError, StatusCode,
 };
-pub use connection_info::{ConnectionInfo, Scheme, TlsInfo};
+pub use connection_info::{ConnectionInfo, Scheme, SocketEndpoints, TlsInfo};
 pub use header_block::{
     DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
 };

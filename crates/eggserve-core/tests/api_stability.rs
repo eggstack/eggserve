@@ -95,11 +95,13 @@ fn stable_request_head_accessible() {
 
 #[test]
 fn stable_connection_info_accessible() {
-    use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme, TlsInfo};
+    use eggserve_core::primitives::connection_info::{
+        ConnectionInfo, Scheme, SocketEndpoints, TlsInfo,
+    };
 
     let info = ConnectionInfo {
-        local_addr: "127.0.0.1:8000".parse().unwrap(),
-        remote_addr: "127.0.0.1:12345".parse().unwrap(),
+        local_addr: Some("127.0.0.1:8000".parse().unwrap()),
+        remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
         scheme: Scheme::Http,
         tls: None,
     };
@@ -107,6 +109,24 @@ fn stable_connection_info_accessible() {
     assert_eq!(Scheme::Https.as_str(), "https");
     assert_eq!(info.scheme, Scheme::Http);
     assert!(info.tls.is_none());
+    assert!(info.has_socket_endpoints());
+
+    // Paired socket view for real TCP connections.
+    let endpoints = info.socket_endpoints().unwrap();
+    assert_eq!(endpoints.local.port(), 8000);
+    assert_eq!(endpoints.remote.port(), 12345);
+    let explicit = SocketEndpoints {
+        local: "127.0.0.1:8000".parse().unwrap(),
+        remote: "127.0.0.1:12345".parse().unwrap(),
+    };
+    assert_eq!(endpoints, explicit);
+
+    // Non-socket transports expose no fabricated endpoints.
+    let anon = ConnectionInfo::without_socket_addrs(Scheme::Http, None);
+    assert_eq!(anon.local_addr, None);
+    assert_eq!(anon.remote_addr, None);
+    assert!(!anon.has_socket_endpoints());
+    assert!(anon.socket_endpoints().is_none());
 
     let tls_info = TlsInfo {
         protocol_version: Some("TLSv1.3".to_string()),
@@ -115,6 +135,48 @@ fn stable_connection_info_accessible() {
     let display = format!("{tls_info}");
     assert!(display.contains("TLSv1.3"));
     assert!(display.contains("example.com"));
+}
+
+#[test]
+fn experimental_connection_driver_accessible() {
+    use eggserve_core::primitives::connection_info::Scheme;
+    use eggserve_core::server::connection::{
+        ConnectionContext, ConnectionOutcome, ConnectionShutdown,
+    };
+    use eggserve_core::server::{RuntimeConfig, RuntimeState};
+    use std::sync::Arc;
+
+    // Context constructors for TCP vs caller-owned streams.
+    let tcp = ConnectionContext::for_tcp(
+        "127.0.0.1:8000".parse().unwrap(),
+        "127.0.0.1:12345".parse().unwrap(),
+        None,
+    );
+    assert!(tcp.has_socket_endpoints());
+    let anon = ConnectionContext::for_non_socket(Scheme::Http, None);
+    assert!(!anon.has_socket_endpoints());
+    assert!(anon.socket_endpoints().is_none());
+
+    // Shared admission is constructed from the runtime config.
+    let config = Arc::new(RuntimeConfig::default());
+    let state = Arc::new(RuntimeState::new(&config));
+    assert_eq!(
+        state.file_stream_semaphore().available_permits(),
+        config.max_file_streams
+    );
+
+    // Cancellation token and outcome are part of the driver contract.
+    let shutdown = ConnectionShutdown::new();
+    assert!(!shutdown.is_shutdown());
+    shutdown.shutdown();
+    assert!(shutdown.is_shutdown());
+    assert!(ConnectionOutcome::Normal.is_clean());
+    assert!(ConnectionOutcome::Shutdown.is_clean());
+    assert!(!ConnectionOutcome::ClientError.is_clean());
+    assert_eq!(
+        format!("{}", ConnectionOutcome::TotalTimeout),
+        "total-timeout"
+    );
 }
 
 // ── Stable canonical response types ─────────────────────────────────────────

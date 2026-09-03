@@ -1,12 +1,12 @@
 //! Connection execution pipeline.
 //!
-//! This module owns the per-connection execution path from TCP accept to
-//! response completion. It is used by both the CLI accept loop and the
-//! embedded runtime.
+//! This module owns the per-connection execution path from byte stream to
+//! response completion. It is used by the TCP/TLS accept loop, the embedded
+//! runtime, and caller-owned transports.
 //!
 //! # Pipeline steps
 //!
-//! 1. Optional TLS handshake (feature-gated)
+//! 1. Optional TLS handshake (feature-gated, above the driver for TCP)
 //! 2. HTTP/1 connection setup via Hyper
 //! 3. Request conversion to canonical types
 //! 4. Request-policy validation (body rejection for body-forbidden methods)
@@ -14,6 +14,17 @@
 //! 6. Canonical response normalization
 //! 7. Transport-body conversion
 //! 8. Permit release and connection termination
+//!
+//! # Transport-neutral driver
+//!
+//! [`serve_http1_connection`] is the canonical connection driver (Plan 163).
+//! The caller supplies an already-established bidirectional async byte stream,
+//! a canonical [`Service`], a [`ConnectionContext`], shared [`RuntimeState`]
+//! admission, and a [`ConnectionShutdown`] token. EggServe supplies HTTP
+//! parsing, request conversion, body policy, service dispatch, response
+//! normalization/framing, timeouts, and closure semantics. The TCP/TLS
+//! `Server` is a convenience runtime that owns listener acceptance and
+//! handshake above this driver and shares the same pipeline.
 
 // Panics raised while executing a [`Service`] are contained at the
 // invocation boundary and mapped to [`ServiceError::panic`], so the client
@@ -23,20 +34,255 @@
 // propagate to the JoinSet task boundary.
 
 use std::convert::Infallible;
+use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
-use hyper::service::service_fn;
 use hyper::{Request, Response};
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::broadcast;
 
+use crate::primitives::connection_info::{Scheme, SocketEndpoints, TlsInfo};
 use crate::primitives::request_body_policy::RequestBodyPolicy;
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 use crate::server::service::{Service, ServiceError};
 use crate::server::RuntimeState;
+
+/// Concrete wrapper type for the canonical Hyper service returned by
+/// [`make_canonical_hyper_service`].
+///
+/// Using a named type (rather than `impl Service`) preserves the `Send`
+/// bound on the `Future` associated type, which is required by Hyper's
+/// `serve_connection` when the task is spawned on a multi-threaded runtime.
+#[allow(clippy::type_complexity)]
+struct CanonicalHyperService {
+    inner: std::sync::Arc<
+        dyn Fn(
+                hyper::Request<hyper::body::Incoming>,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<hyper::Response<BoxBodyInner>, Infallible>,
+                        > + Send,
+                >,
+            > + Send
+            + Sync,
+    >,
+}
+
+impl Clone for CanonicalHyperService {
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner.clone(),
+        }
+    }
+}
+
+impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for CanonicalHyperService {
+    type Response = hyper::Response<BoxBodyInner>;
+    type Error = Infallible;
+    type Future = std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<hyper::Response<BoxBodyInner>, Infallible>>
+                + Send,
+        >,
+    >;
+
+    fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
+        (self.inner)(req)
+    }
+}
+
+/// Trustworthy per-connection transport description supplied by the caller.
+///
+/// For real TCP/TLS connections the runtime builds this from observed
+/// socket addresses and the completed handshake. For caller-owned streams
+/// (for example an anonymity-network byte stream) the caller asserts the
+/// semantic `scheme` explicitly: such a transport is `Scheme::Http` unless
+/// HTTPS was explicitly terminated on it. `tls` is present only when
+/// EggServe performed or otherwise knows the TLS session; opaque encrypted
+/// transports leave it as `None`.
+///
+/// No I2P `Destination`, tunnel IDs, router identities, or LeaseSet types
+/// enter EggServe. If downstream code needs peer identity it retains that
+/// identity outside EggServe and associates it with its own service
+/// wrapper/session state. Forwarded/`X-Forwarded-*` values remain ordinary
+/// untrusted HTTP headers.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectionContext {
+    /// Local socket address when the transport has one.
+    pub local_addr: Option<std::net::SocketAddr>,
+    /// Remote socket address when the transport has one.
+    pub remote_addr: Option<std::net::SocketAddr>,
+    /// HTTP vs HTTPS semantic scheme.
+    pub scheme: Scheme,
+    /// TLS session metadata when EggServe knows the session.
+    pub tls: Option<TlsInfo>,
+}
+
+impl ConnectionContext {
+    /// Create a context from explicit parts.
+    pub fn new(
+        local_addr: Option<std::net::SocketAddr>,
+        remote_addr: Option<std::net::SocketAddr>,
+        scheme: Scheme,
+        tls: Option<TlsInfo>,
+    ) -> Self {
+        Self {
+            local_addr,
+            remote_addr,
+            scheme,
+            tls,
+        }
+    }
+
+    /// Context for a real TCP connection with observed endpoints.
+    pub fn for_tcp(
+        local_addr: std::net::SocketAddr,
+        remote_addr: std::net::SocketAddr,
+        tls: Option<TlsInfo>,
+    ) -> Self {
+        let scheme = if tls.is_some() {
+            Scheme::Https
+        } else {
+            Scheme::Http
+        };
+        Self {
+            local_addr: Some(local_addr),
+            remote_addr: Some(remote_addr),
+            scheme,
+            tls,
+        }
+    }
+
+    /// Context for a caller-owned non-socket byte stream.
+    ///
+    /// No socket endpoints are recorded and no addresses are fabricated.
+    pub fn for_non_socket(scheme: Scheme, tls: Option<TlsInfo>) -> Self {
+        Self {
+            local_addr: None,
+            remote_addr: None,
+            scheme,
+            tls,
+        }
+    }
+
+    /// Paired socket endpoints when both addresses are present.
+    pub fn socket_endpoints(&self) -> Option<SocketEndpoints> {
+        match (self.local_addr, self.remote_addr) {
+            (Some(local), Some(remote)) => Some(SocketEndpoints { local, remote }),
+            _ => None,
+        }
+    }
+
+    /// Returns `true` when both socket endpoints are present.
+    pub fn has_socket_endpoints(&self) -> bool {
+        self.local_addr.is_some() && self.remote_addr.is_some()
+    }
+
+    /// Convert into the per-request [`crate::primitives::connection_info::ConnectionInfo`].
+    pub fn connection_info(&self) -> crate::primitives::connection_info::ConnectionInfo {
+        crate::primitives::connection_info::ConnectionInfo {
+            local_addr: self.local_addr,
+            remote_addr: self.remote_addr,
+            scheme: self.scheme,
+            tls: self.tls.clone(),
+        }
+    }
+}
+
+/// Per-connection graceful-shutdown token for caller-owned streams.
+///
+/// The caller retains ownership and calls [`ConnectionShutdown::shutdown`]
+/// to request graceful connection shutdown independently of the TCP
+/// `ServerHandle`. Dropping the token without shutdown is equivalent to
+/// never requesting shutdown; in-flight work still observes hard timeouts,
+/// protocol errors, and task cancellation via drop semantics. Permits and
+/// producer tasks are released on driver exit regardless of outcome.
+#[derive(Debug, Clone, Default)]
+pub struct ConnectionShutdown {
+    inner: Arc<ConnectionShutdownInner>,
+}
+
+#[derive(Debug, Default)]
+struct ConnectionShutdownInner {
+    notify: tokio::sync::Notify,
+    flag: std::sync::atomic::AtomicBool,
+}
+
+impl ConnectionShutdown {
+    /// Create a new un-signalled shutdown token.
+    pub fn new() -> Self {
+        Self {
+            inner: Arc::new(ConnectionShutdownInner {
+                notify: tokio::sync::Notify::new(),
+                flag: std::sync::atomic::AtomicBool::new(false),
+            }),
+        }
+    }
+
+    /// Request graceful connection shutdown.
+    pub fn shutdown(&self) {
+        self.inner
+            .flag
+            .store(true, std::sync::atomic::Ordering::Release);
+        self.inner.notify.notify_waiters();
+    }
+
+    /// Returns `true` once shutdown has been requested.
+    pub fn is_shutdown(&self) -> bool {
+        self.inner.flag.load(std::sync::atomic::Ordering::Acquire)
+    }
+
+    /// Wait until shutdown is requested.
+    pub async fn cancelled(&self) {
+        self.inner.notify.notified().await;
+    }
+}
+
+/// Outcome of driving one HTTP/1 connection to completion.
+///
+/// Returned by [`serve_http1_connection`] for internal observability.
+/// Every exit releases all permits and producer tasks; no outcome leaks
+/// admission state.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConnectionOutcome {
+    /// Clean EOF / keep-alive close with no error.
+    Normal,
+    /// Protocol or client error (malformed request, framing rejection,
+    /// connection error, client disconnect).
+    ClientError,
+    /// Header-read timeout fired.
+    HeaderTimeout,
+    /// Total connection lifetime expired.
+    TotalTimeout,
+    /// Graceful shutdown was requested (caller token or server signal).
+    Shutdown,
+    /// Unexpected internal failure.
+    Internal,
+}
+
+impl ConnectionOutcome {
+    /// Returns `true` for a clean close with no error or timeout.
+    pub fn is_clean(&self) -> bool {
+        matches!(self, Self::Normal | Self::Shutdown)
+    }
+}
+
+impl std::fmt::Display for ConnectionOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Normal => write!(f, "normal"),
+            Self::ClientError => write!(f, "client-error"),
+            Self::HeaderTimeout => write!(f, "header-timeout"),
+            Self::TotalTimeout => write!(f, "total-timeout"),
+            Self::Shutdown => write!(f, "shutdown"),
+            Self::Internal => write!(f, "internal"),
+        }
+    }
+}
 
 /// Upper bound on the post-`graceful_shutdown()` drain wait.
 ///
@@ -53,26 +299,22 @@ fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
         .min(MAX_POST_SHUTDOWN_DRAIN)
 }
 
-/// Serve a single HTTP/1.1 connection.
+/// Low-level Hyper connection executor for the TCP accept loop.
 ///
-/// This is the core connection executor used by both the CLI and embedded
-/// runtime. It handles:
-///
-/// - HTTP/1 connection setup with Hyper
-/// - Header-read timeout enforcement
-/// - Connection-total-timeout enforcement (maximum connection lifetime)
-/// - Graceful shutdown propagation
-///
-/// The `service` parameter provides the request handler. The built-in static
-/// path supplies [`crate::server::StaticService`]; custom services supply their own
-/// [`Service`] implementation.
-pub async fn serve_connection<I, S>(
+/// Crate-private: downstream callers must use
+/// [`serve_http1_connection`], which takes a canonical [`Service`] and a
+/// [`ConnectionContext`] instead of Hyper service types. This helper retains
+/// the exact TCP wire behavior (header-read timeout, total lifetime,
+/// graceful shutdown with bounded post-shutdown drain) and reports a
+/// [`ConnectionOutcome`] for observability.
+pub(crate) async fn serve_connection<I, S>(
     io: TokioIo<I>,
     service: S,
     config: &RuntimeConfig,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
-) where
+) -> ConnectionOutcome
+where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: hyper::service::Service<
             Request<Incoming>,
@@ -98,6 +340,7 @@ pub async fn serve_connection<I, S>(
                         )
                         .connection_id(conn_id),
                     );
+                    ConnectionOutcome::Normal
                 }
                 Ok(Err(e)) => {
                     // Hyper reports an expired header-read timeout as a
@@ -129,6 +372,11 @@ pub async fn serve_connection<I, S>(
                         )
                         .connection_id(conn_id),
                     );
+                    if header_timeout {
+                        ConnectionOutcome::HeaderTimeout
+                    } else {
+                        ConnectionOutcome::ClientError
+                    }
                 }
                 Err(_elapsed) => {
                     crate::ops::global_counters().connection_total_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -157,6 +405,7 @@ pub async fn serve_connection<I, S>(
                             .connection_id(conn_id),
                         );
                     }
+                    ConnectionOutcome::TotalTimeout
                 }
             }
         }
@@ -175,54 +424,175 @@ pub async fn serve_connection<I, S>(
                     .connection_id(conn_id),
                 );
             }
+            ConnectionOutcome::Shutdown
         }
     }
 }
 
-/// Serve a single connection with a custom [`Service`] implementation.
+/// Drive a Hyper connection with a caller-owned shutdown token.
 ///
-/// This wraps the raw Hyper service with:
-/// - Request conversion from Hyper to canonical types
-/// - Handler timeout enforcement
-/// - Service error to response conversion
-/// - Canonical response normalization
-///
-/// Panics raised while polling the service future are contained and mapped
-/// to [`ServiceError::panic`], producing a 500 response. Panics outside
-/// service execution propagate to the tokio task boundary, are caught by
-/// the `JoinSet` in the accept loop, and drop the connection with a
-/// `ConnectionPanic` event.
-#[allow(clippy::too_many_arguments)]
-pub async fn serve_connection_with_runtime_state<I, S>(
+/// Shared executor with [`serve_connection`] but selected on
+/// [`ConnectionShutdown::cancelled`] instead of the TCP accept-loop
+/// broadcast channel. Used only by [`serve_http1_connection`].
+async fn serve_hyper_with_token<I, S>(
     io: TokioIo<I>,
     service: S,
-    config: Arc<RuntimeConfig>,
-    runtime_state: Arc<RuntimeState>,
-    shutdown_rx: &mut broadcast::Receiver<()>,
+    config: &RuntimeConfig,
+    shutdown: &ConnectionShutdown,
     conn_id: u64,
-    local_addr: std::net::SocketAddr,
-    remote_addr: std::net::SocketAddr,
-    tls: bool,
-    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
-) where
+) -> ConnectionOutcome
+where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-    S: Service,
+    S: hyper::service::Service<
+            Request<Incoming>,
+            Response = Response<BoxBodyInner>,
+            Error = Infallible,
+        > + 'static,
 {
-    let service = std::sync::Arc::new(service);
-    let handler_timeout = config.handler_timeout;
-    let body_read_timeout = config.body_read_timeout;
-    let max_body_bytes = config.max_request_body_bytes;
-    let tls_info = std::sync::Arc::new(tls_info);
-    let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
-    let stream_chunk_size = config.stream_chunk_size;
-    let response_config = config.clone();
+    let conn = http1::Builder::new()
+        .timer(TokioTimer::new())
+        .header_read_timeout(config.header_read_timeout)
+        .serve_connection(io, service)
+        .with_upgrades();
+    let mut conn = std::pin::pin!(conn);
+    tokio::select! {
+        result = tokio::time::timeout(config.connection_total_timeout, &mut conn) => {
+            match result {
+                Ok(Ok(())) => {
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::KeepAliveClosed,
+                            "connection closed",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    ConnectionOutcome::Normal
+                }
+                Ok(Err(e)) => {
+                    let header_timeout = e.is_timeout();
+                    if header_timeout {
+                        crate::ops::global_counters()
+                            .header_timeouts
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            if header_timeout {
+                                crate::ops::Severity::Warn
+                            } else {
+                                crate::ops::Severity::Debug
+                            },
+                            if header_timeout {
+                                crate::ops::EventKind::HeaderTimeout
+                            } else {
+                                crate::ops::EventKind::ClientDisconnect
+                            },
+                            if header_timeout {
+                                "header read timeout".to_string()
+                            } else {
+                                format!("connection error: {}", e)
+                            },
+                        )
+                        .connection_id(conn_id),
+                    );
+                    if header_timeout {
+                        ConnectionOutcome::HeaderTimeout
+                    } else {
+                        ConnectionOutcome::ClientError
+                    }
+                }
+                Err(_elapsed) => {
+                    crate::ops::global_counters().connection_total_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Warn,
+                            crate::ops::EventKind::ConnectionTotalTimeout,
+                            "connection total timeout",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    conn.as_mut().graceful_shutdown();
+                    if tokio::time::timeout(
+                        post_shutdown_drain_budget(config),
+                        conn.as_mut(),
+                    )
+                    .await
+                    .is_err()
+                    {
+                        crate::ops::Logger::global().emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::ClientDisconnect,
+                                "post-shutdown drain budget expired; closing connection",
+                            )
+                            .connection_id(conn_id),
+                        );
+                    }
+                    ConnectionOutcome::TotalTimeout
+                }
+            }
+        }
+        _ = shutdown.cancelled() => {
+            conn.as_mut().graceful_shutdown();
+            if tokio::time::timeout(post_shutdown_drain_budget(config), conn.as_mut())
+                .await
+                .is_err()
+            {
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ClientDisconnect,
+                        "post-shutdown drain budget expired; closing connection",
+                    )
+                    .connection_id(conn_id),
+                );
+            }
+            ConnectionOutcome::Shutdown
+        }
+    }
+}
 
-    let hyper_service = service_fn(move |req: Request<Incoming>| {
+/// Build the shared per-request canonical pipeline as a Hyper service.
+///
+/// This is the single source of truth for the request lifecycle:
+/// Hyper parsing, TRACE check, body policy, service invocation,
+/// normalization, framing, incomplete-body close, and response finalization.
+/// Both the TCP/TLS accept loop and the transport-neutral driver
+/// ([`serve_http1_connection`]) share this pipeline.
+#[allow(clippy::too_many_arguments)]
+fn make_canonical_hyper_service<S>(
+    service: Arc<S>,
+    config: Arc<RuntimeConfig>,
+    file_stream_semaphore: Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+    handler_timeout: std::time::Duration,
+    body_read_timeout: std::time::Duration,
+    max_body_bytes: u64,
+    context: ConnectionContext,
+    conn_id: u64,
+) -> CanonicalHyperService
+where
+    S: Service + 'static,
+{
+    #[allow(clippy::type_complexity)]
+    let handler: std::sync::Arc<
+        dyn Fn(
+                hyper::Request<hyper::body::Incoming>,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<hyper::Response<BoxBodyInner>, Infallible>,
+                        > + Send,
+                >,
+            > + Send
+            + Sync,
+    > = std::sync::Arc::new(move |req: Request<Incoming>| {
         let service = service.clone();
-        let tls_info = tls_info.clone();
+        let context = context.clone();
         let file_stream_semaphore = file_stream_semaphore.clone();
-        let config = response_config.clone();
-        async move {
+        let config = config.clone();
+        Box::pin(async move {
             // Convert Hyper request to canonical RequestHead.
             let head = match convert_request_head(&req) {
                 Ok(h) => h,
@@ -413,8 +783,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
             match &effective_policy {
                 RequestBodyPolicy::Reject => {
                     // Reject with no body — proceed to service with empty body.
-                    let connection =
-                        build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
+                    let connection = context.connection_info();
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -499,8 +868,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                         }
                     };
 
-                    let connection =
-                        build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
+                    let connection = context.connection_info();
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -553,8 +921,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     // `docs/timeout-reference.md`). `Buffer` mode applies the
                     // two timeouts separately; `Stream` collapses them.
                     let effective_timeout = body_read_timeout.min(handler_timeout);
-                    let connection =
-                        build_connection_info(local_addr, remote_addr, tls, (*tls_info).clone());
+                    let connection = context.connection_info();
                     // Clone the consumption flag before the body is moved into
                     // Request; Stream mode is the only consumer.
                     let consumed_flag = request_body.consumed_flag();
@@ -647,10 +1014,171 @@ pub async fn serve_connection_with_runtime_state<I, S>(
                     Ok::<_, Infallible>(response)
                 }
             }
-        }
+        })
     });
+    CanonicalHyperService { inner: handler }
+}
 
-    serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
+/// Serve a single connection with a custom [`Service`] implementation.
+///
+/// This is a compatibility wrapper that builds a [`ConnectionContext`] from
+/// the TCP socket addresses and delegates to [`make_canonical_hyper_service`]
+/// and [`serve_connection`]. New callers should use
+/// [`serve_http1_connection`] with an explicit [`ConnectionContext`].
+///
+/// Panics raised while polling the service future are contained and mapped
+/// to [`ServiceError::panic`], producing a 500 response. Panics outside
+/// service execution propagate to the tokio task boundary, are caught by
+/// the `JoinSet` in the accept loop, and drop the connection with a
+/// `ConnectionPanic` event.
+#[allow(clippy::too_many_arguments)]
+pub async fn serve_connection_with_runtime_state<I, S>(
+    io: TokioIo<I>,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    runtime_state: Arc<RuntimeState>,
+    shutdown_rx: &mut broadcast::Receiver<()>,
+    conn_id: u64,
+    local_addr: std::net::SocketAddr,
+    remote_addr: std::net::SocketAddr,
+    tls: bool,
+    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
+) where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    let context = if tls {
+        ConnectionContext::for_tcp(local_addr, remote_addr, tls_info)
+    } else {
+        ConnectionContext::for_tcp(local_addr, remote_addr, None)
+    };
+    let service = Arc::new(service);
+    let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+    let hyper_service = make_canonical_hyper_service(
+        service,
+        config.clone(),
+        file_stream_semaphore,
+        config.stream_chunk_size,
+        config.handler_timeout,
+        config.body_read_timeout,
+        config.max_request_body_bytes,
+        context,
+        conn_id,
+    );
+    let _ = serve_connection(io, hyper_service, &config, shutdown_rx, conn_id).await;
+}
+
+/// Serve one HTTP/1 connection over any suitable bidirectional async byte
+/// stream.
+///
+/// The caller supplies an already-established bidirectional async byte stream,
+/// a canonical [`Service`], a [`ConnectionContext`], shared [`RuntimeState`]
+/// admission, and a [`ConnectionShutdown`] token. EggServe supplies HTTP/1
+/// parsing, request conversion, body policy, service dispatch, response
+/// normalization/framing, timeouts, and closure semantics. The TCP/TLS
+/// `Server` is a convenience runtime that owns listener acceptance and
+/// handshake above this driver and shares the same pipeline.
+///
+/// No Hyper types appear in the signature. The caller need not supply
+/// `SocketAddr` values — non-socket transports use
+/// [`ConnectionContext::for_non_socket`]. Permits and producer tasks are
+/// released on driver exit regardless of outcome.
+///
+/// # Example
+///
+/// ```no_run
+/// use eggserve_core::server::connection::{
+///     serve_http1_connection, ConnectionContext, ConnectionShutdown,
+/// };
+/// use eggserve_core::server::{RuntimeConfig, RuntimeState, service_fn, Request};
+/// use eggserve_core::primitives::canonical::{Response, StatusCode, ResponseBody};
+/// use eggserve_core::primitives::connection_info::Scheme;
+/// use std::sync::Arc;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let config = Arc::new(RuntimeConfig::default());
+/// let runtime_state = Arc::new(RuntimeState::new(&config));
+/// let shutdown = ConnectionShutdown::new();
+/// let context = ConnectionContext::for_non_socket(Scheme::Http, None);
+///
+/// let (client, server) = tokio::io::duplex(1024);
+///
+/// let outcome = serve_http1_connection(
+///     server,
+///     service_fn(|_req: Request| async {
+///         Ok(Response::builder()
+///             .status(StatusCode::OK)
+///             .body(ResponseBody::Bytes(b"hello".to_vec()))
+///             .unwrap())
+///     }),
+///     config,
+///     context,
+///     runtime_state,
+///     &shutdown,
+/// ).await;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn serve_http1_connection<I, S>(
+    io: I,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
+    let conn_id = NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    serve_http1_connection_with_id(
+        io,
+        service,
+        config,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+    )
+    .await
+}
+
+/// Serve one HTTP/1 connection with an explicit connection ID.
+///
+/// Same as [`serve_http1_connection`] but uses the caller-supplied `conn_id`
+/// for structured log correlation instead of generating one. The TCP accept
+/// loop uses this to preserve its accept-time correlation IDs while sharing
+/// the canonical driver pipeline.
+pub async fn serve_http1_connection_with_id<I, S>(
+    io: I,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    let io = TokioIo::new(io);
+    let service = Arc::new(service);
+    let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+    let hyper_service = make_canonical_hyper_service(
+        service,
+        config.clone(),
+        file_stream_semaphore,
+        config.stream_chunk_size,
+        config.handler_timeout,
+        config.body_read_timeout,
+        config.max_request_body_bytes,
+        context,
+        conn_id,
+    );
+    serve_hyper_with_token(io, hyper_service, &config, shutdown, conn_id).await
 }
 
 /// Normalize a service response then convert to Hyper.
@@ -774,25 +1302,6 @@ fn body_error_to_response(
         );
     }
     resp
-}
-
-/// Build ConnectionInfo from real socket addresses.
-fn build_connection_info(
-    local_addr: std::net::SocketAddr,
-    remote_addr: std::net::SocketAddr,
-    tls: bool,
-    tls_info: Option<crate::primitives::connection_info::TlsInfo>,
-) -> crate::primitives::connection_info::ConnectionInfo {
-    crate::primitives::connection_info::ConnectionInfo {
-        local_addr,
-        remote_addr,
-        scheme: if tls {
-            crate::primitives::connection_info::Scheme::Https
-        } else {
-            crate::primitives::connection_info::Scheme::Http
-        },
-        tls: tls_info,
-    }
 }
 
 /// Apply runtime-owned response fields at the one final Hyper boundary.

@@ -214,6 +214,7 @@ HTTP Request
 │     file-stream semaphore cloned per connection)    │
 │  • Optional TLS handshake (feature-gated)           │
 │  • HTTP/1 connection via Hyper                      │
+│  • Caller-owned stream entry (no socket required)   │
 │  • Lifecycle: Created → Starting → Running →        │
 │    Draining → Stopped/Failed                        │
 │  • Canonical RequestHead extraction                 │
@@ -221,7 +222,9 @@ HTTP Request
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│ Connection pipeline (server/connection.rs)          │
+│ Canonical driver (server/connection.rs)             │
+│  • serve_http1_connection: transport-neutral        │
+│  • ConnectionContext (TCP, TLS, or caller-owned)    │
 │  • TE+CL framing validation (smuggling prevention)  │
 │  • Body policy selection (Reject/Buffer/Stream)     │
 │  • Body ingestion (timeout, limit, accounting)      │
@@ -526,7 +529,7 @@ src/
 └── server/
     ├── mod.rs                # Server, ServerBuilder, RuntimeState, accept_loop_generic
     ├── config.rs             # RuntimeConfig, RuntimeConfigBuilder
-    ├── connection.rs         # per-connection HTTP/1 handling, body ingestion
+    ├── connection.rs         # Transport-neutral driver: serve_http1_connection, ConnectionContext, ConnectionShutdown, ConnectionOutcome
     ├── errors.rs             # ServerError, ShutdownResult
     ├── handle.rs             # ServerHandle (lifecycle control)
     ├── lifecycle.rs          # LifecycleState (Created→Running→Draining→Stopped/Failed)

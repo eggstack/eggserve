@@ -18,7 +18,7 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `header_block.rs` | `primitives/header_block.rs` | `HeaderBlock`: duplicate-preserving ordered headers |
 | `request_target.rs` | `primitives/request_target.rs` | `RequestTarget`: validated origin-form target |
 | `request_head.rs` | `primitives/request_head.rs` | `RequestHead`: canonical request head with Hyper conversion |
-| `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`: transport metadata |
+| `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`, `SocketEndpoints`: transport metadata with optional endpoints |
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
@@ -236,15 +236,20 @@ assert!(missing.is_none());
 ```rust
 use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
 
-let info = ConnectionInfo {
-    local_addr: "127.0.0.1:8000".parse().unwrap(),
-    remote_addr: "127.0.0.1:12345".parse().unwrap(),
-    scheme: Scheme::Https,
-    tls: None,
-};
-
+// TCP/TLS: real socket endpoints
+let info = ConnectionInfo::with_socket_addrs(
+    "127.0.0.1:8000".parse().unwrap(),
+    "127.0.0.1:12345".parse().unwrap(),
+    Scheme::Https,
+    None,
+);
 assert_eq!(info.scheme, Scheme::Https);
-assert_eq!(info.local_addr.port(), 8000);
+assert!(info.socket_endpoints().is_some());
+
+// Caller-owned stream: no fabricated addresses
+let info = ConnectionInfo::without_socket_addrs(Scheme::Http, None);
+assert!(info.local_addr.is_none());
+assert!(info.remote_addr.is_none());
 ```
 
 ### HEAD handling without handler special-casing
@@ -390,7 +395,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `HeaderBlock` | Rust, Python | Implemented and stable | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation | Canonical header collection |
 | `RequestTarget` | Rust, Python | Implemented and stable | Validated origin-form target (path + query) | Canonical request target |
 | `RequestHead` | Rust, Python | Implemented and stable | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |
-| `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (addrs, scheme, TLS); separate from headers | Connection-level metadata |
+| `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (optional endpoints, scheme, TLS); no fabricated addresses; separate from headers | Connection-level metadata |
 | `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (100–599, three-digit only) with classification helpers | Canonical status code |
 | `ResponseHead` | Rust, Python | Implemented and stable | Status + HeaderBlock; transport-independent response metadata | Canonical response head |
 | `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes, File, EmptyWithLength | Canonical response body |

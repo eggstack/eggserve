@@ -1316,8 +1316,8 @@ impl PyHeaderBlock {
 #[pyclass(name = "ConnectionInfo", frozen)]
 #[derive(Debug, Clone)]
 struct PyConnectionInfo {
-    local_addr: String,
-    remote_addr: String,
+    local_addr: Option<String>,
+    remote_addr: Option<String>,
     scheme: String,
     tls_protocol_version: Option<String>,
     tls_server_name: Option<String>,
@@ -1326,10 +1326,10 @@ struct PyConnectionInfo {
 #[pymethods]
 impl PyConnectionInfo {
     #[new]
-    #[pyo3(signature = (local_addr, remote_addr, scheme="http", tls_protocol_version=None, tls_server_name=None))]
+    #[pyo3(signature = (local_addr=None, remote_addr=None, scheme="http", tls_protocol_version=None, tls_server_name=None))]
     fn py_new(
-        local_addr: &str,
-        remote_addr: &str,
+        local_addr: Option<&str>,
+        remote_addr: Option<&str>,
         scheme: &str,
         tls_protocol_version: Option<String>,
         tls_server_name: Option<String>,
@@ -1340,8 +1340,8 @@ impl PyConnectionInfo {
             ));
         }
         Ok(Self {
-            local_addr: local_addr.to_string(),
-            remote_addr: remote_addr.to_string(),
+            local_addr: local_addr.map(|s| s.to_string()),
+            remote_addr: remote_addr.map(|s| s.to_string()),
             scheme: scheme.to_string(),
             tls_protocol_version,
             tls_server_name,
@@ -1349,13 +1349,13 @@ impl PyConnectionInfo {
     }
 
     #[getter]
-    fn local_addr(&self) -> &str {
-        &self.local_addr
+    fn local_addr(&self) -> Option<&str> {
+        self.local_addr.as_deref()
     }
 
     #[getter]
-    fn remote_addr(&self) -> &str {
-        &self.remote_addr
+    fn remote_addr(&self) -> Option<&str> {
+        self.remote_addr.as_deref()
     }
 
     #[getter]

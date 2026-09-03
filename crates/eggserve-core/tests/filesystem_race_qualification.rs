@@ -86,8 +86,8 @@ impl RaceTestSetup {
 
 fn test_connection() -> ConnectionInfo {
     ConnectionInfo {
-        local_addr: "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
-        remote_addr: "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+        local_addr: Some("127.0.0.1:8000".parse::<SocketAddr>().unwrap()),
+        remote_addr: Some("127.0.0.1:12345".parse::<SocketAddr>().unwrap()),
         scheme: Scheme::Http,
         tls: None,
     }
