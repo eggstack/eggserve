@@ -380,6 +380,11 @@ impl PyStaticPolicy {
                 } else {
                     DotfilePolicy::Denied
                 },
+                // Python stdlib facade keeps standards-compliant defaults:
+                // emit both validators. Advanced privacy is Rust-only so the
+                // facade does not silently diverge from `http.server` semantics.
+                static_metadata:
+                    eggserve_core::policy::StaticMetadataPolicy::standard(),
             },
         }
     }

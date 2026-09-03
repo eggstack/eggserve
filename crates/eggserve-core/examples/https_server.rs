@@ -51,6 +51,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         static_policy: StaticPolicy::safe_default(),
         default_content_type: "application/octet-stream".to_string(),
         extra_response_headers: Vec::new(),
+        ..ServeConfig::default()
     });
 
     let runtime_config = RuntimeConfig::builder()

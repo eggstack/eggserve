@@ -1,25 +1,78 @@
 # Policy System — Deep Dive
 
-eggserve uses a layered policy system to control what can be served. Policies are checked at multiple stages: path validation, filesystem resolution, and response construction.
+eggserve uses a layered policy system to control what can be served. Policies are checked at multiple stages: path validation, filesystem resolution, and response construction. Final origin-response metadata is an explicit runtime policy (Plan 165) applied after service construction so applications cannot bypass it.
 
 ## Policy Types
 
 ### `StaticPolicy` (`policy.rs`)
 
-The top-level composite policy. Aggregates all sub-policies.
+The top-level composite policy. Aggregates filesystem sub-policies plus the
+static validator policy.
 
 ```rust
 pub struct StaticPolicy {
     pub directory_listing: DirectoryListingPolicy,
     pub symlinks: SymlinkPolicy,
     pub dotfiles: DotfilePolicy,
+    pub static_metadata: StaticMetadataPolicy,
 }
 ```
 
-`StaticPolicy::safe_default()` returns the most restrictive configuration:
+`StaticPolicy::safe_default()` returns the most restrictive filesystem
+configuration plus standard validators:
 - `DirectoryListingPolicy::Disabled`
 - `SymlinkPolicy::Denied`
 - `DotfilePolicy::Denied`
+- `StaticMetadataPolicy::standard()` (emit `ETag` + `Last-Modified`)
+
+### `StaticMetadataPolicy` (Plan 165)
+
+Controls filesystem-derived validators on static responses. Default emits
+both; `minimal_fingerprint()` suppresses both to avoid disclosing host/content
+timestamp characteristics. Suppression is preferable to content hashing (no
+unbounded startup/read cost). When `Last-Modified` is retained, the final
+boundary drops it when it would be later than `Date`.
+
+### `ErrorRepresentationPolicy` (Plan 165)
+
+`Minimal` (default) emits fixed generic plain-text bodies with fixed
+`Content-Type` and no version/path/exception detail. `Empty` emits no body
+bytes for runtime-generated errors. Application `Ok` 4xx/5xx bodies are never
+rewritten; only runtime-constructed errors are affected. `HEAD` suppression
+remains correct.
+
+### `ResponsePolicy` (`server/response_policy.rs`, Plan 165)
+
+Final-boundary origin policy applied after service/static construction and
+canonical normalization but before bytes are emitted. No service/frontend may
+bypass it with raw Hyper responses. Fields:
+
+```text
+ResponsePolicy
+  server_identification: Option<String>  // None = suppressed (default)
+  date_policy: DatePolicy                // SystemClock (default) | Custom | Suppress
+  stripped_response_headers: Vec<String> // validated denylist, post-service
+  error_policy: ErrorRepresentationPolicy
+```
+
+- **Server:** suppressed by default; optional fixed value. Never emits crate,
+  Rust, Hyper, OS, TLS, or Python versions. Application `Server` is
+  subordinate.
+- **Date:** EggServe is the sole authority; Hyper `auto_date_header(false)`.
+  `SystemClock` preserves one-`Date` compatibility. `Custom(provider)` uses a
+  caller-supplied trusted time value (EggServe owns formatting/validation).
+  `Suppress` is an explicit RFC 9110 tradeoff (origin with a clock should send
+  `Date` on 2xx/3xx/4xx). No fixed/stale or randomized dates.
+- **Denylist:** validated names, removed after service construction (all
+  duplicates). Framing/hop-by-hop/`date`/`content-range` cannot be denylisted;
+  runtime-required headers cannot be removed when it would make the response
+  invalid. Built-in `minimal_fingerprint()` preset strips `x-powered-by`
+  (plus `Server` suppression); caller extends for project fields. No wildcard.
+- **Profile:** `ResponsePolicy::minimal_fingerprint()` + 
+  `StaticMetadataPolicy::minimal_fingerprint()` + stricter Plan 164 limits is
+  the generic minimal-fingerprint origin. It minimizes gratuitous signals, it
+  does not claim un-fingerprintability. The router/WAF owns rate limiting;
+  this is origin hardening only. No I2P types in core.
 
 ### `DirectoryListingPolicy`
 

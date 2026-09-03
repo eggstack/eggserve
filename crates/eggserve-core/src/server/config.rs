@@ -73,9 +73,19 @@ pub struct RuntimeConfig {
     pub body_read_timeout: Duration,
     /// Graceful shutdown grace period. Default: 10s.
     pub graceful_shutdown_timeout: Duration,
-    /// Server identification header value. If `Some`, added as `Server`
-    /// header on responses. Default: `None`.
-    pub server_header: Option<String>,
+    /// Final-boundary response privacy policy (Plan 165).
+    ///
+    /// Controls `Server` identification (suppressed by default), `Date`
+    /// generation (system clock by default, EggServe is the sole authority;
+    /// Hyper automatic `Date` is disabled), outbound header denylisting, and
+    /// canonical error representation. See
+    /// [`crate::server::response_policy::ResponsePolicy`].
+    ///
+    /// Migration from `server_header`: `None` (suppressed) is
+    /// `response_policy.server_identification = None`; a fixed value is
+    /// `Some(..)`. Use `RuntimeConfigBuilder::server_header(..)` or
+    /// `RuntimeConfig::server_header_value()` for the common cases.
+    pub response_policy: crate::server::response_policy::ResponsePolicy,
     /// TLS server configuration. If `Some`, connections are upgraded to TLS.
     /// Only available with the `tls` feature. Default: `None`.
     #[cfg(feature = "tls")]
@@ -138,7 +148,7 @@ impl Default for RuntimeConfig {
             handler_timeout: Duration::from_secs(30),
             body_read_timeout: Duration::from_secs(30),
             graceful_shutdown_timeout: Duration::from_secs(10),
-            server_header: None,
+            response_policy: crate::server::response_policy::ResponsePolicy::default(),
             #[cfg(feature = "tls")]
             tls_config: None,
             max_request_body_bytes: 0,
@@ -169,6 +179,10 @@ impl RuntimeConfig {
             body_read_timeout: None,
             graceful_shutdown_timeout: None,
             server_header: None,
+            response_policy: None,
+            date_policy: None,
+            stripped_response_headers: None,
+            error_policy: None,
             #[cfg(feature = "tls")]
             tls_config: None,
             max_request_body_bytes: None,
@@ -181,6 +195,14 @@ impl RuntimeConfig {
             max_requests_per_connection: None,
             response_write_timeout: None,
         }
+    }
+
+    /// Returns the configured `Server` identification value, if any.
+    ///
+    /// `None` means suppressed (secure default). This is a convenience
+    /// accessor for `response_policy.server_identification`.
+    pub fn server_header_value(&self) -> Option<&str> {
+        self.response_policy.server_identification.as_deref()
     }
 }
 
@@ -199,6 +221,10 @@ pub struct RuntimeConfigBuilder {
     body_read_timeout: Option<Duration>,
     graceful_shutdown_timeout: Option<Duration>,
     server_header: Option<String>,
+    response_policy: Option<crate::server::response_policy::ResponsePolicy>,
+    date_policy: Option<crate::server::response_policy::DatePolicy>,
+    stripped_response_headers: Option<Vec<String>>,
+    error_policy: Option<crate::policy::ErrorRepresentationPolicy>,
     #[cfg(feature = "tls")]
     tls_config: Option<Arc<rustls::ServerConfig>>,
     max_request_body_bytes: Option<u64>,
@@ -288,9 +314,53 @@ impl RuntimeConfigBuilder {
 
     /// Set the server identification header value.
     ///
-    /// If set, added as `Server` header on all responses.
+    /// If set, added as `Server` header on all responses. Default is
+    /// suppressed (`None`). Never emits implementation versions automatically.
     pub fn server_header(mut self, header: String) -> Self {
         self.server_header = Some(header);
+        self
+    }
+
+    /// Set the complete final-boundary response privacy policy.
+    ///
+    /// Individual `date_policy` / `stripped_response_headers` / `error_policy`
+    /// / `server_header` settings override the corresponding fields of this
+    /// policy when both are supplied.
+    pub fn response_policy(
+        mut self,
+        policy: crate::server::response_policy::ResponsePolicy,
+    ) -> Self {
+        self.response_policy = Some(policy);
+        self
+    }
+
+    /// Set the `Date` generation policy.
+    ///
+    /// Default is [`crate::server::response_policy::DatePolicy::SystemClock`].
+    /// Use `Suppress` only as an explicit RFC 9110 tradeoff, or `Custom`
+    /// with a trusted time source for anonymity-sensitive origins.
+    pub fn date_policy(mut self, policy: crate::server::response_policy::DatePolicy) -> Self {
+        self.date_policy = Some(policy);
+        self
+    }
+
+    /// Set the validated denylist of outbound response header names.
+    ///
+    /// Applied after service construction; framing/hop-by-hop headers and
+    /// `date` cannot be denylisted (see
+    /// [`crate::server::response_policy::validate_stripped_header_name`]).
+    pub fn stripped_response_headers(mut self, headers: Vec<String>) -> Self {
+        self.stripped_response_headers = Some(headers);
+        self
+    }
+
+    /// Set the canonical runtime-error representation.
+    ///
+    /// `Minimal` (default) emits fixed generic plain-text bodies;
+    /// `Empty` emits no body bytes for runtime-generated errors. Application
+    /// `Ok` bodies are never rewritten.
+    pub fn error_policy(mut self, policy: crate::policy::ErrorRepresentationPolicy) -> Self {
+        self.error_policy = Some(policy);
         self
     }
 
@@ -590,15 +660,22 @@ impl RuntimeConfigBuilder {
                 "graceful_shutdown_timeout must be > 0".into(),
             ));
         }
-        if let Some(server_header) = &self.server_header {
-            crate::primitives::header_block::HeaderValue::new(server_header.clone()).map_err(
-                |e| {
-                    crate::server::errors::ServerError::Config(format!(
-                        "invalid server_header: {e}"
-                    ))
-                },
-            )?;
+        let mut response_policy = self.response_policy.unwrap_or_default();
+        if let Some(server_header) = self.server_header {
+            response_policy.server_identification = Some(server_header);
         }
+        if let Some(date_policy) = self.date_policy {
+            response_policy.date_policy = date_policy;
+        }
+        if let Some(stripped) = self.stripped_response_headers {
+            response_policy.stripped_response_headers = stripped;
+        }
+        if let Some(error_policy) = self.error_policy {
+            response_policy.error_policy = error_policy;
+        }
+        response_policy.validate().map_err(|e| {
+            crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
+        })?;
         Ok(RuntimeConfig {
             bind: self
                 .bind
@@ -612,7 +689,7 @@ impl RuntimeConfigBuilder {
             handler_timeout,
             body_read_timeout,
             graceful_shutdown_timeout,
-            server_header: self.server_header,
+            response_policy,
             #[cfg(feature = "tls")]
             tls_config: self.tls_config,
             max_request_body_bytes,
@@ -647,6 +724,15 @@ pub fn try_from_serve_config(
                 .join("; "),
         )
     })?;
+    // CLI/Python keep standards-compliant defaults: Server suppressed,
+    // system-clock Date, no denylist, minimal errors. Advanced privacy
+    // policy is Rust-only; the stdlib facade must not silently diverge.
+    // `ServeConfig.error_policy` (for static errors) is transferred so
+    // `serve_config()` static errors share the runtime error profile.
+    let response_policy = crate::server::response_policy::ResponsePolicy {
+        error_policy: config.error_policy,
+        ..Default::default()
+    };
     Ok(RuntimeConfig {
         bind: config.bind,
         max_connections: config.limits.max_connections,
@@ -658,7 +744,7 @@ pub fn try_from_serve_config(
         handler_timeout: config.limits.handler_timeout,
         body_read_timeout: config.limits.body_read_timeout,
         graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
-        server_header: None,
+        response_policy,
         #[cfg(feature = "tls")]
         tls_config: None,
         max_request_body_bytes: config.limits.max_request_body_bytes,
@@ -694,7 +780,8 @@ mod tests {
         assert_eq!(config.handler_timeout, Duration::from_secs(30));
         assert_eq!(config.body_read_timeout, Duration::from_secs(30));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(10));
-        assert_eq!(config.server_header, None);
+        assert_eq!(config.response_policy.server_identification, None);
+        assert_eq!(config.server_header_value(), None);
         assert_eq!(config.max_request_body_bytes, 0);
         assert_eq!(config.max_buf_size, crate::limits::DEFAULT_MAX_BUF_SIZE);
         assert_eq!(config.max_headers, crate::limits::DEFAULT_MAX_HEADERS);
@@ -750,7 +837,11 @@ mod tests {
         assert_eq!(config.handler_timeout, Duration::from_secs(15));
         assert_eq!(config.body_read_timeout, Duration::from_secs(20));
         assert_eq!(config.graceful_shutdown_timeout, Duration::from_secs(5));
-        assert_eq!(config.server_header.as_deref(), Some("eggserve/0.1"));
+        assert_eq!(
+            config.response_policy.server_identification.as_deref(),
+            Some("eggserve/0.1")
+        );
+        assert_eq!(config.server_header_value(), Some("eggserve/0.1"));
         assert_eq!(config.max_request_body_bytes, 1024 * 1024);
         assert_eq!(config.max_buf_size, 8192);
         assert_eq!(config.max_headers, 50);
@@ -768,7 +859,7 @@ mod tests {
             .server_header("bad\r\nvalue".into())
             .build()
             .unwrap_err();
-        assert!(err.to_string().contains("invalid server_header"));
+        assert!(err.to_string().contains("invalid server"));
     }
 
     #[test]

@@ -54,6 +54,7 @@ pub mod connection;
 pub mod errors;
 pub mod handle;
 pub mod lifecycle;
+pub mod response_policy;
 pub mod service;
 pub mod static_service;
 
@@ -66,6 +67,7 @@ pub use connection::{
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
 pub use lifecycle::LifecycleState;
+pub use response_policy::{validate_stripped_header_name, DatePolicy, ResponsePolicy};
 pub use service::{
     service_fn, service_fn_head, service_fn_with_policy, Service, ServiceError, ServiceFn,
 };

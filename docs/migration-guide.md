@@ -221,6 +221,32 @@ Raw Hyper `serve_connection` is now crate-private. TCP `Server` shares the same 
 
 Python `ConnectionInfo` `local_addr` and `remote_addr` are now `Optional[str]` (default `None`). Existing positional string construction still works. Callers must check for `None` instead of assuming present.
 
+## Plan 165: Response privacy policy and `server_header` migration
+
+`RuntimeConfig::server_header: Option<String>` is replaced by
+`RuntimeConfig::response_policy: ResponsePolicy` (experimental; `server` module
+may change pre-1.0). `StaticPolicy` gains `static_metadata: StaticMetadataPolicy`;
+`ServeConfig` gains `error_policy: ErrorRepresentationPolicy`.
+
+| Before | After | Change |
+|--------|-------|--------|
+| `config.server_header` | `config.response_policy.server_identification` / `config.server_header_value()` | Field moved into policy |
+| `RuntimeConfigBuilder::server_header(..)` | same method (still exists) | Now sets `response_policy.server_identification` |
+| `plan_file_response_with_preconditions(..)` | same + `plan_file_response_with_preconditions_and_metadata(.., StaticMetadataPolicy)` | Old function preserves defaults (emit both) |
+| `StaticPolicy { directory_listing, symlinks, dotfiles }` | add `static_metadata: StaticMetadataPolicy::standard()` or `..Default` | New field, additive |
+| `ServeConfig { .. }` without `error_policy` | add `error_policy: Minimal` or `..ServeConfig::default()` | New field, additive |
+
+**Migration**: Replace `config.server_header` reads with
+`config.server_header_value()` or `config.response_policy.server_identification`.
+Builder `.server_header(..)` keeps working. For struct literals, add
+`..Default::default()` / `..ServeConfig::default()` or the new fields
+explicitly. Hyper automatic `Date` is now disabled (`auto_date_header(false)`);
+EggServe `DatePolicy` (`SystemClock` default, `Custom(provider)`, `Suppress`)
+is the sole authority. `ResponsePolicy::minimal_fingerprint()` +
+`StaticMetadataPolicy::minimal_fingerprint()` is the generic
+minimal-fingerprint profile (minimizes signals, does not claim
+un-fingerprintability).
+
 ## Breaking Change Policy
 
 Pre-1.0, minor releases may break stable APIs only with explicit release notes

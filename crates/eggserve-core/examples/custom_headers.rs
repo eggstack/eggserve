@@ -33,6 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("X-Served-By".to_string(), "eggserve".to_string()),
             ("Cache-Control".to_string(), "no-cache".to_string()),
         ],
+        ..ServeConfig::default()
     });
 
     let server = Server::builder()

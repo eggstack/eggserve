@@ -137,6 +137,23 @@ pub fn generate_etag(metadata: &std::fs::Metadata) -> Option<String>
 
 Returns `None` if metadata has no modification time. Format when present: `W/"<size>-<mtime_secs>-<mtime_nanos>"` (weak validator, nanosecond precision).
 
+### Static validator privacy (Plan 165)
+
+`plan_file_response_with_preconditions()` preserves current behavior (emit
+both validators). `plan_file_response_with_preconditions_and_metadata(..,
+StaticMetadataPolicy)` suppresses `ETag`/`Last-Modified` independently:
+
+- `emit_etag = false` generates no ETag and emits none (conditional ETag
+  evaluation falls back to `*`-only; `If-Range` ETags never authorize ranges
+  for weak metadata anyway);
+- `emit_last_modified = false` omits `Last-Modified`;
+- `StaticMetadataPolicy::minimal_fingerprint()` suppresses both (suppression
+  preferred over content hashing; weaker caching for smaller fingerprint).
+
+`StaticService` passes `config.static_policy.static_metadata`. When
+`Last-Modified` is retained, the final runtime boundary drops it if it would
+be later than `Date`.
+
 ### `plan_directory_listing()`
 
 Plans directory-listing metadata with CSP headers. The planner does not own

@@ -113,14 +113,31 @@ impl ServiceError {
     /// Internal and panic errors map to 500. Timeout errors map to 504.
     /// Rejected errors use the provided status code. No internal details
     /// are included in the response body.
+    #[allow(dead_code)]
     pub(crate) fn to_response(&self) -> hyper::Response<crate::response::BoxBodyInner> {
         self.to_response_with_head(false)
     }
 
     /// Convert this error into an HTTP response, suppressing the body for `HEAD`.
+    #[allow(dead_code)]
     pub(crate) fn to_response_with_head(
         &self,
         is_head: bool,
+    ) -> hyper::Response<crate::response::BoxBodyInner> {
+        self.to_response_with_head_and_policy(
+            is_head,
+            crate::policy::ErrorRepresentationPolicy::Minimal,
+        )
+    }
+
+    /// Convert this error with an explicit representation policy.
+    ///
+    /// `Empty` emits no body bytes for runtime-generated errors; application
+    /// `Ok` bodies are never routed here. `HEAD` suppression remains correct.
+    pub(crate) fn to_response_with_head_and_policy(
+        &self,
+        is_head: bool,
+        policy: crate::policy::ErrorRepresentationPolicy,
     ) -> hyper::Response<crate::response::BoxBodyInner> {
         let status = match self.kind {
             ServiceErrorKind::Internal | ServiceErrorKind::Panic => {
@@ -147,7 +164,7 @@ impl ServiceError {
             },
             ServiceErrorKind::Internal => "500 Internal Server Error\n",
         };
-        crate::response::canonical_error(status, body, is_head)
+        crate::response::canonical_error_with_policy(status, body, is_head, policy)
     }
 }
 

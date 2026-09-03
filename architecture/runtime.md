@@ -53,11 +53,13 @@ Transport-level configuration separate from service-level concerns:
 - Parser ceilings (`max_buf_size`, `max_headers` set explicitly on Hyper; `max_header_bytes`, `max_request_target_bytes` enforced pre-service)
 - Timeouts (header read, connection total, handler, body read, graceful shutdown, keep-alive idle, response write no-progress)
 - Maximum requests per connection (`max_requests_per_connection`, `None` = unlimited)
-- Server header
+- Final-boundary response privacy (`response_policy`: `Server` suppressed by
+  default, `Date` system-clock by default with EggServe as sole authority and
+  Hyper automatic `Date` disabled, validated denylist, minimal errors)
 - TLS configuration (feature-gated)
 - Maximum request body size (hard ceiling)
 
-Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time. `connection_total_timeout` keeps its hard-lifetime semantics and is no longer the only way to bound idle/stalled clients; see `docs/timeout-reference.md` for the migration.
+Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time. `connection_total_timeout` keeps its hard-lifetime semantics and is no longer the only way to bound idle/stalled clients; see `docs/timeout-reference.md` for the migration. Migration from `server_header`: `None` is `response_policy.server_identification = None`; use `RuntimeConfigBuilder::server_header(..)` or `RuntimeConfig::server_header_value()`; see `docs/migration-guide.md`.
 
 ### Service Trait
 
@@ -233,11 +235,16 @@ All paths then share the same steps:
 7. Service admission (`max_in_flight_requests`; 503 on exhaustion) and invocation with timeout (`handler_timeout` bounds time-to-`Response`; streaming progress is bounded by `response_write_timeout`, lifetime by `connection_total_timeout`)
 8. Canonical response normalization (`normalize_then_convert`: idempotent
    `normalize_response` then Hyper conversion; runtime owns `Content-Length`,
-   `Transfer-Encoding`, reuse)
+   `Transfer-Encoding`, reuse) with `ErrorRepresentationPolicy` for conversion
+   failures (generic 500/503, no leaks)
 9. Transport-body conversion with completion tracking (buffered/file/streaming; known-length mismatch
    and producer failure close post-commitment; `HEAD`/body-forbidden never
    poll; every body releases the outstanding-response slot on end/error/drop)
-10. Permit release and connection termination under the driver deadline loop (keep-alive idle, write no-progress, hard lifetime, shutdown)
+10. Final-boundary privacy (`finalize_runtime_response`: denylist after service
+    construction, `Server` subordinate to policy, `Date` sole authority with
+    Hyper auto-`Date` disabled, `Last-Modified <= Date` enforcement, no peer
+    metadata copied, no log/error text reflected)
+11. Permit release and connection termination under the driver deadline loop (keep-alive idle, write no-progress, hard lifetime, shutdown)
 
 ### Transport-neutral connection driver (Plan 163)
 
@@ -434,6 +441,12 @@ shutdown) is handled by the Python subprocess wrapper, not the Rust server.
 ## Security Properties
 
 - Response normalization (hop-by-hop stripping, content-length computation) is runtime-owned
+- Final response privacy (`Server`/`Date`/denylist/`Last-Modified<=Date`) is
+  runtime-owned at one Hyper boundary; services cannot bypass it
 - Services cannot bypass final framing policy through the safe API
-- Handler failures map to deterministic responses without internal leakage
-- Filesystem policy belongs to the service, not the runtime
+- Handler failures map to deterministic generic responses without internal
+  leakage (`Minimal` fixed bodies or `Empty`; application `Ok` bodies never
+  rewritten; hostile values sanitized before logs)
+- Filesystem policy belongs to the service, not the runtime; static validators
+  (`ETag`/`Last-Modified`) are explicitly configurable via
+  `StaticMetadataPolicy`

@@ -416,6 +416,7 @@ impl InFlightGuard {
         &mut self,
         semaphore: &Arc<tokio::sync::Semaphore>,
         conn_id: u64,
+        error_policy: crate::policy::ErrorRepresentationPolicy,
     ) -> Option<hyper::Response<BoxBodyInner>> {
         match semaphore.clone().try_acquire_owned() {
             Ok(permit) => {
@@ -434,7 +435,9 @@ impl InFlightGuard {
                     )
                     .connection_id(conn_id),
                 );
-                Some(crate::response::service_unavailable())
+                Some(crate::response::service_unavailable_with_policy(
+                    error_policy,
+                ))
             }
         }
     }
@@ -741,13 +744,20 @@ fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
 /// the policy of record. `max_buf_size` below Hyper's 8192 minimum is
 /// clamped (builder validation rejects it first; the clamp only protects
 /// hand-constructed configs from panicking a connection task).
+///
+/// Hyper automatic `Date` generation is explicitly disabled: the EggServe
+/// [`crate::server::response_policy::ResponsePolicy`] is the sole `Date`
+/// authority (system clock by default, caller-supplied provider or explicit
+/// suppression for privacy profiles). Tests prove exactly zero or one `Date`
+/// according to policy.
 fn hyper_builder(config: &RuntimeConfig) -> http1::Builder {
     let mut builder = http1::Builder::new();
     builder
         .timer(TokioTimer::new())
         .header_read_timeout(config.header_read_timeout)
         .max_buf_size(config.max_buf_size.max(crate::limits::MIN_MAX_BUF_SIZE))
-        .max_headers(config.max_headers);
+        .max_headers(config.max_headers)
+        .auto_date_header(false);
     builder
 }
 
@@ -1099,7 +1109,14 @@ where
             ) {
                 Ok(h) => h,
                 Err(e) => {
-                    return Ok::<_, Infallible>(guard.finish(e.to_response(), &config, conn_id));
+                    return Ok::<_, Infallible>(guard.finish(
+                        e.to_response_with_head_and_policy(
+                            false,
+                            config.response_policy.error_policy,
+                        ),
+                        &config,
+                        conn_id,
+                    ));
                 }
             };
 
@@ -1115,7 +1132,10 @@ where
                     .is_some_and(|length| length > 0)
                     || req.headers().contains_key(hyper::header::TRANSFER_ENCODING))
             {
-                let mut response = crate::response::bad_request(false);
+                let mut response = crate::response::bad_request_with_policy(
+                    false,
+                    config.response_policy.error_policy,
+                );
                 response.headers_mut().insert(
                     hyper::header::CONNECTION,
                     hyper::header::HeaderValue::from_static("close"),
@@ -1147,7 +1167,10 @@ where
                 );
                 let is_head = head.method().is_head();
                 return Ok::<_, Infallible>(guard.finish(
-                    e.to_response_with_head(is_head),
+                    e.to_response_with_head_and_policy(
+                        is_head,
+                        config.response_policy.error_policy,
+                    ),
                     &config,
                     conn_id,
                 ));
@@ -1181,7 +1204,7 @@ where
                             limit,
                         };
                         return Ok::<_, Infallible>(guard.finish(
-                            body_error_to_response(err, &head),
+                            body_error_to_response(err, &head, config.response_policy.error_policy),
                             &config,
                             conn_id,
                         ));
@@ -1209,7 +1232,10 @@ where
                             )
                             .connection_id(conn_id),
                         );
-                        let mut response = crate::response::payload_too_large(is_head);
+                        let mut response = crate::response::payload_too_large_with_policy(
+                            is_head,
+                            config.response_policy.error_policy,
+                        );
                         response.headers_mut().insert(
                             hyper::header::CONNECTION,
                             hyper::header::HeaderValue::from_static("close"),
@@ -1248,7 +1274,10 @@ where
                     )
                     .connection_id(conn_id),
                 );
-                let mut response = crate::response::payload_too_large(is_head);
+                let mut response = crate::response::payload_too_large_with_policy(
+                    is_head,
+                    config.response_policy.error_policy,
+                );
                 // Do not drain the body — drop it and close the connection to
                 // prevent unread bytes from being interpreted as a subsequent
                 // request. Hyper handles cleanup of the unconsumed body when
@@ -1287,7 +1316,11 @@ where
                     // Service admission is independent of idle keep-alive
                     // connections: exhaustion fails with a deterministic
                     // generic 503 before service invocation.
-                    if let Some(unavailable) = guard.admit(&service_semaphore, conn_id) {
+                    if let Some(unavailable) = guard.admit(
+                        &service_semaphore,
+                        conn_id,
+                        config.response_policy.error_policy,
+                    ) {
                         return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
                     }
                     let connection = context.connection_info();
@@ -1306,6 +1339,7 @@ where
                             is_head,
                             &file_stream_semaphore,
                             stream_chunk_size,
+                            config.response_policy.error_policy,
                         ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -1321,7 +1355,10 @@ where
                                 )
                                 .connection_id(conn_id),
                             );
-                            service_err.to_response_with_head(is_head)
+                            service_err.to_response_with_head_and_policy(
+                                is_head,
+                                config.response_policy.error_policy,
+                            )
                         }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -1330,7 +1367,10 @@ where
                                 "handler timed out",
                             ));
                             ServiceError::timeout("handler timed out".to_string())
-                                .to_response_with_head(is_head)
+                                .to_response_with_head_and_policy(
+                                    is_head,
+                                    config.response_policy.error_policy,
+                                )
                         }
                     };
 
@@ -1354,7 +1394,11 @@ where
                         ),
                         Ok(Err(err)) => {
                             return Ok::<_, Infallible>(guard.finish(
-                                body_error_to_response(err, &head),
+                                body_error_to_response(
+                                    err,
+                                    &head,
+                                    config.response_policy.error_policy,
+                                ),
                                 &config,
                                 conn_id,
                             ));
@@ -1370,14 +1414,22 @@ where
                             ));
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
                             return Ok::<_, Infallible>(guard.finish(
-                                body_error_to_response(err, &head),
+                                body_error_to_response(
+                                    err,
+                                    &head,
+                                    config.response_policy.error_policy,
+                                ),
                                 &config,
                                 conn_id,
                             ));
                         }
                     };
 
-                    if let Some(unavailable) = guard.admit(&service_semaphore, conn_id) {
+                    if let Some(unavailable) = guard.admit(
+                        &service_semaphore,
+                        conn_id,
+                        config.response_policy.error_policy,
+                    ) {
                         return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
                     }
                     let connection = context.connection_info();
@@ -1396,6 +1448,7 @@ where
                             is_head,
                             &file_stream_semaphore,
                             stream_chunk_size,
+                            config.response_policy.error_policy,
                         ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -1411,7 +1464,10 @@ where
                                 )
                                 .connection_id(conn_id),
                             );
-                            service_err.to_response_with_head(is_head)
+                            service_err.to_response_with_head_and_policy(
+                                is_head,
+                                config.response_policy.error_policy,
+                            )
                         }
                         Err(_elapsed) => {
                             crate::ops::Logger::global().emit(crate::ops::Event::new(
@@ -1420,7 +1476,10 @@ where
                                 "handler timed out",
                             ));
                             ServiceError::timeout("handler timed out".to_string())
-                                .to_response_with_head(is_head)
+                                .to_response_with_head_and_policy(
+                                    is_head,
+                                    config.response_policy.error_policy,
+                                )
                         }
                     };
 
@@ -1433,7 +1492,11 @@ where
                     // `docs/timeout-reference.md`). `Buffer` mode applies the
                     // two timeouts separately; `Stream` collapses them.
                     let effective_timeout = body_read_timeout.min(handler_timeout);
-                    if let Some(unavailable) = guard.admit(&service_semaphore, conn_id) {
+                    if let Some(unavailable) = guard.admit(
+                        &service_semaphore,
+                        conn_id,
+                        config.response_policy.error_policy,
+                    ) {
                         return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
                     }
                     let connection = context.connection_info();
@@ -1455,6 +1518,7 @@ where
                             is_head,
                             &file_stream_semaphore,
                             stream_chunk_size,
+                            config.response_policy.error_policy,
                         ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -1470,7 +1534,10 @@ where
                                 )
                                 .connection_id(conn_id),
                             );
-                            service_err.to_response_with_head(is_head)
+                            service_err.to_response_with_head_and_policy(
+                                is_head,
+                                config.response_policy.error_policy,
+                            )
                         }
                         Err(_elapsed) => {
                             // The collapsed `Stream` timeout hides whether the
@@ -1491,7 +1558,10 @@ where
                                     "body read timeout",
                                 ));
                                 ServiceError::timeout("body read timeout".to_string())
-                                    .to_response_with_head(is_head)
+                                    .to_response_with_head_and_policy(
+                                        is_head,
+                                        config.response_policy.error_policy,
+                                    )
                             } else {
                                 crate::ops::Logger::global().emit(crate::ops::Event::new(
                                     crate::ops::Severity::Warn,
@@ -1499,7 +1569,10 @@ where
                                     "handler timed out",
                                 ));
                                 ServiceError::timeout("handler timed out".to_string())
-                                    .to_response_with_head(is_head)
+                                    .to_response_with_head_and_policy(
+                                        is_head,
+                                        config.response_policy.error_policy,
+                                    )
                             }
                         }
                     };
@@ -1716,13 +1789,14 @@ fn normalize_then_convert(
     is_head: bool,
     file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
     stream_chunk_size: usize,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
 ) -> hyper::Response<BoxBodyInner> {
     let normalized = match crate::primitives::canonical::normalize_response(
         canonical,
         &crate::primitives::canonical::NormalizeRequest::new(is_head),
     ) {
         Ok(r) => r,
-        Err(_) => return crate::response::internal_error(),
+        Err(_) => return crate::response::internal_error_with_policy(error_policy),
     };
     match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         normalized,
@@ -1731,9 +1805,9 @@ fn normalize_then_convert(
     ) {
         Ok(r) => r,
         Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => {
-            crate::response::service_unavailable()
+            crate::response::service_unavailable_with_policy(error_policy)
         }
-        Err(_) => crate::response::internal_error(),
+        Err(_) => crate::response::internal_error_with_policy(error_policy),
     }
 }
 
@@ -1791,6 +1865,7 @@ fn select_body_policy(service_policy: RequestBodyPolicy, max_body_bytes: u64) ->
 fn body_error_to_response(
     err: crate::primitives::request_body_error::RequestBodyError,
     _head: &crate::primitives::request_head::RequestHead,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
 ) -> hyper::Response<BoxBodyInner> {
     let raw_status = err.to_status_code();
     let status =
@@ -1817,7 +1892,8 @@ fn body_error_to_response(
         _ => "500 Internal Server Error\n",
     };
     let is_head = _head.method().is_head();
-    let mut resp = crate::response::canonical_error(status, body_text, is_head);
+    let mut resp =
+        crate::response::canonical_error_with_policy(status, body_text, is_head, error_policy);
     if should_close {
         resp.headers_mut().insert(
             hyper::header::CONNECTION,
@@ -1827,15 +1903,67 @@ fn body_error_to_response(
     resp
 }
 
-/// Apply runtime-owned response fields at the one final Hyper boundary.
+/// Apply the final-boundary response privacy policy at the one Hyper boundary.
+///
+/// Order: strip denylisted application headers first (so applications cannot
+/// re-add stripped identifiers), then apply `Server` identification (a fixed
+/// value survives a `server` denylist entry as explicit operator intent),
+/// then apply `Date` policy as the sole authority (Hyper automatic `Date` is
+/// disabled in [`hyper_builder`]). Duplicates are all removed. Framing and
+/// hop-by-hop headers are never stripped (rejected at validation).
+/// `Last-Modified` later than `Date` is dropped to preserve the RFC
+/// invariant. No transport peer metadata is copied into response headers.
+/// Client responses never contain log or service error text (callers pass
+/// only fixed generic bodies here).
 fn finalize_runtime_response(
     mut response: hyper::Response<BoxBodyInner>,
     config: &RuntimeConfig,
 ) -> hyper::Response<BoxBodyInner> {
+    let policy = &config.response_policy;
+    // 1. Denylist after service construction.
+    for name in &policy.stripped_response_headers {
+        // Validation guarantees these are not framing/hop-by-hop/date, so
+        // removal cannot break framing invariants. `HeaderMap::remove`
+        // removes all occurrences.
+        response.headers_mut().remove(name.as_str());
+    }
+    // 2. Server identification: application values are always subordinate.
     response.headers_mut().remove(hyper::header::SERVER);
-    if let Some(value) = &config.server_header {
+    if let Some(value) = &policy.server_identification {
         if let Ok(value) = hyper::header::HeaderValue::from_str(value) {
             response.headers_mut().insert(hyper::header::SERVER, value);
+        }
+    }
+    // 3. Date: EggServe is the sole authority.
+    response.headers_mut().remove(hyper::header::DATE);
+    if let Some(now) = policy.date_policy.now() {
+        // `now()` already guarantees formattability; the `from_str` guard
+        // protects against a future formatting change.
+        let date_str = httpdate::fmt_http_date(now);
+        if let Ok(value) = hyper::header::HeaderValue::from_str(&date_str) {
+            response.headers_mut().insert(hyper::header::DATE, value);
+        }
+    }
+    // 4. Last-Modified must not be later than Date (RFC). When Date is
+    // suppressed there is no reference to compare against, so retain
+    // Last-Modified as-is; when both are present and Last-Modified is in
+    // the future relative to Date, drop Last-Modified.
+    if let (Some(date_val), Some(lm_val)) = (
+        response.headers().get(hyper::header::DATE),
+        response.headers().get(hyper::header::LAST_MODIFIED),
+    ) {
+        let date_ok = date_val
+            .to_str()
+            .ok()
+            .and_then(|s| httpdate::parse_http_date(s).ok());
+        let lm_ok = lm_val
+            .to_str()
+            .ok()
+            .and_then(|s| httpdate::parse_http_date(s).ok());
+        if let (Some(date_time), Some(lm_time)) = (date_ok, lm_ok) {
+            if lm_time > date_time {
+                response.headers_mut().remove(hyper::header::LAST_MODIFIED);
+            }
         }
     }
     response
@@ -2211,6 +2339,7 @@ mod tests {
         let transport = body_error_to_response(
             crate::primitives::request_body_error::RequestBodyError::Transport("io".into()),
             &head(),
+            crate::policy::ErrorRepresentationPolicy::Minimal,
         );
         assert_eq!(transport.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
@@ -2225,6 +2354,7 @@ mod tests {
         let consumed = body_error_to_response(
             crate::primitives::request_body_error::RequestBodyError::AlreadyConsumed,
             &head(),
+            crate::policy::ErrorRepresentationPolicy::Minimal,
         );
         assert_eq!(consumed.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
         assert!(consumed.headers().get(hyper::header::CONNECTION).is_none());
@@ -2233,6 +2363,7 @@ mod tests {
         let disconnected = body_error_to_response(
             crate::primitives::request_body_error::RequestBodyError::Disconnected,
             &head(),
+            crate::policy::ErrorRepresentationPolicy::Minimal,
         );
         assert_eq!(
             disconnected

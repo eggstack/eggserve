@@ -54,7 +54,7 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 |----------|--------|
 | [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parsing, decoding, normalization, component validation, 17 rejection variants |
 | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows), TOCTOU prevention |
-| [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`, safe defaults, CLI/Python flag mapping |
+| [policy-system.md](policy-system.md) | `StaticPolicy` (+`StaticMetadataPolicy`, `ErrorRepresentationPolicy`), `ResponsePolicy`/`DatePolicy`/denylist, safe defaults, CLI/Python mapping |
 | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries, platform security |
 
 ### HTTP and Runtime
@@ -62,8 +62,8 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 | Document | Covers |
 |----------|--------|
 | [primitives-api.md](primitives-api.md) | Public facade for embedding — `SecureRoot`, `ResolvedResource`, canonical types, HTTP validation, body primitives |
-| [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()`, streaming buffer |
-| [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline, body ingestion |
+| [response-planning.md](response-planning.md) | Conditional/range/ETag planning, static validator privacy, HEAD parity, `normalize_response()`, streaming buffer |
+| [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline (incl. final privacy boundary), body ingestion |
 | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS key formats, ALPN, deployment profiles, limitations |
 
 ### Operations

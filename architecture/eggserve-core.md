@@ -148,10 +148,10 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_headers` | 100 | Request header field count, set explicitly on Hyper |
 | `max_header_bytes` | 32 KiB | Aggregate header bytes (431 pre-service) |
 | `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
-| `server_header` | None | Optional `Server` header value on responses |
+| `response_policy` | suppressed `Server`, system-clock `Date`, no denylist, minimal errors | Final-boundary privacy; Hyper auto-`Date` disabled, EggServe sole authority |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
 
-Note: `Limits` fields map onto `RuntimeConfig` by `try_from_serve_config()`. Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory.
+Note: `Limits` fields map onto `RuntimeConfig` by `try_from_serve_config()`. Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory. Migration from `server_header`: use `response_policy.server_identification` via `RuntimeConfigBuilder::server_header(..)`; see `docs/migration-guide.md`. Static validators are governed by `StaticPolicy.static_metadata` (`plan_file_response_with_preconditions_and_metadata`); see `response-planning.md`.
 
 ### `RuntimeState`
 

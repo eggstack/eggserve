@@ -13,7 +13,7 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 | `primitives` | `pub` | Stable (semver-considered) | Core types for embedding: path validation, policy enforcement, rejection taxonomy |
 | `config` | `pub` | Stable-ish | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `limits` | `pub` | Stable-ish | `Limits` (connections, streams, timeouts) |
-| `policy` | `pub` | Stable-ish | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
+| `policy` | `pub` | Stable-ish | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `StaticMetadataPolicy`, `ErrorRepresentationPolicy` |
 | `server::service` | `pub` | Experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
 
 ## Internal modules (not public API)
@@ -49,6 +49,14 @@ The `primitives` module re-exports the following types:
 - **`DotfilePolicy`** (from `policy`) — `Denied` (default) / `Serve`. Controls whether dotfiles are served in responses.
 
 - **`PathDotfilePolicy`** (from `path`) — `Denied` (default) / `Allow`. Controls whether dotfile paths are accepted during parsing. Distinct from the policy-level `DotfilePolicy`.
+
+- **`StaticMetadataPolicy`** — `standard()` (emit `ETag` + `Last-Modified`) / `minimal_fingerprint()` (suppress both). Owned by `StaticPolicy.static_metadata`; planner `plan_file_response_with_preconditions_and_metadata`.
+
+- **`ErrorRepresentationPolicy`** — `Minimal` (fixed generic bodies) / `Empty` (no bytes for runtime errors; application `Ok` never rewritten). Owned by `ServeConfig.error_policy` and `ResponsePolicy.error_policy`.
+
+`server::response_policy::{ResponsePolicy, DatePolicy}` is experimental (Rust-only
+advanced privacy; CLI/Python keep standards defaults). `ResponsePolicy` is the
+sole `Date`/`Server`/denylist authority with Hyper automatic `Date` disabled.
 
 ## Invariants
 

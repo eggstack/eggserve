@@ -133,9 +133,11 @@ HEAD responses use the same status and headers as GET, but with an empty body:
 - `206 Partial Content` with range headers but no body.
 - `416 Range Not Satisfiable` with `Content-Range` header but no body.
 
-All origin responses receive exactly one runtime-owned `Date` header during
-final response construction. Directory-listing HEAD preserves the GET
-representation's `Content-Length`.
+All origin responses receive exactly zero or one runtime-owned `Date` header
+during final response construction per `DatePolicy` (default one system-clock
+`Date`; `Suppress` emits zero as an explicit RFC tradeoff; EggServe is the sole
+authority with Hyper automatic `Date` disabled). Directory-listing HEAD
+preserves the GET representation's `Content-Length`.
 
 ## ETag generation
 
@@ -146,6 +148,11 @@ W/"<size>-<mtime_secs>-<mtime_nanos>"
 ```
 
 Nanosecond precision distinguishes rapid same-size modifications where millisecond precision would collide. The ETag is a weak validator — acceptable for static files where strong consistency is not required.
+
+`StaticMetadataPolicy` (`standard()` default emits `ETag` + `Last-Modified`;
+`minimal_fingerprint()` suppresses both) controls emission via
+`plan_file_response_with_preconditions_and_metadata`. Retained `Last-Modified`
+never exceeds `Date` (dropped at the final boundary when it would).
 
 ## Directory listing planning
 

@@ -65,14 +65,56 @@ pub fn plan_file_response_with_preconditions(
     range_header: Option<&str>,
     if_range: Option<&str>,
 ) -> StaticResponsePlan {
-    let etag = generate_etag(metadata);
+    plan_file_response_with_preconditions_and_metadata(
+        method,
+        metadata,
+        content_type,
+        if_match,
+        if_unmodified_since,
+        if_none_match,
+        if_modified_since,
+        range_header,
+        if_range,
+        crate::policy::StaticMetadataPolicy::standard(),
+    )
+}
+
+/// Generate a file response plan with an explicit static validator policy.
+///
+/// When `emit_etag` is false, no metadata-derived `ETag` is generated or
+/// emitted (conditional `ETag` evaluation falls back to `*`-only semantics).
+/// When `emit_last_modified` is false, `Last-Modified` is omitted. Defaults
+/// preserve current behavior; the minimal-fingerprint profile suppresses
+/// both to avoid disclosing host/content timestamp characteristics.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_file_response_with_preconditions_and_metadata(
+    method: ReadOnlyMethod,
+    metadata: &Metadata,
+    content_type: &str,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range_header: Option<&str>,
+    if_range: Option<&str>,
+    metadata_policy: crate::policy::StaticMetadataPolicy,
+) -> StaticResponsePlan {
+    let etag = if metadata_policy.emit_etag {
+        generate_etag(metadata)
+    } else {
+        None
+    };
     // `httpdate::fmt_http_date` only supports epoch-or-later timestamps, so
     // pre-epoch mtimes omit Last-Modified entirely rather than panicking.
-    let last_modified_str = metadata
-        .modified()
-        .ok()
-        .filter(|t| t.duration_since(UNIX_EPOCH).is_ok())
-        .map(httpdate::fmt_http_date);
+    let last_modified_str = if metadata_policy.emit_last_modified {
+        metadata
+            .modified()
+            .ok()
+            .filter(|t| t.duration_since(UNIX_EPOCH).is_ok())
+            .map(httpdate::fmt_http_date)
+    } else {
+        None
+    };
     let len = metadata.len();
 
     // RFC 9110 § 13.2.2 steps 1-2: lost-update preconditions take

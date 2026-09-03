@@ -159,6 +159,12 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
 - HTTP/1.1, ranges, conditional requests, canonical response normalization
   (including known/unknown-length streaming bodies with runtime-owned
   framing), and bounded resource admission are part of the implemented contract.
+- Final-boundary response privacy: `Server` suppressed by default (optional
+  fixed value, never versions), EggServe-owned `Date` (system clock by default,
+  caller-supplied provider or explicit suppression), validated header denylist,
+  generic errors, and configurable static `ETag`/`Last-Modified`. The
+  minimal-fingerprint profile minimizes gratuitous signals without claiming
+  un-fingerprintability; see [deployment](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md).
 - The CLI accepts hostnames in `--bind`, repeatable safe `-H/--header` static
   metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
   `--tls-key` is omitted.

@@ -6,7 +6,9 @@ use std::sync::Arc;
 
 use crate::fs::PinnedRoot;
 use crate::limits::Limits;
-use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
+use crate::policy::{
+    DirectoryListingPolicy, DotfilePolicy, ErrorRepresentationPolicy, StaticPolicy, SymlinkPolicy,
+};
 use crate::primitives::canonical::is_hop_by_hop_header;
 use crate::primitives::header_block::{HeaderName, HeaderValue};
 
@@ -19,6 +21,12 @@ pub struct ServeConfig {
     pub static_policy: StaticPolicy,
     pub default_content_type: String,
     pub extra_response_headers: Vec<(String, String)>,
+    /// Canonical runtime-error representation for static errors (403/404/405…).
+    /// Default: `Minimal`. `Empty` emits no body bytes. Application `Ok`
+    /// bodies are never rewritten. Transferred to `RuntimeConfig` by
+    /// `try_from_serve_config` so `serve_config()` static errors share the
+    /// runtime error profile.
+    pub error_policy: ErrorRepresentationPolicy,
 }
 
 impl Default for ServeConfig {
@@ -30,6 +38,7 @@ impl Default for ServeConfig {
             static_policy: StaticPolicy::safe_default(),
             default_content_type: "application/octet-stream".to_string(),
             extra_response_headers: Vec::new(),
+            error_policy: ErrorRepresentationPolicy::Minimal,
         }
     }
 }

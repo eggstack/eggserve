@@ -91,6 +91,55 @@ Notes:
 - **Embedded anonymity-sensitive** uses stricter open-connection, header, keep-alive, request-count, and write-stall bounds suitable for resource-constrained direct origins. This is still not rate limiting: all clients share the same generic resource budgets — there are no per-IP/client/user token buckets, authentication quotas, or reputation logic anywhere in the core.
 - Every production claim must name a profile from the production profiles table in README.md. Hardened profiles must not allow symlink following.
 
+## Response privacy and minimal-fingerprint profile (Plan 165)
+
+Final origin-response metadata is an explicit `ResponsePolicy`, applied after
+service construction at one Hyper boundary (Hyper automatic `Date` disabled;
+EggServe is the sole `Date` authority). Normal defaults stay RFC-compatible
+(suppressed `Server`, one system-clock `Date`, minimal generic errors).
+
+```rust
+use eggserve_core::server::{RuntimeConfig, response_policy::ResponsePolicy};
+use eggserve_core::policy::StaticMetadataPolicy;
+
+let privacy = ResponsePolicy::minimal_fingerprint();
+let config = RuntimeConfig::builder()
+    .response_policy(privacy)
+    .date_policy(eggserve_core::server::response_policy::DatePolicy::SystemClock)
+    .build()?;
+// Static validators:
+let mut static_policy = eggserve_core::policy::StaticPolicy::safe_default();
+static_policy.static_metadata = StaticMetadataPolicy::minimal_fingerprint();
+```
+
+Profile composition:
+
+- `Server` suppressed; optional fixed value only (never versions).
+- `Date`: `SystemClock` by default; `Custom(provider)` with a trusted
+  network-adjusted clock is the preferred anonymity-sensitive mode
+  (provider returns a time value, EggServe owns formatting); `Suppress` is an
+  explicit RFC 9110 tradeoff. No fixed/stale or randomized dates.
+- Denylist (`stripped_response_headers`): validated, post-service, all
+  duplicates removed; framing/hop-by-hop/`date`/`content-range` cannot be
+  denylisted. Built-in preset strips `x-powered-by`; extend for project
+  fields. No wildcard.
+- Static validators: `StaticMetadataPolicy::minimal_fingerprint()` suppresses
+  `ETag` + `Last-Modified` (suppression over hashing); retained
+  `Last-Modified` never exceeds `Date`.
+- Errors: `Minimal` fixed plain-text bodies or `Empty` (no bytes for
+  runtime-generated errors only; application `Ok` 4xx/5xx never rewritten;
+  `HEAD` correct; no version/path/exception text).
+- No wire imitation of nginx/Apache, no header-order randomization, no TLS
+  impersonation, no request-side fingerprint normalization beyond HTTP
+  correctness, no per-client rate limiting, no application-body rewriting.
+
+This minimizes gratuitous fingerprint signals; it does not make the server
+un-fingerprintable. The router/WAF (for example an I2P router) owns peer
+identity, rate limiting, and tunnel policy; EggServe owns HTTP parsing/framing
+and local resource safety with no I2P-specific types in core. CLI/Python keep
+standards-compliant defaults; advanced policy is Rust-only so the stdlib
+facade does not silently diverge.
+
 ## Pattern 3: Native TLS
 
 eggserve can terminate TLS directly when built with the `tls` feature:

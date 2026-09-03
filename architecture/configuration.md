@@ -75,7 +75,10 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `bind` | `ServeConfig` / `RuntimeConfig` | 127.0.0.1:8000 | SocketAddr | `--bind`, `--port`, `--addr` | `bind`, `port` | TCP listener bind |
 | `default_content_type` | `ServeConfig` | `application/octet-stream` | non-empty header-safe string | `--content-type` | `SimpleHTTPRequestHandler.default_content_type` | Unknown-suffix static responses |
 | `extra_response_headers` | `ServeConfig` | none | ordered safe name/value pairs | `-H`, `--header` | `SimpleHTTPRequestHandler.extra_response_headers` | Final static status-200 responses only |
-| `server_header` | `RuntimeConfig` | None | Option\<String\> | N/A | N/A | Server header on responses |
+| `error_policy` | `ServeConfig` / `RuntimeConfig.response_policy` | Minimal | `Minimal` \| `Empty` | N/A (Rust-only) | N/A | Runtime-generated error bodies; application `Ok` never rewritten |
+| `response_policy.server_identification` | `RuntimeConfig` | None (suppressed) | None \| fixed string | N/A (Rust `server_header(..)`) | N/A | `Server` on responses; never versions |
+| `response_policy.date_policy` | `RuntimeConfig` | SystemClock | `SystemClock` \| `Custom` \| `Suppress` | N/A (Rust-only) | N/A | Sole `Date` authority; Hyper auto-`Date` disabled |
+| `response_policy.stripped_response_headers` | `RuntimeConfig` | none | validated denylist (no framing/`date`/`content-range`) | N/A (Rust-only) | N/A | Post-service removal; `minimal_fingerprint()` strips `x-powered-by` |
 
 ### Filesystem policy
 
@@ -85,6 +88,7 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `directory_listing` | `StaticPolicy` | Disabled | enum | `--directory-listing` | `directory_listing` (StaticPolicy) | Directory listing response |
 | `symlinks` | `StaticPolicy` | Denied | enum | `--follow-symlinks` | `follow_symlinks` (StaticPolicy) | Path traversal resolution |
 | `dotfiles` | `StaticPolicy` | Denied | enum | `--allow-dotfiles` | `allow_dotfiles` (StaticPolicy) | Dotfile path component check |
+| `static_metadata.emit_etag` / `emit_last_modified` | `StaticPolicy` | true / true | bool | N/A (Rust-only) | N/A | Static `ETag`/`Last-Modified`; `minimal_fingerprint()` suppresses both |
 | `stream_chunk_size` | `Limits` / `RuntimeConfig` | 8192 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size |
 
 ### TLS (feature-gated)

@@ -742,6 +742,7 @@ impl Args {
             directory_listing: self.directory_listing,
             symlinks: self.symlinks,
             dotfiles: self.dotfiles,
+            static_metadata: eggserve_core::policy::StaticMetadataPolicy::standard(),
         }
     }
 

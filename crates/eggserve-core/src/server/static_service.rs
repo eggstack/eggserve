@@ -19,7 +19,7 @@ use crate::primitives::canonical::{
 };
 use crate::primitives::header_block::{HeaderName, HeaderValue};
 use crate::primitives::http::ReadOnlyMethod;
-use crate::primitives::planner::plan_file_response_with_preconditions;
+use crate::primitives::planner::plan_file_response_with_preconditions_and_metadata;
 use crate::primitives::request::Request;
 use crate::primitives::request_head::RequestHead;
 use crate::primitives::response::HeaderMapPlan;
@@ -33,6 +33,7 @@ pub struct StaticServiceBuilder {
     policy: StaticPolicy,
     default_content_type: String,
     extra_response_headers: Vec<(String, String)>,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
 }
 
 impl StaticServiceBuilder {
@@ -54,6 +55,15 @@ impl StaticServiceBuilder {
         self
     }
 
+    /// Set the runtime-error representation for static errors (403/404/405…).
+    ///
+    /// Default is `Minimal`. `Empty` emits no body bytes. Application `Ok`
+    /// bodies are never rewritten.
+    pub fn error_policy(mut self, policy: crate::policy::ErrorRepresentationPolicy) -> Self {
+        self.error_policy = policy;
+        self
+    }
+
     /// Build the service and pin its root exactly once.
     pub fn build(self) -> Result<StaticService, ServiceError> {
         let config = Arc::new(ServeConfig {
@@ -61,6 +71,7 @@ impl StaticServiceBuilder {
             static_policy: self.policy,
             default_content_type: self.default_content_type,
             extra_response_headers: self.extra_response_headers,
+            error_policy: self.error_policy,
             ..ServeConfig::default()
         });
         StaticService::from_serve_config(config)
@@ -82,6 +93,7 @@ impl StaticService {
             policy: StaticPolicy::safe_default(),
             default_content_type: "application/octet-stream".to_string(),
             extra_response_headers: Vec::new(),
+            error_policy: crate::policy::ErrorRepresentationPolicy::Minimal,
         }
     }
 
@@ -131,12 +143,14 @@ fn plan_static_request(
 ) -> Result<CanonicalResponse, ServiceError> {
     let method = request.method();
     let is_head = method.is_head();
+    let early_error_policy = state.config().error_policy;
     if !method.is_get() && !is_head {
         return error_response(
             StatusCode::METHOD_NOT_ALLOWED,
             "405 Method Not Allowed\n",
             is_head,
             true,
+            early_error_policy,
         );
     }
 
@@ -175,6 +189,7 @@ fn plan_static_request(
                 },
                 is_head,
                 false,
+                config.error_policy,
             );
         }
     };
@@ -268,12 +283,20 @@ fn plan_static_request(
                 is_head,
             )
         }
-        ResolvedResource::NotFound => {
-            error_response(StatusCode::NOT_FOUND, "404 Not Found\n", is_head, false)
-        }
-        ResolvedResource::Denied(_) => {
-            error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
-        }
+        ResolvedResource::NotFound => error_response(
+            StatusCode::NOT_FOUND,
+            "404 Not Found\n",
+            is_head,
+            false,
+            config.error_policy,
+        ),
+        ResolvedResource::Denied(_) => error_response(
+            StatusCode::FORBIDDEN,
+            "403 Forbidden\n",
+            is_head,
+            false,
+            config.error_policy,
+        ),
         ResolvedResource::IoError(error) => Err(ServiceError::internal(format!(
             "filesystem resolution failed: {error}"
         ))),
@@ -293,7 +316,7 @@ fn planned_file_response(
     if_range: Option<&str>,
     is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
-    let mut plan = plan_file_response_with_preconditions(
+    let mut plan = plan_file_response_with_preconditions_and_metadata(
         method,
         &file.metadata,
         {
@@ -312,6 +335,7 @@ fn planned_file_response(
         if_modified_since,
         range,
         if_range,
+        config.static_policy.static_metadata,
     );
     if plan.status.as_u16() == 200 {
         append_extra_headers(&mut plan.headers, config);
@@ -354,7 +378,13 @@ fn plan_directory_response(
             }
             ResolvedResource::NotFound => continue,
             ResolvedResource::Denied(_) => {
-                return error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
+                return error_response(
+                    StatusCode::FORBIDDEN,
+                    "403 Forbidden\n",
+                    is_head,
+                    false,
+                    config.error_policy,
+                )
             }
             ResolvedResource::Directory(_) => {
                 return error_response(
@@ -362,6 +392,7 @@ fn plan_directory_response(
                     "500 Internal Server Error\n",
                     is_head,
                     false,
+                    config.error_policy,
                 )
             }
             ResolvedResource::IoError(error) => {
@@ -373,9 +404,13 @@ fn plan_directory_response(
     }
 
     match config.static_policy.directory_listing {
-        DirectoryListingPolicy::Disabled => {
-            error_response(StatusCode::FORBIDDEN, "403 Forbidden\n", is_head, false)
-        }
+        DirectoryListingPolicy::Disabled => error_response(
+            StatusCode::FORBIDDEN,
+            "403 Forbidden\n",
+            is_head,
+            false,
+            config.error_policy,
+        ),
         DirectoryListingPolicy::Enabled => {
             let entries = guard
                 .list_directory(
@@ -479,13 +514,18 @@ fn error_response(
     text: &'static str,
     is_head: bool,
     method_not_allowed: bool,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
 ) -> Result<CanonicalResponse, ServiceError> {
-    let mut builder = CanonicalResponse::builder().status(status).push_header(
-        crate::primitives::header_block::HeaderName::new("content-type")
-            .map_err(|e| ServiceError::internal(e.to_string()))?,
-        crate::primitives::header_block::HeaderValue::new("text/plain; charset=utf-8")
-            .map_err(|e| ServiceError::internal(e.to_string()))?,
-    );
+    let mut builder = CanonicalResponse::builder().status(status);
+    // `Empty` omits Content-Type (no body emitted); `Allow` is retained.
+    if error_policy == crate::policy::ErrorRepresentationPolicy::Minimal {
+        builder = builder.push_header(
+            crate::primitives::header_block::HeaderName::new("content-type")
+                .map_err(|e| ServiceError::internal(e.to_string()))?,
+            crate::primitives::header_block::HeaderValue::new("text/plain; charset=utf-8")
+                .map_err(|e| ServiceError::internal(e.to_string()))?,
+        );
+    }
     if method_not_allowed {
         builder = builder.push_header(
             crate::primitives::header_block::HeaderName::new("allow")
@@ -494,8 +534,25 @@ fn error_response(
                 .map_err(|e| ServiceError::internal(e.to_string()))?,
         );
     }
+    let body_bytes = match error_policy {
+        crate::policy::ErrorRepresentationPolicy::Minimal => {
+            if is_head {
+                Vec::new()
+            } else {
+                text.as_bytes().to_vec()
+            }
+        }
+        crate::policy::ErrorRepresentationPolicy::Empty => Vec::new(),
+    };
+    // Empty bodies normalize to Content-Length: 0; HEAD lengths are 0 for
+    // errors (no equivalent-GET preservation needed).
+    let response_body = if body_bytes.is_empty() {
+        ResponseBody::Empty
+    } else {
+        ResponseBody::Bytes(body_bytes)
+    };
     let response = builder
-        .body(ResponseBody::Bytes(text.as_bytes().to_vec()))
+        .body(response_body)
         .map_err(|e| ServiceError::internal(e.to_string()))?;
     normalize_response(response, &NormalizeRequest::new(is_head))
         .map_err(|e| ServiceError::internal(e.to_string()))

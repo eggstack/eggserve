@@ -22,8 +22,11 @@ eggserve ships with the following safe defaults. These are not configurable with
 | **logs sanitized** | Paths and headers are sanitized before writing to logs |
 | **resource limits enabled** | Max 64 concurrent connections, 32 server-wide file streams, 10s header timeout, 60s connection total timeout |
 | **directory listing bounded** | Max 4096 entries and a 1 MiB response body; enumeration runs under the request handler timeout (default 30s); filename lengths are bounded by the filesystem |
+| **Server suppressed** | No `Server` header by default; optional fixed value only, never versions |
+| **Date owned by EggServe** | One system-clock `Date` by default; Hyper automatic `Date` disabled; caller provider or explicit suppression via `DatePolicy` |
+| **generic errors** | Fixed plain-text runtime errors, no version/path/exception text; `Empty` variant emits no bytes (application `Ok` never rewritten) |
 
-These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access.
+These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access. Response privacy details (`ResponsePolicy`, denylist, static validators, minimal-fingerprint profile) live in [deployment](deployment.md) and `architecture/policy-system.md`; the profile minimizes gratuitous signals without claiming un-fingerprintability.
 
 ## Path confinement implementation
 

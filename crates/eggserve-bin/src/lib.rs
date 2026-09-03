@@ -102,6 +102,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         static_policy,
         default_content_type: args.default_content_type,
         extra_response_headers: args.extra_response_headers,
+        error_policy: eggserve_core::policy::ErrorRepresentationPolicy::Minimal,
     });
 
     // Emit structured startup event.
