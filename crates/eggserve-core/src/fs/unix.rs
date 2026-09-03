@@ -208,17 +208,21 @@ pub(crate) fn list_directory_fd(
 
     for entry in dir {
         let entry = entry?;
-        let name = entry.file_name().to_string_lossy().into_owned();
+        // Use the raw entry bytes for filtering and lookup: `to_string_lossy`
+        // substitutes U+FFFD for invalid UTF-8, and a mangled name can never
+        // `statat` back to the real entry. The lossy rendering is only for
+        // display/sort below.
+        let raw_name = entry.file_name();
 
-        if name == "." || name == ".." {
+        if raw_name.to_bytes() == b"." || raw_name.to_bytes() == b".." {
             continue;
         }
 
-        if policy.dotfiles == DotfilePolicy::Denied && name.starts_with('.') {
+        if policy.dotfiles == DotfilePolicy::Denied && raw_name.to_bytes().first() == Some(&b'.') {
             continue;
         }
 
-        let stat = match statat(dir_fd, &name, AtFlags::SYMLINK_NOFOLLOW) {
+        let stat = match statat(dir_fd, raw_name, AtFlags::SYMLINK_NOFOLLOW) {
             Ok(s) => s,
             Err(_) => continue,
         };
@@ -230,6 +234,7 @@ pub(crate) fn list_directory_fd(
         }
 
         let is_dir = (mode & S_IFMT) == S_IFDIR;
+        let name = raw_name.to_string_lossy().into_owned();
         entries.push((name, is_dir));
 
         if entries.len() >= max_entries {

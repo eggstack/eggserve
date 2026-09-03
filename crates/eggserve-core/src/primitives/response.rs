@@ -86,10 +86,15 @@ impl HeaderMapPlan {
 }
 
 /// A byte range within a file.
+///
+/// The endpoints are private so the length invariant (representable as `u64`,
+/// checked by [`FileRange::try_new`]) cannot be bypassed with a struct
+/// literal. Construct via [`FileRange::try_new`]; `len()` is then infallible
+/// for any constructible value.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct FileRange {
-    pub start: u64,
-    pub end_inclusive: u64,
+    start: u64,
+    end_inclusive: u64,
 }
 
 impl FileRange {
@@ -117,7 +122,21 @@ impl FileRange {
         Some(range)
     }
 
+    /// First byte offset of the range.
+    pub fn start(&self) -> u64 {
+        self.start
+    }
+
+    /// Last byte offset of the range, inclusive.
+    pub fn end_inclusive(&self) -> u64 {
+        self.end_inclusive
+    }
+
     /// Return the number of bytes in this range.
+    ///
+    /// Panics only on the single unrepresentable endpoint pair
+    /// `(0, u64::MAX)`, which [`FileRange::try_new`] rejects, so no value
+    /// built through the public constructor can reach the panic.
     pub fn len(&self) -> u64 {
         self.checked_len()
             .expect("FileRange length must be representable as u64")

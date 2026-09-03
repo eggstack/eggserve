@@ -691,7 +691,7 @@ fn file_body(
     let (file, start, remaining) = match source {
         BodySource::FileFull { file, len, .. } => (tokio::fs::File::from_std(file), 0, len),
         BodySource::FileRange { file, range, .. } => {
-            (tokio::fs::File::from_std(file), range.start, range.len())
+            (tokio::fs::File::from_std(file), range.start(), range.len())
         }
         BodySource::Empty => {
             return http_body_util::Full::new(Bytes::new())

@@ -206,22 +206,22 @@ fn corpus_replay_range_header() {
         match outcome {
             RangeRequestOutcome::Satisfiable(range) => {
                 assert!(
-                    range.start < file_size,
+                    range.start() < file_size,
                     "[range_header/{name}] start {} beyond file_size {}",
-                    range.start,
+                    range.start(),
                     file_size
                 );
                 assert!(
-                    range.end_inclusive < file_size,
+                    range.end_inclusive() < file_size,
                     "[range_header/{name}] end {} beyond file_size {}",
-                    range.end_inclusive,
+                    range.end_inclusive(),
                     file_size
                 );
                 assert!(
-                    range.start <= range.end_inclusive,
+                    range.start() <= range.end_inclusive(),
                     "[range_header/{name}] start {} > end {}",
-                    range.start,
-                    range.end_inclusive
+                    range.start(),
+                    range.end_inclusive()
                 );
                 assert!(
                     !range.is_empty(),

@@ -8,6 +8,13 @@ pub fn validate_components(
     policy: &PathPolicy,
 ) -> Result<(), PathRejection> {
     for component in components {
+        // Parity with child resolution (`fs/mod.rs`), which rejects empty
+        // components. `split_components` filters empties upstream so the HTTP
+        // parse path never sees one, but direct callers get the same contract.
+        if component.is_empty() {
+            return Err(PathRejection::Empty);
+        }
+
         if component.contains('\0') {
             return Err(PathRejection::NulByte);
         }
@@ -140,7 +147,10 @@ mod tests {
     fn reject_empty_component() {
         let comps = vec!["foo".to_string(), "".to_string(), "bar".to_string()];
         let policy = PathPolicy::default();
-        assert!(validate_components(&comps, &policy).is_ok());
+        assert_eq!(
+            validate_components(&comps, &policy).unwrap_err(),
+            PathRejection::Empty
+        );
     }
 
     #[test]

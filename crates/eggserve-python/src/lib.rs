@@ -261,7 +261,7 @@ impl PyBodySource {
 
     #[getter]
     fn range(&self) -> Option<(u64, u64)> {
-        self.inner.range().map(|r| (r.start, r.end_inclusive))
+        self.inner.range().map(|r| (r.start(), r.end_inclusive()))
     }
 
     fn read_all(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
@@ -284,8 +284,8 @@ impl PyBodySource {
             Some(r) => format!(
                 "BodySource(kind={:?}, range=({}..={}))",
                 self.inner.kind(),
-                r.start,
-                r.end_inclusive
+                r.start(),
+                r.end_inclusive()
             ),
             None => format!(
                 "BodySource(kind={:?}, length={:?})",

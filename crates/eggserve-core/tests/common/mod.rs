@@ -16,7 +16,7 @@ pub fn extract_body_bytes(resp: &Response) -> Vec<u8> {
             BodySource::FileRange { file, range, .. } => {
                 let mut bytes = vec![0; range.len() as usize];
                 let mut file = file.try_clone().expect("clone file handle");
-                file.seek(SeekFrom::Start(range.start))
+                file.seek(SeekFrom::Start(range.start()))
                     .expect("seek to range start");
                 file.read_exact(&mut bytes).expect("read range");
                 bytes

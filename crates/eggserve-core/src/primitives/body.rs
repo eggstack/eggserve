@@ -121,7 +121,7 @@ impl BodySource {
     /// # Cursor sensitivity
     ///
     /// `FileFull` reads from the current file cursor (`read_to_end` without a
-    /// preceding `seek`), while `FileRange` seeks to `range.start` first.
+    /// preceding `seek`), while `FileRange` seeks to the range start first.
     /// `BodySource` is one-shot — each `ResolvedFile` produces exactly one
     /// `BodySource` and the transport consumes it once (`file_body` seeks
     /// correctly). Reusing the same `BodySource` after a partial `read_all` or
@@ -146,7 +146,7 @@ impl BodySource {
                 Ok(buf)
             }
             Self::FileRange { file, range, .. } => {
-                file.seek(SeekFrom::Start(range.start))?;
+                file.seek(SeekFrom::Start(range.start()))?;
                 let len = usize::try_from(range.len()).map_err(|_| {
                     io::Error::new(io::ErrorKind::InvalidInput, "body range too large")
                 })?;
@@ -165,7 +165,7 @@ impl BodySource {
     ///
     /// # Cursor sensitivity
     ///
-    /// `FileRange` seeks to `range.start`; `FileFull` reads from the current
+    /// `FileRange` seeks to the range start; `FileFull` reads from the current
     /// cursor without seeking (consistent with `read_all`). The one-shot
     /// contract applies — do not reuse after a prior read without seeking.
     ///
@@ -196,7 +196,7 @@ impl BodySource {
                 Ok(buf)
             }
             Self::FileRange { file, range, .. } => {
-                file.seek(SeekFrom::Start(range.start))?;
+                file.seek(SeekFrom::Start(range.start()))?;
                 let len = usize::try_from(range.len())
                     .map_err(|_| {
                         io::Error::new(io::ErrorKind::InvalidInput, "body range too large")
@@ -276,7 +276,7 @@ impl BodySource {
                         "sub-range exceeds body range",
                     ));
                 }
-                let absolute_start = range.start.checked_add(start).ok_or_else(|| {
+                let absolute_start = range.start().checked_add(start).ok_or_else(|| {
                     io::Error::new(io::ErrorKind::InvalidInput, "absolute offset overflow")
                 })?;
                 let absolute_end = absolute_start
@@ -285,7 +285,7 @@ impl BodySource {
                     .ok_or_else(|| {
                         io::Error::new(io::ErrorKind::InvalidInput, "absolute offset overflow")
                     })?;
-                if absolute_end > range.end_inclusive {
+                if absolute_end > range.end_inclusive() {
                     return Err(io::Error::new(
                         io::ErrorKind::InvalidInput,
                         "sub-range exceeds body range",

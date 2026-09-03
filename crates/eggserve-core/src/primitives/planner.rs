@@ -314,7 +314,7 @@ pub fn evaluate_range_header(range: &str, file_size: u64) -> RangeRequestOutcome
 /// Evaluate an `If-Range` header.
 pub fn evaluate_if_range(
     if_range: &str,
-    _current_etag: Option<&str>,
+    current_etag: Option<&str>,
     last_modified: Option<&str>,
 ) -> ConditionalRequestOutcome {
     let trimmed = if_range.trim();
@@ -322,7 +322,21 @@ pub fn evaluate_if_range(
         return ConditionalRequestOutcome::Malformed;
     }
 
-    if trimmed.starts_with('"') || trimmed.starts_with("W/") {
+    if trimmed.starts_with('"') {
+        // Strong entity-tag: RFC 9110 § 13.1.4 requires strong comparison.
+        // A strong `If-Range` authorizes the range response only when the
+        // current validator is also strong and byte-identical. The generated
+        // metadata ETag is deliberately weak, so it never matches here and
+        // falls through to a full response.
+        if let Some(current) = current_etag {
+            if !current.starts_with("W/") && current == trimmed {
+                return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
+            }
+        }
+        return ConditionalRequestOutcome::FullResponse;
+    }
+
+    if trimmed.starts_with("W/") {
         // If-Range requires strong comparison. The generated metadata ETag is
         // deliberately weak, so it cannot authorize a range response.
         return ConditionalRequestOutcome::FullResponse;
@@ -440,7 +454,9 @@ fn build_range_response(
         "content-range",
         format!(
             "bytes {}-{}/{}",
-            range.start, range.end_inclusive, file_size
+            range.start(),
+            range.end_inclusive(),
+            file_size
         ),
     );
     headers.push("x-content-type-options", "nosniff".to_owned());
@@ -456,8 +472,8 @@ fn build_range_response(
         BodyPlan::Empty
     } else {
         BodyPlan::FileRange {
-            start: range.start,
-            end_inclusive: range.end_inclusive,
+            start: range.start(),
+            end_inclusive: range.end_inclusive(),
         }
     };
 
@@ -1373,12 +1389,35 @@ mod tests {
 
     #[test]
     fn evaluate_if_range_etags_never_authorize_ranges_for_weak_metadata() {
-        assert_eq!(
-            evaluate_if_range("\"100-1234\"", Some("\"100-1234\""), None),
-            ConditionalRequestOutcome::FullResponse
-        );
+        // Weak validators never authorize a range response.
         assert_eq!(
             evaluate_if_range("W/\"100-1234\"", Some("W/\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+        // A strong If-Range never matches the weak metadata ETag the server
+        // emits, so it also falls back to a full response.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("W/\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+    }
+
+    #[test]
+    fn evaluate_if_range_strong_match_authorizes_range() {
+        // Hypothetical strong current validator: byte-identical strong
+        // If-Range satisfies strong comparison and allows the range.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("\"100-1234\""), None),
+            ConditionalRequestOutcome::NotModified(HeaderMapPlan::new())
+        );
+        // Mismatched strong validators fall back to a full response.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("\"999-999\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+        // A weak current validator never satisfies strong comparison.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("W/\"100-1234\""), None),
             ConditionalRequestOutcome::FullResponse
         );
     }
@@ -1638,24 +1677,24 @@ mod tests {
                 let outcome = evaluate_range_header(header, file_size);
                 if let RangeRequestOutcome::Satisfiable(range) = outcome {
                     assert!(
-                        range.start < file_size,
+                        range.start() < file_size,
                         "range start {} >= file_size {} for header {:?}",
-                        range.start,
+                        range.start(),
                         file_size,
                         header
                     );
                     assert!(
-                        range.end_inclusive < file_size,
+                        range.end_inclusive() < file_size,
                         "range end {} >= file_size {} for header {:?}",
-                        range.end_inclusive,
+                        range.end_inclusive(),
                         file_size,
                         header
                     );
                     assert!(
-                        range.start <= range.end_inclusive,
+                        range.start() <= range.end_inclusive(),
                         "range start {} > end {} for header {:?}",
-                        range.start,
-                        range.end_inclusive,
+                        range.start(),
+                        range.end_inclusive(),
                         header
                     );
                     assert!(
@@ -1781,12 +1820,12 @@ mod tests {
         #[test]
         fn satisfiable_range_within_file_size(header in "bytes=(\\d+)-(\\d+)", file_size in 1u64..=1_000_000) {
             if let RangeRequestOutcome::Satisfiable(range) = evaluate_range_header(&header, file_size) {
-                prop_assert!(range.start < file_size,
-                    "start {} >= file_size {}", range.start, file_size);
-                prop_assert!(range.end_inclusive < file_size,
-                    "end {} >= file_size {}", range.end_inclusive, file_size);
-                prop_assert!(range.start <= range.end_inclusive,
-                    "start {} > end {}", range.start, range.end_inclusive);
+                prop_assert!(range.start() < file_size,
+                    "start {} >= file_size {}", range.start(), file_size);
+                prop_assert!(range.end_inclusive() < file_size,
+                    "end {} >= file_size {}", range.end_inclusive(), file_size);
+                prop_assert!(range.start() <= range.end_inclusive(),
+                    "start {} > end {}", range.start(), range.end_inclusive());
             }
         }
 

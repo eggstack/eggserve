@@ -1172,7 +1172,7 @@ impl ServerBodySource {
         Ok(inner
             .as_ref()
             .and_then(|s| s.range())
-            .map(|r| (r.start, r.end_inclusive)))
+            .map(|r| (r.start(), r.end_inclusive())))
     }
 
     fn read_all<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyBytes>> {

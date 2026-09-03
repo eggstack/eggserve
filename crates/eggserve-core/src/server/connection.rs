@@ -782,8 +782,11 @@ fn finalize_runtime_response(
 /// Validate body framing for ALL methods.
 ///
 /// Rejects requests with duplicate Content-Length fields and TE+CL
-/// conflicts where both headers are visible. This is a hardened
-/// framing policy applied before body construction.
+/// conflicts where both headers are visible. Duplicate Content-Length values
+/// that disagree are the request-smuggling vector (RFC 9110 §6.3.3) and are
+/// rejected as conflicting; agreeing duplicates are still rejected as
+/// duplicates (safe default). This is a hardened framing policy applied
+/// before body construction.
 ///
 /// Note: Hyper 1.x strips the Content-Length header when
 /// Transfer-Encoding is present and rejects conflicting duplicate
@@ -793,9 +796,11 @@ fn finalize_runtime_response(
 /// explicit at this boundary.
 fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
     let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
-    let mut cl_values = headers.get_all(hyper::header::CONTENT_LENGTH).iter();
-    let has_cl = cl_values.next().is_some();
-    let duplicate_cl = cl_values.next().is_some();
+    let cl_values: Vec<_> = headers
+        .get_all(hyper::header::CONTENT_LENGTH)
+        .iter()
+        .collect();
+    let has_cl = !cl_values.is_empty();
 
     if has_te && has_cl {
         return Err(ServiceError::rejected(
@@ -804,7 +809,14 @@ fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError>
         ));
     }
 
-    if duplicate_cl {
+    if cl_values.len() > 1 {
+        let first = cl_values[0].as_bytes();
+        if cl_values[1..].iter().any(|v| v.as_bytes() != first) {
+            return Err(ServiceError::rejected(
+                400,
+                "conflicting Content-Length headers",
+            ));
+        }
         return Err(ServiceError::rejected(
             400,
             "duplicate Content-Length headers",
@@ -1015,6 +1027,46 @@ mod tests {
                 .count(),
             1
         );
+    }
+
+    #[test]
+    fn framing_rejects_disagreeing_duplicate_content_length() {
+        let mut headers = hyper::HeaderMap::new();
+        headers.append(
+            hyper::header::CONTENT_LENGTH,
+            hyper::header::HeaderValue::from_static("5"),
+        );
+        headers.append(
+            hyper::header::CONTENT_LENGTH,
+            hyper::header::HeaderValue::from_static("10"),
+        );
+        let err = validate_body_framing(&headers).unwrap_err();
+        assert_eq!(err.message(), "conflicting Content-Length headers");
+    }
+
+    #[test]
+    fn framing_rejects_agreeing_duplicate_content_length() {
+        let mut headers = hyper::HeaderMap::new();
+        headers.append(
+            hyper::header::CONTENT_LENGTH,
+            hyper::header::HeaderValue::from_static("5"),
+        );
+        headers.append(
+            hyper::header::CONTENT_LENGTH,
+            hyper::header::HeaderValue::from_static("5"),
+        );
+        let err = validate_body_framing(&headers).unwrap_err();
+        assert_eq!(err.message(), "duplicate Content-Length headers");
+    }
+
+    #[test]
+    fn framing_accepts_single_content_length() {
+        let mut headers = hyper::HeaderMap::new();
+        headers.insert(
+            hyper::header::CONTENT_LENGTH,
+            hyper::header::HeaderValue::from_static("5"),
+        );
+        assert!(validate_body_framing(&headers).is_ok());
     }
 
     #[test]

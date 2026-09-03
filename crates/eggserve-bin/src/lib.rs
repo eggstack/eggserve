@@ -143,14 +143,11 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         )),
     );
     #[cfg(feature = "tls")]
-    if tls_config.is_some() {
+    if let (Some(_), Some(cert)) = (&tls_config, &args.tls_cert) {
         Logger::global().emit(Event::new(
             Severity::Info,
             EventKind::ProcessStarting,
-            format!(
-                "TLS enabled, certificate: {}",
-                args.tls_cert.as_ref().unwrap().display()
-            ),
+            format!("TLS enabled, certificate: {}", cert.display()),
         ));
     }
 

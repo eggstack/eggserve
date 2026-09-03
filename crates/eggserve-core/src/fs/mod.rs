@@ -130,6 +130,11 @@ fn validate_child_component_with_policy(
     if child.contains('\0') {
         return Err(PathRejection::NulByte);
     }
+    // Parity with parse-level component validation (`path/components.rs`):
+    // ASCII control characters are rejected in both layers.
+    if child.chars().any(|c| c.is_ascii_control()) {
+        return Err(PathRejection::ControlCharacter);
+    }
     if reject_backslash && child.contains('\\') {
         return Err(PathRejection::SeparatorAmbiguity);
     }
@@ -536,6 +541,11 @@ fn build_listing_entries_fallback(
     policy: &crate::policy::StaticPolicy,
     max_entries: usize,
 ) -> Result<Vec<(String, bool)>, std::io::Error> {
+    // Follow-mode-only helper: unreachable under `SymlinkPolicy::Denied`
+    // (symlinks are filtered above). Symlink entries report `is_dir = false`
+    // from the `symlink_metadata` without following the link, matching the
+    // fd-relative backend and avoiding a pathname TOCTOU between
+    // `symlink_metadata` and a following `metadata` call.
     let mut entries = Vec::new();
     for entry in fs::read_dir(dir)? {
         let entry = entry?;
@@ -554,13 +564,7 @@ fn build_listing_entries_fallback(
             continue;
         }
 
-        let is_dir = if meta.file_type().is_symlink() {
-            fs::metadata(entry.path())
-                .map(|m| m.is_dir())
-                .unwrap_or(false)
-        } else {
-            meta.is_dir()
-        };
+        let is_dir = meta.is_dir();
         entries.push((name, is_dir));
 
         if entries.len() >= max_entries {
@@ -931,6 +935,16 @@ mod tests {
         assert_eq!(
             validate_child_component("foo\0bar", false),
             Err(PathRejection::NulByte)
+        );
+    }
+
+    #[test]
+    fn validate_child_control_character_matches_parse_layer() {
+        // Parity with `path/components.rs`: ASCII controls are rejected in
+        // child resolution as well as request-target parsing.
+        assert_eq!(
+            validate_child_component("foo\x1fbar", false),
+            Err(PathRejection::ControlCharacter)
         );
     }
 
