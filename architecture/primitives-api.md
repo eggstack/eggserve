@@ -348,11 +348,14 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 ### Request body
 
-- `RequestBody` — transport-independent, one-shot body
+- `RequestBody` — transport-independent, one-shot body (shares Plan 174 lifecycle)
 - `BodyState` — Unread, Streaming, Complete, Error
-- Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`
-- Internal methods (`pub(crate)`): `from_incoming()`, `consumed_flag()`, `was_fully_consumed()`
+- `RequestLifecycle` — cloneable disconnect/cancel observer (`cancelled()`, `is_cancelled()`, `cancellation_reason()`); `RequestCancellationReason` (PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure)
+- `Request` exposes `lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` (additive; `into_parts` arity preserved)
+- Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`, `lifecycle`
+- Internal methods (`pub(crate)`): `from_incoming()`, `shared()`, `was_fully_consumed()`
 - Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
+- Ownership: moving the body keeps it Active; dropping incomplete network bodies marks Abandoned; Complete reusable, Abandoned/Failed forces close, Active deferred without close (Hyper-pinned)
 - Canonical body types and `Service` do not require Hyper; the explicitly
   documented transport conversion adapters are the only public Hyper boundary.
 

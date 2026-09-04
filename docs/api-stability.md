@@ -87,11 +87,14 @@ functional.
 | Type | Status | Notes |
 |------|--------|-------|
 | `RequestBodyPolicy` | Experimental | Body acceptance policy (Reject/Buffer/Stream) |
-| `RequestBody` | Experimental | One-shot, bounded request body |
+| `RequestBody` | Experimental | One-shot, bounded request body (shares Plan 174 lifecycle) |
 | `RequestBody::from_incoming()` | Internal | `pub(crate)` — not public API |
-| `RequestBody::consumed_flag()` | Internal | `pub(crate)` — not public API |
+| `RequestBody::shared()` | Internal | `pub(crate)` — not public API |
 | `RequestBody::was_fully_consumed()` | Internal | `pub(crate)` — not public API |
 | `BodyState` | Experimental | Body consumption state machine |
+| `RequestLifecycle` | Experimental | Cloneable disconnect/cancel observer (Plan 174) |
+| `RequestCancellationReason` | Experimental | Best-effort cancel reason (4 variants) |
+| `Request::lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` | Experimental | Additive lifecycle access; `into_parts` arity preserved |
 | `RequestBodyError` | Experimental | Typed body error taxonomy |
 | `Request` | Experimental | Canonical request envelope |
 | `Service::call(Request)` | Experimental | Updated to accept Request envelope |

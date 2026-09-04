@@ -60,6 +60,7 @@ pub mod request_body;
 pub mod request_body_error;
 pub mod request_body_policy;
 pub mod request_head;
+pub mod request_lifecycle;
 pub mod request_target;
 pub mod response;
 pub mod response_stream;
@@ -96,6 +97,7 @@ pub use request_body::{BodyState, RequestBody};
 pub use request_body_error::RequestBodyError;
 pub use request_body_policy::RequestBodyPolicy;
 pub use request_head::RequestHead;
+pub use request_lifecycle::{RequestCancellationReason, RequestLifecycle};
 pub use request_target::{RequestTarget, RequestTargetError};
 pub use response::{
     BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,

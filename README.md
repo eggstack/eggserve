@@ -171,6 +171,10 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
   known/unknown-length streaming responses (`ResponseBody::Stream`) without
   importing Hyper. `ResponseStream` producers must be `Send` and are one-shot;
   they do not need to be `Sync` because one connection task owns polling.
+  Stream services may return response-start while a downstream task still owns
+  an Active `RequestBody`; reuse waits for body Complete and abandonment still
+  forces safe close, with a transport-neutral `RequestLifecycle` for
+  disconnect/cancel observation.
 - Path traversal and symlink escape are denied at library level. Unix safe
   defaults use descriptor-relative resolution; Windows is qualified for the
   executed handle-relative classes but remains trusted/local-content only.

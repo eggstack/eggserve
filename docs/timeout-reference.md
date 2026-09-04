@@ -65,18 +65,18 @@ than using an unbounded value.
 - **Clock starts**: Body ingestion begins (after headers parsed).
 - **Progress resets**: No — this is a total deadline for body consumption, not an inactivity timeout.
 - **Progress definition**: All body frames consumed (EOF received).
-- **Enforcement**: `tokio::time::timeout(body_read_timeout, request_body.read_all())` for Buffer mode; combined `body_read_timeout.min(handler_timeout)` for Stream mode. In Stream mode the collapsed deadline is distinguished at timeout time via the shared `consumed` flag: if the body is still unconsumed the timeout increments `body_read_timeouts` and emits `BodyReadTimeout`; otherwise it is surfaced as `ServiceTimeout`/`handler timed out`. This gives operators distinct counters for body stalls vs handler stalls even though the runtime collapses the deadline.
-- **Terminal behavior**: Returns `408 Request Timeout` response with `Connection: close`.
+- **Enforcement**: `tokio::time::timeout(body_read_timeout, request_body.read_all())` for Buffer mode; combined `body_read_timeout.min(handler_timeout)` for Stream mode during `Service::call`. In Stream mode the collapsed deadline is distinguished at timeout time via the shared lifecycle state: if the body is still Active the timeout increments `body_read_timeouts` and emits `BodyReadTimeout`; otherwise it is surfaced as `ServiceTimeout`/`handler timed out`. This gives operators distinct counters for body stalls vs handler stalls even though the runtime collapses the deadline during the call for compatibility. After response-start with a deferred (Active) body, the remaining `body_read_timeout` continues via a per-request watchdog that marks the body Failed, cancels the lifecycle with `ConnectionTimeout`, increments both `body_read_timeouts` and `deferred_body_timeouts`, and closes the transport so pending polls wake via transport failure (Plan 174).
+- **Terminal behavior**: Before response-start returns `408 Request Timeout` response with `Connection: close`. After response-start the transport closes without a second response (response already committed); Hyper also closes automatically on abandonment.
 - **Cleanup**: Body dropped; connection closed (body errors are terminal for the connection).
 
 ### 5. Handler timeout
 
 - **Clock starts**: `service.call(request)` invoked.
-- **Progress resets**: No — this is a one-shot deadline for the entire handler invocation.
+- **Progress resets**: No — this is a one-shot deadline for response-start (time until the service produces the `Response` object), not for downstream application work that continues after return.
 - **Progress definition**: Service future completes (returns `Ok(Response)` or `Err(ServiceError)`).
-- **Enforcement**: `tokio::time::timeout(handler_timeout, service.call(request))`.
+- **Enforcement**: `tokio::time::timeout(min(body_read_timeout, handler_timeout), service.call(request))` for Stream during the call (compatibility-preserving collapse, disambiguated via lifecycle state); `handler_timeout` alone for Buffer/Reject. After response-start with a deferred body, `handler_timeout` no longer applies to the downstream task; body progress is bounded by the remaining `body_read_timeout` watchdog, response production by `response_write_timeout`, and the connection by `connection_total_timeout`.
 - **Terminal behavior**: Returns `504 Gateway Timeout` response. The handler future is dropped.
-- **Cleanup**: Service state dropped; connection kept alive for next request (keep-alive).
+- **Cleanup**: Service state dropped; connection kept alive for next request when the body is Complete, closed when Abandoned/Failed.
 
 Streaming note: `handler_timeout` bounds only time-to-`Response`, not
 the subsequent body stream. Once the service returns
@@ -84,6 +84,14 @@ the subsequent body stream. Once the service returns
 `response_write_timeout` (no-progress) and `connection_total_timeout`
 (hard lifetime), not by `handler_timeout`. Do not misuse
 `handler_timeout` as a total lifetime for long-lived streams.
+
+Deferred note (Plan 174): a service may return response-start while a
+downstream task still owns an Active `RequestBody`. Connection reuse then
+waits for both the request framing boundary (body Complete) and the
+response boundary; abandonment forces safe close via Hyper (pinned by
+`deferred_lifecycle` regression tests). EggServe `max_in_flight_requests`
+bounds pre-response `Service::call` execution only; downstream
+application-task admission is downstream-owned.
 
 ### 6. Connection total timeout
 

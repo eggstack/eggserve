@@ -2,9 +2,23 @@
 
 ## Status
 
-**PLANNED.**
+**IMPLEMENTED / CLOSED.**
 
-Prerequisites: Plan 172 present. Plan 173 should settle any canonical metadata API changes before this plan closes, but the lifecycle design spike may proceed in parallel.
+Prerequisites: Plan 172 present. Plan 173 closed (octet-preserving metadata).
+
+## Closure record
+
+Tracks A–F implemented on `main`:
+
+- Phase 0 spike proved Hyper 1.11 supports overlapping request consumption/response production (early response before EOF, body completes later, keep-alive reuse; abandonment closes without parsing trailing bytes).
+- Track A: `Arc<AtomicBool>` replaced by `RequestShared` (Active/Complete/Abandoned/Failed + cancellation, one allocation, `Notify` for body/cancel observers; EOF validates framing, transport error marks Failed, Drop marks Abandoned for network bodies only).
+- Track B: ownership-derived delegation (move keeps Active, Drop marks Abandoned); reuse waits for both boundaries via Hyper-pinned behavior + `deferred` activity accounting (idle excludes deferred); abandonment forces `Connection: close` at return and Hyper close after.
+- Track C: Stream `Service::call` stays collapsed as `min(body, handler)` for compat (disambiguated via lifecycle); remaining `body_read_timeout` continues after response-start via watchdog (Failed + cancel + driver close). Documented as compatibility-preserving split in `docs/timeout-reference.md`.
+- Track D: public `RequestLifecycle` (`cancelled()`, `is_cancelled()`, `cancellation_reason()`; PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure, first wins) via `Request::lifecycle()`/`into_parts_with_lifecycle()` (additive). Driver cancels on ClientError/Shutdown/Timeouts; body failure cancels; send-side race preserved.
+- Track E: response-stream drop + lifecycle compose (Hyper close wakes polls); EggServe owns no downstream tasks (reference consumer in Plan 175 proves composition).
+- Track F: `max_in_flight_requests` bounds pre-response `Service::call` only (released at `finish`); downstream owns app-task budget (documented, tested).
+- Observability: `deferred_body_delegated/completed/abandoned/timeout`, `request_lifecycle_peer_disconnect/runtime_cancel` counters + events (plus legacy `body_read_timeouts`).
+- Verification: `tests/deferred_lifecycle.rs` (9 TCP + TLS parity + duplex parity + admission) pins all orderings, disconnect/shutdown/timeout, and permit recovery.
 
 ## Goal
 

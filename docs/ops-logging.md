@@ -119,7 +119,13 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `symlink_denied` | DEBUG | Symlink access denied |
 | `root_escape_denied` | WARN | Path escapes root |
 | `body_policy_rejection` | DEBUG | Request body rejected by policy |
-| `incomplete_body_close` | DEBUG | Connection closed with unconsumed body |
+| `incomplete_body_close` | DEBUG | Connection closed with Abandoned/Failed body at return |
+| `deferred_body_delegated` | DEBUG | Stream body Active past service return |
+| `deferred_body_completed` | DEBUG | Deferred body Complete after response-start |
+| `deferred_body_abandoned` | DEBUG | Deferred body Abandoned/Failed after response-start (Hyper closes) |
+| `deferred_body_timeout` | WARN | Remaining body_read_timeout fired after response-start |
+| `request_lifecycle_peer_disconnect` | DEBUG | Lifecycle cancelled: peer disconnected |
+| `request_lifecycle_runtime_cancel` | DEBUG | Lifecycle cancelled: shutdown/timeout/transport |
 | `service_invocation_suppressed` | WARN | Service call skipped (e.g., timeout already fired) |
 | `service_timeout` | WARN | Handler timed out (504) |
 | `service_error` | ERROR | Handler returned error |
@@ -174,6 +180,12 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `stream_producer_errors` | Producer failures after commitment |
 | `stream_producer_panics` | Producer panics while polling |
 | `stream_cancelled` | Streams cancelled before completion |
+| `deferred_bodies_delegated` | Bodies delegated past service return |
+| `deferred_bodies_completed` | Deferred bodies completed after response-start |
+| `deferred_bodies_abandoned` | Deferred bodies abandoned/failed after response-start |
+| `deferred_body_timeouts` | Deferred body timeouts after response-start |
+| `lifecycle_peer_disconnects` | Lifecycle peer-disconnect cancellations |
+| `lifecycle_runtime_cancels` | Lifecycle runtime cancellations |
 
 ## Troubleshooting
 

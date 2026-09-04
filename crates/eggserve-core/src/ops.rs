@@ -77,6 +77,13 @@ pub enum EventKind {
     ResponseStreamProducerError,
     ResponseStreamProducerPanic,
     ResponseStreamCancelled,
+    // Deferred request-body ownership + lifecycle (Plan 174)
+    DeferredBodyDelegated,
+    DeferredBodyCompleted,
+    DeferredBodyAbandoned,
+    DeferredBodyTimeout,
+    RequestLifecyclePeerDisconnect,
+    RequestLifecycleRuntimeCancel,
 
     // Operational
     ListenerTransientError,
@@ -135,6 +142,12 @@ impl fmt::Display for EventKind {
             EventKind::ResponseStreamProducerError => "response_stream_producer_error",
             EventKind::ResponseStreamProducerPanic => "response_stream_producer_panic",
             EventKind::ResponseStreamCancelled => "response_stream_cancelled",
+            EventKind::DeferredBodyDelegated => "deferred_body_delegated",
+            EventKind::DeferredBodyCompleted => "deferred_body_completed",
+            EventKind::DeferredBodyAbandoned => "deferred_body_abandoned",
+            EventKind::DeferredBodyTimeout => "deferred_body_timeout",
+            EventKind::RequestLifecyclePeerDisconnect => "request_lifecycle_peer_disconnect",
+            EventKind::RequestLifecycleRuntimeCancel => "request_lifecycle_runtime_cancel",
 
             EventKind::ListenerTransientError => "listener_transient_error",
             EventKind::ListenerPersistentError => "listener_persistent_error",
@@ -612,6 +625,12 @@ pub struct OpsCounters {
     pub stream_producer_errors: AtomicU64,
     pub stream_producer_panics: AtomicU64,
     pub stream_cancelled: AtomicU64,
+    pub deferred_bodies_delegated: AtomicU64,
+    pub deferred_bodies_completed: AtomicU64,
+    pub deferred_bodies_abandoned: AtomicU64,
+    pub deferred_body_timeouts: AtomicU64,
+    pub lifecycle_peer_disconnects: AtomicU64,
+    pub lifecycle_runtime_cancels: AtomicU64,
 }
 
 impl Default for OpsCounters {
@@ -650,6 +669,12 @@ impl OpsCounters {
             stream_producer_errors: AtomicU64::new(0),
             stream_producer_panics: AtomicU64::new(0),
             stream_cancelled: AtomicU64::new(0),
+            deferred_bodies_delegated: AtomicU64::new(0),
+            deferred_bodies_completed: AtomicU64::new(0),
+            deferred_bodies_abandoned: AtomicU64::new(0),
+            deferred_body_timeouts: AtomicU64::new(0),
+            lifecycle_peer_disconnects: AtomicU64::new(0),
+            lifecycle_runtime_cancels: AtomicU64::new(0),
         }
     }
 
@@ -682,6 +707,12 @@ impl OpsCounters {
             stream_producer_errors: self.stream_producer_errors.load(Ordering::Relaxed),
             stream_producer_panics: self.stream_producer_panics.load(Ordering::Relaxed),
             stream_cancelled: self.stream_cancelled.load(Ordering::Relaxed),
+            deferred_bodies_delegated: self.deferred_bodies_delegated.load(Ordering::Relaxed),
+            deferred_bodies_completed: self.deferred_bodies_completed.load(Ordering::Relaxed),
+            deferred_bodies_abandoned: self.deferred_bodies_abandoned.load(Ordering::Relaxed),
+            deferred_body_timeouts: self.deferred_body_timeouts.load(Ordering::Relaxed),
+            lifecycle_peer_disconnects: self.lifecycle_peer_disconnects.load(Ordering::Relaxed),
+            lifecycle_runtime_cancels: self.lifecycle_runtime_cancels.load(Ordering::Relaxed),
         }
     }
 }
@@ -715,6 +746,12 @@ pub struct OpsSnapshot {
     pub stream_producer_errors: u64,
     pub stream_producer_panics: u64,
     pub stream_cancelled: u64,
+    pub deferred_bodies_delegated: u64,
+    pub deferred_bodies_completed: u64,
+    pub deferred_bodies_abandoned: u64,
+    pub deferred_body_timeouts: u64,
+    pub lifecycle_peer_disconnects: u64,
+    pub lifecycle_runtime_cancels: u64,
 }
 
 #[cfg(test)]

@@ -49,6 +49,7 @@ use tokio::sync::broadcast;
 
 use crate::primitives::connection_info::{Scheme, SocketEndpoints, TlsInfo};
 use crate::primitives::request_body_policy::RequestBodyPolicy;
+use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 use crate::server::service::{Service, ServiceError};
@@ -246,6 +247,94 @@ impl ConnectionShutdown {
     }
 }
 
+/// Per-connection registry of live request lifecycles (Plan 174 Track D).
+///
+/// Each canonical request registers a [`Weak`](std::sync::Weak) observer.
+/// On abnormal connection termination the driver cancels all still-live
+/// lifecycles with a best-effort reason so idle downstream waiters wake
+/// without polling body/response IO. Completed requests prune lazily on
+/// next registration; the list stays tiny because HTTP/1 processes one
+/// request at a time (plus at most one deferred body).
+#[derive(Debug, Default)]
+pub(crate) struct ConnectionRequests {
+    inner: std::sync::Mutex<Vec<std::sync::Weak<RequestShared>>>,
+}
+
+impl ConnectionRequests {
+    fn new() -> Self {
+        Self {
+            inner: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Register a new lifecycle observer, pruning dead entries.
+    fn register(&self, shared: &Arc<RequestShared>) {
+        let weak = Arc::downgrade(shared);
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.retain(|w| w.upgrade().is_some());
+            guard.push(weak);
+        }
+    }
+
+    /// Cancel all still-live lifecycles with observability.
+    ///
+    /// Already-cancelled lifecycles are skipped (first reason wins).
+    fn cancel_all(&self, reason: RequestCancellationReason, conn_id: u64) {
+        let live: Vec<Arc<RequestShared>> = if let Ok(guard) = self.inner.lock() {
+            guard.iter().filter_map(|w| w.upgrade()).collect()
+        } else {
+            Vec::new()
+        };
+        for shared in live {
+            cancel_shared_with_observability(&shared, reason, conn_id);
+        }
+    }
+}
+
+/// Cancel one lifecycle with narrow observability (Plan 174).
+///
+/// Idempotent: already-cancelled lifecycles are skipped so the first reason
+/// wins under cancellation races.
+pub(crate) fn cancel_shared_with_observability(
+    shared: &Arc<RequestShared>,
+    reason: RequestCancellationReason,
+    conn_id: u64,
+) -> bool {
+    if shared.is_cancelled() {
+        return false;
+    }
+    shared.cancel(reason);
+    match reason {
+        RequestCancellationReason::PeerDisconnected => {
+            crate::ops::global_counters()
+                .lifecycle_peer_disconnects
+                .fetch_add(1, Ordering::Relaxed);
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::RequestLifecyclePeerDisconnect,
+                    "request lifecycle peer disconnect",
+                )
+                .connection_id(conn_id),
+            );
+        }
+        _ => {
+            crate::ops::global_counters()
+                .lifecycle_runtime_cancels
+                .fetch_add(1, Ordering::Relaxed);
+            crate::ops::Logger::global().emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::RequestLifecycleRuntimeCancel,
+                    format!("request lifecycle cancelled: {reason}"),
+                )
+                .connection_id(conn_id),
+            );
+        }
+    }
+    true
+}
+
 /// Per-connection request/response activity shared between the Hyper service
 /// closure (which observes requests and responses) and the connection driver
 /// (which enforces keep-alive-idle, write-progress, and total-lifetime
@@ -263,6 +352,16 @@ pub(crate) struct ConnectionActivity {
     in_flight: AtomicU64,
     outstanding: AtomicU64,
     completed: AtomicU64,
+    /// Deferred request bodies still owned past `Service::call` return
+    /// (Plan 174 Track B). While >0 the connection is not idle even when
+    /// no service execution is in-flight and no response is outstanding:
+    /// the prior request framing boundary is not yet complete.
+    deferred: AtomicU64,
+    /// Set by the deferred-body watchdog when `body_read_timeout` fires
+    /// after response-start. The driver observes it on its next wake and
+    /// closes the connection; the watchdog already marked the body Failed
+    /// and cancelled the lifecycle.
+    body_timeout_fired: AtomicBool,
     notify: tokio::sync::Notify,
 }
 
@@ -284,6 +383,8 @@ impl ConnectionActivity {
             in_flight: AtomicU64::new(0),
             outstanding: AtomicU64::new(0),
             completed: AtomicU64::new(0),
+            deferred: AtomicU64::new(0),
+            body_timeout_fired: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
         }
     }
@@ -365,7 +466,33 @@ impl ConnectionActivity {
         self.notify.notify_one();
     }
 
-    fn snapshot(&self) -> (u64, u64, u64, ActivityState) {
+    /// A deferred body started (service returned with Active body).
+    fn deferred_started(&self) {
+        self.deferred.fetch_add(1, Ordering::Relaxed);
+        self.notify.notify_one();
+    }
+
+    /// A deferred body reached a terminal state.
+    fn deferred_finished(&self) {
+        if self.deferred.fetch_sub(1, Ordering::Relaxed) == 0 {
+            self.deferred.fetch_add(1, Ordering::Relaxed);
+        }
+        self.touch();
+        self.notify.notify_one();
+    }
+
+    /// Arm the deferred-body timeout close. Called by the watchdog after it
+    /// marked the body Failed and cancelled the lifecycle.
+    fn fire_body_timeout(&self) {
+        self.body_timeout_fired.store(true, Ordering::Release);
+        self.notify.notify_one();
+    }
+
+    fn take_body_timeout(&self) -> bool {
+        self.body_timeout_fired.swap(false, Ordering::AcqRel)
+    }
+
+    fn snapshot(&self) -> (u64, u64, u64, u64, ActivityState) {
         let state = self
             .state
             .lock()
@@ -378,6 +505,7 @@ impl ConnectionActivity {
             self.in_flight.load(Ordering::Relaxed),
             self.outstanding.load(Ordering::Relaxed),
             self.completed.load(Ordering::Relaxed),
+            self.deferred.load(Ordering::Relaxed),
             state,
         )
     }
@@ -862,16 +990,19 @@ fn finish_conn_result(result: Result<(), hyper::Error>, conn_id: u64) -> Connect
 }
 
 /// Shared connection driver: polls one Hyper connection while enforcing
-/// four independent deadlines.
+/// independent deadlines.
 ///
 /// - `connection_total_timeout` — hard maximum connection lifetime, never
 ///   reset (defense in depth);
 /// - `keep_alive_idle_timeout` — graceful close after inactivity, reset on
 ///   every request/transport activity; only applies with no in-flight
-///   request and no outstanding response body;
+///   request, no outstanding response body, and no deferred request body
+///   still owned past `Service::call` return (Plan 174);
 /// - `response_write_timeout` — close after no forward socket progress
 ///   while a response body is outstanding; steady progress, however slow,
 ///   never triggers it;
+/// - deferred-body timeout — close after `body_read_timeout` with an Active
+///   deferred body (armed by the per-request watchdog);
 /// - shutdown signal — graceful close with bounded post-shutdown drain.
 ///
 /// The driver sleeps until the next applicable deadline and recomputes on
@@ -882,6 +1013,7 @@ async fn drive_connection<C, F>(
     mut conn: std::pin::Pin<&mut C>,
     config: &RuntimeConfig,
     activity: &Arc<ConnectionActivity>,
+    requests: &Arc<ConnectionRequests>,
     conn_id: u64,
     shutdown: F,
 ) -> ConnectionOutcome
@@ -905,11 +1037,21 @@ where
                 )
                 .connection_id(conn_id),
             );
+            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
             graceful_close(conn.as_mut(), config, conn_id).await;
             return ConnectionOutcome::TotalTimeout;
         }
-        let (in_flight, outstanding, _completed, state) = activity.snapshot();
-        let idle = in_flight == 0 && outstanding == 0;
+        // Deferred-body timeout fired by the per-request watchdog: the body
+        // was already marked Failed and its lifecycle cancelled with
+        // ConnectionTimeout. Close the transport so pending body/response
+        // polls wake via transport failure.
+        if activity.take_body_timeout() {
+            graceful_close(conn.as_mut(), config, conn_id).await;
+            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
+            return ConnectionOutcome::ClientError;
+        }
+        let (in_flight, outstanding, _completed, deferred, state) = activity.snapshot();
+        let idle = in_flight == 0 && outstanding == 0 && deferred == 0;
         if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
             crate::ops::global_counters()
                 .keepalive_idle_timeouts
@@ -938,6 +1080,7 @@ where
                 )
                 .connection_id(conn_id),
             );
+            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
             graceful_close(conn.as_mut(), config, conn_id).await;
             return ConnectionOutcome::WriteTimeout;
         }
@@ -960,13 +1103,29 @@ where
         }
         let sleep = tokio::time::sleep_until(tokio::time::Instant::from_std(wake));
         tokio::select! {
-            result = &mut conn => return finish_conn_result(result, conn_id),
+            result = &mut conn => {
+                let outcome = finish_conn_result(result, conn_id);
+                // Peer disconnect / transport failure must wake idle
+                // downstream waiters even if they are not polling body/response IO.
+                match outcome {
+                    ConnectionOutcome::ClientError => {
+                        requests.cancel_all(RequestCancellationReason::PeerDisconnected, conn_id);
+                    }
+                    ConnectionOutcome::HeaderTimeout => {
+                        requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
+                    }
+                    _ => {}
+                }
+                return outcome;
+            }
             _ = &mut shutdown => {
+                requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id);
                 graceful_close(conn.as_mut(), config, conn_id).await;
                 return ConnectionOutcome::Shutdown;
             }
             // A state change may have created an earlier deadline (new
-            // response arms the write timer); recompute immediately.
+            // response arms the write timer; deferred completion clears
+            // idle; body-timeout flag requests close); recompute immediately.
             _ = activity.notify.notified() => continue,
             _ = sleep => continue,
         }
@@ -991,6 +1150,7 @@ pub(crate) async fn serve_connection<I, S>(
     service: S,
     config: &RuntimeConfig,
     activity: &Arc<ConnectionActivity>,
+    requests: &Arc<ConnectionRequests>,
     shutdown_rx: &mut broadcast::Receiver<()>,
     conn_id: u64,
 ) -> ConnectionOutcome
@@ -1010,7 +1170,7 @@ where
     let shutdown = async move {
         let _ = shutdown_rx.recv().await;
     };
-    drive_connection(conn.as_mut(), config, activity, conn_id, shutdown).await
+    drive_connection(conn.as_mut(), config, activity, requests, conn_id, shutdown).await
 }
 
 /// Drive a Hyper connection with a caller-owned shutdown token.
@@ -1024,6 +1184,7 @@ async fn serve_hyper_with_token<I, S>(
     service: S,
     config: &RuntimeConfig,
     activity: &Arc<ConnectionActivity>,
+    requests: &Arc<ConnectionRequests>,
     shutdown: &ConnectionShutdown,
     conn_id: u64,
 ) -> ConnectionOutcome
@@ -1043,7 +1204,7 @@ where
     let shutdown = async move {
         shutdown.cancelled().await;
     };
-    drive_connection(conn.as_mut(), config, activity, conn_id, shutdown).await
+    drive_connection(conn.as_mut(), config, activity, requests, conn_id, shutdown).await
 }
 
 /// Build the shared per-request canonical pipeline as a Hyper service.
@@ -1067,6 +1228,7 @@ fn make_canonical_hyper_service<S>(
     file_stream_semaphore: Arc<tokio::sync::Semaphore>,
     service_semaphore: Arc<tokio::sync::Semaphore>,
     activity: Arc<ConnectionActivity>,
+    requests: Arc<ConnectionRequests>,
     stream_chunk_size: usize,
     handler_timeout: std::time::Duration,
     body_read_timeout: std::time::Duration,
@@ -1095,9 +1257,10 @@ where
         let file_stream_semaphore = file_stream_semaphore.clone();
         let service_semaphore = service_semaphore.clone();
         let activity = activity.clone();
+        let requests = requests.clone();
         let config = config.clone();
         Box::pin(async move {
-            let mut guard = InFlightGuard::new(activity);
+            let mut guard = InFlightGuard::new(activity.clone());
             // Convert Hyper request to canonical RequestHead, enforcing the
             // EggServe-owned request-target and aggregate header ceilings
             // before any service work.
@@ -1324,6 +1487,7 @@ where
                         return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
                     }
                     let connection = context.connection_info();
+                    requests.register(&request_body.shared());
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -1433,6 +1597,7 @@ where
                         return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
                     }
                     let connection = context.connection_info();
+                    requests.register(&request_body.shared());
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -1486,12 +1651,19 @@ where
                     Ok::<_, Infallible>(guard.finish(response, &config, conn_id))
                 }
                 RequestBodyPolicy::Stream { .. } => {
-                    // For Stream mode the service call (including body
-                    // consumption) runs under a total deadline of
-                    // `min(body_read_timeout, handler_timeout)` (see
-                    // `docs/timeout-reference.md`). `Buffer` mode applies the
-                    // two timeouts separately; `Stream` collapses them.
+                    // Plan 174 Track C (compatibility-preserving split):
+                    // during `Service::call` the two deadlines remain
+                    // collapsed as `min(body_read_timeout, handler_timeout)`
+                    // with body-vs-handler disambiguation, preserving the
+                    // documented pre-174 behavior for conventional handlers.
+                    // Once response-start is available with an Active
+                    // deferred body, `body_read_timeout` continues as a total
+                    // deadline via the watchdog below while `handler_timeout`
+                    // no longer applies to the downstream task.
                     let effective_timeout = body_read_timeout.min(handler_timeout);
+                    // Total body deadline from ingestion start for the
+                    // post-return watchdog.
+                    let body_deadline = tokio::time::Instant::now() + body_read_timeout;
                     if let Some(unavailable) = guard.admit(
                         &service_semaphore,
                         conn_id,
@@ -1500,9 +1672,10 @@ where
                         return Ok::<_, Infallible>(guard.finish(unavailable, &config, conn_id));
                     }
                     let connection = context.connection_info();
-                    // Clone the consumption flag before the body is moved into
-                    // Request; Stream mode is the only consumer.
-                    let consumed_flag = request_body.consumed_flag();
+                    // Shared lifecycle observer retained by the runtime while
+                    // the service owns/moves the actual body (Track A/B1).
+                    let body_shared = request_body.shared();
+                    requests.register(&body_shared);
                     let request =
                         crate::primitives::request::Request::new(head, request_body, connection);
 
@@ -1540,14 +1713,10 @@ where
                             )
                         }
                         Err(_elapsed) => {
-                            // The collapsed `Stream` timeout hides whether the
-                            // stall was on body I/O or handler logic. When the
-                            // body is still unconsumed the stall is on I/O, so
-                            // surface it as a `BodyReadTimeout` (incrementing the
-                            // same counter as the `Buffer` path) for operator
-                            // observability; otherwise it is a handler timeout.
-                            let body_pending =
-                                !consumed_flag.load(std::sync::atomic::Ordering::Acquire);
+                            // Preserved collapsed distinction: body still
+                            // unconsumed => body stall (408 + counters),
+                            // otherwise handler stall (504).
+                            let body_pending = body_shared.is_body_active();
                             if body_pending {
                                 crate::ops::global_counters()
                                     .body_read_timeouts
@@ -1577,29 +1746,76 @@ where
                         }
                     };
 
-                    // A stream that is not consumed to EOF cannot safely leave
-                    // unread bytes on an HTTP/1.1 connection. Close only in
-                    // that case; fully consumed streams remain reusable.
-                    let incomplete = !consumed_flag.load(std::sync::atomic::Ordering::Acquire);
-                    if incomplete {
-                        crate::ops::Logger::global().emit(
-                            crate::ops::Event::new(
-                                crate::ops::Severity::Debug,
-                                crate::ops::EventKind::IncompleteBodyClose,
-                                "service returned with unconsumed body; connection will close",
-                            )
-                            .connection_id(conn_id),
-                        );
+                    // Ownership-derived reuse safety (Track B): returning the
+                    // Response does not force a decision while the body is
+                    // still Active (deferred to a downstream task). Hyper
+                    // prevents next-request parsing until the framing
+                    // boundary is complete (pinned by regression tests); EggServe
+                    // forces close only on abandonment/failure.
+                    use crate::primitives::request_lifecycle::BodyLifecycleState;
+                    match body_shared.body_state() {
+                        BodyLifecycleState::Complete => {
+                            let response = guard.finish(response, &config, conn_id);
+                            Ok::<_, Infallible>(response)
+                        }
+                        BodyLifecycleState::Active => {
+                            // Deferred: response-start available while a valid
+                            // downstream task still owns the body. Do NOT add
+                            // `Connection: close` merely because response-start
+                            // came first. Track for idle accounting and
+                            // completion observability; permits remain distinct
+                            // (Track F): service admission already released by
+                            // `finish`, downstream owns its own budget.
+                            crate::ops::global_counters()
+                                .deferred_bodies_delegated
+                                .fetch_add(1, Ordering::Relaxed);
+                            crate::ops::Logger::global().emit(
+                                crate::ops::Event::new(
+                                    crate::ops::Severity::Debug,
+                                    crate::ops::EventKind::DeferredBodyDelegated,
+                                    "request body delegated past service return",
+                                )
+                                .connection_id(conn_id),
+                            );
+                            activity.deferred_started();
+                            spawn_deferred_tracker(body_shared.clone(), activity.clone(), conn_id);
+                            // Arm the remaining body deadline for deferred
+                            // consumption. If already past deadline, the
+                            // watchdog fires immediately.
+                            {
+                                let now = tokio::time::Instant::now();
+                                let deadline = if body_deadline > now {
+                                    body_deadline
+                                } else {
+                                    now
+                                };
+                                spawn_body_timeout_watchdog(
+                                    body_shared.clone(),
+                                    activity.clone(),
+                                    deadline,
+                                    conn_id,
+                                );
+                            }
+                            let response = guard.finish(response, &config, conn_id);
+                            Ok::<_, Infallible>(response)
+                        }
+                        BodyLifecycleState::Abandoned | BodyLifecycleState::Failed => {
+                            crate::ops::Logger::global().emit(
+                                crate::ops::Event::new(
+                                    crate::ops::Severity::Debug,
+                                    crate::ops::EventKind::IncompleteBodyClose,
+                                    "service returned with abandoned/failed body; connection will close",
+                                )
+                                .connection_id(conn_id),
+                            );
+                            let mut response = guard.finish(response, &config, conn_id);
+                            response.headers_mut().insert(
+                                hyper::header::CONNECTION,
+                                hyper::header::HeaderValue::from_static("close"),
+                            );
+                            Ok::<_, Infallible>(response)
+                        }
                     }
-
-                    let mut response = guard.finish(response, &config, conn_id);
-                    if incomplete {
-                        response.headers_mut().insert(
-                            hyper::header::CONNECTION,
-                            hyper::header::HeaderValue::from_static("close"),
-                        );
-                    }
-                    Ok::<_, Infallible>(response)
                 }
             }
         })
@@ -1644,12 +1860,14 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
     let activity = Arc::new(ConnectionActivity::new());
+    let requests = Arc::new(ConnectionRequests::new());
     let hyper_service = make_canonical_hyper_service(
         service,
         config.clone(),
         file_stream_semaphore,
         service_semaphore,
         activity.clone(),
+        requests.clone(),
         config.stream_chunk_size,
         config.handler_timeout,
         config.body_read_timeout,
@@ -1657,7 +1875,16 @@ pub async fn serve_connection_with_runtime_state<I, S>(
         context,
         conn_id,
     );
-    let _ = serve_connection(io, hyper_service, &config, &activity, shutdown_rx, conn_id).await;
+    let _ = serve_connection(
+        io,
+        hyper_service,
+        &config,
+        &activity,
+        &requests,
+        shutdown_rx,
+        conn_id,
+    )
+    .await;
 }
 
 /// Serve one HTTP/1 connection over any suitable bidirectional async byte
@@ -1761,12 +1988,14 @@ where
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
     let activity = Arc::new(ConnectionActivity::new());
+    let requests = Arc::new(ConnectionRequests::new());
     let hyper_service = make_canonical_hyper_service(
         service,
         config.clone(),
         file_stream_semaphore,
         service_semaphore,
         activity.clone(),
+        requests.clone(),
         config.stream_chunk_size,
         config.handler_timeout,
         config.body_read_timeout,
@@ -1774,7 +2003,16 @@ where
         context,
         conn_id,
     );
-    serve_hyper_with_token(io, hyper_service, &config, &activity, shutdown, conn_id).await
+    serve_hyper_with_token(
+        io,
+        hyper_service,
+        &config,
+        &activity,
+        &requests,
+        shutdown,
+        conn_id,
+    )
+    .await
 }
 
 /// Normalize a service response then convert to Hyper.
@@ -1859,6 +2097,110 @@ fn select_body_policy(service_policy: RequestBodyPolicy, max_body_bytes: u64) ->
             }
         }
     }
+}
+
+/// Spawn the deferred-body read-timeout watchdog (Plan 174 Track C).
+///
+/// The watchdog enforces `body_read_timeout` as a total deadline from
+/// request start, including consumption that continues after
+/// `Service::call` returns response-start. It exits early when the body
+/// reaches any terminal state. On expiry while Active it marks Failed with
+/// `ConnectionTimeout`, cancels the lifecycle, increments both the legacy
+/// `body_read_timeouts` (operator consistency) and the new
+/// `deferred_body_timeouts`, emits narrow events, and arms the driver close
+/// via [`ConnectionActivity::fire_body_timeout`] so pending body/response
+/// polls wake via transport failure.
+fn spawn_body_timeout_watchdog(
+    shared: Arc<RequestShared>,
+    activity: Arc<ConnectionActivity>,
+    deadline: tokio::time::Instant,
+    conn_id: u64,
+) {
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = shared.wait_body_terminal() => {},
+            _ = tokio::time::sleep_until(deadline) => {
+                if shared.is_body_active() {
+                    shared.mark_failed_with_reason(
+                        RequestCancellationReason::ConnectionTimeout,
+                    );
+                    crate::ops::global_counters()
+                        .body_read_timeouts
+                        .fetch_add(1, Ordering::Relaxed);
+                    crate::ops::global_counters()
+                        .deferred_body_timeouts
+                        .fetch_add(1, Ordering::Relaxed);
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Warn,
+                            crate::ops::EventKind::BodyReadTimeout,
+                            "deferred body read timeout",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    crate::ops::Logger::global().emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Warn,
+                            crate::ops::EventKind::DeferredBodyTimeout,
+                            "deferred body read timeout; closing connection",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    activity.fire_body_timeout();
+                }
+            }
+        }
+    });
+}
+
+/// Spawn the deferred-body completion tracker (Plan 174 Track B2/E).
+///
+/// Caller must have already incremented the activity deferred count via
+/// [`ConnectionActivity::deferred_started`]. The tracker waits for body
+/// terminal, decrements, touches activity for idle accounting, and emits
+/// narrow completion/abandonment observability. It never holds a service
+/// permit: EggServe `max_in_flight_requests` bounds pre-response
+/// `Service::call` execution only; downstream application-task admission is
+/// downstream-owned (Track F).
+fn spawn_deferred_tracker(
+    shared: Arc<RequestShared>,
+    activity: Arc<ConnectionActivity>,
+    conn_id: u64,
+) {
+    tokio::spawn(async move {
+        shared.wait_body_terminal().await;
+        activity.deferred_finished();
+        match shared.body_state() {
+            crate::primitives::request_lifecycle::BodyLifecycleState::Complete => {
+                crate::ops::global_counters()
+                    .deferred_bodies_completed
+                    .fetch_add(1, Ordering::Relaxed);
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::DeferredBodyCompleted,
+                        "deferred body completed after response-start",
+                    )
+                    .connection_id(conn_id),
+                );
+            }
+            crate::primitives::request_lifecycle::BodyLifecycleState::Abandoned
+            | crate::primitives::request_lifecycle::BodyLifecycleState::Failed => {
+                crate::ops::global_counters()
+                    .deferred_bodies_abandoned
+                    .fetch_add(1, Ordering::Relaxed);
+                crate::ops::Logger::global().emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::DeferredBodyAbandoned,
+                        "deferred body abandoned/failed after response-start; connection will close",
+                    )
+                    .connection_id(conn_id),
+                );
+            }
+            _ => {}
+        }
+    });
 }
 
 /// Convert a RequestBodyError to an HTTP response.

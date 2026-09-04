@@ -241,8 +241,8 @@ All paths then share the same steps:
 
 4. HTTP/1 connection setup via Hyper (explicit `max_buf_size`/`max_headers` parser policy)
 5. Request conversion to canonical types (EggServe `max_request_target_bytes` → 414, `max_header_bytes` → 431, pre-service)
-6. Body ingestion (policy selection, Content-Length preflight, transfer decoding)
-7. Service admission (`max_in_flight_requests`; 503 on exhaustion) and invocation with timeout (`handler_timeout` bounds time-to-`Response`; streaming progress is bounded by `response_write_timeout`, lifetime by `connection_total_timeout`)
+6. Body ingestion (policy selection, Content-Length preflight, transfer decoding; Stream creates a shared lifecycle + `RequestLifecycle` and registers for cancellation)
+7. Service admission (`max_in_flight_requests`; 503 on exhaustion) and invocation with timeout (`min(body_read_timeout, handler_timeout)` during the call for compatibility, disambiguated via lifecycle state; `handler_timeout` bounds response-start, remaining `body_read_timeout` continues after response-start via watchdog; streaming progress is bounded by `response_write_timeout`, lifetime by `connection_total_timeout`)
 8. Canonical response normalization (`normalize_then_convert`: idempotent
    `normalize_response` then Hyper conversion; runtime owns `Content-Length`,
    `Transfer-Encoding`, reuse) with `ErrorRepresentationPolicy` for conversion
@@ -302,9 +302,35 @@ binding a socket.
 (duplicate-CL rejection; lone TE+CL normalizes to TE-wins per RFC 9112 §6.1), TRACE/body policy, canonical Request conversion, handler timeout
 ceiling, panic containment, canonical response normalization, runtime-owned
 framing (`Content-Length`, `Transfer-Encoding`, reuse), Plan 165 response
-privacy, file/stream admission via shared semaphore, incomplete-body
-close, and shutdown/drain semantics. All paths share a single normalization
+privacy, file/stream admission via shared semaphore, lifecycle-aware
+incomplete-body close (Complete reusable, Active deferred without forced
+close, Abandoned/Failed forced close; Hyper pinned to prevent next-request
+parsing until the framing boundary), and shutdown/drain semantics. All paths share a single normalization
 and framing authority.
+
+### Deferred bodies + request lifecycle (Plan 174)
+
+- `RequestBody` shares one `RequestShared` allocation (Active/Complete/
+  Abandoned/Failed + cancellation) instead of a boolean; dropping an
+  incomplete network body marks Abandoned (ownership-derived, no manual
+  flag). In-memory copies never force close.
+- `Request::lifecycle()` / `lifecycle_clone()` / `into_parts_with_lifecycle()`
+  expose the transport-neutral `RequestLifecycle` (`cancelled()`,
+  `is_cancelled()`, `cancellation_reason()` with PeerDisconnected /
+  ServerShutdown / ConnectionTimeout / TransportFailure, first reason wins).
+  It fires on peer loss, forced close, hard timeouts, shutdown after drain,
+  and body/transport failure — never merely on Service return, body EOF, or
+  normal response completion on keep-alive.
+- Stream `Service::call` stays collapsed as `min(body, handler)` for
+  compatibility (disambiguated via lifecycle state); after response-start
+  with Active body the remaining `body_read_timeout` continues via watchdog
+  (Failed + cancel + driver close so pending polls wake). Connection reuse
+  waits for both boundaries; abandonment closes via Hyper (pinned by
+  `tests/deferred_lifecycle.rs` over TCP, TLS, and duplex).
+- `max_in_flight_requests` bounds pre-response `Service::call` only;
+  downstream app tasks own a separate budget (Track F). Send-side
+  response failure may precede lifecycle cancellation; treat either as
+  cancellation.
 
 **Python impact:** No raw Python transports in this plan; `ConnectionInfo`
 views expose `None` for both `local_addr` and `remote_addr` on non-socket
@@ -361,7 +387,7 @@ The runtime handles request body ingestion transparently for services:
    - 413: body too large
    - 500: transport error
 
-6. **Incomplete body handling**: When a service returns without fully consuming a Stream body, the connection closes. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value.
+6. **Incomplete body handling**: When a service returns with an Abandoned/Failed Stream body, the connection closes. When it returns with an Active body delegated to a downstream task, no forced close occurs; reuse waits for body Complete and abandonment closes via Hyper. Active drain is not safely implementable because the body stream is consumed into the `Request` envelope by value.
 
 ## Request body handling
 
@@ -371,15 +397,16 @@ The runtime manages request body lifecycle through the `Request` envelope:
 
 - `Service::request_body_policy(&RequestHead)` — service-declared per-request policy (method-aware)
 - `RuntimeConfig::max_request_body_bytes` — hard ceiling no service can exceed
-- Incomplete body handling: always close (hardcoded, not configurable)
+- Incomplete body handling: close on Abandoned/Failed, deferred without close on Active (Hyper-pinned)
 
 ### Request envelope
 
 ```rust
 pub struct Request {
     head: RequestHead,      // immutable request metadata
-    body: RequestBody,       // one-shot, bounded body stream
+    body: RequestBody,       // one-shot, bounded body stream (shares lifecycle)
     connection: ConnectionInfo, // transport metadata
+    lifecycle: RequestLifecycle, // cloneable disconnect/cancel observer
 }
 ```
 
@@ -399,7 +426,7 @@ pub trait Service: Send + Sync + 'static {
 - `RequestBody::read_all(self)` — buffer entire body
 - `RequestBody::next_chunk(&mut self)` — stream chunks
 - `Stream` trait implementation for async iteration
-- State machine: Unread → Streaming → Complete | Error
+- State machine: Unread → Streaming → Complete | Error (consumption); lifecycle: Active → Complete | Abandoned | Failed (ownership, Drop-derived for network bodies)
 
 ### Static service
 

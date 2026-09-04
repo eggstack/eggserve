@@ -50,7 +50,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | `ServerBuilder` | Configured builder for `Server`; supports `.bind()` and `.from_listener()` for existing listeners |
 | `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, body ceiling, optional TLS) |
-| `Service` trait | Receives `Request` (envelope: `RequestHead` + `RequestBody` + `ConnectionInfo`), returns `Result<Response, ServiceError>` |
+| `Service` trait | Receives `Request` (envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` + `RequestLifecycle`), returns `Result<Response, ServiceError>` |
 | `service_fn` | Create a `Service` from a closure |
 | `StaticService` | Hardened static file service implementing `Service` |
 | `ServiceError` | Per-request errors: Internal, Rejected, Panic, Timeout |
@@ -60,7 +60,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 
 ### Guarantees
 
-- Canonical `Request` envelope (containing `RequestHead`, `RequestBody`, `ConnectionInfo`) is passed to services
+- Canonical `Request` envelope (containing `RequestHead`, `RequestBody`, `ConnectionInfo`, `RequestLifecycle`) is passed to services
 - Canonical `Response` is returned by services; the runtime normalizes and sends it
 - Hop-by-hop header stripping and content-length computation are runtime-owned
 - Handler panics are caught at the tokio task boundary and map to `ServiceError::Panic`
@@ -92,10 +92,11 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | Type | Description |
 |------|-------------|
 | `RequestBodyPolicy` | Body acceptance policy: `Reject`, `Buffer { max_bytes }`, `Stream { max_bytes }` |
-| `RequestBody` | One-shot, bounded request body with `read_all` and streaming |
+| `RequestBody` | One-shot, bounded request body with `read_all` and streaming (shares lifecycle; Active→Complete/Abandoned/Failed) |
 | `BodyState` | Body consumption state machine: Unread, Streaming, Complete, Error |
+| `RequestLifecycle` | Cloneable disconnect/cancel observer; `RequestCancellationReason` (4 variants, first wins) |
 | `RequestBodyError` | Typed body error taxonomy (policy, limit, timeout, disconnect, consumption state) |
-| `Request` | Canonical request envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` |
+| `Request` | Canonical request envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` + `RequestLifecycle` (`lifecycle()`, `into_parts_with_lifecycle()` additive) |
 | `Service::call(Request)` | Service trait now accepts `Request` instead of `RequestHead` |
 | `RuntimeConfig::max_request_body_bytes` | Hard body size ceiling (default 0) |
 | `Service::request_body_policy(&RequestHead)` | Service-declared body policy, bounded by the runtime ceiling |

@@ -20,11 +20,11 @@
 use bytes::Bytes;
 use futures_util::Stream;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 
 use super::request_body_error::RequestBodyError;
+use super::request_lifecycle::{RequestLifecycle, RequestShared};
 
 /// The consumption state of a request body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -70,10 +70,12 @@ pub struct RequestBody {
     bytes_received: u64,
     state: BodyState,
     max_bytes: u64,
-    /// Shared flag indicating whether the body stream was fully consumed.
-    /// Set when the stream ends and all declared bytes (if any) have been
-    /// received. Used by the connection pipeline for incomplete-body policy.
-    consumed: Arc<AtomicBool>,
+    /// Shared per-request ownership/cancellation state (Plan 174 Track A).
+    ///
+    /// Replaces the former `Arc<AtomicBool>` consumption flag with a lifecycle
+    /// object capable of distinguishing completion from abandonment and active
+    /// delegated ownership. Observers do not require holding the body itself.
+    shared: Arc<RequestShared>,
 }
 
 /// Internal body stream, hidden from public API.
@@ -116,7 +118,7 @@ impl RequestBody {
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes: u64::MAX,
-            consumed: Arc::new(AtomicBool::new(true)),
+            shared: RequestShared::new_complete(),
         }
     }
 
@@ -124,17 +126,27 @@ impl RequestBody {
     ///
     /// The `max_bytes` parameter sets the effective limit. Use `u64::MAX`
     /// for unlimited.
+    ///
+    /// In-memory bodies never force connection close on drop: only
+    /// network-backed (`Incoming`) bodies participate in abandonment
+    /// tracking. An empty fixed body starts `Complete`; non-empty starts
+    /// `Active` until consumed.
     pub fn from_bytes(data: impl Into<Bytes>, max_bytes: u64) -> Self {
         let data = data.into();
         let len = data.len() as u64;
         let is_empty = data.is_empty();
+        let shared = if is_empty {
+            RequestShared::new_complete()
+        } else {
+            RequestShared::new_active()
+        };
         Self {
             inner: Some(BodyInner::Fixed { data, offset: 0 }),
             declared_length: Some(len),
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes,
-            consumed: Arc::new(AtomicBool::new(is_empty)),
+            shared,
         }
     }
 
@@ -157,7 +169,30 @@ impl RequestBody {
             bytes_received: 0,
             state: BodyState::Unread,
             max_bytes,
-            consumed: Arc::new(AtomicBool::new(false)),
+            shared: RequestShared::new_active(),
+        }
+    }
+
+    /// Create a body sharing an existing lifecycle allocation.
+    ///
+    /// Used by the connection pipeline so `RequestBody` and
+    /// `RequestLifecycle` observe the same ownership/cancellation state.
+    #[allow(dead_code)]
+    pub(crate) fn from_incoming_with_shared(
+        stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
+        declared_length: Option<u64>,
+        max_bytes: u64,
+        shared: Arc<RequestShared>,
+    ) -> Self {
+        Self {
+            inner: Some(BodyInner::Incoming {
+                stream: Box::pin(stream),
+            }),
+            declared_length,
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes,
+            shared,
         }
     }
 
@@ -186,24 +221,53 @@ impl RequestBody {
         self.max_bytes
     }
 
-    /// Returns a clone of the shared consumption flag.
+    /// Returns a clone of the shared lifecycle allocation.
     ///
-    /// The flag is set when the body stream ends and all declared bytes
-    /// have been received. Used by the connection pipeline for
-    /// incomplete-body policy decisions.
-    pub(crate) fn consumed_flag(&self) -> Arc<AtomicBool> {
-        self.consumed.clone()
+    /// The runtime retains this observer while the service owns/moves the
+    /// actual `RequestBody`. EOF marks `Complete` only after
+    /// declared-length/framing validation succeeds; transport/body error
+    /// marks `Failed`; dropping an incomplete network body marks
+    /// `Abandoned` unless ownership was transferred into an explicit
+    /// continuation holding the same body.
+    pub(crate) fn shared(&self) -> Arc<RequestShared> {
+        self.shared.clone()
+    }
+
+    /// Cloneable transport-neutral cancellation observer sharing this
+    /// body's lifecycle allocation.
+    pub fn lifecycle(&self) -> RequestLifecycle {
+        RequestLifecycle::from_shared(self.shared.clone())
     }
 
     /// Returns `true` if the body was fully consumed (stream ended and
     /// all declared bytes received).
     pub(crate) fn was_fully_consumed(&self) -> bool {
-        self.consumed.load(Ordering::Acquire)
+        self.shared.is_body_complete()
+    }
+
+    /// Returns `true` while the body is still owned (unread/streaming),
+    /// including delegated ownership past `Service::call` return.
+    #[allow(dead_code)]
+    pub(crate) fn is_body_active(&self) -> bool {
+        self.shared.is_body_active()
+    }
+
+    /// Returns `true` once the body reached any terminal state
+    /// (Complete/Abandoned/Failed).
+    #[allow(dead_code)]
+    pub(crate) fn is_body_terminal(&self) -> bool {
+        self.shared.is_body_terminal()
     }
 
     /// Mark the body as fully consumed.
     fn mark_consumed(&self) {
-        self.consumed.store(true, Ordering::Release);
+        self.shared.mark_complete();
+    }
+
+    /// Mark the body as failed (transport/limit/framing error).
+    #[allow(dead_code)]
+    fn mark_failed(&self) {
+        self.shared.mark_failed();
     }
 
     /// Consume the entire body into a single `Bytes` value.
@@ -242,6 +306,7 @@ impl RequestBody {
                     })?;
                 if total > self.max_bytes {
                     self.state = BodyState::Error;
+                    self.shared.mark_failed();
                     return Err(RequestBodyError::LimitExceeded {
                         limit: self.max_bytes,
                         received: total,
@@ -256,7 +321,14 @@ impl RequestBody {
                 let mut buf = Vec::new();
                 use futures_util::StreamExt;
                 while let Some(item) = stream.next().await {
-                    let chunk = item.map_err(|e| RequestBodyError::Transport(e.0))?;
+                    let chunk = match item {
+                        Ok(c) => c,
+                        Err(e) => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::Transport(e.0));
+                        }
+                    };
                     let new_total = self.bytes_received.checked_add(chunk.len() as u64).ok_or(
                         RequestBodyError::LimitExceeded {
                             limit: self.max_bytes,
@@ -265,6 +337,7 @@ impl RequestBody {
                     )?;
                     if new_total > self.max_bytes {
                         self.state = BodyState::Error;
+                        self.shared.mark_failed();
                         return Err(RequestBodyError::LimitExceeded {
                             limit: self.max_bytes,
                             received: new_total,
@@ -273,18 +346,19 @@ impl RequestBody {
                     self.bytes_received = new_total;
                     buf.extend_from_slice(&chunk);
                 }
-                self.state = BodyState::Complete;
                 // Check for premature EOF: stream ended before declared length.
                 if let Some(declared) = self.declared_length {
                     if self.bytes_received < declared {
                         let received = self.bytes_received;
                         self.state = BodyState::Error;
+                        self.shared.mark_failed();
                         return Err(RequestBodyError::PrematureEof {
                             received,
                             expected: Some(declared),
                         });
                     }
                 }
+                self.state = BodyState::Complete;
                 self.mark_consumed();
                 Ok(Bytes::from(buf))
             }
@@ -331,7 +405,7 @@ impl RequestBody {
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
-                    self.mark_consumed();
+                    self.shared.mark_complete();
                     return Ok(None);
                 }
                 let remaining = &data[*offset..];
@@ -344,6 +418,7 @@ impl RequestBody {
                 )?;
                 if new_total > self.max_bytes {
                     self.state = BodyState::Error;
+                    self.shared.mark_failed();
                     return Err(RequestBodyError::LimitExceeded {
                         limit: self.max_bytes,
                         received: new_total,
@@ -354,10 +429,10 @@ impl RequestBody {
                 self.bytes_received = new_total;
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
-                    // Direct store (equivalent to `mark_consumed()`): a `&self`
-                    // call would conflict with the outstanding `&mut` borrow
-                    // of `inner`/`chunk` held across this statement.
-                    self.consumed.store(true, Ordering::Release);
+                    // Disjoint-field interior mutability: `shared` is a
+                    // separate field from `inner`, so this does not conflict
+                    // with the outstanding `&mut` borrow of `inner`/`chunk`.
+                    self.shared.mark_complete();
                 }
                 Ok(Some(Bytes::copy_from_slice(chunk)))
             }
@@ -373,6 +448,7 @@ impl RequestBody {
                         )?;
                         if new_total > self.max_bytes {
                             self.state = BodyState::Error;
+                            self.shared.mark_failed();
                             return Err(RequestBodyError::LimitExceeded {
                                 limit: self.max_bytes,
                                 received: new_total,
@@ -383,26 +459,48 @@ impl RequestBody {
                     }
                     Some(Err(e)) => {
                         self.state = BodyState::Error;
+                        self.shared.mark_failed();
                         Err(RequestBodyError::Transport(e.0))
                     }
                     None => {
-                        self.state = BodyState::Complete;
                         // Check for premature EOF.
                         if let Some(declared) = self.declared_length {
                             if self.bytes_received < declared {
                                 let received = self.bytes_received;
                                 self.state = BodyState::Error;
+                                self.shared.mark_failed();
                                 return Err(RequestBodyError::PrematureEof {
                                     received,
                                     expected: Some(declared),
                                 });
                             }
                         }
-                        self.mark_consumed();
+                        self.state = BodyState::Complete;
+                        self.shared.mark_complete();
                         Ok(None)
                     }
                 }
             }
+        }
+    }
+}
+
+impl Drop for RequestBody {
+    fn drop(&mut self) {
+        // Ownership-derived abandonment (Track B1): moving `RequestBody`
+        // into a task naturally keeps it Active; dropping an incomplete
+        // network body marks Abandoned unless ownership was transferred
+        // into an explicit continuation holding the same body.
+        //
+        // Only network-backed (`Incoming`) bodies participate: in-memory
+        // (`Fixed`/`Empty`) copies never force connection close, and an
+        // already-terminal lifecycle is preserved.
+        if !self.shared.is_body_active() {
+            return;
+        }
+        let is_network = matches!(self.inner, Some(BodyInner::Incoming { .. }));
+        if is_network {
+            self.shared.mark_abandoned();
         }
     }
 }
@@ -439,13 +537,13 @@ impl Stream for RequestBody {
         match inner {
             BodyInner::Empty => {
                 self.state = BodyState::Complete;
-                self.mark_consumed();
+                self.shared.mark_complete();
                 Poll::Ready(None)
             }
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
-                    self.mark_consumed();
+                    self.shared.mark_complete();
                     Poll::Ready(None)
                 } else {
                     let remaining = &data[*offset..];
@@ -454,6 +552,7 @@ impl Stream for RequestBody {
                         Some(v) => v,
                         None => {
                             self.state = BodyState::Error;
+                            self.shared.mark_failed();
                             return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
                                 limit: max_bytes,
                                 received: u64::MAX,
@@ -462,6 +561,7 @@ impl Stream for RequestBody {
                     };
                     if new_total > max_bytes {
                         self.state = BodyState::Error;
+                        self.shared.mark_failed();
                         return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
                             limit: max_bytes,
                             received: new_total,
@@ -483,7 +583,7 @@ impl Stream for RequestBody {
                     }
                     if new_offset >= data_len {
                         self.state = BodyState::Complete;
-                        self.mark_consumed();
+                        self.shared.mark_complete();
                     }
                     Poll::Ready(Some(Ok(chunk)))
                 }
@@ -494,6 +594,7 @@ impl Stream for RequestBody {
                         Some(v) => v,
                         None => {
                             self.state = BodyState::Error;
+                            self.shared.mark_failed();
                             return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
                                 limit: max_bytes,
                                 received: u64::MAX,
@@ -502,6 +603,7 @@ impl Stream for RequestBody {
                     };
                     if new_total > max_bytes {
                         self.state = BodyState::Error;
+                        self.shared.mark_failed();
                         Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
                             limit: max_bytes,
                             received: new_total,
@@ -516,22 +618,24 @@ impl Stream for RequestBody {
                 }
                 Poll::Ready(Some(Err(e))) => {
                     self.state = BodyState::Error;
+                    self.shared.mark_failed();
                     Poll::Ready(Some(Err(RequestBodyError::Transport(e.0))))
                 }
                 Poll::Ready(None) => {
-                    self.state = BodyState::Complete;
                     // Check for premature EOF.
                     if let Some(declared) = self.declared_length {
                         if self.bytes_received < declared {
                             let received = self.bytes_received;
                             self.state = BodyState::Error;
+                            self.shared.mark_failed();
                             return Poll::Ready(Some(Err(RequestBodyError::PrematureEof {
                                 received,
                                 expected: Some(declared),
                             })));
                         }
                     }
-                    self.mark_consumed();
+                    self.state = BodyState::Complete;
+                    self.shared.mark_complete();
                     Poll::Ready(None)
                 }
                 Poll::Pending => Poll::Pending,
@@ -738,26 +842,48 @@ mod tests {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let body = RequestBody::from_bytes(data, u64::MAX);
             prop_assert_eq!(body.state(), BodyState::Unread);
-            let flag = body.consumed_flag();
+            let shared = body.shared();
             let _ = rt.block_on(body.read_all());
-            prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
+            prop_assert!(shared.is_body_complete());
         });
     }
 
     #[test]
-    fn consumed_flag_set_after_read() {
+    fn lifecycle_complete_after_read() {
         proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
             let rt = tokio::runtime::Runtime::new().unwrap();
             let is_empty = data.is_empty();
             let body = RequestBody::from_bytes(data, u64::MAX);
-            let flag = body.consumed_flag();
-            prop_assert_eq!(
-                flag.load(std::sync::atomic::Ordering::Acquire),
-                is_empty
-            );
+            let shared = body.shared();
+            prop_assert_eq!(shared.is_body_complete(), is_empty);
             let _ = rt.block_on(body.read_all());
-            prop_assert!(flag.load(std::sync::atomic::Ordering::Acquire));
+            prop_assert!(shared.is_body_complete());
         });
+    }
+
+    #[tokio::test]
+    async fn dropping_incomplete_network_body_marks_abandoned() {
+        use futures_util::stream;
+        let body_stream =
+            stream::iter(vec![Ok::<_, IncomingError>(Bytes::from_static(b"partial"))]);
+        let body = RequestBody::from_incoming(body_stream, Some(100), u64::MAX);
+        let shared = body.shared();
+        assert!(shared.is_body_active());
+        drop(body);
+        assert_eq!(
+            shared.body_state(),
+            super::super::request_lifecycle::BodyLifecycleState::Abandoned
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_inmemory_body_does_not_mark_abandoned() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), u64::MAX);
+        let shared = body.shared();
+        assert!(shared.is_body_active());
+        drop(body);
+        // In-memory copies never force close.
+        assert!(shared.is_body_active());
     }
 
     #[test]

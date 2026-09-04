@@ -57,7 +57,13 @@ Every operational event has:
 - `service_timeout` — handler timed out (504 response)
 - `service_error` — handler returned error
 - `directory_listing_limit` — listing entry limit reached
-- `incomplete_body_close` — request body connection closed before completion
+- `incomplete_body_close` — request body connection closed before completion (Abandoned/Failed at return)
+- `deferred_body_delegated` — Stream body Active past service return (Debug)
+- `deferred_body_completed` — deferred body reached Complete after response-start (Debug)
+- `deferred_body_abandoned` — deferred body Abandoned/Failed after response-start (Debug, connection closes via Hyper)
+- `deferred_body_timeout` — remaining body_read_timeout fired after response-start (Warn, + legacy `body_read_timeout`)
+- `request_lifecycle_peer_disconnect` — lifecycle cancelled with PeerDisconnected (Debug)
+- `request_lifecycle_runtime_cancel` — lifecycle cancelled with ServerShutdown/ConnectionTimeout/TransportFailure (Debug)
 - `service_invocation_suppressed` — service invocation suppressed (e.g. duplicate or concurrent)
 
 ### Operational

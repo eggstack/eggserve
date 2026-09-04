@@ -89,12 +89,12 @@ fuzz_target!(|data: &[u8]| {
         }
     }
 
-    // Test consumption flag tracking.
+    // Test lifecycle completion tracking (Plan 174 public API).
     let body = RequestBody::from_bytes(data.to_vec(), u64::MAX);
-    let flag = body.consumed_flag();
-    assert!(!flag.load(std::sync::atomic::Ordering::Acquire));
+    let lifecycle = body.lifecycle();
+    assert_eq!(lifecycle.is_body_complete(), data.is_empty());
     let _ = rt.block_on(body.read_all());
-    assert!(flag.load(std::sync::atomic::Ordering::Acquire));
+    assert!(lifecycle.is_body_complete());
 
     // === Chunked body via stream simulation ===
 

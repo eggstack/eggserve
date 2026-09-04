@@ -51,6 +51,7 @@ shutdown; the process harness uses only Python's standard library.
 | `request_body_timeout_interaction.rs` | — | Body timeout + handler timeout interaction |
 | `request_body_cancellation.rs` | — | Body cancellation and disconnect handling |
 | `request_body_tls.rs` | `tls` | Body handling over TLS connections |
+| `deferred_lifecycle.rs` | — (+`tls` for parity case) | Plan 174: early response with deferred body (fixed/chunked), reuse after Complete, close on Abandoned, lifecycle disconnect/shutdown/timeout, body timeout after response-start, caller-owned + TLS parity, admission distinctness |
 | `body_properties.rs` | — | BodySource properties and invariants |
 | `tls_service_parity.rs` | `tls` | TLS + non-TLS behavioral parity |
 | `server_integration.rs` | — | Server lifecycle, Service trait, StaticService |

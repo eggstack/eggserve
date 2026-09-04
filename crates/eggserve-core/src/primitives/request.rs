@@ -7,6 +7,7 @@
 use crate::primitives::connection_info::ConnectionInfo;
 use crate::primitives::request_body::RequestBody;
 use crate::primitives::request_head::RequestHead;
+use crate::primitives::request_lifecycle::RequestLifecycle;
 
 /// A canonical, transport-independent HTTP request.
 ///
@@ -30,6 +31,7 @@ pub struct Request {
     head: RequestHead,
     body: RequestBody,
     connection: ConnectionInfo,
+    lifecycle: RequestLifecycle,
 }
 
 impl Request {
@@ -38,11 +40,38 @@ impl Request {
     /// Prefer using the runtime adapter (Hyper → canonical conversion)
     /// for production use. This constructor is for tests and downstream
     /// code that already has validated components.
+    ///
+    /// The lifecycle is derived from the body's shared allocation so body
+    /// completion, abandonment, and cancellation are visible without
+    /// holding the body itself.
     pub fn new(head: RequestHead, body: RequestBody, connection: ConnectionInfo) -> Self {
+        let lifecycle = body.lifecycle();
         Self {
             head,
             body,
             connection,
+            lifecycle,
+        }
+    }
+
+    /// Create a request with an explicit lifecycle sharing the body's
+    /// allocation.
+    ///
+    /// The caller must ensure `lifecycle` shares the same internal
+    /// allocation as `body` (obtained via `body.lifecycle()`); otherwise
+    /// body completion and cancellation observations diverge. The runtime
+    /// always constructs them shared.
+    pub fn new_with_lifecycle(
+        head: RequestHead,
+        body: RequestBody,
+        connection: ConnectionInfo,
+        lifecycle: RequestLifecycle,
+    ) -> Self {
+        Self {
+            head,
+            body,
+            connection,
+            lifecycle,
         }
     }
 
@@ -56,12 +85,37 @@ impl Request {
         &self.body
     }
 
+    /// Transport-neutral disconnect/cancellation observer for this request.
+    ///
+    /// Becomes ready on peer disconnect or runtime cancellation even when
+    /// the application is not polling request/response IO. Clone before
+    /// moving the body into a downstream task.
+    pub fn lifecycle(&self) -> &RequestLifecycle {
+        &self.lifecycle
+    }
+
+    /// Cloneable lifecycle observer sharing this request's allocation.
+    pub fn lifecycle_clone(&self) -> RequestLifecycle {
+        self.lifecycle.clone()
+    }
+
     /// Consume the request, returning the head and body separately.
     ///
     /// This is useful for services that need to pass the head to one
-    /// code path and the body to another.
+    /// code path and the body to another. Preserved without lifecycle for
+    /// source compatibility; use [`Request::into_parts_with_lifecycle`]
+    /// when the observer must outlive deconstruction.
     pub fn into_parts(self) -> (RequestHead, RequestBody, ConnectionInfo) {
         (self.head, self.body, self.connection)
+    }
+
+    /// Consume the request, returning head, body, connection, and lifecycle.
+    ///
+    /// Added for Plan 174 without changing `into_parts` tuple arity.
+    pub fn into_parts_with_lifecycle(
+        self,
+    ) -> (RequestHead, RequestBody, ConnectionInfo, RequestLifecycle) {
+        (self.head, self.body, self.connection, self.lifecycle)
     }
 
     /// Consume the request, returning the body.
