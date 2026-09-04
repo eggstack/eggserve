@@ -20,7 +20,7 @@ Stable enum variants are exhaustive unless documented otherwise. Adding a new va
 
 ### Thread safety (Send/Sync)
 
-All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by the selected-type assertions in `public_api_consumers`; response values have the separate `Send` guarantee described below.
+All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderValueTextError`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by the selected-type assertions in `public_api_consumers`; response values have the separate `Send` guarantee described below.
 
 Error types (`MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
 
@@ -208,13 +208,14 @@ documented separately in `docs/python-api.md`.
 | `MethodError` | stable | Empty, InvalidToken |
 | `HttpVersion` | stable | HTTP/1.0, HTTP/1.1 |
 | `HttpVersionError` | stable | Unsupported version |
-| `HeaderBlock` | stable | Duplicate-preserving ordered header collection |
+| `HeaderBlock` | stable | Duplicate-preserving ordered header collection; `push_bytes(..)` for opaque values |
 | `HeaderName` | stable | Validated header name (token) |
-| `HeaderValue` | stable | Validated header value (no CR/LF/NUL) |
+| `HeaderValue` | stable | Octet-preserving validated field value (`from_bytes`/`from_static_bytes`/`as_bytes()`; fallible `to_str()`; `OWS` stripped; matches `http::HeaderValue` domain) |
+| `HeaderValueTextError` | stable | Returned by `HeaderValue::to_str()` on non-UTF-8 octets |
 | `HeaderError` | stable | InvalidName, InvalidValue, NameTooLong |
 | `DuplicateHeaderError` | stable | Returned by get_unique() on duplicates |
 | `HeaderField` | stable | `pub name: HeaderName`, `pub value: HeaderValue` |
-| `RequestTarget` | stable | Validated origin-form target (path + query) |
+| `RequestTarget` | stable | Validated origin-form target (path + query; `raw_bytes()`/`path_bytes()`/`query_bytes()`; empty query canonicalizes to `None`) |
 | `RequestTargetError` | stable | 6-variant target validation error |
 | `RequestHead` | stable | Canonical request head: method, target, version, headers |
 | `RequestHeadError` | stable | Conversion error from Hyper |

@@ -19,6 +19,7 @@ use eggserve_core::primitives::canonical::{
 use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme, TlsInfo};
 use eggserve_core::primitives::header_block::{
     DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
+    HeaderValueTextError,
 };
 use eggserve_core::primitives::http::{
     validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,
@@ -120,7 +121,7 @@ fn header_block_construct_and_inspect() {
         HeaderValue::new("value").unwrap(),
     );
     assert!(hb.contains("x-custom"));
-    assert_eq!(hb.get_first("X-Custom").unwrap().as_str(), "value");
+    assert_eq!(hb.get_first("X-Custom").unwrap().to_str().unwrap(), "value");
     assert_eq!(hb.len(), 1);
     assert!(!hb.is_empty());
 }
@@ -129,7 +130,10 @@ fn header_block_construct_and_inspect() {
 fn header_block_push_str() {
     let mut hb = HeaderBlock::new();
     hb.push_str("content-type", "text/html").unwrap();
-    assert_eq!(hb.get_first("Content-Type").unwrap().as_str(), "text/html");
+    assert_eq!(
+        hb.get_first("Content-Type").unwrap().to_str().unwrap(),
+        "text/html"
+    );
 }
 
 #[test]
@@ -139,8 +143,8 @@ fn header_block_duplicate_preservation() {
     hb.push_str("set-cookie", "b=2").unwrap();
     let all = hb.get_all("set-cookie");
     assert_eq!(all.len(), 2);
-    assert_eq!(all[0].as_str(), "a=1");
-    assert_eq!(all[1].as_str(), "b=2");
+    assert_eq!(all[0].to_str().unwrap(), "a=1");
+    assert_eq!(all[1].to_str().unwrap(), "b=2");
 }
 
 #[test]
@@ -148,7 +152,7 @@ fn header_block_get_unique_single() {
     let mut hb = HeaderBlock::new();
     hb.push_str("content-type", "text/html").unwrap();
     let val = hb.get_unique("content-type").unwrap();
-    assert_eq!(val.unwrap().as_str(), "text/html");
+    assert_eq!(val.unwrap().to_str().unwrap(), "text/html");
 }
 
 #[test]
@@ -346,7 +350,11 @@ fn build_byte_response() {
         .unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "text/plain"
     );
     assert_eq!(resp.body().unwrap().len(), 5);
@@ -372,7 +380,11 @@ fn build_response_with_validated_headers() {
         .body(ResponseBody::Bytes(b"ok".to_vec()))
         .unwrap();
     assert_eq!(
-        resp.headers().get_first("x-request-id").unwrap().as_str(),
+        resp.headers()
+            .get_first("x-request-id")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "abc-123"
     );
 }
@@ -496,7 +508,8 @@ fn normalize_sets_content_length() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "5"
     );
 }
@@ -689,6 +702,7 @@ fn all_canonical_types_importable_without_hyper() {
         HeaderBlock,
         HeaderName,
         HeaderValue,
+        HeaderValueTextError,
         HeaderField,
         HeaderError,
         DuplicateHeaderError,
@@ -706,6 +720,26 @@ fn all_canonical_types_importable_without_hyper() {
     )>;
 }
 
+#[test]
+fn header_value_byte_api_without_hyper() {
+    let text = HeaderValue::new("text/html").unwrap();
+    assert_eq!(text.as_bytes(), b"text/html");
+    assert_eq!(text.to_str().unwrap(), "text/html");
+
+    let opaque = HeaderValue::from_bytes(b"a\xff").unwrap();
+    assert_eq!(opaque.as_bytes(), b"a\xff");
+    assert!(opaque.to_str().is_err());
+
+    let mut block = HeaderBlock::new();
+    block.push_bytes("x-opaque", b"b\xfe").unwrap();
+    assert_eq!(block.get_first("x-opaque").unwrap().as_bytes(), b"b\xfe");
+
+    let target = RequestTarget::parse("/a?b=1").unwrap();
+    assert_eq!(target.raw_bytes(), b"/a?b=1");
+    assert_eq!(target.path_bytes(), b"/a");
+    assert_eq!(target.query_bytes(), Some(b"b=1".as_slice()));
+}
+
 fn _assert_send<T: Send>() {}
 fn _assert_sync<T: Send + Sync>() {}
 
@@ -718,6 +752,7 @@ fn canonical_types_are_send_and_sync() {
     _assert_send::<HeaderBlock>();
     _assert_send::<HeaderName>();
     _assert_send::<HeaderValue>();
+    _assert_send::<HeaderValueTextError>();
     _assert_send::<HeaderField>();
     _assert_send::<HeaderError>();
     _assert_send::<DuplicateHeaderError>();
@@ -740,6 +775,7 @@ fn canonical_types_are_send_and_sync() {
     _assert_sync::<HeaderBlock>();
     _assert_sync::<HeaderName>();
     _assert_sync::<HeaderValue>();
+    _assert_sync::<HeaderValueTextError>();
     _assert_sync::<HeaderField>();
     _assert_sync::<RequestTarget>();
     _assert_sync::<RequestHead>();

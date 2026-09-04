@@ -63,12 +63,13 @@ pub(crate) fn validate_static_metadata_with_limits(
     max_extra_headers: usize,
     max_extra_header_bytes: usize,
 ) -> Result<(), String> {
-    // `HeaderValue::new` trims OWS (SP/HTAB) and rejects control characters;
-    // no outer `trim()` is needed — passing the raw value preserves the
-    // precise `InvalidValue` signal for leading/trailing control bytes.
+    // `HeaderValue::new` trims OWS (SP/HTAB) and rejects transport-refused
+    // bytes; no outer `trim()` is needed — passing the raw value preserves
+    // the precise `InvalidValue` signal for leading/trailing control bytes.
+    // Byte limits below count bytes, not Unicode scalars.
     let content_type = HeaderValue::new(default_content_type)
         .map_err(|e| format!("invalid default content type: {e}"))?;
-    if content_type.as_str().is_empty() {
+    if content_type.is_empty() {
         return Err("default content type must be a non-empty value without CR/LF/NUL".into());
     }
     if extra_response_headers.len() > max_extra_headers {
@@ -100,7 +101,7 @@ pub(crate) fn validate_static_metadata_with_limits(
         // wire value agree.
         let canonical = HeaderValue::new(value.clone())
             .map_err(|e| format!("invalid extra response header: {e}"))?;
-        if canonical.as_str().is_empty() {
+        if canonical.is_empty() {
             return Err(format!(
                 "invalid extra response header: value for {name} must contain non-whitespace"
             ));

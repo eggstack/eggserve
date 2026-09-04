@@ -182,7 +182,11 @@ fn known_length_sets_content_length() {
         .unwrap();
     let norm = normalize_response(resp, &NormalizeRequest::new(false)).unwrap();
     assert_eq!(
-        norm.headers().get_first("content-length").unwrap().as_str(),
+        norm.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "5"
     );
 }
@@ -201,7 +205,8 @@ fn normalization_is_idempotent_for_streams() {
         .headers()
         .get_first("content-length")
         .unwrap()
-        .as_str()
+        .to_str()
+        .unwrap()
         .to_owned();
     let twice = normalize_response(once, &NormalizeRequest::new(false)).unwrap();
     assert_eq!(
@@ -209,7 +214,8 @@ fn normalization_is_idempotent_for_streams() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         cl_once
     );
 
@@ -308,7 +314,11 @@ fn head_known_length_preserved() {
         .unwrap();
     let norm = normalize_response(resp, &NormalizeRequest::new(true)).unwrap();
     assert_eq!(
-        norm.headers().get_first("content-length").unwrap().as_str(),
+        norm.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "5"
     );
 }
@@ -333,7 +343,11 @@ fn service_framing_headers_are_stripped() {
     let norm = normalize_response(resp, &NormalizeRequest::new(false)).unwrap();
     assert!(!norm.headers().contains("transfer-encoding"));
     assert_eq!(
-        norm.headers().get_first("content-length").unwrap().as_str(),
+        norm.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "2"
     );
 }
@@ -392,7 +406,11 @@ async fn empty_known_stream_is_empty_with_length_zero() {
         .unwrap();
     let norm = normalize_response(resp, &NormalizeRequest::new(false)).unwrap();
     assert_eq!(
-        norm.headers().get_first("content-length").unwrap().as_str(),
+        norm.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "0"
     );
     let body = to_hyper_response(norm)
@@ -907,7 +925,7 @@ mod property {
                 .body(ResponseBody::Stream(s))
                 .unwrap();
             let norm = normalize_response(resp, &NormalizeRequest::new(false)).unwrap();
-            let len: u64 = norm.headers().get_first("content-length").unwrap().as_str().parse().unwrap();
+            let len: u64 = norm.headers().get_first("content-length").unwrap().to_str().unwrap().parse().unwrap();
             prop_assert_eq!(len, total as u64);
             let body = rt.block_on(async {
                 to_hyper_response(norm).unwrap().into_body().collect().await.unwrap().to_bytes()

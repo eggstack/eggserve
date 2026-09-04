@@ -3,7 +3,12 @@
 //! [`HeaderBlock`] stores HTTP headers as an ordered list of name/value pairs,
 //! preserving duplicates and original field-name casing. Case-insensitive
 //! lookup is provided by field name.
+//!
+//! [`HeaderValue`] is octet-preserving (Plan 173): it stores the validated
+//! HTTP field-value octets without UTF-8 interpretation. Text interpretation
+//! via [`HeaderValue::to_str`] is explicitly fallible.
 
+use bytes::Bytes;
 use std::fmt;
 
 /// Errors from header validation.
@@ -100,39 +105,169 @@ impl fmt::Display for HeaderName {
     }
 }
 
-/// A validated HTTP header value.
+/// Error from fallible [`HeaderValue::to_str`] text interpretation.
+///
+/// Returned when the stored field-value octets are not valid UTF-8. Protocol
+/// headers that require ASCII/text must perform this checked conversion at
+/// the point of semantic interpretation; generic forwarding/storage remains
+/// byte-preserving.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HeaderValueTextError {
+    _priv: (),
+}
+
+impl fmt::Display for HeaderValueTextError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("header value is not valid UTF-8")
+    }
+}
+
+impl std::error::Error for HeaderValueTextError {}
+
+/// A validated, octet-preserving HTTP header field value.
+///
+/// Stores the validated field-value octets without UTF-8 interpretation, so
+/// every byte sequence accepted by the HTTP transport policy (visible ASCII
+/// `0x20`–`0x7E`, obs-text `0x80`–`0xFF`, `HTAB`) round-trips without coercion.
+/// Validation matches `http::HeaderValue::from_bytes` (`b >= 32 && b != 127
+/// || b == b'\t'`): `CR`, `LF`, `NUL`, `DEL`, and other `CTL`s are rejected.
+/// Empty values are valid for the generic primitive; stricter callers reject
+/// them separately.
+///
+/// # Optional-whitespace invariant (Plan 173 Track A2)
+///
+/// Canonical values represent the parsed field value after transport-level
+/// `OWS` removal per RFC 9110 field-line parsing: leading/trailing `SP`/`HTAB`
+/// are stripped at construction for both [`HeaderValue::from_str`] and
+/// [`HeaderValue::from_bytes`]. This is deliberate — `OWS` is insignificant —
+/// not a leftover of the old string constructor. Inbound parsing reflects what
+/// Hyper provides (already `OWS`-stripped); application-supplied values are
+/// normalized identically so validation and wire bytes agree.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct HeaderValue(String);
+pub struct HeaderValue {
+    bytes: Bytes,
+}
 
 impl HeaderValue {
-    /// Create a validated header value.
+    /// Create a validated header value from text.
+    ///
+    /// Convenience alias for [`HeaderValue::from_str`] retained for ordinary
+    /// services. Trims surrounding `SP`/`HTAB` and rejects `CTL`s.
     ///
     /// # Errors
     ///
-    /// Returns [`HeaderError::InvalidValue`] if the value contains a control
-    /// character other than horizontal tab. Surrounding optional whitespace
-    /// is removed so the stored value is the canonical field value, as
-    /// defined by RFC 9110 field-line parsing. Empty values are valid for the
-    /// generic HTTP primitive; callers that define a stricter metadata
-    /// contract must reject them separately.
+    /// Returns [`HeaderError::InvalidValue`] if the value contains a byte the
+    /// transport refuses (`CR`, `LF`, `NUL`, `DEL`, other `CTL`s).
     pub fn new(value: impl Into<String>) -> Result<Self, HeaderError> {
-        let s = value.into();
-        if s.bytes().any(|b| b.is_ascii_control() && b != b'\t') {
-            return Err(HeaderError::InvalidValue);
-        }
-        Ok(Self(s.trim_matches([' ', '\t']).to_owned()))
+        Self::from_str(value.into())
     }
 
-    /// Returns the header value as a string slice.
-    pub fn as_str(&self) -> &str {
-        &self.0
+    /// Create a validated header value from text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HeaderError::InvalidValue`] on transport-refused bytes.
+    #[allow(clippy::should_implement_trait)]
+    pub fn from_str(value: impl AsRef<str>) -> Result<Self, HeaderError> {
+        Self::from_bytes(value.as_ref().as_bytes())
+    }
+
+    /// Create a validated header value from raw octets, preserving legal
+    /// opaque bytes without UTF-8 interpretation.
+    ///
+    /// Leading/trailing `SP`/`HTAB` are stripped per the `OWS` invariant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HeaderError::InvalidValue`] if any byte is refused by the
+    /// transport (`CR`, `LF`, `NUL`, `DEL`, `CTL`s other than `HTAB`).
+    pub fn from_bytes(value: impl AsRef<[u8]>) -> Result<Self, HeaderError> {
+        let raw = value.as_ref();
+        validate_header_value_bytes(raw)?;
+        let trimmed = trim_ows(raw);
+        Ok(Self {
+            bytes: Bytes::copy_from_slice(trimmed),
+        })
+    }
+
+    /// Create a validated header value from a `'static` byte string without
+    /// copying when possible.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HeaderError::InvalidValue`] on transport-refused bytes.
+    pub fn from_static_bytes(value: &'static [u8]) -> Result<Self, HeaderError> {
+        validate_header_value_bytes(value)?;
+        let trimmed = trim_ows(value);
+        // `Bytes::from_static` + `slice` keeps the static reference without
+        // copying; trimming is a zero-copy sub-slice.
+        let base = Bytes::from_static(value);
+        let offset = trimmed.as_ptr() as usize - value.as_ptr() as usize;
+        Ok(Self {
+            bytes: base.slice(offset..offset + trimmed.len()),
+        })
+    }
+
+    /// Returns the raw field-value octets (post-`OWS`).
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    /// Interpret the value as UTF-8 text.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HeaderValueTextError`] when the stored octets are not valid
+    /// UTF-8. Callers needing ASCII-only protocol semantics must validate
+    /// further after this conversion.
+    pub fn to_str(&self) -> Result<&str, HeaderValueTextError> {
+        std::str::from_utf8(&self.bytes).map_err(|_| HeaderValueTextError { _priv: () })
+    }
+
+    /// Returns the value length in bytes.
+    pub fn len(&self) -> usize {
+        self.bytes.len()
+    }
+
+    /// Returns `true` when the value is empty (zero bytes post-`OWS`).
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
     }
 }
 
 impl fmt::Display for HeaderValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
+        // Diagnostic only: lossy for human-readable logs. Never use `Display`
+        // for wire conversion — use `as_bytes()` so opaque octets round-trip.
+        f.write_str(&String::from_utf8_lossy(&self.bytes))
     }
+}
+
+/// Validate field-value bytes against the transport-accepted domain.
+///
+/// Mirrors `http::HeaderValue::from_bytes`: only `HTAB`, `SP`–`~`
+/// (`0x20`–`0x7E`), and obs-text (`0x80`–`0xFF`) are accepted. Rejects `CR`,
+/// `LF`, `NUL`, `DEL`, and other `CTL`s so canonical construction cannot
+/// create values that later fail at wire conversion.
+fn validate_header_value_bytes(bytes: &[u8]) -> Result<(), HeaderError> {
+    if bytes.iter().all(|b| *b >= 32 && *b != 127 || *b == b'\t') {
+        Ok(())
+    } else {
+        Err(HeaderError::InvalidValue)
+    }
+}
+
+/// Strip leading/trailing `SP`/`HTAB` per the `OWS` invariant.
+fn trim_ows(bytes: &[u8]) -> &[u8] {
+    let mut start = 0;
+    let mut end = bytes.len();
+    while start < end && (bytes[start] == b' ' || bytes[start] == b'\t') {
+        start += 1;
+    }
+    while end > start && (bytes[end - 1] == b' ' || bytes[end - 1] == b'\t') {
+        end -= 1;
+    }
+    &bytes[start..end]
 }
 
 /// A single header field as a name/value pair.
@@ -188,6 +323,25 @@ impl HeaderBlock {
     ) -> Result<(), HeaderError> {
         let name = HeaderName::new(name)?;
         let value = HeaderValue::new(value)?;
+        self.push(name, value);
+        Ok(())
+    }
+
+    /// Push a header field with a byte-preserving value.
+    ///
+    /// The name remains an ASCII token; the value preserves legal opaque
+    /// octets without UTF-8 interpretation (trimming `OWS` per invariant).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`HeaderError`] if the name or value is invalid.
+    pub fn push_bytes(
+        &mut self,
+        name: impl Into<String>,
+        value: impl AsRef<[u8]>,
+    ) -> Result<(), HeaderError> {
+        let name = HeaderName::new(name)?;
+        let value = HeaderValue::from_bytes(value)?;
         self.push(name, value);
         Ok(())
     }
@@ -321,7 +475,48 @@ mod tests {
 
     #[test]
     fn header_value_trims_optional_whitespace() {
-        assert_eq!(HeaderValue::new(" \tvalue\t ").unwrap().as_str(), "value");
+        assert_eq!(
+            HeaderValue::new(" \tvalue\t ").unwrap().to_str().unwrap(),
+            "value"
+        );
+        assert_eq!(
+            HeaderValue::from_bytes(b" \tvalue\t ").unwrap().as_bytes(),
+            b"value"
+        );
+    }
+
+    #[test]
+    fn header_value_preserves_opaque_bytes() {
+        // Legal obs-text without UTF-8 interpretation.
+        let v = HeaderValue::from_bytes(b"hello\xfa\xfb").unwrap();
+        assert_eq!(v.as_bytes(), b"hello\xfa\xfb");
+        assert!(v.to_str().is_err());
+        // OWS trimming still applies to byte construction.
+        let v = HeaderValue::from_bytes(b" \topaque\xff\t ").unwrap();
+        assert_eq!(v.as_bytes(), b"opaque\xff");
+    }
+
+    #[test]
+    fn header_value_from_static_bytes_zero_copy() {
+        let v = HeaderValue::from_static_bytes(b"static-value").unwrap();
+        assert_eq!(v.as_bytes(), b"static-value");
+        assert_eq!(v.to_str().unwrap(), "static-value");
+    }
+
+    #[test]
+    fn header_value_text_error_is_error() {
+        let v = HeaderValue::from_bytes(b"\xff").unwrap();
+        let err = v.to_str().unwrap_err();
+        assert!(!err.to_string().is_empty());
+        let _: &dyn std::error::Error = &err;
+    }
+
+    #[test]
+    fn header_value_del_rejected_via_bytes() {
+        assert_eq!(
+            HeaderValue::from_bytes(b"a\x7fb").unwrap_err(),
+            HeaderError::InvalidValue
+        );
     }
 
     #[test]
@@ -372,11 +567,11 @@ mod tests {
         let mut block = HeaderBlock::new();
         block.push_str("content-type", "text/html").unwrap();
         assert_eq!(
-            block.get_first("content-type").unwrap().as_str(),
+            block.get_first("content-type").unwrap().to_str().unwrap(),
             "text/html"
         );
         assert_eq!(
-            block.get_first("Content-Type").unwrap().as_str(),
+            block.get_first("Content-Type").unwrap().to_str().unwrap(),
             "text/html"
         );
         assert!(block.get_first("missing").is_none());
@@ -388,7 +583,10 @@ mod tests {
         block.push_str("set-cookie", "a=1").unwrap();
         block.push_str("set-cookie", "b=2").unwrap();
         assert_eq!(block.len(), 2);
-        assert_eq!(block.get_first("Set-Cookie").unwrap().as_str(), "a=1");
+        assert_eq!(
+            block.get_first("Set-Cookie").unwrap().to_str().unwrap(),
+            "a=1"
+        );
     }
 
     #[test]
@@ -399,9 +597,20 @@ mod tests {
         block.push_str("set-cookie", "c=3").unwrap();
         let all = block.get_all("set-cookie");
         assert_eq!(all.len(), 3);
-        assert_eq!(all[0].as_str(), "a=1");
-        assert_eq!(all[1].as_str(), "b=2");
-        assert_eq!(all[2].as_str(), "c=3");
+        assert_eq!(all[0].to_str().unwrap(), "a=1");
+        assert_eq!(all[1].to_str().unwrap(), "b=2");
+        assert_eq!(all[2].to_str().unwrap(), "c=3");
+    }
+
+    #[test]
+    fn push_bytes_preserves_opaque_and_order() {
+        let mut block = HeaderBlock::new();
+        block.push_bytes("x-opaque", b"a\xff").unwrap();
+        block.push_bytes("x-opaque", b"b\xfe").unwrap();
+        let all = block.get_all("x-opaque");
+        assert_eq!(all.len(), 2);
+        assert_eq!(all[0].as_bytes(), b"a\xff");
+        assert_eq!(all[1].as_bytes(), b"b\xfe");
     }
 
     #[test]
@@ -409,7 +618,7 @@ mod tests {
         let mut block = HeaderBlock::new();
         block.push_str("content-type", "text/html").unwrap();
         let result = block.get_unique("content-type").unwrap();
-        assert_eq!(result.unwrap().as_str(), "text/html");
+        assert_eq!(result.unwrap().to_str().unwrap(), "text/html");
     }
 
     #[test]

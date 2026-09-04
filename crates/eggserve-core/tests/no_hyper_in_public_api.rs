@@ -52,7 +52,7 @@ fn header_block_construct_and_inspect() {
         HeaderValue::new("value").unwrap(),
     );
     assert!(hb.contains("x-custom"));
-    assert_eq!(hb.get_first("X-Custom").unwrap().as_str(), "value");
+    assert_eq!(hb.get_first("X-Custom").unwrap().to_str().unwrap(), "value");
 }
 
 #[test]

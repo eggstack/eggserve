@@ -512,7 +512,7 @@ fn corpus_replay_normalize_response() {
                 if let Some(cl) = norm2.headers().get_first("content-length") {
                     let expected_len = norm2.body().map_or(0, |b| b.len());
                     assert_eq!(
-                        cl.as_str(),
+                        cl.to_str().unwrap(),
                         expected_len.to_string(),
                         "[fuzz_normalize_response/{name}] content-length mismatch"
                     );

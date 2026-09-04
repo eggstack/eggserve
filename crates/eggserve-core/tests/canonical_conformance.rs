@@ -379,7 +379,12 @@ fn body_forbidden_matrix_304_no_content_length_no_body() {
     assert!(normalized.body().unwrap().is_empty());
     // ETag must be preserved
     assert_eq!(
-        normalized.headers().get_first("etag").unwrap().as_str(),
+        normalized
+            .headers()
+            .get_first("etag")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "W/\"100-1234\""
     );
 }
@@ -402,7 +407,8 @@ fn body_forbidden_matrix_head_suppresses_body_preserves_headers() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "11"
     );
     // HEAD sends no bytes but retains the equivalent-GET length.
@@ -469,7 +475,8 @@ fn body_forbidden_matrix_transfer_encoding_stripped_for_ok() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "5"
     );
 }
@@ -492,19 +499,19 @@ fn header_block_operations() {
             "headerblock-duplicate-preserved" => {
                 assert_eq!(block.len(), 2, "{}: len", f.id);
                 assert_eq!(
-                    block.get_first("set-cookie").unwrap().as_str(),
+                    block.get_first("set-cookie").unwrap().to_str().unwrap(),
                     "a=1",
                     "{}: get_first",
                     f.id
                 );
                 let all = block.get_all("set-cookie");
                 assert_eq!(all.len(), 2, "{}: get_all len", f.id);
-                assert_eq!(all[0].as_str(), "a=1");
-                assert_eq!(all[1].as_str(), "b=2");
+                assert_eq!(all[0].to_str().unwrap(), "a=1");
+                assert_eq!(all[1].to_str().unwrap(), "b=2");
             }
             "headerblock-case-insensitive-lookup" => {
                 assert_eq!(
-                    block.get_first("content-type").unwrap().as_str(),
+                    block.get_first("content-type").unwrap().to_str().unwrap(),
                     "text/html",
                     "{}: get_first_lowercase",
                     f.id
@@ -518,7 +525,7 @@ fn header_block_operations() {
             "headerblock-get-unique-single" => {
                 let result = block.get_unique("content-type").unwrap();
                 assert_eq!(
-                    result.unwrap().as_str(),
+                    result.unwrap().to_str().unwrap(),
                     "text/html",
                     "{}: get_unique",
                     f.id
@@ -735,7 +742,7 @@ fn normalize_response_idempotent_for_bytes() {
     let normalized = normalize_response(resp, &req).unwrap();
     assert_eq!(normalized.status().as_u16(), 200);
     let cl = normalized.headers().get_first("content-length").unwrap();
-    assert_eq!(cl.as_str(), "11");
+    assert_eq!(cl.to_str().unwrap(), "11");
     assert!(!normalized.headers().contains("transfer-encoding"));
     let body_len = normalized.body().map(|b| b.len()).unwrap_or(0);
     assert_eq!(body_len, 11);
@@ -769,7 +776,8 @@ fn head_preserves_content_length_when_body_nonempty() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "5",
         "HEAD response must include Content-Length matching equivalent GET"
     );
@@ -795,7 +803,8 @@ fn head_preserves_zero_content_length_when_body_empty() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "0",
         "HEAD with empty body must preserve zero Content-Length"
     );
@@ -836,9 +845,9 @@ fn duplicate_set_cookie_preserved_through_normalization() {
     let normalized = normalize_response(resp, &req).unwrap();
     let all = normalized.headers().get_all("set-cookie");
     assert_eq!(all.len(), 3, "all three Set-Cookie headers must survive");
-    assert_eq!(all[0].as_str(), "a=1");
-    assert_eq!(all[1].as_str(), "b=2");
-    assert_eq!(all[2].as_str(), "c=3");
+    assert_eq!(all[0].to_str().unwrap(), "a=1");
+    assert_eq!(all[1].to_str().unwrap(), "b=2");
+    assert_eq!(all[2].to_str().unwrap(), "c=3");
 }
 
 // ---------------------------------------------------------------------------
@@ -884,7 +893,12 @@ fn response_normalization_rules() {
                     f.id
                 );
                 assert_eq!(
-                    normalized.headers().get_first(name).unwrap().as_str(),
+                    normalized
+                        .headers()
+                        .get_first(name)
+                        .unwrap()
+                        .to_str()
+                        .unwrap(),
                     value,
                     "{}: header {name} value",
                     f.id
@@ -928,7 +942,7 @@ fn response_normalization_raw_wire_output() {
 
     // Content-Length must be set
     let cl = normalized.headers().get_first("content-length").unwrap();
-    assert_eq!(cl.as_str(), "5");
+    assert_eq!(cl.to_str().unwrap(), "5");
 
     // Transfer-Encoding must be stripped
     assert!(!normalized.headers().contains("transfer-encoding"));
@@ -1164,7 +1178,7 @@ proptest! {
         if let Some(cl) = normalized.headers().get_first("content-length") {
             let actual_len = normalized.body().map_or(0, |b| b.len());
             prop_assert_eq!(
-                cl.as_str(),
+                cl.to_str().unwrap(),
                 actual_len.to_string(),
                 "content-length mismatch"
             );
@@ -1303,7 +1317,7 @@ proptest! {
         prop_assert_eq!(body.len(), interval_len);
         if let Some(cl) = normalized.headers().get_first("content-length") {
             prop_assert_eq!(
-                cl.as_str(),
+                cl.to_str().unwrap(),
                 interval_len.to_string(),
                 "HEAD 206 Content-Length must match range interval"
             );

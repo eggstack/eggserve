@@ -88,7 +88,21 @@ pub(crate) fn canonical_error_with_policy(
     .expect("canonical error metadata is valid");
     let mut builder = Response::builder().status(status);
     for field in headers.iter() {
-        builder = builder.header(field.name.as_str(), field.value.as_str());
+        let name = hyper::header::HeaderName::from_bytes(field.name.as_str().as_bytes())
+            .map_err(|_| {
+                crate::primitives::canonical::ResponseConstructionError::InvalidHeader(
+                    crate::primitives::header_block::HeaderError::InvalidName,
+                )
+            })
+            .expect("canonical error header name is valid");
+        let value = hyper::header::HeaderValue::from_bytes(field.value.as_bytes())
+            .map_err(|_| {
+                crate::primitives::canonical::ResponseConstructionError::InvalidHeader(
+                    crate::primitives::header_block::HeaderError::InvalidValue,
+                )
+            })
+            .expect("canonical error header value is valid");
+        builder = builder.header(name, value);
     }
     finalize(
         builder

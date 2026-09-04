@@ -168,18 +168,11 @@ impl RequestHead {
         for (name, value) in req.headers().iter() {
             let header_name = crate::primitives::header_block::HeaderName::new(name.as_str())
                 .map_err(RequestHeadError::HeaderName)?;
-            // Reject non-UTF-8 values, matching the runtime connection path
-            // rather than silently coercing them to an empty string.
-            let value_str = value
-                .to_str()
-                .map_err(|_| {
-                    RequestHeadError::HeaderValue(
-                        crate::primitives::header_block::HeaderError::InvalidValue,
-                    )
-                })?
-                .to_string();
-            let header_value = crate::primitives::header_block::HeaderValue::new(value_str)
-                .map_err(RequestHeadError::HeaderValue)?;
+            // Byte-preserving inbound conversion: legal opaque bytes reach the
+            // service unchanged without UTF-8 coercion.
+            let header_value =
+                crate::primitives::header_block::HeaderValue::from_bytes(value.as_bytes())
+                    .map_err(RequestHeadError::HeaderValue)?;
             headers.push(header_name, header_value);
         }
 

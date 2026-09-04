@@ -1260,20 +1260,26 @@ impl PyHeaderBlock {
     }
 
     fn get_first(&self, name: &str) -> Option<String> {
-        self.inner.get_first(name).map(|v| v.as_str().to_string())
+        // Text-only facade: opaque (non-UTF-8) values are not representable
+        // as Python `str` and are treated as absent rather than coerced.
+        self.inner
+            .get_first(name)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_owned())
     }
 
     fn get_all(&self, name: &str) -> Vec<String> {
         self.inner
             .get_all(name)
             .into_iter()
-            .map(|v| v.as_str().to_string())
+            .filter_map(|v| v.to_str().ok())
+            .map(|s| s.to_owned())
             .collect()
     }
 
     fn get_unique(&self, name: &str) -> PyResult<Option<String>> {
         match self.inner.get_unique(name) {
-            Ok(opt) => Ok(opt.map(|v| v.as_str().to_string())),
+            Ok(opt) => Ok(opt.and_then(|v| v.to_str().ok()).map(|s| s.to_owned())),
             Err(e) => Err(DuplicateHeaderError::new_err((
                 e.to_string(),
                 e.name().to_string(),
@@ -1289,7 +1295,11 @@ impl PyHeaderBlock {
     fn iter(&self, py: Python<'_>) -> PyResult<PyObject> {
         let list = pyo3::types::PyList::empty(py);
         for field in self.inner.iter() {
-            let tup = pyo3::types::PyTuple::new(py, [field.name.as_str(), field.value.as_str()])?;
+            // Skip opaque values: this stdlib-shaped surface is text-only.
+            let Ok(value) = field.value.to_str() else {
+                continue;
+            };
+            let tup = pyo3::types::PyTuple::new(py, [field.name.as_str(), value])?;
             list.append(tup)?;
         }
         Ok(list.into_any().unbind())
@@ -1303,7 +1313,10 @@ impl PyHeaderBlock {
         let list = pyo3::types::PyList::empty(py);
         let borrowed = slf.borrow(py);
         for field in borrowed.inner.iter() {
-            let tup = pyo3::types::PyTuple::new(py, [field.name.as_str(), field.value.as_str()])?;
+            let Ok(value) = field.value.to_str() else {
+                continue;
+            };
+            let tup = pyo3::types::PyTuple::new(py, [field.name.as_str(), value])?;
             list.append(tup)?;
         }
         Ok(list.into_any().unbind())

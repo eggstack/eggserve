@@ -116,7 +116,30 @@ pub fn validate_request_body(
 
 The `max_body_bytes` parameter allows downstream projects to set non-zero limits. When set to a positive value, `Content-Length` values up to that limit are accepted; values above it trigger `BodyTooLarge`.
 
-## Header handling rules
+## Header handling rules (octet-preserving, Plan 173)
+
+Canonical `HeaderValue` stores validated field-value octets without UTF-8
+interpretation (`from_bytes`/`from_static_bytes`/`as_bytes()`; fallible
+`to_str()`). Validation matches `http::HeaderValue::from_bytes` (`HTAB`,
+`SP`–`~`, obs-text `0x80`–`0xFF`; rejects `CR`/`LF`/`NUL`/`DEL`/`CTL`s).
+Leading/trailing `SP`/`HTAB` are stripped as a deliberate `OWS` invariant for
+both text and byte constructors. Inbound (`RequestHead::try_from_hyper`,
+connection pipeline) and outbound (`to_hyper_response`) conversions preserve
+exact octets; `Content-Length`, `Connection` tokens, and conditional/range
+headers perform checked `to_str()` at interpretation. `Display` is lossy
+diagnostic only. Aggregate header-byte limits count bytes, not Unicode
+scalars. `HeaderBlock` remains ordered, duplicate-preserving, and
+case-insensitive for lookup, with `push_bytes(..)` for opaque values.
+
+`RequestTarget` exposes truthful byte accessors (`raw_bytes()`,
+`path_bytes()`, `query_bytes()`) over accepted origin-form bytes; `/path` and
+`/path?` deliberately canonicalize to `query() == None`. If the transport
+normalizes a target before EggServe sees it, downstream `raw_path` should be
+omitted rather than fabricated.
+
+Python stdlib-shaped surfaces stay text-only: opaque request headers are
+omitted from `Request.headers`/`header_items` and `HeaderBlock`
+getters/iteration instead of being coerced.
 
 Response headers are constructed as a `HeaderMapPlan` (ordered list of name/value pairs). The planner produces these headers:
 

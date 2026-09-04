@@ -78,6 +78,7 @@ pub use canonical::{
 pub use connection_info::{ConnectionInfo, Scheme, SocketEndpoints, TlsInfo};
 pub use header_block::{
     DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
+    HeaderValueTextError,
 };
 pub use http::{
     validate_method, validate_request_body, validate_request_target, ReadOnlyMethod,

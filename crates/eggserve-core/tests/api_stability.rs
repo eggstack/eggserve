@@ -52,7 +52,7 @@ fn stable_header_block_accessible_and_constructible() {
     assert_eq!(block.len(), 1);
     assert!(block.contains("Content-Type"));
     assert_eq!(
-        block.get_first("content-type").unwrap().as_str(),
+        block.get_first("content-type").unwrap().to_str().unwrap(),
         "text/html"
     );
 }
@@ -227,7 +227,7 @@ fn stable_response_head_accessible_and_constructible() {
     assert_eq!(head.status().as_u16(), 200);
     assert!(head.headers().contains("etag"));
     assert_eq!(
-        head.headers().get_first("etag").unwrap().as_str(),
+        head.headers().get_first("etag").unwrap().to_str().unwrap(),
         "W/\"123\""
     );
 }
@@ -273,7 +273,11 @@ fn stable_response_accessible_and_constructible() {
     assert_eq!(resp.status().as_u16(), 200);
     assert!(resp.headers().contains("content-type"));
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "text/plain"
     );
     assert!(resp.body().is_some());
@@ -313,7 +317,8 @@ fn stable_normalize_response_accessible() {
             .headers()
             .get_first("content-length")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "5"
     );
 }
@@ -371,7 +376,14 @@ fn stable_normalize_metadata_accessible() {
     assert!(!headers.contains("transfer-encoding"));
     assert!(!headers.contains("connection"));
     assert!(headers.contains("content-type"));
-    assert_eq!(headers.get_first("content-length").unwrap().as_str(), "42");
+    assert_eq!(
+        headers
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "42"
+    );
 }
 
 // ── Duplicate header preservation in HeaderBlock ────────────────────────────
@@ -389,13 +401,13 @@ fn duplicate_set_cookie_headers_preserved() {
 
     let all = block.get_all("set-cookie");
     assert_eq!(all.len(), 3);
-    assert_eq!(all[0].as_str(), "a=1; Path=/");
-    assert_eq!(all[1].as_str(), "b=2; Path=/");
-    assert_eq!(all[2].as_str(), "c=3; Path=/");
+    assert_eq!(all[0].to_str().unwrap(), "a=1; Path=/");
+    assert_eq!(all[1].to_str().unwrap(), "b=2; Path=/");
+    assert_eq!(all[2].to_str().unwrap(), "c=3; Path=/");
 
     // get_first returns the first value
     assert_eq!(
-        block.get_first("set-cookie").unwrap().as_str(),
+        block.get_first("set-cookie").unwrap().to_str().unwrap(),
         "a=1; Path=/"
     );
 
@@ -422,8 +434,8 @@ fn duplicate_set_cookie_preserved_through_normalize_metadata() {
         2,
         "normalize_metadata must preserve duplicate set-cookie headers"
     );
-    assert_eq!(all[0].as_str(), "a=1");
-    assert_eq!(all[1].as_str(), "b=2");
+    assert_eq!(all[0].to_str().unwrap(), "a=1");
+    assert_eq!(all[1].to_str().unwrap(), "b=2");
 }
 
 #[test]
@@ -454,8 +466,8 @@ fn duplicate_set_cookie_preserved_through_normalize_response() {
         2,
         "normalize_response must preserve duplicate set-cookie headers"
     );
-    assert_eq!(all[0].as_str(), "x=1");
-    assert_eq!(all[1].as_str(), "y=2");
+    assert_eq!(all[0].to_str().unwrap(), "x=1");
+    assert_eq!(all[1].to_str().unwrap(), "y=2");
 }
 
 #[test]
@@ -620,6 +632,40 @@ fn stable_primitives_path_types_accessible() {
 
     let _ =
         std::marker::PhantomData::<(ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection)>;
+}
+
+// ── Plan 173 octet-preserving header values ───────────────────────────────────
+
+#[test]
+fn stable_header_value_byte_api() {
+    use eggserve_core::primitives::header_block::{HeaderBlock, HeaderValue};
+
+    let text = HeaderValue::new("text/html").unwrap();
+    assert_eq!(text.as_bytes(), b"text/html");
+    assert_eq!(text.to_str().unwrap(), "text/html");
+
+    let opaque = HeaderValue::from_bytes(b"a\xff").unwrap();
+    assert_eq!(opaque.as_bytes(), b"a\xff");
+    assert!(opaque.to_str().is_err());
+
+    let mut block = HeaderBlock::new();
+    block.push_bytes("x-opaque", b"b\xfe").unwrap();
+    assert_eq!(block.get_first("x-opaque").unwrap().as_bytes(), b"b\xfe");
+}
+
+#[test]
+fn stable_request_target_byte_accessors() {
+    use eggserve_core::primitives::request_target::RequestTarget;
+
+    let t = RequestTarget::parse("/a?b=1").unwrap();
+    assert_eq!(t.raw_bytes(), b"/a?b=1");
+    assert_eq!(t.path_bytes(), b"/a");
+    assert_eq!(t.query_bytes(), Some(b"b=1".as_slice()));
+    // Empty query canonicalizes to None.
+    assert!(RequestTarget::parse("/path?")
+        .unwrap()
+        .query_bytes()
+        .is_none());
 }
 
 // ── python-bindings-internal feature gate ────────────────────────────────────

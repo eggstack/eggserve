@@ -1212,7 +1212,7 @@ fn apply_static_metadata(
             let canonical = eggserve_core::primitives::header_block::HeaderValue::new(
                 value.clone(),
             )
-            .map(|v| v.as_str().to_owned())
+            .map(|v| v.to_str().unwrap_or("").to_owned())
             .unwrap_or_else(|_| value.clone());
             response.extra_headers.push((name.clone(), canonical));
         }
@@ -1545,10 +1545,18 @@ impl PythonCallbackService {
         let method_str = head.method().as_str().to_string();
         let target = head.target().path().to_string();
         let query = head.target().query().unwrap_or("").to_string();
+        // Text-only facade (Plan 173 Track D): stdlib-shaped `headers` expose
+        // `str`. Opaque (non-UTF-8) field values are omitted rather than
+        // lossily coerced; Rust canonical primitives remain byte-correct.
         let header_items: Vec<(String, String)> = head
             .headers()
             .iter()
-            .map(|f| (f.name.to_string(), f.value.to_string()))
+            .filter_map(|f| {
+                f.value
+                    .to_str()
+                    .ok()
+                    .map(|v| (f.name.to_string(), v.to_owned()))
+            })
             .collect();
         let mut headers = HashMap::new();
         for (name, value) in &header_items {

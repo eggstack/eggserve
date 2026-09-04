@@ -650,7 +650,8 @@ pub fn normalize_metadata(
 
     // A 304 may retain the selected representation's length, but only when the
     // supplied value is unique, valid, and matches the planned representation.
-    // Unknown lengths never retain: no Content-Length is invented.
+    // Unknown lengths never retain: no Content-Length is invented. Non-UTF-8
+    // values cannot be valid decimal lengths, so they yield no retention.
     let not_modified_length = if status == StatusCode::NOT_MODIFIED {
         match body_length {
             BodyLength::Known(known) => headers
@@ -658,7 +659,8 @@ pub fn normalize_metadata(
                 .map_err(|_| {
                     ResponseConstructionError::ForbiddenFramingHeader("content-length".to_owned())
                 })?
-                .and_then(|value| value.as_str().parse::<u64>().ok())
+                .and_then(|value| value.to_str().ok())
+                .and_then(|s| s.parse::<u64>().ok())
                 .filter(|length| *length == known),
             BodyLength::Unknown => None,
         }
@@ -714,10 +716,14 @@ fn remove_header(headers: &mut HeaderBlock, name: &str) {
 
 /// Remove all hop-by-hop headers from the block.
 fn strip_hop_by_hop(headers: &mut HeaderBlock) {
+    // `Connection` tokens require text interpretation: opaque (non-UTF-8)
+    // values cannot name headers, so they contribute no tokens. This keeps
+    // generic forwarding byte-preserving while protocol semantics stay strict.
     let connection_tokens: Vec<String> = headers
         .iter()
         .filter(|field| field.name.as_str().eq_ignore_ascii_case("connection"))
-        .flat_map(|field| field.value.as_str().split(','))
+        .filter_map(|field| field.value.to_str().ok())
+        .flat_map(|s| s.split(','))
         .map(str::trim)
         .filter(|name| !name.is_empty())
         .map(str::to_ascii_lowercase)
@@ -803,7 +809,15 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
 
     let mut builder = hyper::Response::builder().status(hyper_status);
     for field in response.head.headers().iter() {
-        builder = builder.header(field.name.as_str(), field.value.as_str());
+        // Byte-preserving outbound conversion: canonical bytes are already in
+        // the transport-accepted domain, so this preserves exact octets
+        // without UTF-8 coercion. Framing/privacy stripping already ran in
+        // normalization; this step does not bypass response policy.
+        let name = hyper::header::HeaderName::from_bytes(field.name.as_str().as_bytes())
+            .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidName))?;
+        let value = hyper::header::HeaderValue::from_bytes(field.value.as_bytes())
+            .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue))?;
+        builder = builder.header(name, value);
     }
 
     let body = match response.body {
@@ -1448,7 +1462,11 @@ mod tests {
 
         assert_eq!(resp.status().as_u16(), 200);
         assert_eq!(
-            resp.headers().get_first("content-type").unwrap().as_str(),
+            resp.headers()
+                .get_first("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "text/plain"
         );
     }
@@ -1509,7 +1527,8 @@ mod tests {
                 .headers()
                 .get_first("content-length")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "5"
         );
     }
@@ -1560,7 +1579,8 @@ mod tests {
                 .headers()
                 .get_first("content-length")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "5"
         );
 
@@ -1590,7 +1610,8 @@ mod tests {
                 .headers()
                 .get_first("content-length")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "10"
         );
     }
@@ -1661,7 +1682,8 @@ mod tests {
                 .headers()
                 .get_first("content-length")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "5"
         );
     }
@@ -1774,7 +1796,14 @@ mod tests {
         assert!(!headers.contains("upgrade"));
         assert!(!headers.contains("te"));
         assert!(headers.contains("content-type"));
-        assert_eq!(headers.get_first("content-length").unwrap().as_str(), "5");
+        assert_eq!(
+            headers
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
+            "5"
+        );
     }
 
     #[test]
@@ -1804,7 +1833,7 @@ mod tests {
 
         let all_cl = headers.get_all("content-length");
         assert_eq!(all_cl.len(), 1, "only one Content-Length must remain");
-        assert_eq!(all_cl[0].as_str(), "42");
+        assert_eq!(all_cl[0].to_str().unwrap(), "42");
     }
 
     #[test]
@@ -1840,7 +1869,8 @@ mod tests {
                 .headers()
                 .get_first("content-length")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "5"
         );
     }
@@ -1856,8 +1886,8 @@ mod tests {
 
         let all = headers.get_all("set-cookie");
         assert_eq!(all.len(), 2);
-        assert_eq!(all[0].as_str(), "a=1");
-        assert_eq!(all[1].as_str(), "b=2");
+        assert_eq!(all[0].to_str().unwrap(), "a=1");
+        assert_eq!(all[1].to_str().unwrap(), "b=2");
     }
 
     #[test]
@@ -1869,7 +1899,11 @@ mod tests {
         normalize_metadata(code, &mut headers, 100).unwrap();
 
         assert_eq!(
-            headers.get_first("content-length").unwrap().as_str(),
+            headers
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "100",
             "HEAD with non-empty body must preserve Content-Length"
         );
@@ -1884,7 +1918,11 @@ mod tests {
         normalize_metadata(code, &mut headers, 0).unwrap();
 
         assert_eq!(
-            headers.get_first("content-length").unwrap().as_str(),
+            headers
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "0",
             "HEAD with empty body must preserve zero Content-Length"
         );

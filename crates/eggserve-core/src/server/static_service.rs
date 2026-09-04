@@ -195,21 +195,33 @@ fn plan_static_request(
     };
 
     let guard = RootGuard::new(state.pinned_root());
-    let if_match = request.headers().get_first("if-match").map(|v| v.as_str());
+    // Protocol-defined precondition/range headers require text: checked
+    // conversion here, opaque values treated as absent (full response) rather
+    // than coerced. Generic forwarding elsewhere stays byte-preserving.
+    let if_match = request
+        .headers()
+        .get_first("if-match")
+        .and_then(|v| v.to_str().ok());
     let if_unmodified_since = request
         .headers()
         .get_first("if-unmodified-since")
-        .map(|v| v.as_str());
+        .and_then(|v| v.to_str().ok());
     let if_none_match = request
         .headers()
         .get_first("if-none-match")
-        .map(|v| v.as_str());
+        .and_then(|v| v.to_str().ok());
     let if_modified_since = request
         .headers()
         .get_first("if-modified-since")
-        .map(|v| v.as_str());
-    let range = request.headers().get_first("range").map(|v| v.as_str());
-    let if_range = request.headers().get_first("if-range").map(|v| v.as_str());
+        .and_then(|v| v.to_str().ok());
+    let range = request
+        .headers()
+        .get_first("range")
+        .and_then(|v| v.to_str().ok());
+    let if_range = request
+        .headers()
+        .get_first("if-range")
+        .and_then(|v| v.to_str().ok());
     let method = if is_head {
         ReadOnlyMethod::Head
     } else {
@@ -462,7 +474,7 @@ fn append_extra_headers(headers: &mut HeaderMapPlan, config: &ServeConfig) {
             // validated — but fall back to the raw value if parsing fails so
             // an invalid config cannot panic the service.
             let canonical = crate::primitives::header_block::HeaderValue::new(value.clone())
-                .map(|v| v.as_str().to_owned())
+                .map(|v| v.to_str().unwrap_or("").to_owned())
                 .unwrap_or_else(|_| value.clone());
             headers.push(name.clone(), canonical);
         }
@@ -480,7 +492,7 @@ fn canonical_response(
     for header in planned_headers.iter() {
         let value =
             HeaderValue::new(&header.value).map_err(|e| ServiceError::internal(e.to_string()))?;
-        if value.as_str().is_empty() {
+        if value.is_empty() {
             return Err(ServiceError::internal(
                 "response header value must not be empty",
             ));
@@ -733,7 +745,11 @@ mod tests {
             .unwrap();
         assert!(!matches!(head.body(), Some(ResponseBody::File(_))));
         assert_eq!(
-            head.headers().get_first("content-length").unwrap().as_str(),
+            head.headers()
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "5"
         );
     }
@@ -753,11 +769,19 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(
-            get.headers().get_first("content-length").unwrap().as_str(),
+            get.headers()
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "0"
         );
         assert_eq!(
-            head.headers().get_first("content-length").unwrap().as_str(),
+            head.headers()
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "0"
         );
     }
@@ -774,22 +798,35 @@ mod tests {
             .unwrap();
         assert_eq!(full.status().as_u16(), 200);
         assert_eq!(
-            full.headers().get_first("content-type").unwrap().as_str(),
+            full.headers()
+                .get_first("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "text/plain; charset=utf-8"
         );
         assert_eq!(
-            full.headers().get_first("content-length").unwrap().as_str(),
+            full.headers()
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "10"
         );
         assert_eq!(
-            full.headers().get_first("accept-ranges").unwrap().as_str(),
+            full.headers()
+                .get_first("accept-ranges")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "bytes"
         );
         let etag = full
             .headers()
             .get_first("etag")
             .unwrap()
-            .as_str()
+            .to_str()
+            .unwrap()
             .to_owned();
         assert!(full.headers().contains("last-modified"));
 
@@ -805,7 +842,12 @@ mod tests {
             .unwrap();
         assert_eq!(range.status().as_u16(), 206);
         assert_eq!(
-            range.headers().get_first("content-range").unwrap().as_str(),
+            range
+                .headers()
+                .get_first("content-range")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "bytes 2-4/10"
         );
         assert_eq!(
@@ -813,7 +855,8 @@ mod tests {
                 .headers()
                 .get_first("content-length")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "3"
         );
 
@@ -835,7 +878,8 @@ mod tests {
                 .headers()
                 .get_first("content-range")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "bytes */10"
         );
         assert!(!matches!(unsatisfiable.body(), Some(ResponseBody::File(_))));
@@ -854,7 +898,12 @@ mod tests {
             .unwrap();
         assert_eq!(conditional.status().as_u16(), 304);
         assert_eq!(
-            conditional.headers().get_first("etag").unwrap().as_str(),
+            conditional
+                .headers()
+                .get_first("etag")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             etag
         );
         assert!(!matches!(conditional.body(), Some(ResponseBody::File(_))));
@@ -865,11 +914,19 @@ mod tests {
             .unwrap();
         assert_eq!(head.status().as_u16(), full.status().as_u16());
         assert_eq!(
-            head.headers().get_first("content-type").unwrap().as_str(),
+            head.headers()
+                .get_first("content-type")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "text/plain; charset=utf-8"
         );
         assert_eq!(
-            head.headers().get_first("content-length").unwrap().as_str(),
+            head.headers()
+                .get_first("content-length")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "10"
         );
         assert!(!matches!(head.body(), Some(ResponseBody::File(_))));
@@ -893,7 +950,8 @@ mod tests {
                 .headers()
                 .get_first("content-type")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "text/html; charset=utf-8"
         );
         assert_eq!(
@@ -901,7 +959,8 @@ mod tests {
                 .headers()
                 .get_first("content-security-policy")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "default-src 'none'; base-uri 'none'; form-action 'none'"
         );
         assert_eq!(
@@ -909,7 +968,8 @@ mod tests {
                 .headers()
                 .get_first("referrer-policy")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "no-referrer"
         );
         assert_eq!(
@@ -917,7 +977,8 @@ mod tests {
                 .headers()
                 .get_first("x-content-type-options")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "nosniff"
         );
         assert!(listing.headers().contains("content-length"));
@@ -928,7 +989,12 @@ mod tests {
             .unwrap();
         assert_eq!(not_allowed.status().as_u16(), 405);
         assert_eq!(
-            not_allowed.headers().get_first("allow").unwrap().as_str(),
+            not_allowed
+                .headers()
+                .get_first("allow")
+                .unwrap()
+                .to_str()
+                .unwrap(),
             "GET, HEAD"
         );
         assert_eq!(
@@ -936,7 +1002,8 @@ mod tests {
                 .headers()
                 .get_first("content-type")
                 .unwrap()
-                .as_str(),
+                .to_str()
+                .unwrap(),
             "text/plain; charset=utf-8"
         );
         assert!(not_allowed.headers().contains("content-length"));

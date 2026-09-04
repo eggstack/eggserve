@@ -2,9 +2,37 @@
 
 ## Status
 
-**PLANNED.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisite: Plan 172 present. Plans 161–171 remain closed historical work.
+
+## Closure record
+
+Tracks A–E implemented on `main`:
+
+- `HeaderValue` is octet-preserving (`Bytes` storage, `from_bytes` /
+  `from_static_bytes` / `as_bytes()`, fallible `to_str()` → 
+  `HeaderValueTextError`; `new(str)` retained as alias). Validation matches
+  `http::HeaderValue::from_bytes` (`HTAB`, `SP`–`~`, obs-text; rejects `CR` /
+  `LF` / `NUL` / `DEL` / `CTL`s). `OWS` (`SP`/`HTAB`) stripping is a deliberate
+  canonical invariant for both text and byte constructors. `HeaderBlock` stays
+  ordered/duplicate-preserving with `push_bytes(..)`. `Display` is lossy
+  diagnostic only.
+- Inbound (`RequestHead::try_from_hyper`, connection `convert_request_head`)
+  and outbound (`to_hyper_response`, error helpers) conversions preserve exact
+  octets; protocol headers use checked `to_str()` at interpretation.
+  `tests/octet_fidelity.rs` proves wire → Hyper → service and service →
+  normalization → wire preservation (incl. duplicates) over the duplex parser
+  path, plus `CR`/`LF`/`NUL`/`DEL` rejection and byte-counted limits.
+- Python stdlib-shaped surfaces stay text-only (opaque headers omitted, not
+  coerced); Rust canonical layer is byte-correct.
+- `RequestTarget` gains truthful `raw_bytes()` / `path_bytes()` /
+  `query_bytes()` over accepted origin-form bytes; `/path` vs `/path?`
+  deliberately canonicalizes to `None`; wire corpus regression-tested.
+- Breaking `as_str()` → `to_str()` migration documented in
+  `docs/migration-guide.md`; stability inventory and primitives docs updated.
+  Security review points hold (existing smuggling/framing/privacy suites pass;
+  logs omit raw hostile bytes).
 
 ## Goal
 

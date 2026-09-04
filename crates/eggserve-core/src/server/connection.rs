@@ -2171,17 +2171,13 @@ fn convert_request_head(
         }
         let header_name = crate::primitives::header_block::HeaderName::new(name.as_str())
             .map_err(|_| ServiceError::rejected(400, format!("invalid header name: {}", name)))?;
-        let header_value = match value.to_str() {
-            Ok(v) => crate::primitives::header_block::HeaderValue::new(v).map_err(|_| {
-                ServiceError::rejected(400, format!("invalid header value for {}", name))
-            })?,
-            Err(_) => {
-                return Err(ServiceError::rejected(
-                    400,
-                    format!("non-UTF-8 header value for {}", name),
-                ))
-            }
-        };
+        // Byte-preserving inbound conversion (Plan 173 Track C1): legal opaque
+        // bytes reach the service unchanged. Aggregate limits above already
+        // count bytes, not Unicode scalars.
+        let header_value = crate::primitives::header_block::HeaderValue::from_bytes(
+            value.as_bytes(),
+        )
+        .map_err(|_| ServiceError::rejected(400, format!("invalid header value for {}", name)))?;
         headers.push(header_name, header_value);
     }
 

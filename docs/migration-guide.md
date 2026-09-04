@@ -247,6 +247,43 @@ is the sole authority. `ResponsePolicy::minimal_fingerprint()` +
 minimal-fingerprint profile (minimizes signals, does not claim
 un-fingerprintability).
 
+## Plan 173: octet-preserving canonical HTTP metadata
+
+`HeaderValue` is now byte-preserving. `as_str() -> &str` (infallible) is
+removed; use `as_bytes() -> &[u8]` for forwarding and `to_str() ->
+Result<&str, HeaderValueTextError>` for checked text interpretation.
+
+| Before | After | Change |
+|--------|-------|--------|
+| `HeaderValue::new("text")?.as_str()` | `HeaderValue::new("text")?.to_str()?` | Fallible text access |
+| `block.get_first("x")?.as_str()` | `block.get_first("x")?.to_str()?` | Fallible at interpretation |
+| `HeaderValue::new(s)` only | `HeaderValue::from_bytes(b)` / `from_static_bytes(b)` + `push_bytes(..)` | Opaque obs-text without UTF-8 coercion |
+| `value.as_str().is_empty()` | `value.is_empty()` / `value.as_bytes().is_empty()` | Byte-length checks |
+
+Validation matches `http::HeaderValue::from_bytes` (`HTAB`, `SP`–`~`,
+obs-text `0x80`–`0xFF`; rejects `CR`/`LF`/`NUL`/`DEL`/`CTL`s). Leading/trailing
+`SP`/`HTAB` are still stripped as a deliberate `OWS` invariant (RFC 9110
+field-line parsing), for both text and byte constructors. Inbound conversion
+(`RequestHead::try_from_hyper`, connection pipeline) and outbound conversion
+(`to_hyper_response`) preserve exact octets; protocol headers (`Content-Length`,
+`Connection` tokens, conditionals/range) perform checked `to_str()` at the
+point of interpretation. `Display` for `HeaderValue`/`HeaderBlock` is lossy
+diagnostic only — never use it for wire conversion.
+
+`RequestTarget` gains truthful byte accessors (`raw_bytes()`, `path_bytes()`,
+`query_bytes()`) over the accepted origin-form bytes. `/path` and `/path?`
+deliberately canonicalize identically (`query() == None`).
+
+Python stdlib-shaped surfaces remain text-only: opaque request headers are
+omitted from `Request.headers`/`header_items` and `HeaderBlock` getters/iteration
+rather than lossily coerced. Rust canonical primitives are byte-correct;
+Python facades enforce the text subset.
+
+**Migration**: replace `as_str()` on `HeaderValue` with `to_str()?` (or
+`as_bytes()` for forwarding). Add `HeaderValueTextError` to imports where the
+error type is named. No `Hyper` types enter the canonical API; the two
+adapters remain `RequestHead::try_from_hyper()` and `to_hyper_response()`.
+
 ## Plan 171: outbound response conversion boundary
 
 ### Release note for the next `0.2.0` minor transition

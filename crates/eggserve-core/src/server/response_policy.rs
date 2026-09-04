@@ -203,9 +203,9 @@ impl ResponsePolicy {
     /// Validate all fields. Returns the first error as a string.
     pub fn validate(&self) -> Result<(), String> {
         if let Some(server) = &self.server_identification {
-            crate::primitives::header_block::HeaderValue::new(server.clone())
+            let canonical = crate::primitives::header_block::HeaderValue::new(server.clone())
                 .map_err(|e| format!("invalid server_identification: {e}"))?;
-            if server.trim_matches([' ', '\t']).is_empty() {
+            if canonical.is_empty() {
                 return Err("server_identification must not be empty or whitespace-only".into());
             }
         }

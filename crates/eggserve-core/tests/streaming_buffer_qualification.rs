@@ -108,7 +108,11 @@ async fn exact_range_full_file() {
         .unwrap();
     assert_eq!(resp.status().as_u16(), 206);
     assert_eq!(
-        resp.headers().get_first("content-range").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-range")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "bytes 0-255/256"
     );
     let body = extract_body_bytes(&resp).await;
@@ -155,7 +159,11 @@ async fn zero_length_file_full() {
     let resp = svc.call(get_req("/empty.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
-        resp.headers().get_first("content-length").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "0"
     );
     let body = extract_body_bytes(&resp).await;
@@ -170,7 +178,11 @@ async fn zero_length_file_head() {
     assert_eq!(resp.status().as_u16(), 200);
     // HEAD with empty body preserves Content-Length: 0 per normalize_metadata
     assert_eq!(
-        resp.headers().get_first("content-length").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "0"
     );
 }
@@ -267,11 +279,19 @@ async fn range_content_range_header_exact() {
         .await
         .unwrap();
     assert_eq!(
-        resp.headers().get_first("content-range").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-range")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "bytes 100-199/1000"
     );
     assert_eq!(
-        resp.headers().get_first("content-length").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "100"
     );
 }

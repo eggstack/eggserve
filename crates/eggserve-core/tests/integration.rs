@@ -263,7 +263,7 @@ async fn get_unsupported_method_returns_405() {
         .unwrap();
     assert_eq!(resp.status().as_u16(), 405);
     assert_eq!(
-        resp.headers().get_first("allow").unwrap().as_str(),
+        resp.headers().get_first("allow").unwrap().to_str().unwrap(),
         "GET, HEAD"
     );
 }
@@ -277,7 +277,11 @@ async fn content_length_matches_file_length() {
     let resp = svc.call(get("/file.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
-        resp.headers().get_first("content-length").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "5"
     );
 }
@@ -291,7 +295,11 @@ async fn content_type_defaults_to_octet_stream_for_unknown_extension() {
     let resp = svc.call(get("/file.xyz")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "application/octet-stream"
     );
 }
@@ -306,19 +314,31 @@ async fn content_type_known_extension_is_mapped() {
 
     let resp = svc.call(get("/file.html")).await.unwrap();
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "text/html; charset=utf-8"
     );
 
     let resp = svc.call(get("/style.css")).await.unwrap();
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "text/css; charset=utf-8"
     );
 
     let resp = svc.call(get("/script.js")).await.unwrap();
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "application/javascript; charset=utf-8"
     );
 }
@@ -348,7 +368,8 @@ async fn nosniff_header_present() {
         resp.headers()
             .get_first("x-content-type-options")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "nosniff"
     );
 }
@@ -364,7 +385,8 @@ async fn etag_header_present() {
         .headers()
         .get_first("etag")
         .unwrap()
-        .as_str()
+        .to_str()
+        .unwrap()
         .to_string();
     assert!(etag.starts_with("W/\""));
     assert!(etag.ends_with('"'));
@@ -454,21 +476,24 @@ async fn directory_listing_has_security_headers() {
         resp.headers()
             .get_first("content-security-policy")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "default-src 'none'; base-uri 'none'; form-action 'none'"
     );
     assert_eq!(
         resp.headers()
             .get_first("referrer-policy")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "no-referrer"
     );
     assert_eq!(
         resp.headers()
             .get_first("x-content-type-options")
             .unwrap()
-            .as_str(),
+            .to_str()
+            .unwrap(),
         "nosniff"
     );
 }
@@ -505,7 +530,11 @@ async fn directory_listing_head_has_no_body() {
     let mut resp = svc.call(head("/")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
-        resp.headers().get_first("content-type").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "text/html; charset=utf-8"
     );
 
@@ -597,7 +626,7 @@ async fn method_not_allowed_for_delete() {
         .unwrap();
     assert_eq!(resp.status().as_u16(), 405);
     assert_eq!(
-        resp.headers().get_first("allow").unwrap().as_str(),
+        resp.headers().get_first("allow").unwrap().to_str().unwrap(),
         "GET, HEAD"
     );
 }
@@ -687,7 +716,11 @@ async fn large_file_returns_correct_content_length() {
     let mut resp = svc.call(get("/big.txt")).await.unwrap();
     assert_eq!(resp.status().as_u16(), 200);
     assert_eq!(
-        resp.headers().get_first("content-length").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "100000"
     );
 

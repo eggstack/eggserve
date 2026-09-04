@@ -125,6 +125,11 @@ impl RequestTarget {
     }
 
     /// Returns the query component (after the `?`), if present.
+    ///
+    /// An empty query (`/path?`) canonicalizes to `None`: `/path` and
+    /// `/path?` are deliberately equivalent. This matches the historical
+    /// contract and avoids a bare-`?` distinction most application semantics
+    /// do not require.
     pub fn query(&self) -> Option<&str> {
         self.query.as_deref()
     }
@@ -132,6 +137,29 @@ impl RequestTarget {
     /// Returns the full target including query, if present.
     pub fn path_and_query(&self) -> &str {
         &self.raw
+    }
+
+    /// Returns the raw target octets.
+    ///
+    /// Accepted origin-form targets are visible ASCII/percent-encoded data, so
+    /// the `String` storage round-trips losslessly and this is exactly the
+    /// accepted wire representation seen after Hyper parsing. If Hyper
+    /// normalizes an accepted target before EggServe sees it, this cannot
+    /// truthfully provide original raw-path bytes for those cases — a
+    /// downstream server should then omit optional `raw_path` rather than
+    /// fabricate it. No second parser is introduced to recover such bytes.
+    pub fn raw_bytes(&self) -> &[u8] {
+        self.raw.as_bytes()
+    }
+
+    /// Returns the path-component octets.
+    pub fn path_bytes(&self) -> &[u8] {
+        self.path.as_bytes()
+    }
+
+    /// Returns the query-component octets, if present.
+    pub fn query_bytes(&self) -> Option<&[u8]> {
+        self.query.as_deref().map(str::as_bytes)
     }
 }
 

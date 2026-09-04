@@ -617,7 +617,11 @@ async fn minimal_static_metadata_suppresses_validators() {
     // Still 200 with correct length framing.
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(
-        resp.headers().get_first("content-length").unwrap().as_str(),
+        resp.headers()
+            .get_first("content-length")
+            .unwrap()
+            .to_str()
+            .unwrap(),
         "10"
     );
 }

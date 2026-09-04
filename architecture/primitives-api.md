@@ -225,7 +225,13 @@ headers.push_str("content-type", "text/html").unwrap();
 
 // get_unique returns Ok(Some(value)) for single headers
 let ct = headers.get_unique("content-type").unwrap().unwrap();
-assert_eq!(ct.as_str(), "text/html");
+assert_eq!(ct.to_str().unwrap(), "text/html");
+// Opaque octets without UTF-8 coercion:
+headers.push_bytes("x-opaque", b"a\xff").unwrap();
+assert_eq!(
+    headers.get_first("x-opaque").unwrap().as_bytes(),
+    b"a\xff"
+);
 
 // get_unique returns Ok(None) for absent headers
 let missing = headers.get_unique("x-missing").unwrap();
@@ -289,8 +295,8 @@ let resp = Response::builder()
 
 let all = resp.headers().get_all("set-cookie");
 assert_eq!(all.len(), 2);
-assert_eq!(all[0].as_str(), "a=1");
-assert_eq!(all[1].as_str(), "b=2");
+assert_eq!(all[0].to_str().unwrap(), "a=1");
+assert_eq!(all[1].to_str().unwrap(), "b=2");
 ```
 
 ### File-backed response (conceptual)
@@ -394,8 +400,8 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `Server` | Python | Implemented | Rust owns socket I/O, timeouts, file streaming; Python supplies optional handler callback | Dynamic server use in Python |
 | `Method` | Rust, Python | Implemented and stable | Validated HTTP method; standard + extension; token validation | Canonical method identity |
 | `HttpVersion` | Rust, Python | Implemented and stable | HTTP/1.0, HTTP/1.1 | Canonical version identity |
-| `HeaderBlock` | Rust, Python | Implemented and stable | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation | Canonical header collection |
-| `RequestTarget` | Rust, Python | Implemented and stable | Validated origin-form target (path + query) | Canonical request target |
+| `HeaderBlock` | Rust, Python | Implemented and stable | Ordered Vec of HeaderField; case-insensitive lookup; duplicate preservation; octet-preserving values (`as_bytes`/`to_str`, `push_bytes`) | Canonical header collection |
+| `RequestTarget` | Rust, Python | Implemented and stable | Validated origin-form target (path + query; `raw_bytes`/`path_bytes`/`query_bytes`; empty query → `None`) | Canonical request target |
 | `RequestHead` | Rust, Python | Implemented and stable | Canonical request head with `try_from_hyper()` conversion | Transport-independent request inspection |
 | `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (optional endpoints, scheme, TLS); no fabricated addresses; separate from headers | Connection-level metadata |
 | `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (100–599, three-digit only) with classification helpers | Canonical status code |
