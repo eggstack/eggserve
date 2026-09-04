@@ -304,10 +304,14 @@ def run_static(cli: Path, trials: int, tls_cert: Path | None, tls_key: Path | No
 
 def run_custom(streaming: Path, trials: int) -> list[dict]:
     cases = [
-        ("/bytes/1024", 1024, 16),
-        ("/known/1048576", 1024 * 1024, 16),
-        ("/stream/1048576", 1024 * 1024, 16),
-        ("/stream/16777216", 16 * 1024 * 1024, 16),
+        (path, size, concurrency)
+        for path, size in (
+            ("/bytes/1024", 1024),
+            ("/known/1048576", 1024 * 1024),
+            ("/stream/1048576", 1024 * 1024),
+            ("/stream/16777216", 16 * 1024 * 1024),
+        )
+        for concurrency in (16, 64)
     ]
     process = ServerProcess([str(streaming)], {
         "EGGSERVE_BENCH_MAX_CONNECTIONS": "128",
@@ -361,6 +365,7 @@ def run_python_lowlevel(python: Path, trials: int) -> list[dict]:
 import signal, sys, time
 from eggserve import lowlevel
 port = int(sys.argv[1])
+callbacks = int(sys.argv[2])
 def stream(size):
     for offset in range(0, size, 8192):
         yield b"x" * min(8192, size - offset)
@@ -372,30 +377,37 @@ def handler(request):
     return lowlevel.Response.text(404, "not found")
 server = lowlevel.Server(lowlevel.RuntimeConfig(
     bind="127.0.0.1", port=port, max_connections=128,
-    max_python_callbacks=8, max_in_flight_requests=128), handler)
+    max_python_callbacks=callbacks, max_in_flight_requests=128), handler)
 server.start(); server.wait_ready(); print("READY", flush=True)
 signal.pause()
 '''
-    port = free_port()
+    all_records = []
     with tempfile.NamedTemporaryFile("w", suffix=".py", delete=False) as file:
         file.write(script)
         script_path = file.name
-    process = subprocess.Popen([str(python), script_path, str(port)], stdout=subprocess.PIPE,
-                               stderr=subprocess.DEVNULL, text=True)
-    wrapper = ServerProcess.__new__(ServerProcess)
-    wrapper.port = port
-    wrapper.command = [str(python), script_path]
-    wrapper.process = process
     try:
-        cases = [("/bytes/1024", 1024, 8), ("/stream/1048576", 1024 * 1024, 8)]
-        return benchmark_process(wrapper, cases, trials)
+        for callbacks in (8, 16):
+            port = free_port()
+            process = subprocess.Popen([str(python), script_path, str(port), str(callbacks)],
+                                       stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+            wrapper = ServerProcess.__new__(ServerProcess)
+            wrapper.port = port
+            wrapper.command = [str(python), script_path]
+            wrapper.process = process
+            try:
+                cases = [("/bytes/1024", 1024, callbacks), ("/stream/1048576", 1024 * 1024, callbacks)]
+                for record in benchmark_process(wrapper, cases, trials):
+                    record["max_python_callbacks"] = callbacks
+                    all_records.append(record)
+            finally:
+                if process.poll() is None:
+                    process.send_signal(getattr(__import__("signal"), "SIGTERM"))
+                try:
+                    process.wait(timeout=10)
+                except subprocess.TimeoutExpired:
+                    process.kill(); process.wait(timeout=10)
+        return all_records
     finally:
-        if process.poll() is None:
-            process.send_signal(getattr(__import__("signal"), "SIGTERM"))
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill(); process.wait(timeout=10)
         os.unlink(script_path)
 
 
@@ -530,7 +542,7 @@ def main() -> int:
         "profiles": {
             "native_static": {"profile": "release", "features": [], "build_command": "cargo build --release --locked -p eggserve-bin", "runtime_limits": {"max_connections": 512, "max_file_streams": 512, "max_in_flight_requests": 512, "max_buf_size": 65536, "max_headers": 100, "max_header_bytes": 32768, "max_request_target_bytes": 8192}},
             "native_custom": {"profile": "release", "features": [], "build_command": "cargo build --release --locked --example streaming_service -p eggserve-core", "runtime_limits": {"max_connections": 128, "max_in_flight_requests": 128}},
-            "python_lowlevel": {"installed_wheel": str(args.python) if args.python else None, "runtime_limits": {"max_connections": 128, "max_python_callbacks": 8, "max_in_flight_requests": 128}},
+            "python_lowlevel": {"build_command": "python3.14 -m maturin build --profile dist --interpreter python3.14", "installed_wheel": str(args.python) if args.python else None, "python_version": command_output([str(args.python), "--version"]) if args.python else None, "runtime_limits": {"max_connections": 128, "max_python_callbacks": 8, "max_in_flight_requests": 128}},
         },
         "method": {"trials": args.trials, "warmup": "one excluded trial at min(concurrency, 16) workers", "absolute_timing_ci_gate": False},
         "workloads": {},
