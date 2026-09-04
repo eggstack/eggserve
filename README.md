@@ -162,6 +162,15 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
 [primitives facade](https://github.com/eggstack/eggserve/blob/main/architecture/primitives-api.md), and
 [runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 
+Downstream application servers build on the same canonical `Service`
+boundary: the builder-facing HTTP-half contract (bounded full-duplex
+bridging, deferred body ownership, lifecycle cancellation, timeout and
+admission splits, byte metadata) is documented in
+[downstream-app-server.md](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md)
+and qualified externally by `crates/eggserve-core/tests/app_server_consumer.rs`.
+EggServe itself remains a static server and library, not an application
+framework or ASGI/WSGI runtime.
+
 ## Security and compatibility boundaries
 
 - Loopback bind, no symlinks, no dotfiles, and no directory listing are the
@@ -242,6 +251,7 @@ point; it does not bundle a second standalone CLI binary. See
 **Rust library:**
 - [Rust HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md) — HTTP/1.1 primitive contract
 - [Public API boundary](https://github.com/eggstack/eggserve/blob/main/docs/public-api-boundary.md) — stability tiers, semver policy
+- [Downstream application servers](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md) — builder-facing HTTP-half contract for downstream app servers (not an EggServe feature)
 - [Migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md) — legacy → canonical type mappings, breaking-change policy
 - [Library capability matrix](https://github.com/eggstack/eggserve/blob/main/docs/library-capability-matrix.md) — cross-surface feature inventory
 

@@ -92,9 +92,10 @@ functional.
 | `RequestBody::shared()` | Internal | `pub(crate)` — not public API |
 | `RequestBody::was_fully_consumed()` | Internal | `pub(crate)` — not public API |
 | `BodyState` | Experimental | Body consumption state machine |
-| `RequestLifecycle` | Experimental | Cloneable disconnect/cancel observer (Plan 174) |
-| `RequestCancellationReason` | Experimental | Best-effort cancel reason (4 variants) |
+| `RequestLifecycle` | Experimental | Cloneable disconnect/cancel observer (Plan 174): `cancelled()`, `is_cancelled()`, `cancellation_reason()`, plus `is_body_complete()` / `is_body_active()` body-boundary observers |
+| `RequestCancellationReason` | Experimental | Best-effort cancel reason (4 variants: `PeerDisconnected`, `ServerShutdown`, `ConnectionTimeout`, `TransportFailure`; first wins) |
 | `Request::lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` | Experimental | Additive lifecycle access; `into_parts` arity preserved |
+| `RequestBody::lifecycle()` | Experimental | Cloneable observer sharing the body lifecycle allocation |
 | `RequestBodyError` | Experimental | Typed body error taxonomy |
 | `Request` | Experimental | Canonical request envelope |
 | `Service::call(Request)` | Experimental | Updated to accept Request envelope |
@@ -439,6 +440,7 @@ Every production claim must name a profile. The production profiles are document
 - eggserve is a hardened, read-only HTTP/1.1 static file server and a low-level primitive library.
 - Downstream clients, ASGI/WSGI/CGI/FastCGI adapters, and application servers may be built outside the repository.
 - Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
+- The downstream HTTP bridge contract is qualified from outside the crate by `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175): bounded full-duplex bridging, deferred body ownership, lifecycle cancellation, admission split, and TCP/TLS/caller-owned parity using only `primitives` + `server`. See `docs/downstream-app-server.md`.
 - No public API promises application-server cancellation semantics beyond documented generic server behavior.
 - No ASGI/WSGI/CGI/FastCGI vocabulary enters public types. No routing or middleware abstractions are added.
 - Canonical application-facing types, `Service`, and the caller-owned connection API remain Hyper-free for downstream consumers. The explicitly documented `RequestHead::try_from_hyper()` inbound adapter and `to_hyper_response()` outbound adapter may mention Hyper; internal runtime implementation use is expected. Tokio channel, PyO3, and platform FFI implementation types remain absent from stable application-facing signatures.

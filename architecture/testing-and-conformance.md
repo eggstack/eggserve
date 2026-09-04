@@ -7,7 +7,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 30 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 31 files |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 4 files |
 | Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
 | Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
@@ -52,6 +52,7 @@ shutdown; the process harness uses only Python's standard library.
 | `request_body_cancellation.rs` | — | Body cancellation and disconnect handling |
 | `request_body_tls.rs` | `tls` | Body handling over TLS connections |
 | `deferred_lifecycle.rs` | — (+`tls` for parity case) | Plan 174: early response with deferred body (fixed/chunked), reuse after Complete, close on Abandoned, lifecycle disconnect/shutdown/timeout, body timeout after response-start, caller-owned + TLS parity, admission distinctness |
+| `app_server_consumer.rs` | — (+`tls` for parity case) | Plan 175: external-consumer qualification using only `primitives` + `server` — bounded full-duplex bridge (no `read_all`, no Hyper), metadata fidelity (duplicates, opaque bytes, target byte views, socket/TLS truthfulness), D1–D5 lifecycle, handler/body timeout split, downstream admission split, TCP/TLS/caller-owned parity, non-gating perf sanity |
 | `body_properties.rs` | — | BodySource properties and invariants |
 | `tls_service_parity.rs` | `tls` | TLS + non-TLS behavioral parity |
 | `server_integration.rs` | — | Server lifecycle, Service trait, StaticService |

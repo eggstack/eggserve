@@ -79,6 +79,11 @@ type. The runtime's semaphore-aware conversion helper is internal. Hyper is
 otherwise an implementation dependency of the runtime, not a requirement for
 canonical consumers or `Service` implementations.
 
+The downstream application-server contract is qualified externally by
+`crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175), which uses
+only `primitives` + `server` plus ordinary downstream dependencies. The
+builder-facing rules live in [downstream-app-server.md](downstream-app-server.md).
+
 ## Invariants
 
 Every type in the public API enforces safety invariants at construction time:

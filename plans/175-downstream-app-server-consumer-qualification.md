@@ -2,9 +2,55 @@
 
 ## Status
 
-**PLANNED.**
+**IMPLEMENTED / CLOSED.**
 
-Prerequisites: Plans 172–174 implemented in substance. Plan 173 must have settled canonical metadata fidelity and Plan 174 must have settled deferred request-body ownership plus request lifecycle signaling before this plan can close.
+Prerequisites: Plans 172–174 implemented in substance (173 octet-preserving
+metadata, 174 deferred body ownership + lifecycle signaling).
+
+## Closure record
+
+Tracks A–H implemented on `main`:
+
+- Track A: `crates/eggserve-core/tests/app_server_consumer.rs` is the
+  isolated external consumer (integration test outside the module tree).
+  It imports only `eggserve_core::primitives` + `eggserve_core::server`
+  plus ordinary downstream deps (`tokio`, `bytes`, `futures-util`,
+  `rcgen`/`rustls`/`tokio-rustls` for TLS parity). No `hyper`,
+  `http::HeaderValue`, crate-private modules, Python facade, or static
+  internals; the intentional Hyper adapters are not used.
+- Track B: fixture-local `AppRequestEvent` bridge with cap-2 bounded
+  channels both directions (pump owns `RequestBody`, app task produces
+  response-start, `Service` returns `ResponseBody::Stream`, app continues
+  after return, all blocking sends watch `lifecycle.cancelled()`). No
+  `read_all()` on the main path.
+- Track C: metadata round-trip over TCP (duplicates ordered, opaque
+  `0xFF` request + response bytes, percent-encoded target byte views,
+  socket addrs `Some`), empty-query `None` canonicalization, caller-owned
+  `None` addrs, TLS `https` + session metadata.
+- Track D: D1 early-response full-duplex + keep-alive reuse (chunked,
+  11/11 bytes downstream); D2 abandon forces close, trailing bytes never
+  parsed, task exits; D3 idle long-poll wakes with `PeerDisconnected`
+  without socket probe; D4 send-side drop stops producer, lifecycle
+  follows, server stays healthy; D5 shutdown cancels waiter
+  (`ServerShutdown`) and streaming/deferred tasks within drain deadline.
+- Track E: handler-timeout (300ms) bounds response-start independently
+  (504) with generous body deadline; downstream cap-1 semaphore proves
+  the admission split (deterministic fixture 503, permit recovery, no
+  unbounded queue) with core `max_in_flight_requests` wide open.
+- Track F: TCP (all cases) + TLS (`tls` feature, early-response + metadata
+  parity) + caller-owned duplex (deferred + reuse + `None` addrs) preserve
+  the same canonical contract except truthful connection metadata.
+- Track G: new `docs/downstream-app-server.md` (diagram, ownership,
+  streaming example, deferred rule, cancellation, timeout split, admission
+  split, bounded-channel requirement, shutdown ordering, byte handling,
+  WebSocket/upgrade exclusion) linked from README, extension-contract,
+  public-api-boundary, api-stability, and runtime architecture.
+- Track H: `docs/api-stability.md` (lifecycle body observers, consumer
+  qualification pointer), `docs/migration-guide.md` (Plan 174 additive
+  section), `docs/library-capability-matrix.md` (bridge seam row),
+  `architecture/testing-and-conformance.md` (consumer suite mapping).
+- Perf: non-gating sanity (baseline vs 1-chunk vs 4-chunk bridge, 20 req
+  each, generous order-of-magnitude bound, timings printed).
 
 ## Goal
 
@@ -267,22 +313,22 @@ Run TLS and installed Python suites if Plans 173/174 changed shared native primi
 
 ## Acceptance criteria
 
-- [ ] an isolated external consumer compiles using only documented public EggServe APIs;
-- [ ] it does not import Hyper or crate-private modules;
-- [ ] it uses bounded coordination and does not buffer entire request/response bodies by design;
-- [ ] response-start can be returned while request-body consumption continues in a downstream-owned task;
-- [ ] a subsequent keep-alive request succeeds after deferred request-body completion;
-- [ ] abandoning an incomplete request body prevents connection reuse safely;
-- [ ] ordered duplicate and opaque-byte headers cross the consumer boundary correctly;
-- [ ] request-target raw-byte capability/limitations are represented truthfully;
-- [ ] peer disconnect wakes an idle/long-polling application task;
-- [ ] response-stream disconnect/cancellation races terminate without deadlock;
-- [ ] graceful shutdown drains/cancels downstream-owned bridge tasks deterministically;
-- [ ] EggServe service admission and downstream application admission remain distinct and bounded;
-- [ ] TCP, TLS, and caller-owned transports preserve the same canonical application contract where applicable;
-- [ ] current docs explicitly state that EggServe can underpin downstream app servers but does not implement ASGI/WSGI/framework/process semantics;
-- [ ] the public API stability inventory and migration guidance match the implementation;
-- [ ] no optional WebSocket/upgrade work is smuggled into this HTTP qualification plan.
+- [x] an isolated external consumer compiles using only documented public EggServe APIs;
+- [x] it does not import Hyper or crate-private modules;
+- [x] it uses bounded coordination and does not buffer entire request/response bodies by design;
+- [x] response-start can be returned while request-body consumption continues in a downstream-owned task;
+- [x] a subsequent keep-alive request succeeds after deferred request-body completion;
+- [x] abandoning an incomplete request body prevents connection reuse safely;
+- [x] ordered duplicate and opaque-byte headers cross the consumer boundary correctly;
+- [x] request-target raw-byte capability/limitations are represented truthfully;
+- [x] peer disconnect wakes an idle/long-polling application task;
+- [x] response-stream disconnect/cancellation races terminate without deadlock;
+- [x] graceful shutdown drains/cancels downstream-owned bridge tasks deterministically;
+- [x] EggServe service admission and downstream application admission remain distinct and bounded;
+- [x] TCP, TLS, and caller-owned transports preserve the same canonical application contract where applicable;
+- [x] current docs explicitly state that EggServe can underpin downstream app servers but does not implement ASGI/WSGI/framework/process semantics;
+- [x] the public API stability inventory and migration guidance match the implementation;
+- [x] no optional WebSocket/upgrade work is smuggled into this HTTP qualification plan.
 
 ## Non-goals
 

@@ -332,6 +332,12 @@ and framing authority.
   response failure may precede lifecycle cancellation; treat either as
   cancellation.
 
+The downstream builder contract (bounded full-duplex bridging, timeout
+split, admission split, byte metadata, shutdown ordering) is documented in
+`docs/downstream-app-server.md` and qualified externally by
+`crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175), which uses
+only `primitives` + `server` plus ordinary downstream dependencies.
+
 **Python impact:** No raw Python transports in this plan; `ConnectionInfo`
 views expose `None` for both `local_addr` and `remote_addr` on non-socket
 transports (Python `PyConnectionInfo` already mirrors this).

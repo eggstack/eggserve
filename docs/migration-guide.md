@@ -284,6 +284,31 @@ Python facades enforce the text subset.
 error type is named. No `Hyper` types enter the canonical API; the two
 adapters remain `RequestHead::try_from_hyper()` and `to_hyper_response()`.
 
+## Plan 174: deferred request-body ownership and request lifecycle
+
+Additive only; no source break for conventional handlers.
+
+- `Request` gains `lifecycle()` / `lifecycle_clone()` /
+  `into_parts_with_lifecycle()`; existing `into_parts()` tuple arity is
+  preserved. `RequestBody::lifecycle()` exposes the same shared allocation.
+- `RequestLifecycle` (`cancelled()`, `is_cancelled()`,
+  `cancellation_reason()`, plus `is_body_complete()` / `is_body_active()`)
+  with reasons `PeerDisconnected` / `ServerShutdown` / `ConnectionTimeout`
+  / `TransportFailure` (first wins, best-effort classification).
+- Ownership-derived delegation: moving `RequestBody` into a task keeps it
+  `Active` past `Service::call` return; dropping an incomplete
+  network-backed body marks `Abandoned` and forces safe close.
+  Reuse waits for body `Complete`; abandonment never parses trailing bytes
+  as a request. In-memory bodies never force close.
+- Timeout split is compatibility-preserving: Stream `Service::call` still
+  runs under `min(body_read_timeout, handler_timeout)` during the call
+  (disambiguated via lifecycle state); after response-start with an `Active`
+  body the remaining `body_read_timeout` continues via watchdog.
+  `handler_timeout` bounds response-start only. `max_in_flight_requests`
+  bounds pre-response `Service::call` only; downstream app-task budgets are
+  downstream-owned. See [timeout-reference.md](timeout-reference.md) and
+  [downstream-app-server.md](downstream-app-server.md).
+
 ## Plan 171: outbound response conversion boundary
 
 ### Release note for the next `0.2.0` minor transition

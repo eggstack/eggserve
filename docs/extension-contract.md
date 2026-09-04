@@ -46,6 +46,23 @@ resource = root.resolve_path(request_path)
 
 Dynamic endpoints must not bypass eggserve's path resolution. User-provided paths must always flow through `SecureRoot.resolve_path()` or `SecureRoot.resolve()` — never through raw `os.path.join()` or equivalent.
 
+### Downstream application servers (HTTP half)
+
+A downstream event-driven application server is a plain canonical `Service`
+plus bounded downstream tasks; it is not an EggServe feature. The supported
+shape is: `Stream` body policy, move `RequestBody` into a spawned app task,
+retain the `RequestLifecycle` observer, wait only for response-start, return
+`ResponseBody::Stream`, and let the app task continue consuming request
+chunks while producing bounded response chunks after return. All
+cross-task coordination uses bounded channels (capacity 2 in the
+qualification fixture); every potentially blocking send also watches
+`lifecycle.cancelled()`. EggServe `max_in_flight_requests` bounds
+pre-response `Service::call` only; the downstream project owns a separate
+bounded application-task budget. Full ownership, timeout-split,
+cancellation, shutdown-ordering, and byte-metadata rules are in
+[downstream-app-server.md](downstream-app-server.md); the external-consumer
+proof is `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175).
+
 ### Test servers
 
 Integration tests may use request validation (`validate_method`, `validate_request_body`) and response planning (`plan_file_response`) to verify server behavior without spinning up a full HTTP listener. The planner produces Hyper-independent value objects that can be inspected, asserted on, or mapped into test fixtures.
