@@ -233,6 +233,18 @@ fn stable_response_head_accessible_and_constructible() {
 }
 
 #[test]
+fn stable_outbound_transport_adapter_is_inference_based() {
+    use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
+
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(b"ok".to_vec()))
+        .unwrap();
+    let converted = eggserve_core::primitives::to_hyper_response(response).unwrap();
+    assert_eq!(converted.status().as_u16(), 200);
+}
+
+#[test]
 fn stable_response_body_accessible_and_constructible() {
     use eggserve_core::primitives::canonical::ResponseBody;
 

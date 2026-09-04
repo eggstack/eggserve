@@ -2,7 +2,14 @@
 
 This document defines the exact product surface, behavioral guarantees, and compatibility commitments for eggserve's first public release. It is the normative reference for what eggserve ships, what is stable, what is experimental, and what is internal.
 
-Version: 0.1.0 (pre-release)
+Release line: 0.1.x (current package version 0.1.2)
+
+Stable Rust API changes follow the pre-1.0 rule in
+[api-stability.md](api-stability.md): patch releases preserve source
+compatibility; an intentional breaking change requires an explicit minor
+transition, release notes, and migration guidance. The current `main` tree
+prepares the outbound response-conversion transition for the next `0.2.0`
+release; it is not a patch-level compatibility promise for `0.1.x`.
 
 Request-body behavior is service-owned. The built-in static service rejects
 body-bearing requests, while custom services may declare buffering or streaming
@@ -313,8 +320,11 @@ The canonical response types provide transport-independent, Hyper-independent va
 
 **Conversion**: `to_hyper_response(response)` converts a normalized canonical
 `Response` into the explicit Hyper transport boundary. Its erased body type is
-internal implementation detail; callers provide only the canonical response
-and never poll a producer concurrently.
+an internal implementation detail; callers should use type inference or the
+`http_body::Body<Data = bytes::Bytes, Error = std::io::Error>` behavior and
+never name `BoxBody` or another concrete erasure type. The response-stream
+producer remains one-owner `Send` without a `Sync` requirement. The
+semaphore-aware conversion helper is runtime-internal.
 
 ### Unified Response Architecture
 
@@ -391,7 +401,13 @@ Every exported Rust and Python item is classified into one of three tiers:
 
 ### Stable
 
-Breaking changes bump the major version. Pre-1.0, minor versions may break stable APIs only with explicit release notes and migration guidance. Patch releases must not break stable APIs. Stable names and signatures are intentionally supported. Semantic behavior identified in this release contract is covered by conformance tests. Unspecified formatting, debug output, log text, and internal implementation details are not stable unless explicitly documented.
+Patch releases preserve stable source compatibility. Before 1.0, intentional
+breaking changes to stable Rust APIs require an explicit minor-version
+transition (for example `0.1.x` → `0.2.0`), release notes, and migration
+guidance. Stable names and signatures are intentionally supported within that
+rule. Semantic behavior identified in this release contract is covered by
+conformance tests. Unspecified formatting, debug output, log text, and
+internal implementation details are not stable unless explicitly documented.
 
 ### Experimental
 

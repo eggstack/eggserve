@@ -247,8 +247,54 @@ is the sole authority. `ResponsePolicy::minimal_fingerprint()` +
 minimal-fingerprint profile (minimizes signals, does not claim
 un-fingerprintability).
 
+## Plan 171: outbound response conversion boundary
+
+### Release note for the next `0.2.0` minor transition
+
+Plan 169 changed the implementation of `primitives::to_hyper_response()` to
+support the stable one-owner `ResponseStream` contract: producers are `Send`
+but need not be `Sync`, and the internal body uses unsynchronized erasure.
+The public function now returns a Hyper response with an opaque
+`http_body::Body<Data = bytes::Bytes, Error = std::io::Error>` body instead of
+promising the concrete `http_body_util::combinators::BoxBody` type.
+
+The source-compatibility check covered four realistic consumers. Inference-only
+calls and generic consumers constrained only by `http_body::Body` compile on
+both the 0.1.x API shape and current `main`; an explicit
+`hyper::Response<BoxBody<...>>` annotation and a helper returning that named
+type compile on the 0.1.x API shape but fail on current `main`. This is an
+intentional pre-1.0 breaking transition, not a patch-compatible change.
+
+Migration:
+
+```rust,no_run
+use bytes::Bytes;
+use eggserve_core::primitives::{to_hyper_response, Response};
+
+fn send_response<B>(response: hyper::Response<B>)
+where
+    B: http_body::Body<Data = Bytes, Error = std::io::Error>,
+{
+    // Pass the response to the downstream transport/application server.
+    let _ = response;
+}
+
+fn convert(response: Response) -> Result<(), Box<dyn std::error::Error>> {
+    send_response(to_hyper_response(response)?);
+    Ok(())
+}
+```
+
+Do not name `BoxBody`, `UnsyncBoxBody`, or another concrete erased body type.
+The `ResponseStream` producer remains one-shot and `Send + 'static`; `Sync`
+is not required and concurrent polling is unsupported. The former public
+`to_hyper_response_with_file_stream_semaphore()` helper is now runtime-internal
+and is not a supported downstream API.
+
 ## Breaking Change Policy
 
-Pre-1.0, minor releases may break stable APIs only with explicit release notes
-and migration guidance. Patch releases must not break stable APIs. Enum variant
-additions to stable enums are breaking changes.
+Patch releases preserve stable source compatibility. Before 1.0, intentional
+breaking changes to stable Rust APIs require an explicit minor-version
+transition (for example `0.1.x` → `0.2.0`), release notes, and migration
+guidance. Experimental APIs may change under their separately documented
+policy. Enum variant additions to stable enums are breaking changes.

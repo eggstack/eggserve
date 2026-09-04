@@ -1,15 +1,20 @@
-//! Compile-time fixture: no Hyper type in the public primitives API.
+//! Compile-time fixture: the canonical application-facing API is Hyper-free.
 //!
 //! This test verifies that downstream code can use the canonical request
 //! types without importing or depending on Hyper. The only exception is
-//! `RequestHead::try_from_hyper`, which is the intentional conversion
-//! boundary.
+//! an explicitly identified conversion adapter: `RequestHead::try_from_hyper`
+//! is the inbound adapter, while `primitives::to_hyper_response()` is the
+//! outbound low-level transport adapter. The latter intentionally returns an
+//! opaque `http_body::Body` implementation rather than exposing its erased
+//! body type.
 //!
-//! Server module types are included to verify the runtime API is also
-//! Hyper-free for downstream consumers.
+//! Canonical response values, `Service`, and the caller-owned connection API
+//! remain usable without naming Hyper. Internal runtime implementation use of
+//! Hyper is expected and is not part of this invariant.
 
 #![allow(unused_imports)]
 
+use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
 use eggserve_core::primitives::incomplete_body_policy::IncompleteBodyPolicy;
 use eggserve_core::primitives::method::Method;
@@ -80,6 +85,16 @@ fn request_head_from_hyper_is_fallible() {
     assert_eq!(head.method().as_str(), "GET");
     assert_eq!(head.target().path(), "/test");
     assert_eq!(head.target().query(), Some("q=1"));
+}
+
+#[test]
+fn canonical_response_types_construct_without_hyper() {
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(b"ok".to_vec()))
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    assert_eq!(response.body().unwrap().len(), 2);
 }
 
 #[test]

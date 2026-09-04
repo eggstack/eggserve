@@ -10,7 +10,7 @@ the response and connection to close.
 
 > **Status: Experimental.** The `server` module API is subject to change without notice.
 
-The `server` module provides a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper. It includes a lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed), readiness signaling, graceful and forced shutdown with configurable drain deadlines, and connection/task tracking.
+The `server` module provides a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper. Its canonical `Service`, response, and caller-owned connection APIs are Hyper-free; `to_hyper_response()` and `RequestHead::try_from_hyper()` are the two explicit conversion adapters at the transport boundary. It includes a lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed), readiness signaling, graceful and forced shutdown with configurable drain deadlines, and connection/task tracking.
 
 The runnable public-API demonstrations are [`static_server.rs`](../crates/eggserve-core/examples/static_server.rs)
 and [`custom_service.rs`](../crates/eggserve-core/examples/custom_service.rs).
@@ -325,6 +325,13 @@ by the owning connection task. `Response` and the erased transport body remain
 `Send`; no body is concurrently polled from multiple tasks. Hyper's
 `boxed_unsync()` is an internal implementation detail shared by TCP, TLS, and
 caller-owned transports.
+
+The public `to_hyper_response()` helper is an explicit outbound conversion
+adapter for embedders that choose to integrate at Hyper's transport boundary.
+Its body type is opaque and consumers should rely only on the
+`http_body::Body<Data = bytes::Bytes, Error = std::io::Error>` contract. The
+runtime's semaphore-aware variant is internal; downstream `Service`
+implementations and caller-owned connection users do not need to import Hyper.
 
 - Known lengths emit runtime `Content-Length`; overrun/underrun close the
   connection with `response_stream_length_mismatch` diagnostics.

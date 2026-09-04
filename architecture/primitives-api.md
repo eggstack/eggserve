@@ -1,6 +1,6 @@
 # Primitives API — Deep Dive
 
-The `primitives` module is the intended public boundary for embedding consumers. It provides path validation, filesystem resolution, HTTP request validation, and response planning — all without depending on Hyper types for the public surface.
+The `primitives` module is the intended public boundary for embedding consumers. It provides path validation, filesystem resolution, HTTP request validation, and response planning without requiring Hyper for canonical application-facing types. Two explicitly documented conversion adapters may mention Hyper: `RequestHead::try_from_hyper()` inbound and `to_hyper_response()` outbound.
 
 ## Module Location
 
@@ -23,7 +23,7 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
 | `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
-| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody` (incl. `Stream`), `BodyLength`, `ResponseStream`/`ResponseStreamError`, `Response`, `normalize_response` — canonical response types |
+| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody` (incl. `Stream`), `BodyLength`, `ResponseStream`/`ResponseStreamError`, `Response`, `normalize_response`, `to_hyper_response` — canonical response types plus the explicit outbound transport adapter |
 | `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + connection info) |
 | `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
@@ -113,7 +113,7 @@ Public methods:
 
 ### HTTP Validation (`http.rs`)
 
-Request validation without Hyper dependency:
+Request validation without a downstream Hyper dependency:
 
 ```rust
 pub enum ReadOnlyMethod {
@@ -190,8 +190,9 @@ match resource {
 ## Stability
 
 The `primitives` module is the semver-considered public tier for the 0.x
-line. It is intentionally supported as the Rust facade, but minor versions
-may still make breaking changes before 1.0. For the full API classification,
+line. Patch releases preserve stable source compatibility. Intentional
+breaking stable Rust API changes before 1.0 require an explicit minor
+transition with release notes and migration guidance. For the full API classification,
 see [api-stability.md](../docs/api-stability.md) and
 [release-contract.md](../docs/release-contract.md).
 
@@ -346,7 +347,8 @@ assert!(err.to_string().contains("transfer-encoding"));
 - Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`
 - Internal methods (`pub(crate)`): `from_incoming()`, `consumed_flag()`, `was_fully_consumed()`
 - Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
-- No Hyper types in public API
+- Canonical body types and `Service` do not require Hyper; the explicitly
+  documented transport conversion adapters are the only public Hyper boundary.
 
 ### Error taxonomy
 
@@ -385,7 +387,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `validate_request_body` | Rust, Python | Implemented and stable-ish | Validates body framing and limits; service policy decides whether the actual method accepts content | Body framing validation |
 | `validate_request_target` | Rust, Python | Implemented and provisional | Coarse origin-form check (starts with `/`, no whitespace) | Pre-validation before full path parsing |
 | `BodyPlan` | Rust | Implemented and provisional | Variants: Empty, FullBytes, FileFull, FileRange | Body source selection |
-| `BodySource` | Rust, Python | Implemented | Owns resolved file handle; converts to Hyper body without path reopening; `FileFull::read_all`/`read_all_bounded` seek to 0 for idempotent one-shot reads | Safe body streaming for downstream servers |
+| `BodySource` | Rust, Python | Implemented | Owns resolved file handle; converts at the explicit Hyper transport boundary without path reopening; `FileFull::read_all`/`read_all_bounded` seek to 0 for idempotent one-shot reads | Safe body streaming for downstream servers |
 | `BodyKind` | Rust, Python | Implemented | Discriminant: Empty, Bytes, FileFull, FileRange | Body type identification |
 | `BodySourceError` | Rust, Python | Implemented | InvalidRange, AlreadyConsumed | Error handling for body conversion |
 | `ResponseStatus` | Rust | Implemented and stable-ish | Associated constants for common HTTP status codes | Status code mapping |

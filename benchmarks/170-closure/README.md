@@ -13,6 +13,12 @@ installed-wheel `eggserve.lowlevel`, admission saturation, and a same-session
 CPython `http.server` substitution baseline. TLS established-connection and
 new-connection/handshake workloads are separate.
 
+The Python low-level profile measures both `max_python_callbacks = 8` and
+`max_python_callbacks = 16`. The top-level profile metadata records these as
+`measured_max_python_callbacks: [8, 16]`; individual workload records retain
+their per-variant `max_python_callbacks` field. A capture without `--python`
+records an empty measured-variants list.
+
 ## Reproduction
 
 From the repository root, build the final code used by the capture:

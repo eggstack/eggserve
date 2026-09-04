@@ -57,7 +57,7 @@ shutdown; the process harness uses only Python's standard library.
 | `lifecycle_integration.rs` | — | Lifecycle state machine: Created→Running→Draining→Stopped |
 | `public_api_consumers.rs` | — | Validates public API surface |
 | `api_stability.rs` | — | API stability snapshot checks |
-| `no_hyper_in_public_api.rs` | — | Ensures no Hyper types leak into public API |
+| `no_hyper_in_public_api.rs` | — | Ensures canonical application-facing types remain Hyper-free while enumerating the intentional inbound/outbound conversion adapters |
 | `production_path.rs` (bin) | — | Binary production path validation |
 | `cli_validation.rs` (bin) | — | CLI argument validation |
 | `tls_abuse.rs` (bin) | `tls` | TLS error handling and abuse resistance |

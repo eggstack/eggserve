@@ -59,6 +59,20 @@ receives only the already-built and already-qualified release artifact set.
 8. Review post-publication binary-only smoke checks.
 9. Optionally create and push a repository tag.
 
+### Stable Rust API version selection
+
+Patch releases preserve source compatibility for the stable
+`eggserve-core::primitives` surface. Before 1.0, an intentional breaking
+stable Rust API change uses an explicit minor transition, with release notes
+and migration guidance; experimental `server` APIs retain their separately
+documented policy.
+
+The current `main` tree contains the Plan 171 outbound response-conversion
+transition. The next release containing that change must be classified as
+`0.2.0`, not as a compatible `0.1.x` patch release. The migration entry is
+the release note for this transition until the maintainer prepares the final
+release announcement.
+
 ## Preflight version-sync check
 
 The workflow runs a preflight job before any platform builds:

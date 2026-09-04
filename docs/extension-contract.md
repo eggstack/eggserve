@@ -107,7 +107,10 @@ See [python-api.md](python-api.md) for the full API reference.
 
 ## Which primitives are safe to build on
 
-The following types are in the stable tier. They are safe to build on; breaking changes to these types bump the major version (pre-1.0, minor versions may break):
+The following types are in the stable tier. They are safe to build on; patch
+releases preserve their source compatibility. Before 1.0, intentional
+breaking changes require an explicit minor-version transition with release
+notes and migration guidance:
 
 | Type | Source |
 |------|--------|

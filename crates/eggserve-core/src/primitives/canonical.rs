@@ -731,9 +731,13 @@ fn strip_hop_by_hop(headers: &mut HeaderBlock) {
     });
 }
 
-/// Convert a canonical [`Response`] into a Hyper response with a boxed body.
+/// Convert a canonical [`Response`] into the explicit Hyper transport boundary.
 ///
 /// This is the final step after normalization. The response body is consumed.
+/// The returned body type is intentionally opaque: downstream code should
+/// depend on its `http_body::Body` behavior, not on a concrete erasure type.
+/// The one-owner response-stream model remains `Send` without requiring
+/// producer `Sync`; concurrent body polling is unsupported.
 pub fn to_hyper_response(
     response: Response,
 ) -> Result<

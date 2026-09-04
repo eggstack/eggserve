@@ -2,7 +2,26 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION.**
+**IMPLEMENTED / CLOSED.**
+
+## Closure record
+
+Track A accepted the explicit pre-1.0 breaking-release outcome. The current
+`main` API keeps the one-owner `ResponseStream` producer model (`Send` without
+`Sync`) and leaves the public `to_hyper_response()` body type opaque; callers
+must use inference or the `http_body::Body` contract. The former named
+`BoxBody` return shape and the semaphore-aware conversion helper are not
+preserved as stable downstream contracts. The next release containing this
+transition is classified as `0.2.0`, with migration/release-note guidance in
+`docs/migration-guide.md`.
+
+Track B corrected the Plan 170 Python profile metadata without changing any
+measured values. The harness now emits the measured callback variants as
+`[8, 16]`, and the tracked evidence records the same correction.
+
+Track C enumerated the two intentional public Hyper conversion adapters
+(`RequestHead::try_from_hyper()` inbound and `to_hyper_response()` outbound)
+while retaining a Hyper-free canonical/Service/caller-owned API boundary.
 
 Prerequisite: Plans 161–170 are implemented and closed. This plan is a narrow release-polish pass only; it must not reopen the production runtime, response-streaming ownership model, privacy policy, Python substrate, or qualification architecture.
 
@@ -263,18 +282,18 @@ Routine CI should remain small. Do not add benchmark timing gates or a new alway
 
 Plan 171 is complete when all of the following are true:
 
-- [ ] the repository has an explicit, technically justified compatibility decision for the Plan 169 `to_hyper_response()` signature change;
-- [ ] that decision does not reintroduce `Sync` as a `ResponseStream` producer requirement;
-- [ ] if source compatibility cannot be preserved cleanly, the next release is explicitly classified as a pre-1.0 breaking transition rather than a patch-level compatible release;
-- [ ] migration/release documentation names any affected stable conversion helper and the replacement contract;
-- [ ] the pre-1.0 stable-API versioning rule is stated consistently across authoritative docs;
-- [ ] external-consumer tests cover the chosen transport-conversion contract;
-- [ ] Plan 170 Python benchmark metadata accurately represents both callback-limit variants without changing measured numbers;
-- [ ] the benchmark harness emits the corrected metadata on future runs;
-- [ ] `no_hyper_in_public_api.rs` and current-state docs accurately enumerate intentional Hyper conversion boundaries;
-- [ ] canonical `Service`/response/connection consumers still require no direct Hyper dependency;
-- [ ] Rust/TLS/Python/package verification remains green;
-- [ ] no production runtime, security, privacy, I2P, CGI/FastCGI, ASGI/WSGI, or benchmark-architecture work is reopened.
+- [x] the repository has an explicit, technically justified compatibility decision for the Plan 169 `to_hyper_response()` signature change;
+- [x] that decision does not reintroduce `Sync` as a `ResponseStream` producer requirement;
+- [x] if source compatibility cannot be preserved cleanly, the next release is explicitly classified as a pre-1.0 breaking transition rather than a patch-level compatible release;
+- [x] migration/release documentation names any affected stable conversion helper and the replacement contract;
+- [x] the pre-1.0 stable-API versioning rule is stated consistently across authoritative docs;
+- [x] external-consumer tests cover the chosen transport-conversion contract;
+- [x] Plan 170 Python benchmark metadata accurately represents both callback-limit variants without changing measured numbers;
+- [x] the benchmark harness emits the corrected metadata on future runs;
+- [x] `no_hyper_in_public_api.rs` and current-state docs accurately enumerate intentional Hyper conversion boundaries;
+- [x] canonical `Service`/response/connection consumers still require no direct Hyper dependency;
+- [x] Rust/TLS/Python/package verification remains green;
+- [x] no production runtime, security, privacy, I2P, CGI/FastCGI, ASGI/WSGI, or benchmark-architecture work is reopened.
 
 ## Non-goals
 

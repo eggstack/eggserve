@@ -8,7 +8,7 @@ See [release-contract.md](release-contract.md) for the overall product surface a
 
 | Tier | Meaning |
 |------|---------|
-| **stable** | Intentional public API. Patch releases must not break stable APIs. While pre-1.0, a minor release may break stable APIs only with explicit release notes and migration guidance. Semantic behavior identified in the release contract is covered by conformance tests. Unspecified formatting, debug output, log text, and internal implementation details are not stable unless explicitly documented. |
+| **stable** | Intentional public API. Patch releases preserve stable source compatibility. Before 1.0, an intentional breaking stable Rust API change requires an explicit minor-version transition (for example `0.1.x` → `0.2.0`), release notes, and migration guidance. Semantic behavior identified in the release contract is covered by conformance tests. Unspecified formatting, debug output, log text, and internal implementation details are not stable unless explicitly documented. |
 | **experimental** | May change in any non-patch release. Consumers should pin versions. Functionality is tested but the interface is not frozen. Experimental APIs may be omitted from language parity. |
 | **internal** | Unavailable or unsupported for downstream use. No compatibility guarantee. Internal Python names are not exported through `__all__`. Internal Rust features do not become accidental default features. May be removed without notice. |
 
@@ -265,7 +265,7 @@ documented separately in `docs/python-api.md`.
 | `ResponseStream` / `ResponseStreamError` | stable | Transport-independent one-shot byte stream with optional known length; producer is `Send` but need not be `Sync`; Hyper-free |
 | `normalize_response()` | stable | Applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation (Known sets, Unknown omits for chunked) |
 | `normalize_metadata()` | stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation |
-| `to_hyper_response()` | stable | Explicit low-level conversion of canonical Response to a Hyper response; transport body type is an internal implementation detail |
+| `to_hyper_response()` | stable | Explicit low-level outbound transport adapter; callers use the returned Hyper response/body by inference or its `http_body::Body` behavior, never a concrete erased body type |
 
 ### `primitives` Module — Body Types
 
@@ -274,6 +274,13 @@ documented separately in `docs/python-api.md`.
 | `BodySource` | stable | Owned body: Empty, Bytes, FileFull, FileRange |
 | `BodyKind` | stable | Discriminant for BodySource |
 | `BodySourceError` | stable | InvalidRange, AlreadyConsumed |
+
+### Internal transport adapters
+
+`to_hyper_response_with_file_stream_semaphore()` is runtime-internal and is
+not part of the supported stable surface. It was public in the 0.1.x API shape
+but is internalized with the outbound response conversion transition described
+in [the migration guide](migration-guide.md#plan-171-outbound-response-conversion-boundary).
 
 ## Python API — current contract
 
@@ -430,7 +437,7 @@ Every production claim must name a profile. The production profiles are document
 - Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
 - No public API promises application-server cancellation semantics beyond documented generic server behavior.
 - No ASGI/WSGI/CGI/FastCGI vocabulary enters public types. No routing or middleware abstractions are added.
-- Hyper, Tokio channel, PyO3, and platform FFI implementation types remain absent from stable application-facing signatures. The explicit low-level `to_hyper_response()` conversion is the documented transport boundary.
+- Canonical application-facing types, `Service`, and the caller-owned connection API remain Hyper-free for downstream consumers. The explicitly documented `RequestHead::try_from_hyper()` inbound adapter and `to_hyper_response()` outbound adapter may mention Hyper; internal runtime implementation use is expected. Tokio channel, PyO3, and platform FFI implementation types remain absent from stable application-facing signatures.
 
 ### API tier summary
 

@@ -11,7 +11,7 @@ its status using a constrained vocabulary.
 
 | Term | Meaning |
 |---|---|
-| **stable** | Public API, semver-considered; breaking changes require a major version bump. |
+| **stable** | Public API, semver-considered; patch releases preserve source compatibility, while pre-1.0 breaking changes require an explicit minor transition with release notes and migration guidance. |
 | **experimental** | Public but unstable; breaking changes may occur in minor releases. |
 | **internal** | Not part of the public API; external consumers should not depend on it. |
 | **CLI-only** | Available only through the CLI binary; not exposed as a library API. |
@@ -43,6 +43,7 @@ its status using a constrained vocabulary.
 | Request-body policy | stable | stable | experimental | stable | — | stable | stable |
 | Canonical request types | — | stable | experimental | stable | stable | — | — |
 | Canonical response types | — | stable | experimental | stable | stable | — | — |
+| Explicit Hyper transport conversion (`to_hyper_response`) | — | stable (explicit adapter) | — | — | — | — | — |
 | Duplicate-preserving headers | — | stable | experimental | — | experimental | stable | stable |
 | Connection metadata | — | stable | experimental | stable | stable | — | — |
 | Service trait | — | — | experimental | — | — | — | — |

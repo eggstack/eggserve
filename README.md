@@ -109,7 +109,13 @@ for intentional deviations from the stdlib.
 `eggserve-core` is the intended Rust library crate for the 0.x line. It
 exposes `primitives` as the semver-considered public facade and `server` as an
 experimental transport-owning runtime; there is no additional `eggserve`
-facade crate. Rust applications do not need a direct Hyper dependency.
+facade crate. Canonical response/request types, `Service`, and the
+caller-owned connection driver do not require a direct Hyper dependency.
+`primitives::to_hyper_response()` is an explicit opt-in outbound transport
+adapter; its returned body type is opaque, so consumers should rely on the
+`http_body::Body` contract rather than naming `BoxBody`. This adapter change is
+classified as the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented
+in the [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md).
 
 The concise static-server flow is:
 

@@ -36,6 +36,7 @@ OUT = Path(__file__).resolve().parent
 DEFAULT_TRIALS = 3
 STATIC_SIZES = (1024, 128 * 1024, 1024 * 1024)
 STATIC_CONCURRENCY = (1, 16, 64, 256)
+PYTHON_CALLBACK_VARIANTS = (8, 16)
 
 
 def free_port() -> int:
@@ -386,7 +387,7 @@ signal.pause()
         file.write(script)
         script_path = file.name
     try:
-        for callbacks in (8, 16):
+        for callbacks in PYTHON_CALLBACK_VARIANTS:
             port = free_port()
             process = subprocess.Popen([str(python), script_path, str(port), str(callbacks)],
                                        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
@@ -542,7 +543,7 @@ def main() -> int:
         "profiles": {
             "native_static": {"profile": "release", "features": [], "build_command": "cargo build --release --locked -p eggserve-bin", "runtime_limits": {"max_connections": 512, "max_file_streams": 512, "max_in_flight_requests": 512, "max_buf_size": 65536, "max_headers": 100, "max_header_bytes": 32768, "max_request_target_bytes": 8192}},
             "native_custom": {"profile": "release", "features": [], "build_command": "cargo build --release --locked --example streaming_service -p eggserve-core", "runtime_limits": {"max_connections": 128, "max_in_flight_requests": 128}},
-            "python_lowlevel": {"build_command": "python3.14 -m maturin build --profile dist --interpreter python3.14", "installed_wheel": str(args.python) if args.python else None, "python_version": command_output([str(args.python), "--version"]) if args.python else None, "runtime_limits": {"max_connections": 128, "max_python_callbacks": 8, "max_in_flight_requests": 128}},
+            "python_lowlevel": {"build_command": "python3.14 -m maturin build --profile dist --interpreter python3.14", "installed_wheel": str(args.python) if args.python else None, "python_version": command_output([str(args.python), "--version"]) if args.python else None, "runtime_limits": {"max_connections": 128, "max_in_flight_requests": 128}, "measured_max_python_callbacks": list(PYTHON_CALLBACK_VARIANTS) if args.python else []},
         },
         "method": {"trials": args.trials, "warmup": "one excluded trial at min(concurrency, 16) workers", "absolute_timing_ci_gate": False},
         "workloads": {},

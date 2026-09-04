@@ -4,7 +4,7 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 
 ## Overview
 
-`eggserve-core` exposes a deliberate, narrow public boundary through the `primitives` module. This module is the **intended integration point** for Rust consumers that want to embed eggserve's hardened path validation and policy enforcement without pulling in the full HTTP service layer.
+`eggserve-core` exposes a deliberate, narrow public boundary through the `primitives` module. This module is the **intended integration point** for Rust consumers that want to embed eggserve's hardened path validation and policy enforcement without pulling in the full HTTP service layer. Canonical application-facing request/response types, `Service`, and the caller-owned connection API do not require downstream code to import Hyper.
 
 ## Public modules
 
@@ -65,6 +65,20 @@ owns and polls the producer exclusively. `Response` and the internal transport
 body remain `Send` for spawned connection tasks, while no cross-task concurrent
 polling is supported.
 
+The two intentional public Hyper conversion adapters are:
+
+- `RequestHead::try_from_hyper()` — fallible inbound conversion from a Hyper
+  request into canonical request metadata;
+- `primitives::to_hyper_response()` — outbound conversion of a canonical
+  response at the low-level transport boundary.
+
+The outbound adapter returns a Hyper response with an opaque body type. Its
+stable contract is the `http_body::Body<Data = bytes::Bytes,
+Error = std::io::Error>` behavior, not `BoxBody` or another concrete erasure
+type. The runtime's semaphore-aware conversion helper is internal. Hyper is
+otherwise an implementation dependency of the runtime, not a requirement for
+canonical consumers or `Service` implementations.
+
 ## Invariants
 
 Every type in the public API enforces safety invariants at construction time:
@@ -82,9 +96,12 @@ Every type in the public API enforces safety invariants at construction time:
 ## Versioning policy
 
 Before 1.0:
-- **Minor versions** may add new types and variants.
-- **Patch versions** may fix bugs without API changes.
-- **Breaking changes** will be accompanied by a major version bump and migration notes.
+- **Patch releases preserve stable source compatibility.**
+- **Intentional breaking changes to stable Rust APIs require an explicit minor
+  transition**, such as `0.1.x` → `0.2.0`, with release notes and migration
+  guidance.
+- **Experimental APIs** may change in any non-patch release under their
+  separately documented policy.
 
 After 1.0:
 - Follows semver strictly.

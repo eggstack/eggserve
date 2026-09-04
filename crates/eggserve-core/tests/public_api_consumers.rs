@@ -1,7 +1,9 @@
 //! Compile/import fixture for plan 049 Track E.
 //!
-//! External-consumer tests that verify the public API can be used without
-//! importing Hyper. cargo-semver-checks compatibility: this file serves as a
+//! External-consumer tests that verify the canonical public API can be used
+//! without importing Hyper. The explicit outbound transport adapter is tested
+//! separately below through its inferred `http_body::Body` contract.
+//! cargo-semver-checks compatibility: this file serves as a
 //! compile-time API snapshot. All public items from `eggserve_core::primitives`
 //! are exercised here. If a public API is removed or changed, this file will
 //! fail to compile, providing an immediate signal of semver-incompatible changes.
@@ -767,4 +769,32 @@ fn response_stream_accepts_send_but_not_sync_producer() {
     });
     let response = ResponseStream::with_known_length(stream, 2);
     assert_eq!(response.known_length(), Some(2));
+}
+
+fn accepts_transport_body<B>(body: B)
+where
+    B: http_body::Body<Data = bytes::Bytes, Error = std::io::Error>,
+{
+    let _ = body;
+}
+
+fn accepts_transport_response<B>(response: hyper::Response<B>)
+where
+    B: http_body::Body<Data = bytes::Bytes, Error = std::io::Error>,
+{
+    accepts_transport_body(response.into_body());
+}
+
+#[test]
+fn outbound_transport_adapter_supports_inference_and_generic_body_consumers() {
+    // The adapter is an intentional low-level Hyper boundary. Consumers may
+    // use type inference or constrain the returned body by its Body behavior,
+    // but must not name EggServe's internal erased body type.
+    let response = Response::builder()
+        .status(StatusCode::OK)
+        .body(ResponseBody::Bytes(b"ok".to_vec()))
+        .unwrap();
+    let converted = eggserve_core::primitives::to_hyper_response(response).unwrap();
+    assert_eq!(converted.status().as_u16(), 200);
+    accepts_transport_response(converted);
 }
