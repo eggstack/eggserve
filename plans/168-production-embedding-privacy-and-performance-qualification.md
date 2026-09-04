@@ -2,9 +2,17 @@
 
 ## Status
 
-**READY AFTER IMPLEMENTATION OF PLANS 162–166.**
+**IMPLEMENTED FOR CORRECTNESS/RESOURCE/PRIVACY QUALIFICATION; PERFORMANCE-EVIDENCE EXTENSION TRACKED BY PLAN 170.**
 
 Plan 167 is optional and does not block core qualification when closed as a no-go.
+
+## Closure record
+
+Correctness, resource, privacy, and the recorded qualification snapshot were
+closed in commit `b2462a6df2e571c1fc85bf637601a761469b38e2`; the evidence-SHA
+correction was recorded in commit `4922227f55502885621620aaa4c915458055ec84`.
+The broader performance matrix and final claims closure are intentionally
+deferred to Plan 170 rather than implied by the narrower existing snapshot.
 
 ## Goal
 

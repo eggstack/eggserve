@@ -1,12 +1,12 @@
 //! Final Hyper response helpers owned by the runtime boundary.
 
 use bytes::Bytes;
-use http_body_util::combinators::BoxBody;
+use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::{Response, StatusCode};
 use std::time::SystemTime;
 
-pub type BoxBodyInner = BoxBody<Bytes, std::io::Error>;
+pub type BoxBodyInner = UnsyncBoxBody<Bytes, std::io::Error>;
 
 /// Add the origin server's single authoritative Date header.
 ///
@@ -183,5 +183,5 @@ pub fn not_found(is_head: bool) -> Response<BoxBodyInner> {
 fn full_body(s: &str) -> BoxBodyInner {
     Full::new(Bytes::copy_from_slice(s.as_bytes()))
         .map_err(|never| match never {})
-        .boxed()
+        .boxed_unsync()
 }

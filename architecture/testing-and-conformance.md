@@ -197,7 +197,7 @@ evidenced by deterministic suites (not absolute-timing gates):
 
 | Track | Evidence |
 |-------|----------|
-| A — Streaming correctness under load | `tests/response_streaming.rs` (framing, HEAD/body-forbidden never poll, mismatch teardown, panic containment, cancellation, keep-alive reuse), `tests/streaming_buffer_qualification.rs` (range boundaries, disconnect/shutdown permit release, 503 exhaustion, HEAD non-acquisition), `tests/request_body_*` (ingestion, timeouts, cancellation) |
+| A — Streaming correctness under load | `tests/response_streaming.rs` (framing, `Send + !Sync` producer acceptance, HEAD/body-forbidden never poll, mismatch teardown, panic containment, cancellation, keep-alive reuse), `tests/streaming_buffer_qualification.rs` (range boundaries, disconnect/shutdown permit release, 503 exhaustion, HEAD non-acquisition), `tests/request_body_*` (ingestion, timeouts, cancellation) |
 | B — Transport-neutral parity | `tests/transport_driver.rs` (duplex driver, TCP parity, no fabricated addresses), `tests/production_controls.rs` (duplex admission/timeout shaping), example `caller_owned_stream.rs` |
 | C — Parser/admission hostile load | `tests/http_wire_correctness.rs` (raw wire: smuggling corpus, framing ambiguity, lifecycle), `tests/production_controls.rs` (limits, saturation/recovery, idle/write/total deadlines), `tests/fault_injection.rs`, `tests/stateful_fuzz_replay.rs`, `tests/corpus_replay.rs` |
 | D — Python low-level qualification | `crates/eggserve-python/tests/test_lowlevel_runtime.py` (buffered/streaming throughput paths, backpressure, saturation, GIL behavior, exceptions, shutdown churn), example `examples/python_lowlevel_service.py` |

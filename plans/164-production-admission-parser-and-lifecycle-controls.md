@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisites: Plan 161 present. Coordinate with Plans 162/163 because streaming responses and caller-owned connections must participate in the same budgets.
 
@@ -226,3 +226,11 @@ Do not add:
 ## Handoff
 
 Plan 165 composes a stricter privacy profile from these generic controls. Plan 166 adds Python callback admission on top of the generic service budget. Plan 168 supplies high-concurrency and slow-client evidence.
+
+## Closure record
+
+Implemented in commit `888e24f9c636b765a8bf808b142a71da5b73d687`.
+
+The implementation retains the documented Hyper 1.11.1 parser behavior and
+independent admission/lifecycle controls. Remaining broad performance
+evidence is tracked by Plan 170.

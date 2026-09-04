@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisite: Plan 161. Coordinate public-type changes with Plan 162 if both are implemented together.
 
@@ -207,3 +207,11 @@ Do not add:
 ## Handoff
 
 Plan 164 strengthens the shared runtime budgets used by this driver. Plan 165 adds final response privacy policy. Plan 168 uses this API to build a deterministic I2P-like transport harness without requiring a live I2P network in CI.
+
+## Closure record
+
+Implemented in commit `5aa126183b1859d290a0d67713fd5668e424d9c7`.
+
+No material deviation from the proposed transport-neutral service boundary;
+Plan 169 verified the relaxed response-stream producer bound across the same
+TCP/caller-owned runtime path.

@@ -24,7 +24,9 @@ eggserve exposes a documented, reusable HTTP/1.1 primitive contract for downstre
   optional known length). Known lengths emit runtime-generated
   `Content-Length`; unknown lengths omit it and let HTTP/1 select chunked
   framing. Empty chunks are skipped, large chunks are split (not rejected),
-  and `HEAD`/1xx/204/205/304 never poll the producer.
+  and `HEAD`/1xx/204/205/304 never poll the producer. Producers must be
+  `Send` and one-shot, but need not be `Sync`; a single connection task owns
+  polling.
 - Conditional GET/HEAD via `If-None-Match` and `If-Modified-Since`.
 - Range requests via `Range` and `If-Range`.
 - Generic 400/403/404/405/413/416/500/503 behavior for the CLI path.

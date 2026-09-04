@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR DESIGN/GO-NO-GO AFTER PLANS 162–166.**
+**CLOSED — NO-GO, no in-tree CGI/FastCGI adapters.**
 
 This is intentionally optional work. Do not implement either adapter merely to increase feature count or claim `http.server` parity.
 
@@ -257,3 +257,10 @@ This plan can close in one of two ways.
 ## Handoff
 
 Do not block Plan 168 core qualification on a no-go decision. If an adapter is implemented, add its evidence to Plan 168 or a narrowly scoped follow-up qualification file.
+
+## Closure record
+
+Closed as no-go in commit `5083252cc9b4b6bf65f23caaa361c910912f8d87`.
+
+No in-tree CGI or FastCGI adapter was added. Downstream gateways use the
+canonical `Service` boundary and own their subprocess/protocol limits.

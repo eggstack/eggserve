@@ -576,7 +576,10 @@ async fn race_concurrent_directory_listing() {
                     "unexpected status: {}",
                     resp.status().as_u16()
                 );
-                let _ = async { Ok::<_, std::convert::Infallible>(resp.body()) }.await;
+                // `Response` owns a one-shot body which may be a !Sync stream.
+                // Keep this check local to the task instead of requiring a
+                // borrowed response to cross a worker-thread boundary.
+                assert!(resp.body().is_some());
             }
 
             // Modify directory

@@ -58,6 +58,13 @@ The `primitives` module re-exports the following types:
 advanced privacy; CLI/Python keep standards defaults). `ResponsePolicy` is the
 sole `Date`/`Server`/denylist authority with Hyper automatic `Date` disabled.
 
+`ResponseStream` is a stable, Hyper-free one-shot producer boundary. Its
+constructors require `Stream<Item = Result<Bytes, ResponseStreamError>> + Send +
+'static`; `Sync` is intentionally not required because the connection task
+owns and polls the producer exclusively. `Response` and the internal transport
+body remain `Send` for spawned connection tasks, while no cross-task concurrent
+polling is supported.
+
 ## Invariants
 
 Every type in the public API enforces safety invariants at construction time:

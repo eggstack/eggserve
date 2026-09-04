@@ -163,7 +163,8 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
 - Static serving is GET/HEAD only and rejects request bodies; custom services
   may opt into bounded bodies under the runtime ceiling and return
   known/unknown-length streaming responses (`ResponseBody::Stream`) without
-  importing Hyper.
+  importing Hyper. `ResponseStream` producers must be `Send` and are one-shot;
+  they do not need to be `Sync` because one connection task owns polling.
 - Path traversal and symlink escape are denied at library level. Unix safe
   defaults use descriptor-relative resolution; Windows is qualified for the
   executed handle-relative classes but remains trusted/local-content only.

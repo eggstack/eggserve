@@ -12,7 +12,7 @@
 
 use eggserve_core::primitives::canonical::{
     normalize_response, NormalizeRequest, Response, ResponseBody, ResponseConstructionError,
-    StatusCode,
+    ResponseStream, ResponseStreamError, StatusCode,
 };
 use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme, TlsInfo};
 use eggserve_core::primitives::header_block::{
@@ -727,6 +727,8 @@ fn canonical_types_are_send_and_sync() {
     _assert_send::<TlsInfo>();
     _assert_send::<StatusCode>();
     _assert_send::<ResponseBody>();
+    _assert_send::<Response>();
+    _assert_send::<ResponseStream>();
     _assert_send::<ResponseConstructionError>();
     _assert_send::<ReadOnlyMethod>();
     _assert_send::<RequestValidationError>();
@@ -744,4 +746,25 @@ fn canonical_types_are_send_and_sync() {
     _assert_sync::<TlsInfo>();
     _assert_sync::<StatusCode>();
     _assert_sync::<ReadOnlyMethod>();
+}
+
+#[test]
+fn response_stream_accepts_send_but_not_sync_producer() {
+    use std::cell::Cell;
+
+    // Cell is Send but not Sync. Keeping it in the stream state makes this an
+    // external-consumer compile check for the relaxed ResponseStream bound.
+    let stream = futures_util::stream::unfold(Cell::new(false), |state| async move {
+        if state.get() {
+            None
+        } else {
+            state.set(true);
+            Some((
+                Ok::<_, ResponseStreamError>(bytes::Bytes::from_static(b"ok")),
+                state,
+            ))
+        }
+    });
+    let response = ResponseStream::with_known_length(stream, 2);
+    assert_eq!(response.known_length(), Some(2));
 }

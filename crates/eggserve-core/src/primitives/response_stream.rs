@@ -111,14 +111,16 @@ impl From<std::io::Error> for ResponseStreamError {
 /// A one-shot, transport-independent byte stream for responses.
 ///
 /// Wraps any `Stream<Item = Result<Bytes, ResponseStreamError>>` without
-/// exposing Hyper. The optional `known_length` is the exact representation
-/// length when known; `None` means unknown length (chunked framing).
+/// exposing Hyper. The producer must be `Send`, but need not be `Sync`: it is
+/// owned and polled by one connection task. The optional `known_length` is
+/// the exact representation length when known; `None` means unknown length
+/// (chunked framing).
 ///
 /// The stream is one-shot: it is consumed once by transport conversion.
 /// Dropping it (HEAD/body-forbidden suppression, client disconnect, shutdown)
 /// releases producer resources promptly without polling.
 pub struct ResponseStream {
-    inner: Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send + Sync>>,
+    inner: Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>>,
     known_length: Option<u64>,
 }
 
@@ -129,7 +131,7 @@ impl ResponseStream {
     /// framing. Callers must not attempt chunked coding themselves.
     pub fn new<S>(stream: S) -> Self
     where
-        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + Sync + 'static,
+        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + 'static,
     {
         Self {
             inner: Box::pin(stream),
@@ -144,7 +146,7 @@ impl ResponseStream {
     /// that closes the connection after commitment.
     pub fn with_known_length<S>(stream: S, len: u64) -> Self
     where
-        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + Sync + 'static,
+        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + 'static,
     {
         Self {
             inner: Box::pin(stream),
@@ -169,7 +171,7 @@ impl ResponseStream {
 
     pub(crate) fn into_inner(
         self,
-    ) -> Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send + Sync>> {
+    ) -> Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>> {
         self.inner
     }
 }

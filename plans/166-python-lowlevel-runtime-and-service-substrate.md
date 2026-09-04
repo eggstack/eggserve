@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION AFTER PLANS 162–164.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisites: Plan 161; Plan 162 streaming response contract; Plan 163 canonical connection/runtime ownership; Plan 164 admission/lifecycle controls. Plan 165 should be implemented or API-compatible before exposing advanced response policy.
 
@@ -245,3 +245,11 @@ A downstream package should be able to implement those policies on the low-level
 ## Handoff
 
 Plan 167 may implement legacy CGI/FastCGI as service adapters without modifying this public runtime. Plan 168 benchmarks the low-level callback and streaming paths separately from the stdlib facade.
+
+## Closure record
+
+Implemented in commit `fcb39f12abcf37298442013d5c96e58ae4f37120`.
+
+No material deviation from the handler-only runtime/service substrate. The
+Rust response-stream bound polish in Plan 169 remains compatible with the
+Python bounded channel adapter.

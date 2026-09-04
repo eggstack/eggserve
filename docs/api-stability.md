@@ -20,7 +20,7 @@ Stable enum variants are exhaustive unless documented otherwise. Adding a new va
 
 ### Thread safety (Send/Sync)
 
-All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by `public_api_consumers::canonical_types_are_send_and_sync`.
+All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by the selected-type assertions in `public_api_consumers`; response values have the separate `Send` guarantee described below.
 
 Error types (`MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
 
@@ -262,10 +262,10 @@ documented separately in `docs/python-api.md`.
 | `NormalizeRequest` | stable | Context for response normalization (is_head flag) |
 | `ResponseConstructionError` | stable | InvalidStatus, InvalidHeader, ForbiddenFramingHeader, BodyAlreadyConsumed, ContentLengthMismatch |
 | `BodyLength` | stable | Known(u64) vs Unknown representation length; Unknown never becomes Content-Length: 0 |
-| `ResponseStream` / `ResponseStreamError` | stable | Transport-independent one-shot byte stream with optional known length; Hyper-free |
+| `ResponseStream` / `ResponseStreamError` | stable | Transport-independent one-shot byte stream with optional known length; producer is `Send` but need not be `Sync`; Hyper-free |
 | `normalize_response()` | stable | Applies HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation (Known sets, Unknown omits for chunked) |
 | `normalize_metadata()` | stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation |
-| `to_hyper_response()` | stable | Converts canonical Response to Hyper Response |
+| `to_hyper_response()` | stable | Explicit low-level conversion of canonical Response to a Hyper response; transport body type is an internal implementation detail |
 
 ### `primitives` Module — Body Types
 
@@ -430,7 +430,7 @@ Every production claim must name a profile. The production profiles are document
 - Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
 - No public API promises application-server cancellation semantics beyond documented generic server behavior.
 - No ASGI/WSGI/CGI/FastCGI vocabulary enters public types. No routing or middleware abstractions are added.
-- Hyper, Tokio channel, PyO3, and platform FFI implementation types remain absent from stable public signatures.
+- Hyper, Tokio channel, PyO3, and platform FFI implementation types remain absent from stable application-facing signatures. The explicit low-level `to_hyper_response()` conversion is the documented transport boundary.
 
 ### API tier summary
 

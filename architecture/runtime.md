@@ -301,8 +301,8 @@ binding a socket.
 **Invariants retained:** Hyper HTTP/1.1 parsing, framing validation
 (duplicate-CL rejection; lone TE+CL normalizes to TE-wins per RFC 9112 §6.1), TRACE/body policy, canonical Request conversion, handler timeout
 ceiling, panic containment, canonical response normalization, runtime-owned
-framing (`Content-Length`, `Transfer-Encoding`, reuse), privacy from Plan 165
-when implemented, file/stream admission via shared semaphore, incomplete-body
+framing (`Content-Length`, `Transfer-Encoding`, reuse), Plan 165 response
+privacy, file/stream admission via shared semaphore, incomplete-body
 close, and shutdown/drain semantics. All paths share a single normalization
 and framing authority.
 
@@ -318,6 +318,13 @@ Custom services return `ResponseBody::Stream(ResponseStream)` without Hyper:
 ResponseBody::Stream(ResponseStream::with_known_length(stream, len))
 ResponseBody::Stream(ResponseStream::new(stream)) // chunked
 ```
+
+`ResponseStream::new` and `with_known_length` require a `Send + 'static`
+producer, but not `Sync`. The producer is one-shot and is exclusively polled
+by the owning connection task. `Response` and the erased transport body remain
+`Send`; no body is concurrently polled from multiple tasks. Hyper's
+`boxed_unsync()` is an internal implementation detail shared by TCP, TLS, and
+caller-owned transports.
 
 - Known lengths emit runtime `Content-Length`; overrun/underrun close the
   connection with `response_stream_length_mismatch` diagnostics.

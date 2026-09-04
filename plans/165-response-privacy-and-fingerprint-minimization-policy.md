@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisites: Plan 161. Prefer Plan 163 first so the policy applies identically to TCP/TLS and caller-owned transports. Coordinate response finalization changes with Plan 162.
 
@@ -240,3 +240,11 @@ Do not add:
 ## Handoff
 
 Plan 166 exposes reviewed policy controls through the Python low-level runtime where appropriate. Plan 168 validates golden wire behavior and the anonymity-sensitive profile under non-TCP/slow-client stress.
+
+## Closure record
+
+Implemented in commit `7c63911e45727e9c5ccf5ff1e9f3639530f14c81`.
+
+No material deviation from the final-boundary policy described here. The
+privacy qualification evidence is recorded with Plan 168; broader performance
+claims remain scoped to Plan 170.

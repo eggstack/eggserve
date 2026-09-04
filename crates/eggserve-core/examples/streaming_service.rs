@@ -3,6 +3,8 @@
 //! Demonstrates transport-independent response bodies: known-length and
 //! unknown-length streams with runtime-owned framing. The service never
 //! touches `Content-Length`/`Transfer-Encoding`; the runtime does.
+//! Stream producers only need `Send` and are polled by one owning connection
+//! task; they do not need to be `Sync`.
 //!
 //! Usage: cargo run --example streaming_service -p eggserve-core -- [BIND]
 

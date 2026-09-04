@@ -398,7 +398,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 | `ConnectionInfo` | Rust, Python | Implemented and stable | Transport metadata (optional endpoints, scheme, TLS); no fabricated addresses; separate from headers | Connection-level metadata |
 | `StatusCode` | Rust, Python | Implemented and stable | Validated HTTP status code (100–599, three-digit only) with classification helpers | Canonical status code |
 | `ResponseHead` | Rust, Python | Implemented and stable | Status + HeaderBlock; transport-independent response metadata | Canonical response head |
-| `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes, File, EmptyWithLength | Canonical response body |
+| `ResponseBody` | Rust, Python | Implemented and stable | Body representation: Empty, Bytes, File, Stream, EmptyWithLength | Canonical response body |
 | `Response` | Rust, Python | Implemented and stable | Complete response with one-shot body consumption | Canonical complete response |
 | `normalize_response()` | Rust | Implemented and stable | Single normalization path: HEAD suppression, body-forbidden enforcement, hop-by-hop stripping, content-length computation | Response normalization |
 | `normalize_metadata()` | Rust | Implemented and stable | Shared metadata normalization: Transfer-Encoding stripping, Content-Length computation | Response metadata normalization |

@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisite: Plan 161 present. This plan is foundational for downstream application servers and must land before Python service streaming or FastCGI response adaptation.
 
@@ -210,3 +210,11 @@ Those consumers should use the generic stream primitive later.
 ## Handoff
 
 Plan 163 may consume this body type over arbitrary transports. Plan 166 maps Python low-level producers onto this contract. Plan 167 uses it for gateway output. Plan 168 establishes performance and fault evidence.
+
+## Closure record
+
+Implemented in commit `e132e3766ed5440ddcd865f8845cabc3142550c6`.
+
+Plan 169 further polished the public producer bound from `Send + Sync` to
+`Send`; the one-shot, backpressure, framing, cancellation, and failure
+semantics remain unchanged.

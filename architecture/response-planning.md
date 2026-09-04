@@ -240,7 +240,7 @@ The canonical response types (`primitives::canonical`) provide a transport-indep
 - `ResponseHead` — status + `HeaderBlock` (duplicate-preserving headers)
 - `ResponseBody` — `Empty`, `Bytes`, `File`, `Stream(ResponseStream)`, or `EmptyWithLength` body representation
 - `BodyLength` — `Known(u64)` vs `Unknown`; unknown never becomes `Content-Length: 0`
-- `ResponseStream`/`ResponseStreamError` — Hyper-free one-shot stream with optional known length
+- `ResponseStream`/`ResponseStreamError` — Hyper-free one-shot stream with optional known length; producers are `Send` but need not be `Sync`
 - `Response` — complete response with one-shot body consumption and idempotent normalization (`is_normalized`)
 
 ### Normalization Algorithm
@@ -285,7 +285,7 @@ normalize_response(response, request)
 canonical::to_hyper_response(normalized)
     │
     ▼
-hyper::Response<BoxBody>
+  Hyper response with an internal erased body
 ```
 
 File-backed path (e.g. file streaming):
@@ -337,7 +337,7 @@ file.into_body(&plan)  →  BodySource
 canonical response → runtime transport conversion (shared semaphore)
     │
     ▼
-Hyper Response<BoxBody>
+Hyper response with an internal erased body
 ```
 
 The `into_body()` conversion is consuming — it takes ownership of the `ResolvedFile` and maps each `BodyPlan` variant:

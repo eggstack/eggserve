@@ -2,7 +2,7 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION.**
+**IMPLEMENTED IN SUBSTANCE; FINAL ROADMAP CLOSURE PENDING PLAN 170.**
 
 This roadmap records the revised product target after Plan 160. It does not reopen completed hardening work wholesale; it identifies the remaining delta required to make EggServe a production-oriented HTTP substrate in addition to a hardened `http.server`-shaped static server.
 
@@ -157,3 +157,10 @@ This roadmap closes only when:
 ## Handoff
 
 Implement Plans 162–168 as separate reviewable phases. If an implementation discovers that a lower layer cannot support a requirement without exposing Hyper/raw sockets, stop and revise the canonical boundary rather than adding a frontend-specific escape hatch.
+
+## Closure record
+
+Plans 162–168 landed in substance. Their implementation, qualification, and
+no-go records are retained in the individual plan closure sections and in the
+implementation history. Final performance-evidence and claims closure remains
+tracked by Plan 170.

@@ -737,7 +737,7 @@ fn strip_hop_by_hop(headers: &mut HeaderBlock) {
 pub fn to_hyper_response(
     response: Response,
 ) -> Result<
-    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    hyper::Response<impl http_body::Body<Data = bytes::Bytes, Error = std::io::Error>>,
     ResponseConstructionError,
 > {
     to_hyper_response_with_optional_file_stream_semaphore(
@@ -749,11 +749,12 @@ pub fn to_hyper_response(
 
 /// Convert a canonical response while enforcing the runtime file-stream
 /// admission limit for every file-backed body.
-pub fn to_hyper_response_with_file_stream_semaphore(
+#[allow(dead_code)]
+pub(crate) fn to_hyper_response_with_file_stream_semaphore(
     response: Response,
     semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
 ) -> Result<
-    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    hyper::Response<http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
 > {
     to_hyper_response_with_optional_file_stream_semaphore(
@@ -769,7 +770,7 @@ pub(crate) fn to_hyper_response_with_file_stream_semaphore_and_chunk_size(
     semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
     stream_chunk_size: usize,
 ) -> Result<
-    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    hyper::Response<http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
 > {
     to_hyper_response_with_optional_file_stream_semaphore(
@@ -784,7 +785,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
     semaphore: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
     stream_chunk_size: usize,
 ) -> Result<
-    hyper::Response<http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error>>,
+    hyper::Response<http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
 > {
     use bytes::Bytes;
@@ -804,10 +805,10 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
     let body = match response.body {
         Some(ResponseBody::Empty) => Full::new(Bytes::new())
             .map_err(|never| match never {})
-            .boxed(),
+            .boxed_unsync(),
         Some(ResponseBody::Bytes(b)) => Full::new(Bytes::from(b))
             .map_err(|never| match never {})
-            .boxed(),
+            .boxed_unsync(),
         Some(ResponseBody::File(source)) => {
             let permit = semaphore
                 .map(|s| s.clone().try_acquire_owned())
@@ -825,17 +826,17 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
                 drop(stream);
                 Full::new(Bytes::new())
                     .map_err(|never| match never {})
-                    .boxed()
+                    .boxed_unsync()
             } else {
                 stream_body(stream, stream_chunk_size)
             }
         }
         Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
             .map_err(|never| match never {})
-            .boxed(),
+            .boxed_unsync(),
         None => Full::new(Bytes::new())
             .map_err(|never| match never {})
-            .boxed(),
+            .boxed_unsync(),
     };
 
     let mut response = builder
@@ -849,7 +850,7 @@ fn file_body(
     source: BodySource,
     permit: Option<CountingFileStreamPermit>,
     stream_chunk_size: usize,
-) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
+) -> http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error> {
     // B-03 note: each chunk iteration allocates a fresh `vec![0; chunk_len]`
     // (moved into `Bytes`). For the default 8 KiB chunk size the cost is modest;
     // for large `stream_chunk_size` (up to 1 MiB) the allocation rate scales with
@@ -869,12 +870,12 @@ fn file_body(
         BodySource::Empty => {
             return http_body_util::Full::new(Bytes::new())
                 .map_err(|never| match never {})
-                .boxed();
+                .boxed_unsync();
         }
         BodySource::Bytes(bytes) => {
             return http_body_util::Full::new(Bytes::from(bytes))
                 .map_err(|never| match never {})
-                .boxed();
+                .boxed_unsync();
         }
     };
 
@@ -926,7 +927,7 @@ fn file_body(
             }
         },
     );
-    StreamBody::new(stream).boxed()
+    StreamBody::new(stream).boxed_unsync()
 }
 
 async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::io::Result<usize> {
@@ -964,7 +965,7 @@ async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::
 fn stream_body(
     stream: ResponseStream,
     stream_chunk_size: usize,
-) -> http_body_util::combinators::BoxBody<bytes::Bytes, std::io::Error> {
+) -> http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error> {
     use http_body_util::{BodyExt, StreamBody};
     crate::ops::global_counters()
         .streaming_started
@@ -975,18 +976,14 @@ fn stream_body(
         "streaming response started",
     ));
     let adapter = ResponseStreamAdapter::new(stream, stream_chunk_size);
-    StreamBody::new(adapter).boxed()
+    StreamBody::new(adapter).boxed_unsync()
 }
 
 #[allow(clippy::type_complexity)]
 struct ResponseStreamAdapter {
     inner: Option<
         StdPin<
-            Box<
-                dyn futures_util::Stream<Item = Result<bytes::Bytes, ResponseStreamError>>
-                    + Send
-                    + Sync,
-            >,
+            Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, ResponseStreamError>> + Send>,
         >,
     >,
     declared: Option<u64>,

@@ -5,6 +5,7 @@
 //! connection teardown, producer failure/panic containment, cancellation,
 //! backpressure, keep-alive reuse, and unchanged static behavior.
 
+use std::cell::Cell;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -100,6 +101,45 @@ fn stream_constructors_report_length() {
     let s = ResponseStream::with_known_length(bytes_stream(vec![b"hi"]), 2);
     assert_eq!(s.known_length(), Some(2));
     assert!(s.is_known_length());
+}
+
+fn non_sync_stream() -> impl futures_util::Stream<Item = Result<Bytes, ResponseStreamError>> + Send
+{
+    // Cell is Send but not Sync. The producer is intentionally single-owner;
+    // ResponseStream must not require synchronization for a value polled by
+    // one connection task.
+    stream::unfold(Cell::new(false), |state| async move {
+        if state.get() {
+            None
+        } else {
+            state.set(true);
+            Some((Ok(Bytes::from_static(b"hello")), state))
+        }
+    })
+}
+
+#[tokio::test]
+async fn send_only_stream_works_over_runtime() {
+    let svc = service_fn(|_req: Request| async {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::with_known_length(
+                non_sync_stream(),
+                5,
+            )))
+            .unwrap())
+    });
+    let (addr, _handle) = start_service(svc).await;
+    let mut conn = TcpStream::connect(addr).await.unwrap();
+    conn.write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+        .await
+        .unwrap();
+    let mut out = Vec::new();
+    conn.read_to_end(&mut out).await.unwrap();
+    let text = String::from_utf8_lossy(&out);
+    assert!(text.starts_with("HTTP/1.1 200 OK"), "got: {text}");
+    assert!(text.to_ascii_lowercase().contains("content-length: 5"));
+    assert!(text.ends_with("hello"));
 }
 
 #[test]

@@ -311,7 +311,10 @@ The canonical response types provide transport-independent, Hyper-independent va
 
 - `normalize_metadata(status, headers, body_length)` is the shared normalization entry point for in-memory, file-backed, and streaming producers. It applies the same framing rules without consuming a `Response` value. File-streaming producers call this directly; callers pass the would-have-been-sent representation length (`Known`/`Unknown`) for HEAD responses.
 
-**Conversion**: `to_hyper_response(response)` converts a normalized canonical `Response` into a Hyper `Response<BoxBody>`. This is the final step before sending on the wire.
+**Conversion**: `to_hyper_response(response)` converts a normalized canonical
+`Response` into the explicit Hyper transport boundary. Its erased body type is
+internal implementation detail; callers provide only the canonical response
+and never poll a producer concurrently.
 
 ### Unified Response Architecture
 
