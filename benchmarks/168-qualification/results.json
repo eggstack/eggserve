@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "plan": "168",
-  "source_sha": "PENDING-commit",
+  "source_sha": "b2462a6df2e571c1fc85bf637601a761469b38e2",
   "code_note": "source_sha names the commit whose tracked code under crates/ is byte-identical to the measured release build (no code changes between measurement and commit; docs/examples/benchmarks only).",
   "environment": {
     "os": "Linux",
