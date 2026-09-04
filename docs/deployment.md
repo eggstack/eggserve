@@ -91,6 +91,15 @@ Notes:
 - **Embedded anonymity-sensitive** uses stricter open-connection, header, keep-alive, request-count, and write-stall bounds suitable for resource-constrained direct origins. This is still not rate limiting: all clients share the same generic resource budgets — there are no per-IP/client/user token buckets, authentication quotas, or reputation logic anywhere in the core.
 - Every production claim must name a profile from the production profiles table in README.md. Hardened profiles must not allow symlink following.
 
+### Performance evidence boundary
+
+The final performance evidence is a Linux x86_64 same-machine capture under an
+explicit benchmark profile; see [`benchmarks/170-closure`](../benchmarks/170-closure/README.md).
+It informs like-for-like future comparisons but does not change the production
+profile defaults above, qualify arm64 performance, or create an absolute RPS or
+latency release gate. Size, concurrency, cache state, client saturation, and
+CPU frequency must be reported with any future claim.
+
 ## Response privacy and minimal-fingerprint profile (Plan 165)
 
 Final origin-response metadata is an explicit `ResponsePolicy`, applied after

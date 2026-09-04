@@ -2,9 +2,20 @@
 
 ## Status
 
-**IMPLEMENTED IN SUBSTANCE; FINAL ROADMAP CLOSURE PENDING PLAN 170.**
+**IMPLEMENTED / CLOSED.**
 
 This roadmap records the revised product target after Plan 160. It does not reopen completed hardening work wholesale; it identifies the remaining delta required to make EggServe a production-oriented HTTP substrate in addition to a hardened `http.server`-shaped static server.
+
+## Closure record
+
+The roadmap outcomes landed through Plans 162–170. Response streaming,
+caller-owned transport, admission/lifecycle controls, response privacy, the
+Python low-level substrate, and the Plan 169 stream-bound polish are retained
+in their individual records. Plan 167 closed the CGI/FastCGI question as a
+no-go; Plans 168 and 170 supplied deterministic qualification and the final
+representative performance evidence. The profile-specific evidence is in
+`benchmarks/170-closure/results.json`, and absolute RPS/latency remain outside
+CI gates.
 
 ## Goal
 

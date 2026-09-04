@@ -207,8 +207,31 @@ evidenced by deterministic suites (not absolute-timing gates):
 
 Performance snapshots and the regression/claims policy live in
 `benchmarks/README.md`; machine-readable results in
-`benchmarks/088-baseline/results.json` and
-`benchmarks/168-qualification/results.json`.
+`benchmarks/088-baseline/results.json`, `benchmarks/168-qualification/results.json`,
+and `benchmarks/170-closure/results.json`.
+
+## Plan 170 performance-evidence closure
+
+Plan 170 is manual same-machine evidence, never an absolute-timing CI gate.
+The standard-library harness at `benchmarks/170-closure/benchmark.py` records
+the final source/lockfile identity, explicit runtime limits, machine metadata,
+warm-up/trial discipline, latency percentiles, throughput, errors, CPU/RSS,
+fd/thread observations, and variance for these workload families:
+
+| Family | Coverage |
+|--------|----------|
+| Native static HTTP/1 | 1 KiB, 128 KiB, and 1 MiB at 1/16/64/256 keep-alive workers |
+| Native custom service | 1 KiB buffered, 1 MiB known/unknown streams, and 16 MiB streaming/backpressure |
+| Installed Python low-level | 1 KiB buffered, 1 MiB bounded stream, callback admission, and recovery after saturation |
+| Caller-owned driver | Ignored Rust microbenchmark over `tokio::io::duplex`, buffered and streamed; no network score |
+| TLS | Established keep-alive 1 KiB/1 MiB and separate new-connection handshake churn |
+| Substitution baseline | Same-session CPython `python -m http.server`, 1 KiB/1 MiB at 1/16/64 workers |
+
+The evidence supports only profile-specific statements about representative
+scaling, bounded streaming, the low-level substrate, embedding overhead, TLS
+overhead, and static migration behavior. It does not qualify arm64
+performance when no arm64 host was available and does not establish edge
+server parity, DDoS resistance, anonymity, or universal superiority.
 
 ## See Also
 

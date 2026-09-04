@@ -2,9 +2,19 @@
 
 ## Status
 
-**READY FOR IMPLEMENTATION AFTER OR ALONGSIDE PLAN 169.**
+**IMPLEMENTED / CLOSED.**
 
 This is the final evidence/claims closure for the production/embedding/anonymity roadmap. It does not add runtime features unless measurement exposes a correctness or resource-regression bug.
+
+## Closure record
+
+Implemented after Plan 169. The final Linux x86_64 capture is recorded in
+`benchmarks/170-closure/results.json`; the reusable standard-library harness
+and ignored caller-owned duplex benchmark are documented in that directory.
+The capture completed with zero protocol errors in measured workload families,
+demonstrated deliberate admission rejection and recovery, and recorded the
+absence of an arm64 performance host. Plan 161 is now closed and Plan 168 is
+closed with its original narrow snapshot preserved alongside this extension.
 
 ## Goal
 

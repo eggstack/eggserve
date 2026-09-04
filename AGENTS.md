@@ -161,7 +161,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 ### Verification beyond routine CI
 
 - For library/CLI usability work also run: `cargo test --doc -p eggserve-core`, `cargo check -p eggserve-core --examples`, both dist builds, and `bash scripts/verify-cargo-packages.sh --mode all`.
-- Qualification evidence (Plan 168): deterministic track suites mapped in `architecture/testing-and-conformance.md`; methodology, regression policy, and claims policy in `benchmarks/README.md` with machine-readable results under `benchmarks/`. No absolute-timing gates in CI; every performance/release claim names a profile + evidence.
+- Qualification evidence (Plans 168/170): deterministic track suites and the manual performance-evidence matrix are mapped in `architecture/testing-and-conformance.md`; methodology, regression policy, and claims policy live in `benchmarks/README.md`, with machine-readable results under `benchmarks/168-qualification/` and `benchmarks/170-closure/`. No absolute RPS/latency gates in CI; every performance/release claim names a profile + evidence.
 - For native bind/TLS changes, run the manual platform qualification workflow after pushing.
 - Production profiles: every production claim must name a profile ([docs/deployment.md](docs/deployment.md)). Hardened profiles must not allow symlink following.
 

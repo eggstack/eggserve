@@ -2,7 +2,7 @@
 
 ## Status
 
-**IMPLEMENTED FOR CORRECTNESS/RESOURCE/PRIVACY QUALIFICATION; PERFORMANCE-EVIDENCE EXTENSION TRACKED BY PLAN 170.**
+**CLOSED — CORRECTNESS/RESOURCE/PRIVACY QUALIFICATION AND PLAN 170 PERFORMANCE EVIDENCE.**
 
 Plan 167 is optional and does not block core qualification when closed as a no-go.
 
@@ -13,6 +13,23 @@ closed in commit `b2462a6df2e571c1fc85bf637601a761469b38e2`; the evidence-SHA
 correction was recorded in commit `4922227f55502885621620aaa4c915458055ec84`.
 The broader performance matrix and final claims closure are intentionally
 deferred to Plan 170 rather than implied by the narrower existing snapshot.
+
+Plan 170 subsequently completed the deliberately smaller representative
+performance matrix and final claims closure; it did not retroactively expand
+the original Plan 168 snapshot.
+
+## Final closure record
+
+Plan 168's deterministic correctness, resource, privacy, and failure-recovery
+qualification remains evidenced by the suites and the original
+`benchmarks/168-qualification/results.json` snapshot. That snapshot is a
+narrow Linux x86_64 release-CLI static GET smoke and is preserved unchanged.
+The expanded Plan 170 evidence at `benchmarks/170-closure/results.json` adds
+native static concurrency scaling, buffered and known/unknown streaming,
+installed-wheel low-level Python, caller-owned duplex, representative TLS,
+CPython substitution, and admission/recovery measurements. The two artifacts
+are complementary; neither creates an absolute-timing CI gate or supports
+universal performance/edge-server claims.
 
 ## Goal
 

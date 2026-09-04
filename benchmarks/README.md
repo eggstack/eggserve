@@ -14,11 +14,12 @@ qualified profile and point at the evidence files below.
 | `088-baseline/*-audit.md` | Plan 088 allocation/accept-loop/body/range/listing/TLS/comparative audits. Historical snapshots; stale file paths inside them refer to the tree at that time. |
 | `binary-size.md` | Plan 109 distribution artifact sizes (release vs `dist` profiles, wheel members) plus a current-thread suitability smoke. Profile-aware: never compare `release` against `dist` as a code-size delta. |
 | `168-qualification/results.json` | Plan 168 loopback throughput smoke (Linux x86_64, release CLI): 1 KiB and 1 MiB static GETs, 16 keep-alive workers, 3 trials, 0 errors, server RSS. Reproduce with `benchmarks/168-qualification/loopback_smoke.py`. |
+| `170-closure/results.json` | Final Plan 170 same-machine evidence: native static scaling, native buffered/streaming services, installed-wheel low-level Python, admission recovery, TLS, and CPython substitution. Reproduce with `benchmarks/170-closure/benchmark.py`; caller-owned duplex output is recorded separately by the ignored Rust benchmark test. |
 
 ## Method
 
-Representative workloads (per Plan 168) cover the qualification matrix where
-applicable: built-in static service, buffered/known-length/unknown-length
+Representative workloads (per Plans 168 and 170) cover the qualification
+matrix where applicable: built-in static service, buffered/known-length/unknown-length
 custom services, TCP `Server`, caller-owned connection driver, Python native
 fast path, Python low-level callback/streaming service, and TLS variants of
 representative native/Python paths. Response sizes span empty through 16 MiB
@@ -34,6 +35,15 @@ median/p95/p99 latency, CPU, steady-state and peak RSS, allocations where
 supported, task/thread counts, fd/handle counts, errors/timeouts/rejections,
 and EggServe admission/timeout counters. Run repeated trials, report
 variance, and preserve raw files here — never promote one best number.
+
+Plan 170 is the final performance-evidence extension. Its required Linux
+x86_64 session uses explicit runtime limits, one excluded warm-up, three
+measured trials, 1/16/64/256 static keep-alive concurrency, 16/64 custom
+service concurrency, installed-wheel Python callbacks, separate TLS handshake
+churn, and a same-session CPython substitution baseline. The caller-owned
+driver is measured in-process over `tokio::io::duplex`; it is not network RPS.
+Unavailable arm64 hardware is recorded as performance-unqualified rather than
+silently represented by x86_64 numbers.
 
 ## Regression policy
 
@@ -61,7 +71,7 @@ variance, and preserve raw files here — never promote one best number.
   worker setup is controlled and documented. No cross-product headline
   numbers without a dedicated methodology review.
 
-## Claims policy (Plan 168)
+## Claims policy (Plans 168 and 170)
 
 Allowed only with named profile + evidence: hardened static/server runtime
 for reverse-proxy deployments; qualified limited direct-TLS profile;
@@ -72,4 +82,7 @@ Python low-level synchronous service substrate.
 
 Do not claim: nginx/Caddy replacement; bare-Internet DDoS resistance;
 anonymity or un-fingerprintability; ASGI/WSGI/Gunicorn/Granian parity;
-HTTP/2/3; performance superiority without a controlled published comparison.
+HTTP/2/3; universal performance superiority; or ratios from the CPython
+substitution baseline as production-server marketing. Performance claims must
+name the profile, workload, machine, and evidence file; absolute RPS/latency
+never gates PR or routine CI.

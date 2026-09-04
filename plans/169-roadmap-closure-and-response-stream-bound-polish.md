@@ -4,7 +4,9 @@
 
 **IMPLEMENTED / CLOSED.**
 
-Prerequisite: Plans 162–168 have landed in substance. Plan 170 owns the remaining broad performance-evidence work and final performance-claim closure.
+Prerequisite: Plans 162–168 have landed in substance. Plan 170 subsequently
+completed the remaining broad performance-evidence work and final
+performance-claim closure.
 
 ## Goal
 

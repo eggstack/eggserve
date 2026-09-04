@@ -455,7 +455,12 @@ The `benchmarks/` directory holds benchmark baselines (Criterion-based, historic
 | 404 Not Found | 1.9 us | Path parse + resolve only |
 | Dir listing 1000 entries | 2.25 ms | Linear scaling |
 
-Full results: `benchmarks/088-baseline/results.json`. The old Criterion harness is historical; current changes use a deliberately selected measurement session rather than treating numbers as a CI gate.
+Full historical results: `benchmarks/088-baseline/results.json`. Plan 168's
+loopback snapshot is in `benchmarks/168-qualification/results.json`; final
+same-machine performance evidence is in
+`benchmarks/170-closure/results.json` and is reproduced by its standard-library
+harness. The old Criterion harness is historical; none of these absolute
+timings are CI gates.
 
 ---
 

@@ -260,3 +260,10 @@ point; it does not bundle a second standalone CLI binary. See
 The routine CI workflow has separate Rust and Python jobs. Platform
 qualification and release certification are manual workflows; see
 [the release process](https://github.com/eggstack/eggserve/blob/main/docs/release-process.md).
+
+Performance evidence is profile-specific and manual: the final Linux x86_64
+same-machine matrix is recorded in
+[`benchmarks/170-closure/results.json`](benchmarks/170-closure/results.json).
+It documents representative scaling, streaming, low-level Python, TLS,
+caller-owned transport, and CPython substitution behavior; absolute timings
+are not CI gates or universal performance claims.
