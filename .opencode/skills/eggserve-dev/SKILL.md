@@ -21,7 +21,10 @@ an experimental, low-level Rust service boundary. EggServe is not an application
 framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway, proxy, or
 general-purpose `socketserver` replacement. Plan 167 closed as no-go: no
 in-tree CGI/FastCGI adapters; downstream gateways implement the canonical
-`Service` trait.
+`Service` trait. Plan 176 closed as deferred: no generic HTTP upgrade
+handoff (`Request` has no upgrade capability, `Service` returns `Response`
+only, 101 cannot survive normalization; downstream must not bypass via
+Hyper).
 
 **Not** a general web server, framework, ASGI/WSGI runtime, or Granian replacement.
 

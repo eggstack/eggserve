@@ -441,6 +441,7 @@ Every production claim must name a profile. The production profiles are document
 - Downstream clients, ASGI/WSGI/CGI/FastCGI adapters, and application servers may be built outside the repository.
 - Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
 - The downstream HTTP bridge contract is qualified from outside the crate by `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175): bounded full-duplex bridging, deferred body ownership, lifecycle cancellation, admission split, and TCP/TLS/caller-owned parity using only `primitives` + `server`. See `docs/downstream-app-server.md`.
+- Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed and no upgrade vocabulary enters public types.
 - No public API promises application-server cancellation semantics beyond documented generic server behavior.
 - No ASGI/WSGI/CGI/FastCGI vocabulary enters public types. No routing or middleware abstractions are added.
 - Canonical application-facing types, `Service`, and the caller-owned connection API remain Hyper-free for downstream consumers. The explicitly documented `RequestHead::try_from_hyper()` inbound adapter and `to_hyper_response()` outbound adapter may mention Hyper; internal runtime implementation use is expected. Tokio channel, PyO3, and platform FFI implementation types remain absent from stable application-facing signatures.

@@ -83,6 +83,9 @@ The downstream application-server contract is qualified externally by
 `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175), which uses
 only `primitives` + `server` plus ordinary downstream dependencies. The
 builder-facing rules live in [downstream-app-server.md](downstream-app-server.md).
+Plan 176 closed as deferred: no `UpgradeRequest`, `UpgradeResponse` /
+`ServiceOutcome`, or `UpgradedIo` types exist — `Request` carries
+head/body/connection/lifecycle only and `Service` returns `Response` only.
 
 ## Invariants
 

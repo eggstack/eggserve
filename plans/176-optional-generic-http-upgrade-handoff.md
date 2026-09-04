@@ -2,11 +2,86 @@
 
 ## Status
 
-**PLANNED / OPTIONAL.**
+**CLOSED — DEFERRED (optional, no concrete consumer).**
 
-Prerequisites: Plan 172 present. Prefer Plans 173–175 implemented/closed before this plan begins so upgraded-protocol support cannot distort the ordinary HTTP application-server boundary.
+Prerequisites: Plan 172 present; Plans 173–175 implemented/closed. The HTTP
+application-server boundary is stable (Plan 175 qualification passed), so this
+deferral does not distort it.
 
-This plan is required only if a downstream application-server project needs WebSockets or another HTTP/1 upgrade protocol. HTTP-only downstream servers do not need it.
+This plan remains required only if a downstream application-server project
+needs WebSockets or another HTTP/1 upgrade protocol. HTTP-only downstream
+servers do not need it. No such downstream consumer exists at closure time,
+so no upgrade code was added. See Closure record below.
+
+## Closure record
+
+Worked through on `main` as a Phase 0 spike plus a go/no-go gate (same pattern
+as Plan 167). Outcome: **deferred, no in-tree upgrade handoff.**
+
+Phase 0 findings (verified against current `main`):
+
+- The connection executor drives Hyper with `.with_upgrades()` in the two
+  crate-private drivers (`serve_connection`, `serve_hyper_with_token`), but
+  the `OnUpgrade` capability is never exposed. Canonical `Request` carries
+  only head/body/connection/lifecycle — no upgrade capability — and `Service`
+  returns only canonical `Response`.
+- A `101 Switching Protocols` handshake cannot be produced through the normal
+  `Response` path: `normalize_metadata()` strips all hop-by-hop headers
+  (including `upgrade`/`connection`) and `StatusCode::permits_payload_body()`
+  is false for 1xx, so handshake headers/body cannot survive normalization.
+  This is the intended current boundary, not a bug.
+- Upgrade request headers themselves remain visible to a `Service` as ordinary
+  canonical headers, but there is no EggServe-owned accept/deny API, no
+  `UpgradedIo` wrapper, no buffered-byte handoff, and no upgraded-session
+  lifecycle/shutdown accounting.
+- Ordinary services therefore pay zero upgrade complexity today.
+
+Gate decision (why deferred, not implemented):
+
+1. No concrete EggServe/downstream consumer requires WebSockets or another
+   HTTP/1 upgrade protocol. Plans 172–175 closed the HTTP-only downstream
+   contract; the reference consumer (`app_server_consumer.rs`) is HTTP-only
+   by design.
+2. `docs/non-goals.md` explicitly lists "No WebSocket or upgrade support" and
+   the product-surface freeze rejects WebSocket/upgrade expansion without a
+   new explicit product decision. No such product decision exists.
+3. Tracks A–H would add public upgrade ownership types (`UpgradeRequest`,
+   `UpgradeResponse`/`ServiceOutcome`, `UpgradedIo`), handshake-validation
+   exceptions, and post-handshake lifecycle/shutdown accounting for every
+   transport (TCP/TLS/caller-owned) — ongoing API and maintenance cost
+   against the no-broad-dependencies rule, with no consumer to validate it.
+4. A WebSocket codec, ping/pong, fragmentation, close-code policy,
+   permessage-deflate, and ASGI `websocket.*` events would still live
+   downstream; this plan would only build the handoff. Building the handoff
+   without the codec consumer risks freezing the wrong abstraction.
+
+What this closure means:
+
+- No `UpgradeRequest`, `UpgradeResponse`/`ServiceOutcome`, `UpgradedIo`, or
+  service-outcome changes were added to `primitives` or `server`. `Service`
+  still receives `Request` and returns `Response`; `Request` has no upgrade
+  capability; `.with_upgrades()` remains an internal Hyper detail with no
+  public escape hatch.
+- Upgrade/101 responses remain unsupported: services must not attempt to
+  emit `101` via canonical `Response`, and downstream code must not bypass
+  the canonical boundary via raw Hyper `OnUpgrade`/`Upgraded` types.
+- Downstream WebSocket-class servers are not currently buildable on the
+  canonical `Service` boundary. That is an honest, documented limitation —
+  not a silent bypass.
+
+Reopen conditions (all required):
+
+1. A concrete downstream application-server project needs WebSockets or
+   another HTTP/1 upgrade protocol.
+2. Plans 173–175 contracts remain stable enough that upgrade work cannot
+   distort the ordinary HTTP boundary.
+3. The reopening plan records the Phase 0 answers for the current Hyper
+   version (upgrade capability shape, 101 validation, buffered bytes,
+   cancellation/shutdown interaction, `ProgressIo` behavior, driver
+   completion semantics, TLS/caller-owned parity) rather than assuming them.
+
+Historical design Tracks A–H below are retained as the starting point for
+such a reopening; they are not an active work order.
 
 ## Goal
 

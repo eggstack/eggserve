@@ -12,7 +12,8 @@ an experimental, low-level Rust service boundary. EggServe is not an application
 framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway, proxy, or
 general-purpose `socketserver` replacement. Plan 167 closed as no-go: no
 in-tree CGI/FastCGI adapters; downstream gateways implement the canonical
-`Service` trait (see `docs/extension-contract.md`, `docs/non-goals.md`). The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
+`Service` trait (see `docs/extension-contract.md`, `docs/non-goals.md`). Plan 176 closed as deferred: no generic HTTP upgrade handoff
+(`Request` has no upgrade capability, `Service` returns `Response` only, 101 cannot survive normalization; downstream must not bypass via Hyper). The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
 

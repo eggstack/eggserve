@@ -202,7 +202,11 @@ framework or ASGI/WSGI runtime.
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
   async Python handlers, unbounded response generators, ASGI/WSGI, and
   CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
-  gateways are intentionally unavailable. Downstream gateways build on the
+  gateways are intentionally unavailable. Generic HTTP upgrade handoffs
+  (WebSocket-class; Plan 176 deferred, no concrete consumer) are also
+  unavailable: `Request` carries head/body/connection/lifecycle only,
+  `Service` returns `Response` only, and 101 handshakes cannot survive
+  normalization. Downstream gateways build on the
   canonical `Service` boundary instead.
 
 See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),

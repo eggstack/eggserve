@@ -111,6 +111,21 @@ framing/normalization and the Plan 165 privacy boundary, and enforces its own
 bounds (subprocess concurrency, env/PARAMS caps, stdout header scan, STDERR
 cap, deadlines, kill/abort with reaping on timeout/disconnect/shutdown/drop).
 
+### Upgrade handoff (Plan 176 deferred — no upgrade capability)
+
+Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed.
+`Request` carries head/body/connection/lifecycle only (no `UpgradeRequest`),
+`Service` returns `Response` only (no `ServiceOutcome`/`UpgradeResponse`),
+and there is no `UpgradedIo` wrapper. A `101 Switching Protocols` handshake
+cannot be produced through the normal `Response` path: normalization strips
+hop-by-hop handshake headers (`upgrade`/`connection`) and 1xx statuses are
+body-forbidden. The `.with_upgrades()` call in the crate-private connection
+drivers is an internal Hyper detail with no public escape hatch; downstream
+code must not bypass the canonical boundary via `OnUpgrade`/`Upgraded`
+types. Upgraded-protocol servers (WebSocket-class) are therefore not
+currently buildable on EggServe; reopen Plan 176 only with a concrete
+upgrade consumer and current-Hyper Phase 0 evidence.
+
 ### ServerHandle
 
 Control handle returned by `Server::start()`. Not `Clone` — there is exactly one handle per server instance.

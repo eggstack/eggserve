@@ -215,8 +215,11 @@ deferred body consumption still active.
 EggServe does not implement ASGI/WSGI/framework/process semantics:
 application protocol adaptation, event loops, routing, middleware, worker
 supervision, lifespan state machines, HTTP/2/3, trailers, or WebSocket
-framing. WebSocket/upgraded protocols require Plan 176 or downstream
-protocol support; no upgrade work is part of this HTTP contract. Python
+framing. Plan 176 closed as deferred: no generic HTTP upgrade handoff is
+exposed (`Request` has no upgrade capability, `Service` returns `Response`
+only, 101 handshakes cannot survive normalization), so upgraded protocols
+are not currently buildable on the canonical boundary and raw Hyper
+`OnUpgrade`/`Upgraded` bypass is unsupported. Python
 FFI/asyncio architecture belongs in the downstream project's repository.
 Downstream gateways build on the canonical `Service` boundary instead
 (see [extension-contract.md](extension-contract.md) and

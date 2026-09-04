@@ -26,7 +26,9 @@ eggserve does not provide:
 - Reverse proxying
 - Compression
 - Plugin systems or extensible architectures
-- HTTP/2, HTTP/3, WebSocket, or CONNECT semantics
+- HTTP/2, HTTP/3, WebSocket, CONNECT, or generic upgrade-handoff semantics
+  (Plan 176 closed as deferred: no `UpgradeRequest`/`UpgradedIo`/upgrade
+  outcome in `primitives`/`server`; 101 cannot be emitted via `Response`)
 
 These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally. See [non-goals.md](non-goals.md) for the full list. Downstream use of primitives for clients or application servers is explicitly allowed but not owned by eggserve. Those projects are not release deliverables or supported application-serving modes.
 
@@ -244,6 +246,7 @@ eggserve does not provide ASGI/WSGI/CGI/FastCGI interfaces directly (see [non-go
 | WSGI bridge | Not provided (non-goal) | Same `Service` seam; synchronous response mapping only |
 | CGI executor (`CGIHTTPRequestHandler`/`--cgi` parity) | Not provided — Plan 167 closed as no-go (upstream 3.13 deprecation / 3.15 removal, no concrete consumer, subprocess-maintenance cost vs no-broad-dependencies) | Plain `Service`: bounded child concurrency, env/input sanitization, stdout/stderr caps, deadlines with kill/reap on timeout/disconnect/shutdown, generic 502/504 mapping, no shell/request injection |
 | FastCGI gateway | Not provided — Plan 167 closed as no-go (never `http.server`, no concrete consumer) | Plain `Service`: fragmented-record corpus handling, Responder request/response mapping, streaming STDIN/STDOUT backpressure, STDERR caps, backend timeout/disconnect/abort, no cross-request contamination, connection/resource recovery |
+| Generic HTTP upgrade handoff (WebSocket-class) | Not provided — Plan 176 closed as deferred (no concrete upgrade consumer; HTTP-only contract closed by Plans 172–175) | Not currently buildable on the canonical boundary; do not bypass via raw Hyper `OnUpgrade`/`Upgraded`. Reopen Plan 176 with a concrete consumer before designing the handoff |
 | Custom subprocess/pipe backends | Not provided | Same bounds as CGI: the adapter enforces its own limits; core never inherits backend responsibilities |
 
 Core release claims never depend on an optional adapter's behavior or

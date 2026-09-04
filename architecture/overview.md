@@ -24,11 +24,20 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 - Not an ASGI/WSGI server, CGI executor, FastCGI gateway, or web framework
 - Not a reverse proxy, ACME client, or plugin host
 - Not a file upload handler, auth system, or template engine
+- Not a WebSocket/upgraded-protocol server (no upgrade handoff)
 
 Plan 167 closed as no-go: no in-tree CGI/FastCGI adapters. Downstream
 gateways implement the canonical `Service` trait and return canonical
 `Response` values; see [runtime.md](runtime.md) and
 [../docs/extension-contract.md](../docs/extension-contract.md).
+
+Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed
+(`Request` has no upgrade capability, `Service` returns `Response` only,
+101 handshakes cannot survive normalization; `.with_upgrades()` remains an
+internal Hyper detail). Downstream WebSocket-class servers are not
+currently buildable on the canonical boundary and must not bypass it via
+raw Hyper types; see [../docs/non-goals.md](../docs/non-goals.md) and
+[../docs/downstream-app-server.md](../docs/downstream-app-server.md).
 
 The user-facing Python compatibility matrix is maintained in
 [`docs/python-http-server-compatibility.md`](../docs/python-http-server-compatibility.md).
