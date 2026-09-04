@@ -122,8 +122,12 @@ async fn caller_owned_duplex_benchmark() -> Result<(), Box<dyn std::error::Error
         .ok()
         .and_then(|value| value.parse().ok())
         .unwrap_or(10);
-    let buffered = measure("/bytes", iterations).await?;
-    let streamed = measure("/stream", iterations).await?;
-    println!("{{\"iterations\":{iterations},\"response_size\":{SIZE},\"buffered_rps\":{buffered:.3},\"streamed_rps\":{streamed:.3},\"transport\":\"tokio::io::duplex\"}}");
+    let mut buffered = Vec::new();
+    let mut streamed = Vec::new();
+    for _ in 0..3 {
+        buffered.push(measure("/bytes", iterations).await?);
+        streamed.push(measure("/stream", iterations).await?);
+    }
+    println!("{{\"iterations\":{iterations},\"trials\":3,\"response_size\":{SIZE},\"buffered_rps\":{buffered:?},\"streamed_rps\":{streamed:?},\"transport\":\"tokio::io::duplex\"}}");
     Ok(())
 }
