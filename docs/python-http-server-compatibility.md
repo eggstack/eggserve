@@ -20,7 +20,7 @@ not a general `socketserver` implementation or application framework.
 | `translate_path()` | Available | N/A | Intentionally unavailable | Hardened resolver primitives |
 | Raw `list_directory()` path | Available to handler | N/A | Intentionally unavailable | N/A |
 | Static metadata hooks | `--content-type`, `-H/--header` | `--content-type`, `-H/--header` | `default_content_type`, `extra_response_headers` | Builder metadata |
-| ASGI/WSGI | No | No | No | No |
+| ASGI/WSGI/CGI/FastCGI | No | No | No | No |
 
 The matrix describes product boundaries rather than Python-version trivia. The
 [library capability matrix](library-capability-matrix.md) has the more detailed
@@ -111,9 +111,13 @@ These behaviors are unavailable by design, not pending work:
 | Arbitrary `ssl.SSLContext`, SNI multi-cert selection, or client certificates | Rustls facade constraints |
 | Async handler coroutines | Synchronous handler contract |
 | Unbounded streaming Python response bodies | Bounded response policy (facade is buffered; `eggserve.lowlevel.Response.stream` offers bounded 16-chunk streaming) |
+| `CGIHTTPRequestHandler` / `--cgi` | Removed legacy surface (deprecated Python 3.13, removed 3.15; Plan 167 no-go) |
+| FastCGI gateway | Never an `http.server` feature; no in-tree adapter (Plan 167 no-go) |
 
 The facade also does not expose routing, middleware, proxying, decompression,
-cookies, retries, or ASGI/WSGI adaptation.
+cookies, retries, or ASGI/WSGI/CGI/FastCGI adaptation. Downstream CGI/FastCGI
+gateways live outside the repository as plain canonical services over the
+`eggserve.lowlevel` / `eggserve-core::server` boundary.
 
 ## Address and lifecycle details
 

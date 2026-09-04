@@ -21,9 +21,14 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 
 ## What eggserve Is Not
 
-- Not an ASGI/WSGI server, CGI executor, or web framework
+- Not an ASGI/WSGI server, CGI executor, FastCGI gateway, or web framework
 - Not a reverse proxy, ACME client, or plugin host
 - Not a file upload handler, auth system, or template engine
+
+Plan 167 closed as no-go: no in-tree CGI/FastCGI adapters. Downstream
+gateways implement the canonical `Service` trait and return canonical
+`Response` values; see [runtime.md](runtime.md) and
+[../docs/extension-contract.md](../docs/extension-contract.md).
 
 The user-facing Python compatibility matrix is maintained in
 [`docs/python-http-server-compatibility.md`](../docs/python-http-server-compatibility.md).

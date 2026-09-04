@@ -426,10 +426,10 @@ Every production claim must name a profile. The production profiles are document
 ### Scope boundary
 
 - eggserve is a hardened, read-only HTTP/1.1 static file server and a low-level primitive library.
-- Downstream clients, ASGI/WSGI adapters, and application servers may be built outside the repository.
+- Downstream clients, ASGI/WSGI/CGI/FastCGI adapters, and application servers may be built outside the repository.
 - Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
 - No public API promises application-server cancellation semantics beyond documented generic server behavior.
-- No ASGI/WSGI vocabulary enters public types. No routing or middleware abstractions are added.
+- No ASGI/WSGI/CGI/FastCGI vocabulary enters public types. No routing or middleware abstractions are added.
 - Hyper, Tokio channel, PyO3, and platform FFI implementation types remain absent from stable public signatures.
 
 ### API tier summary

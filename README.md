@@ -13,8 +13,8 @@ serving plus a bounded, synchronous custom-handler path shaped like
 `http.server`, and a public `eggserve.lowlevel` handler-only runtime/service
 substrate for downstream bounded application servers. The Rust crate exposes a
 low-level, embeddable HTTP runtime and service boundary. EggServe itself is not
-an application framework, ASGI/WSGI runtime, proxy, or general-purpose
-`socketserver` replacement.
+an application framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway,
+proxy, or general-purpose `socketserver` replacement.
 
 ## Secure alternative to `python -m http.server`
 
@@ -176,8 +176,10 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
   metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
   `--tls-key` is omitted.
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
-  async Python handlers, unbounded response generators, and ASGI/WSGI are
-  intentionally unavailable.
+  async Python handlers, unbounded response generators, ASGI/WSGI, and
+  CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
+  gateways are intentionally unavailable. Downstream gateways build on the
+  canonical `Service` boundary instead.
 
 See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),
 [threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md),

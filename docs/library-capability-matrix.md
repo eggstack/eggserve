@@ -79,11 +79,12 @@ its status using a constrained vocabulary.
 | Proxies | — | — | — | — | — | — | — |
 | Decompression | — | — | — | — | — | — | — |
 | ASGI/WSGI adapters | — | — | — | — | — | — | — |
+| CGI / FastCGI adapters (Plan 167 no-go) | — | — | — | — | — | — | — |
 | Windows reparse-point hardening | — | — | — | — | — | — | — |
 
 Rows with no annotation in any column are **intentionally unsupported** (empty
 cell = not applicable to that surface). General application redirects,
-retries, cookies, proxies, decompression, ASGI/WSGI, and Windows
+retries, cookies, proxies, decompression, ASGI/WSGI/CGI/FastCGI, and Windows
 reparse-point hardening remain intentionally unsupported or platform-limited as
 noted. Static directory canonicalization is the implemented narrow redirect
 behavior.

@@ -4,7 +4,7 @@ This document is the authoritative contract for downstream consumers of eggserve
 
 ## Overview
 
-eggserve is a library, not a framework. It provides hardened path validation, policy enforcement, secure root resolution, and response planning as composable primitives. Downstream projects may build on these primitives for dynamic sites, test harnesses, or protocol adapters — including ASGI/WSGI adapters, application servers, and HTTP clients — but they must respect the security boundaries that make eggserve's guarantees meaningful.
+eggserve is a library, not a framework. It provides hardened path validation, policy enforcement, secure root resolution, and response planning as composable primitives. Downstream projects may build on these primitives for dynamic sites, test harnesses, or protocol adapters — including ASGI/WSGI/CGI/FastCGI adapters, application servers, and HTTP clients — but they must respect the security boundaries that make eggserve's guarantees meaningful.
 
 ## What eggserve guarantees
 
@@ -198,7 +198,9 @@ This separation ensures that Python application code cannot bypass timeout limit
 
 ## The adapter rule
 
-ASGI/WSGI adapters should live downstream.
+ASGI/WSGI/CGI/FastCGI adapters should live downstream (Plan 167 closed as
+no-go for in-tree CGI/FastCGI: no concrete consumer, upstream CGI removal,
+and process/backend maintenance cost outweigh an in-tree adapter).
 
 eggserve provides the primitives that adapters need: path resolution, request validation, response planning, resolved file handles, and server primitives (`StaticResponder`, `Server`, `Response`). The adapter is responsible for:
 
@@ -208,11 +210,11 @@ eggserve provides the primitives that adapters need: path resolution, request va
 4. Mapping `StaticResponsePlan` fields into the framework's response API.
 5. For server-based adapters: returning `Response` objects from the responder callback.
 
-eggserve does not provide ASGI/WSGI interfaces directly (see [non-goals.md](non-goals.md)).
+eggserve does not provide ASGI/WSGI/CGI/FastCGI interfaces directly (see [non-goals.md](non-goals.md)). A downstream CGI executor or FastCGI Responder is a plain canonical `Service`: map the request into `Response`/`ResponseBody::Stream`, let the runtime own framing/normalization and the Plan 165 privacy boundary, and enforce its own subprocess/backend bounds (concurrency, env/PARAMS caps, stdout header scan, STDERR cap, deadlines, kill/abort and reaping on timeout/disconnect/shutdown/drop).
 
 ## Downstream adapter boundary
 
-> eggserve may expose primitives sufficient for an external ASGI, WSGI, or application server adapter. eggserve does not provide those adapters in-tree. Those downstream projects are not release deliverables. Any new API added for adapter authors must remain protocol- and framework-neutral.
+> eggserve may expose primitives sufficient for an external ASGI, WSGI, CGI, FastCGI, or application server adapter. eggserve does not provide those adapters in-tree. Those downstream projects are not release deliverables. Any new API added for adapter authors must remain protocol- and framework-neutral.
 
 ## Security boundary rules
 

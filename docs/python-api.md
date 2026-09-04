@@ -134,7 +134,7 @@ of the supported package surface. Subprocess lifecycle helpers are under
 
 ## Compatibility boundary
 
-The façade is not ASGI, WSGI, a routing framework, middleware, a proxy, or a
+The façade is not ASGI, WSGI, CGI, FastCGI, a routing framework, middleware, a proxy, or a
 general-purpose HTTP server. It intentionally does not expose socketserver
 internals, `fileno()`, authoritative `translate_path()`, or one-request
 `handle_request()` mode. Platform support and the Windows trusted-content

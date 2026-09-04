@@ -101,6 +101,16 @@ Hardened static file service implementing `Service`:
   normalizes again idempotently (`Response::is_normalized`) so custom
   streaming responses share the single framing policy
 
+### Gateway adapters (CGI/FastCGI live downstream)
+
+Plan 167 closed as no-go: no in-tree CGI executor or FastCGI gateway. A
+downstream gateway is a plain `Service` — no core exceptions, no parser or
+framing ownership. It maps backend output into a canonical `Response`
+(`ResponseBody::Stream` for gateway bodies), lets the connection pipeline own
+framing/normalization and the Plan 165 privacy boundary, and enforces its own
+bounds (subprocess concurrency, env/PARAMS caps, stdout header scan, STDERR
+cap, deadlines, kill/abort with reaping on timeout/disconnect/shutdown/drop).
+
 ### ServerHandle
 
 Control handle returned by `Server::start()`. Not `Clone` — there is exactly one handle per server instance.

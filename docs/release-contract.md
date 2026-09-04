@@ -444,6 +444,6 @@ Production profile status is maintained by the project maintainers and documente
 
 ## What This Document Does NOT Cover
 
-- Framework abstractions, routing, middleware, ASGI/WSGI adapters — these are in-tree non-goals. Downstream projects may build them on eggserve primitives, but they are not release deliverables.
+- Framework abstractions, routing, middleware, ASGI/WSGI/CGI/FastCGI adapters — these are in-tree non-goals. Downstream projects may build them on eggserve primitives, but they are not release deliverables.
 - Compatibility with `python -m http.server` beyond practical equivalence — see [compatibility.md](compatibility.md).
 - Version freeze — this is a pre-release contract. The API surface may change before 1.0.

@@ -277,7 +277,7 @@ value (never versions). See `docs/deployment.md` minimal-fingerprint profile.
 
 ## Downstream use by app-server/adapter projects
 
-eggserve's primitive layer is designed for embedding. Downstream projects may build ASGI/WSGI/app servers externally using these primitives, but eggserve does not implement those protocols in-tree.
+eggserve's primitive layer is designed for embedding. Downstream projects may build ASGI/WSGI/CGI/FastCGI/app servers externally using these primitives, but eggserve does not implement those protocols in-tree (Plan 167 no-go for CGI/FastCGI).
 
 ### Rust embedding
 

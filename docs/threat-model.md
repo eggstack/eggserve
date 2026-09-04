@@ -224,7 +224,7 @@ Parser-level protections reject Windows reserved names, ADS syntax, drive prefix
 
 ### Downstream adapter authors
 
-- ASGI/WSGI adapters should live out-of-tree (see `docs/extension-contract.md`).
+- ASGI/WSGI/CGI/FastCGI adapters should live out-of-tree (see `docs/extension-contract.md`; Plan 167 no-go for in-tree CGI/FastCGI).
 - New APIs added for adapter authors must remain protocol- and framework-neutral.
 
 ## Unsafe path reconstruction risk

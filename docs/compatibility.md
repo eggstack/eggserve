@@ -28,6 +28,7 @@ The goal is that a user familiar with `python -m http.server` can switch to `egg
 | Symlinks | platform behavior | denied (final and intermediate) | `--follow-symlinks` (final canonical target must remain inside root) |
 | Methods | basic GET/HEAD | GET/HEAD | none initially |
 | CGI | separate module | unsupported | unsupported |
+| FastCGI | never an `http.server` feature | unsupported | unsupported |
 | Dotfiles | served | denied | `--allow-dotfiles` |
 | Percent encoding | single-pass decode | conservative single-pass decode | — |
 | `python -m` invocation | `python -m http.server` | `python -m eggserve` | supported |
@@ -55,7 +56,8 @@ python -m eggserve [DIRECTORY] [--bind HOST:PORT]  # eggserve via Python
 eggserve currently does not support:
 
 - **HTTP/2** — HTTP/1.1 only
-- **CGI** — not supported (deferred as a non-goal)
+- **CGI** — intentionally unsupported (Plan 167 no-go; legacy subprocess execution removed from the Python 3.15 `http.server` direction)
+- **FastCGI** — intentionally unsupported (never an `http.server` feature; downstream gateway concern)
 - **PUT/POST/DELETE** — read-only by design
 - **IPv6** — supported via `--bind`/`--addr` flags with IPv6 addresses; default bind is IPv4 loopback (127.0.0.1)
 - **Multiple directory roots** — single root directory only

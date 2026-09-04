@@ -225,7 +225,7 @@ Parity guarantee: `/x/` and `/x/index.html` must produce identical conditional a
 
 - Full HTTP/2 or HTTP/3 semantics.
 - General cache policy framework.
-- ASGI/WSGI adapters.
+- ASGI/WSGI/CGI/FastCGI adapters.
 - General-purpose request callback server or application runtime.
 - Middleware or routing.
 - Reverse proxy behavior.

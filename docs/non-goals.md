@@ -4,7 +4,7 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 
 - **No in-tree ASGI or WSGI adapter** — eggserve is a static file server, not an application server; ASGI/WSGI integration is left to separate projects
 - **No general-purpose request handling framework** — the optional handler callback provides a hook for custom responses, but eggserve is not a routing framework or application server
-- **No CGI** — legacy dynamic content execution is not supported
+- **No CGI / FastCGI in-tree adapters (Plan 167 no-go)** — legacy subprocess execution and FastCGI gateway state machines live downstream as plain canonical `Service` implementations, not in `eggserve-core`/CLI/wheels. CGI follows the upstream removal (deprecated in Python 3.13, removed in 3.15) with no concrete in-tree consumer; FastCGI was never an `http.server` feature. Both would add process-management and backend-protocol maintenance against the no-broad-dependencies rule, and the anonymity-sensitive profile never enables them.
 - **No upload/write support in the initial product** — the server is read-only by design
 - **No reverse proxying** — eggserve does not forward requests to upstream servers
 - **No automatic ACME** — TLS certificate management and automation are out of scope (native TLS server termination and TLS client verification are implemented; see docs/tls.md)
@@ -31,4 +31,4 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No Python API expansion** — Retain the documented six-class `http.server` subset. Do not pursue raw `socketserver` internals, `fileno()`, one-request listener mode, arbitrary stream replacement, forking mixins, or async handlers.
 - **No crate split without measured benefit** — Do not move client code to a new crate automatically. A split is authorized only if measurements show all of: default server artifacts or compile graph materially benefit; public compatibility can be preserved or migrated simply before 1.0; workspace/release complexity does not increase disproportionately; the split removes real feature coupling rather than changing directory layout. Otherwise retain feature-gated client code and freeze it.
 
-> These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build ASGI/WSGI adapters, application servers, and HTTP clients externally. Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
+> These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build ASGI/WSGI/CGI/FastCGI adapters, application servers, and HTTP clients externally. Those downstream projects are not release deliverables or supported application-serving modes of eggserve.

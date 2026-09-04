@@ -18,7 +18,10 @@ handlers; `eggserve.lowlevel` exposes a handler-only runtime/service substrate
 (`RuntimeConfig`/`Server`, `Response.stream`, `StaticResponder` composition)
 for downstream bounded application servers; and `eggserve-core::server` exposes
 an experimental, low-level Rust service boundary. EggServe is not an application
-framework, ASGI/WSGI runtime, proxy, or general-purpose `socketserver` replacement.
+framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway, proxy, or
+general-purpose `socketserver` replacement. Plan 167 closed as no-go: no
+in-tree CGI/FastCGI adapters; downstream gateways implement the canonical
+`Service` trait.
 
 **Not** a general web server, framework, ASGI/WSGI runtime, or Granian replacement.
 
