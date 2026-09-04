@@ -429,6 +429,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 |---------|--------|-------------|
 | unix-reverse-proxy | functional; qualification pending | Linux/macOS behind Caddy/nginx/Traefik (preferred public deployment; external qualification pending) |
 | unix-direct-https | functional; qualification pending | Linux/macOS with native rustls (limited HTTP/1.1, not an edge platform; external qualification pending) |
+| embedded-anonymity-sensitive | functional; qualification pending | Linux/macOS caller-owned-stream or loopback origin with strict bounds + minimal-fingerprint policy; requires a separate WAF/rate-limiting layer (architectural precondition, see `docs/threat-model.md`); no un-fingerprintability claim |
 | windows-reverse-proxy | functional | Windows behind reverse proxy; trusted/local content only because two open-descendant root-rename cases are rejected by NTFS path-rename semantics |
 | windows-direct-https | functional | Windows with native rustls (parser-level security only) |
 | local-development | supported-hardened | Any platform, loopback, safe defaults |

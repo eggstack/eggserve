@@ -664,7 +664,7 @@ impl Args {
                     }
                     Err(_) if all_digits(&pos) => {
                         return Err(format!(
-                            "invalid positional port '{pos}': must be between 0 and 65535",
+                            "invalid positional port '{pos}': must be between 0 and 65535 (use `--directory {pos}` if this is a directory name)",
                         ));
                     }
                     Err(_) => {}

@@ -143,6 +143,31 @@ Windows handle-relative child resolution and directory enumeration are implement
 
 Windows direct HTTPS requires both Windows handle-relative filesystem hardening and native TLS qualification. Neither is complete.
 
+### embedded-anonymity-sensitive
+
+**Status:** candidate (origin only; never a standalone edge)
+
+- Linux or macOS;
+- EggServe serves an already-established caller-owned byte stream via
+  `server::connection::serve_http1_connection` (for example a stream handed
+  over by an anonymity-network router) or a loopback origin behind one;
+- strict admission/parser/keep-alive/request-count/write-stall bounds from
+  `docs/deployment.md`;
+- minimal-fingerprint `ResponsePolicy` plus suppressed static validators.
+
+**Separate-WAF assumption (architectural precondition, not optional
+hardening):** a separate layer — the anonymizing router, a WAF, or an
+explicit rate-limiting proxy — owns peer identity, per-client rate limiting,
+and tunnel/connection policy. EggServe enforces only shared generic resource
+budgets (connection count, in-flight service slots, parser ceilings,
+timeouts); there are no per-IP/client/user token buckets, authentication
+quotas, or reputation logic anywhere in the core. Deploying this profile
+without that outer layer exposes the generic budgets directly to
+unbounded client populations. The minimal-fingerprint policy removes
+gratuitous identifiers (no `Server` versions, sole `Date` authority,
+denylisted headers, fixed errors); it does not make the server
+un-fingerprintable against statistical traffic analysis.
+
 ### local-development
 
 **Status:** supported-hardened (non-production)

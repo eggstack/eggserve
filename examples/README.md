@@ -77,6 +77,21 @@ python examples/python_custom_handler.py
 This also blocks until Ctrl+C. The installed-wheel smoke test constructs it on
 port `0`, checks the health and unmatched-path responses, and closes it.
 
+### Low-level service: `python_lowlevel_service.py`
+
+Demonstrates the public handler-only `eggserve.lowlevel` runtime/service
+substrate without the `http.server` facade: `/` and `/health` return small
+buffered responses and `/stream` returns a bounded unknown-length streamed
+response (chunked framing is selected by the runtime, never by the handler).
+It binds loopback, requires no static root, and blocks until Ctrl+C.
+
+```sh
+python examples/python_lowlevel_service.py
+```
+
+Its `create_server()` function accepts an `(host, port)` tuple with port
+`0` for ephemeral-port use. See the [Python API reference](../docs/python-api.md).
+
 ## Python convenience and low-level APIs
 
 ### Subprocess lifecycle: `python_subprocess.py`
@@ -154,6 +169,20 @@ Demonstrates transport-independent streaming bodies without Hyper:
 `GET /stream` returns an unknown-length stream (chunked framing selected by
 the runtime). Framing stays runtime-owned; `HEAD`/body-forbidden paths never
 poll the producer.
+
+### Caller-owned stream: `caller_owned_stream.rs`
+
+```sh
+cargo run -p eggserve-core --example caller_owned_stream
+```
+
+Demonstrates the canonical connection driver
+(`server::connection::serve_http1_connection`) over a caller-owned byte
+stream instead of a listener: a `tokio::io::duplex` pair stands in for an
+externally established transport (for example an anonymity-network stream),
+with an explicit non-socket `ConnectionContext` (no fabricated addresses)
+and one shared `RuntimeState` admission pool. Runs one request and exits;
+it binds no socket.
 
 ### Custom response headers: `custom_headers.rs`
 

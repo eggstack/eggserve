@@ -183,9 +183,9 @@ This section traces every path from HTTP request target to response body, provin
 | 5. fd-relative traversal (Unix) | `fs/unix.rs: resolve_fd_relative` | Per component: dotfile check → `statat(AT_SYMLINK_NOFOLLOW)` symlink check → `openat(O_NOFOLLOW)`. Intermediate: `O_DIRECTORY\|O_NOFOLLOW`. Final: `O_RDONLY\|O_NONBLOCK\|O_NOFOLLOW`. Previous fd dropped. | Per-component fds opened and dropped; final fd → `ResolvedFile.file` |
 | 5b. handle-relative traversal (Windows) | `fs/windows.rs: resolve_to_resource` | Per component: dotfile check → `NtOpenFile` (via `open_directory_relative` or `open_file_relative`). Intermediate dir check via `get_file_standard_info`. Reparse check via `deny_all_reparse_check` / `GetFileInformationByHandleEx`. Previous handle dropped. | Per-component handles opened and dropped; final handle → `ResolvedFile.file` or retained in `ResolvedDirectory` |
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
-| 7. Response plan | `service.rs` → `primitives/planner.rs` | `plan_file_response()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
+| 7. Response plan | `server/static_service.rs` → `primitives/planner.rs` | `plan_file_response_with_preconditions_and_metadata()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
 | 8. Body conversion | `fs/mod.rs: ResolvedFile::into_body` | Consumes `self.file` into `BodySource::FileFull` or `BodySource::FileRange` | `file` moved into `BodySource` |
-| 9. Streaming | Runtime canonical transport conversion → `response.rs: file_response` / `file_response_range` | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, streams via `AsyncReadExt::read` | `tokio::fs::File` + semaphore permit owned by stream closure |
+| 9. Streaming | Runtime canonical transport conversion (`primitives::canonical::file_body` via `to_hyper_response`) | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, streams via `AsyncReadExt::read` | `tokio::fs::File` + semaphore permit owned by stream closure |
 
 ### Key invariant
 

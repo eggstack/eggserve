@@ -120,12 +120,12 @@ impl BodySource {
     ///
     /// # Cursor sensitivity
     ///
-    /// `FileFull` reads from the current file cursor (`read_to_end` without a
-    /// preceding `seek`), while `FileRange` seeks to the range start first.
-    /// `BodySource` is one-shot — each `ResolvedFile` produces exactly one
-    /// `BodySource` and the transport consumes it once (`file_body` seeks
-    /// correctly). Reusing the same `BodySource` after a partial `read_all` or
-    /// `read_range` without seeking to `Start(0)` may return empty bytes.
+    /// `FileFull` seeks to `Start(0)` first, while `FileRange` seeks to the
+    /// range start first. `BodySource` is one-shot — each `ResolvedFile`
+    /// produces exactly one `BodySource` and the transport consumes it once
+    /// (`file_body` seeks correctly). Reusing the same `BodySource` after a
+    /// partial `read_all` or `read_range` without seeking to `Start(0)` may
+    /// return empty bytes.
     ///
     /// # Errors
     ///
@@ -165,8 +165,8 @@ impl BodySource {
     ///
     /// # Cursor sensitivity
     ///
-    /// `FileRange` seeks to the range start; `FileFull` reads from the current
-    /// cursor without seeking (consistent with `read_all`). The one-shot
+    /// `FileRange` seeks to the range start; `FileFull` seeks to `Start(0)`
+    /// first (consistent with `read_all`). The one-shot
     /// contract applies — do not reuse after a prior read without seeking.
     ///
     /// # Errors

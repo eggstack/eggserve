@@ -79,8 +79,11 @@ override runtime-owned metadata. See
 working demonstration.
 
 For bounded synchronous custom responses, use the complete
-[examples/python_custom_handler.py](https://github.com/eggstack/eggserve/blob/main/examples/python_custom_handler.py). The
-optional subprocess lifecycle example is
+[examples/python_custom_handler.py](https://github.com/eggstack/eggserve/blob/main/examples/python_custom_handler.py). For the
+handler-only runtime/service substrate without the facade, use
+[examples/python_lowlevel_service.py](https://github.com/eggstack/eggserve/blob/main/examples/python_lowlevel_service.py)
+(buffered plus bounded streamed responses over the shared native runtime).
+The optional subprocess lifecycle example is
 [examples/python_subprocess.py](https://github.com/eggstack/eggserve/blob/main/examples/python_subprocess.py); it is not the
 canonical `http.server` replacement.
 
@@ -132,6 +135,7 @@ handle.wait().await?;
 The executable, mechanically checked examples are [the static server](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/static_server.rs),
 [the custom service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/custom_service.rs),
 [the streaming service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/streaming_service.rs),
+[the caller-owned stream](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/caller_owned_stream.rs),
 and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/primitives.rs).
 They use public EggServe modules only, include readiness plus graceful
 shutdown, and are the recommended starting points for custom services.
@@ -232,6 +236,7 @@ point; it does not bundle a second standalone CLI binary. See
 
 **Operations:**
 - [Operations logging guide](https://github.com/eggstack/eggserve/blob/main/docs/ops-logging.md) — JSON Lines schema, event reference, counters, troubleshooting
+- [Benchmark methodology](https://github.com/eggstack/eggserve/blob/main/benchmarks/README.md) — measurement method, regression policy, claims policy, machine-readable results
 
 **Security:**
 - [Security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md) — safe defaults and enforcement

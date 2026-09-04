@@ -190,6 +190,26 @@ facades, and an external Rust consumer. The manual
 checks on macOS arm64 and Windows filesystem qualification suites; it is not
 part of every push/PR.
 
+## Plan 168 qualification track mapping
+
+Plan 168 is a qualification phase, not a feature phase. Each track is
+evidenced by deterministic suites (not absolute-timing gates):
+
+| Track | Evidence |
+|-------|----------|
+| A — Streaming correctness under load | `tests/response_streaming.rs` (framing, HEAD/body-forbidden never poll, mismatch teardown, panic containment, cancellation, keep-alive reuse), `tests/streaming_buffer_qualification.rs` (range boundaries, disconnect/shutdown permit release, 503 exhaustion, HEAD non-acquisition), `tests/request_body_*` (ingestion, timeouts, cancellation) |
+| B — Transport-neutral parity | `tests/transport_driver.rs` (duplex driver, TCP parity, no fabricated addresses), `tests/production_controls.rs` (duplex admission/timeout shaping), example `caller_owned_stream.rs` |
+| C — Parser/admission hostile load | `tests/http_wire_correctness.rs` (raw wire: smuggling corpus, framing ambiguity, lifecycle), `tests/production_controls.rs` (limits, saturation/recovery, idle/write/total deadlines), `tests/fault_injection.rs`, `tests/stateful_fuzz_replay.rs`, `tests/corpus_replay.rs` |
+| D — Python low-level qualification | `crates/eggserve-python/tests/test_lowlevel_runtime.py` (buffered/streaming throughput paths, backpressure, saturation, GIL behavior, exceptions, shutdown churn), example `examples/python_lowlevel_service.py` |
+| E — Privacy/fingerprint goldens | `tests/response_privacy.rs` (Server/Date/denylist/error/static-metadata behavior over TCP/TLS/non-socket, no version strings); threat statement: absence of selected gratuitous identifiers, not un-fingerprintability |
+| F — Soak and failure recovery | `tests/soak/` (repo-level), repeated saturation/recovery cycles in `production_controls.rs`, TLS churn in `tls_abuse.rs`/`request_body_tls.rs` |
+| G — CGI/FastCGI | Closed as no-go (Plan 167): no in-tree adapters, no adapter evidence owed; downstream matrix in `docs/extension-contract.md` |
+
+Performance snapshots and the regression/claims policy live in
+`benchmarks/README.md`; machine-readable results in
+`benchmarks/088-baseline/results.json` and
+`benchmarks/168-qualification/results.json`.
+
 ## See Also
 
 - [overview.md](overview.md) — Architecture overview

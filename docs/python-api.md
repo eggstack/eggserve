@@ -128,9 +128,12 @@ server.wait()
 
 The six-class `eggserve.server` façade is the primary stdlib-shaped surface;
 `eggserve.lowlevel` is the public runtime/service substrate for downstream
-bounded application servers. The experimental Python HTTP client is not part
-of the supported package surface. Subprocess lifecycle helpers are under
-`eggserve.subprocess`; `_native` remains private implementation detail.
+bounded application servers. The runnable demonstration is
+`examples/python_lowlevel_service.py` (buffered plus bounded streamed
+responses, `create_server()` with ephemeral-port support). The experimental
+Python HTTP client is not part of the supported package surface. Subprocess
+lifecycle helpers are under `eggserve.subprocess`; `_native` remains private
+implementation detail.
 
 ## Compatibility boundary
 

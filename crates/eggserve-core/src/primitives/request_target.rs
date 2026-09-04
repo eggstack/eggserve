@@ -94,6 +94,10 @@ impl RequestTarget {
 
     fn parse_origin_form(raw: String) -> Result<Self, RequestTargetError> {
         debug_assert!(raw.starts_with('/'));
+        // Fragment (`#`) handling: origin-form has no fragment component
+        // (RFC 9110), so a literal `#` is kept as part of the path — same
+        // contract as `crate::path::parse_origin_form`. `/a?b#frag` strips
+        // to path `/a`; `/foo#bar` keeps the literal `#` in the path.
         let (path, query) = match raw.find('?') {
             Some(pos) => {
                 let path = raw[..pos].to_string();
@@ -286,6 +290,22 @@ mod tests {
         assert_eq!(t.raw(), "/foo%20bar");
         assert_eq!(t.path(), "/foo%20bar");
         assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn fragment_without_query_is_literal_path() {
+        // Same contract as `crate::path::parse_origin_form`: with no `?`,
+        // `#` is an ordinary path character, not a fragment delimiter.
+        let t = RequestTarget::parse("/foo#bar").unwrap();
+        assert_eq!(t.path(), "/foo#bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn fragment_after_query_stays_in_query() {
+        let t = RequestTarget::parse("/a?b#frag").unwrap();
+        assert_eq!(t.path(), "/a");
+        assert_eq!(t.query(), Some("b#frag"));
     }
 
     #[test]

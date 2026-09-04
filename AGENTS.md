@@ -121,7 +121,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 - `telemetry.rs` does not exist — do not create it. `clap` was removed (manual parsing in `args.rs`). `tracing` was never added (custom logging).
 - `#[allow(dead_code)]` on public API types — consumed externally by Python bindings, not dead.
 - Frozen Python classes — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability enforced at both layers.
-- `ResolvedFile::from_parts()/into_std_file()/into_parts()` are `pub` for cross-crate bindings, but the confinement guarantee ends after extraction.
+- `ResolvedFile::from_parts()/into_std_file()/into_parts()` are `pub` behind the `python-bindings-internal` feature for cross-crate bindings, but the confinement guarantee ends after extraction.
 
 ### HTTP semantics
 
@@ -130,6 +130,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 - Stable canonical types: `Method`, `HttpVersion`, `HeaderBlock`, `RequestTarget`, `RequestHead`, `ConnectionInfo` (`local_addr`/`remote_addr` are `Option<SocketAddr>`; non-socket transports expose `None` via `SocketEndpoints`/`without_socket_addrs`), `StatusCode`, `ResponseHead`, `ResponseBody` (`Empty`/`Bytes`/`File`/`Stream`/`EmptyWithLength`), `Response`, `BodyLength` (`Known`/`Unknown`), `ResponseStream`/`ResponseStreamError`, `normalize_response()`.
 - Listener accept errors are classified by `io::ErrorKind` (transient/resource-exhaustion/persistent) with bounded exponential backoff — use `classify_accept_error()`.
 - Transport-neutral driver: `server::connection::serve_http1_connection` drives a canonical `Service` over any `AsyncRead + AsyncWrite` stream with an explicit `ConnectionContext` (no fabricated addresses, no Hyper types, scheme/TLS asserted by caller), shared `Arc<RuntimeState>` admission (constructed via `RuntimeState::new(&config)`), and per-connection `ConnectionShutdown` returning `ConnectionOutcome`. TCP/TLS `Server` shares the same pipeline via `serve_http1_connection_with_id`; raw Hyper helpers are crate-private.
+- **Response-planning edge semantics (Plan 168)** — inverted ranges (`start > end`) are invalid: the Range header is ignored (full 200), never 416 (RFC 9110 § 14.1.2); `evaluate_if_match("*", None)` is `false`; HEAD normalization retains known lengths via `ResponseBody::EmptyWithLength` (zero wire bytes); a literal `#` with no `?` is an ordinary path character.
 
 ### CLI
 
@@ -154,11 +155,12 @@ Routine CI is a small regression screen, not release certification. Platform qua
 
 ### Examples
 
-`examples/README.md` is the mechanically checked index (`scripts/test-examples.sh` in `verify.sh full`). Supported demos: Python `python_http_server_static.py`, `python_custom_handler.py`, `python_subprocess.py`, `python_safe_download.py`, `python_https_server.py`, `python_custom_headers.py`; Cargo examples `static_server`, `custom_service`, `custom_headers`, `https_server` (`--features tls`), `primitives`. Keep examples small, loopback-bound, safe by default; do not turn them into a framework or second policy reference.
+`examples/README.md` is the mechanically checked index (`scripts/test-examples.sh` in `verify.sh full`). Supported demos: Python `python_http_server_static.py`, `python_custom_handler.py`, `python_lowlevel_service.py`, `python_subprocess.py`, `python_safe_download.py`, `python_https_server.py`, `python_custom_headers.py`; Cargo examples `static_server`, `custom_service`, `streaming_service`, `caller_owned_stream`, `custom_headers`, `https_server` (`--features tls`), `primitives`. Keep examples small, loopback-bound, safe by default; do not turn them into a framework or second policy reference. Listener-based server examples support port `0`, wait for readiness, and shut down on Ctrl+C; `caller_owned_stream` binds nothing by design. Python examples expose `create_server()` for smoke tests.
 
 ### Verification beyond routine CI
 
 - For library/CLI usability work also run: `cargo test --doc -p eggserve-core`, `cargo check -p eggserve-core --examples`, both dist builds, and `bash scripts/verify-cargo-packages.sh --mode all`.
+- Qualification evidence (Plan 168): deterministic track suites mapped in `architecture/testing-and-conformance.md`; methodology, regression policy, and claims policy in `benchmarks/README.md` with machine-readable results under `benchmarks/`. No absolute-timing gates in CI; every performance/release claim names a profile + evidence.
 - For native bind/TLS changes, run the manual platform qualification workflow after pushing.
 - Production profiles: every production claim must name a profile ([docs/deployment.md](docs/deployment.md)). Hardened profiles must not allow symlink following.
 

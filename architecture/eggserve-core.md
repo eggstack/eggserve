@@ -17,8 +17,10 @@ Executable demonstrations live under
 [`crates/eggserve-core/examples/`](../crates/eggserve-core/examples/) and are
 indexed with the CLI and Python examples in [`examples/README.md`](../examples/README.md):
 `static_server` shows the built-in confined service, `custom_service` shows a
-small public `service_fn`, and `primitives` performs response planning without
-opening a socket. They are compiled by `scripts/verify.sh full`.
+small public `service_fn`, `streaming_service` shows known/unknown-length
+streams, `caller_owned_stream` drives the canonical pipeline over a
+caller-owned stream without a listener, and `primitives` performs response
+planning without opening a socket. They are compiled by `scripts/verify.sh full`.
 
 ## Module Map
 

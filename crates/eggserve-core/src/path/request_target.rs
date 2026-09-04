@@ -1,5 +1,16 @@
 use super::rejected::PathRejection;
 
+/// Parse an HTTP origin-form request target, returning the path component.
+///
+/// The path is split at the first `?` (query delimiter). A `#` character
+/// has no special meaning here: well-behaved HTTP clients never send a
+/// fragment in the request line (RFC 9110 origin-form has no fragment
+/// component), so a literal `#` is treated as part of the path and resolved
+/// as an ordinary filename character. This is safe — `#` cannot introduce
+/// traversal (it stays within a single path component) — but asymmetric:
+/// `/a?b#frag` strips to `/a` (fragment folded into the dropped query)
+/// while `/foo#bar` keeps the literal `#` and resolves `/foo#bar`
+/// (normally a 404 unless such a file exists).
 pub fn parse_origin_form(raw: &str) -> Result<&str, PathRejection> {
     if raw.is_empty() {
         return Err(PathRejection::Empty);
@@ -104,6 +115,14 @@ mod tests {
     #[test]
     fn path_with_fragment() {
         assert_eq!(parse_origin_form("/a?b#frag").unwrap(), "/a");
+    }
+
+    #[test]
+    fn fragment_without_query_is_literal_path() {
+        // No `?` means no query split: `#` stays in the path as an
+        // ordinary filename character (safe: single component, no
+        // traversal; normally resolves to 404).
+        assert_eq!(parse_origin_form("/foo#bar").unwrap(), "/foo#bar");
     }
 
     #[test]

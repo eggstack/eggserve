@@ -65,6 +65,9 @@ its status using a constrained vocabulary.
 | Range requests | stable | stable | experimental | stable | — | stable | — |
 | File streaming | stable | stable | experimental | stable | — | stable | stable |
 | Streaming response bodies (known/unknown) | — | stable | experimental | — | — | — | — |
+| Low-level handler-only service substrate (`eggserve.lowlevel`) | — | — | experimental (server seam) | stable | — | — | stable |
+| Caller-owned connection driver (`serve_http1_connection`) | — | — | experimental | — | — | — | — |
+| Response privacy policy (Server/Date/denylist/errors, static validators) | — | stable (static validators) | experimental | stable (safe subset) | — | stable | stable |
 | Generic byte responses | — | stable | — | stable | — | — | stable |
 | Duplicate headers | — | stable | experimental | stable | — | stable | stable |
 | Callback handlers | — | — | — | stable | — | — | stable |

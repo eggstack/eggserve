@@ -112,6 +112,7 @@ Preconditions are evaluated in the order mandated by RFC 9110 § 13.2.2:
 
 - Single byte ranges only. Multiple ranges are not supported — the planner returns `200 OK` (full response) when multiple ranges are present.
 - Unsatisfiable ranges (start >= file size) return `416 Range Not Satisfiable` with `Content-Range: bytes */<len>` and `Content-Length: 0`.
+- Inverted ranges (start > end, e.g. `bytes=50-10`) are invalid specifiers per RFC 9110 § 14.1.2: the Range header is ignored and the full `200 OK` is served, never `416`.
 - Suffix ranges (`bytes=-N`) where `N` exceeds the file size are satisfied as the whole file (`Content-Range: bytes 0-<last>/<len>`) rather than `416`.
 - `206 Partial Content` includes `Content-Range: bytes <start>-<end>/<len>`, `Content-Length`, `Content-Type`, `Accept-Ranges: bytes`, and validators (`ETag`, `Last-Modified`) when available.
 
@@ -191,23 +192,18 @@ The planner produces value objects (`StaticResponsePlan` with `ResponseStatus`, 
 
 ## Unified service-layer entry point
 
-Both direct-file and directory-index routes share a single code path (`serve_resolved_file`) that constructs a `StaticRequestInput` from the canonical request and passes it through the planner. This eliminates semantic drift between `/x/` and `/x/index.html`.
+Both direct-file and directory-index routes share a single planning function
+(`planned_file_response` in `server/static_service.rs`; directory-index
+lookup delegates to it for `index.html`/`index.htm`) that takes the method
+and conditional/range headers (`if_match`, `if_unmodified_since`,
+`if_none_match`, `if_modified_since`, `range`, `if_range`) identically from
+the canonical request and passes them through
+`plan_file_response_with_preconditions_and_metadata()`. This eliminates
+semantic drift between `/x/` and `/x/index.html`.
 
-### `StaticRequestInput`
+The shared function then:
 
-```rust
-pub(crate) struct StaticRequestInput<'a> {
-    pub method: ReadOnlyMethod,
-    pub if_none_match: Option<&'a str>,
-    pub if_modified_since: Option<&'a str>,
-    pub range: Option<&'a str>,
-    pub if_range: Option<&'a str>,
-}
-```
-
-Both routes extract these five fields identically from the incoming request. The helper `serve_resolved_file()` then:
-
-1. Calls `plan_file_response()` with the `StaticRequestInput` fields
+1. Plans with the conditional/range arguments and the configured `StaticMetadataPolicy`
 2. Constructs the response body from the opened file handle per `BodyPlan`
 3. Normalizes the response through the canonical path
 

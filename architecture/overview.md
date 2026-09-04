@@ -467,6 +467,7 @@ Full results: `benchmarks/088-baseline/results.json`. The old Criterion harness 
 |------|---------|
 | `python_http_server_static.py` | Stock `SimpleHTTPRequestHandler` — fast-path, no Python dispatch |
 | `python_custom_handler.py` | Custom `BaseHTTPRequestHandler` — callback path |
+| `python_lowlevel_service.py` | Handler-only `eggserve.lowlevel` service (buffered + streamed, no facade) |
 | `python_custom_headers.py` | Static metadata: `default_content_type`, ordered `extra_response_headers` |
 | `python_https_server.py` | Rust-runtime TLS server via the facade (`HTTPSServer`) |
 | `python_subprocess.py` | `eggserve.subprocess` lifecycle helpers |
@@ -479,11 +480,13 @@ Full results: `benchmarks/088-baseline/results.json`. The old Criterion harness 
 |------|---------|
 | `static_server.rs` | Built-in confined static service via `Server::builder()` |
 | `custom_service.rs` | Custom `Service` via `service_fn` |
+| `streaming_service.rs` | Known/unknown-length `ResponseBody::Stream` with runtime-owned framing |
+| `caller_owned_stream.rs` | Canonical pipeline over a caller-owned stream (`serve_http1_connection`, no listener) |
 | `custom_headers.rs` | Static metadata: `default_content_type`, ordered `extra_response_headers` (final 200 responses only) |
 | `https_server.rs` | TLS serving via `load_tls_config` + `tls_config()` (`--features tls`) |
 | `primitives.rs` | Response planning without opening a socket |
 
-All examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. They are compiled and smoke-tested by `scripts/verify.sh full`.
+Listener-based examples bind loopback, support port `0` for smoke tests, wait for readiness, and cleanly shut down on Ctrl+C. `caller_owned_stream.rs` and `primitives.rs` bind nothing (in-process duplex / no socket). They are compiled and smoke-tested by `scripts/verify.sh full`.
 
 ---
 

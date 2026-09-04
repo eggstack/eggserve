@@ -216,6 +216,20 @@ eggserve does not provide ASGI/WSGI/CGI/FastCGI interfaces directly (see [non-go
 
 > eggserve may expose primitives sufficient for an external ASGI, WSGI, CGI, FastCGI, or application server adapter. eggserve does not provide those adapters in-tree. Those downstream projects are not release deliverables. Any new API added for adapter authors must remain protocol- and framework-neutral.
 
+## Adapter support matrix
+
+| Adapter | In-tree status | Downstream path |
+|---------|---------------|-----------------|
+| ASGI bridge | Not provided (non-goal) | Canonical `Service` + `Response`/`ResponseBody::Stream`; runtime owns framing/normalization and the Plan 165 privacy boundary |
+| WSGI bridge | Not provided (non-goal) | Same `Service` seam; synchronous response mapping only |
+| CGI executor (`CGIHTTPRequestHandler`/`--cgi` parity) | Not provided — Plan 167 closed as no-go (upstream 3.13 deprecation / 3.15 removal, no concrete consumer, subprocess-maintenance cost vs no-broad-dependencies) | Plain `Service`: bounded child concurrency, env/input sanitization, stdout/stderr caps, deadlines with kill/reap on timeout/disconnect/shutdown, generic 502/504 mapping, no shell/request injection |
+| FastCGI gateway | Not provided — Plan 167 closed as no-go (never `http.server`, no concrete consumer) | Plain `Service`: fragmented-record corpus handling, Responder request/response mapping, streaming STDIN/STDOUT backpressure, STDERR caps, backend timeout/disconnect/abort, no cross-request contamination, connection/resource recovery |
+| Custom subprocess/pipe backends | Not provided | Same bounds as CGI: the adapter enforces its own limits; core never inherits backend responsibilities |
+
+Core release claims never depend on an optional adapter's behavior or
+benchmarks. Adapter failures are qualified separately and never mixed into
+core HTTP claims.
+
 ## Security boundary rules
 
 ### What downstream must do

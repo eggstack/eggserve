@@ -146,7 +146,7 @@ This document enumerates the security and behavioral invariants enforced by eggs
 | Range bytes=-N returns last N bytes | `primitives/planner.rs` — suffix range test |
 | Range suffix exceeding file returns whole file | `primitives/planner.rs` — suffix exceeds file test |
 | Range start beyond EOF returns 416 | `primitives/planner.rs` — start beyond EOF test |
-| Range start > end returns 416 | `primitives/planner.rs` — inverted range test |
+| Range start > end is ignored (full 200, RFC 9110 § 14.1.2) | `primitives/planner.rs` — inverted range test |
 | Multiple ranges fall through to 200 | `primitives/planner.rs` — multiple ranges test |
 | Unsupported range unit falls through to 200 | `primitives/planner.rs` — unsupported unit test |
 | Zero-length file range returns 416 | `primitives/planner.rs` — zero-length file test |

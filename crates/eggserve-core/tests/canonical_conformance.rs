@@ -405,7 +405,11 @@ fn body_forbidden_matrix_head_suppresses_body_preserves_headers() {
             .as_str(),
         "11"
     );
-    assert!(normalized.body().unwrap().is_empty());
+    // HEAD sends no bytes but retains the equivalent-GET length.
+    assert!(matches!(
+        normalized.body().unwrap(),
+        ResponseBody::EmptyWithLength(11)
+    ));
 }
 
 #[test]
@@ -769,7 +773,11 @@ fn head_preserves_content_length_when_body_nonempty() {
         "5",
         "HEAD response must include Content-Length matching equivalent GET"
     );
-    assert!(normalized.body().unwrap().is_empty());
+    // HEAD sends no bytes but retains the equivalent-GET length.
+    assert!(matches!(
+        normalized.body().unwrap(),
+        ResponseBody::EmptyWithLength(5)
+    ));
 }
 
 #[test]
@@ -1078,6 +1086,7 @@ proptest! {
     fn head_never_emits_body_bytes(
         body in "[a-z]{0,100}",
     ) {
+        let expected_len = body.len() as u64;
         let resp = Response::builder()
             .status(StatusCode::OK)
             .body(ResponseBody::Bytes(body.into_bytes()))
@@ -1085,7 +1094,13 @@ proptest! {
         let req = NormalizeRequest::new(true);
         let normalized = normalize_response(resp, &req).unwrap();
         let body = normalized.body().unwrap();
-        prop_assert!(body.is_empty());
+        // No Bytes/File/Stream may survive HEAD: either `Empty` (unknown
+        // length) or `EmptyWithLength` (known length, zero wire bytes).
+        prop_assert!(matches!(
+            body,
+            ResponseBody::Empty | ResponseBody::EmptyWithLength(_)
+        ));
+        prop_assert_eq!(body.len(), expected_len);
     }
 
     #[test]
@@ -1256,10 +1271,11 @@ proptest! {
         let normalized = normalize_response(resp, &req).unwrap();
         let body = normalized.body().unwrap();
         prop_assert!(
-            body.is_empty(),
-            "HEAD 416 must not emit body, got {} bytes",
+            matches!(body, ResponseBody::Empty | ResponseBody::EmptyWithLength(_)),
+            "HEAD 416 must not emit body, got {:?}",
             body.len()
         );
+        prop_assert_eq!(body.len(), body_bytes as u64);
     }
 
     #[test]
@@ -1280,7 +1296,11 @@ proptest! {
         let req = NormalizeRequest::new(true); // HEAD
         let normalized = normalize_response(resp, &req).unwrap();
         let body = normalized.body().unwrap();
-        prop_assert!(body.is_empty(), "HEAD must suppress body");
+        prop_assert!(
+            matches!(body, ResponseBody::Empty | ResponseBody::EmptyWithLength(_)),
+            "HEAD must suppress body"
+        );
+        prop_assert_eq!(body.len(), interval_len);
         if let Some(cl) = normalized.headers().get_first("content-length") {
             prop_assert_eq!(
                 cl.as_str(),

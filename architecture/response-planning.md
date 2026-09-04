@@ -172,10 +172,28 @@ corresponding GET but with `BodyPlan::Empty`. This ensures:
 
 ## Conditional Request Flow
 
+Per RFC 9110 § 13.2.2, `plan_file_response_with_preconditions` evaluates
+preconditions in this order (`plan_file_response` covers steps 3–4 only):
+
 ```
 Request with conditional headers
     │
     ▼
+┌─────────────────────────────────┐
+│ If-Match (strong comparison)   │
+│  Mismatch? → 412 Precondition   │
+│  Failed                        │
+└─────────────────┬───────────────┘
+                  │ Match or absent
+                  ▼
+┌─────────────────────────────────┐
+│ If-Unmodified-Since             │
+│  (only when If-Match absent;    │
+│  malformed dates ignored)       │
+│  Not satisfied? → 412           │
+└─────────────────┬───────────────┘
+                  │ Satisfied or absent
+                  ▼
 ┌─────────────────────────────────┐
 │ If-None-Match (ETag)           │
 │  Match? → 304 Not Modified     │
@@ -336,32 +354,44 @@ file-backed variants into streams and acquires the server-wide
 
 ## Unified Service-Layer Entry Point
 
-Direct-file and directory-index routes share one input type and serving
-function, so conditional and range headers cannot diverge between the routes.
+Direct-file and directory-index routes share one planning function, so
+conditional and range headers cannot diverge between the routes.
 
-### `StaticRequestInput`
+### `planned_file_response()`
 
-Defined in `service.rs`, this struct bundles the method and conditional/range headers for both routes:
+Defined in `server/static_service.rs`, this function bundles the method and
+conditional/range headers (`if_match`, `if_unmodified_since`,
+`if_none_match`, `if_modified_since`, `range`, `if_range`) for both routes:
 
 ```rust
-pub(crate) struct StaticRequestInput<'a> {
-    pub method: ReadOnlyMethod,
-    pub if_none_match: Option<&'a str>,
-    pub if_modified_since: Option<&'a str>,
-    pub range: Option<&'a str>,
-    pub if_range: Option<&'a str>,
-}
+fn planned_file_response(
+    file: crate::fs::ResolvedFile,
+    config: &ServeConfig,
+    method: ReadOnlyMethod,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range: Option<&str>,
+    if_range: Option<&str>,
+    is_head: bool,
+) -> Result<CanonicalResponse, ServiceError>
 ```
 
-Both direct-file and directory-index routes construct this identically from the canonical request, ensuring conditional and range headers are never silently dropped.
+Both direct-file and directory-index routes construct these arguments
+identically from the canonical request, ensuring conditional and range
+headers are never silently dropped.
 
-### `serve_resolved_file()`
+### How the routes converge
 
-This async function is the single entry point for serving any resolved file — whether reached via a direct path or a directory index lookup. It:
+This function is the single entry point for serving any resolved file —
+whether reached via a direct path or a directory index lookup
+(`plan_directory_response` delegates to it for `index.html`/`index.htm`). It:
 
 1. Generates an ETag from file metadata
-2. Calls `plan_file_response()` with the `StaticRequestInput` fields
-3. Maps the plan status to a Hyper `StatusCode`
+2. Calls `plan_file_response_with_preconditions_and_metadata()` with the
+   conditional/range arguments and the configured `StaticMetadataPolicy`
+3. Appends validated `extra_response_headers` on final 200 responses
 4. For HEAD requests, returns the planned response without a body
 5. For GET requests, converts the resolved file into a canonical file-backed
    response via `into_body(&plan)`; runtime transport performs streaming and

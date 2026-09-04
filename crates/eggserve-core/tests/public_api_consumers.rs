@@ -474,7 +474,11 @@ fn normalize_head_suppresses_body() {
         .unwrap();
     let req = NormalizeRequest::new(true);
     let normalized = normalize_response(resp, &req).unwrap();
-    assert!(normalized.body().unwrap().is_empty());
+    // HEAD sends no bytes but retains the equivalent-GET length.
+    assert!(matches!(
+        normalized.body().unwrap(),
+        ResponseBody::EmptyWithLength(5)
+    ));
 }
 
 #[test]

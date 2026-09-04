@@ -316,7 +316,7 @@ pub fn evaluate_if_none_match(if_none_match: &str, current_etag: &str) -> bool {
 pub fn evaluate_if_match(if_match: &str, current_etag: Option<&str>) -> bool {
     let trimmed = if_match.trim();
     if trimmed == "*" {
-        return true;
+        return current_etag.is_some();
     }
 
     let Some(current) = current_etag else {
@@ -597,7 +597,7 @@ fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
     };
 
     if start > end {
-        return RangeRequestOutcome::NotSatisfiable;
+        return RangeRequestOutcome::MalformedOrUnsupported;
     }
     if start >= file_size {
         return RangeRequestOutcome::NotSatisfiable;
@@ -977,7 +977,8 @@ mod tests {
         // Wildcard succeeds whenever a current representation exists.
         assert!(evaluate_if_match("*", Some("\"abc\"")));
         assert!(evaluate_if_match("*", Some("W/\"abc\"")));
-        assert!(evaluate_if_match("*", None));
+        // With no current representation there is nothing to match.
+        assert!(!evaluate_if_match("*", None));
         // Lists match when any member strongly matches.
         assert!(evaluate_if_match("\"x\", \"abc\"", Some("\"abc\"")));
         assert!(!evaluate_if_match("\"x\", \"y\"", Some("\"abc\"")));
@@ -1323,8 +1324,10 @@ mod tests {
 
     #[test]
     fn evaluate_range_header_inverted_range() {
+        // RFC 9110 § 14.1.2: first-byte-pos > last-byte-pos is invalid;
+        // the Range header is ignored (full response), not 416.
         let result = evaluate_range_header("bytes=50-10", 100);
-        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
     }
 
     #[test]
@@ -1363,6 +1366,27 @@ mod tests {
             None,
             None,
             Some("bytes=+5-10"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_inverted_range_serves_full_200() {
+        // RFC 9110 § 14.1.2: start > end is an invalid specifier and the
+        // Range header must be ignored (serve 200), not rejected with 416.
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=50-10"),
             None,
         );
 
@@ -1570,8 +1594,9 @@ mod tests {
 
     #[test]
     fn evaluate_range_header_start_greater_than_end() {
+        // RFC 9110 § 14.1.2: invalid specifier is ignored (full response).
         let result = evaluate_range_header("bytes=50-10", 100);
-        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
     }
 
     #[test]

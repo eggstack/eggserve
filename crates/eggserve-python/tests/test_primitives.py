@@ -976,10 +976,13 @@ class TestResponsePlanExtended(unittest.TestCase):
         headers = dict(plan.headers)
         self.assertEqual(headers.get("content-range"), "bytes */100")
 
-    def test_plan_range_inverted_returns_416(self):
+    def test_plan_range_inverted_serves_full_200(self):
+        # RFC 9110 § 14.1.2: start > end is an invalid specifier; the Range
+        # header is ignored and the full representation is served (200).
         f = self._make_file("x" * 100)
         plan = f.plan_conditional_response("GET", headers=[("range", "bytes=50-10")])
-        self.assertEqual(plan.status, 416)
+        self.assertEqual(plan.status, 200)
+        self.assertEqual(plan.body_kind, "file_full")
 
     def test_plan_if_range_weak_etag_200(self):
         f = self._make_file("x" * 100)

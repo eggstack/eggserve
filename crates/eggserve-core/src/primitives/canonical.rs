@@ -546,8 +546,16 @@ pub fn normalize_response(
         .unwrap_or(BodyLength::Known(0));
 
     // Rule 1: HEAD suppression — drop without polling, preserve length.
+    // A known representation length is retained via `EmptyWithLength` so
+    // downstream consumers (metrics, adapter boundaries) still observe the
+    // equivalent-GET length; unknown lengths stay `Empty` (no invented 0).
     if request.is_head {
-        response.body = Some(ResponseBody::Empty);
+        response.body = Some(match &pre_length {
+            BodyLength::Known(len) if status.permits_payload_body() => {
+                ResponseBody::EmptyWithLength(*len)
+            }
+            _ => ResponseBody::Empty,
+        });
     }
 
     // Rule 2: Body-forbidden statuses — drop without polling.
@@ -1488,7 +1496,13 @@ mod tests {
 
         let req = NormalizeRequest::new(true);
         let normalized = normalize_response(resp, &req).unwrap();
-        assert!(normalized.body().unwrap().is_empty());
+        // No bytes are sent for HEAD, but the equivalent-GET representation
+        // length is retained so consumers still observe it.
+        assert!(matches!(
+            normalized.body().unwrap(),
+            ResponseBody::EmptyWithLength(5)
+        ));
+        assert_eq!(normalized.body().unwrap().len(), 5);
         assert_eq!(
             normalized
                 .headers()
@@ -1497,6 +1511,23 @@ mod tests {
                 .as_str(),
             "5"
         );
+    }
+
+    #[test]
+    fn normalize_head_unknown_length_sends_no_body_and_omits_length() {
+        use futures_util::stream;
+        let inner = stream::iter(vec![Ok::<_, ResponseStreamError>(
+            bytes::Bytes::from_static(b"chunk"),
+        )]);
+        let resp = Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::new(inner)))
+            .unwrap();
+
+        let req = NormalizeRequest::new(true);
+        let normalized = normalize_response(resp, &req).unwrap();
+        assert!(matches!(normalized.body().unwrap(), ResponseBody::Empty));
+        assert!(!normalized.headers().contains("content-length"));
     }
 
     #[test]

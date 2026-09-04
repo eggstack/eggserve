@@ -292,6 +292,12 @@ bridging its `broadcast` shutdown signal to a per-connection `ConnectionShutdown
 token. Raw Hyper helpers (`serve_connection`, `serve_connection_with_runtime_state`)
 are `pub(crate)` — external callers must use `serve_http1_connection`.
 
+The runnable caller-owned-stream demonstration is
+[`caller_owned_stream.rs`](../crates/eggserve-core/examples/caller_owned_stream.rs):
+it drives one request through a `tokio::io::duplex` pair with a non-socket
+`ConnectionContext` and one shared `RuntimeState`, then exits without
+binding a socket.
+
 **Invariants retained:** Hyper HTTP/1.1 parsing, framing validation
 (duplicate-CL rejection; lone TE+CL normalizes to TE-wins per RFC 9112 §6.1), TRACE/body policy, canonical Request conversion, handler timeout
 ceiling, panic containment, canonical response normalization, runtime-owned

@@ -319,7 +319,13 @@ fn stable_normalize_response_head_suppresses_body() {
 
     let req = NormalizeRequest::new(true);
     let normalized = normalize_response(resp, &req).unwrap();
-    assert!(normalized.body().unwrap().is_empty());
+    // HEAD sends no bytes but retains the equivalent-GET representation
+    // length for consumers crossing an adapter boundary.
+    assert!(matches!(
+        normalized.body().unwrap(),
+        ResponseBody::EmptyWithLength(5)
+    ));
+    assert_eq!(normalized.body().unwrap().len(), 5);
 }
 
 #[test]

@@ -2474,10 +2474,9 @@ mod tests {
                 // Open may fail if the handle cannot follow the reparse.
                 // This is also safe.
             }
-            Err(e) => {
+            Err(_) => {
                 // Other errors are acceptable — the key is that no bytes
                 // outside the pinned root are served.
-                eprintln!("open returned error (safe): {e:?}");
             }
         }
 

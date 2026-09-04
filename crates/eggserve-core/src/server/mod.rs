@@ -165,6 +165,10 @@ impl RuntimeState {
     /// [`Server::start`] or [`Server::start_with_service`].
     #[doc(hidden)]
     pub fn new_for_testing(max_file_streams: usize) -> Self {
+        debug_assert!(
+            max_file_streams <= tokio::sync::Semaphore::MAX_PERMITS,
+            "new_for_testing: max_file_streams exceeds Semaphore::MAX_PERMITS"
+        );
         Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(max_file_streams)),
             service_semaphore: Arc::new(tokio::sync::Semaphore::new(

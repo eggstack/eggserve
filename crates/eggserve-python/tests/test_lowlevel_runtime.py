@@ -179,7 +179,12 @@ class StreamingResponseTests(unittest.TestCase):
         srv.wait_ready()
         try:
             host, port = srv.addr.split(":")
-            with self.assertRaises(http.client.RemoteDisconnected):
+            # Either the connection drops before headers flush
+            # (RemoteDisconnected) or mid-body afterwards (IncompleteRead);
+            # both prove no complete response is ever presented.
+            with self.assertRaises(
+                (http.client.RemoteDisconnected, http.client.IncompleteRead)
+            ):
                 _raw(host, int(port), "GET", "/")
         finally:
             srv.shutdown()
@@ -199,7 +204,12 @@ class StreamingResponseTests(unittest.TestCase):
         srv.wait_ready()
         try:
             host, port = srv.addr.split(":")
-            with self.assertRaises(http.client.RemoteDisconnected):
+            # Either the connection drops before headers flush
+            # (RemoteDisconnected) or mid-body afterwards (IncompleteRead);
+            # both prove no complete response is ever presented.
+            with self.assertRaises(
+                (http.client.RemoteDisconnected, http.client.IncompleteRead)
+            ):
                 _raw(host, int(port), "GET", "/")
         finally:
             srv.shutdown()
@@ -257,7 +267,13 @@ class StreamingResponseTests(unittest.TestCase):
         srv.wait_ready()
         try:
             host, port = srv.addr.split(":")
-            with self.assertRaises(http.client.RemoteDisconnected):
+            # Either the connection drops before headers flush
+            # (RemoteDisconnected) or mid-body afterwards (IncompleteRead);
+            # both prove the short 2-byte body is never presented as the
+            # declared 10-byte complete response.
+            with self.assertRaises(
+                (http.client.RemoteDisconnected, http.client.IncompleteRead)
+            ):
                 _raw(host, int(port), "GET", "/")
         finally:
             srv.shutdown()

@@ -354,6 +354,9 @@ impl RequestBody {
                 self.bytes_received = new_total;
                 if *offset >= data.len() {
                     self.state = BodyState::Complete;
+                    // Direct store (equivalent to `mark_consumed()`): a `&self`
+                    // call would conflict with the outstanding `&mut` borrow
+                    // of `inner`/`chunk` held across this statement.
                     self.consumed.store(true, Ordering::Release);
                 }
                 Ok(Some(Bytes::copy_from_slice(chunk)))
