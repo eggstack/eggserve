@@ -2,9 +2,32 @@
 
 ## Status
 
-**PLANNED.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisites: Plans 161–171 are implemented/closed. This roadmap is a new, narrow continuation of the downstream-embedding goal already named by Plan 161. It must not reopen the completed production-hardening roadmap wholesale and must not turn EggServe into an ASGI, WSGI, WebSocket, framework, router, middleware, or process-supervision implementation.
+
+## Closure record
+
+The HTTP-only downstream-substrate objective is complete. The roadmap
+workstreams reached these terminal outcomes:
+
+- metadata fidelity — Plan 173 implemented/closed;
+- deferred request-body ownership and lifecycle signaling — Plan 174
+  implemented/closed;
+- external downstream application-server consumer qualification — Plan 175
+  implemented/closed;
+- generic HTTP upgrade handoff — Plan 176 closed/deferred until a concrete
+  upgrade consumer exists.
+
+The resulting boundary is intentional: a separate HTTP-only application server
+can be built against the public `eggserve-core::primitives` and experimental
+`eggserve-core::server` APIs. The Plan 175 bridge uses no Hyper or crate-private
+escape hatch, and bounded downstream coordination plus application-task
+admission remain downstream responsibilities. EggServe provides the
+transport/runtime substrate, not the application server. WebSocket and other
+upgraded-protocol consumers are not currently supported through the canonical
+boundary; that conditional work remains deferred by Plan 176 and does not
+block this closure.
 
 ## Goal
 
@@ -228,17 +251,17 @@ Do not add performance-number CI gates. A small benchmark may be recorded if lif
 
 This roadmap is complete when:
 
-- [ ] valid inbound/outbound HTTP header field values can cross the canonical application-facing boundary without mandatory UTF-8 conversion;
-- [ ] duplicate header order remains preserved;
-- [ ] request-target byte-fidelity limits are measured/documented, with a public byte view where truthful;
-- [ ] a service can return response-start/stream ownership while a downstream task legitimately continues consuming the request body;
-- [ ] HTTP/1 connection reuse occurs only after the prior request body is complete, while abandonment still forces a safe close;
-- [ ] downstream code can observe peer disconnect/runtime cancellation without polling raw transport types;
-- [ ] a reference external consumer demonstrates bounded bidirectional application bridging using only public EggServe APIs;
-- [ ] long-polling/streamed response cancellation and graceful shutdown are deterministic;
-- [ ] current docs explicitly describe downstream app-server support without claiming EggServe itself is an application server;
-- [ ] if WebSocket-class support is desired, Plan 176 provides a generic upgrade handoff without WebSocket/ASGI logic in core;
-- [ ] no framework, router, middleware, worker supervisor, Python event-loop, ASGI/WSGI protocol implementation, or WebSocket codec has entered `eggserve-core`.
+- [x] valid inbound/outbound HTTP header field values can cross the canonical application-facing boundary without mandatory UTF-8 conversion;
+- [x] duplicate header order remains preserved;
+- [x] request-target byte-fidelity limits are measured/documented, with a public byte view where truthful;
+- [x] a service can return response-start/stream ownership while a downstream task legitimately continues consuming the request body;
+- [x] HTTP/1 connection reuse occurs only after the prior request body is complete, while abandonment still forces a safe close;
+- [x] downstream code can observe peer disconnect/runtime cancellation without polling raw transport types;
+- [x] a reference external consumer demonstrates bounded bidirectional application bridging using only public EggServe APIs;
+- [x] long-polling/streamed response cancellation and graceful shutdown are deterministic;
+- [x] current docs explicitly describe downstream app-server support without claiming EggServe itself is an application server;
+- N/A — generic HTTP upgrade handoff is intentionally deferred by Plan 176 until a concrete consumer exists;
+- [x] no framework, router, middleware, worker supervisor, Python event-loop, ASGI/WSGI protocol implementation, or WebSocket codec has entered `eggserve-core`.
 
 ## Non-goals
 
@@ -270,6 +293,9 @@ These references define consumer requirements and HTTP semantics; they do not de
 
 ## Handoff
 
-Implement Plans 173–175 as the HTTP application-server-readiness sequence. Treat Plan 176 as optional unless the downstream project explicitly requires WebSockets/upgraded protocols.
-
-The critical design rule is that an application-server adapter must not need to bypass EggServe’s canonical boundary to achieve correct concurrency. If implementation discovers that correct early-response/body-consumption behavior requires raw Hyper access, revise the EggServe-owned lifecycle abstraction instead of exposing Hyper to the downstream server.
+Downstream HTTP application-server work may begin in a separate project and
+should consume the public Rust boundary documented by Plan 175. Preserve its
+bounded bridge, lifecycle, timeout, admission, and Hyper-free consumer
+qualification. Reopen Plan 176, or create a narrowly scoped successor, only
+when that project has a concrete WebSocket or other HTTP/1 upgrade requirement;
+never bypass the canonical boundary through raw Hyper internals.

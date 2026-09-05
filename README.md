@@ -163,13 +163,14 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
 [runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 
 Downstream application servers build on the same canonical `Service`
-boundary: the builder-facing HTTP-half contract (bounded full-duplex
+boundary. The currently qualified path is HTTP-only: its builder-facing HTTP-half contract (bounded full-duplex
 bridging, deferred body ownership, lifecycle cancellation, timeout and
 admission splits, byte metadata) is documented in
 [downstream-app-server.md](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md)
 and qualified externally by `crates/eggserve-core/tests/app_server_consumer.rs`.
 EggServe itself remains a static server and library, not an application
-framework or ASGI/WSGI runtime.
+framework or ASGI/WSGI runtime. Qualification of this substrate does not make
+the experimental `server` module a stable 1.0 API.
 
 ## Security and compatibility boundaries
 

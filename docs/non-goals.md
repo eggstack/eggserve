@@ -31,4 +31,9 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No Python API expansion** — Retain the documented six-class `http.server` subset. Do not pursue raw `socketserver` internals, `fileno()`, one-request listener mode, arbitrary stream replacement, forking mixins, or async handlers.
 - **No crate split without measured benefit** — Do not move client code to a new crate automatically. A split is authorized only if measurements show all of: default server artifacts or compile graph materially benefit; public compatibility can be preserved or migrated simply before 1.0; workspace/release complexity does not increase disproportionately; the split removes real feature coupling rather than changing directory layout. Otherwise retain feature-gated client code and freeze it.
 
-> These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build ASGI/WSGI/CGI/FastCGI adapters, application servers, and HTTP clients externally. Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
+> These are non-goals for this repository, not forbidden downstream uses. The
+> currently qualified downstream capability is an HTTP-only application-server
+> substrate using the public Rust primitives and experimental runtime APIs.
+> Separate projects may build ASGI/WSGI/CGI/FastCGI adapters and application
+> servers externally, but those projects are not release deliverables or
+> supported application-serving modes of eggserve.

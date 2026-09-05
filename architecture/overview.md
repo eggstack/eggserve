@@ -1,7 +1,9 @@
 # Architecture Overview
 
 EggServe is a hardened, HTTP-correct static file server and reusable Rust
-HTTP/static-serving library, with a Python `http.server`-shaped facade. The
+HTTP/static-serving library, with a Python `http.server`-shaped facade. Static
+serving is the primary product; a separate downstream project may use the
+qualified HTTP-only Rust substrate. The
 CLI is static-only; the Python facade adds bounded synchronous custom handlers;
 `eggserve.lowlevel` exposes a handler-only runtime/service substrate for
 downstream bounded application servers; the Rust crate exposes a low-level,
@@ -17,7 +19,9 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 - **A Python package** — `eggserve` wheel with `python -m eggserve` and `http.server`-compatible API
 - **A reusable Rust library** — `eggserve-core::primitives` is the public
   security/HTTP facade and `eggserve-core::server` is the experimental
-  transport-owning runtime and `Service` boundary
+  transport-owning runtime and `Service` boundary; Plan 175 qualifies its
+  HTTP-only downstream application-server bridge without promoting `server` to
+  the stable API
 
 ## What eggserve Is Not
 

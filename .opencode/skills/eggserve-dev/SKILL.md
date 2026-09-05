@@ -12,7 +12,10 @@ keep the two consistent.
 ## Project identity
 
 EggServe is a hardened, HTTP-correct static file server and reusable Rust
-HTTP/static-serving library, with a Python `http.server`-shaped facade. The
+HTTP/static-serving library, with a Python `http.server`-shaped facade. Static
+serving is the primary product; a separate downstream project may use the
+qualified HTTP-only Rust substrate, but EggServe itself is not an application
+server. The
 CLI is static-only; the Python facade also supports bounded synchronous custom
 handlers; `eggserve.lowlevel` exposes a handler-only runtime/service substrate
 (`RuntimeConfig`/`Server`, `Response.stream`, `StaticResponder` composition)
@@ -21,7 +24,8 @@ an experimental, low-level Rust service boundary. EggServe is not an application
 framework, ASGI/WSGI runtime, CGI executor, FastCGI gateway, proxy, or
 general-purpose `socketserver` replacement. Plan 167 closed as no-go: no
 in-tree CGI/FastCGI adapters; downstream gateways implement the canonical
-`Service` trait. Plan 176 closed as deferred: no generic HTTP upgrade
+`Service` trait. The `server` module remains experimental even though the HTTP
+bridge is qualified by Plan 175. Plan 176 closed as deferred: no generic HTTP upgrade
 handoff (`Request` has no upgrade capability, `Service` returns `Response`
 only, 101 cannot survive normalization; downstream must not bypass via
 Hyper).
@@ -127,6 +131,7 @@ manual release validation.
 - **Transport-neutral driver** — `server::connection::serve_http1_connection` drives a canonical `Service` over any `AsyncRead + AsyncWrite` stream with explicit `ConnectionContext`, shared `Arc<RuntimeState>` (`RuntimeState::new(&config)`), and per-connection `ConnectionShutdown` returning `ConnectionOutcome`. TCP/TLS `Server` shares the same pipeline via `serve_http1_connection_with_id`; raw Hyper helpers are crate-private. No fabricated socket addresses, no Hyper types in the driver signature.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`. Plan 174: Stream bodies share Active→Complete/Abandoned/Failed lifecycle (Drop-derived for network bodies; in-memory never forces close); service may return response-start with Active body delegated, reuse waits for Complete, Abandoned/Failed forces close (Hyper-pinned). `Request::lifecycle()`/`into_parts_with_lifecycle()` expose `RequestLifecycle` (PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure, first wins). Stream `Service::call` stays collapsed as `min(body, handler)` for compat; remaining body timeout continues after return via watchdog. `max_in_flight_requests` bounds pre-response `Service::call` only.
 - **Downstream app-server consumer (Plan 175)** — `crates/eggserve-core/tests/app_server_consumer.rs` is the external-consumer qualification: bounded full-duplex bridge (cap-2 channels, no `read_all`, no Hyper/private imports; fixture-local event names only), deferred ownership, lifecycle cancellation, handler/body timeout split, downstream admission split, TCP/TLS/caller-owned parity, non-gating perf sanity. Builder-facing rules live in `docs/downstream-app-server.md`; EggServe itself is not an app server/ASGI runtime.
+- **Downstream substrate closure (Plans 172/177)** — Plans 172–175 close the qualified HTTP-only downstream-substrate line; Plan 176 remains conditional on a concrete upgrade consumer. Keep separate application-server work in its own project and preserve the Plan 175 public-API/bounded-coordination boundary.
 - **Body policy** — The policy is evaluated for the actual method; GET/HEAD/DELETE/OPTIONS/extension bodies are not globally rejected. TRACE content remains rejected. `StaticService` declares `Reject`; bodyless unsupported static methods receive 405, while body-bearing requests may be rejected by policy first.
 - **Python RequestBody** — `RequestBody.read()` and `RequestBody.iter_chunks()` are mutually exclusive. `iter_chunks()` bridges async Rust body to synchronous Python via bounded channel with backpressure.
 - **Structured logging** — `eggserve-core::ops` provides the event model (`Event`, `EventKind`, `Severity`, `Logger`, `LogSink`, `OpsCounters`). The CLI initializes with `StderrLogSink`. The Python `Server` delegates logging to the Rust runtime's stderr sink. Library crates must not use `println!`/`eprintln!` — use `Logger::global().emit()` instead.

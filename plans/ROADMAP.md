@@ -2,7 +2,7 @@
 
 ## Purpose
 
-eggserve is a hardened, auditable, Rust-backed replacement for the common `python -m http.server` use case and, more importantly, a reusable set of safe HTTP/static-serving primitives for Python projects. The project is not intended to become an application server, ASGI/WSGI runtime, reverse proxy, framework, CDN, or Granian-style general server. Its core value is a small, predictable, security-oriented substrate that gives Python users standard-library-like ergonomics with production-grade defaults.
+eggserve is a hardened, auditable, Rust-backed replacement for the common `python -m http.server` use case and a reusable set of safe HTTP/static-serving primitives. Static serving remains the primary end-user product. EggServe is not itself an application server, ASGI/WSGI runtime, reverse proxy, framework, CDN, or Granian-style general server; its Rust core also exposes a hardened, transport-owning HTTP runtime and canonical service boundary that separate downstream application-server projects may embed. Its core value is a small, predictable, security-oriented substrate that gives Python users standard-library-like ergonomics with production-grade defaults.
 
 The initial public surface should look familiar:
 
@@ -27,13 +27,20 @@ serve_directory(
 )
 ```
 
-This Python API should remain narrow. If a feature starts to require routing, dynamic handlers, middleware ecosystems, request body parsing, templating, user sessions, reverse proxying, or app-framework semantics, it belongs out of scope unless a later roadmap explicitly revisits the boundary.
+The Python compatibility API should remain narrow. Framework and application
+semantics—routing, middleware ecosystems, templating, sessions, reverse
+proxying, and application lifecycle—remain outside EggServe. The Rust core may
+provide generic HTTP request/response streaming, lifecycle and cancellation
+primitives, and service embedding; those capabilities are substrate support,
+not an application-server implementation. A separate downstream project owns
+ASGI/WSGI event models, Python event-loop integration, worker/process
+management, framework loading, lifespan, and application concurrency policy.
 
 ## Product principles
 
 1. Safety over exact `http.server` compatibility. Compatibility should be ergonomic and operational, not behavioral. Unsafe standard-library behaviors must not be preserved by default.
 2. Explicit policy. Filesystem, path, symlink, dotfile, directory listing, MIME, caching, logging, and bind-address behavior should be visible and configurable through typed policy structures.
-3. Minimal protocol surface. Begin with HTTP/1.1, `GET`, and `HEAD`. Reject unsupported methods. Reject request bodies by default.
+3. Controlled protocol scope. The product serves HTTP/1.1 static content with `GET` and `HEAD` by default and rejects unsupported methods. Static/default services reject request bodies by default, while custom Rust services may opt into bounded request-body streaming through the experimental runtime seam.
 4. Small dependency graph. Hyper is the HTTP substrate. Avoid `reqwest`, full web frameworks, reverse-proxy stacks, templating engines, and broad middleware systems unless a specific milestone justifies them.
 5. Auditable implementation. Security-critical behavior should live in small, independently tested modules with fuzz targets and regression corpora.
 6. Stable foundation before features. Range requests, TLS, CORS, custom directory rendering, Python APIs, and Rust library stabilization should follow only after the path confinement and resource-limit model is proven.
@@ -44,7 +51,7 @@ The repo should converge on a workspace similar to:
 
 ```text
 crates/
-  eggserve-core/       # policy types, path confinement, static serving, response construction
+  eggserve-core/       # policy, path confinement, static serving, canonical HTTP, runtime/service boundary
   eggserve-bin/        # Rust CLI binary
   eggserve-python/     # Python wheel packaging and python -m launcher
 fuzz/
@@ -56,6 +63,18 @@ plans/
 docs/
 tests/
 ```
+
+## Current downstream-substrate position
+
+Plans 161 and 172–175 explicitly extended the reusable Rust boundary after the
+original static-serving milestones. The qualified capability is an HTTP-only
+transport/runtime substrate: separate projects may build application servers
+against the public canonical primitives and experimental `server` APIs, with
+bounded downstream coordination and application-task admission owned there.
+This does not make EggServe an application server or promote experimental
+runtime types to the stable 1.0 API. WebSocket and other generic HTTP upgrade
+handoffs remain absent and deferred by Plan 176 until a concrete consumer
+exists.
 
 The core crate should have no Python awareness. The binary should be a thin consumer of the core crate. The Python package should initially be a very thin launcher for the Rust binary, not a premature extension API. Once the core is stable, expose a Python API as a narrow wrapper around typed Rust configuration.
 
@@ -164,4 +183,9 @@ Avoid `reqwest`, Axum, Tower, Tera, Askama, libmagic bindings, compression stack
 
 An alpha can ship after M0-M5 if the docs clearly mark it as early and the unsafe areas are not exposed. A beta should require M6. A production-ready 1.0 should require M7-M9, a platform test matrix, dependency audit, fuzz corpus, and a written security review.
 
-The 1.0 promise should be narrow: eggserve safely serves static content and exposes hardened primitives for that job. It should not promise to replace a general-purpose web server, reverse proxy, ASGI/WSGI server, or application framework.
+The 1.0 promise should remain bounded: static serving is the primary product;
+stable hardened HTTP primitives and policies are the core library promise; and
+the transport-owning service/runtime seam is a documented downstream embedding
+path according to its stability classification. EggServe does not promise to
+be an ASGI/WSGI server, framework, process manager, reverse proxy, or WebSocket
+implementation.

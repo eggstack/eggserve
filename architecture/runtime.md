@@ -3,8 +3,9 @@
 Custom startup is filesystem-agnostic, static planner metadata is attached to
 canonical responses, and the only production file-stream admission pool is
 created by `RuntimeState` once per running server. Fully consumed streamed
-request bodies remain keep-alive eligible; an incompletely consumed body causes
-the response and connection to close.
+request bodies remain keep-alive eligible; an `Active` body delegated to a
+downstream task keeps reuse pending until completion, while an abandoned or
+failed body causes the response and connection to close.
 
 ## Overview
 

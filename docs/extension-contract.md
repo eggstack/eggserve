@@ -4,7 +4,14 @@ This document is the authoritative contract for downstream consumers of eggserve
 
 ## Overview
 
-eggserve is a library, not a framework. It provides hardened path validation, policy enforcement, secure root resolution, and response planning as composable primitives. Downstream projects may build on these primitives for dynamic sites, test harnesses, or protocol adapters — including ASGI/WSGI/CGI/FastCGI adapters, application servers, and HTTP clients — but they must respect the security boundaries that make eggserve's guarantees meaningful.
+eggserve is a library, not a framework. It provides hardened path validation,
+policy enforcement, secure root resolution, canonical HTTP types, and response
+planning as composable primitives. A separate downstream project may use the
+qualified HTTP-only `Service`/runtime substrate for an application server;
+other protocol adapters—including ASGI/WSGI/CGI/FastCGI—remain external
+projects and are not implemented or supported modes of eggserve. All consumers
+must respect the security boundaries that make eggserve's guarantees
+meaningful.
 
 ## What eggserve guarantees
 
@@ -30,7 +37,13 @@ eggserve does not provide:
   (Plan 176 closed as deferred: no `UpgradeRequest`/`UpgradedIo`/upgrade
   outcome in `primitives`/`server`; 101 cannot be emitted via `Response`)
 
-These are non-goals for this repository, not forbidden downstream uses. The primitive API should be strong enough for separate projects to build them externally. See [non-goals.md](non-goals.md) for the full list. Downstream use of primitives for clients or application servers is explicitly allowed but not owned by eggserve. Those projects are not release deliverables or supported application-serving modes.
+These are non-goals for this repository, not forbidden downstream uses. The
+public Rust substrate is qualified for separate projects to build the HTTP
+half of an application server; ASGI/WSGI/CGI/FastCGI protocol adaptation and
+all application semantics remain downstream-owned. See [non-goals.md](non-goals.md)
+for the full list. Downstream use is explicitly allowed but is not owned by
+eggserve, and those projects are not release deliverables or supported
+application-serving modes.
 
 ## Allowed integration patterns
 

@@ -13,6 +13,11 @@ The filesystem, path, response, and MIME implementation modules remain
 internal; importing Hyper directly is not required for either static serving or
 custom services.
 
+Plan 175 qualifies the HTTP-only downstream application-server bridge using
+the public `primitives` and experimental `server` modules. This qualification
+does not make the experimental runtime API stable or add upgrade/WebSocket
+support; those remain outside the current canonical boundary.
+
 Executable demonstrations live under
 [`crates/eggserve-core/examples/`](../crates/eggserve-core/examples/) and are
 indexed with the CLI and Python examples in [`examples/README.md`](../examples/README.md):

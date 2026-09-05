@@ -68,7 +68,7 @@ its status using a constrained vocabulary.
 | Streaming response bodies (known/unknown; `Send`, not `Sync`, producer) | — | stable | experimental | — | — | — | — |
 | Low-level handler-only service substrate (`eggserve.lowlevel`) | — | — | experimental (server seam) | stable | — | — | stable |
 | Caller-owned connection driver (`serve_http1_connection`) | — | — | experimental | — | — | — | — |
-| Downstream app-server bridge (bounded full-duplex, deferred body, `RequestLifecycle`, admission split; qualified by `app_server_consumer`) | — | stable (byte metadata, `ResponseStream`) | experimental (`Service`, lifecycle, driver) | — | — | — | — |
+| Downstream HTTP-only app-server bridge (bounded full-duplex, deferred body, `RequestLifecycle`, admission split; qualified by `app_server_consumer`) | — | stable (byte metadata, `ResponseStream`) | experimental (`Service`, lifecycle, driver) | — | — | — | — |
 | Response privacy policy (Server/Date/denylist/errors, static validators) | — | stable (static validators) | experimental | stable (safe subset) | — | stable | stable |
 | Generic byte responses | — | stable | — | stable | — | — | stable |
 | Duplicate headers | — | stable | experimental | stable | — | stable | stable |
@@ -130,3 +130,6 @@ behavior.
   a transport-owning runtime (`Server`, `Service` trait, `StaticService`) for
   embedding. Its API is subject to change without notice. It is not covered by
   the stable API contract.
+- The Plan 175 consumer qualification establishes that a separate HTTP-only
+  application server can use the public Rust substrate; it does not change the
+  experimental tier of the runtime/server APIs or add upgrade support.

@@ -437,10 +437,11 @@ Every production claim must name a profile. The production profiles are document
 
 ### Scope boundary
 
-- eggserve is a hardened, read-only HTTP/1.1 static file server and a low-level primitive library.
-- Downstream clients, ASGI/WSGI/CGI/FastCGI adapters, and application servers may be built outside the repository.
+- eggserve is a hardened, read-only HTTP/1.1 static file server plus a low-level canonical HTTP/runtime substrate.
+- Separate downstream projects may build ASGI/WSGI/CGI/FastCGI adapters and application servers outside the repository; the currently qualified EggServe path is HTTP-only.
 - Those downstream projects are not release deliverables or supported application-serving modes of eggserve.
 - The downstream HTTP bridge contract is qualified from outside the crate by `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175): bounded full-duplex bridging, deferred body ownership, lifecycle cancellation, admission split, and TCP/TLS/caller-owned parity using only `primitives` + `server`. See `docs/downstream-app-server.md`.
+- Qualification proves the sufficiency of the seam; all `server` module types remain experimental and are not promoted to stable or promised as a 1.0 application-server API.
 - Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed and no upgrade vocabulary enters public types.
 - No public API promises application-server cancellation semantics beyond documented generic server behavior.
 - No ASGI/WSGI/CGI/FastCGI vocabulary enters public types. No routing or middleware abstractions are added.

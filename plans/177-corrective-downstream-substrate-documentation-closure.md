@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED.**
+**IMPLEMENTED / CLOSED.**
 
 Prerequisites: Plans 172–175 implemented in substance; Plan 176 closed/deferred pending a concrete upgrade consumer.
 
@@ -238,19 +238,19 @@ If no source code or executable examples change, a full cross-platform runtime s
 
 ## Acceptance criteria
 
-- [ ] Plan 172 is terminally closed with a concise closure record tied to Plans 173–176;
-- [ ] Plan 172's checklist contains no misleading open implementation items;
-- [ ] Plan 176 is represented as intentionally deferred/conditional rather than implemented;
-- [ ] `plans/ROADMAP.md` explicitly distinguishes “not an application server” from “usable as a substrate for a separate application server”;
-- [ ] the root roadmap no longer categorically excludes generic request-body/custom-service capabilities already present in `eggserve-core`;
-- [ ] static serving remains the primary end-user/product identity and conservative default behavior remains clear;
-- [ ] downstream ASGI/WSGI/framework/event-loop/process semantics remain explicitly outside EggServe;
-- [ ] HTTP-only downstream application-server support is documented as the qualified current capability;
-- [ ] WebSocket/upgrade support is documented as absent/deferred pending a concrete consumer;
-- [ ] public API stability language matches `docs/api-stability.md` and does not overpromise 1.0 guarantees;
-- [ ] authoritative current-state documents agree on the embedding boundary;
-- [ ] historical closed plans are not broadly rewritten;
-- [ ] no runtime code, dependency, feature, or CI expansion is introduced by this corrective pass.
+- [x] Plan 172 is terminally closed with a concise closure record tied to Plans 173–176;
+- [x] Plan 172's checklist contains no misleading open implementation items;
+- [x] Plan 176 is represented as intentionally deferred/conditional rather than implemented;
+- [x] `plans/ROADMAP.md` explicitly distinguishes “not an application server” from “usable as a substrate for a separate application server”;
+- [x] the root roadmap no longer categorically excludes generic request-body/custom-service capabilities already present in `eggserve-core`;
+- [x] static serving remains the primary end-user/product identity and conservative default behavior remains clear;
+- [x] downstream ASGI/WSGI/framework/event-loop/process semantics remain explicitly outside EggServe;
+- [x] HTTP-only downstream application-server support is documented as the qualified current capability;
+- [x] WebSocket/upgrade support is documented as absent/deferred pending a concrete consumer;
+- [x] public API stability language matches `docs/api-stability.md` and does not overpromise 1.0 guarantees;
+- [x] authoritative current-state documents agree on the embedding boundary;
+- [x] historical closed plans are not broadly rewritten;
+- [x] no runtime code, dependency, feature, or CI expansion is introduced by this corrective pass.
 
 ## Suggested implementation order
 
@@ -261,17 +261,31 @@ If no source code or executable examples change, a full cross-platform runtime s
 5. Run the targeted documentation verification in Track E.
 6. Add a closure record to this plan listing exactly which documents changed and confirming that no runtime/API behavior changed.
 
-## Closure record template
+## Closure record
 
-When implemented, replace `PLANNED` with `IMPLEMENTED / CLOSED` and record:
+- Plan 172 was reconciled and closed with Plans 173–175 recorded as complete
+  and Plan 176 recorded as intentionally deferred pending a concrete upgrade
+  consumer.
+- `plans/ROADMAP.md` now distinguishes EggServe’s static-serving product and
+  non-application-server boundary from the qualified HTTP-only Rust substrate
+  available to separate downstream application-server projects.
+- Current-state wording was aligned in `README.md`, `AGENTS.md`,
+  `.opencode/skills/eggserve-dev/SKILL.md`, `architecture/overview.md`,
+  `architecture/eggserve-core.md`, `architecture/runtime.md`,
+  `docs/public-api-boundary.md`, `docs/api-stability.md`,
+  `docs/library-capability-matrix.md`, `docs/non-goals.md`, and
+  `docs/extension-contract.md`. No historical child plan was rewritten.
+- The stale-wording audit found and corrected the root-roadmap static-only
+  scope statement and the runtime description that treated every incomplete
+  body as a forced close. Current docs consistently describe `Active` deferred
+  body ownership, bounded downstream coordination, experimental server APIs,
+  and absent/deferred upgrade handoff.
+- Documentation/link checks, Rustdoc checks, and the repository’s local CI
+  verification were run after these edits. No runtime code, public API,
+  dependency, feature, or CI behavior changed.
 
-- Plan 172 closure/reconciliation completed;
-- root roadmap scope reconciled;
-- list of other current docs changed, if any;
-- stale wording/search audit result;
-- documentation/Rustdoc checks run;
-- explicit confirmation that no runtime code, public API, dependency, or CI behavior changed;
-- final statement that HTTP-only downstream app-server substrate work is closed and Plan 176 remains conditional on a concrete upgrade consumer.
+HTTP-only downstream application-server substrate work is closed. Plan 176
+remains conditional on a concrete upgrade consumer.
 
 ## Handoff
 

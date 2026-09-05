@@ -4,7 +4,14 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 
 ## Overview
 
-`eggserve-core` exposes a deliberate, narrow public boundary through the `primitives` module. This module is the **intended integration point** for Rust consumers that want to embed eggserve's hardened path validation and policy enforcement without pulling in the full HTTP service layer. Canonical application-facing request/response types, `Service`, and the caller-owned connection API do not require downstream code to import Hyper.
+`eggserve-core` exposes a deliberate, narrow public boundary through the
+`primitives` module. It is the semver-considered facade for consumers that
+embed hardened path, policy, and canonical HTTP behavior. A downstream
+HTTP-only application server additionally uses the experimental `server`
+module for `Service` and transport ownership; qualification of that seam does
+not promote it to stable. Canonical application-facing request/response types,
+`Service`, and the caller-owned connection API do not require downstream code
+to import Hyper.
 
 ## Public modules
 
