@@ -137,29 +137,30 @@ pub struct RuntimeConfig {
 
 impl Default for RuntimeConfig {
     fn default() -> Self {
+        use crate::runtime_limits as rl;
         Self {
             bind: "127.0.0.1:8000".parse().unwrap(),
-            max_connections: 64,
-            max_file_streams: 32,
-            stream_chunk_size: crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
-            header_read_timeout: Duration::from_secs(10),
-            tls_handshake_timeout: Duration::from_secs(10),
-            connection_total_timeout: Duration::from_secs(60),
-            handler_timeout: Duration::from_secs(30),
-            body_read_timeout: Duration::from_secs(30),
-            graceful_shutdown_timeout: Duration::from_secs(10),
+            max_connections: rl::DEFAULT_MAX_CONNECTIONS,
+            max_file_streams: rl::DEFAULT_MAX_FILE_STREAMS,
+            stream_chunk_size: rl::DEFAULT_STREAM_CHUNK_SIZE,
+            header_read_timeout: rl::DEFAULT_HEADER_READ_TIMEOUT,
+            tls_handshake_timeout: rl::DEFAULT_TLS_HANDSHAKE_TIMEOUT,
+            connection_total_timeout: rl::DEFAULT_CONNECTION_TOTAL_TIMEOUT,
+            handler_timeout: rl::DEFAULT_HANDLER_TIMEOUT,
+            body_read_timeout: rl::DEFAULT_BODY_READ_TIMEOUT,
+            graceful_shutdown_timeout: rl::DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             response_policy: crate::server::response_policy::ResponsePolicy::default(),
             #[cfg(feature = "tls")]
             tls_config: None,
-            max_request_body_bytes: 0,
-            max_buf_size: crate::limits::DEFAULT_MAX_BUF_SIZE,
-            max_headers: crate::limits::DEFAULT_MAX_HEADERS,
-            max_header_bytes: crate::limits::DEFAULT_MAX_HEADER_BYTES,
-            max_request_target_bytes: crate::limits::DEFAULT_MAX_REQUEST_TARGET_BYTES,
-            max_in_flight_requests: crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
-            keep_alive_idle_timeout: Duration::from_secs(60),
+            max_request_body_bytes: rl::DEFAULT_MAX_REQUEST_BODY_BYTES,
+            max_buf_size: rl::DEFAULT_MAX_BUF_SIZE,
+            max_headers: rl::DEFAULT_MAX_HEADERS,
+            max_header_bytes: rl::DEFAULT_MAX_HEADER_BYTES,
+            max_request_target_bytes: rl::DEFAULT_MAX_REQUEST_TARGET_BYTES,
+            max_in_flight_requests: rl::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+            keep_alive_idle_timeout: rl::DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT,
             max_requests_per_connection: None,
-            response_write_timeout: Duration::from_secs(30),
+            response_write_timeout: rl::DEFAULT_RESPONSE_WRITE_TIMEOUT,
         }
     }
 }
@@ -203,6 +204,76 @@ impl RuntimeConfig {
     /// accessor for `response_policy.server_identification`.
     pub fn server_header_value(&self) -> Option<&str> {
         self.response_policy.server_identification.as_deref()
+    }
+
+    /// Validate a complete hand-constructed [`RuntimeConfig`] (Plan 179 Track C).
+    ///
+    /// Builder validation alone cannot protect `RuntimeConfig` because its
+    /// fields are public: callers can hand-construct values that bypass the
+    /// builder. Call this before semaphore/Hyper/runtime operations, or use
+    /// [`RuntimeConfigBuilder::build`] / [`try_from_serve_config`] /
+    /// [`crate::server::RuntimeState::try_new`] / [`crate::server::ServerBuilder::build`],
+    /// which all enforce it.
+    ///
+    /// Checks the shared runtime kernel plus `ResponsePolicy`. Feature-gated
+    /// TLS has no additional scalar invariants beyond presence; handshake
+    /// timeout is part of the shared kernel.
+    ///
+    /// Services may lower request-body ceilings but cannot raise this runtime
+    /// hard ceiling.
+    pub fn validate(&self) -> Result<(), crate::server::errors::ServerError> {
+        let shared = crate::runtime_limits::SharedRuntimeValues::from_runtime_config(self);
+        let violations = shared.validate();
+        if !violations.is_empty() {
+            let msg = violations
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(crate::server::errors::ServerError::Config(msg));
+        }
+        self.response_policy.validate().map_err(|e| {
+            crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
+        })?;
+        Ok(())
+    }
+
+    /// Project shared runtime values into a [`RuntimeConfig`] (Plan 179 Track D).
+    ///
+    /// Single helper for the `ServeConfig` bridge so field-by-field
+    /// correctness assumptions live in exactly one place. Static policy, root
+    /// ownership, directory listing, MIME, and static response limits stay
+    /// outside this type; response policy remains explicit so CLI/Python
+    /// compatibility profiles do not silently inherit Rust-only privacy.
+    pub(crate) fn from_shared_runtime(
+        bind: SocketAddr,
+        shared: &crate::runtime_limits::SharedRuntimeValues,
+        response_policy: crate::server::response_policy::ResponsePolicy,
+    ) -> Self {
+        Self {
+            bind,
+            max_connections: shared.max_connections,
+            max_file_streams: shared.max_file_streams,
+            stream_chunk_size: shared.stream_chunk_size,
+            header_read_timeout: shared.header_read_timeout,
+            tls_handshake_timeout: shared.tls_handshake_timeout,
+            connection_total_timeout: shared.connection_total_timeout,
+            handler_timeout: shared.handler_timeout,
+            body_read_timeout: shared.body_read_timeout,
+            graceful_shutdown_timeout: shared.graceful_shutdown_timeout,
+            response_policy,
+            #[cfg(feature = "tls")]
+            tls_config: None,
+            max_request_body_bytes: shared.max_request_body_bytes,
+            max_buf_size: shared.max_buf_size,
+            max_headers: shared.max_headers,
+            max_header_bytes: shared.max_header_bytes,
+            max_request_target_bytes: shared.max_request_target_bytes,
+            max_in_flight_requests: shared.max_in_flight_requests,
+            keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
+            max_requests_per_connection: shared.max_requests_per_connection,
+            response_write_timeout: shared.response_write_timeout,
+        }
     }
 }
 
@@ -447,218 +518,65 @@ impl RuntimeConfigBuilder {
 
     /// Build the runtime configuration.
     ///
-    /// Returns an error if `max_connections`, `max_file_streams`, or any
-    /// timeout duration is 0.
+    /// Shared runtime checks delegate to the canonical Plan 179 kernel; the
+    /// resulting error identifies the invalid field/constraint. Returns an
+    /// error if any shared value or the composed `ResponsePolicy` is invalid.
     pub fn build(self) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
-        let max_connections = self.max_connections.unwrap_or(64);
-        let max_file_streams = self.max_file_streams.unwrap_or(32);
-        let max_semaphore_permits = tokio::sync::Semaphore::MAX_PERMITS;
-        if max_connections == 0 {
-            return Err(crate::server::errors::ServerError::Config(
-                "max_connections must be > 0".into(),
-            ));
-        }
-        if max_connections > max_semaphore_permits {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_connections must be <= {} (Semaphore::MAX_PERMITS): got {}",
-                max_semaphore_permits, max_connections
-            )));
-        }
-        if max_file_streams == 0 {
-            return Err(crate::server::errors::ServerError::Config(
-                "max_file_streams must be > 0".into(),
-            ));
-        }
-        if max_file_streams > max_semaphore_permits {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_file_streams must be <= {} (Semaphore::MAX_PERMITS): got {}",
-                max_semaphore_permits, max_file_streams
-            )));
-        }
-        let stream_chunk_size = self
-            .stream_chunk_size
-            .unwrap_or(crate::limits::DEFAULT_STREAM_CHUNK_SIZE);
-        if stream_chunk_size < 64 {
-            return Err(crate::server::errors::ServerError::Config(
-                "stream_chunk_size must be >= 64".into(),
-            ));
-        }
-        if stream_chunk_size > 1024 * 1024 {
-            return Err(crate::server::errors::ServerError::Config(
-                "stream_chunk_size must be <= 1048576 (1 MiB)".into(),
-            ));
-        }
-
-        let max_request_body_bytes = self.max_request_body_bytes.unwrap_or(0);
-        if max_request_body_bytes > crate::limits::MAX_REQUEST_BODY_BYTES {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_request_body_bytes must be <= {} (1 GiB), or 0 to reject bodies: got {}",
-                crate::limits::MAX_REQUEST_BODY_BYTES,
-                max_request_body_bytes
-            )));
-        }
-
-        let max_buf_size = self
-            .max_buf_size
-            .unwrap_or(crate::limits::DEFAULT_MAX_BUF_SIZE);
-        if max_buf_size < crate::limits::MIN_MAX_BUF_SIZE {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_buf_size must be >= {} (Hyper minimum): got {}",
-                crate::limits::MIN_MAX_BUF_SIZE,
-                max_buf_size
-            )));
-        }
-        if max_buf_size > crate::limits::MAX_MAX_BUF_SIZE {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_buf_size must be <= {} (4 MiB): got {}",
-                crate::limits::MAX_MAX_BUF_SIZE,
-                max_buf_size
-            )));
-        }
-        let max_headers = self
-            .max_headers
-            .unwrap_or(crate::limits::DEFAULT_MAX_HEADERS);
-        if max_headers == 0 {
-            return Err(crate::server::errors::ServerError::Config(
-                "max_headers must be > 0".into(),
-            ));
-        }
-        if max_headers > crate::limits::MAX_MAX_HEADERS {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_headers must be <= {}: got {}",
-                crate::limits::MAX_MAX_HEADERS,
-                max_headers
-            )));
-        }
-        let max_header_bytes = self
-            .max_header_bytes
-            .unwrap_or(crate::limits::DEFAULT_MAX_HEADER_BYTES);
-        if max_header_bytes < crate::limits::MIN_MAX_HEADER_BYTES {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_header_bytes must be >= {}: got {}",
-                crate::limits::MIN_MAX_HEADER_BYTES,
-                max_header_bytes
-            )));
-        }
-        if max_header_bytes > crate::limits::MAX_MAX_HEADER_BYTES {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_header_bytes must be <= {} (1 MiB): got {}",
-                crate::limits::MAX_MAX_HEADER_BYTES,
-                max_header_bytes
-            )));
-        }
-        let max_request_target_bytes = self
-            .max_request_target_bytes
-            .unwrap_or(crate::limits::DEFAULT_MAX_REQUEST_TARGET_BYTES);
-        if max_request_target_bytes < crate::limits::MIN_MAX_REQUEST_TARGET_BYTES {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_request_target_bytes must be >= {}: got {}",
-                crate::limits::MIN_MAX_REQUEST_TARGET_BYTES,
-                max_request_target_bytes
-            )));
-        }
-        if max_request_target_bytes > crate::limits::MAX_MAX_REQUEST_TARGET_BYTES {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_request_target_bytes must be <= {} (64 KiB): got {}",
-                crate::limits::MAX_MAX_REQUEST_TARGET_BYTES,
-                max_request_target_bytes
-            )));
-        }
-        let max_in_flight_requests = self.max_in_flight_requests.unwrap_or(64);
-        if max_in_flight_requests == 0 {
-            return Err(crate::server::errors::ServerError::Config(
-                "max_in_flight_requests must be > 0".into(),
-            ));
-        }
-        if max_in_flight_requests > max_semaphore_permits {
-            return Err(crate::server::errors::ServerError::Config(format!(
-                "max_in_flight_requests must be <= {} (Semaphore::MAX_PERMITS): got {}",
-                max_semaphore_permits, max_in_flight_requests
-            )));
-        }
-        let keep_alive_idle_timeout = self
-            .keep_alive_idle_timeout
-            .unwrap_or(Duration::from_secs(60));
-        if keep_alive_idle_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "keep_alive_idle_timeout must be > 0".into(),
-            ));
-        }
-        let max_requests_per_connection = self.max_requests_per_connection.unwrap_or(None);
-        if max_requests_per_connection == Some(0) {
-            return Err(crate::server::errors::ServerError::Config(
-                "max_requests_per_connection must be >= 1 or None (unlimited)".into(),
-            ));
-        }
-        let response_write_timeout = self
-            .response_write_timeout
-            .unwrap_or(Duration::from_secs(30));
-        if response_write_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "response_write_timeout must be > 0".into(),
-            ));
-        }
-
-        let header_read_timeout = self.header_read_timeout.unwrap_or(Duration::from_secs(10));
-        let tls_handshake_timeout = self
-            .tls_handshake_timeout
-            .unwrap_or(Duration::from_secs(10));
-        let connection_total_timeout = self
-            .connection_total_timeout
-            .unwrap_or(Duration::from_secs(60));
-        let handler_timeout = self.handler_timeout.unwrap_or(Duration::from_secs(30));
-        let body_read_timeout = self.body_read_timeout.unwrap_or(Duration::from_secs(30));
-        let graceful_shutdown_timeout = self
-            .graceful_shutdown_timeout
-            .unwrap_or(Duration::from_secs(10));
-
-        if header_read_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "header_read_timeout must be > 0".into(),
-            ));
-        }
-        if tls_handshake_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "tls_handshake_timeout must be > 0".into(),
-            ));
-        }
-        if connection_total_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "connection_total_timeout must be > 0".into(),
-            ));
-        }
-        if header_read_timeout > connection_total_timeout {
-            return Err(crate::server::errors::ServerError::Config(
-                "header_read_timeout must be <= connection_total_timeout".into(),
-            ));
-        }
-        if handler_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "handler_timeout must be > 0".into(),
-            ));
-        }
-        if body_read_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "body_read_timeout must be > 0".into(),
-            ));
-        }
-        // A handler or body budget wider than the total connection
-        // lifetime is dead configuration: the connection budget always
-        // fires first and kills the request mid-flight.
-        if handler_timeout > connection_total_timeout {
-            return Err(crate::server::errors::ServerError::Config(
-                "handler_timeout must be <= connection_total_timeout".into(),
-            ));
-        }
-        if body_read_timeout > connection_total_timeout {
-            return Err(crate::server::errors::ServerError::Config(
-                "body_read_timeout must be <= connection_total_timeout".into(),
-            ));
-        }
-        if graceful_shutdown_timeout.is_zero() {
-            return Err(crate::server::errors::ServerError::Config(
-                "graceful_shutdown_timeout must be > 0".into(),
-            ));
+        use crate::runtime_limits as rl;
+        let shared = rl::SharedRuntimeValues {
+            max_connections: self.max_connections.unwrap_or(rl::DEFAULT_MAX_CONNECTIONS),
+            max_file_streams: self
+                .max_file_streams
+                .unwrap_or(rl::DEFAULT_MAX_FILE_STREAMS),
+            max_request_body_bytes: self
+                .max_request_body_bytes
+                .unwrap_or(rl::DEFAULT_MAX_REQUEST_BODY_BYTES),
+            header_read_timeout: self
+                .header_read_timeout
+                .unwrap_or(rl::DEFAULT_HEADER_READ_TIMEOUT),
+            tls_handshake_timeout: self
+                .tls_handshake_timeout
+                .unwrap_or(rl::DEFAULT_TLS_HANDSHAKE_TIMEOUT),
+            connection_total_timeout: self
+                .connection_total_timeout
+                .unwrap_or(rl::DEFAULT_CONNECTION_TOTAL_TIMEOUT),
+            handler_timeout: self.handler_timeout.unwrap_or(rl::DEFAULT_HANDLER_TIMEOUT),
+            body_read_timeout: self
+                .body_read_timeout
+                .unwrap_or(rl::DEFAULT_BODY_READ_TIMEOUT),
+            graceful_shutdown_timeout: self
+                .graceful_shutdown_timeout
+                .unwrap_or(rl::DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT),
+            stream_chunk_size: self
+                .stream_chunk_size
+                .unwrap_or(rl::DEFAULT_STREAM_CHUNK_SIZE),
+            max_buf_size: self.max_buf_size.unwrap_or(rl::DEFAULT_MAX_BUF_SIZE),
+            max_headers: self.max_headers.unwrap_or(rl::DEFAULT_MAX_HEADERS),
+            max_header_bytes: self
+                .max_header_bytes
+                .unwrap_or(rl::DEFAULT_MAX_HEADER_BYTES),
+            max_request_target_bytes: self
+                .max_request_target_bytes
+                .unwrap_or(rl::DEFAULT_MAX_REQUEST_TARGET_BYTES),
+            max_in_flight_requests: self
+                .max_in_flight_requests
+                .unwrap_or(rl::DEFAULT_MAX_IN_FLIGHT_REQUESTS),
+            keep_alive_idle_timeout: self
+                .keep_alive_idle_timeout
+                .unwrap_or(rl::DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT),
+            max_requests_per_connection: self.max_requests_per_connection.unwrap_or(None),
+            response_write_timeout: self
+                .response_write_timeout
+                .unwrap_or(rl::DEFAULT_RESPONSE_WRITE_TIMEOUT),
+        };
+        let violations = shared.validate();
+        if !violations.is_empty() {
+            let msg = violations
+                .iter()
+                .map(|v| v.to_string())
+                .collect::<Vec<_>>()
+                .join("; ");
+            return Err(crate::server::errors::ServerError::Config(msg));
         }
         let mut response_policy = self.response_policy.unwrap_or_default();
         if let Some(server_header) = self.server_header {
@@ -680,27 +598,27 @@ impl RuntimeConfigBuilder {
             bind: self
                 .bind
                 .unwrap_or_else(|| "127.0.0.1:8000".parse().unwrap()),
-            max_connections,
-            max_file_streams,
-            stream_chunk_size,
-            header_read_timeout,
-            tls_handshake_timeout,
-            connection_total_timeout,
-            handler_timeout,
-            body_read_timeout,
-            graceful_shutdown_timeout,
+            max_connections: shared.max_connections,
+            max_file_streams: shared.max_file_streams,
+            stream_chunk_size: shared.stream_chunk_size,
+            header_read_timeout: shared.header_read_timeout,
+            tls_handshake_timeout: shared.tls_handshake_timeout,
+            connection_total_timeout: shared.connection_total_timeout,
+            handler_timeout: shared.handler_timeout,
+            body_read_timeout: shared.body_read_timeout,
+            graceful_shutdown_timeout: shared.graceful_shutdown_timeout,
             response_policy,
             #[cfg(feature = "tls")]
             tls_config: self.tls_config,
-            max_request_body_bytes,
-            max_buf_size,
-            max_headers,
-            max_header_bytes,
-            max_request_target_bytes,
-            max_in_flight_requests,
-            keep_alive_idle_timeout,
-            max_requests_per_connection,
-            response_write_timeout,
+            max_request_body_bytes: shared.max_request_body_bytes,
+            max_buf_size: shared.max_buf_size,
+            max_headers: shared.max_headers,
+            max_header_bytes: shared.max_header_bytes,
+            max_request_target_bytes: shared.max_request_target_bytes,
+            max_in_flight_requests: shared.max_in_flight_requests,
+            keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
+            max_requests_per_connection: shared.max_requests_per_connection,
+            response_write_timeout: shared.response_write_timeout,
         })
     }
 }
@@ -729,34 +647,19 @@ pub fn try_from_serve_config(
     // policy is Rust-only; the stdlib facade must not silently diverge.
     // `ServeConfig.error_policy` (for static errors) is transferred so
     // `serve_config()` static errors share the runtime error profile.
+    // Static policy, root, listing budgets, and MIME stay with the service.
     let response_policy = crate::server::response_policy::ResponsePolicy {
         error_policy: config.error_policy,
         ..Default::default()
     };
-    Ok(RuntimeConfig {
-        bind: config.bind,
-        max_connections: config.limits.max_connections,
-        max_file_streams: config.limits.max_file_streams,
-        stream_chunk_size: config.limits.stream_chunk_size,
-        header_read_timeout: config.limits.header_read_timeout,
-        tls_handshake_timeout: config.limits.tls_handshake_timeout,
-        connection_total_timeout: config.limits.connection_total_timeout,
-        handler_timeout: config.limits.handler_timeout,
-        body_read_timeout: config.limits.body_read_timeout,
-        graceful_shutdown_timeout: config.limits.graceful_shutdown_timeout,
+    let shared = crate::runtime_limits::SharedRuntimeValues::from_limits(&config.limits);
+    // `Limits::validate` already passed, so this projection is infallible;
+    // route through the single shared helper rather than reproducing fields.
+    Ok(RuntimeConfig::from_shared_runtime(
+        config.bind,
+        &shared,
         response_policy,
-        #[cfg(feature = "tls")]
-        tls_config: None,
-        max_request_body_bytes: config.limits.max_request_body_bytes,
-        max_buf_size: config.limits.max_buf_size,
-        max_headers: config.limits.max_headers,
-        max_header_bytes: config.limits.max_header_bytes,
-        max_request_target_bytes: config.limits.max_request_target_bytes,
-        max_in_flight_requests: config.limits.max_in_flight_requests,
-        keep_alive_idle_timeout: config.limits.keep_alive_idle_timeout,
-        max_requests_per_connection: config.limits.max_requests_per_connection,
-        response_write_timeout: config.limits.response_write_timeout,
-    })
+    ))
 }
 
 #[cfg(test)]

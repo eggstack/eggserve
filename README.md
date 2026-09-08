@@ -153,6 +153,13 @@ budgets; parser ceilings, keep-alive idle, per-connection request counts, and
 response write no-progress timeouts are configured via CLI flags, `Limits`, or
 `RuntimeConfig` (see the [per-profile defaults](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md)
 and [timeout reference](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md)).
+Shared runtime defaults and validation live once in the canonical
+`eggserve_core::runtime_limits` authority consumed by `Limits`,
+`RuntimeConfig`, and the `ServeConfig` bridge; static listing/extra-header
+budgets stay service-owned, and hand-constructed `RuntimeConfig` values are
+rejected at `ServerBuilder`, `RuntimeState::try_new`, and the caller-owned
+connection boundary before semaphore/Hyper use. Services may lower
+request-body ceilings but cannot raise the runtime hard ceiling.
 The `server` module
 is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`

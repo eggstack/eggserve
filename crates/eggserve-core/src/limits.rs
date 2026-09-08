@@ -1,7 +1,23 @@
 //! Resource limits for connections, streams, and request sizes.
+//!
+//! Shared runtime/transport defaults and bounds are owned by
+//! [`crate::runtime_limits`] (Plan 179); the constants below re-export that
+//! authority so existing `eggserve_core::limits::` paths keep working.
 
 use std::fmt;
 use std::time::Duration;
+
+// --- Canonical runtime authority (Plan 179): one default per shared field. ---
+pub use crate::runtime_limits::{
+    DEFAULT_BODY_READ_TIMEOUT, DEFAULT_CONNECTION_TOTAL_TIMEOUT, DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
+    DEFAULT_HANDLER_TIMEOUT, DEFAULT_HEADER_READ_TIMEOUT, DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT,
+    DEFAULT_MAX_BUF_SIZE, DEFAULT_MAX_CONNECTIONS, DEFAULT_MAX_FILE_STREAMS, DEFAULT_MAX_HEADERS,
+    DEFAULT_MAX_HEADER_BYTES, DEFAULT_MAX_IN_FLIGHT_REQUESTS, DEFAULT_MAX_REQUEST_BODY_BYTES,
+    DEFAULT_MAX_REQUEST_TARGET_BYTES, DEFAULT_RESPONSE_WRITE_TIMEOUT, DEFAULT_STREAM_CHUNK_SIZE,
+    DEFAULT_TLS_HANDSHAKE_TIMEOUT, MAX_MAX_BUF_SIZE, MAX_MAX_HEADERS, MAX_MAX_HEADER_BYTES,
+    MAX_MAX_REQUEST_TARGET_BYTES, MAX_REQUEST_BODY_BYTES, MAX_STREAM_CHUNK_SIZE, MIN_MAX_BUF_SIZE,
+    MIN_MAX_HEADER_BYTES, MIN_MAX_REQUEST_TARGET_BYTES, MIN_STREAM_CHUNK_SIZE,
+};
 
 /// Default maximum number of entries to enumerate in a directory listing.
 pub const DEFAULT_MAX_LISTING_ENTRIES: usize = 4096;
@@ -9,59 +25,8 @@ pub const MAX_LISTING_RESPONSE_BYTES: usize = 10 * 1024 * 1024;
 /// Upper bound for `max_listing_entries`. This is an entry count, not a
 /// byte size; it numerically matches the historical acceptance range.
 pub const MAX_LISTING_ENTRIES: usize = 10 * 1024 * 1024;
-/// Upper bound for `max_request_body_bytes`. The default of `0` rejects all
-/// bodies; explicit values are capped so a single config value cannot become
-/// an unbounded per-request buffering knob.
-pub const MAX_REQUEST_BODY_BYTES: u64 = 1024 * 1024 * 1024;
-pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 8192;
 pub const DEFAULT_MAX_EXTRA_HEADERS: usize = 32;
 pub const DEFAULT_MAX_EXTRA_HEADER_BYTES: usize = 8 * 1024;
-/// Default HTTP/1 parser read-buffer ceiling (Plan 164).
-///
-/// Hyper's own default is ~400 KiB and explicitly not stable; this
-/// EggServe-owned default preserves ordinary browser/proxy compatibility
-/// while bounding per-connection parser memory. Lower values reduce peak
-/// memory under many concurrent slow connections.
-pub const DEFAULT_MAX_BUF_SIZE: usize = 64 * 1024;
-/// Minimum parser buffer accepted by Hyper (`Builder::max_buf_size` panics
-/// below this).
-pub const MIN_MAX_BUF_SIZE: usize = 8192;
-/// Maximum parser buffer EggServe will configure (4 MiB).
-pub const MAX_MAX_BUF_SIZE: usize = 4 * 1024 * 1024;
-/// Default maximum request header field count (Plan 164).
-///
-/// Matches Hyper's default of 100 so setting it explicitly pins the policy
-/// instead of inheriting a value Hyper documents as unstable. Note Hyper
-/// allocates header storage on the heap (instead of the stack fast path)
-/// once a custom count is set, costing roughly 5% header-parse performance.
-/// The same bound also caps HTTP/1 trailers.
-pub const DEFAULT_MAX_HEADERS: usize = 100;
-/// Maximum header-field count EggServe will configure.
-pub const MAX_MAX_HEADERS: usize = 10_000;
-/// Default post-parse aggregate request-header ceiling in name+value bytes
-/// (Plan 164). Hyper exposes no aggregate byte knob, so this is enforced by
-/// EggServe after parsing and before service invocation; excess fails with
-/// 431 without invoking the service.
-pub const DEFAULT_MAX_HEADER_BYTES: usize = 32 * 1024;
-pub const MIN_MAX_HEADER_BYTES: usize = 1024;
-pub const MAX_MAX_HEADER_BYTES: usize = 1024 * 1024;
-/// Default maximum request-target length in bytes (Plan 164).
-///
-/// Enforced after parsing and before service invocation; excess fails with
-/// 414. This is distinct from the parser buffer: a short buffer already
-/// rejects huge targets at parse time, but this bound gives operators an
-/// explicit, observable application-level ceiling.
-pub const DEFAULT_MAX_REQUEST_TARGET_BYTES: usize = 8192;
-pub const MIN_MAX_REQUEST_TARGET_BYTES: usize = 128;
-pub const MAX_MAX_REQUEST_TARGET_BYTES: usize = 64 * 1024;
-/// Default maximum concurrent in-flight service (`Service::call`)
-/// executions, independent of idle keep-alive connections (Plan 164).
-///
-/// Idle keep-alive sockets hold the connection budget only; handler
-/// concurrency is governed here. The default matches `max_connections` so
-/// existing single-request-per-connection behavior is preserved while the
-/// knob remains available for high-concurrency deployments.
-pub const DEFAULT_MAX_IN_FLIGHT_REQUESTS: usize = 64;
 
 /// Error returned when a [`Limits`] field violates its constraint.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -147,15 +112,15 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_connections: 64,
-            max_file_streams: 32,
-            max_request_body_bytes: 0,
-            header_read_timeout: Duration::from_secs(10),
-            tls_handshake_timeout: Duration::from_secs(10),
-            connection_total_timeout: Duration::from_secs(60),
-            handler_timeout: Duration::from_secs(30),
-            body_read_timeout: Duration::from_secs(30),
-            graceful_shutdown_timeout: Duration::from_secs(10),
+            max_connections: DEFAULT_MAX_CONNECTIONS,
+            max_file_streams: DEFAULT_MAX_FILE_STREAMS,
+            max_request_body_bytes: DEFAULT_MAX_REQUEST_BODY_BYTES,
+            header_read_timeout: DEFAULT_HEADER_READ_TIMEOUT,
+            tls_handshake_timeout: DEFAULT_TLS_HANDSHAKE_TIMEOUT,
+            connection_total_timeout: DEFAULT_CONNECTION_TOTAL_TIMEOUT,
+            handler_timeout: DEFAULT_HANDLER_TIMEOUT,
+            body_read_timeout: DEFAULT_BODY_READ_TIMEOUT,
+            graceful_shutdown_timeout: DEFAULT_GRACEFUL_SHUTDOWN_TIMEOUT,
             max_listing_entries: DEFAULT_MAX_LISTING_ENTRIES,
             max_listing_response_bytes: 1024 * 1024, // 1 MiB
             stream_chunk_size: DEFAULT_STREAM_CHUNK_SIZE,
@@ -166,9 +131,9 @@ impl Default for Limits {
             max_header_bytes: DEFAULT_MAX_HEADER_BYTES,
             max_request_target_bytes: DEFAULT_MAX_REQUEST_TARGET_BYTES,
             max_in_flight_requests: DEFAULT_MAX_IN_FLIGHT_REQUESTS,
-            keep_alive_idle_timeout: Duration::from_secs(60),
+            keep_alive_idle_timeout: DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT,
             max_requests_per_connection: None,
-            response_write_timeout: Duration::from_secs(30),
+            response_write_timeout: DEFAULT_RESPONSE_WRITE_TIMEOUT,
         }
     }
 }
@@ -176,119 +141,21 @@ impl Default for Limits {
 impl Limits {
     /// Validate all fields and return every constraint violation.
     ///
-    /// Returns `Ok(())` if all fields satisfy their invariants. Returns `Err`
-    /// with one [`LimitsError`] per violated field.
+    /// Shared runtime/transport checks delegate to the canonical Plan 179
+    /// kernel ([`crate::runtime_limits`]); static-only budgets are appended
+    /// here. Returns `Ok(())` if all fields satisfy their invariants.
+    /// Returns `Err` with one [`LimitsError`] per violated field.
     pub fn validate(&self) -> Result<(), Vec<LimitsError>> {
-        let mut errors = Vec::new();
-        let max_semaphore_permits = tokio::sync::Semaphore::MAX_PERMITS;
-        if self.max_connections == 0 {
-            errors.push(LimitsError {
-                field: "max_connections",
-                value: "0".into(),
-                constraint: "> 0".into(),
-            });
-        } else if self.max_connections > max_semaphore_permits {
-            errors.push(LimitsError {
-                field: "max_connections",
-                value: self.max_connections.to_string(),
-                constraint: format!("<= {} (Semaphore::MAX_PERMITS)", max_semaphore_permits),
-            });
-        }
-        if self.max_file_streams == 0 {
-            errors.push(LimitsError {
-                field: "max_file_streams",
-                value: "0".into(),
-                constraint: "> 0".into(),
-            });
-        } else if self.max_file_streams > max_semaphore_permits {
-            errors.push(LimitsError {
-                field: "max_file_streams",
-                value: self.max_file_streams.to_string(),
-                constraint: format!("<= {} (Semaphore::MAX_PERMITS)", max_semaphore_permits),
-            });
-        }
-        if self.header_read_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "header_read_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        if self.tls_handshake_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "tls_handshake_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        if self.connection_total_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "connection_total_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        if self.header_read_timeout > self.connection_total_timeout {
-            errors.push(LimitsError {
-                field: "header_read_timeout",
-                value: format!("{}s", self.header_read_timeout.as_secs()),
-                constraint: "<= connection_total_timeout".into(),
-            });
-        }
-        if self.handler_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "handler_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        if self.body_read_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "body_read_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        // A handler or body budget wider than the total connection
-        // lifetime is dead configuration: the connection budget always
-        // fires first and kills the request mid-flight. This mirrors the
-        // RuntimeConfigBuilder::build() cross-field checks so the
-        // ServeConfig bridge cannot bypass them.
-        if self.handler_timeout > self.connection_total_timeout {
-            errors.push(LimitsError {
-                field: "handler_timeout",
-                value: format!("{}s", self.handler_timeout.as_secs()),
-                constraint: "<= connection_total_timeout".into(),
-            });
-        }
-        if self.body_read_timeout > self.connection_total_timeout {
-            errors.push(LimitsError {
-                field: "body_read_timeout",
-                value: format!("{}s", self.body_read_timeout.as_secs()),
-                constraint: "<= connection_total_timeout".into(),
-            });
-        }
-        if self.graceful_shutdown_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "graceful_shutdown_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        if self.stream_chunk_size < 64 {
-            errors.push(LimitsError {
-                field: "stream_chunk_size",
-                value: self.stream_chunk_size.to_string(),
-                constraint: ">= 64".into(),
-            });
-        }
-        if self.stream_chunk_size > 1024 * 1024 {
-            errors.push(LimitsError {
-                field: "stream_chunk_size",
-                value: self.stream_chunk_size.to_string(),
-                constraint: "<= 1048576 (1 MiB)".into(),
-            });
-        }
+        let mut errors: Vec<LimitsError> =
+            crate::runtime_limits::SharedRuntimeValues::from_limits(self)
+                .validate()
+                .into_iter()
+                .map(|v| LimitsError {
+                    field: v.field,
+                    value: v.value,
+                    constraint: v.constraint,
+                })
+                .collect();
         if self.max_listing_response_bytes == 0 {
             errors.push(LimitsError {
                 field: "max_listing_response_bytes",
@@ -315,102 +182,6 @@ impl Limits {
                 field: "max_listing_entries",
                 value: self.max_listing_entries.to_string(),
                 constraint: format!("<= {MAX_LISTING_ENTRIES} (entries)"),
-            });
-        }
-        if self.max_request_body_bytes > MAX_REQUEST_BODY_BYTES {
-            errors.push(LimitsError {
-                field: "max_request_body_bytes",
-                value: self.max_request_body_bytes.to_string(),
-                constraint: format!(
-                    "<= {} (1 GiB), or 0 to reject bodies",
-                    MAX_REQUEST_BODY_BYTES
-                ),
-            });
-        }
-        if self.max_buf_size < MIN_MAX_BUF_SIZE {
-            errors.push(LimitsError {
-                field: "max_buf_size",
-                value: self.max_buf_size.to_string(),
-                constraint: format!(">= {MIN_MAX_BUF_SIZE} (Hyper minimum)"),
-            });
-        } else if self.max_buf_size > MAX_MAX_BUF_SIZE {
-            errors.push(LimitsError {
-                field: "max_buf_size",
-                value: self.max_buf_size.to_string(),
-                constraint: format!("<= {MAX_MAX_BUF_SIZE} (4 MiB)"),
-            });
-        }
-        if self.max_headers == 0 {
-            errors.push(LimitsError {
-                field: "max_headers",
-                value: "0".into(),
-                constraint: "> 0".into(),
-            });
-        } else if self.max_headers > MAX_MAX_HEADERS {
-            errors.push(LimitsError {
-                field: "max_headers",
-                value: self.max_headers.to_string(),
-                constraint: format!("<= {MAX_MAX_HEADERS}"),
-            });
-        }
-        if self.max_header_bytes < MIN_MAX_HEADER_BYTES {
-            errors.push(LimitsError {
-                field: "max_header_bytes",
-                value: self.max_header_bytes.to_string(),
-                constraint: format!(">= {MIN_MAX_HEADER_BYTES}"),
-            });
-        } else if self.max_header_bytes > MAX_MAX_HEADER_BYTES {
-            errors.push(LimitsError {
-                field: "max_header_bytes",
-                value: self.max_header_bytes.to_string(),
-                constraint: format!("<= {MAX_MAX_HEADER_BYTES} (1 MiB)"),
-            });
-        }
-        if self.max_request_target_bytes < MIN_MAX_REQUEST_TARGET_BYTES {
-            errors.push(LimitsError {
-                field: "max_request_target_bytes",
-                value: self.max_request_target_bytes.to_string(),
-                constraint: format!(">= {MIN_MAX_REQUEST_TARGET_BYTES}"),
-            });
-        } else if self.max_request_target_bytes > MAX_MAX_REQUEST_TARGET_BYTES {
-            errors.push(LimitsError {
-                field: "max_request_target_bytes",
-                value: self.max_request_target_bytes.to_string(),
-                constraint: format!("<= {MAX_MAX_REQUEST_TARGET_BYTES} (64 KiB)"),
-            });
-        }
-        if self.max_in_flight_requests == 0 {
-            errors.push(LimitsError {
-                field: "max_in_flight_requests",
-                value: "0".into(),
-                constraint: "> 0".into(),
-            });
-        } else if self.max_in_flight_requests > max_semaphore_permits {
-            errors.push(LimitsError {
-                field: "max_in_flight_requests",
-                value: self.max_in_flight_requests.to_string(),
-                constraint: format!("<= {} (Semaphore::MAX_PERMITS)", max_semaphore_permits),
-            });
-        }
-        if self.keep_alive_idle_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "keep_alive_idle_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
-            });
-        }
-        if self.max_requests_per_connection == Some(0) {
-            errors.push(LimitsError {
-                field: "max_requests_per_connection",
-                value: "0".into(),
-                constraint: ">= 1 or None (unlimited)".into(),
-            });
-        }
-        if self.response_write_timeout.is_zero() {
-            errors.push(LimitsError {
-                field: "response_write_timeout",
-                value: "0s".into(),
-                constraint: "> 0".into(),
             });
         }
         if errors.is_empty() {

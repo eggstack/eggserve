@@ -60,7 +60,14 @@ Transport-level configuration separate from service-level concerns:
 - TLS configuration (feature-gated)
 - Maximum request body size (hard ceiling)
 
-Safe defaults match or strengthen CLI defaults. Configuration is validated at builder time. `connection_total_timeout` keeps its hard-lifetime semantics and is no longer the only way to bound idle/stalled clients; see `docs/timeout-reference.md` for the migration. Migration from `server_header`: `None` is `response_policy.server_identification = None`; use `RuntimeConfigBuilder::server_header(..)` or `RuntimeConfig::server_header_value()`; see `docs/migration-guide.md`.
+Safe defaults match or strengthen CLI defaults and are owned once by the
+Plan 179 canonical kernel (`crate::runtime_limits`). `Limits::validate()`
+delegates shared checks to that kernel; `RuntimeConfigBuilder::build()`
+validates the candidate shared group plus `ResponsePolicy`;
+`RuntimeConfig::validate()` guards hand-constructed configs (fields are
+public); `ServerBuilder::build()`, `RuntimeState::try_new()`, and the
+caller-owned `serve_http1_connection` boundary all enforce before
+semaphore/Hyper use. `connection_total_timeout` keeps its hard-lifetime semantics and is no longer the only way to bound idle/stalled clients; see `docs/timeout-reference.md` for the migration. Migration from `server_header`: `None` is `response_policy.server_identification = None`; use `RuntimeConfigBuilder::server_header(..)` or `RuntimeConfig::server_header_value()`; see `docs/migration-guide.md`. Services may lower request-body ceilings but cannot raise the runtime hard ceiling.
 
 ### Service Trait
 

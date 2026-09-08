@@ -3,25 +3,63 @@
 Single source of truth for every operator-facing configuration field, its
 owner, enforcement path, and cross-frontend mapping.
 
+Plan 179 canonical authority: shared runtime/transport defaults and
+scalar/cross-field validation live once in
+`crates/eggserve-core/src/runtime_limits.rs` (`SharedRuntimeValues` +
+`Violation`). `Limits::default()`, `RuntimeConfig::default()`, builders, and
+the `ServeConfig` bridge consume those values; `Limits::validate()` delegates
+shared checks to the kernel and appends static-only budgets;
+`RuntimeConfigBuilder::build()` builds the candidate shared group once and
+adapts kernel violations to `ServerError::Config`;
+`try_from_serve_config()` validates `Limits` then projects through the single
+`RuntimeConfig::from_shared_runtime` helper. No new knobs were added.
+
 ## Ownership split
 
-**Runtime-owned** (transport, concurrency, timeouts):
+**Runtime/transport** (canonical kernel in `runtime_limits.rs`):
 
-- `RuntimeConfig` fields — connection limits, timeouts, body ceiling
-- `Limits` fields — validated subset fed into `RuntimeConfig`
-- `Limits::stream_chunk_size` — translated once into `RuntimeConfig`
+- Connection/file-stream concurrency, request-body ceiling, HTTP/1
+  parser buffer/header/target limits, in-flight service admission,
+  header/TLS/handshake/handler/body/total/shutdown/keep-alive/response-write
+  timeouts, max requests per connection, file-stream chunk size
+- `RuntimeConfig` fields — transport enforcement; `Limits` fields — validated
+  subset fed into `RuntimeConfig` via the bridge
 - CLI flags (`--max-connections`, `--handler-timeout`, etc.)
 - Python `Server()` constructor params (`max_connections`, `handler_timeout_secs`, etc.)
 
-**Static-service-owned** (filesystem, policy):
+**Static-service-only** (outside the generic runtime):
 
 - `ServeConfig` fields — root directory, bind address, static policy
 - `StaticPolicy` fields — symlink, dotfile, directory listing policies
-- `Limits::max_file_streams` — translated once into `RuntimeConfig` and the
-  one runtime-owned file-stream semaphore
 - `Limits::max_listing_entries`, `max_listing_response_bytes`
+- `Limits::max_extra_headers`, `max_extra_header_bytes` (enforced via
+  `validate_static_metadata_with_limits`, not the transport kernel)
+
+**Frontend-only** (owning surface only):
+
+- Bind exposure acknowledgements, CLI logging format, Python callback
+  concurrency, compatibility-facade response buffering
 
 A setting may be shared by reference, but only one validated value owns enforcement.
+
+## Validation timing
+
+- `Limits::validate()` — shared kernel + static listing budgets, all violations.
+- `RuntimeConfigBuilder::build()` — shared kernel + `ResponsePolicy`, joined
+  `ServerError::Config`.
+- `RuntimeConfig::validate()` — full hand-constructed config check (shared
+  kernel + response policy). Required because `RuntimeConfig` fields are
+  public; builder validation alone is not an invariant boundary.
+- `ServerBuilder::build()` / `static_service()` — reject invalid
+  hand-constructed `RuntimeConfig` before semaphore/Hyper construction.
+- `Server::start_with_service()` — defense-in-depth re-validation.
+- `RuntimeState::try_new()` — validated constructor (preferred);
+  `RuntimeState::new()` validates and panics with context.
+- `serve_http1_connection(_with_id)` — caller-owned boundary: invalid configs
+  log and return `ConnectionOutcome::Internal` instead of panicking a task.
+
+Services may lower request-body ceilings but cannot raise the runtime
+`max_request_body_bytes` hard ceiling.
 
 ## Field inventory
 

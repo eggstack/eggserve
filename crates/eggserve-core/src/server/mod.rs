@@ -153,11 +153,32 @@ impl RuntimeState {
     /// budgets cannot be accidentally omitted. Clone the resulting
     /// `Arc<RuntimeState>` into every
     /// [`connection::serve_http1_connection`] invocation.
+    ///
+    /// # Panics
+    ///
+    /// Panics with an actionable message when `config` fails
+    /// [`RuntimeConfig::validate`]. Prefer [`RuntimeState::try_new`] when the
+    /// configuration is hand-constructed or otherwise untrusted so the error
+    /// is returned instead of panicking. Validation happens before any
+    /// semaphore/Hyper construction so invalid values cannot trigger obscure
+    /// downstream panics.
     pub fn new(config: &RuntimeConfig) -> Self {
-        Self {
+        Self::try_new(config).expect("invalid RuntimeConfig for RuntimeState")
+    }
+
+    /// Validated constructor for the shared admission context (Plan 179 Track C).
+    ///
+    /// Returns [`crate::server::errors::ServerError::Config`] when a
+    /// hand-constructed [`RuntimeConfig`] violates the shared runtime kernel,
+    /// response policy, or semaphore bounds. Running servers obtain their
+    /// context from [`Server::start`] or [`Server::start_with_service`],
+    /// which validate before constructing permits.
+    pub fn try_new(config: &RuntimeConfig) -> Result<Self, crate::server::errors::ServerError> {
+        config.validate()?;
+        Ok(Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
             service_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests)),
-        }
+        })
     }
 
     /// Construct an explicit admission context for legacy adapter migration
@@ -286,10 +307,17 @@ impl ServerBuilder {
     /// Invalid static roots therefore fail during `build()`, before listener
     /// preparation or startup. The serve config must have been set via
     /// [`ServerBuilder::serve_config`] for [`Server::start`] to be available.
+    ///
+    /// Hand-constructed [`RuntimeConfig`] values are validated here (Plan 179
+    /// Track C) so invalid concurrency/timeouts/parser ceilings fail before
+    /// semaphore/Hyper construction.
     pub fn build(self) -> Result<Server, ServerError> {
         let serve_config = self.serve_config;
         let config = match self.runtime_config {
-            Some(c) => c,
+            Some(c) => {
+                c.validate()?;
+                c
+            }
             None => match &serve_config {
                 Some(sc) => config::try_from_serve_config(sc)?,
                 None => {
@@ -320,7 +348,10 @@ impl ServerBuilder {
             ..ServeConfig::default()
         });
         let config = match self.runtime_config {
-            Some(c) => c,
+            Some(c) => {
+                c.validate()?;
+                c
+            }
             None => config::try_from_serve_config(&serve_config)?,
         };
         let builtin_static_service = StaticService::from_serve_config(serve_config)
@@ -376,6 +407,10 @@ impl Server {
             lifecycle,
             listener_source,
         } = self;
+        // Defense-in-depth: `ServerBuilder::build` already validated, but a
+        // future constructor must not silently admit an invalid hand-built
+        // config into semaphore/Hyper construction.
+        runtime_config.validate()?;
         lifecycle.start()?;
 
         let listener = match listener_source {
@@ -391,8 +426,8 @@ impl Server {
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
         let config = Arc::new(runtime_config);
+        let runtime_state = Arc::new(RuntimeState::try_new(&config)?);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
-        let runtime_state = Arc::new(RuntimeState::new(&config));
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
         let shutdown_tx_clone = shutdown_tx.clone();

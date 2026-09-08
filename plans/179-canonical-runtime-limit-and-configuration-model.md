@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — consolidation; no product-surface expansion.**
+**IMPLEMENTED / CLOSED — consolidation; no product-surface expansion.**
 
 Prerequisite: Plan 178 closed. This plan should land before Plan 180 so the connection pipeline is decomposed around one configuration authority rather than moving duplicated validation into additional modules.
 
@@ -205,6 +205,38 @@ Do not add another CI lane. These tests belong in existing routine CI.
 6. Enforce full validation at server/caller-owned runtime boundaries.
 7. Run frontend/TLS/conformance tests and update narrow documentation.
 8. Add a closure record identifying the removed duplicated validators and any experimental API signature correction.
+
+## Closure record
+
+- Track A: ownership inventoried in `architecture/configuration.md` and
+  `runtime_limits.rs` docs — runtime kernel owns 18 transport fields;
+  static-only listing/extra-header budgets stay in `Limits`/`config`;
+  frontend-only controls stay in CLI/Python surfaces.
+- Track B: new crate-private `runtime_limits.rs` owns all shared defaults
+  (`DEFAULT_*`) and `SharedRuntimeValues::validate()` (`Violation`
+  field/value/constraint). `limits.rs` re-exports the authority and keeps only
+  listing constants; `Limits::default()` and `RuntimeConfig::default()` consume
+  it. Removed ~300 lines of duplicated range/cross-field checks.
+- Track C: added `RuntimeConfig::validate()` (shared kernel + response
+  policy) and `RuntimeState::try_new()` (preferred); `new()` validates +
+  panics with context. `ServerBuilder::build()`/`static_service()`,
+  `Server::start_with_service()`, and `serve_http1_connection_with_id`
+  enforce before semaphore/Hyper use (caller-owned logs + `Internal`).
+  Documented in `docs/migration-guide.md` as additive experimental change.
+- Track D: `try_from_serve_config()` validates `Limits` once then projects
+  via single `RuntimeConfig::from_shared_runtime`; static policy/root/MIME
+  untouched; response policy stays explicit.
+- Track E: new `tests/runtime_config_authority.rs` (9 tests) — defaults match,
+  kernel defaults pinned, shared invalid table across Limits/builder/bridge/
+  hand-built, parser boundaries, non-default round-trip, static separation,
+  boundary rejection, caller-owned `Internal` without panic.
+- Track F: `README.md`, `AGENTS.md`, skill, `architecture/configuration.md`,
+  `architecture/runtime.md`, `architecture/eggserve-core.md`,
+  `docs/migration-guide.md` updated; `verify-conformance-matrix.py` green.
+- Verification: `cargo fmt --check`, `cargo clippy --workspace -D warnings`,
+  `cargo test --workspace` (1725 passed), TLS bins/core, `cargo check`
+  python crate, `cargo test --doc`, dist builds, `bash
+  scripts/test-python-wheel.sh` (781 passed) all green locally.
 
 ## Handoff
 

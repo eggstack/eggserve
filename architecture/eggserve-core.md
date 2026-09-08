@@ -158,15 +158,19 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `response_policy` | suppressed `Server`, system-clock `Date`, no denylist, minimal errors | Final-boundary privacy; Hyper auto-`Date` disabled, EggServe sole authority |
 | `max_request_body_bytes` | 0 | Request body size ceiling (0 = reject) |
 
-Note: `Limits` fields map onto `RuntimeConfig` by `try_from_serve_config()`. Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory. Migration from `server_header`: use `response_policy.server_identification` via `RuntimeConfigBuilder::server_header(..)`; see `docs/migration-guide.md`. Static validators are governed by `StaticPolicy.static_metadata` (`plan_file_response_with_preconditions_and_metadata`); see `response-planning.md`.
+Note: shared runtime defaults/validation live once in `crate::runtime_limits`
+(Plan 179); `Limits` fields map onto `RuntimeConfig` by
+`try_from_serve_config()` via `RuntimeConfig::from_shared_runtime`.
+Hyper is currently 1.11.1; `max_buf_size`/`max_headers` are pinned explicitly so upgrades cannot silently widen parser memory. Migration from `server_header`: use `response_policy.server_identification` via `RuntimeConfigBuilder::server_header(..)`; see `docs/migration-guide.md`. Static validators are governed by `StaticPolicy.static_metadata` (`plan_file_response_with_preconditions_and_metadata`); see `response-planning.md`. Static-only listing/extra-header budgets stay outside the runtime kernel.
 
 ### `RuntimeState`
 
-`RuntimeState::new(&config)` creates shared admission (file-stream and
+`RuntimeState::try_new(&config)` (validated; preferred) or `new(&config)`
+(validates, panics with context) creates shared admission (file-stream and
 in-flight-service semaphores)
 for caller-owned streams. Callers must share one `Arc<RuntimeState>` across
 all their connections rather than constructing one per connection; otherwise
-file/response/service budgets become per-connection instead of server-wide.
+file/response/service budgets become per-connection instead of server-wide. Hand-constructed invalid `RuntimeConfig` is rejected here and at `ServerBuilder::build()` / `RuntimeConfig::validate()` / the caller-owned `serve_http1_connection` boundary before semaphore/Hyper use.
 It owns only transport-runtime admission (file-stream and in-flight service
 permits); it never owns static filesystem state
 or routing. The TCP/TLS `Server` constructs this internally and shares it

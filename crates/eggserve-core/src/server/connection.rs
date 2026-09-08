@@ -2013,6 +2013,21 @@ where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
 {
+    // Plan 179 Track C: reject hand-constructed invalid configs before
+    // Hyper/semaphore use. Caller-owned drivers bypass `ServerBuilder`, so
+    // this is the ownership boundary. `hyper_builder` still clamps
+    // `max_buf_size` as last-resort panic protection.
+    if let Err(e) = config.validate() {
+        crate::ops::Logger::global().emit(
+            crate::ops::Event::new(
+                crate::ops::Severity::Error,
+                crate::ops::EventKind::ConnectionRejected,
+                format!("caller-owned connection rejected invalid RuntimeConfig: {e}"),
+            )
+            .connection_id(conn_id),
+        );
+        return ConnectionOutcome::Internal;
+    }
     let io = TokioIo::new(io);
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();

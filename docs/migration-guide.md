@@ -353,6 +353,33 @@ is not required and concurrent polling is unsupported. The former public
 `to_hyper_response_with_file_stream_semaphore()` helper is now runtime-internal
 and is not a supported downstream API.
 
+## Plan 179: canonical runtime limit authority (experimental, additive)
+
+Shared runtime defaults/validation are owned once by the crate-private
+`eggserve_core::runtime_limits` kernel. No public field, default, or accepted
+range changed; error text remains field-identifying and is joined with `"; "`
+when several constraints fail.
+
+Two additive, experimental API points guard hand-constructed configs (fields
+are public, so builder checks alone are insufficient):
+
+- `RuntimeConfig::validate()` — full check (shared kernel + `ResponsePolicy`).
+- `RuntimeState::try_new()` — validated constructor (preferred);
+  `RuntimeState::new()` now validates and panics with context instead of
+  reaching semaphore/Hyper panics.
+
+`ServerBuilder::build()` / `static_service()`,
+`Server::start_with_service()`, and the caller-owned
+`serve_http1_connection(_with_id)` entry enforce the same validation
+(caller-owned invalid configs log and return `ConnectionOutcome::Internal`).
+`try_from_serve_config()` projects through the single
+`RuntimeConfig::from_shared_runtime` helper; static listing/extra-header
+budgets stay service-owned.
+
+Migration: replace `RuntimeState::new(&config)` with
+`RuntimeState::try_new(&config)?` where the config is hand-built or
+untrusted. Valid default/builder configurations require no change.
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional
