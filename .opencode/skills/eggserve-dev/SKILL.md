@@ -63,6 +63,8 @@ Routine CI runs these in two concurrent jobs (`rust` and `python`):
 
 ```sh
 # Rust job
+python3 scripts/verify-conformance-matrix.py                  # corpus/matrix gate (runs first!)
+python3 scripts/check-python-release-metadata.py              # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace                                     # tests
@@ -70,7 +72,8 @@ cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings 
 cargo test -p eggserve-bin --features tls                  # TLS tests
 
 # Python job (via scripts/test-python-wheel.sh)
-# Builds the extension-backed wheel, installs it in a venv, runs smoke + tests
+# Preflight re-runs check-python-release-metadata.py, then
+# builds the extension-backed wheel, installs it in a venv, runs smoke + tests
 ```
 
 Manual platform qualification is separate from routine CI:
@@ -171,8 +174,8 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `FileRange` is a struct `{ start: u64, end_inclusive: u64 }`, not an enum
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`; it also owns `static_metadata: StaticMetadataPolicy` (use `..Default` in literals)
 - **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` behind the `python-bindings-internal` feature (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
-- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. The exact fast-path eligibility and intentional incompatibility contract is maintained in `docs/python-http-server-compatibility.md`. Stock static handlers also support `default_content_type` and ordered safe `extra_response_headers`; those headers are limited to final 200 responses. Handler `protocol_version` must remain HTTP/1.1.
-- **Python lowlevel substrate (Plan 166)** — `eggserve.lowlevel` exposes handler-only `Server(config, handler)` (no static root, same native runtime, no second accept loop), frozen `RuntimeConfig` (Plan 164 controls + safe privacy subset: `server_header`/`date_policy` system|suppress/`stripped_response_headers`/`error_policy` minimal|empty; `None` disables, `0` never unlimited), bounded `Response.stream(status, iterable, headers, content_length)` over a 16-chunk bridge (HEAD/body-forbidden never advance the iterator; async rejected; non-bytes/iterator errors truncate with sanitized type-only logs; no `Transfer-Encoding` from services), and caller-owned `StaticResponder` composition (no routing in EggServe).
+- **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. The exact fast-path eligibility and intentional incompatibility contract is maintained in `docs/python-http-server-compatibility.md`. Stock static handlers also support `default_content_type` and ordered safe `extra_response_headers`; those headers are limited to final 200 responses. Handler `protocol_version` must remain HTTP/1.1. Subprocess helpers are canonically owned by `eggserve.subprocess` (`eggserve.server` keeps compatibility re-exports without expanding `__all__`; top-level `serve_directory` re-exports the subprocess implementation).
+- **Python lowlevel substrate (Plan 166)** — `eggserve.lowlevel` exposes handler-only `Server(config, handler)` (no static root, same native runtime, no second accept loop), frozen `RuntimeConfig` (Plan 164 controls + safe privacy subset: `server_header`/`date_policy` system|suppress/`stripped_response_headers`/`error_policy` minimal|empty; `None` disables, `0` never unlimited; projected via the single `_native_kwargs()` helper, Plan 182), bounded `Response.stream(status, iterable, headers, content_length)` over a 16-chunk bridge (HEAD/body-forbidden never advance the iterator; async rejected; non-bytes/iterator errors truncate with sanitized type-only logs; no `Transfer-Encoding` from services), and caller-owned `StaticResponder` composition (no routing in EggServe).
 - **CLI compatibility polish** — Manual parsing accepts hostname `--bind` values, repeatable `-H/--header` and `--content-type` static metadata, and a combined certificate/key PEM when `--tls-key` is omitted. Header metadata is validated against runtime-owned and hop-by-hop fields. Production admission/lifecycle CLI flags: `--max-in-flight-requests`, `--keep-alive-idle-timeout`, `--max-requests-per-connection` (`0` = unlimited), `--response-write-timeout`, `--max-buf-size`, `--max-headers`, `--max-header-bytes`, `--max-request-target-bytes`.
 - **Python wheel support** — CPython 3.11+ with abi3 stable ABI. Routine CI builds and tests the Linux wheel; macOS and Windows wheels are built manually. Release wheels target 9 platforms: manylinux_2_17 (x86_64, aarch64, armv7l), musllinux_1_2 (x86_64, aarch64), macOS (x86_64, arm64), Windows (x86_64, arm64).
 - **Semaphore bounds** — `max_connections`, `max_file_streams`, and `max_in_flight_requests` are validated once in the Plan 179 kernel (`crate::runtime_limits`) against `tokio::sync::Semaphore::MAX_PERMITS`. Values above this bound are rejected with a controlled error.

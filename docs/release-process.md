@@ -49,7 +49,9 @@ receives only the already-built and already-qualified release artifact set.
 ## Maintainer procedure
 
 1. Synchronize/bump release versions in workspace `Cargo.toml`, Python crate
-   `Cargo.toml`, and `pyproject.toml` (all must agree).
+   `Cargo.toml`, and `pyproject.toml` (all must agree). Keep the excluded
+   Python crate `[profile.dist]` exactly equal to the workspace profile;
+   `scripts/check-python-release-metadata.py` is the cheap preflight for both.
 2. Verify the working tree is clean and routine CI is green.
 3. Run the release preflight locally or rely on the workflow preflight job.
 4. Manually dispatch the release workflow for the intended commit.
@@ -81,7 +83,8 @@ The workflow runs a preflight job before any platform builds:
 - Runs `scripts/check-python-release-metadata.py` to verify version
   agreement across workspace `Cargo.toml`, Python crate `Cargo.toml`,
   `pyproject.toml`, and `__init__.py` (which derives from
-  `importlib.metadata.version("eggserve")`).
+  `importlib.metadata.version("eggserve")`), plus exact `[profile.dist]`
+  equivalence between the workspace and the excluded Maturin crate.
 - Validates `abi3-py311`, `requires-python >=3.11`, and wheel architecture
   contract.
 - Exposes the expected package version as a job output for downstream matrix

@@ -78,14 +78,18 @@ actual native `(host, port)` tuple.
 
 `eggserve.lowlevel` contains the advanced PyO3 wrappers (`SecureRoot`,
 `StaticPolicy`, `RequestTarget`, canonical HTTP types, and body/response
-primitives) plus the Plan 166 public runtime substrate: frozen `RuntimeConfig`,
+primitives) plus the Plan 166 public runtime substrate: frozen `RuntimeConfig`
+(projected via the single `_native_kwargs()` helper; Plan 182),
 handler-only `Server(config, handler)` over the shared native runtime (no
 second accept loop, no static root), bounded `Response.stream` (16-chunk
 backpressured bridge; HEAD/body-forbidden never advance the iterator; async
 rejected; `Transfer-Encoding` never service-set), and caller-owned
-`StaticResponder` composition. `eggserve.subprocess` contains `ServeConfig`, `ServerProcess`,
-`StaticPolicy`, and the `serve_directory` convenience. The top-level package
-only re-exports the version, `serve_directory`, and the six façade classes.
+`StaticResponder` composition. `eggserve.subprocess` is the canonical owner of
+`ServeConfig`, `ServerProcess`, `StaticPolicy`, and the `serve_directory`
+convenience (Plan 182); `eggserve.server` keeps compatibility re-exports of
+those names without expanding its six-class `__all__`. The top-level package
+only re-exports the version, `serve_directory` (from `eggserve.subprocess`),
+and the six façade classes.
 
 The native callback `Server` backs both the facade and `lowlevel.Server`;
 `StaticResponder`, `ServerSecureRoot`, and `ServerBodySource` back the public
@@ -111,9 +115,9 @@ crates/eggserve-python/
     ├── __init__.py     # small supported top-level namespace
     ├── _bin.py         # CLI entry point via native _run_cli
     ├── __main__.py     # python -m eggserve support
-    ├── server.py       # six-class Rust-runtime compatibility façade
-    ├── lowlevel.py     # advanced native exports
-    └── subprocess.py   # optional subprocess lifecycle exports
+    ├── server.py       # six-class Rust-runtime compatibility façade (plus subprocess compat re-exports)
+    ├── lowlevel.py     # advanced native exports + handler/runtime substrate
+    └── subprocess.py   # canonical subprocess/CLI convenience owner
 ```
 
 ## Security boundary
@@ -152,4 +156,7 @@ wheel, installs it into a clean CPython environment (CI default: 3.14 with
 the focused compatibility, TLS, low-level, lifecycle, and boundary tests with
 `unittest`. The CI default is a test-interpreter constraint, not a package
 requirement; release wheels are built against the CPython 3.11 ABI baseline.
-Subprocess helpers are isolated in `eggserve.subprocess`.
+Subprocess helpers are canonically owned by `eggserve.subprocess`
+(`eggserve.server` retains compatibility re-exports). Release version and
+`[profile.dist]` sync is guarded cheaply by
+`scripts/check-python-release-metadata.py` before wheel builds.

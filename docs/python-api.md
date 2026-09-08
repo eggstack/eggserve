@@ -82,6 +82,15 @@ client certificates, ACME, or certificate reload is provided.
 
 ## Convenience and advanced namespaces
 
+Module ownership (Plan 182): `eggserve.server` is the six-class
+stdlib-shaped compatibility facade; `eggserve.lowlevel` is the bounded
+handler/runtime embedding surface; `eggserve.subprocess` is the canonical
+owner of the optional subprocess/CLI convenience API (`ServeConfig`,
+`ServerProcess`, `StaticPolicy`, `serve_directory`). `eggserve.server`
+re-exports the subprocess names for compatibility without expanding its
+`__all__`, and top-level `eggserve.serve_directory` re-exports the
+subprocess implementation.
+
 `serve_directory()` is a blocking convenience at `eggserve.serve_directory`.
 `ServeConfig`, `ServerProcess`, and `StaticPolicy` live in
 `eggserve.subprocess`. Security-sensitive embedding primitives such as
@@ -114,7 +123,10 @@ server.wait()
   `max_requests_per_connection` (`None` disables, `0` rejected), TLS files,
   and the safe privacy subset (`server_header`, `date_policy`
   `system`/`suppress`, `stripped_response_headers`, `error_policy`
-  `minimal`/`empty`). Custom Rust clocks stay Rust-only.
+  `minimal`/`empty`). Custom Rust clocks stay Rust-only. Projection to the
+  native constructor flows through the single `_native_kwargs()` helper;
+  only Python-domain enum/`None` checks live in Python and Rust remains
+  the final limit authority.
 - `Response.stream(status, iterable, headers, content_length)` consumes a
   synchronous bytes iterable incrementally through a bounded 16-chunk bridge:
   backpressure stalls the iterator, `content_length` selects known-length
@@ -132,7 +144,8 @@ bounded application servers. The runnable demonstration is
 `examples/python_lowlevel_service.py` (buffered plus bounded streamed
 responses, `create_server()` with ephemeral-port support). The experimental
 Python HTTP client is not part of the supported package surface. Subprocess
-lifecycle helpers are under `eggserve.subprocess`; `_native` remains private
+lifecycle helpers are under `eggserve.subprocess` (a process-management
+convenience, not the preferred in-process embedding API); `_native` remains private
 implementation detail.
 
 ## Compatibility boundary

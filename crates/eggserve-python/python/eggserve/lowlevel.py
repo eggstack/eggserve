@@ -135,6 +135,47 @@ class RuntimeConfig:
         if self.max_requests_per_connection is not None and self.max_requests_per_connection <= 0:
             raise ValueError("max_requests_per_connection must be >= 1 or None (unlimited)")
 
+    def _native_kwargs(self) -> dict:
+        """Project this config into ``_NativeServer`` keyword arguments.
+
+        Single Python-to-native projection path (Plan 182): ``Server``
+        consumes this helper instead of listing every field independently,
+        so a new/renamed runtime field cannot get a Python default without
+        being forwarded. Only Python-domain enum/``None`` checks live in
+        ``__post_init__``; Rust remains the final authority for runtime
+        limits. ``stripped_response_headers`` is materialized as a list for
+        the native constructor.
+        """
+        return {
+            "bind": self.bind,
+            "port": self.port,
+            "public": self.public,
+            "max_connections": self.max_connections,
+            "max_file_streams": self.max_file_streams,
+            "max_python_callbacks": self.max_python_callbacks,
+            "header_timeout_secs": self.header_timeout_secs,
+            "connection_total_timeout_secs": self.connection_total_timeout_secs,
+            "handler_timeout_secs": self.handler_timeout_secs,
+            "graceful_shutdown_timeout_secs": self.graceful_shutdown_timeout_secs,
+            "request_body_mode": self.request_body_mode,
+            "max_request_body_bytes": self.max_request_body_bytes,
+            "body_timeout_secs": self.body_timeout_secs,
+            "tls_certfile": self.tls_certfile,
+            "tls_keyfile": self.tls_keyfile,
+            "max_in_flight_requests": self.max_in_flight_requests,
+            "max_buf_size": self.max_buf_size,
+            "max_headers": self.max_headers,
+            "max_header_bytes": self.max_header_bytes,
+            "max_request_target_bytes": self.max_request_target_bytes,
+            "keep_alive_idle_timeout_secs": self.keep_alive_idle_timeout_secs,
+            "max_requests_per_connection": self.max_requests_per_connection,
+            "response_write_timeout_secs": self.response_write_timeout_secs,
+            "server_header": self.server_header,
+            "date_policy": self.date_policy,
+            "stripped_response_headers": list(self.stripped_response_headers),
+            "error_policy": self.error_policy,
+        }
+
 
 class Server:
     """Handler-only low-level server over the shared Rust runtime.
@@ -165,36 +206,12 @@ class Server:
             raise TypeError("handler must be callable")
         cfg = config or RuntimeConfig()
         # Handler-only: no static root is constructed or validated.
+        # Single projection path: every RuntimeConfig field flows through
+        # _native_kwargs() so defaults cannot drift from forwarding.
         self._native = _NativeServer(
             None,
-            bind=cfg.bind,
-            port=cfg.port,
             handler=handler,
-            public=cfg.public,
-            max_connections=cfg.max_connections,
-            max_file_streams=cfg.max_file_streams,
-            max_python_callbacks=cfg.max_python_callbacks,
-            header_timeout_secs=cfg.header_timeout_secs,
-            connection_total_timeout_secs=cfg.connection_total_timeout_secs,
-            handler_timeout_secs=cfg.handler_timeout_secs,
-            graceful_shutdown_timeout_secs=cfg.graceful_shutdown_timeout_secs,
-            request_body_mode=cfg.request_body_mode,
-            max_request_body_bytes=cfg.max_request_body_bytes,
-            body_timeout_secs=cfg.body_timeout_secs,
-            tls_certfile=cfg.tls_certfile,
-            tls_keyfile=cfg.tls_keyfile,
-            max_in_flight_requests=cfg.max_in_flight_requests,
-            max_buf_size=cfg.max_buf_size,
-            max_headers=cfg.max_headers,
-            max_header_bytes=cfg.max_header_bytes,
-            max_request_target_bytes=cfg.max_request_target_bytes,
-            keep_alive_idle_timeout_secs=cfg.keep_alive_idle_timeout_secs,
-            max_requests_per_connection=cfg.max_requests_per_connection,
-            response_write_timeout_secs=cfg.response_write_timeout_secs,
-            server_header=cfg.server_header,
-            date_policy=cfg.date_policy,
-            stripped_response_headers=list(cfg.stripped_response_headers),
-            error_policy=cfg.error_policy,
+            **cfg._native_kwargs(),
         )
 
     @property

@@ -299,6 +299,11 @@ context. The supported public façade is intentionally small:
 | `eggserve.lowlevel` | advanced Rust-backed primitives | experimental |
 | `eggserve.subprocess` | `ServeConfig`, `ServerProcess`, `StaticPolicy`, `serve_directory` | experimental |
 
+`eggserve.subprocess` is the canonical owner of the subprocess convenience
+implementation. `eggserve.server` re-exports those names for compatibility
+without expanding its six-class `__all__`; `lowlevel.RuntimeConfig` projects
+to native kwargs through the single `_native_kwargs()` helper.
+
 <details>
 <summary>Historical Python API tables (superseded; retained only for migration history)</summary>
 
@@ -408,9 +413,9 @@ context. The supported public façade is intentionally small:
 | Name | Location | Tier |
 |------|----------|------|
 | `main()` | `_bin.py` | internal |
-| `_parse_bind()` | `server.py` | internal |
-| `_config_to_argv()` | `server.py` | internal |
-| `_VALID_LOG_FORMATS` | `server.py` | internal |
+| `_parse_bind()` | `subprocess.py` (re-exported from `server.py` for compatibility) | internal |
+| `_config_to_argv()` | `subprocess.py` (re-exported from `server.py` for compatibility) | internal |
+| `_VALID_LOG_FORMATS` | `subprocess.py` | internal |
 
 </details>
 

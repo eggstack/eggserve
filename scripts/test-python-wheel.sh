@@ -46,6 +46,10 @@ assert v >= (3, 11), f'Python {v.major}.{v.minor} < 3.11'
 "$PYTHON" -m maturin --version >/dev/null 2>&1 || die "maturin not found. Install: pip install maturin==1.14.1"
 command -v cargo >/dev/null 2>&1 || die "cargo not found."
 
+# Cheap release-metadata preflight before the expensive wheel build.
+info "Checking release metadata sync"
+"$PYTHON" "$REPO_ROOT/scripts/check-python-release-metadata.py" || die "release metadata sync failed"
+
 # Build wheel
 DIST_DIR="$(mktemp -d)"
 info "Building wheel into $DIST_DIR"
@@ -297,7 +301,7 @@ import tempfile
 import time
 from pathlib import Path
 
-from eggserve.server import ServeConfig, ServerProcess, StaticPolicy
+from eggserve.subprocess import ServeConfig, ServerProcess, StaticPolicy
 
 with tempfile.TemporaryDirectory(prefix="eggserve-proc-") as root:
     fixture = b"serverprocess smoke\n"

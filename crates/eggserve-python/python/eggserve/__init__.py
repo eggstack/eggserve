@@ -17,7 +17,9 @@ from eggserve.server import (
     ThreadingHTTPServer,
     ThreadingHTTPSServer,
 )
-from eggserve.server import serve_directory
+# Canonical owner of the blocking convenience is eggserve.subprocess;
+# the top-level name is preserved as a re-export.
+from eggserve.subprocess import serve_directory
 
 try:
     import eggserve._native as _native

@@ -9,15 +9,17 @@ server executable.
 
 ```
 crates/eggserve-python/
-├── Cargo.toml              # depends on eggserve-core + pyo3
-├── pyproject.toml          # maturin build backend
+├── Cargo.toml              # depends on eggserve-core + pyo3 (version + [profile.dist] mirror workspace)
+├── pyproject.toml          # maturin build backend (version mirrors workspace)
 ├── src/lib.rs              # PyO3 native module (_native)
 ├── python/eggserve/
-│   ├── __init__.py         # exports version, ServeConfig, StaticPolicy, serve_directory
+│   ├── __init__.py         # exports version, six facade classes, serve_directory (re-export)
 │   ├── __main__.py         # python -m eggserve entrypoint
 │   ├── _bin.py             # invokes the extension-backed CLI entry point
-│   ├── server.py           # Python API implementation
-│   └── test_server.py      # Python API tests
+│   ├── server.py           # six-class compatibility facade (plus subprocess compat re-exports)
+│   ├── lowlevel.py         # handler/runtime embedding surface (RuntimeConfig._native_kwargs)
+│   ├── subprocess.py       # canonical subprocess/CLI convenience owner
+│   └── test_server.py      # Python API tests (see tests/ for the full suite)
 ├── packaging-tests/        # standalone installed-wheel validation
 │   ├── run_all.sh          # fresh venv + install + run all smoke tests
 │   ├── test_imports.py     # import validation, version, native extension
@@ -120,10 +122,16 @@ The release version must be identical across three packaging surfaces:
    metadata via `importlib.metadata.version("eggserve")`, so it cannot drift
    independently after installation
 
+The excluded Maturin crate also mirrors the workspace `[profile.dist]`
+(`inherits`, `opt-level`, `lto`, `codegen-units`, `strip`); the two profiles
+must remain exactly equal.
+
 A preflight check script (`scripts/check-python-release-metadata.py`) validates
-that all version surfaces agree before any release build begins. This script
-uses only the Python standard library and runs as the first step of the release
-workflow.
+that all version surfaces agree and that the distribution profiles match
+before any release build begins. This script uses only the Python standard
+library and runs as the first step of the release workflow; it also runs in
+routine CI and at the top of `scripts/test-python-wheel.sh` so drift fails
+before expensive wheel builds.
 
 ## Entry points
 

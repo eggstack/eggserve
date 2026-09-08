@@ -1,9 +1,16 @@
-"""Python API for eggserve.
+"""Six-class ``http.server``-shaped compatibility facade (canonical owner).
 
-Provides the supported six-class ``http.server``-shaped façade over the
-Rust-owned runtime, plus the separate subprocess convenience helpers exposed
-from ``eggserve.subprocess``. Static resolution, socket ownership, framing,
-and streaming remain native operations.
+This module owns the supported ``HTTPServer`` / ``ThreadingHTTPServer`` /
+``HTTPSServer`` / ``ThreadingHTTPSServer`` / ``BaseHTTPRequestHandler`` /
+``SimpleHTTPRequestHandler`` facade over the Rust-owned runtime. Static
+resolution, socket ownership, framing, and streaming remain native
+operations.
+
+Subprocess convenience helpers (``ServeConfig``, ``ServerProcess``,
+``StaticPolicy``, ``serve_directory``) are canonically owned by
+``eggserve.subprocess`` and are only re-exported here for compatibility.
+New code should import them from ``eggserve.subprocess`` (or
+``eggserve.serve_directory`` for the top-level convenience).
 
 The compatibility classes in this module are a narrow, bounded facade over
 the Rust-owned runtime. They are not an ASGI/WSGI server or web framework.
@@ -18,16 +25,23 @@ import html
 import mimetypes
 import os
 import socket
-import subprocess
-import sys
 import threading
 import time
 from http import HTTPStatus
 from email.message import Message
-from dataclasses import dataclass, field
-from pathlib import Path
-from typing import Literal, Optional
 from functools import partial
+
+# Compatibility re-exports: canonical owner is eggserve.subprocess.
+# Kept near the module boundary so ownership is obvious; this module must
+# not become the implementation home for subprocess convenience APIs.
+from eggserve.subprocess import (
+    ServeConfig,
+    ServerProcess,
+    StaticPolicy,
+    _config_to_argv,
+    _parse_bind,
+    serve_directory,
+)
 
 
 __all__ = [
@@ -823,278 +837,16 @@ class SimpleHTTPRequestHandler(BaseHTTPRequestHandler):
         )
 
 
-@dataclass(frozen=True)
-class StaticPolicy:
-    """Filesystem access policy for the server.
-
-    All defaults are safe. Unsafe behaviors require explicit opt-in.
-    """
-
-    directory_listing: bool = False
-    follow_symlinks: bool = False
-    allow_dotfiles: bool = False
-
-
-_VALID_LOG_FORMATS = frozenset({"text", "json", "none"})
-
-
-def _parse_bind(bind: str) -> tuple[str, Optional[int]]:
-    """Parse ``bind`` into ``(host, port)``.
-
-    Accepts either a bare IP address (host-only; port carried separately
-    via ``ServeConfig.port``) or a ``HOST:PORT`` socket address. IPv6
-    host:port forms must use brackets (e.g. ``[::1]:8000``) to disambiguate
-    colons in the address. Returns ``(host, port_or_none)``. Raises
-    ``ValueError`` for unparseable values.
-    """
-    if not isinstance(bind, str):
-        raise ValueError(
-            f"bind must be a str, got {type(bind).__name__}: {bind!r}"
-        )
-    # Bracketed IPv6 socket form: [host]:port
-    if bind.startswith("["):
-        end = bind.find("]")
-        if end == -1:
-            raise ValueError(f"invalid bind address {bind!r}: missing ']'")
-        host = bind[1:end]
-        rest = bind[end + 1:]
-        if not rest.startswith(":"):
-            raise ValueError(f"invalid bind address {bind!r}: expected ':' after ']'")
-        try:
-            port = int(rest[1:])
-        except ValueError as exc:
-            raise ValueError(
-                f"invalid bind address {bind!r}: bad port: {exc}"
-            ) from None
-        if not (0 <= port <= 65535):
-            raise ValueError(f"invalid bind address {bind!r}: port out of range")
-        try:
-            ipaddress.ip_address(host)
-        except ValueError as exc:
-            raise ValueError(
-                f"invalid bind address {bind!r}: {exc}"
-            ) from None
-        return (host, port)
-    # Bare IPv6 (no brackets): multiple colons mean it can't carry a port.
-    if bind.count(":") > 1:
-        try:
-            ipaddress.ip_address(bind)
-        except ValueError as exc:
-            raise ValueError(
-                f"invalid bind address {bind!r}: {exc}"
-            ) from None
-        return (bind, None)
-    # HOST:PORT for IPv4 or hostname. We require an IP literal here so
-    # the public-bind guard is unambiguous.
-    if ":" in bind:
-        host, port_str = bind.rsplit(":", 1)
-        try:
-            port = int(port_str)
-        except ValueError as exc:
-            raise ValueError(
-                f"invalid bind address {bind!r}: bad port: {exc}"
-            ) from None
-        if not (0 <= port <= 65535):
-            raise ValueError(f"invalid bind address {bind!r}: port out of range")
-        try:
-            ipaddress.ip_address(host)
-        except ValueError as exc:
-            raise ValueError(
-                f"invalid bind address {bind!r}: {exc}"
-            ) from None
-        return (host, port)
-    # Bare IPv4.
-    try:
-        ipaddress.ip_address(bind)
-    except ValueError as exc:
-        raise ValueError(
-            f"invalid bind address {bind!r}: {exc}"
-        ) from None
-    return (bind, None)
-
-
-@dataclass(frozen=True)
-class ServeConfig:
-    """Configuration for the eggserve static file server.
-
-    Defaults match the CLI and Rust core safe-by-default behavior:
-    loopback bind, no directory listing, no symlinks, no dotfiles.
-
-    Validation runs in ``__post_init__``: an invalid bind, port,
-    ``log_format``, or public-bind combination raises ``ValueError``
-    before any subprocess is spawned. The Rust CLI performs the same
-    checks independently as defense in depth.
-    """
-
-    directory: str | Path = "."
-    bind: str = "127.0.0.1"
-    port: int = 8000
-    public: bool = False
-    policy: StaticPolicy = field(default_factory=StaticPolicy)
-    log_format: Literal["text", "json", "none"] = "text"
-
-    def __post_init__(self) -> None:
-        if not isinstance(self.port, int) or isinstance(self.port, bool):
-            raise ValueError(
-                f"port must be an int, got {type(self.port).__name__}: {self.port!r}"
-            )
-        if not (1 <= self.port <= 65535):
-            raise ValueError(
-                f"port must be between 1 and 65535, got {self.port}"
-            )
-        host, embedded_port = _parse_bind(self.bind)
-        if embedded_port is not None and embedded_port != self.port:
-            raise ValueError(
-                f"bind={self.bind!r} carries port {embedded_port} but "
-                f"port={self.port}; omit the port from bind or use the same value"
-            )
-        if self.log_format not in _VALID_LOG_FORMATS:
-            raise ValueError(
-                f"log_format must be one of {sorted(_VALID_LOG_FORMATS)}, "
-                f"got {self.log_format!r}"
-            )
-        if not self.public and ipaddress.ip_address(host).is_unspecified:
-            raise ValueError(
-                f"binding to {self.bind} requires public=True "
-                "to acknowledge public exposure intent"
-            )
-
-
-def _config_to_argv(config: ServeConfig) -> list[str]:
-    """Translate a ServeConfig into CLI arguments for the eggserve binary."""
-    argv: list[str] = []
-
-    argv.extend(["--directory", str(config.directory)])
-    host, _ = _parse_bind(config.bind)
-    argv.extend(["--bind", host])
-    argv.extend(["--port", str(config.port)])
-
-    if config.public:
-        argv.append("--public")
-
-    if config.policy.directory_listing:
-        argv.append("--directory-listing")
-    if config.policy.follow_symlinks:
-        argv.append("--follow-symlinks")
-    if config.policy.allow_dotfiles:
-        argv.append("--allow-dotfiles")
-
-    if config.log_format != "text":
-        argv.extend(["--log-format", config.log_format])
-
-    return argv
-
-
-def serve_directory(
-    directory: str | Path = ".",
-    *,
-    bind: str = "127.0.0.1",
-    port: int = 8000,
-    public: bool = False,
-    policy: Optional[StaticPolicy] = None,
-    log_format: Literal["text", "json", "none"] = "text",
-) -> None:
-    """Start a blocking static file server.
-
-    Runs until interrupted (KeyboardInterrupt) or the process exits.
-    This is a programmatic equivalent of ``eggserve`` on the command line.
-
-    Args:
-        directory: Root directory to serve (default: current directory).
-        bind: Bind address (default: 127.0.0.1).
-        port: Listen port (default: 8000).
-        public: Acknowledge public exposure intent (required for 0.0.0.0).
-        policy: Filesystem access policy (safe defaults if omitted).
-        log_format: Log output format: "text", "json", or "none".
-
-    Raises:
-        ValueError: If configuration is invalid (port, log_format, or
-            public-bind combination).
-    """
-    config = ServeConfig(
-        directory=directory,
-        bind=bind,
-        port=port,
-        public=public,
-        policy=policy or StaticPolicy(),
-        log_format=log_format,
-    )
-    proc = ServerProcess(config)
-    proc.start()
-    try:
-        proc.wait()
-    except KeyboardInterrupt:
-        proc.stop()
-
-
-class ServerProcess:
-    """Manage an eggserve subprocess.
-
-    Launches ``sys.executable -m eggserve`` as a real child process for use
-    in tests and simple embedding. The subprocess uses the same installed
-    wheel/native extension as the parent. This is a subprocess lifecycle
-    manager, not a Python server object.
-    """
-
-    def __init__(self, config: ServeConfig) -> None:
-        self._config = config
-        self._process: Optional[subprocess.Popen] = None
-
-    def start(self) -> None:
-        """Start the server subprocess.
-
-        Raises:
-            RuntimeError: If the server is already running.
-        """
-        if self._process is not None:
-            raise RuntimeError("server is already running")
-
-        config = self._config
-
-        argv = [sys.executable, "-m", "eggserve"] + _config_to_argv(config)
-
-        self._process = subprocess.Popen(
-            argv,
-            stdout=subprocess.PIPE if config.log_format == "none" else None,
-            stderr=subprocess.PIPE if config.log_format == "none" else None,
-        )
-
-    def stop(self, timeout: float | None = None) -> None:
-        """Stop the server subprocess.
-
-        Args:
-            timeout: Seconds to wait for graceful shutdown before killing.
-        """
-        if self._process is None:
-            return
-
-        process = self._process
-        process.terminate()
-        try:
-            process.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.communicate()
-        self._process = None
-
-    def wait(self) -> int:
-        """Wait for the server to exit. Returns the exit code."""
-        if self._process is None:
-            raise RuntimeError("server is not running")
-        returncode = self._process.wait()
-        self._process = None
-        return returncode
-
-    @property
-    def is_running(self) -> bool:
-        """Check if the server subprocess is still running."""
-        if self._process is None:
-            return False
-        return self._process.poll() is None
-
-    @property
-    def pid(self) -> Optional[int]:
-        """The PID of the server subprocess, or None if not started."""
-        if self._process is None:
-            return None
-        return self._process.pid
+# --- Compatibility re-exports (canonical owner: eggserve.subprocess) ---
+# ServeConfig, ServerProcess, StaticPolicy, serve_directory, _parse_bind,
+# and _config_to_argv are imported at the top of this module. They remain
+# accessible as eggserve.server attributes for compatibility; new code
+# should import them from eggserve.subprocess.
+__all_compat__ = (
+    "ServeConfig",
+    "ServerProcess",
+    "StaticPolicy",
+    "serve_directory",
+)
+assert all(name in globals() for name in __all_compat__), 'subprocess compat re-exports missing'
+del __all_compat__

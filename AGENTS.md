@@ -53,6 +53,7 @@ Routine CI (`.github/workflows/ci.yml`) runs two concurrent jobs:
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix consistency gate (runs first!)
+python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo clippy --workspace --lib --bins --tests -- -D warnings   # warnings are errors
 cargo test --workspace
@@ -60,6 +61,7 @@ cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings 
 cargo test -p eggserve-bin --features tls                   # TLS tests
 
 # python job: bash scripts/test-python-wheel.sh
+# preflight re-runs check-python-release-metadata.py, then
 # builds wheel with maturin, installs in venv, runs smoke + tests
 ```
 
@@ -161,8 +163,8 @@ Routine CI is a small regression screen, not release certification. Platform qua
 
 ### Python facade
 
-- Supported API is `eggserve.server`: `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, `SimpleHTTPRequestHandler`. Advanced primitives live in `eggserve.lowlevel`; CLI subprocess helpers in `eggserve.subprocess`. Native callback/client types are not top-level supported APIs.
-- `eggserve.lowlevel` is the public runtime/service substrate: handler-only `Server(config, handler)` requiring no static root (same native runtime as the facade, no second accept loop), frozen `RuntimeConfig` (Plan 164 controls + safe privacy subset, `None` disables, `0` never means unlimited), bounded `Response.stream(status, iterable, headers, content_length)` over a 16-chunk backpressured bridge (HEAD/body-forbidden never advance the iterator; async producers rejected), and `StaticResponder` composition owned by the caller (no routing in EggServe).
+- Supported API is `eggserve.server`: `HTTPServer`, `ThreadingHTTPServer`, `HTTPSServer`, `ThreadingHTTPSServer`, `BaseHTTPRequestHandler`, `SimpleHTTPRequestHandler`. Advanced primitives live in `eggserve.lowlevel`; CLI subprocess helpers are canonically owned by `eggserve.subprocess` (`eggserve.server` keeps compatibility re-exports without expanding `__all__`; top-level `serve_directory` re-exports the subprocess implementation). Native callback/client types are not top-level supported APIs.
+- `eggserve.lowlevel` is the public runtime/service substrate: handler-only `Server(config, handler)` requiring no static root (same native runtime as the facade, no second accept loop), frozen `RuntimeConfig` (Plan 164 controls + safe privacy subset, `None` disables, `0` never means unlimited; projected via the single `_native_kwargs()` helper with Rust as final limit authority), bounded `Response.stream(status, iterable, headers, content_length)` over a 16-chunk backpressured bridge (HEAD/body-forbidden never advance the iterator; async producers rejected), and `StaticResponder` composition owned by the caller (no routing in EggServe).
 - Stock `SimpleHTTPRequestHandler` with default settings bypasses Python dispatch entirely (native fast path). Eligibility is exact: bare class, or a `functools.partial` whose `.func` is exactly `SimpleHTTPRequestHandler`, `.args` empty, `.keywords` ⊆ `{directory, extra_response_headers}`. Subclasses and other settings fall back to the Python callback path.
 - `default_content_type` and ordered `extra_response_headers` are native static metadata; extras apply only to final 200 responses. Fast-path concurrency is enforced natively (non-threading classes → 1 connection, `Threading*(N)` → N). Handler `protocol_version` is constrained to HTTP/1.1.
 - Wheels: CPython 3.11+ (abi3). Routine CI tests Linux only; release wheels target 9 platforms (manylinux_2_17 x86_64/aarch64/armv7, musllinux_1_2 x86_64/aarch64, macOS x86_64/arm64, Windows x86_64/arm64). Wheel ships the `eggserve` console script and `python -m eggserve` backed by the native extension — no separate bundled binary.

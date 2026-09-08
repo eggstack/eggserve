@@ -74,6 +74,40 @@ def main() -> int:
             if v != expected_version:
                 errors.append(f"{label} version {v!r} != expected {expected_version!r}")
 
+    # --- B2b: Distribution profile sync (Plan 182 Track C) ---
+    # The Maturin crate is intentionally excluded from the workspace so it
+    # can build independently; its [profile.dist] must remain equivalent to
+    # the workspace profile. Compare the required release-critical keys.
+    for label, cargo_data in (
+        ("workspace Cargo.toml", workspace),
+        ("python crate Cargo.toml", py_cargo_data),
+    ):
+        profile = cargo_data.get("profile", {}).get("dist")
+        if not isinstance(profile, dict):
+            errors.append(f"{label} is missing [profile.dist]")
+            continue
+        for key, expected in (
+            ("inherits", "release"),
+            ("opt-level", "z"),
+            ("lto", "fat"),
+            ("codegen-units", 1),
+            ("strip", "symbols"),
+        ):
+            if profile.get(key) != expected:
+                errors.append(
+                    f"{label} [profile.dist].{key} == {profile.get(key)!r}, "
+                    f"expected {expected!r}"
+                )
+
+    workspace_dist = workspace.get("profile", {}).get("dist", {})
+    py_dist = py_cargo_data.get("profile", {}).get("dist", {})
+    if isinstance(workspace_dist, dict) and isinstance(py_dist, dict):
+        if workspace_dist != py_dist:
+            errors.append(
+                f"[profile.dist] drift: workspace {workspace_dist!r} != "
+                f"python crate {py_dist!r}"
+            )
+
     # --- B3: Python compatibility contract ---
     requires_python = pyproject.get("project", {}).get("requires-python", "")
     if "3.11" not in requires_python:

@@ -652,5 +652,99 @@ class TlsAndLifecycleTests(unittest.TestCase):
             srv.wait()
 
 
+class ProjectionCompletenessTests(unittest.TestCase):
+    """Plan 182 B3: every supported RuntimeConfig field reaches native kwargs."""
+
+    def _non_default_config(self):
+        return lowlevel.RuntimeConfig(
+            bind="127.0.0.1",
+            port=0,
+            public=False,
+            max_connections=16,
+            max_file_streams=8,
+            max_python_callbacks=2,
+            max_in_flight_requests=4,
+            header_timeout_secs=5,
+            connection_total_timeout_secs=20,
+            handler_timeout_secs=7,
+            body_timeout_secs=9,
+            graceful_shutdown_timeout_secs=3,
+            keep_alive_idle_timeout_secs=15,
+            max_requests_per_connection=10,
+            response_write_timeout_secs=11,
+            max_buf_size=8192,
+            max_headers=50,
+            max_header_bytes=8192,
+            max_request_target_bytes=1024,
+            request_body_mode="buffer",
+            max_request_body_bytes=1024,
+            tls_certfile=None,
+            tls_keyfile=None,
+            server_header="test-agent",
+            date_policy="suppress",
+            stripped_response_headers=("x-powered-by",),
+            error_policy="empty",
+        )
+
+    def test_native_kwargs_covers_all_fields(self):
+        cfg = self._non_default_config()
+        kwargs = cfg._native_kwargs()
+        expected = {
+            "bind": "127.0.0.1",
+            "port": 0,
+            "public": False,
+            "max_connections": 16,
+            "max_file_streams": 8,
+            "max_python_callbacks": 2,
+            "header_timeout_secs": 5,
+            "connection_total_timeout_secs": 20,
+            "handler_timeout_secs": 7,
+            "graceful_shutdown_timeout_secs": 3,
+            "request_body_mode": "buffer",
+            "max_request_body_bytes": 1024,
+            "body_timeout_secs": 9,
+            "tls_certfile": None,
+            "tls_keyfile": None,
+            "max_in_flight_requests": 4,
+            "max_buf_size": 8192,
+            "max_headers": 50,
+            "max_header_bytes": 8192,
+            "max_request_target_bytes": 1024,
+            "keep_alive_idle_timeout_secs": 15,
+            "max_requests_per_connection": 10,
+            "response_write_timeout_secs": 11,
+            "server_header": "test-agent",
+            "date_policy": "suppress",
+            "stripped_response_headers": ["x-powered-by"],
+            "error_policy": "empty",
+        }
+        self.assertEqual(kwargs, expected)
+
+    def test_server_forwards_single_projection(self):
+        from unittest.mock import MagicMock, patch
+
+        cfg = self._non_default_config()
+        handler = lambda req: lowlevel.Response.text(200, "ok")  # noqa: E731
+        with patch("eggserve.lowlevel._NativeServer") as mock_native:
+            mock_native.return_value = MagicMock()
+            srv = lowlevel.Server(config=cfg, handler=handler)
+            self.assertIsNotNone(srv._native)
+        mock_native.assert_called_once()
+        _, call_kwargs = mock_native.call_args
+        self.assertIsNone(mock_native.call_args[0][0])
+        self.assertIs(call_kwargs.pop("handler"), handler)
+        self.assertEqual(call_kwargs, cfg._native_kwargs())
+
+    def test_default_projection_matches_defaults(self):
+        kwargs = lowlevel.RuntimeConfig()._native_kwargs()
+        self.assertEqual(kwargs["bind"], "127.0.0.1")
+        self.assertEqual(kwargs["port"], 8000)
+        self.assertEqual(kwargs["request_body_mode"], "reject")
+        self.assertEqual(kwargs["date_policy"], "system")
+        self.assertEqual(kwargs["error_policy"], "minimal")
+        self.assertEqual(kwargs["stripped_response_headers"], [])
+        self.assertIsNone(kwargs["max_requests_per_connection"])
+
+
 if __name__ == "__main__":
     unittest.main()

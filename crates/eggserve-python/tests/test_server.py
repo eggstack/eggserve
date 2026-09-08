@@ -10,8 +10,12 @@ import unittest
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-from eggserve.server import _config_to_argv
-from eggserve.subprocess import ServeConfig, ServerProcess, StaticPolicy
+from eggserve.subprocess import (
+    ServeConfig,
+    ServerProcess,
+    StaticPolicy,
+    _config_to_argv,
+)
 
 
 class TestStaticPolicy(unittest.TestCase):
@@ -258,7 +262,7 @@ class TestServerProcess(unittest.TestCase):
         proc = ServerProcess(ServeConfig())
         proc.stop()
 
-    @patch("eggserve.server.subprocess.Popen")
+    @patch("eggserve.subprocess.subprocess.Popen")
     def test_start_spawns_process(self, mock_popen):
         mock_process = MagicMock()
         mock_process.poll.return_value = None
@@ -278,7 +282,7 @@ class TestServerProcess(unittest.TestCase):
         self.assertIn("9000", argv)
         self.assertTrue(proc.is_running)
 
-    @patch("eggserve.server.subprocess.Popen")
+    @patch("eggserve.subprocess.subprocess.Popen")
     def test_stop_terminates_process(self, mock_popen):
         mock_process = MagicMock()
         mock_process.poll.return_value = None
@@ -293,7 +297,7 @@ class TestServerProcess(unittest.TestCase):
         mock_process.communicate.assert_called_once()
         self.assertFalse(proc.is_running)
 
-    @patch("eggserve.server.subprocess.Popen")
+    @patch("eggserve.subprocess.subprocess.Popen")
     def test_wait_returns_exit_code(self, mock_popen):
         mock_process = MagicMock()
         mock_process.wait.return_value = 0

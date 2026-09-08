@@ -96,10 +96,13 @@ facades. They do not receive raw sockets and do not turn EggServe itself into
 an application framework. For a downstream bounded application server, use the
 public `eggserve.lowlevel` runtime/service substrate: handler-only
 `Server(config, handler)` with no static root, frozen `RuntimeConfig` (admission,
-parser, timeout, and safe privacy controls), bounded `Response.stream` over a
+parser, timeout, and safe privacy controls, projected via the single
+`_native_kwargs()` helper), bounded `Response.stream` over a
 16-chunk backpressured bridge (HEAD/body-forbidden never advance the iterator;
 async producers rejected), and caller-owned `StaticResponder` composition. The
-optional subprocess helpers are under `eggserve.subprocess`; the primary API is
+optional subprocess helpers are canonically owned by `eggserve.subprocess`
+(`eggserve.server` retains compatibility re-exports; top-level
+`eggserve.serve_directory` re-exports the subprocess implementation); the primary API is
 `eggserve.server`. See the [Python API reference](https://github.com/eggstack/eggserve/blob/main/docs/python-api.md) for the full six-class
 surface and [the compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md)
 for intentional deviations from the stdlib.
