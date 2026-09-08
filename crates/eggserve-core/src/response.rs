@@ -45,18 +45,35 @@ pub(crate) fn canonical_error(
 /// `Minimal` emits the fixed generic plain-text body; `Empty` emits no body
 /// bytes (`Content-Length: 0`, no `Content-Type`) for runtime-generated
 /// errors. `Allow` for 405 is retained under both variants. `HEAD`
-/// suppression remains correct.
+/// suppression remains correct (no body bytes). Body-forbidden statuses
+/// (1xx/204/205/304) never emit body bytes regardless of policy.
 pub(crate) fn canonical_error_with_policy(
     status: StatusCode,
     body: &'static str,
     is_head: bool,
     policy: crate::policy::ErrorRepresentationPolicy,
 ) -> Response<BoxBodyInner> {
+    canonical_error_owned_with_policy(status, body, is_head, policy)
+}
+
+/// Owned-body variant of [`canonical_error_with_policy`] for dynamically
+/// derived error bodies (Plan 178 Track C). Behavior is identical; `body`
+/// is copied into the transport body.
+pub(crate) fn canonical_error_owned_with_policy(
+    status: StatusCode,
+    body: &str,
+    is_head: bool,
+    policy: crate::policy::ErrorRepresentationPolicy,
+) -> Response<BoxBodyInner> {
     let code = crate::primitives::canonical::StatusCode::new(status.as_u16())
         .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
+    // Body-forbidden statuses never carry a payload (RFC 9110); suppress
+    // even when a caller supplies a representation. HEAD and Empty likewise
+    // emit no bytes; only Minimal + payload-permitting + GET emits.
+    let body_forbidden = !code.permits_payload_body();
     let effective_body: &str = match policy {
         crate::policy::ErrorRepresentationPolicy::Minimal => {
-            if is_head {
+            if is_head || body_forbidden {
                 ""
             } else {
                 body
@@ -109,6 +126,29 @@ pub(crate) fn canonical_error_with_policy(
             .body(full_body(effective_body))
             .expect("canonical error response headers and body are valid"),
     )
+}
+
+/// Central runtime error representation (Plan 178 Track C).
+///
+/// Single owner for runtime-generated error bodies: derives a truthful
+/// `"<code> <reason>\n"` body from the standard reason phrase when the
+/// status has one, and emits a neutral empty body (preserving the wire
+/// status) when it does not. The wire status is never rewritten here;
+/// callers select a survivable status first. `HEAD`, `Empty` policy, and
+/// body-forbidden statuses emit no bytes via
+/// [`canonical_error_owned_with_policy`]. No application detail is reflected.
+pub(crate) fn runtime_error_with_policy(
+    status: StatusCode,
+    is_head: bool,
+    policy: crate::policy::ErrorRepresentationPolicy,
+) -> Response<BoxBodyInner> {
+    let body = match status.canonical_reason() {
+        Some(reason) => format!("{} {}\n", status.as_u16(), reason),
+        // Unassigned codes have no standard phrase: emit nothing rather
+        // than claim a different status. The wire status is preserved.
+        None => String::new(),
+    };
+    canonical_error_owned_with_policy(status, &body, is_head, policy)
 }
 
 #[allow(dead_code)]

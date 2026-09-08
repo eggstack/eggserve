@@ -109,9 +109,19 @@ Errors from service handler invocation. The runtime converts these to HTTP respo
 
 **Constructors:**
 - `ServiceError::internal(msg)` — 500 error
-- `ServiceError::rejected(status, msg)` — custom status code
+- `ServiceError::rejected(status, msg)` — `200..=599` preserved; `100..=199`
+  interim (including `101` upgrade, still deferred) and out-of-range codes
+  collapse to 500 so no impossible final status is promised
 - `ServiceError::panic(msg)` — handler panic (internal)
 - `ServiceError::timeout(msg)` — handler timeout (internal)
+
+**Representation (Plan 178):** status selection lives in `ServiceError`;
+the single response-layer helper `response::runtime_error_with_policy`
+owns the body. Wire status and body never disagree: known statuses emit
+`"<code> <reason>\n"` from the standard phrase, unassigned codes keep
+their status with a neutral empty body, and `HEAD`/`Empty`/body-forbidden
+(`1xx`/`204`/`205`/`304`) emit no bytes. Normalization/framing remains
+final.
 
 **Safety:** Error messages are logged but never included in HTTP response bodies to prevent information leakage.
 

@@ -146,7 +146,7 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `listener_transient_error` | DEBUG/WARN | Retryable accept error |
 | `listener_persistent_error` | ERROR | Fatal accept error |
 | `resource_exhaustion` | ERROR | File descriptor exhaustion |
-| `log_sink_failure` | ERROR | Logging backend failed |
+| `log_sink_failure` | ERROR | Logging backend failed (retained kind; composite reports via `dropped_log_events`, not a synthetic event) |
 
 ## Operational Counters
 
@@ -202,7 +202,15 @@ The Python server delegates logging to the Rust runtime's stderr log sink. There
 
 ### Log sink failures
 
-If a log sink panics, `CompositeLogSink` catches the panic, increments `dropped_log_events`, and emits a `log_sink_failure` event through the remaining sinks. The server continues operating.
+If a log sink panics, `CompositeLogSink` contains the panic with
+`catch_unwind`, increments `dropped_log_events`, and continues with the
+remaining sibling sinks so the original event still reaches healthy sinks.
+It does not emit a synthetic `log_sink_failure` event through the global
+logger: when the composite itself is installed globally that path would
+re-enter the same failing sink graph (Plan 178). The
+`dropped_log_events` counter is the failure signal. The server continues
+operating. The `log_sink_failure` event kind is retained but not emitted
+by the composite.
 
 ### JSON parse errors
 

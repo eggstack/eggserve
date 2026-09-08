@@ -563,11 +563,11 @@ async fn classify_accept_error_for_test(
 }
 
 // ---------------------------------------------------------------------------
-// LogSinkFailure emission test
+// Log-sink failure accounting test (Plan 178: counter, no recursive emission)
 // ---------------------------------------------------------------------------
 
 #[test]
-fn log_sink_failure_emitted_on_panic() {
+fn log_sink_failure_counted_on_panic() {
     use std::sync::{Arc, Mutex};
 
     let events_emitted = Arc::new(Mutex::new(Vec::new()));
@@ -595,12 +595,20 @@ fn log_sink_failure_emitted_on_panic() {
     let event = Event::new(Severity::Info, EventKind::ProcessStarting, "test");
     composite.emit(&event);
 
-    // The PanicSink should have caused dropped_log_events to increment
+    // The PanicSink should have caused dropped_log_events to increment, the
+    // healthy sibling must still have received the original event, and no
+    // synthetic failure event may be delivered (Plan 178 non-recursion).
     let counters = eggserve_core::ops::global_counters();
     let dropped = counters
         .dropped_log_events
         .load(std::sync::atomic::Ordering::Relaxed);
     assert!(dropped > 0, "dropped_log_events should be incremented");
+    let seen = events_emitted.lock().unwrap();
+    assert_eq!(
+        seen.as_slice(),
+        ["process_starting"],
+        "sibling must receive exactly the original event, got: {seen:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

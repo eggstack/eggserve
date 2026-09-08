@@ -125,12 +125,12 @@ documented separately in `docs/python-api.md`.
 | `service_fn` | experimental | Create a Service from a closure |
 | `StaticService` | experimental | Hardened static file service |
 | `StaticServiceBuilder` | experimental | Builder for StaticService |
-| `ServiceError` | experimental | Per-request errors: Internal, Rejected, Panic, Timeout |
+| `ServiceError` | experimental | Per-request errors: Internal, Rejected (`200..=599` preserved; `1xx`/out-of-range → 500; truthful central body, no detail leak), Panic, Timeout |
 | `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal |
 | `LifecycleState` | experimental | Lifecycle state machine: Created, Starting, Running, Draining, Stopped, Failed |
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
 | `ConnectionContext` | experimental | Transport-neutral context for `serve_http1_connection`: `for_tcp()`, `for_non_socket()` |
-| `ConnectionShutdown` | experimental | Shutdown token for connection cancellation; clone for select |
+| `ConnectionShutdown` | experimental | Level-triggered idempotent shutdown token; `cancelled()` observes pre-signaled shutdown; clone for select |
 | `ConnectionOutcome` | experimental | Connection result: `Normal`, `HeaderTimeout`, `ClientError`, `TotalTimeout`, `Shutdown` |
 | `serve_http1_connection` | experimental | Transport-neutral HTTP/1 driver over any `AsyncRead + AsyncWrite` |
 | `serve_http1_connection_with_id` | experimental | Same as above with explicit connection ID for log correlation |

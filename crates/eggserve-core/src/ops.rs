@@ -365,15 +365,12 @@ impl LogSink for CompositeLogSink {
                 global_counters()
                     .dropped_log_events
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                // Emit a LogSinkFailure event to surface sink panics.
-                // Use catch_unwind to prevent recursive failure.
-                let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                    Logger::global().emit(Event::new(
-                        Severity::Error,
-                        EventKind::LogSinkFailure,
-                        "log sink panicked",
-                    ));
-                }));
+                // Intentionally no synthetic `LogSinkFailure` emission here.
+                // Reporting through `Logger::global()` would re-enter this
+                // same composite when it is installed globally, invoking the
+                // same failing sink again. Failure accounting stays in the
+                // `dropped_log_events` counter; iteration continues so healthy
+                // siblings still receive the original event.
             }
         }
     }

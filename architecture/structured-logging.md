@@ -71,7 +71,7 @@ Every operational event has:
 - `listener_persistent_error` — fatal accept error, no backoff
 - `resource_exhaustion` — file descriptor or memory exhaustion
 - `blocking_worker_saturation` — blocking pool at capacity
-- `log_sink_failure` — logging backend failed
+- `log_sink_failure` — logging backend failed (retained kind; the composite reports via `dropped_log_events`, not a synthetic event, to avoid re-entering the failing graph)
 
 ## Output Modes
 
@@ -129,7 +129,15 @@ Backoff is interruptible by shutdown via `tokio::select!`.
 ## Log Sink Failure Behavior
 
 - `CompositeLogSink` catches panics from individual sinks via `catch_unwind`
-- Failed sink events increment `dropped_log_events` counter
+  and never lets a sink panic escape into request/connection execution
+- Failed sink emissions increment `dropped_log_events` deterministically
+  (one per dropped emission); iteration continues so healthy siblings still
+  receive the original event
+- No synthetic `LogSinkFailure` event is emitted through `Logger::global()`
+  from the failure path: when the composite is installed globally that would
+  recursively re-enter the same failing sink graph (Plan 178). The counter
+  is the failure signal; `flush()` panics are likewise contained without
+  propagation
 - `Logger::try_init()` returns `Err(())` if already initialized (Python coexistence)
 - `NopLogSink` is the default when no logger is configured
 

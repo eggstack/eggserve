@@ -64,10 +64,15 @@ impl ServiceError {
 
     /// Create a rejection with a specific status code.
     ///
-    /// Status codes outside the canonical HTTP range (100..=599) are mapped
-    /// to 500 so service errors cannot bypass the response status invariant.
+    /// Status codes in `200..=599` are preserved. Anything else maps to 500:
+    /// out-of-range codes would bypass the response status invariant, and
+    /// `100..=199` interim statuses cannot be final error responses
+    /// (upgrade/`101` remains unsupported per the deferred upgrade plan, and
+    /// interim responses have no final representation). Body-forbidden
+    /// survivors (`204`/`205`/`304`) keep their status with an empty
+    /// representation; see [`ServiceError::to_response_with_head_and_policy`].
     pub fn rejected(status: u16, message: impl Into<String>) -> Self {
-        let status = if (100..=599).contains(&status) {
+        let status = if (200..=599).contains(&status) {
             status
         } else {
             500
@@ -132,8 +137,12 @@ impl ServiceError {
 
     /// Convert this error with an explicit representation policy.
     ///
-    /// `Empty` emits no body bytes for runtime-generated errors; application
-    /// `Ok` bodies are never routed here. `HEAD` suppression remains correct.
+    /// Status selection lives here; representation is owned by
+    /// [`crate::response::runtime_error_with_policy`] so wire status and body
+    /// can never disagree. `Empty` emits no body bytes for runtime-generated
+    /// errors; application `Ok` bodies are never routed here. `HEAD`
+    /// suppression remains correct (no body bytes). Body-forbidden statuses
+    /// emit no bytes. No application message is reflected to clients.
     pub(crate) fn to_response_with_head_and_policy(
         &self,
         is_head: bool,
@@ -147,24 +156,7 @@ impl ServiceError {
                 .unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR),
             ServiceErrorKind::Timeout => hyper::StatusCode::GATEWAY_TIMEOUT,
         };
-        let body = match self.kind {
-            ServiceErrorKind::Panic => "500 Internal Server Error\n",
-            ServiceErrorKind::Timeout => "504 Gateway Timeout\n",
-            ServiceErrorKind::Rejected(code) => match code {
-                400 => "400 Bad Request\n",
-                403 => "403 Forbidden\n",
-                404 => "404 Not Found\n",
-                405 => "405 Method Not Allowed\n",
-                408 => "408 Request Timeout\n",
-                413 => "413 Payload Too Large\n",
-                414 => "414 URI Too Long\n",
-                431 => "431 Request Header Fields Too Large\n",
-                503 => "503 Service Unavailable\n",
-                _ => "500 Internal Server Error\n",
-            },
-            ServiceErrorKind::Internal => "500 Internal Server Error\n",
-        };
-        crate::response::canonical_error_with_policy(status, body, is_head, policy)
+        crate::response::runtime_error_with_policy(status, is_head, policy)
     }
 }
 
@@ -527,5 +519,130 @@ mod tests {
         let err = ServiceError::rejected(404, "nope");
         let resp = err.to_response();
         assert_eq!(resp.status(), hyper::StatusCode::NOT_FOUND);
+    }
+
+    #[tokio::test]
+    async fn rejected_uncommon_status_has_truthful_body() {
+        use http_body_util::BodyExt;
+
+        // 429 was previously unlisted and fell back to a 500 body while
+        // keeping wire status 429. It must now be truthful.
+        let err = ServiceError::rejected(429, "secret app detail");
+        let resp = err.to_response_with_head_and_policy(
+            false,
+            crate::policy::ErrorRepresentationPolicy::Minimal,
+        );
+        assert_eq!(resp.status(), hyper::StatusCode::TOO_MANY_REQUESTS);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            text.contains("429"),
+            "uncommon status body must name its own status, got: {text:?}"
+        );
+        assert!(
+            !text.contains("500"),
+            "uncommon status body must not claim 500, got: {text:?}"
+        );
+        assert!(
+            !text.contains("secret app detail"),
+            "application detail must stay private, got: {text:?}"
+        );
+
+        // Another valid but previously unlisted status (418) must also agree.
+        let err = ServiceError::rejected(418, "secret");
+        let resp = err.to_response_with_head_and_policy(
+            false,
+            crate::policy::ErrorRepresentationPolicy::Minimal,
+        );
+        assert_eq!(resp.status().as_u16(), 418);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(text.contains("418"), "got: {text:?}");
+        assert!(!text.contains("500"), "got: {text:?}");
+        assert!(!text.contains("secret"), "got: {text:?}");
+    }
+
+    #[tokio::test]
+    async fn rejected_unknown_reason_is_neutral_but_preserves_status() {
+        use http_body_util::BodyExt;
+
+        // 299 has no standard reason phrase: preserve the wire status with a
+        // neutral empty representation rather than lying about 500.
+        let err = ServiceError::rejected(299, "secret");
+        let resp = err.to_response_with_head_and_policy(
+            false,
+            crate::policy::ErrorRepresentationPolicy::Minimal,
+        );
+        assert_eq!(resp.status().as_u16(), 299);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        let text = String::from_utf8(body.to_vec()).unwrap();
+        assert!(
+            !text.contains("500"),
+            "unknown status must not claim 500, got: {text:?}"
+        );
+        assert!(!text.contains("secret"), "got: {text:?}");
+    }
+
+    #[tokio::test]
+    async fn rejected_invalid_and_informational_fallback_and_head_empty() {
+        use http_body_util::BodyExt;
+
+        // Out-of-range collapses to 500.
+        for bad in [99u16, 600, 999] {
+            let err = ServiceError::rejected(bad, "secret");
+            let resp = err.to_response_with_head_and_policy(
+                false,
+                crate::policy::ErrorRepresentationPolicy::Minimal,
+            );
+            assert_eq!(
+                resp.status(),
+                hyper::StatusCode::INTERNAL_SERVER_ERROR,
+                "status {bad} must collapse to 500"
+            );
+        }
+
+        // Interim 1xx cannot be a final error response; narrowly collapse.
+        for interim in [100u16, 101, 103, 199] {
+            let err = ServiceError::rejected(interim, "secret");
+            let resp = err.to_response_with_head_and_policy(
+                false,
+                crate::policy::ErrorRepresentationPolicy::Minimal,
+            );
+            assert_eq!(
+                resp.status(),
+                hyper::StatusCode::INTERNAL_SERVER_ERROR,
+                "interim {interim} must collapse to 500"
+            );
+        }
+
+        // HEAD emits no bytes but keeps the wire status.
+        let err = ServiceError::rejected(429, "secret");
+        let resp = err.to_response_with_head_and_policy(
+            true,
+            crate::policy::ErrorRepresentationPolicy::Minimal,
+        );
+        assert_eq!(resp.status(), hyper::StatusCode::TOO_MANY_REQUESTS);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.is_empty(), "HEAD must suppress error body");
+
+        // Empty policy emits no bytes for Minimal-equivalent GET.
+        let err = ServiceError::rejected(429, "secret");
+        let resp = err.to_response_with_head_and_policy(
+            false,
+            crate::policy::ErrorRepresentationPolicy::Empty,
+        );
+        assert_eq!(resp.status(), hyper::StatusCode::TOO_MANY_REQUESTS);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.is_empty(), "Empty policy must emit no bytes");
+
+        // Body-forbidden survivor keeps status with no bytes.
+        let err = ServiceError::rejected(204, "secret");
+        let resp = err.to_response_with_head_and_policy(
+            false,
+            crate::policy::ErrorRepresentationPolicy::Minimal,
+        );
+        assert_eq!(resp.status().as_u16(), 204);
+        let body = resp.into_body().collect().await.unwrap().to_bytes();
+        assert!(body.is_empty(), "204 must not emit a payload");
     }
 }

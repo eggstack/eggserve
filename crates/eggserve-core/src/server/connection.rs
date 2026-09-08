@@ -206,6 +206,11 @@ impl ConnectionContext {
 /// never requesting shutdown; in-flight work still observes hard timeouts,
 /// protocol errors, and task cancellation via drop semantics. Permits and
 /// producer tasks are released on driver exit regardless of outcome.
+///
+/// Shutdown is level-triggered: once [`ConnectionShutdown::shutdown`] has
+/// been called, every current and future [`ConnectionShutdown::cancelled`]
+/// waiter completes without polling. Signaling before the connection driver
+/// registers its waiter is still observed promptly.
 #[derive(Debug, Clone, Default)]
 pub struct ConnectionShutdown {
     inner: Arc<ConnectionShutdownInner>,
@@ -229,6 +234,8 @@ impl ConnectionShutdown {
     }
 
     /// Request graceful connection shutdown.
+    ///
+    /// Idempotent: repeated calls have no additional effect.
     pub fn shutdown(&self) {
         self.inner
             .flag
@@ -242,8 +249,31 @@ impl ConnectionShutdown {
     }
 
     /// Wait until shutdown is requested.
+    ///
+    /// Level-triggered: returns immediately if shutdown was already
+    /// signaled, regardless of whether signaling happened before this
+    /// waiter registered. Uses check/register/recheck so no interleaving
+    /// can leave a waiter pending after the flag is true. The loop only
+    /// defends against spurious wakeups and never busy-spins.
     pub async fn cancelled(&self) {
-        self.inner.notify.notified().await;
+        loop {
+            if self.is_shutdown() {
+                return;
+            }
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            // Register the waiter before re-checking so a shutdown that
+            // races between the first check and registration is still
+            // observed.
+            notified.as_mut().enable();
+            if self.is_shutdown() {
+                return;
+            }
+            notified.await;
+            if self.is_shutdown() {
+                return;
+            }
+        }
     }
 }
 
@@ -2204,20 +2234,25 @@ fn spawn_deferred_tracker(
 }
 
 /// Convert a RequestBodyError to an HTTP response.
+///
+/// Status selection lives here; representation is owned by
+/// [`crate::response::runtime_error_with_policy`] so wire status and body
+/// can never disagree (Plan 178 Track C).
 fn body_error_to_response(
     err: crate::primitives::request_body_error::RequestBodyError,
     _head: &crate::primitives::request_head::RequestHead,
     error_policy: crate::policy::ErrorRepresentationPolicy,
 ) -> hyper::Response<BoxBodyInner> {
     let raw_status = err.to_status_code();
-    let status =
-        hyper::StatusCode::from_u16(raw_status).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
-    // Cancelled/disconnected reads report the non-standard 499, which
-    // Hyper refuses on the wire; the response collapses to 500 but the
-    // connection must still close because the request ended mid-body.
+    // Cancelled/disconnected reads report the non-standard 499, which has
+    // no standard reason phrase and must not appear on the wire; collapse
+    // to 500 but still close because the request ended mid-body.
     // Transport failures (raw_status 500) also end the request mid-body
     // with wire framing unknown, so they force close too; consumption-
     // state 500s are application bugs with no wire anomaly and stay alive.
+    let wire_status = if raw_status == 499 { 500 } else { raw_status };
+    let status = hyper::StatusCode::from_u16(wire_status)
+        .unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
     let should_close = raw_status == 499
         || err.is_transport()
         || matches!(
@@ -2227,15 +2262,8 @@ fn body_error_to_response(
                 | hyper::StatusCode::PAYLOAD_TOO_LARGE
                 | hyper::StatusCode::HTTP_VERSION_NOT_SUPPORTED
         );
-    let body_text = match status.as_u16() {
-        400 => "400 Bad Request\n",
-        408 => "408 Request Timeout\n",
-        413 => "413 Payload Too Large\n",
-        _ => "500 Internal Server Error\n",
-    };
     let is_head = _head.method().is_head();
-    let mut resp =
-        crate::response::canonical_error_with_policy(status, body_text, is_head, error_policy);
+    let mut resp = crate::response::runtime_error_with_policy(status, is_head, error_policy);
     if should_close {
         resp.headers_mut().insert(
             hyper::header::CONNECTION,
@@ -2659,6 +2687,105 @@ mod tests {
             hyper::header::HeaderValue::from_static("5"),
         );
         assert!(validate_body_framing(&headers).is_ok());
+    }
+
+    #[tokio::test]
+    async fn shutdown_before_wait_completes_immediately() {
+        let token = ConnectionShutdown::new();
+        token.shutdown();
+        assert!(token.is_shutdown());
+        tokio::time::timeout(std::time::Duration::from_secs(1), token.cancelled())
+            .await
+            .expect("pre-signaled shutdown must be observed without polling");
+    }
+
+    #[tokio::test]
+    async fn waiter_registered_before_shutdown_wakes() {
+        let token = ConnectionShutdown::new();
+        let waiter = {
+            let token = token.clone();
+            tokio::spawn(async move {
+                tokio::time::timeout(std::time::Duration::from_secs(1), token.cancelled())
+                    .await
+                    .expect("waiter must wake on shutdown");
+            })
+        };
+        // Give the waiter a chance to register before signaling.
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        token.shutdown();
+        waiter.await.unwrap();
+        assert!(token.is_shutdown());
+    }
+
+    #[tokio::test]
+    async fn shutdown_is_idempotent() {
+        let token = ConnectionShutdown::new();
+        token.shutdown();
+        token.shutdown();
+        token.shutdown();
+        assert!(token.is_shutdown());
+        tokio::time::timeout(std::time::Duration::from_secs(1), token.cancelled())
+            .await
+            .expect("idempotent shutdown must still be observed");
+        // Cloned tokens share the same persistent state.
+        let cloned = token.clone();
+        assert!(cloned.is_shutdown());
+        tokio::time::timeout(std::time::Duration::from_secs(1), cloned.cancelled())
+            .await
+            .expect("cloned token must observe shutdown");
+    }
+
+    #[tokio::test]
+    async fn shutdown_registration_race_never_loses_signal() {
+        // Controlled race: signal shutdown concurrently with waiter
+        // registration across many iterations. No interleaving may leave a
+        // waiter pending after the flag is true. Bounded deadline only guards
+        // against deadlock; success proves level-triggered semantics.
+        for _ in 0..100 {
+            let token = ConnectionShutdown::new();
+            let waiter_token = token.clone();
+            let waiter = tokio::spawn(async move {
+                tokio::time::timeout(std::time::Duration::from_secs(1), waiter_token.cancelled())
+                    .await
+                    .expect("waiter must not miss concurrent shutdown");
+            });
+            token.shutdown();
+            waiter.await.unwrap();
+            assert!(token.is_shutdown());
+        }
+    }
+
+    #[tokio::test]
+    async fn presignaled_token_terminates_caller_owned_driver() {
+        use crate::primitives::canonical::{Response, ResponseBody, StatusCode};
+        use crate::primitives::connection_info::Scheme;
+
+        let config = Arc::new(RuntimeConfig::default());
+        let runtime_state = Arc::new(RuntimeState::new(&config));
+        let shutdown = ConnectionShutdown::new();
+        shutdown.shutdown();
+        let context = ConnectionContext::for_non_socket(Scheme::Http, None);
+        let service = crate::server::service_fn(|_req| async {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(b"hello".to_vec()))
+                .unwrap())
+        });
+        let (client, server) = tokio::io::duplex(1024);
+        // Hold the client half so the server side stays open until shutdown
+        // drives termination; the pre-signaled token must still win promptly.
+        let _client = client;
+        let outcome = tokio::time::timeout(
+            std::time::Duration::from_secs(5),
+            serve_http1_connection(server, service, config, context, runtime_state, &shutdown),
+        )
+        .await
+        .expect("pre-signaled driver must terminate promptly");
+        assert_eq!(
+            outcome,
+            ConnectionOutcome::Shutdown,
+            "pre-signaled token must yield Shutdown outcome"
+        );
     }
 
     #[test]

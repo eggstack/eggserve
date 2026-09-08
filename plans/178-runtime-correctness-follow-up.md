@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — corrective; no product-surface expansion.**
+**IMPLEMENTED / CLOSED — corrective; no product-surface expansion.**
 
 Prerequisites: Plans 172–175 implemented/closed, Plan 176 closed/deferred, and Plan 177 closed. This plan should land before the structural work in Plans 179–181 so known correctness defects are fixed before code is moved or runtime context is expanded.
 
@@ -202,6 +202,47 @@ No new CI workflow is required for these regressions; they belong in the ordinar
 4. Run targeted runtime/consumer tests.
 5. Run the ordinary repository verification commands.
 6. Update narrow Rustdoc/current-state documentation and add a closure record to this plan.
+
+## Closure record
+
+- Track A: `ConnectionShutdown::cancelled()` is now level-triggered via
+  check/register/recheck (`Notify::notified().enable()` + atomic flag, loop
+  only for spurious wakeups). `shutdown()` idempotent. Regression tests:
+  pre-signaled wait, waiter-before-signal, idempotence/clone sharing,
+  100-iteration registration race, and pre-signaled
+  `serve_http1_connection()` over `duplex` yielding `Shutdown`.
+- Track B: `CompositeLogSink::emit()` no longer calls `Logger::global()`
+  from the panic path; it increments `dropped_log_events` and continues
+  with siblings. `LogSinkFailure` kind retained but not synthetically
+  emitted by the composite. New `tests/log_sink_recursion.rs` installs the
+  failing composite globally (fresh binary, the previously recursing path)
+  and proves single invocation, sibling delivery, and deterministic
+  counting; `flush()` containment covered. `tests/ops_integration.rs`
+  failure test renamed/strengthened to assert sibling delivery and no
+  synthetic event.
+- Track C: new single owner `response::runtime_error_with_policy()`
+  derives `"<code> <reason>\n"` via `canonical_reason()` (neutral empty
+  when unassigned, preserving status) with `HEAD`/`Empty`/body-forbidden
+  suppression. `ServiceError::to_response_with_head_and_policy()` and
+  `connection::body_error_to_response()` (499 → 500 + close preserved)
+  both delegate to it; independent tables removed.
+  `ServiceError::rejected()` now preserves `200..=599` and maps
+  `100..=199` (interim, incl. `101` upgrade deferred) and out-of-range to
+  500. Tests cover 429/418 truthfulness, 299 neutral preservation,
+  invalid/1xx fallback, `HEAD`/`Empty`/204 emptiness, and no app-detail
+  leak.
+- Docs: `docs/ops-logging.md`, `architecture/structured-logging.md`,
+  `architecture/runtime.md`, `architecture/error-taxonomy.md`,
+  `docs/api-stability.md`, `AGENTS.md`, and
+  `.opencode/skills/eggserve-dev/SKILL.md` updated; no product-surface or
+  upgrade semantics changed (`README.md` untouched — high-level surface
+  unaffected).
+- Verification: `cargo fmt --all -- --check`, `cargo clippy --workspace
+  --lib --bins --tests -- -D warnings`, `cargo test --workspace`
+  (1714 passed), `cargo test -p eggserve-bin --features tls`,
+  `cargo test -p eggserve-core --features tls`,
+  `cargo test --manifest-path crates/eggserve-python/Cargo.toml --locked`,
+  and explicit `app_server_consumer` (12 passed) all green locally.
 
 ## Handoff
 

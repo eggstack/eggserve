@@ -285,8 +285,12 @@ bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
   `Forwarded`/`X-Forwarded-*` headers are ordinary untrusted headers, not part
   of this type. Scheme and TLS are asserted by the caller.
 - **`ConnectionShutdown`** — per-connection graceful-shutdown token, independent
-  of `ServerHandle`. The caller calls `shutdown()` to signal; permits and
-  producer tasks are released on driver exit regardless of outcome.
+  of `ServerHandle`. Shutdown is level-triggered and idempotent: once
+  `shutdown()` is called, every current and future `cancelled()` waiter
+  completes (check/register/recheck, no polling), including a token
+  pre-signaled before `serve_http1_connection()` starts over duplex.
+  Permits and producer tasks are released on driver exit regardless of
+  outcome.
 - **`Arc<RuntimeState>`** — shared admission (file-stream and in-flight
   service semaphores). Callers
   must share one `Arc` across all streams; `RuntimeState` owns only transport
