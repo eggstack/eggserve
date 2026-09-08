@@ -123,6 +123,7 @@ pub struct Server {
     builtin_static_service: Option<StaticService>,
     lifecycle: Arc<Lifecycle>,
     listener_source: Option<ListenerSource>,
+    ops: crate::ops::OpsContext,
 }
 
 /// Transport state shared by every connection in one running server.
@@ -130,6 +131,14 @@ pub struct Server {
 /// In particular, file-stream and in-flight-service admission pools are
 /// created once here and cloned into connection tasks. Static services never
 /// own or acquire these semaphores.
+///
+/// The state also owns the runtime's observability context
+/// ([`crate::ops::OpsContext`]): connection correlation IDs, connection and
+/// request events, and counters resolve through this context rather than the
+/// process-global logger. [`RuntimeState::new`]/[`RuntimeState::try_new`]
+/// clone the process-global default so existing CLI/default construction
+/// keeps working; [`RuntimeState::with_ops`] attaches an explicit per-runtime
+/// context for isolated embedding.
 ///
 /// Callers driving caller-owned byte streams with
 /// [`connection::serve_http1_connection`] must share one `RuntimeState`
@@ -140,10 +149,11 @@ pub struct Server {
 /// transport-runtime admission (file-stream permits and in-flight service
 /// permits); it never owns static filesystem state or
 /// application routing state.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct RuntimeState {
     pub(crate) file_stream_semaphore: Arc<tokio::sync::Semaphore>,
     pub(crate) service_semaphore: Arc<tokio::sync::Semaphore>,
+    ops: crate::ops::OpsContext,
 }
 
 impl RuntimeState {
@@ -174,10 +184,27 @@ impl RuntimeState {
     /// context from [`Server::start`] or [`Server::start_with_service`],
     /// which validate before constructing permits.
     pub fn try_new(config: &RuntimeConfig) -> Result<Self, crate::server::errors::ServerError> {
+        Self::with_ops(config, crate::ops::OpsContext::global().clone())
+    }
+
+    /// Validated constructor with an explicit observability context
+    /// (Plan 181 Track C1).
+    ///
+    /// Same admission budgets as [`RuntimeState::try_new`], but connection
+    /// correlation IDs, events, and counters resolve through `ops` instead
+    /// of the process-global default. Share the resulting
+    /// `Arc<RuntimeState>` across every
+    /// [`connection::serve_http1_connection`](crate::server::connection::serve_http1_connection)
+    /// invocation of the runtime.
+    pub fn with_ops(
+        config: &RuntimeConfig,
+        ops: crate::ops::OpsContext,
+    ) -> Result<Self, crate::server::errors::ServerError> {
         config.validate()?;
         Ok(Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
             service_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests)),
+            ops,
         })
     }
 
@@ -195,7 +222,22 @@ impl RuntimeState {
             service_semaphore: Arc::new(tokio::sync::Semaphore::new(
                 crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
             )),
+            ops: crate::ops::OpsContext::global().clone(),
         }
+    }
+
+    /// This runtime's observability context.
+    ///
+    /// Connection correlation IDs, events, and counters for every connection
+    /// driven by this state resolve here. Cloning is cheap (shared inner).
+    pub fn ops(&self) -> &crate::ops::OpsContext {
+        &self.ops
+    }
+
+    /// Non-blocking, bounded snapshot of this runtime's counters (Plan 181
+    /// Track E). Reads never reset; no exporter or endpoint is involved.
+    pub fn ops_snapshot(&self) -> crate::ops::OpsSnapshot {
+        self.ops.snapshot()
     }
 
     /// Return the server-wide file-stream admission pool.
@@ -228,6 +270,7 @@ impl Server {
             runtime_config: None,
             serve_config: None,
             listener_source: None,
+            ops_context: None,
         }
     }
 }
@@ -254,6 +297,7 @@ pub struct ServerBuilder {
     runtime_config: Option<RuntimeConfig>,
     serve_config: Option<Arc<ServeConfig>>,
     listener_source: Option<ListenerSource>,
+    ops_context: Option<crate::ops::OpsContext>,
 }
 
 impl ServerBuilder {
@@ -278,6 +322,19 @@ impl ServerBuilder {
     /// bind to this address when `start()` is called.
     pub fn bind(mut self, addr: std::net::SocketAddr) -> Self {
         self.listener_source = Some(ListenerSource::Bind(addr));
+        self
+    }
+
+    /// Attach an explicit per-runtime observability context (Plan 181).
+    ///
+    /// Events, counters, sink-failure accounting, and connection correlation
+    /// IDs for this server resolve through `ops` instead of the
+    /// process-global default. When unset, the server clones
+    /// [`crate::ops::OpsContext::global`], preserving zero-ceremony CLI and
+    /// compatibility construction. This setter is experimental with the rest
+    /// of the `server` module.
+    pub fn ops_context(mut self, ops: crate::ops::OpsContext) -> Self {
+        self.ops_context = Some(ops);
         self
     }
 
@@ -327,8 +384,11 @@ impl ServerBuilder {
                 }
             },
         };
+        let ops = self
+            .ops_context
+            .unwrap_or_else(|| crate::ops::OpsContext::global().clone());
         let builtin_static_service = serve_config
-            .map(StaticService::from_serve_config)
+            .map(|sc| StaticService::from_serve_config_with_ops(sc, ops.clone()))
             .transpose()
             .map_err(|e| ServerError::Config(e.to_string()))?;
         Ok(Server {
@@ -336,6 +396,7 @@ impl ServerBuilder {
             builtin_static_service,
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
+            ops,
         })
     }
 
@@ -354,13 +415,18 @@ impl ServerBuilder {
             }
             None => config::try_from_serve_config(&serve_config)?,
         };
-        let builtin_static_service = StaticService::from_serve_config(serve_config)
-            .map_err(|e| ServerError::Config(e.to_string()))?;
+        let ops = self
+            .ops_context
+            .unwrap_or_else(|| crate::ops::OpsContext::global().clone());
+        let builtin_static_service =
+            StaticService::from_serve_config_with_ops(serve_config, ops.clone())
+                .map_err(|e| ServerError::Config(e.to_string()))?;
         Ok(Server {
             config,
             builtin_static_service: Some(builtin_static_service),
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
+            ops,
         })
     }
 }
@@ -377,6 +443,7 @@ impl Server {
             builtin_static_service,
             lifecycle,
             listener_source,
+            ops,
         } = self;
         let service = builtin_static_service.ok_or_else(|| {
             ServerError::Config("serve configuration required for static service".into())
@@ -387,6 +454,7 @@ impl Server {
             builtin_static_service: None,
             lifecycle,
             listener_source,
+            ops,
         }
         .start_with_service(service)
         .await
@@ -406,6 +474,7 @@ impl Server {
             builtin_static_service: _,
             lifecycle,
             listener_source,
+            ops,
         } = self;
         // Defense-in-depth: `ServerBuilder::build` already validated, but a
         // future constructor must not silently admit an invalid hand-built
@@ -426,7 +495,7 @@ impl Server {
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
         let config = Arc::new(runtime_config);
-        let runtime_state = Arc::new(RuntimeState::try_new(&config)?);
+        let runtime_state = Arc::new(RuntimeState::with_ops(&config, ops.clone())?);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
 
         let (shutdown_tx, shutdown_rx) = broadcast::channel::<()>(1);
@@ -455,6 +524,7 @@ impl Server {
             shutdown_tx_clone,
             join,
             lifecycle,
+            ops,
         ))
     }
 }
@@ -483,14 +553,12 @@ async fn accept_loop_generic<S: Service>(
         return ShutdownResult::Clean;
     }
 
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
+    let ops = runtime_state.ops().clone();
+    ops.emit(crate::ops::Event::new(
         crate::ops::Severity::Info,
         crate::ops::EventKind::ListenerReady,
         "accept loop started",
     ));
-
-    let correlation = crate::ops::CorrelationId::new();
-    let counters = crate::ops::global_counters();
 
     // Track spawned connection tasks for graceful drain.
     let mut tasks = tokio::task::JoinSet::new();
@@ -507,10 +575,12 @@ async fn accept_loop_generic<S: Service>(
                         backoff_idx = 0;
                         error_repeat_count = 0;
                         last_error_kind = None;
-                        let conn_id = correlation.next();
-                        counters.connections_accepted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let conn_id = ops.next_connection_id();
+                        ops.counters()
+                            .connections_accepted
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
-                        crate::ops::Logger::global().emit(
+                        ops.emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
                                 crate::ops::EventKind::ConnectionAccepted,
@@ -522,8 +592,10 @@ async fn accept_loop_generic<S: Service>(
                         let permit = match connection_semaphore.clone().try_acquire_owned() {
                             Ok(p) => p,
                             Err(_) => {
-                                counters.connections_rejected.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                crate::ops::Logger::global().emit(
+                                ops.counters()
+                                    .connections_rejected
+                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                                ops.emit(
                                     crate::ops::Event::new(
                                         crate::ops::Severity::Debug,
                                         crate::ops::EventKind::ConnectionRejected,
@@ -537,6 +609,7 @@ async fn accept_loop_generic<S: Service>(
                         };
 
                         let runtime_state = runtime_state.clone();
+                        let conn_ops = ops.clone();
                         let config = config.clone();
                         let service = service.clone();
                         let remote_addr = peer_addr;
@@ -545,12 +618,17 @@ async fn accept_loop_generic<S: Service>(
                         // Count the connection as active only after it has
                         // been admitted; rejected connections must not skew
                         // the gauge.
-                        counters.active_connections.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        conn_ops
+                            .counters()
+                            .active_connections
+                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
                         let forwarder_rx = shutdown_rx.resubscribe();
                         tasks.spawn(async move {
                             let _permit = permit;
-                            let _active_connection = ActiveConnectionGuard;
+                            let _active_connection = ActiveConnectionGuard {
+                                ops: conn_ops.clone(),
+                            };
 
                             // Bridge the server broadcast shutdown to the
                             // canonical per-connection token so TCP/TLS and
@@ -567,9 +645,9 @@ async fn accept_loop_generic<S: Service>(
                             {
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    match accept_tls(stream, &tls_acceptor, config.tls_handshake_timeout, conn_id).await {
+                                    match accept_tls(stream, &tls_acceptor, config.tls_handshake_timeout, conn_id, &conn_ops).await {
                                         Some((tls_stream, tls_info)) => {
-                                            crate::ops::Logger::global().emit(
+                                            conn_ops.emit(
                                                 crate::ops::Event::new(
                                                     crate::ops::Severity::Debug,
                                                     crate::ops::EventKind::TlsHandshakeSuccess,
@@ -617,7 +695,7 @@ async fn accept_loop_generic<S: Service>(
                         });
                     }
                     Err(e) => {
-                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind).await;
+                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind, &ops).await;
                         if fatal {
                             break;
                         }
@@ -630,14 +708,14 @@ async fn accept_loop_generic<S: Service>(
         }
     }
 
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
+    ops.emit(crate::ops::Event::new(
         crate::ops::Severity::Info,
         crate::ops::EventKind::ShutdownRequested,
         "shutdown requested",
     ));
 
     // Transition to Draining.
-    let _ = lifecycle.drain();
+    let _ = lifecycle.drain_with_ops(&ops);
 
     // Wait for in-flight connections to drain.
     let drain_timeout = config.graceful_shutdown_timeout;
@@ -654,10 +732,10 @@ async fn accept_loop_generic<S: Service>(
             Ok(Some(result)) => {
                 if let Err(e) = result {
                     if e.is_panic() {
-                        counters
+                        ops.counters()
                             .connection_panics
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        ops.emit(crate::ops::Event::new(
                             crate::ops::Severity::Error,
                             crate::ops::EventKind::ConnectionPanic,
                             "connection task panicked during drain",
@@ -676,7 +754,7 @@ async fn accept_loop_generic<S: Service>(
     let mut abort_count = 0usize;
 
     if timed_out {
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
+        ops.emit(crate::ops::Event::new(
             crate::ops::Severity::Warn,
             crate::ops::EventKind::ForcedShutdownStarted,
             "grace deadline exceeded, aborting remaining tasks",
@@ -686,10 +764,10 @@ async fn accept_loop_generic<S: Service>(
             abort_count += 1;
             if let Err(e) = result {
                 if e.is_panic() {
-                    counters
+                    ops.counters()
                         .connection_panics
                         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    crate::ops::Logger::global().emit(crate::ops::Event::new(
+                    ops.emit(crate::ops::Event::new(
                         crate::ops::Severity::Error,
                         crate::ops::EventKind::ConnectionPanic,
                         "connection task panicked during forced shutdown",
@@ -702,18 +780,18 @@ async fn accept_loop_generic<S: Service>(
     let _ = lifecycle.mark_stopped();
 
     let result = if timed_out {
-        counters
+        ops.counters()
             .forced_shutdowns
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ShutdownResult::Timeout
     } else {
-        counters
+        ops.counters()
             .graceful_shutdowns
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         ShutdownResult::Clean
     };
 
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
+    ops.emit(crate::ops::Event::new(
         crate::ops::Severity::Info,
         crate::ops::EventKind::ShutdownComplete,
         format!("shutdown complete: {:?} (aborted={})", result, abort_count),
@@ -733,6 +811,7 @@ async fn accept_tls(
     tls_acceptor: &tokio_rustls::TlsAcceptor,
     timeout: std::time::Duration,
     conn_id: u64,
+    ops: &crate::ops::OpsContext,
 ) -> Option<(
     tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
     crate::primitives::connection_info::TlsInfo,
@@ -743,7 +822,7 @@ async fn accept_tls(
             Some((tls_stream, tls_info))
         }
         Ok(Err(_)) => {
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Warn,
                     crate::ops::EventKind::TlsHandshakeFailure,
@@ -754,7 +833,7 @@ async fn accept_tls(
             None
         }
         Err(_) => {
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Warn,
                     crate::ops::EventKind::TlsHandshakeTimeout,
@@ -806,8 +885,9 @@ async fn classify_accept_error(
     backoff_idx: &mut usize,
     error_repeat_count: &mut usize,
     last_error_kind: &mut Option<String>,
+    ops: &crate::ops::OpsContext,
 ) -> bool {
-    use crate::ops::{Event, EventKind, Logger, Severity};
+    use crate::ops::{Event, EventKind, Severity};
 
     let err_str = e.to_string();
     let kind = e.kind();
@@ -859,7 +939,7 @@ async fn classify_accept_error(
         ),
     };
 
-    crate::ops::global_counters()
+    ops.counters()
         .listener_errors
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
@@ -888,9 +968,12 @@ async fn classify_accept_error(
         } else {
             format!("accept error: {}", err_str)
         };
-        Logger::global().emit(Event::new(severity, event_kind, message).field(
-            crate::ops::Field::Str("error_kind".into(), format!("{:?}", kind)),
-        ));
+        ops.emit(
+            Event::new(severity, event_kind, message).field(crate::ops::Field::Str(
+                "error_kind".into(),
+                format!("{:?}", kind),
+            )),
+        );
     }
 
     if should_backoff {
@@ -935,11 +1018,14 @@ fn is_fd_exhaustion(error: &std::io::Error) -> bool {
         || message.contains("enfile")
 }
 
-struct ActiveConnectionGuard;
+struct ActiveConnectionGuard {
+    ops: crate::ops::OpsContext,
+}
 
 impl Drop for ActiveConnectionGuard {
     fn drop(&mut self) {
-        crate::ops::global_counters()
+        self.ops
+            .counters()
             .active_connections
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
@@ -983,8 +1069,10 @@ mod tests {
         let mut backoff = 0;
         let mut repeats = 0;
         let mut last = None;
+        let ops = crate::ops::OpsContext::default();
         assert!(
-            !classify_accept_error(&error, &mut rx, &mut backoff, &mut repeats, &mut last,).await
+            !classify_accept_error(&error, &mut rx, &mut backoff, &mut repeats, &mut last, &ops,)
+                .await
         );
         let _ = tx.send(());
     }

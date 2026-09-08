@@ -164,7 +164,25 @@ impl Lifecycle {
     }
 
     /// Transition to `Draining`. Fails if not in `Running`.
+    ///
+    /// The `DrainingStarted` event resolves through the process-global
+    /// default; runtimes and handles with an explicit observability context
+    /// should prefer [`Lifecycle::drain_with_ops`].
+    ///
+    /// Retained as the global-default shorthand (used by unit tests).
+    #[allow(dead_code)]
     pub(crate) fn drain(&self) -> Result<(), crate::server::errors::ServerError> {
+        self.drain_with_ops(crate::ops::OpsContext::global())
+    }
+
+    /// Transition to `Draining`, emitting `DrainingStarted` to `ops`.
+    ///
+    /// Same state machine as [`Lifecycle::drain`]; only the event owner
+    /// differs. Idempotent across repeated calls like [`Lifecycle::drain`].
+    pub(crate) fn drain_with_ops(
+        &self,
+        ops: &crate::ops::OpsContext,
+    ) -> Result<(), crate::server::errors::ServerError> {
         loop {
             let actual = self.state.load(Ordering::Acquire);
             let state = LifecycleState::from_u8(actual);
@@ -180,7 +198,7 @@ impl Lifecycle {
                         )
                         .is_ok()
                     {
-                        crate::ops::Logger::global().emit(crate::ops::Event::new(
+                        ops.emit(crate::ops::Event::new(
                             crate::ops::Severity::Info,
                             crate::ops::EventKind::DrainingStarted,
                             "draining in-flight connections",

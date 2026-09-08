@@ -2,7 +2,12 @@
 
 ## Status
 
-**PLANNED — embedding-quality improvement; no telemetry-framework expansion.**
+**IMPLEMENTED / CLOSED — embedding-quality improvement; no telemetry-framework expansion.**
+
+Prerequisites satisfied: Plan 178 closed (sink-panic containment carried
+forward context-locally), Plan 180 closed (context plumbed through the
+decomposed `connection/` modules), Plan 179 closed (`RuntimeState`
+construction rests on validated configuration; `with_ops` validates too).
 
 Prerequisites: Plan 178 closed; Plan 180 preferably closed so observability is plumbed through clearly separated runtime/driver modules rather than deepening the current monolithic connection module. Plan 179 should also be closed so `RuntimeState` construction rests on validated configuration.
 
@@ -245,3 +250,94 @@ Add targeted concurrent two-runtime observability tests. Do not add a new extern
 ## Handoff
 
 After closure, EggServe's runtime substrate should have explicit ownership for configuration, connection state, and observability. Future exporter integrations should live downstream or behind a separately justified adapter; do not grow the core into an observability framework.
+
+## Closure record
+
+### Track A — inventory (as built)
+
+| Use | Classification | Disposition |
+|---|---|---|
+| Accept loop, caller-owned driver, `pipeline`/`request`/`response`/`driver`/`activity`/`lifecycle`/`deferred_body`, `classify_accept_error`, `accept_tls`, `ActiveConnectionGuard`, `Lifecycle::drain` event | 1. runtime/server-owned | Explicit `OpsContext` (`RuntimeState`-owned; `ConnectionActivity`-carried; params elsewhere) |
+| `primitives::canonical` streaming/file-stream counters + events | 2. standalone helper without runtime owner | Contextual `Option<&OpsContext>` threaded from the runtime pipeline; `None` = documented process-global fallback for standalone `to_hyper_response` |
+| `CompositeLogSink` internal failure accounting | 1./4. | `with_failure_counters` / `OpsContext::with_sinks` for context-local; plain `new()` keeps documented global accounting |
+| CLI (`eggserve-bin`) startup/process events, Python `server.rs` emits | 3. frontend/CLI init | Unchanged global compat path |
+| Existing tests reading `global_counters()` / `Logger::global()` | 4. test-only | Unchanged (global default preserved) |
+| `NEXT_CONN_ID` static in `connection/mod.rs` | 1. | Removed; IDs come from the owning context |
+
+### Track B — context
+
+`ops::OpsContext` (`Arc`-backed cloneable): `Arc<dyn LogSink>` +
+`Arc<OpsCounters>` + `CorrelationId`. Constructors `new` / `from_boxed` /
+`with_sinks` (auto-wires a failure-counted composite) / `default` (Nop) /
+`global()`. `emit`/`emit_if` contain sink panics per-context (Plan 178,
+non-recursive, no synthetic events). `Logger` keeps its `Box`-taking
+`init`/`try_init` signatures (field now `Arc`-held) and adopts the sink into
+the global default on success, preserving CLI init-then-serve order.
+`global_counters()` delegates to the global context's set. Stability:
+event/sink/counter vocabulary + context construction/snapshot are
+semver-considered pre-1.0; runtime attachment is experimental with `server`
+(`lib.rs` bucket list updated).
+
+### Track C — runtime ownership
+
+`RuntimeState` owns `ops`: `with_ops` (validating, explicit),
+`new`/`try_new`/`new_for_testing` (global clone, compatible). `ServerBuilder`
+gains `ops_context(..)`; `Server` carries it into `RuntimeState::with_ops`,
+the built-in `StaticService` (via `from_serve_config_with_ops`), and
+`ServerHandle`. `StaticService`/`StaticServiceBuilder` own service-side
+context for `root_initialized`. Caller-owned `serve_http1_connection` IDs
+come from the shared state's context.
+
+### Track D — module plumbing
+
+`ConnectionActivity::new(ops)` carries the context; `InFlightGuard::admit` /
+`finish` resolve through it (signatures unchanged). `driver.rs` derives ops
+from activity. `pipeline.rs`, `request.rs`, `lifecycle.rs`
+(`cancel_all`/`cancel_shared_with_observability`), `deferred_body.rs`
+spawns, `response.rs` (`normalize_then_convert`), and the canonical
+streaming/file conversion take explicit `ops` params. No mixed ownership:
+every normal-operation counter/event is either contextual or documented
+global (standalone conversions, frontend init).
+
+### Track E — inspection
+
+`RuntimeState::ops_snapshot()`, `ServerHandle::ops_snapshot()` (+
+`ops_context()` accessor), `OpsContext::snapshot()` / `counters()` /
+`counters_arc()` / `next_connection_id()`. Bounded, non-blocking, never
+reset-on-read; no endpoint added.
+
+### Track F — tests
+
+New `crates/eggserve-core/tests/per_runtime_observability.rs` (5 tests):
+two-runtime isolation (rejection accounted only in A, `conn=1` in both ID
+sequences), failing-sink containment/counting isolation (+ unit test for
+`with_failure_counters`), default-construction compat (caller-owned driver
+and TCP server, `connections_accepted == 1` via handle snapshot), and
+concurrent two-server independence (per-server accepts, disjoint sinks).
+
+### Track G — reconciliation
+
+- G1: `ops` classified in `lib.rs` (vocabulary semver-considered pre-1.0;
+  attachment experimental); `architecture/eggserve-core.md` row updated.
+- G2: matrix TLS row now claims experimental feature-gated runtime support.
+- G3: source tree confirmed to have no client module/feature (only the
+  Hyper `client` cargo flag); both stale client bullets removed, crate-split
+  bullet rewritten without client language, ACME bullet's "TLS client
+  verification" corrected (unsupported per `docs/tls.md`).
+- G4: observability matrix row replaced with precise per-surface claims +
+  ownership footnote.
+- Also updated: `architecture/structured-logging.md` (ownership model),
+  `architecture/runtime.md` (builder/handle/ownership table),
+  `docs/ops-logging.md` (per-runtime guide), `README.md`, `AGENTS.md`,
+  skill (`eggserve-dev`), `connection/mod.rs` module docs.
+
+### Verification (local, pre-push)
+
+- `cargo fmt --all -- --check` clean
+- `cargo clippy --workspace --lib --bins --tests -- -D warnings` clean
+- `cargo clippy -p eggserve-bin --features tls ...` clean
+- `cargo test --workspace` green (1732 passed)
+- `cargo test -p eggserve-core --features tls` green
+- `cargo test -p eggserve-bin --features tls` green
+- `cargo test --doc -p eggserve-core` green
+- Python wheel + conformance gates: see commit verification notes.

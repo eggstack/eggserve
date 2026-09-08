@@ -24,6 +24,7 @@ pub(crate) fn normalize_then_convert(
     file_stream_semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
     stream_chunk_size: usize,
     error_policy: crate::policy::ErrorRepresentationPolicy,
+    ops: Option<&crate::ops::OpsContext>,
 ) -> hyper::Response<BoxBodyInner> {
     let normalized = match crate::primitives::canonical::normalize_response(
         canonical,
@@ -36,6 +37,7 @@ pub(crate) fn normalize_then_convert(
         normalized,
         file_stream_semaphore,
         stream_chunk_size,
+        ops,
     ) {
         Ok(r) => r,
         Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => {

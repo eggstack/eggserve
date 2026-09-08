@@ -44,14 +44,19 @@ impl ConnectionRequests {
     /// Cancel all still-live lifecycles with observability.
     ///
     /// Already-cancelled lifecycles are skipped (first reason wins).
-    pub(crate) fn cancel_all(&self, reason: RequestCancellationReason, conn_id: u64) {
+    pub(crate) fn cancel_all(
+        &self,
+        reason: RequestCancellationReason,
+        conn_id: u64,
+        ops: &crate::ops::OpsContext,
+    ) {
         let live: Vec<Arc<RequestShared>> = if let Ok(guard) = self.inner.lock() {
             guard.iter().filter_map(|w| w.upgrade()).collect()
         } else {
             Vec::new()
         };
         for shared in live {
-            cancel_shared_with_observability(&shared, reason, conn_id);
+            cancel_shared_with_observability(&shared, reason, conn_id, ops);
         }
     }
 }
@@ -64,6 +69,7 @@ pub(crate) fn cancel_shared_with_observability(
     shared: &Arc<RequestShared>,
     reason: RequestCancellationReason,
     conn_id: u64,
+    ops: &crate::ops::OpsContext,
 ) -> bool {
     if shared.is_cancelled() {
         return false;
@@ -71,10 +77,10 @@ pub(crate) fn cancel_shared_with_observability(
     shared.cancel(reason);
     match reason {
         RequestCancellationReason::PeerDisconnected => {
-            crate::ops::global_counters()
+            ops.counters()
                 .lifecycle_peer_disconnects
                 .fetch_add(1, Ordering::Relaxed);
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Debug,
                     crate::ops::EventKind::RequestLifecyclePeerDisconnect,
@@ -84,10 +90,10 @@ pub(crate) fn cancel_shared_with_observability(
             );
         }
         _ => {
-            crate::ops::global_counters()
+            ops.counters()
                 .lifecycle_runtime_cancels
                 .fetch_add(1, Ordering::Relaxed);
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Debug,
                     crate::ops::EventKind::RequestLifecycleRuntimeCancel,

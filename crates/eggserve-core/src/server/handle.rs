@@ -49,6 +49,7 @@ pub struct ServerHandle {
     shutdown_tx: broadcast::Sender<()>,
     join: Option<tokio::task::JoinHandle<ShutdownResult>>,
     lifecycle: std::sync::Arc<Lifecycle>,
+    ops: crate::ops::OpsContext,
 }
 
 impl std::fmt::Debug for ServerHandle {
@@ -66,12 +67,14 @@ impl ServerHandle {
         shutdown_tx: broadcast::Sender<()>,
         join: tokio::task::JoinHandle<ShutdownResult>,
         lifecycle: std::sync::Arc<Lifecycle>,
+        ops: crate::ops::OpsContext,
     ) -> Self {
         Self {
             local_addr,
             shutdown_tx,
             join: Some(join),
             lifecycle,
+            ops,
         }
     }
 
@@ -80,6 +83,20 @@ impl ServerHandle {
     /// Useful when binding to port 0 to discover the actual port.
     pub fn local_addr(&self) -> SocketAddr {
         self.local_addr
+    }
+
+    /// This server's observability context.
+    ///
+    /// Cloning is cheap (shared inner); useful for wiring related components
+    /// to the same sink/counters without going through the process global.
+    pub fn ops_context(&self) -> &crate::ops::OpsContext {
+        &self.ops
+    }
+
+    /// Non-blocking, bounded snapshot of this server's counters (Plan 181
+    /// Track E). Reads never reset; no exporter or endpoint is involved.
+    pub fn ops_snapshot(&self) -> crate::ops::OpsSnapshot {
+        self.ops.snapshot()
     }
 
     /// Returns the current lifecycle state.
@@ -143,7 +160,7 @@ impl ServerHandle {
     /// Multiple calls are idempotent — only the first call has an effect.
     pub fn shutdown(&self) {
         // Transition to draining (idempotent — returns Ok for already-draining/stopped/created).
-        let _ = self.lifecycle.drain();
+        let _ = self.lifecycle.drain_with_ops(&self.ops);
         // Send broadcast signal to break accept loop.
         let _ = self.shutdown_tx.send(());
     }
@@ -231,7 +248,7 @@ impl Drop for ServerHandle {
     fn drop(&mut self) {
         // If the handle is dropped without explicit shutdown, trigger graceful shutdown.
         if self.join.is_some() {
-            let _ = self.lifecycle.drain();
+            let _ = self.lifecycle.drain_with_ops(&self.ops);
             let _ = self.shutdown_tx.send(());
         }
     }
@@ -247,7 +264,13 @@ mod tests {
         let lifecycle = Arc::new(Lifecycle::new());
         let (tx, _rx) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        ServerHandle::new("127.0.0.1:8000".parse().unwrap(), tx, join, lifecycle)
+        ServerHandle::new(
+            "127.0.0.1:8000".parse().unwrap(),
+            tx,
+            join,
+            lifecycle,
+            crate::ops::OpsContext::default(),
+        )
     }
 
     fn make_handle_with_state(state: crate::server::lifecycle::LifecycleState) -> ServerHandle {
@@ -278,7 +301,13 @@ mod tests {
         }
         let (shutdown_tx, _) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        ServerHandle::new("127.0.0.1:0".parse().unwrap(), shutdown_tx, join, lifecycle)
+        ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            shutdown_tx,
+            join,
+            lifecycle,
+            crate::ops::OpsContext::default(),
+        )
     }
 
     #[tokio::test]
@@ -311,7 +340,13 @@ mod tests {
             let _ = rx.recv().await;
             ShutdownResult::Clean
         });
-        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle);
+        let handle = ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            tx,
+            join,
+            lifecycle,
+            crate::ops::OpsContext::default(),
+        );
         handle.shutdown();
         // The task should complete after receiving the shutdown signal.
     }
@@ -323,7 +358,13 @@ mod tests {
 
         let (tx, _rx) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle);
+        let handle = ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            tx,
+            join,
+            lifecycle,
+            crate::ops::OpsContext::default(),
+        );
 
         let result = handle.ready().await;
         assert!(result.is_err());
@@ -351,7 +392,13 @@ mod tests {
 
         let (tx, _rx) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle);
+        let handle = ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            tx,
+            join,
+            lifecycle,
+            crate::ops::OpsContext::default(),
+        );
 
         let result = handle.ready().await;
         assert!(
@@ -374,7 +421,13 @@ mod tests {
         lifecycle.start().unwrap();
         let (tx, _) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle.clone());
+        let handle = ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            tx,
+            join,
+            lifecycle.clone(),
+            crate::ops::OpsContext::default(),
+        );
 
         // Transition to Running after a short delay.
         tokio::spawn(async move {
@@ -393,7 +446,13 @@ mod tests {
         lifecycle.start().unwrap();
         let (tx, _) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle.clone());
+        let handle = ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            tx,
+            join,
+            lifecycle.clone(),
+            crate::ops::OpsContext::default(),
+        );
 
         // Transition to Failed after a short delay.
         tokio::spawn(async move {
@@ -421,7 +480,13 @@ mod tests {
         lifecycle.start().unwrap();
         let (tx, _) = broadcast::channel(1);
         let join = tokio::spawn(async { ShutdownResult::Clean });
-        let handle = ServerHandle::new("127.0.0.1:0".parse().unwrap(), tx, join, lifecycle.clone());
+        let handle = ServerHandle::new(
+            "127.0.0.1:0".parse().unwrap(),
+            tx,
+            join,
+            lifecycle.clone(),
+            crate::ops::OpsContext::default(),
+        );
 
         let drainer_lc = Arc::clone(&lifecycle);
         tokio::spawn(async move {

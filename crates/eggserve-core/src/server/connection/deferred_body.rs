@@ -31,6 +31,7 @@ pub(crate) fn spawn_body_timeout_watchdog(
     activity: Arc<ConnectionActivity>,
     deadline: tokio::time::Instant,
     conn_id: u64,
+    ops: crate::ops::OpsContext,
 ) {
     tokio::spawn(async move {
         tokio::select! {
@@ -40,13 +41,13 @@ pub(crate) fn spawn_body_timeout_watchdog(
                     shared.mark_failed_with_reason(
                         RequestCancellationReason::ConnectionTimeout,
                     );
-                    crate::ops::global_counters()
+                    ops.counters()
                         .body_read_timeouts
                         .fetch_add(1, Ordering::Relaxed);
-                    crate::ops::global_counters()
+                    ops.counters()
                         .deferred_body_timeouts
                         .fetch_add(1, Ordering::Relaxed);
-                    crate::ops::Logger::global().emit(
+                    ops.emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Warn,
                             crate::ops::EventKind::BodyReadTimeout,
@@ -54,7 +55,7 @@ pub(crate) fn spawn_body_timeout_watchdog(
                         )
                         .connection_id(conn_id),
                     );
-                    crate::ops::Logger::global().emit(
+                    ops.emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Warn,
                             crate::ops::EventKind::DeferredBodyTimeout,
@@ -82,16 +83,17 @@ pub(crate) fn spawn_deferred_tracker(
     shared: Arc<RequestShared>,
     activity: Arc<ConnectionActivity>,
     conn_id: u64,
+    ops: crate::ops::OpsContext,
 ) {
     tokio::spawn(async move {
         shared.wait_body_terminal().await;
         activity.deferred_finished();
         match shared.body_state() {
             crate::primitives::request_lifecycle::BodyLifecycleState::Complete => {
-                crate::ops::global_counters()
+                ops.counters()
                     .deferred_bodies_completed
                     .fetch_add(1, Ordering::Relaxed);
-                crate::ops::Logger::global().emit(
+                ops.emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::DeferredBodyCompleted,
@@ -102,10 +104,10 @@ pub(crate) fn spawn_deferred_tracker(
             }
             crate::primitives::request_lifecycle::BodyLifecycleState::Abandoned
             | crate::primitives::request_lifecycle::BodyLifecycleState::Failed => {
-                crate::ops::global_counters()
+                ops.counters()
                     .deferred_bodies_abandoned
                     .fetch_add(1, Ordering::Relaxed);
-                crate::ops::Logger::global().emit(
+                ops.emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::DeferredBodyAbandoned,

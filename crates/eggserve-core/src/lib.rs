@@ -5,11 +5,17 @@
 //! The public surface is intentionally conservative during the alpha period.
 //! Modules and types are divided into three buckets:
 //!
-//! - **Semver-considered (pre-1.0)**: [`config`], [`limits`], [`policy`], and
-//!   [`primitives`]. These are the intended public facades, but a minor
-//!   release may still make breaking changes before 1.0.
+//! - **Semver-considered (pre-1.0)**: [`config`], [`limits`], [`policy`],
+//!   [`primitives`], and [`ops`]. These are the intended public facades, but
+//!   a minor release may still make breaking changes before 1.0. For `ops`
+//!   this covers the event/sink/counter vocabulary and the per-runtime
+//!   [`ops::OpsContext`] construction/snapshot API; attaching a context to a
+//!   running server stays experimental with [`server`] below.
 //! - **Experimental**: [`server`]. The runtime and service boundary is
 //!   exposed for Rust embedders and may change independently before 1.0.
+//!   This includes the observability attachment points
+//!   (`ServerBuilder::ops_context`, `RuntimeState::with_ops`/`ops_snapshot`,
+//!   `ServerHandle::ops_snapshot`, `StaticServiceBuilder::ops_context`).
 //! - **Internal**: [`fs`], [`path`], [`response`], MIME detection, and the
 //!   error taxonomy. These are not part of the public API and are not
 //!   re-exported. External callers should not depend on them.

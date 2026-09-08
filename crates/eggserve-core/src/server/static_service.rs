@@ -34,6 +34,7 @@ pub struct StaticServiceBuilder {
     default_content_type: String,
     extra_response_headers: Vec<(String, String)>,
     error_policy: crate::policy::ErrorRepresentationPolicy,
+    ops: Option<crate::ops::OpsContext>,
 }
 
 impl StaticServiceBuilder {
@@ -64,6 +65,19 @@ impl StaticServiceBuilder {
         self
     }
 
+    /// Attach an explicit observability context for service-owned events
+    /// (currently the `root_initialized` construction event).
+    ///
+    /// When unset, the process-global default is used. Servers built via
+    /// [`crate::server::ServerBuilder`] wire the server context here
+    /// automatically; direct embedders sharing one runtime should pass the
+    /// same context they attach to their
+    /// [`crate::server::RuntimeState`] for coherent per-runtime ownership.
+    pub fn ops_context(mut self, ops: crate::ops::OpsContext) -> Self {
+        self.ops = Some(ops);
+        self
+    }
+
     /// Build the service and pin its root exactly once.
     pub fn build(self) -> Result<StaticService, ServiceError> {
         let config = Arc::new(ServeConfig {
@@ -74,15 +88,25 @@ impl StaticServiceBuilder {
             error_policy: self.error_policy,
             ..ServeConfig::default()
         });
-        StaticService::from_serve_config(config)
+        let ops = self
+            .ops
+            .unwrap_or_else(|| crate::ops::OpsContext::global().clone());
+        StaticService::from_serve_config_with_ops(config, ops)
             .map_err(|e| ServiceError::internal(format!("failed to initialize static root: {e}")))
     }
 }
 
 /// A hardened static file service.
+///
+/// Service-owned events (currently the `root_initialized` construction
+/// event) resolve through the context attached at construction. Transport
+/// events and counters for responses served through the runtime pipeline
+/// (streaming, file-stream admission) resolve through the runtime's own
+/// context; `ServerBuilder` wires both to the same context.
 #[derive(Clone)]
 pub struct StaticService {
     state: Arc<ServeState>,
+    ops: crate::ops::OpsContext,
 }
 
 impl StaticService {
@@ -94,24 +118,48 @@ impl StaticService {
             default_content_type: "application/octet-stream".to_string(),
             extra_response_headers: Vec::new(),
             error_policy: crate::policy::ErrorRepresentationPolicy::Minimal,
+            ops: None,
         }
     }
 
     /// Construct a service from already validated static configuration.
+    ///
+    /// Uses the process-global observability default; prefer
+    /// [`StaticService::from_serve_config_with_ops`] when a runtime context
+    /// exists.
+    #[allow(dead_code)]
     pub(crate) fn from_serve_config(config: Arc<ServeConfig>) -> Result<Self, std::io::Error> {
+        Self::from_serve_config_with_ops(config, crate::ops::OpsContext::global().clone())
+    }
+
+    /// Construct a service from already validated static configuration with
+    /// an explicit observability context for service-owned events.
+    pub(crate) fn from_serve_config_with_ops(
+        config: Arc<ServeConfig>,
+        ops: crate::ops::OpsContext,
+    ) -> Result<Self, std::io::Error> {
         let state = Arc::new(ServeState::new(config)?);
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
+        ops.emit(crate::ops::Event::new(
             crate::ops::Severity::Info,
             crate::ops::EventKind::RootInitialized,
             "root initialized",
         ));
-        Ok(Self { state })
+        Ok(Self { state, ops })
     }
 
     /// Legacy adapter for callers that already own a pinned static state.
     #[allow(dead_code)]
     pub(crate) fn from_state(state: Arc<ServeState>) -> Self {
-        Self { state }
+        Self {
+            state,
+            ops: crate::ops::OpsContext::global().clone(),
+        }
+    }
+
+    /// This service's observability context (service-owned events).
+    #[allow(dead_code)]
+    pub(crate) fn ops(&self) -> &crate::ops::OpsContext {
+        &self.ops
     }
 }
 

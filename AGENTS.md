@@ -151,9 +151,12 @@ Routine CI is a small regression screen, not release certification. Platform qua
 
 ### Structured logging
 
-- Library code must not use `println!`/`eprintln!` — use `eggserve-core::ops`: `Logger::global().emit(Event::new(...))`.
-- `Logger` uses `OnceLock`; `try_init()` exists for Python bindings coexisting with CLI init. Never call `Logger::init()` twice.
-- `CompositeLogSink` contains child panics, increments `dropped_log_events`, continues with healthy siblings, and never re-emits via `Logger::global()` (no recursive sink-graph traversal; the counter is the signal).
+- Library code must not use `println!`/`eprintln!` — runtime code uses the explicit `OpsContext` (`ops.emit(Event::new(...))`); CLI/frontend init keeps the `Logger::global()` compat path.
+- **Plan 181 per-runtime observability** — `RuntimeState` owns an `OpsContext` (sink + counters + correlation IDs). `RuntimeState::with_ops` / `ServerBuilder::ops_context` attach explicit contexts; `new`/`try_new` clone the global default. `ConnectionActivity` carries the connection's context; connection modules take `ops` params or read `activity.ops()`. Standalone canonical conversions (`to_hyper_response`) keep the documented process-global fallback via `resolve_ops(None)`.
+- Connection IDs start at 1 per context (`OpsContext::next_connection_id`); the old static `NEXT_CONN_ID` is gone. Explicit caller IDs via `serve_http1_connection_with_id` still win.
+- Sink-failure accounting is context-local: `CompositeLogSink::with_failure_counters` / `OpsContext::with_sinks`; plain `new()` keeps global accounting. Never re-emit failures through a logger (no recursive sink-graph traversal; the counter is the signal).
+- Bounded snapshots: `RuntimeState::ops_snapshot()` / `ServerHandle::ops_snapshot()` / `OpsContext::snapshot()` (never reset-on-read, no exporter). `ops` event/sink/counter vocabulary is semver-considered pre-1.0; runtime attachment is experimental with `server`.
+- `Logger` uses `OnceLock`; `try_init()` exists for Python bindings coexisting with CLI init and adopts the sink into the global default. Never call `Logger::init()` twice.
 - `max_connections`/`max_file_streams`/`max_in_flight_requests` are validated once in the Plan 179 kernel against `tokio::sync::Semaphore::MAX_PERMITS`; larger values are rejected.
 
 ### Python facade

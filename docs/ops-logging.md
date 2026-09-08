@@ -25,6 +25,31 @@ server = HTTPServer(("127.0.0.1", 8000), handler)
 
 The Python server logs to stderr via the CLI's structured logging. The server does not accept observer callbacks; operational events are emitted to stderr by the Rust runtime.
 
+## Per-runtime observability (Rust embedders)
+
+One process may own several servers or caller-owned runtimes. Each runtime
+carries an explicit `OpsContext` (log sink, counters, correlation-ID source)
+instead of sharing process globals:
+
+- `OpsContext::with_sinks(vec![...])` builds an isolated context (a
+  `CompositeLogSink` with context-local failure accounting is wired
+  automatically); `OpsContext::new` / `from_boxed` wrap a single sink.
+- Attach it with `ServerBuilder::ops_context(..)` (TCP/TLS servers, including
+  the built-in static service) or `RuntimeState::with_ops(..)`
+  (caller-owned `serve_http1_connection` drivers). `StaticServiceBuilder`
+  accepts the same context via `ops_context(..)` for service-owned events.
+- Without an explicit context, construction clones the process-global
+  default, so CLI and single-server behavior is unchanged.
+- Read bounded snapshots any time: `RuntimeState::ops_snapshot()`,
+  `ServerHandle::ops_snapshot()`, or `OpsContext::snapshot()`. Reads are
+  non-blocking and never reset. No exporter, endpoint, or monitoring server
+  is provided (and none is planned: keep exporters downstream).
+- `connection_id` sequences start at 1 per context; two runtimes in one
+  process number their connections independently. An explicit
+  caller-supplied ID (`serve_http1_connection_with_id`) still wins.
+- Standalone canonical conversions (`primitives::to_hyper_response`, used
+  without a runtime) keep the process-global default by design.
+
 ## JSON Lines Schema
 
 Every line is a self-contained JSON object:
@@ -55,7 +80,7 @@ Every line is a self-contained JSON object:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `connection_id` | number | Unique per-process connection identifier |
+| `connection_id` | number | Connection identifier, unique within the owning runtime context (sequences start at 1 per context) |
 | `request_seq` | number | Request sequence number within connection |
 | `fields` | array | Structured key-value pairs |
 
@@ -150,7 +175,9 @@ Each element is an object with a single key-value pair. Values preserve their ty
 
 ## Operational Counters
 
-`global_counters().snapshot()` provides a point-in-time snapshot:
+`RuntimeState::ops_snapshot()` / `ServerHandle::ops_snapshot()` return a
+point-in-time snapshot of one runtime's counters
+(`global_counters().snapshot()` is the process-global default's set):
 
 | Counter | Description |
 |---------|-------------|
@@ -203,14 +230,19 @@ The Python server delegates logging to the Rust runtime's stderr log sink. There
 ### Log sink failures
 
 If a log sink panics, `CompositeLogSink` contains the panic with
-`catch_unwind`, increments `dropped_log_events`, and continues with the
-remaining sibling sinks so the original event still reaches healthy sinks.
+`catch_unwind`, increments the owning context's `dropped_log_events`, and
+continues with the remaining sibling sinks so the original event still
+reaches healthy sinks. (Composites built with `with_failure_counters`, or
+contexts built with `OpsContext::with_sinks`, count in the owning runtime;
+plain `new()` composites keep the historical process-global accounting.)
 It does not emit a synthetic `log_sink_failure` event through the global
 logger: when the composite itself is installed globally that path would
 re-enter the same failing sink graph (Plan 178). The
 `dropped_log_events` counter is the failure signal. The server continues
 operating. The `log_sink_failure` event kind is retained but not emitted
-by the composite.
+by the composite. `OpsContext::emit` applies the same non-recursive
+containment to direct (non-composite) sinks, counted in the emitting
+context.
 
 ### JSON parse errors
 

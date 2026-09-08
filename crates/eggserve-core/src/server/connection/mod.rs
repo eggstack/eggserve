@@ -34,7 +34,7 @@
 //!   context.rs       ConnectionContext / ConnectionShutdown / ConnectionOutcome
 //!   lifecycle.rs     live-request registry + abnormal-termination cancellation
 //!   activity.rs      in-flight/outstanding/deferred counters, admission guard,
-//!                    tracked response bodies
+//!                    tracked response bodies, connection `OpsContext` carrier
 //!   transport.rs     ProgressIo read/write progress observation
 //!   driver.rs        Hyper builder, graceful close, outcome classification,
 //!                    deadline/select loop, TCP + caller-token adapters
@@ -71,7 +71,6 @@ pub(crate) mod transport;
 
 pub use context::{ConnectionContext, ConnectionOutcome, ConnectionShutdown};
 
-use std::sync::atomic::AtomicU64;
 use std::sync::Arc;
 
 use hyper_util::rt::TokioIo;
@@ -122,7 +121,8 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
-    let activity = Arc::new(ConnectionActivity::new());
+    let ops = runtime_state.ops().clone();
+    let activity = Arc::new(ConnectionActivity::new(ops.clone()));
     let requests = Arc::new(ConnectionRequests::new());
     let hyper_service = make_canonical_hyper_service(
         service,
@@ -137,6 +137,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
         config.max_request_body_bytes,
         context,
         conn_id,
+        ops,
     );
     let _ = serve_connection(
         io,
@@ -213,8 +214,12 @@ where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
 {
-    static NEXT_CONN_ID: AtomicU64 = AtomicU64::new(1);
-    let conn_id = NEXT_CONN_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    // Correlation IDs are owned by the runtime context (Plan 181 Track C3):
+    // each runtime numbers its own connections from 1, so two runtimes in
+    // one process never share an ID sequence. The process-global static
+    // source is gone; explicit IDs still flow through
+    // `serve_http1_connection_with_id`.
+    let conn_id = runtime_state.ops().next_connection_id();
     serve_http1_connection_with_id(
         io,
         service,
@@ -251,7 +256,7 @@ where
     // this is the ownership boundary. `hyper_builder` still clamps
     // `max_buf_size` as last-resort panic protection.
     if let Err(e) = config.validate() {
-        crate::ops::Logger::global().emit(
+        runtime_state.ops().emit(
             crate::ops::Event::new(
                 crate::ops::Severity::Error,
                 crate::ops::EventKind::ConnectionRejected,
@@ -265,7 +270,8 @@ where
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
-    let activity = Arc::new(ConnectionActivity::new());
+    let ops = runtime_state.ops().clone();
+    let activity = Arc::new(ConnectionActivity::new(ops.clone()));
     let requests = Arc::new(ConnectionRequests::new());
     let hyper_service = make_canonical_hyper_service(
         service,
@@ -280,6 +286,7 @@ where
         config.max_request_body_bytes,
         context,
         conn_id,
+        ops,
     );
     serve_hyper_with_token(
         io,

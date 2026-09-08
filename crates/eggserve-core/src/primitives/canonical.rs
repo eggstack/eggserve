@@ -744,6 +744,11 @@ fn strip_hop_by_hop(headers: &mut HeaderBlock) {
 /// depend on its `http_body::Body` behavior, not on a concrete erasure type.
 /// The one-owner response-stream model remains `Send` without requiring
 /// producer `Sync`; concurrent body polling is unsupported.
+///
+/// Streaming and file-stream observability in this standalone adapter resolve
+/// through the process-global default. Runtime pipeline conversions that own
+/// an [`crate::ops::OpsContext`] use the contextual conversion path instead
+/// so per-runtime counters stay isolated.
 pub fn to_hyper_response(
     response: Response,
 ) -> Result<
@@ -754,11 +759,17 @@ pub fn to_hyper_response(
         response,
         None,
         crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
+        None,
     )
 }
 
 /// Convert a canonical response while enforcing the runtime file-stream
 /// admission limit for every file-backed body.
+///
+/// Streaming/file-stream observability resolves through the process-global
+/// default; the runtime pipeline prefers
+/// [`to_hyper_response_with_file_stream_semaphore_and_chunk_size`] with its
+/// own context.
 #[allow(dead_code)]
 pub(crate) fn to_hyper_response_with_file_stream_semaphore(
     response: Response,
@@ -771,14 +782,20 @@ pub(crate) fn to_hyper_response_with_file_stream_semaphore(
         response,
         Some(semaphore),
         crate::limits::DEFAULT_STREAM_CHUNK_SIZE,
+        None,
     )
 }
 
 /// Convert a canonical response using a configured file-stream chunk size.
+///
+/// `ops` carries the runtime observability context for streaming and
+/// file-stream counters/events; `None` retains the process-global default
+/// for standalone (non-runtime) conversions.
 pub(crate) fn to_hyper_response_with_file_stream_semaphore_and_chunk_size(
     response: Response,
     semaphore: &std::sync::Arc<tokio::sync::Semaphore>,
     stream_chunk_size: usize,
+    ops: Option<&crate::ops::OpsContext>,
 ) -> Result<
     hyper::Response<http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
@@ -787,6 +804,7 @@ pub(crate) fn to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         response,
         Some(semaphore),
         stream_chunk_size,
+        ops,
     )
 }
 
@@ -794,6 +812,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
     response: Response,
     semaphore: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
     stream_chunk_size: usize,
+    ops: Option<&crate::ops::OpsContext>,
 ) -> Result<
     hyper::Response<http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
@@ -832,7 +851,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
                 .map(|s| s.clone().try_acquire_owned())
                 .transpose()
                 .map_err(|_| ResponseConstructionError::FileStreamLimit)?;
-            let permit = permit.map(CountingFileStreamPermit::new);
+            let permit = permit.map(|p| CountingFileStreamPermit::new(p, ops));
             file_body(source, permit, stream_chunk_size)
         }
         Some(ResponseBody::Stream(stream)) => {
@@ -846,7 +865,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
                     .map_err(|never| match never {})
                     .boxed_unsync()
             } else {
-                stream_body(stream, stream_chunk_size)
+                stream_body(stream, stream_chunk_size, ops)
             }
         }
         Some(ResponseBody::EmptyWithLength(_)) => Full::new(Bytes::new())
@@ -983,18 +1002,28 @@ async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::
 fn stream_body(
     stream: ResponseStream,
     stream_chunk_size: usize,
+    ops: Option<&crate::ops::OpsContext>,
 ) -> http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error> {
     use http_body_util::{BodyExt, StreamBody};
-    crate::ops::global_counters()
+    let owner = resolve_ops(ops);
+    owner
+        .counters()
         .streaming_started
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    crate::ops::Logger::global().emit(crate::ops::Event::new(
+    owner.emit(crate::ops::Event::new(
         crate::ops::Severity::Debug,
         crate::ops::EventKind::ResponseStreamStarted,
         "streaming response started",
     ));
-    let adapter = ResponseStreamAdapter::new(stream, stream_chunk_size);
+    let adapter = ResponseStreamAdapter::new(stream, stream_chunk_size, ops);
     StreamBody::new(adapter).boxed_unsync()
+}
+
+/// Resolve a runtime observability context.
+///
+/// Falls back to the process-global default for standalone conversions.
+fn resolve_ops(ops: Option<&crate::ops::OpsContext>) -> &crate::ops::OpsContext {
+    ops.unwrap_or_else(|| crate::ops::OpsContext::global())
 }
 
 #[allow(clippy::type_complexity)]
@@ -1009,13 +1038,18 @@ struct ResponseStreamAdapter {
     chunk_size: usize,
     pending_split: Option<bytes::Bytes>,
     finished: bool,
+    ops: Option<crate::ops::OpsContext>,
 }
 
 use std::pin::Pin as StdPin;
 use std::task::{Context as TaskContext, Poll as TaskPoll};
 
 impl ResponseStreamAdapter {
-    fn new(stream: ResponseStream, chunk_size: usize) -> Self {
+    fn new(
+        stream: ResponseStream,
+        chunk_size: usize,
+        ops: Option<&crate::ops::OpsContext>,
+    ) -> Self {
         let declared = stream.known_length();
         let chunk_size = chunk_size.max(1);
         Self {
@@ -1025,15 +1059,21 @@ impl ResponseStreamAdapter {
             chunk_size,
             pending_split: None,
             finished: false,
+            ops: ops.cloned(),
         }
+    }
+
+    fn owner(&self) -> &crate::ops::OpsContext {
+        resolve_ops(self.ops.as_ref())
     }
 
     fn fail_length_mismatch(&mut self, emitted: u64) -> std::io::Error {
         self.finished = true;
-        crate::ops::global_counters()
+        self.owner()
+            .counters()
             .stream_length_mismatches
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        crate::ops::Logger::global().emit(
+        self.owner().emit(
             crate::ops::Event::new(
                 crate::ops::Severity::Warn,
                 crate::ops::EventKind::ResponseStreamLengthMismatch,
@@ -1053,10 +1093,11 @@ impl ResponseStreamAdapter {
 
     fn fail_producer(&mut self) -> std::io::Error {
         self.finished = true;
-        crate::ops::global_counters()
+        self.owner()
+            .counters()
             .stream_producer_errors
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
+        self.owner().emit(crate::ops::Event::new(
             crate::ops::Severity::Warn,
             crate::ops::EventKind::ResponseStreamProducerError,
             "streaming response producer failed; closing connection",
@@ -1066,10 +1107,11 @@ impl ResponseStreamAdapter {
 
     fn fail_panic(&mut self) -> std::io::Error {
         self.finished = true;
-        crate::ops::global_counters()
+        self.owner()
+            .counters()
             .stream_producer_panics
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
+        self.owner().emit(crate::ops::Event::new(
             crate::ops::Severity::Error,
             crate::ops::EventKind::ResponseStreamProducerPanic,
             "streaming response producer panicked; closing connection",
@@ -1079,10 +1121,11 @@ impl ResponseStreamAdapter {
 
     fn complete_ok(&mut self) {
         self.finished = true;
-        crate::ops::global_counters()
+        self.owner()
+            .counters()
             .streaming_completed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        crate::ops::Logger::global().emit(crate::ops::Event::new(
+        self.owner().emit(crate::ops::Event::new(
             crate::ops::Severity::Debug,
             crate::ops::EventKind::ResponseStreamCompleted,
             "streaming response completed",
@@ -1104,10 +1147,12 @@ impl ResponseStreamAdapter {
 impl Drop for ResponseStreamAdapter {
     fn drop(&mut self) {
         if !self.finished {
-            crate::ops::global_counters()
+            let owner = resolve_ops(self.ops.as_ref());
+            owner
+                .counters()
                 .stream_cancelled
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            crate::ops::Logger::global().emit(crate::ops::Event::new(
+            owner.emit(crate::ops::Event::new(
                 crate::ops::Severity::Debug,
                 crate::ops::EventKind::ResponseStreamCancelled,
                 "streaming response cancelled",
@@ -1215,20 +1260,29 @@ impl futures_util::Stream for ResponseStreamAdapter {
 
 struct CountingFileStreamPermit {
     _permit: tokio::sync::OwnedSemaphorePermit,
+    ops: Option<crate::ops::OpsContext>,
 }
 
 impl CountingFileStreamPermit {
-    fn new(permit: tokio::sync::OwnedSemaphorePermit) -> Self {
-        crate::ops::global_counters()
+    fn new(
+        permit: tokio::sync::OwnedSemaphorePermit,
+        ops: Option<&crate::ops::OpsContext>,
+    ) -> Self {
+        resolve_ops(ops)
+            .counters()
             .active_file_streams
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        Self { _permit: permit }
+        Self {
+            _permit: permit,
+            ops: ops.cloned(),
+        }
     }
 }
 
 impl Drop for CountingFileStreamPermit {
     fn drop(&mut self) {
-        crate::ops::global_counters()
+        resolve_ops(self.ops.as_ref())
+            .counters()
             .active_file_streams
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
     }
@@ -1321,6 +1375,7 @@ mod tests {
             file_response(&path, None),
             &semaphore,
             64,
+            None,
         )
         .unwrap();
 

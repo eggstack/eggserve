@@ -39,6 +39,7 @@ Configures and constructs a `Server` via a fluent builder API:
   consumed into one `StaticService` during `build()` and is ignored by
   `start_with_service()` custom-service startup
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
+- `ops_context(ops)` — attach an explicit per-runtime `OpsContext` (sink, counters, correlation IDs); unset clones the process-global default so CLI/compatibility construction needs no new configuration (experimental)
 - `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, but the canonical driver (`serve_http1_connection`) also serves caller-owned streams
 - `build()` — validate configuration and construct the built-in `StaticService`
   once when `serve_config()` was supplied; invalid static roots fail here
@@ -144,6 +145,8 @@ Control handle returned by `Server::start()`. Not `Clone` — there is exactly o
 - `shutdown()` — trigger graceful shutdown (idempotent; multiple calls are safe)
 - `force_shutdown(deadline).await` — graceful shutdown followed by deadline; if the server doesn't stop within `deadline`, remaining tasks are abandoned and `ShutdownResult::Forced` is returned
 - `wait().await` — consume handle, trigger graceful shutdown if still running, wait for completion
+- `ops_context()` — this server's `OpsContext` (cheap cloneable handle)
+- `ops_snapshot()` — bounded, non-blocking snapshot of this server's counters (never reset-on-read; no exporter/endpoint)
 - Drop behavior: triggers graceful shutdown — the server stops accepting new connections and drains in-flight requests
 
 ### Error Types
@@ -211,14 +214,23 @@ Listener errors are classified by `io::ErrorKind` into transient, resource-exhau
 ### Runtime ownership corrective contract
 
 Each running server creates exactly one `RuntimeState`, including one
-`max_file_streams` semaphore and one `max_in_flight_requests` semaphore.
-The accept loop clones that state into every connection; `StaticService`
-owns only its pinned root, policy, listing limits, and validated static
-representation metadata. All canonical file and range responses acquire the
-same file-stream permit at the single Hyper conversion boundary, and every
-`Service::call()` execution holds an in-flight permit (acquired with
-`try_acquire`, so exhaustion answers 503 immediately with no hidden queue).
-Custom Rust and Python services have no implicit root or static state.
+`max_file_streams` semaphore, one `max_in_flight_requests` semaphore, and one
+observability context (`OpsContext`: sink, counters, correlation-ID source).
+`RuntimeState::new` / `try_new` clone the process-global default;
+`RuntimeState::with_ops` attaches an explicit context for isolated embedding,
+and `ops_snapshot()` reads that runtime's counters without a monitoring
+endpoint. The accept loop clones that state into every connection;
+`StaticService` owns only its pinned root, policy, listing limits, validated
+static representation metadata, and its service-owned event context (wired to
+the server context by `ServerBuilder`; direct embedders pass the same context
+via `StaticServiceBuilder::ops_context` for coherent ownership). All
+canonical file and range responses acquire the same file-stream permit at the
+single Hyper conversion boundary, and every `Service::call()` execution holds
+an in-flight permit (acquired with `try_acquire`, so exhaustion answers 503
+immediately with no hidden queue). Custom Rust and Python services have no
+implicit root or static state. Caller-owned drivers (`serve_http1_connection`)
+number connections from the shared state's context (the separate static ID
+source is gone); explicit IDs via `serve_http1_connection_with_id` still win.
 
 The runtime asks the service for the body policy for the actual request. GET,
 HEAD, DELETE, OPTIONS, and extension methods are not globally body-forbidden;
@@ -290,14 +302,14 @@ External code imports only the facade (`ConnectionContext`,
 | Module | Owns |
 |--------|------|
 | `context.rs` | Public facade types: transport context, shutdown token, outcome |
-| `lifecycle.rs` | Live-request registry + abnormal-termination cancellation |
-| `activity.rs` | Deadline state, in-flight admission guard, tracked response bodies |
+| `lifecycle.rs` | Live-request registry + abnormal-termination cancellation (contextual) |
+| `activity.rs` | Deadline state, in-flight admission guard, tracked response bodies; carries the connection's `OpsContext` |
 | `transport.rs` | `ProgressIo` read/write progress observation |
-| `driver.rs` | Hyper builder, graceful close, outcome classification, deadline/select loop |
-| `pipeline.rs` | `CanonicalHyperService`, the single request/service dispatch |
-| `request.rs` | Target/header ceilings, framing checks, body-policy selection, body bridge |
-| `response.rs` | Normalization, panic containment, body-error mapping, final privacy |
-| `deferred_body.rs` | Deferred-body watchdog + terminal-state tracker |
+| `driver.rs` | Hyper builder, graceful close, outcome classification, deadline/select loop (observability via activity's context) |
+| `pipeline.rs` | `CanonicalHyperService`, the single request/service dispatch (explicit `OpsContext` parameter) |
+| `request.rs` | Target/header ceilings, framing checks, body-policy selection, body bridge (contextual rejections) |
+| `response.rs` | Normalization, panic containment, body-error mapping, final privacy; contextual streaming/file conversion |
+| `deferred_body.rs` | Deferred-body watchdog + terminal-state tracker (contextual) |
 
 Dependency direction is acyclic: `pipeline`/`driver` depend on the rest,
 `activity` depends on `response` (final privacy only), and nothing depends

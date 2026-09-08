@@ -4,6 +4,44 @@
 
 eggserve uses structured JSON Lines logging for machine-consumable operational events, with a text mode fallback for human readability. The system is defined in `eggserve-core::ops`.
 
+## Ownership: per-runtime contexts with a process-global default
+
+Live server/connection execution resolves observability through an explicit
+`OpsContext` carried by runtime ownership, not through process globals:
+
+- `OpsContext` bundles the active `LogSink`, the `OpsCounters`, and the
+  connection correlation-ID source. Clones share one inner allocation, so
+  handing the context to connection tasks is cheap.
+- `RuntimeState` owns the context (`RuntimeState::with_ops` for explicit
+  embedders; `new`/`try_new` clone the process-global default for
+  CLI/compatibility construction). The accept loop, caller-owned driver,
+  connection pipeline, deferred-body supervision, and lifecycle cancellation
+  all resolve events, counters, and correlation IDs through it.
+- `ServerBuilder::ops_context(..)` attaches a context to a TCP/TLS server;
+  the built-in `StaticService` is wired to the same context. `ServerHandle`
+  retains it for inspection.
+- Connection IDs start at 1 per context and are coherent within the owning
+  runtime; explicit caller-supplied IDs (`serve_http1_connection_with_id`)
+  still take precedence.
+- `RuntimeState::ops_snapshot()` / `ServerHandle::ops_snapshot()` /
+  `OpsContext::snapshot()` return bounded, non-blocking `OpsSnapshot` reads
+  (never reset-on-read). No exporter, endpoint, or monitoring server exists.
+- Failure accounting is context-local: `OpsContext::emit` contains a
+  panicking sink and increments that context's `dropped_log_events`; a
+  `CompositeLogSink` built with `with_failure_counters` (or via
+  `OpsContext::with_sinks`) counts contained child failures in the owning
+  context. A composite built with plain `new()` keeps the historical
+  process-global accounting for compatibility.
+- Intentionally process-global (documented, not accidental): the
+  `Logger::global()` / `global_counters()` compatibility shims (CLI startup
+  and frontend initialization), and standalone canonical conversions
+  (`primitives::to_hyper_response`) which have no runtime owner. The CLI
+  adopts its stderr sink into the global default at `Logger::try_init`, so
+  default-constructed runtimes keep emitting to the CLI sink.
+
+Canonical request/response types never name observability types; the context
+travels with `RuntimeState` and connection activity.
+
 ## Event Model
 
 Every operational event has:
@@ -12,7 +50,7 @@ Every operational event has:
 - `event` — stable event kind name (ProcessStarting, RequestCompleted, etc.)
 - `timestamp` — RFC 3339 format
 - `message` — human-readable description
-- `connection_id` (optional) — unique per-process connection identifier
+- `connection_id` (optional) — connection identifier, unique within the owning runtime context (sequences start at 1 per context)
 - `request_seq` (optional) — request sequence number within connection
 - `fields` — array of single-key objects (serialized as `[{"key": value}, ...]`)
 
@@ -89,11 +127,17 @@ Every operational event has:
 
 ## Python Server Logging
 
-The Python `Server` delegates logging to the Rust runtime's stderr log sink. Operational events are emitted to stderr in the same structured format as the CLI. The Python `Server` does not accept observer callbacks; the `observer` parameter has been removed from the API due to the global `OnceLock` logger architecture preventing per-instance observer registration.
+The Python `Server` uses the process-global default (stderr when the CLI
+adopts it, no-op otherwise). The Python `Server` does not accept observer
+callbacks and does not expose per-server sink selection; Rust embedders that
+need isolated sinks use `OpsContext` with `ServerBuilder::ops_context` /
+`RuntimeState::with_ops`.
 
 ## Operational Counters
 
-`OpsCounters` (accessible via `global_counters()`) tracks:
+`OpsCounters` tracks (per runtime context; `global_counters()` is the
+process-global default's set, and `RuntimeState::ops_snapshot()` /
+`ServerHandle::ops_snapshot()` read a single runtime's set):
 - `connections_accepted` — TCP connections accepted
 - `connections_rejected` — connections rejected by admission limit
 - `active_connections` — currently active connections
@@ -131,13 +175,16 @@ Backoff is interruptible by shutdown via `tokio::select!`.
 - `CompositeLogSink` catches panics from individual sinks via `catch_unwind`
   and never lets a sink panic escape into request/connection execution
 - Failed sink emissions increment `dropped_log_events` deterministically
-  (one per dropped emission); iteration continues so healthy siblings still
-  receive the original event
-- No synthetic `LogSinkFailure` event is emitted through `Logger::global()`
-  from the failure path: when the composite is installed globally that would
-  recursively re-enter the same failing sink graph (Plan 178). The counter
-  is the failure signal; `flush()` panics are likewise contained without
-  propagation
+  (one per dropped emission) in the owning context — the context whose
+  composite was built with `with_failure_counters` / `with_sinks`, or the
+  process-global counters for plain `new()` composites; iteration continues
+  so healthy siblings still receive the original event
+- No synthetic `LogSinkFailure` event is emitted from the failure path: when
+  the composite is installed globally that would recursively re-enter the
+  same failing sink graph (Plan 178). The counter is the failure signal;
+  `flush()` panics are likewise contained without propagation.
+  `OpsContext::emit` applies the same non-recursive containment to direct
+  (non-composite) sinks, counted in the emitting context.
 - `Logger::try_init()` returns `Err(())` if already initialized (Python coexistence)
 - `NopLogSink` is the default when no logger is configured
 

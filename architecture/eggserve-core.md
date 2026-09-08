@@ -57,7 +57,7 @@ planning without opening a socket. They are compiled by `scripts/verify.sh full`
 | `server/connection/request.rs` | pub(crate) | Target/header ceilings, framing checks, body-policy selection, Hyper body bridge |
 | `server/connection/response.rs` | pub(crate) | Normalization, panic containment, body-error mapping, final-boundary privacy |
 | `server/connection/deferred_body.rs` | pub(crate) | Deferred-body watchdog + terminal-state tracker |
-| `ops` | **pub** | Operational event model, structured logging, listener error classification, operational counters |
+| `ops` | **pub** (semver-considered pre-1.0 for the event/sink/counter vocabulary and `OpsContext`; runtime attachment experimental with `server`) | Operational event model, structured logging, listener error classification, operational counters, per-runtime `OpsContext` (sink + counters + correlation IDs) with context-local sink-failure accounting |
 
 ## Key Types
 

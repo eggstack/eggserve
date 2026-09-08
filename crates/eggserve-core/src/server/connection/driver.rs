@@ -103,8 +103,12 @@ fn far_future() -> std::time::Instant {
 /// finish; a client that stops reading applies TCP backpressure forever.
 /// The bounded drain releases the connection's admission permit promptly
 /// instead of letting stalled clients pin pool slots.
-async fn graceful_close<C>(mut conn: std::pin::Pin<&mut C>, config: &RuntimeConfig, conn_id: u64)
-where
+async fn graceful_close<C>(
+    mut conn: std::pin::Pin<&mut C>,
+    config: &RuntimeConfig,
+    conn_id: u64,
+    ops: &crate::ops::OpsContext,
+) where
     C: std::future::Future<Output = Result<(), hyper::Error>> + ShutdownConn,
 {
     conn.as_mut().graceful_shutdown();
@@ -112,7 +116,7 @@ where
         .await
         .is_err()
     {
-        crate::ops::Logger::global().emit(
+        ops.emit(
             crate::ops::Event::new(
                 crate::ops::Severity::Debug,
                 crate::ops::EventKind::ClientDisconnect,
@@ -132,10 +136,14 @@ where
 /// parse-class errors; each increments the counter named for it. Anything
 /// else is a client disconnect. Hostile bytes never reach the logs: parse
 /// errors are sanitized before emission.
-fn finish_conn_result(result: Result<(), hyper::Error>, conn_id: u64) -> ConnectionOutcome {
+fn finish_conn_result(
+    result: Result<(), hyper::Error>,
+    conn_id: u64,
+    ops: &crate::ops::OpsContext,
+) -> ConnectionOutcome {
     match result {
         Ok(()) => {
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Debug,
                     crate::ops::EventKind::KeepAliveClosed,
@@ -149,15 +157,15 @@ fn finish_conn_result(result: Result<(), hyper::Error>, conn_id: u64) -> Connect
             let header_timeout = e.is_timeout();
             let parse_error = !header_timeout && e.is_parse();
             if header_timeout {
-                crate::ops::global_counters()
+                ops.counters()
                     .header_timeouts
                     .fetch_add(1, Ordering::Relaxed);
             } else if parse_error {
-                crate::ops::global_counters()
+                ops.counters()
                     .parser_rejects
                     .fetch_add(1, Ordering::Relaxed);
             }
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     if header_timeout {
                         crate::ops::Severity::Warn
@@ -223,14 +231,15 @@ where
     F: std::future::Future<Output = ()>,
 {
     let total_deadline = activity.start.checked_add(config.connection_total_timeout);
+    let ops = activity.ops().clone();
     let mut shutdown = std::pin::pin!(shutdown);
     loop {
         let now = std::time::Instant::now();
         if total_deadline.is_some_and(|deadline| now >= deadline) {
-            crate::ops::global_counters()
+            ops.counters()
                 .connection_total_timeouts
                 .fetch_add(1, Ordering::Relaxed);
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Warn,
                     crate::ops::EventKind::ConnectionTotalTimeout,
@@ -238,8 +247,8 @@ where
                 )
                 .connection_id(conn_id),
             );
-            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
-            graceful_close(conn.as_mut(), config, conn_id).await;
+            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
+            graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             return ConnectionOutcome::TotalTimeout;
         }
         // Deferred-body timeout fired by the per-request watchdog: the body
@@ -247,17 +256,17 @@ where
         // ConnectionTimeout. Close the transport so pending body/response
         // polls wake via transport failure.
         if activity.take_body_timeout() {
-            graceful_close(conn.as_mut(), config, conn_id).await;
-            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
+            graceful_close(conn.as_mut(), config, conn_id, &ops).await;
+            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             return ConnectionOutcome::ClientError;
         }
         let (in_flight, outstanding, _completed, deferred, state) = activity.snapshot();
         let idle = in_flight == 0 && outstanding == 0 && deferred == 0;
         if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
-            crate::ops::global_counters()
+            ops.counters()
                 .keepalive_idle_timeouts
                 .fetch_add(1, Ordering::Relaxed);
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Debug,
                     crate::ops::EventKind::KeepAliveIdleTimeout,
@@ -265,15 +274,15 @@ where
                 )
                 .connection_id(conn_id),
             );
-            graceful_close(conn.as_mut(), config, conn_id).await;
+            graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             return ConnectionOutcome::IdleTimeout;
         }
         if outstanding > 0 && now.duration_since(state.last_write) >= config.response_write_timeout
         {
-            crate::ops::global_counters()
+            ops.counters()
                 .write_stall_timeouts
                 .fetch_add(1, Ordering::Relaxed);
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Warn,
                     crate::ops::EventKind::WriteStallTimeout,
@@ -281,8 +290,8 @@ where
                 )
                 .connection_id(conn_id),
             );
-            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
-            graceful_close(conn.as_mut(), config, conn_id).await;
+            requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
+            graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             return ConnectionOutcome::WriteTimeout;
         }
         let mut wake = total_deadline.unwrap_or_else(far_future);
@@ -305,23 +314,23 @@ where
         let sleep = tokio::time::sleep_until(tokio::time::Instant::from_std(wake));
         tokio::select! {
             result = &mut conn => {
-                let outcome = finish_conn_result(result, conn_id);
+                let outcome = finish_conn_result(result, conn_id, &ops);
                 // Peer disconnect / transport failure must wake idle
                 // downstream waiters even if they are not polling body/response IO.
                 match outcome {
                     ConnectionOutcome::ClientError => {
-                        requests.cancel_all(RequestCancellationReason::PeerDisconnected, conn_id);
+                        requests.cancel_all(RequestCancellationReason::PeerDisconnected, conn_id, &ops);
                     }
                     ConnectionOutcome::HeaderTimeout => {
-                        requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id);
+                        requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
                     }
                     _ => {}
                 }
                 return outcome;
             }
             _ = &mut shutdown => {
-                requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id);
-                graceful_close(conn.as_mut(), config, conn_id).await;
+                requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id, &ops);
+                graceful_close(conn.as_mut(), config, conn_id, &ops).await;
                 return ConnectionOutcome::Shutdown;
             }
             // A state change may have created an earlier deadline (new

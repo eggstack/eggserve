@@ -37,7 +37,7 @@ its status using a constrained vocabulary.
 |---|---|---|---|---|---|---|---|
 | Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
 | Plaintext HTTP/1.1 | stable | — | experimental | stable | — | stable | stable |
-| TLS server (rustls, HTTP/1.1 ALPN) | stable | — | — | stable | — | stable | stable |
+| TLS server (rustls, HTTP/1.1 ALPN) | stable | — | experimental (feature-gated `tls`: `RuntimeConfig::tls_config`, accept-loop handshake) | stable | — | stable | stable |
 | GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
 | Request-target validation | stable | stable | experimental | stable | — | stable | — |
 | Request-body policy | stable | stable | experimental | stable | — | stable | stable |
@@ -76,7 +76,7 @@ its status using a constrained vocabulary.
 | Existing-listener support | — | implemented | experimental | Rust-only | — | — | — |
 | Lifecycle methods (wait_ready, shutdown, force_shutdown, wait, state) | — | — | experimental | stable | — | — | stable |
 | Graceful shutdown | stable | — | experimental | stable | — | stable | stable |
-| Observability hooks | minimal | minimal | minimal | minimal | — | minimal | minimal |
+| Observability (events/sinks/counters/snapshots) | stable (stderr text/json/none, `--quiet` filter) | process-global default only (standalone canonical conversions) | experimental (per-runtime `OpsContext`: sink, counters, correlation IDs; snapshots via `RuntimeState`/`ServerHandle`) | minimal (process-global default stderr sink; no per-server sink selection) | — | experimental (service-owned events via the server context) | — |
 | Static directory canonicalization | CLI | — | experimental | stable | — | stable | — |
 | General application redirects | — | — | — | — | — | — | — |
 | Retries | — | — | — | — | — | — | — |
@@ -130,6 +130,16 @@ behavior.
   a transport-owning runtime (`Server`, `Service` trait, `StaticService`) for
   embedding. Its API is subject to change without notice. It is not covered by
   the stable API contract.
+- **Observability ownership (Plan 181).** Each runtime owns an `OpsContext`
+  (sink, counters, correlation-ID source). Default construction clones the
+  process-global default, so CLI/single-server behavior is unchanged;
+  embedders running several servers in one process attach one context per
+  server (`ServerBuilder::ops_context` / `RuntimeState::with_ops`) and read
+  bounded snapshots (`RuntimeState::ops_snapshot`,
+  `ServerHandle::ops_snapshot`). Connection IDs start at 1 per context.
+  Standalone canonical conversions (`primitives::to_hyper_response`) and the
+  Python facade keep the process-global default. No tracing/OpenTelemetry/
+  Prometheus/exporter integration is provided.
 - The Plan 175 consumer qualification establishes that a separate HTTP-only
   application server can use the public Rust substrate; it does not change the
   experimental tier of the runtime/server APIs or add upgrade support.

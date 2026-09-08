@@ -32,6 +32,7 @@ use super::response::finalize_runtime_response;
 #[derive(Debug)]
 pub(crate) struct ConnectionActivity {
     pub(crate) start: std::time::Instant,
+    ops: crate::ops::OpsContext,
     state: std::sync::Mutex<ActivityState>,
     in_flight: AtomicU64,
     outstanding: AtomicU64,
@@ -56,10 +57,11 @@ pub(crate) struct ActivityState {
 }
 
 impl ConnectionActivity {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(ops: crate::ops::OpsContext) -> Self {
         let now = std::time::Instant::now();
         Self {
             start: now,
+            ops,
             state: std::sync::Mutex::new(ActivityState {
                 last_activity: now,
                 last_write: now,
@@ -73,10 +75,16 @@ impl ConnectionActivity {
         }
     }
 
+    /// This connection's runtime observability context.
+    pub(crate) fn ops(&self) -> &crate::ops::OpsContext {
+        &self.ops
+    }
+
     /// A request entered the Hyper service pipeline.
     pub(crate) fn request_started(&self) {
         self.in_flight.fetch_add(1, Ordering::Relaxed);
-        crate::ops::global_counters()
+        self.ops
+            .counters()
             .active_service_requests
             .fetch_add(1, Ordering::Relaxed);
         self.notify.notify_one();
@@ -87,7 +95,8 @@ impl ConnectionActivity {
     /// but the request still counts toward per-connection totals.
     pub(crate) fn request_finished_without_service(&self) {
         self.in_flight.fetch_sub(1, Ordering::Relaxed);
-        crate::ops::global_counters()
+        self.ops
+            .counters()
             .active_service_requests
             .fetch_sub(1, Ordering::Relaxed);
         self.touch();
@@ -236,10 +245,12 @@ impl InFlightGuard {
                 None
             }
             Err(_) => {
-                crate::ops::global_counters()
+                self.activity
+                    .ops()
+                    .counters()
                     .service_admission_rejected
                     .fetch_add(1, Ordering::Relaxed);
-                crate::ops::Logger::global().emit(
+                self.activity.ops().emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Warn,
                         crate::ops::EventKind::ServiceAdmissionRejected,
@@ -272,10 +283,12 @@ impl InFlightGuard {
         let completed = self.activity.completed.fetch_add(1, Ordering::Relaxed) + 1;
         if let Some(max) = config.max_requests_per_connection {
             if completed >= max {
-                crate::ops::global_counters()
+                self.activity
+                    .ops()
+                    .counters()
                     .max_requests_closes
                     .fetch_add(1, Ordering::Relaxed);
-                crate::ops::Logger::global().emit(
+                self.activity.ops().emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::MaxRequestsClose,

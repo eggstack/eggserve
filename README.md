@@ -158,7 +158,13 @@ Shared runtime defaults and validation live once in the canonical
 `RuntimeConfig`, and the `ServeConfig` bridge; static listing/extra-header
 budgets stay service-owned, and hand-constructed `RuntimeConfig` values are
 rejected at `ServerBuilder`, `RuntimeState::try_new`, and the caller-owned
-connection boundary before semaphore/Hyper use. Services may lower
+connection boundary before semaphore/Hyper use. Each runtime also owns a
+per-runtime observability context (`OpsContext`: sink, counters, connection
+correlation IDs) attached via `ServerBuilder::ops_context` or
+`RuntimeState::with_ops`, with bounded snapshots via
+`RuntimeState::ops_snapshot` / `ServerHandle::ops_snapshot`; default
+construction clones the process-global default so CLI behavior is unchanged
+(see the [operations logging guide](https://github.com/eggstack/eggserve/blob/main/docs/ops-logging.md)). Services may lower
 request-body ceilings but cannot raise the runtime hard ceiling.
 The `server` module
 is experimental before 1.0. For caller-owned byte streams (for example an

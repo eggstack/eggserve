@@ -139,6 +139,7 @@ pub(crate) fn convert_request_head(
     max_target_bytes: usize,
     max_header_bytes: usize,
     conn_id: u64,
+    ops: &crate::ops::OpsContext,
 ) -> Result<crate::primitives::request_head::RequestHead, ServiceError> {
     use crate::primitives::header_block::HeaderBlock;
     use crate::primitives::method::Method;
@@ -176,10 +177,10 @@ pub(crate) fn convert_request_head(
         .unwrap_or("/");
 
     if raw_target.len() > max_target_bytes {
-        crate::ops::global_counters()
+        ops.counters()
             .request_target_rejected
             .fetch_add(1, Ordering::Relaxed);
-        crate::ops::Logger::global().emit(
+        ops.emit(
             crate::ops::Event::new(
                 crate::ops::Severity::Debug,
                 crate::ops::EventKind::RequestTargetTooLong,
@@ -228,10 +229,10 @@ pub(crate) fn convert_request_head(
             .saturating_add(name.as_str().len())
             .saturating_add(value.len());
         if header_bytes > max_header_bytes {
-            crate::ops::global_counters()
+            ops.counters()
                 .header_bytes_rejected
                 .fetch_add(1, Ordering::Relaxed);
-            crate::ops::Logger::global().emit(
+            ops.emit(
                 crate::ops::Event::new(
                     crate::ops::Severity::Debug,
                     crate::ops::EventKind::HeaderBytesRejected,

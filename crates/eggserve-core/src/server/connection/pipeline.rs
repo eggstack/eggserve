@@ -101,6 +101,7 @@ pub(crate) fn make_canonical_hyper_service<S>(
     max_body_bytes: u64,
     context: ConnectionContext,
     conn_id: u64,
+    ops: crate::ops::OpsContext,
 ) -> CanonicalHyperService
 where
     S: Service + 'static,
@@ -125,6 +126,7 @@ where
         let activity = activity.clone();
         let requests = requests.clone();
         let config = config.clone();
+        let ops = ops.clone();
         Box::pin(async move {
             let mut guard = InFlightGuard::new(activity.clone());
             // Convert Hyper request to canonical RequestHead, enforcing the
@@ -135,6 +137,7 @@ where
                 config.max_request_target_bytes,
                 config.max_header_bytes,
                 conn_id,
+                &ops,
             ) {
                 Ok(h) => h,
                 Err(e) => {
@@ -183,10 +186,10 @@ where
 
             // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
             if let Err(e) = validate_body_framing(&parts.headers) {
-                crate::ops::global_counters()
+                ops.counters()
                     .parser_rejects
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                crate::ops::Logger::global().emit(
+                ops.emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::ParserRejection,
@@ -215,10 +218,10 @@ where
             if let Some(len) = declared_length {
                 if let Some(limit) = effective_policy.max_bytes() {
                     if len > limit {
-                        crate::ops::global_counters()
+                        ops.counters()
                             .body_rejections
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        crate::ops::Logger::global().emit(
+                        ops.emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
                                 crate::ops::EventKind::BodyPolicyRejection,
@@ -250,10 +253,10 @@ where
                         .ok()
                         .is_some_and(|value| value.trim().eq_ignore_ascii_case("100-continue"))
                     {
-                        crate::ops::global_counters()
+                        ops.counters()
                             .body_rejections
                             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        crate::ops::Logger::global().emit(
+                        ops.emit(
                             crate::ops::Event::new(
                                 crate::ops::Severity::Debug,
                                 crate::ops::EventKind::BodyPolicyRejection,
@@ -284,10 +287,10 @@ where
             let has_body = declared_length.is_some_and(|len| len > 0)
                 || parts.headers.contains_key(hyper::header::TRANSFER_ENCODING);
             if effective_policy.is_reject() && has_body {
-                crate::ops::global_counters()
+                ops.counters()
                     .body_rejections
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                crate::ops::Logger::global().emit(
+                ops.emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::BodyPolicyRejection,
@@ -295,7 +298,7 @@ where
                     )
                     .connection_id(conn_id),
                 );
-                crate::ops::Logger::global().emit(
+                ops.emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::ServiceInvocationSuppressed,
@@ -370,6 +373,7 @@ where
                             &file_stream_semaphore,
                             stream_chunk_size,
                             config.response_policy.error_policy,
+                            Some(&ops),
                         ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -377,7 +381,7 @@ where
                             } else {
                                 crate::ops::Severity::Warn
                             };
-                            crate::ops::Logger::global().emit(
+                            ops.emit(
                                 crate::ops::Event::new(
                                     severity,
                                     crate::ops::EventKind::ServiceError,
@@ -391,7 +395,7 @@ where
                             )
                         }
                         Err(_elapsed) => {
-                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            ops.emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
                                 crate::ops::EventKind::ServiceTimeout,
                                 "handler timed out",
@@ -434,10 +438,10 @@ where
                             ));
                         }
                         Err(_elapsed) => {
-                            crate::ops::global_counters()
+                            ops.counters()
                                 .body_read_timeouts
                                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            ops.emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
                                 crate::ops::EventKind::BodyReadTimeout,
                                 "body read timeout",
@@ -480,6 +484,7 @@ where
                             &file_stream_semaphore,
                             stream_chunk_size,
                             config.response_policy.error_policy,
+                            Some(&ops),
                         ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -487,7 +492,7 @@ where
                             } else {
                                 crate::ops::Severity::Warn
                             };
-                            crate::ops::Logger::global().emit(
+                            ops.emit(
                                 crate::ops::Event::new(
                                     severity,
                                     crate::ops::EventKind::ServiceError,
@@ -501,7 +506,7 @@ where
                             )
                         }
                         Err(_elapsed) => {
-                            crate::ops::Logger::global().emit(crate::ops::Event::new(
+                            ops.emit(crate::ops::Event::new(
                                 crate::ops::Severity::Warn,
                                 crate::ops::EventKind::ServiceTimeout,
                                 "handler timed out",
@@ -558,6 +563,7 @@ where
                             &file_stream_semaphore,
                             stream_chunk_size,
                             config.response_policy.error_policy,
+                            Some(&ops),
                         ),
                         Ok(Err(service_err)) => {
                             let severity = if service_err.is_panic() || !service_err.is_timeout() {
@@ -565,7 +571,7 @@ where
                             } else {
                                 crate::ops::Severity::Warn
                             };
-                            crate::ops::Logger::global().emit(
+                            ops.emit(
                                 crate::ops::Event::new(
                                     severity,
                                     crate::ops::EventKind::ServiceError,
@@ -584,10 +590,10 @@ where
                             // otherwise handler stall (504).
                             let body_pending = body_shared.is_body_active();
                             if body_pending {
-                                crate::ops::global_counters()
+                                ops.counters()
                                     .body_read_timeouts
                                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                ops.emit(crate::ops::Event::new(
                                     crate::ops::Severity::Warn,
                                     crate::ops::EventKind::BodyReadTimeout,
                                     "body read timeout",
@@ -598,7 +604,7 @@ where
                                         config.response_policy.error_policy,
                                     )
                             } else {
-                                crate::ops::Logger::global().emit(crate::ops::Event::new(
+                                ops.emit(crate::ops::Event::new(
                                     crate::ops::Severity::Warn,
                                     crate::ops::EventKind::ServiceTimeout,
                                     "handler timed out",
@@ -632,10 +638,10 @@ where
                             // completion observability; permits remain distinct
                             // (Track F): service admission already released by
                             // `finish`, downstream owns its own budget.
-                            crate::ops::global_counters()
+                            ops.counters()
                                 .deferred_bodies_delegated
                                 .fetch_add(1, Ordering::Relaxed);
-                            crate::ops::Logger::global().emit(
+                            ops.emit(
                                 crate::ops::Event::new(
                                     crate::ops::Severity::Debug,
                                     crate::ops::EventKind::DeferredBodyDelegated,
@@ -644,7 +650,12 @@ where
                                 .connection_id(conn_id),
                             );
                             activity.deferred_started();
-                            spawn_deferred_tracker(body_shared.clone(), activity.clone(), conn_id);
+                            spawn_deferred_tracker(
+                                body_shared.clone(),
+                                activity.clone(),
+                                conn_id,
+                                ops.clone(),
+                            );
                             // Arm the remaining body deadline for deferred
                             // consumption. If already past deadline, the
                             // watchdog fires immediately.
@@ -660,13 +671,14 @@ where
                                     activity.clone(),
                                     deadline,
                                     conn_id,
+                                    ops.clone(),
                                 );
                             }
                             let response = guard.finish(response, &config, conn_id);
                             Ok::<_, Infallible>(response)
                         }
                         BodyLifecycleState::Abandoned | BodyLifecycleState::Failed => {
-                            crate::ops::Logger::global().emit(
+                            ops.emit(
                                 crate::ops::Event::new(
                                     crate::ops::Severity::Debug,
                                     crate::ops::EventKind::IncompleteBodyClose,
