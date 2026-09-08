@@ -725,7 +725,8 @@ fn core_has_no_i2p_specific_types() {
         "crates/eggserve-core/src/server/response_policy.rs",
         "crates/eggserve-core/src/server/config.rs",
         "crates/eggserve-core/src/policy.rs",
-        "crates/eggserve-core/src/server/connection.rs",
+        "crates/eggserve-core/src/server/connection/mod.rs",
+        "crates/eggserve-core/src/server/connection/context.rs",
     ];
     for file in files {
         let text = std::fs::read_to_string(file).unwrap_or_default();

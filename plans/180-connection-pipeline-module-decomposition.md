@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — maintainability refactor; behavior-preserving.**
+**IMPLEMENTED / CLOSED — maintainability refactor; behavior-preserving.**
 
 Prerequisites: Plans 178 and 179 closed. This plan is intentionally ordered after the runtime correctness and configuration-authority work so file movement cannot obscure known bug fixes or perpetuate duplicated validation.
 
@@ -215,6 +215,68 @@ A full wheel rebuild is required only if Rust public paths/types used by the Pyt
 7. Run targeted tests after every extraction rather than waiting until the end.
 8. Run full verification and update architecture docs.
 9. Add a closure record listing the resulting module ownership and confirming zero intentional wire/API behavior change.
+
+## Closure record
+
+### Track A — dependency/invariant map (as built)
+
+`crates/eggserve-core/src/server/connection.rs` (2856 lines) decomposed
+mechanically into `server/connection/` (`mod.rs` + 9 submodules, largest
+`pipeline.rs` at 689 lines). No logic rewritten; moves are line-range
+transplants with narrowed visibility and per-module imports.
+
+| Plan group | Landed in | Notes |
+|------------|-----------|-------|
+| 1. Public connection facade | `context.rs` (`ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome`) | Unchanged `pub` surface; `mod.rs` re-exports |
+| 2. Request lifecycle registry | `lifecycle.rs` (`ConnectionRequests`, `cancel_shared_with_observability`) | Methods `pub(crate)` (were file-private) |
+| 3. Activity/deadline state | `activity.rs` (`ConnectionActivity`, `ActivityState`, `InFlightGuard`, `TrackedBody`) | `start`/`notify`/methods `pub(crate)`; `TrackedBody` stays file-private; `finish` calls `response::finalize_runtime_response` |
+| 4. Admission/response tracking | `activity.rs` (`InFlightGuard::admit` 503, `finish` max-requests counting, `TrackedBody` exactly-once) | RAII/drop semantics untouched |
+| 5. Transport instrumentation | `transport.rs` (`ProgressIo` only) | `new` is `pub(crate)`; used by `driver.rs` |
+| 6. HTTP/1 driver | `driver.rs` (Hyper builder, graceful close, `finish_conn_result`, `drive_connection`, `serve_connection` + `serve_hyper_with_token` as `pub(crate)`, private `ShutdownConn`) | Sole deadline authority; `.with_upgrades()` stays crate-private |
+| 7. Canonical request pipeline | `pipeline.rs` (`CanonicalHyperService` now `pub(crate)`, `make_canonical_hyper_service` now `pub(crate)`) + `request.rs` (target/header ceilings, framing, policy selection, body bridge, all `pub(crate)`) | Single dispatch source of truth preserved |
+| 8. Deferred-body lifecycle | `deferred_body.rs` (watchdog + tracker, `pub(crate)`) | No permit retention, no supervisor framework |
+
+Response helpers (`normalize_then_convert`, `contain_service_panic`,
+`body_error_to_response`, `finalize_runtime_response`) landed in
+`response.rs` (`pub(crate)`). Caller-owned entry points
+(`serve_http1_connection`, `serve_http1_connection_with_id`,
+`serve_connection_with_runtime_state`) live in the `mod.rs` facade with
+identical signatures. Acyclic dependencies: `pipeline`/`driver` → rest;
+`activity` → `response` (final privacy only); facade → all.
+
+### Tracks B–G — extraction notes
+
+- Facade preserves every public path (`ConnectionContext`,
+  `ConnectionShutdown`, `ConnectionOutcome`, all three entry points) —
+  no Plan 175 consumer import changed.
+- No new `pub` items: cross-module items are `pub(crate)`; Hyper types
+  appear in no new public signature (`serve_connection_with_runtime_state`
+  keeps its pre-existing `TokioIo` compat signature).
+- Unit tests moved with owning code: shutdown-token tests → `context.rs`,
+  framing tests → `request.rs`, finalize/body-error tests → `response.rs`,
+  driver smoke + pre-signaled tests → `mod.rs`.
+- Incidental stale-reference fixes: `tests/response_privacy.rs` I2P file
+  list now points at `connection/mod.rs` + `connection/context.rs`;
+  `tests/ops_integration.rs` comments point at `connection/driver.rs`
+  (line numbers dropped — they rot).
+- Docs: `architecture/eggserve-core.md` module map lists the new
+  directory, `architecture/runtime.md` gains a module-ownership table,
+  `architecture/overview.md` + `filesystem-confinement.md` file paths
+  updated. `README.md`, `AGENTS.md`, skill need no change (module paths
+  and type names unchanged). No size-gate CI added.
+
+### Track H — verification (all green locally)
+
+- `cargo fmt --all -- --check`, `cargo clippy --workspace --lib --bins --tests -- -D warnings`
+- `cargo test --workspace` (1727 passed, 3 ignored)
+- `cargo test -p eggserve-core --features tls` (1621 passed),
+  `cargo test -p eggserve-bin --features tls` (141 passed),
+  TLS clippy clean
+- `cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked`
+- Plan 175 consumer (`app_server_consumer`, 12), `api_stability` (32),
+  `transport_driver` + `production_controls` + `deferred_lifecycle` (39)
+- Zero intentional wire/API behavior change; all Plan 178 regressions
+  remain covered by the unmodified suites above.
 
 ## Handoff
 

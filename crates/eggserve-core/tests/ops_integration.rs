@@ -904,7 +904,7 @@ fn backoff_duration_is_bounded() {
 
 #[test]
 fn client_disconnect_uses_debug_severity() {
-    // In connection.rs:84, ClientDisconnect is emitted with Severity::Debug
+    // In connection/driver.rs, ClientDisconnect is emitted with Severity::Debug
     // (expected client disconnects should not be logged as server errors).
     let event = Event::new(
         Severity::Debug,
@@ -918,7 +918,7 @@ fn client_disconnect_uses_debug_severity() {
 
 #[test]
 fn connection_total_timeout_uses_warn_severity() {
-    // In connection.rs:95, ConnectionTotalTimeout is emitted with Severity::Warn
+    // In connection/driver.rs, ConnectionTotalTimeout is emitted with Severity::Warn
     let event = Event::new(
         Severity::Warn,
         EventKind::ConnectionTotalTimeout,

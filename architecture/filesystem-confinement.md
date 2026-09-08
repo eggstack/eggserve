@@ -208,7 +208,7 @@ Evidence:
 | `windows::resolve_child_relative` | Single child `NtOpenFile` handle | `fs/windows.rs:1001-1005` | Handle → `ResolvedFile.file` or `ResolvedDirectory.dir_handle` |
 | `windows::list_directory_handle` | `NtQueryDirectoryFile` on retained handle | `fs/windows.rs:1079` | Buffer owned by call; no handle transfer |
 | `ResolvedFile::into_body` | No new open | `fs/mod.rs:43-79` | Moves `self.file` into `BodySource` |
-| canonical runtime transport conversion | No new open | `server/connection.rs` | `file` → `tokio::fs::File::from_std()` |
+| canonical runtime transport conversion | No new open | `server/connection/response.rs` | `file` → `tokio::fs::File::from_std()` |
 | `file_response` / `file_response_range` | No new open | `response.rs:93,143` | File + semaphore permit owned by stream unfold closure |
 
 ### Non-regular file rejection

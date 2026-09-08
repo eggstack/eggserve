@@ -241,7 +241,7 @@ HTTP Request
                   │
                   ▼
 ┌─────────────────────────────────────────────────────┐
-│ Canonical driver (server/connection.rs)             │
+│ Canonical driver (server/connection/)             │
 │  • serve_http1_connection: transport-neutral        │
 │  • ConnectionContext (TCP, TLS, or caller-owned)    │
 │  • TE+CL framing validation (smuggling prevention)  │
@@ -556,7 +556,7 @@ src/
 └── server/
     ├── mod.rs                # Server, ServerBuilder, RuntimeState, accept_loop_generic
     ├── config.rs             # RuntimeConfig, RuntimeConfigBuilder
-    ├── connection.rs         # Transport-neutral driver: serve_http1_connection, ConnectionContext, ConnectionShutdown, ConnectionOutcome
+    ├── connection/         # Transport-neutral driver facade (mod.rs: serve_http1_connection, ConnectionContext, ConnectionShutdown, ConnectionOutcome; context/lifecycle/activity/transport/driver/pipeline/request/response/deferred_body submodules)
     ├── errors.rs             # ServerError, ShutdownResult
     ├── handle.rs             # ServerHandle (lifecycle control)
     ├── lifecycle.rs          # LifecycleState (Created→Running→Draining→Stopped/Failed)

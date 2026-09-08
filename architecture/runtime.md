@@ -279,6 +279,31 @@ All paths then share the same steps:
     metadata copied, no log/error text reflected)
 11. Permit release and connection termination under the driver deadline loop (keep-alive idle, write no-progress, hard lifetime, shutdown)
 
+### Connection module ownership (Plan 180)
+
+The pipeline above lives in `server/connection/` (facade `mod.rs` plus nine
+invariant-owned submodules); the split is mechanical and behavior-preserving.
+External code imports only the facade (`ConnectionContext`,
+`ConnectionShutdown`, `ConnectionOutcome`, `serve_http1_connection`,
+`serve_http1_connection_with_id`, `serve_connection_with_runtime_state`).
+
+| Module | Owns |
+|--------|------|
+| `context.rs` | Public facade types: transport context, shutdown token, outcome |
+| `lifecycle.rs` | Live-request registry + abnormal-termination cancellation |
+| `activity.rs` | Deadline state, in-flight admission guard, tracked response bodies |
+| `transport.rs` | `ProgressIo` read/write progress observation |
+| `driver.rs` | Hyper builder, graceful close, outcome classification, deadline/select loop |
+| `pipeline.rs` | `CanonicalHyperService`, the single request/service dispatch |
+| `request.rs` | Target/header ceilings, framing checks, body-policy selection, body bridge |
+| `response.rs` | Normalization, panic containment, body-error mapping, final privacy |
+| `deferred_body.rs` | Deferred-body watchdog + terminal-state tracker |
+
+Dependency direction is acyclic: `pipeline`/`driver` depend on the rest,
+`activity` depends on `response` (final privacy only), and nothing depends
+back on `pipeline`/`driver` except the facade. Hyper types stay out of public
+signatures; `.with_upgrades()` remains a crate-private driver detail.
+
 ### Transport-neutral connection driver (Plan 163)
 
 `serve_http1_connection(io, service, config, context, runtime_state, shutdown)`

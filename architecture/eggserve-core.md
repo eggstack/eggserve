@@ -47,7 +47,16 @@ planning without opening a socket. They are compiled by `scripts/verify.sh full`
 
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports `serve_http1_connection`, `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome` from `connection` |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
-| `server/connection.rs` | **pub** (experimental) | Transport-neutral driver: `serve_http1_connection`, `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome`; per-connection HTTP/1 handling, body ingestion |
+| `server/connection/` | **pub** (experimental) | Transport-neutral driver facade (`mod.rs`: `serve_http1_connection`, `serve_http1_connection_with_id`, `serve_connection_with_runtime_state`, re-exports `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome`); per-connection HTTP/1 handling, body ingestion |
+| `server/connection/context.rs` | pub via facade | `ConnectionContext`, `ConnectionShutdown` (level-triggered, idempotent), `ConnectionOutcome` |
+| `server/connection/lifecycle.rs` | pub(crate) | `ConnectionRequests` live-request registry + abnormal-termination cancellation |
+| `server/connection/activity.rs` | pub(crate) | `ConnectionActivity` deadlines state, `InFlightGuard` admission guard, `TrackedBody` completion tracking |
+| `server/connection/transport.rs` | pub(crate) | `ProgressIo` read/write progress observation |
+| `server/connection/driver.rs` | pub(crate) | Hyper builder, graceful close, outcome classification, deadline/select loop, TCP + caller-token adapters |
+| `server/connection/pipeline.rs` | pub(crate) | `CanonicalHyperService` + single request/service dispatch |
+| `server/connection/request.rs` | pub(crate) | Target/header ceilings, framing checks, body-policy selection, Hyper body bridge |
+| `server/connection/response.rs` | pub(crate) | Normalization, panic containment, body-error mapping, final-boundary privacy |
+| `server/connection/deferred_body.rs` | pub(crate) | Deferred-body watchdog + terminal-state tracker |
 | `ops` | **pub** | Operational event model, structured logging, listener error classification, operational counters |
 
 ## Key Types
