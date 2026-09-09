@@ -35,13 +35,13 @@ free-threaded CPython are not supported.
 |---------|---------|---------|
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
-| `http2` | No | Experimental bounded native Rust HTTP/2 runtime; not enabled by the Python compatibility facade |
+| `http2` | No | Experimental bounded native Rust HTTP/2 runtime; Plan 186 closes the feature at experimental tier; not enabled by the Python compatibility facade |
 
 ## Runtime Service Boundary (Experimental)
 
 **Stability**: All `server` module types are **experimental**. The interface may change in any release.
 
-The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling by default. With the experimental `http2` feature, native Rust callers may also use bounded H2 prior knowledge and TLS ALPN through the same canonical service pipeline. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns. Plan 186 still owns interoperability and release qualification, so this is not a general support declaration.
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling by default. With the experimental `http2` feature, native Rust callers may also use bounded H2 prior knowledge and TLS ALPN through the same canonical service pipeline. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns. Plan 186 closes H2 as experimental; see the [qualification record](../release/plan-186-http2-qualification.md) for the evidence boundary.
 
 ### Exposed Types
 
@@ -462,7 +462,9 @@ eggserve defines production readiness through explicit profiles rather than one 
 Production profile status is maintained by the project maintainers and documented in README.md. No profile has achieved hardened status in this release contract version. This release contract only defines hardened status criteria.
 
 - Reverse-proxy origin (Caddy, nginx, Traefik) is the preferred public deployment.
-- Native TLS is limited and does not imply ACME, virtual hosting, HTTP/2, or edge parity.
+- Native TLS is limited and does not imply ACME, virtual hosting, public edge
+  HTTP/2 policy, or edge parity; the opt-in native Rust H2 path remains
+  experimental after Plan 186.
 - Windows hardening is an active roadmap item, not a permanent non-goal.
 - Public plaintext HTTP without TLS termination is an unsupported production configuration.
 

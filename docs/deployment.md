@@ -48,8 +48,10 @@ eggserve --directory public
 
 This is the recommended pattern for production deployments. Reverse proxies
 handle certificate management, renewal, public HTTP/2 policy, and other edge
-features. EggServe's native Rust `http2` feature is experimental and remains
-subject to Plan 186 qualification; the Python compatibility facade is H1-only.
+features. EggServe's native Rust `http2` feature is experimental after Plan
+186 closure; the Python compatibility facade is H1-only. See the [H2
+qualification record](../release/plan-186-http2-qualification.md) for the
+evidence boundary.
 
 ### Connection metadata behind a reverse proxy
 
@@ -69,8 +71,9 @@ Native TLS is functional for small deployments or internal tools where reverse
 proxy complexity is not warranted. The default `tls` build is H1-only; a Rust
 build with `http2,tls` can negotiate H2 via ALPN, but remains experimental and
 is not an edge platform — no ACME, virtual hosting, or multi-certificate
-routing. External qualification pending. See README.md for the full
-specification.
+routing. Linux wire qualification passes; broad client/platform qualification
+and a safe public per-stream reset hook remain open. See README.md for the
+full specification.
 
 ## Per-profile resource defaults (Plan 164)
 

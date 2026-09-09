@@ -154,8 +154,12 @@ Default builds and the Python facade remain HTTP/1.1-shaped. Rust builds with
 the opt-in `http2` feature add cleartext prior-knowledge HTTP/2 and, when
 combined with `tls`, ALPN selection (`h2` before `http/1.1`) through the same
 canonical service pipeline. H2 resource limits are owned by `Http2Config` and
-remain separate from server-wide service admission. The feature is
-experimental pending Plan 186 interoperability qualification;
+remain separate from server-wide service admission. The feature remains
+experimental after Plan 186 closure: deterministic tests and Linux wire
+qualification pass, but broad independent-client/platform evidence and a
+public safe per-stream reset hook are still release gaps. See the
+[HTTP/2 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http2.md)
+and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md).
 `Service` owns request handling and response construction. Connections,
 in-flight service executions, and file streams have independent observable
 budgets; parser ceilings, keep-alive idle, per-connection request counts, and
@@ -309,6 +313,7 @@ point; it does not bundle a second standalone CLI binary. See
 ./scripts/verify.sh fast    # format, clippy, and workspace tests
 ./scripts/verify.sh full    # fast + examples + TLS + installed Python wheel checks
 ./scripts/verify.sh deep    # expensive suites selected for release risk
+bash scripts/qualify-http2.sh  # manual H2 wire/ALPN qualification
 ```
 
 The routine CI workflow has separate Rust and Python jobs. Platform

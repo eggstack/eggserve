@@ -120,7 +120,7 @@ documented separately in `docs/python-api.md`.
 | `ServerBuilder` | experimental | Configured builder; `.runtime()`, `.serve_config()`, `.static_service()`, `.start()`, `.bind()`, `.from_listener()` |
 | `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, body ceiling, optional TLS |
-| `Http2Config` | experimental (`http2`) | Explicit bounded H2 stream/header/frame/flow-control/reset/keepalive limits; Rust only and not release-qualified |
+| `Http2Config` | experimental (`http2`) | Explicit bounded H2 stream/header/frame/flow-control/reset/keepalive limits; Rust only; Plan 186 closes H2 as experimental |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
 | `Service` trait | experimental | `call(Request) -> Result<Response, ServiceError>` (updated from `RequestHead`) |
 | `service_fn` | experimental | Create a Service from a closure |
@@ -132,10 +132,10 @@ documented separately in `docs/python-api.md`.
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
 | `ConnectionContext` | experimental | Transport-neutral context for strict H1 and feature-gated H1/H2 connection drivers: `for_tcp()`, `for_non_socket()` |
 | `ConnectionShutdown` | experimental | Level-triggered idempotent shutdown token; `cancelled()` observes pre-signaled shutdown; clone for select |
-| `ConnectionOutcome` | experimental | Connection result: `Normal`, `HeaderTimeout`, `ClientError`, `TotalTimeout`, `Shutdown` |
+| `ConnectionOutcome` | experimental | Connection result: `Normal`, `ClientError`, `HeaderTimeout`, `IdleTimeout`, `WriteTimeout`, `TotalTimeout`, `Shutdown`, or `Internal` |
 | `serve_http1_connection` | experimental | Transport-neutral HTTP/1 driver over any `AsyncRead + AsyncWrite` |
 | `serve_http1_connection_with_id` | experimental | Same as above with explicit connection ID for log correlation |
-| `serve_http_connection` | experimental (`http2`) | H1/H2 caller-owned driver; cleartext uses bounded prior-knowledge detection |
+| `serve_http_connection` | experimental (`http2`) | H1/H2 caller-owned driver; cleartext uses bounded prior-knowledge detection; see the Plan 186 qualification record |
 | `serve_http_connection_with_id` | experimental (`http2`) | H1/H2 caller-owned driver with explicit connection ID |
 | `RuntimeState` | experimental | Shared admission pool; `new(&config)` is public, `new_for_testing` is hidden |
 

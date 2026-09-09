@@ -109,7 +109,14 @@ eggserve defines production readiness through explicit profiles rather than one 
 - safe defaults remain enabled;
 - symlink-following mode is outside the hardened guarantee.
 
-This is the preferred public deployment profile. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement. External qualification evidence (proxy interop, desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak, installed artifacts, SBOM/provenance, independent review) is pending. Promotion to `supported-hardened` requires all gates to pass.
+This is the preferred public deployment profile. Reverse proxies handle
+certificate management, renewal, public edge HTTP/2 policy, and other edge
+features outside eggserve's scope. EggServe also has an opt-in native Rust H2
+path, but Plan 186 closes it as experimental and it does not change this
+deployment recommendation. External qualification evidence (proxy interop,
+desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak,
+installed artifacts, SBOM/provenance, independent review) is pending.
+Promotion to `supported-hardened` requires all gates to pass.
 
 ### unix-direct-https
 
@@ -124,8 +131,8 @@ This is the preferred public deployment profile. Reverse proxies handle certific
 - no ACME, virtual hosting, OCSP stapling, client certificates, or multi-certificate routing.
 
 Native TLS is limited and does not imply ACME, virtual hosting, HTTP/3, or edge
-parity. The default `tls` build is H1-only; experimental native Rust H2 is
-feature-gated and not yet release-qualified.
+parity. The default `tls` build is H1-only; native Rust H2 is feature-gated
+and remains experimental after Plan 186 qualification.
 
 ### windows-reverse-proxy
 
@@ -209,7 +216,7 @@ The origin communicates with the edge over HTTP/1.1 on loopback. The edge termin
 
 ### Unix direct-HTTPS profile
 
-eggserve terminates TLS directly. Certificate management is manual — the operator must provide certificate and key files and rotate them through a restart. There is no ACME, no SNI-based routing, and no OCSP stapling. The default server is HTTP/1.1; an experimental `http2,tls` Rust build can negotiate H2, but HTTP/3 remains unavailable and Plan 186 qualification is pending. This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
+eggserve terminates TLS directly. Certificate management is manual — the operator must provide certificate and key files and rotate them through a restart. There is no ACME, no SNI-based routing, and no OCSP stapling. The default server is HTTP/1.1; an experimental `http2,tls` Rust build can negotiate H2, but HTTP/3 remains unavailable. This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
 
 ### Windows profiles
 

@@ -41,7 +41,7 @@ shutdown; the process harness uses only Python's standard library.
 | `integration.rs` | — | Method validation, body rejection, conditional/range requests, HEAD parity |
 | `http_wire_correctness.rs` | — | Raw TCP wire tests: GET/HEAD/POST/404/403/400/413/206/416/304 |
 | `http_primitives_integration.rs` | — | 15 live TCP tests through hyper client/server stack |
-| `http2_runtime.rs` | `http2` (+`tls` for ALPN parity) | Plan 185: cleartext prior-knowledge multiplexing, canonical H2 metadata, strict H1 caller-owned regression, TLS H2 ALPN and H1 fallback |
+| `http2_runtime.rs` | `http2` (+`tls` for ALPN parity) | Plan 185/186: cleartext prior-knowledge multiplexing, canonical H2 metadata, stream-scoped body rejection, strict H1 regression, TLS H2 ALPN and H1 fallback |
 | `canonical_conformance.rs` | — | Canonical HTTP type conformance: Method, non-exhaustive HttpVersion metadata, Authority, HeaderBlock, StatusCode, Response normalization |
 | `canonical_wire_interop.rs` | — | Wire-level canonical type interop |
 | `corpus_replay.rs` | — | Replays fuzz seed corpora to catch regressions |
@@ -236,6 +236,27 @@ scaling, bounded streaming, the low-level substrate, embedding overhead, TLS
 overhead, and static migration behavior. It does not qualify arm64
 performance when no arm64 host was available and does not establish edge
 server parity, DDoS resistance, anonymity, or universal superiority.
+
+## HTTP/2 qualification
+
+The deterministic H2 suite is part of the routine Rust feature check:
+
+```sh
+cargo clippy -p eggserve-core --features http2,tls --lib --tests -- -D warnings
+cargo test -p eggserve-core --features http2,tls
+cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
+cargo test -p eggserve-bin --features http2,tls
+```
+
+Broader wire qualification is deliberately manual so routine CI stays
+proportionate. Run `bash scripts/qualify-http2.sh` with a current curl that
+has HTTP/2 support; it exercises TLS ALPN H2/H1 fallback, static/range/
+conditional responses, parallel streams, response framing privacy, cleartext
+prior knowledge, and the absence of HTTP/1 Upgrade-based h2c. It runs `nghttp`
+when available and reports it as unavailable otherwise. The current evidence
+and experimental release decision are recorded in
+`release/plan-186-http2-qualification.md`; browser and native macOS/Windows
+H2 runtime qualification remain outside routine CI.
 
 ## See Also
 

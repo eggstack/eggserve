@@ -212,7 +212,7 @@ New helpers: `with_socket_addrs()`, `without_socket_addrs()`, `socket_endpoints(
 - `ConnectionContext::for_tcp(local_addr, remote_addr, tls_info)` — TCP context.
 - `ConnectionContext::for_non_socket(scheme, tls_info)` — non-socket context (no addresses).
 - `ConnectionShutdown::new()` — shutdown token; clone for select.
-- `ConnectionOutcome` — return type: `Normal`, `HeaderTimeout`, `ClientError`, `TotalTimeout`, `Shutdown`.
+- `ConnectionOutcome` — return type: `Normal`, `ClientError`, `HeaderTimeout`, `IdleTimeout`, `WriteTimeout`, `TotalTimeout`, `Shutdown`, or `Internal`.
 - `RuntimeState::new(&config)` — shared admission pool; construct once, `Arc::clone` per connection. `new_for_testing` is hidden.
 
 Raw Hyper `serve_connection` is now crate-private. TCP `Server` shares the same pipeline via `serve_http1_connection_with_id`.

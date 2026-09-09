@@ -12,6 +12,12 @@ Rust builds with the opt-in `http2` feature also provide bounded H2 through the
 experimental server boundary. Canonical metadata represents HTTP/2 and HTTP/3
 without silently enabling HTTP/3.
 
+Plan 186 closes the native H2 path as experimental. The deterministic suite
+and Linux wire qualification pass; broad independent-client/platform evidence
+and a public safe per-stream reset hook are not yet release-complete. See
+[`architecture/http2.md`](../architecture/http2.md) and the
+[`qualification record`](../release/plan-186-http2-qualification.md).
+
 ## Supported protocol subset
 
 - HTTP/1.1 server behavior through Hyper; optional native Rust HTTP/2 through

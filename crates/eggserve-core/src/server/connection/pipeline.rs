@@ -32,15 +32,20 @@ use super::response::{
     normalize_then_convert,
 };
 
-fn finish_http1(
+fn finish_response(
     guard: InFlightGuard,
     response: hyper::Response<BoxBodyInner>,
     config: &RuntimeConfig,
     conn_id: u64,
+    is_h2: bool,
     disposition: LifecycleDisposition,
 ) -> hyper::Response<BoxBodyInner> {
     let (response, disposition) = guard.finish(response, config, conn_id, disposition);
-    apply_http1_disposition(response, disposition)
+    if is_h2 {
+        response
+    } else {
+        apply_http1_disposition(response, disposition)
+    }
 }
 
 /// Execute the protocol-neutral service kernel after a body policy has
@@ -237,7 +242,7 @@ where
             ) {
                 Ok(h) => h,
                 Err(e) => {
-                    return Ok::<_, Infallible>(finish_http1(
+                    return Ok::<_, Infallible>(finish_response(
                         guard,
                         e.to_response_with_head_and_policy(
                             false,
@@ -245,6 +250,7 @@ where
                         ),
                         &config,
                         conn_id,
+                        req.version() == hyper::Version::HTTP_2,
                         LifecycleDisposition::KEEP_ALIVE,
                     ));
                 }
@@ -267,16 +273,18 @@ where
                     false,
                     config.response_policy.error_policy,
                 );
-                return Ok::<_, Infallible>(finish_http1(
+                return Ok::<_, Infallible>(finish_response(
                     guard,
                     response,
                     &config,
                     conn_id,
+                    head.version() == crate::primitives::version::HttpVersion::Http2,
                     LifecycleDisposition::close_and_cancel_body(),
                 ));
             }
 
             let is_head = head.method().is_head();
+            let is_h2 = head.version() == crate::primitives::version::HttpVersion::Http2;
 
             // Select effective body policy.
             let service_policy = service.request_body_policy(&head);
@@ -300,7 +308,7 @@ where
                         .connection_id(conn_id),
                     );
                     let is_head = head.method().is_head();
-                    return Ok::<_, Infallible>(finish_http1(
+                    return Ok::<_, Infallible>(finish_response(
                         guard,
                         e.to_response_with_head_and_policy(
                             is_head,
@@ -308,6 +316,7 @@ where
                         ),
                         &config,
                         conn_id,
+                        is_h2,
                         LifecycleDisposition::KEEP_ALIVE,
                     ));
                 }
@@ -341,11 +350,12 @@ where
                             limit,
                         };
                         let disposition = body_error_disposition(&err);
-                        return Ok::<_, Infallible>(finish_http1(
+                        return Ok::<_, Infallible>(finish_response(
                             guard,
                             body_error_to_response(err, &head, config.response_policy.error_policy),
                             &config,
                             conn_id,
+                            is_h2,
                             disposition,
                         ));
                     }
@@ -376,11 +386,12 @@ where
                             is_head,
                             config.response_policy.error_policy,
                         );
-                        return Ok::<_, Infallible>(finish_http1(
+                        return Ok::<_, Infallible>(finish_response(
                             guard,
                             response,
                             &config,
                             conn_id,
+                            is_h2,
                             LifecycleDisposition::close_and_cancel_body(),
                         ));
                     }
@@ -424,11 +435,12 @@ where
                 // prevent unread bytes from being interpreted as a subsequent
                 // request. Hyper handles cleanup of the unconsumed body when
                 // the connection is dropped.
-                return Ok::<_, Infallible>(finish_http1(
+                return Ok::<_, Infallible>(finish_response(
                     guard,
                     response,
                     &config,
                     conn_id,
+                    is_h2,
                     LifecycleDisposition::close_and_cancel_body(),
                 ));
             }
@@ -475,11 +487,12 @@ where
                         &ops,
                     )
                     .await;
-                    Ok::<_, Infallible>(finish_http1(
+                    Ok::<_, Infallible>(finish_response(
                         guard,
                         response,
                         &config,
                         conn_id,
+                        is_h2,
                         LifecycleDisposition::KEEP_ALIVE,
                     ))
                 }
@@ -501,7 +514,7 @@ where
                         ),
                         Ok(Err(err)) => {
                             let disposition = body_error_disposition(&err);
-                            return Ok::<_, Infallible>(finish_http1(
+                            return Ok::<_, Infallible>(finish_response(
                                 guard,
                                 body_error_to_response(
                                     err,
@@ -510,6 +523,7 @@ where
                                 ),
                                 &config,
                                 conn_id,
+                                is_h2,
                                 disposition,
                             ));
                         }
@@ -523,7 +537,7 @@ where
                                 "body read timeout",
                             ));
                             let err = crate::primitives::request_body_error::RequestBodyError::ReadTimeout;
-                            return Ok::<_, Infallible>(finish_http1(
+                            return Ok::<_, Infallible>(finish_response(
                                 guard,
                                 body_error_to_response(
                                     err,
@@ -532,6 +546,7 @@ where
                                 ),
                                 &config,
                                 conn_id,
+                                is_h2,
                                 LifecycleDisposition::close_and_cancel_body(),
                             ));
                         }
@@ -555,11 +570,12 @@ where
                         &ops,
                     )
                     .await;
-                    Ok::<_, Infallible>(finish_http1(
+                    Ok::<_, Infallible>(finish_response(
                         guard,
                         response,
                         &config,
                         conn_id,
+                        is_h2,
                         LifecycleDisposition::KEEP_ALIVE,
                     ))
                 }
@@ -609,11 +625,12 @@ where
                     // forces close only on abandonment/failure.
                     use crate::primitives::request_lifecycle::BodyLifecycleState;
                     match body_shared.body_state() {
-                        BodyLifecycleState::Complete => Ok::<_, Infallible>(finish_http1(
+                        BodyLifecycleState::Complete => Ok::<_, Infallible>(finish_response(
                             guard,
                             response,
                             &config,
                             conn_id,
+                            is_h2,
                             LifecycleDisposition::KEEP_ALIVE,
                         )),
                         BodyLifecycleState::Active => {
@@ -660,11 +677,12 @@ where
                                     ops.clone(),
                                 );
                             }
-                            Ok::<_, Infallible>(finish_http1(
+                            Ok::<_, Infallible>(finish_response(
                                 guard,
                                 response,
                                 &config,
                                 conn_id,
+                                is_h2,
                                 LifecycleDisposition::KEEP_ALIVE,
                             ))
                         }
@@ -677,11 +695,12 @@ where
                                 )
                                 .connection_id(conn_id),
                             );
-                            Ok::<_, Infallible>(finish_http1(
+                            Ok::<_, Infallible>(finish_response(
                                 guard,
                                 response,
                                 &config,
                                 conn_id,
+                                is_h2,
                                 LifecycleDisposition::close_and_cancel_body(),
                             ))
                         }

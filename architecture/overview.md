@@ -186,6 +186,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) | Canonical types for embedding — `SecureRoot`, `ResolvedResource`, HTTP validation, request/response types |
 | Response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
 | Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
+| HTTP/2 qualification boundary | `eggserve-core::server` (`http2`) | [http2.md](http2.md) | Hyper-backed opt-in H1/H2 selection, bounded H2 transport policy, ownership checklist, and experimental release status |
 
 ### Operational Subsystems
 
@@ -448,6 +449,7 @@ The `scripts/` directory provides a small, layered verification hierarchy:
 | `check-python-release-metadata.py` | Validate release metadata (versions, tags, artifact naming) |
 | `release_smoke.py` | Release artifact smoke tests |
 | `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` for manual security checks |
+| `qualify-http2.sh` | Manual Linux H2 wire qualification: TLS ALPN, cleartext prior knowledge, static/range/conditional, parallel streams, and Upgrade absence |
 
 Verification levels:
 - **`fast`** — `cargo fmt --check`, `cargo clippy`, `cargo test --workspace` (routine dev)

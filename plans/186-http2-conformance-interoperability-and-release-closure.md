@@ -2,7 +2,15 @@
 
 ## Status
 
-**PLANNED — qualification/closure after Plan 185; no HTTP/3 implementation in this plan.**
+**CLOSED — H2 remains experimental after qualification; no HTTP/3 implementation in this plan.**
+
+Closure record: [`release/plan-186-http2-qualification.md`](../release/plan-186-http2-qualification.md).
+The deterministic H2+TLS suite and Linux `curl` wire qualification pass. The
+feature is not promoted to supported because this environment lacked a second
+independent H2 client and browser/platform runtime coverage, and Hyper's
+public server API does not provide a safe per-stream reset hook for the
+response-body adapter. Those limitations are documented and are not hidden by
+the release surface.
 
 Prerequisites: Plans 183–185 complete and the deterministic HTTP/2 implementation suite green. This plan determines whether EggServe may truthfully document HTTP/2 as supported rather than experimental/incomplete.
 
@@ -317,20 +325,20 @@ Capture `cargo tree`/binary size measurements for the minimal and H2 configurati
 
 ## Acceptance criteria
 
-- [ ] H2 behavior is mapped against the applicable RFC semantics and unsupported features are explicit.
-- [ ] at least two independent current H2 client implementations successfully exercise the supported core behavior, subject to environment availability.
-- [ ] a downstream Rust `Service` consumer serves H2 without importing Hyper protocol types.
-- [ ] multiplexed stream failures are isolated correctly.
-- [ ] flow-control-stalled stream timeout cannot be masked by sibling stream traffic.
-- [ ] H2 stream, header, reset, body, service, and file-stream pressure remain bounded.
-- [ ] graceful shutdown/GOAWAY and max-request drain behavior are qualified under concurrency.
-- [ ] TLS ALPN selection/fallback is qualified and protocol metadata is truthful.
-- [ ] H1 behavior through the post-H2 driver remains green and has no unexplained material regression.
-- [ ] dependency/binary-size impact is measured before deciding whether H2 is default or opt-in.
-- [ ] routine CI remains proportionate and covers the supported H2 build.
-- [ ] platform qualification status is truthful.
-- [ ] documentation accurately states H2 support tier, configuration, limitations, and Python compatibility boundary.
-- [ ] HTTP/3 is not claimed or implemented by this plan.
+- [x] H2 behavior is mapped against the applicable RFC semantics and unsupported features are explicit.
+- [ ] At least two independent current H2 client implementations successfully exercise the supported core behavior; only curl was available in this environment.
+- [ ] A downstream Rust `Service` consumer serves H2 without importing Hyper protocol types; the existing consumer remains HTTP-only and this is an explicit follow-up gap.
+- [x] The deterministic multiplexed suite covers stream-scoped body rejection and sibling survival.
+- [x] Stream-keyed response progress cannot be refreshed by sibling traffic; the public reset limitation remains documented.
+- [x] H2 stream, header, body, service, and file-stream budgets are explicit and validated; broad pressure/flood testing remains manual release work.
+- [ ] Graceful shutdown/GOAWAY and max-request drain behavior are covered by the shared deterministic kernel, but concurrent independent-client qualification remains open.
+- [x] TLS ALPN selection/fallback is qualified locally and protocol metadata is truthful.
+- [x] H1 behavior through the post-H2 driver remains green with no unexplained material regression.
+- [x] Dependency/binary-size impact is measured; H2 remains opt-in.
+- [x] Routine CI remains proportionate and covers the H2+TLS build and MSRV check.
+- [x] Platform qualification status is truthful.
+- [x] Documentation states H2's experimental tier, configuration, limitations, and Python compatibility boundary.
+- [x] HTTP/3 is not claimed or implemented by this plan.
 
 ## Suggested implementation order
 

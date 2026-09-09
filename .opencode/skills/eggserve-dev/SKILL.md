@@ -68,6 +68,10 @@ python3 scripts/check-python-release-metadata.py              # version + [profi
 cargo fmt --all -- --check                                 # format check
 cargo clippy --workspace --lib --bins --tests -- -D warnings  # lint (warnings are errors)
 cargo test --workspace                                     # tests
+cargo clippy -p eggserve-core --features http2,tls --lib --tests -- -D warnings
+cargo test -p eggserve-core --features http2,tls
+cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
+cargo test -p eggserve-bin --features http2,tls
 cargo clippy -p eggserve-bin --features tls --lib --bins --tests -- -D warnings  # TLS lint
 cargo test -p eggserve-bin --features tls                  # TLS tests
 
@@ -94,6 +98,7 @@ Or use the local verification script:
 ./scripts/verify.sh fast                 # routine dev check (Rust workspace + Python crate check)
 ./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel)
 ./scripts/verify.sh deep                 # expensive suites (manual)
+bash scripts/qualify-http2.sh             # manual Linux H2 wire/ALPN qualification
 ```
 
 ### Supply-chain and optional package checks
@@ -132,6 +137,7 @@ manual release validation.
 - **Canonical response normalization** — All response producers converge on `primitives::canonical::normalize_metadata()`.
 - **Plan 165 response privacy** — `RuntimeConfig.response_policy: ResponsePolicy` owns `server_identification` (`None` suppressed default; `builder.server_header(..)` / `config.server_header_value()`), `date_policy` (`SystemClock` default, `Custom(provider)` trusted time, `Suppress` RFC tradeoff), `stripped_response_headers` (validated denylist, post-service, no framing/`date`/`content-range`, `minimal_fingerprint()` strips `x-powered-by`), `error_policy` (`Minimal` fixed bodies default, `Empty` runtime-errors-only; app `Ok` never rewritten). `StaticPolicy.static_metadata` (`standard()` vs `minimal_fingerprint()`; planner `plan_file_response_with_preconditions_and_metadata`). `ServeConfig.error_policy` transferred by `try_from_serve_config`. CLI keeps standards defaults; Python `lowlevel` exposes the safe subset (`server_header`, `system`/`suppress`, denylist, `minimal`/`empty`) with `Custom` clocks Rust-only.
 - **`server` module types** — `eggserve-core::server` provides the runtime service boundary for embedding. The module is experimental; API may change.
+- **Plan 186 H2 closure** — The opt-in Rust `http2` path is experimental. Deterministic H2+TLS tests and Linux `curl` wire qualification pass; broad independent-client/browser/platform evidence and a public safe per-stream reset hook remain release gaps. Use `scripts/qualify-http2.sh` and `release/plan-186-http2-qualification.md` for the manual qualification boundary.
 - **Transport-neutral driver** — `server::connection::serve_http1_connection` remains strict HTTP/1; feature-gated `serve_http_connection` adds bounded H1/H2 prior-knowledge selection over any `AsyncRead + AsyncWrite` stream. Both drive a canonical `Service` with explicit `ConnectionContext`, shared `Arc<RuntimeState>` (`RuntimeState::try_new(&config)` preferred, `new(&config)` validates + panics), and per-connection `ConnectionShutdown` returning `ConnectionOutcome`. Invalid hand-constructed `RuntimeConfig` is rejected at `ServerBuilder::build()`, `RuntimeConfig::validate()`, `RuntimeState::try_new()`, and the caller-owned entry (logs + `Internal`) before semaphore/Hyper use. `ConnectionShutdown` is level-triggered and idempotent (pre-signaled shutdown observed promptly, no polling). TCP/TLS `Server` selects H1/H2 through ALPN or the bounded prior-knowledge classifier; raw Hyper helpers are crate-private. No fabricated socket addresses, no Hyper types in the driver signature.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`. Plan 174: Stream bodies share Active→Complete/Abandoned/Failed lifecycle (Drop-derived for network bodies; in-memory never forces close); service may return response-start with Active body delegated, reuse waits for Complete, Abandoned/Failed forces close (Hyper-pinned). `Request::lifecycle()`/`into_parts_with_lifecycle()` expose `RequestLifecycle` (PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure, first wins). Stream `Service::call` stays collapsed as `min(body, handler)` for compat; remaining body timeout continues after return via watchdog. `max_in_flight_requests` bounds pre-response `Service::call` only.
 - **Downstream app-server consumer (Plan 175)** — `crates/eggserve-core/tests/app_server_consumer.rs` is the external-consumer qualification: bounded full-duplex bridge (cap-2 channels, no `read_all`, no Hyper/private imports; fixture-local event names only), deferred ownership, lifecycle cancellation, handler/body timeout split, downstream admission split, TCP/TLS/caller-owned parity, non-gating perf sanity. Builder-facing rules live in `docs/downstream-app-server.md`; EggServe itself is not an app server/ASGI runtime.
@@ -156,6 +162,7 @@ The `architecture/` directory contains deep-dive docs for each subsystem:
 - `runtime.md` — runtime service boundary, Server, Service trait, StaticService
 - `security-model.md` — trust boundaries, defensive layers, attacker model
 - `testing-and-conformance.md` — test layers, conformance corpora, fuzzing
+- `http2.md` — H2 ownership, limits, qualification boundary, and release tier
 - `configuration.md` — configuration inventory, ownership model, field inventory
 - `structured-logging.md` — event model, event kinds, operational counters, log sinks
 - `error-taxonomy.md` — five error layers, variant inventory, conversion flow

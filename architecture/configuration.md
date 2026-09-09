@@ -19,8 +19,11 @@ The internal `RuntimeConfig::http1_config()` projection owns the HTTP/1 parser
 view of the compatibility `max_buf_size` and `max_headers` fields without
 duplicating defaults or validation. With the `http2` feature,
 `RuntimeConfig::http2` owns the bounded H2 transport controls and the driver
-projects them directly into Hyper's HTTP/2 builder. Future protocol-specific
-controls belong to their own projections.
+projects them directly into Hyper's HTTP/2 builder. Plan 186 keeps this path
+experimental; the response-stall fallback is connection-scoped because the
+public Hyper server API has no safe stream-reset hook at EggServe's response
+body boundary. Future protocol-specific controls belong to their own
+projections.
 
 ## Ownership split
 
@@ -120,7 +123,7 @@ prior knowledge and TLS ALPN; the Python compatibility facade remains H1-only.
 | `body_read_timeout` | `RuntimeConfig` | 30s | > 0 | `--body-read-timeout` | `body_timeout_secs` | Total body consumption deadline |
 | `keep_alive_idle_timeout` | `RuntimeConfig` | 60s | > 0, independent of total | `--keep-alive-idle-timeout` | `keep_alive_idle_timeout_secs` (`lowlevel`; compat default) | Driver deadline loop; resets on request/transport activity |
 | `response_write_timeout` | `RuntimeConfig` | 30s | > 0, independent of total | `--response-write-timeout` | `response_write_timeout_secs` (`lowlevel`; compat default) | Driver + `ProgressIo` no-progress tracking; steady progress never trips |
-| `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | `max_requests_per_connection` (`lowlevel` `None`; compat default) | `Connection: close` on the limit response; every response counts |
+| `max_requests_per_connection` | `RuntimeConfig` | None (unlimited) | None or >= 1 | `--max-requests-per-connection` (`0` = unlimited) | `max_requests_per_connection` (`lowlevel` `None`; compat default) | H1 `Connection: close`, H2 graceful drain/GOAWAY after the limit response; every response counts |
 | `graceful_shutdown_timeout` | `RuntimeConfig` | 10s | > 0 | N/A | `graceful_shutdown_timeout_secs` | Drain deadline after SIGTERM |
 
 ### Body policy

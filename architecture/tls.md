@@ -6,7 +6,7 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 
 | Feature | Crate | Purpose |
 |---------|-------|---------|
-| `http2` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/2 server path, bounded H2 prior knowledge and protocol config |
+| `http2` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/2 server path, bounded H2 prior knowledge and protocol config; see [HTTP/2 qualification](http2.md) |
 | `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
 
 ## Dependencies
@@ -143,9 +143,11 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 
 ## Limitations
 
-1. **Experimental H2 scope** — H2 is feature-gated and pending Plan 186
-   interoperability/release qualification; HTTP/3 and HTTP/1 upgrades remain
-   unavailable.
+1. **Experimental H2 scope** — Plan 186 closes H2 as experimental. The
+   deterministic suite and Linux wire checks pass, while broad independent-
+   client/platform evidence and a public safe per-stream reset hook remain
+   open; HTTP/3 and HTTP/1 upgrades remain unavailable. See
+   [the qualification record](../release/plan-186-http2-qualification.md).
 2. **No OCSP stapling** — Not implemented
 3. **No certificate management** — No ACME, no automatic renewal
 4. **No custom trust stores** — Uses Mozilla's root bundle only

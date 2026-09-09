@@ -173,6 +173,81 @@ async fn caller_owned_h1_entry_remains_strict() {
     assert!(task.await.unwrap().is_clean());
 }
 
+#[tokio::test]
+async fn rejected_body_is_stream_scoped_and_h2_has_no_hop_headers() {
+    let root = TempDir::new().unwrap();
+    let server = Server::builder()
+        .runtime(runtime_config())
+        .serve_config(serve_config(&root))
+        .build()
+        .unwrap();
+    let handle = server
+        .start_with_service(service_fn(|request: Request| async move {
+            assert_eq!(request.head().target().path(), "/ok");
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(b"sibling survived".to_vec()))
+                .unwrap())
+        }))
+        .await
+        .unwrap();
+
+    let stream = tokio::net::TcpStream::connect(handle.local_addr())
+        .await
+        .unwrap();
+    let (sender, connection) =
+        http2::handshake::<_, _, Full<Bytes>>(TokioExecutor::new(), TokioIo::new(stream))
+            .await
+            .unwrap();
+    let connection_task = tokio::spawn(connection);
+
+    let mut rejected_sender = sender.clone();
+    let rejected = tokio::spawn(async move {
+        rejected_sender
+            .send_request(
+                HyperRequest::builder()
+                    .method("POST")
+                    .uri("http://example.test/rejected")
+                    .header("content-type", "application/octet-stream")
+                    .body(Full::new(Bytes::from_static(b"body refused")))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    });
+
+    let mut sibling_sender = sender.clone();
+    let sibling = tokio::spawn(async move {
+        sibling_sender
+            .send_request(
+                HyperRequest::builder()
+                    .method("GET")
+                    .uri("http://example.test/ok")
+                    .body(Full::new(Bytes::new()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap()
+    });
+
+    let rejected = rejected.await.unwrap();
+    assert_eq!(rejected.status(), hyper::StatusCode::PAYLOAD_TOO_LARGE);
+    assert!(rejected.headers().get("connection").is_none());
+    assert!(rejected.headers().get("transfer-encoding").is_none());
+
+    let sibling = sibling.await.unwrap();
+    assert_eq!(sibling.status(), hyper::StatusCode::OK);
+    assert_eq!(
+        sibling.into_body().collect().await.unwrap().to_bytes(),
+        "sibling survived"
+    );
+
+    drop(sender);
+    let _ = connection_task.await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
 #[cfg(feature = "tls")]
 #[tokio::test]
 async fn tls_alpn_selects_h2_and_falls_back_to_h1() {
