@@ -59,6 +59,10 @@ cmd_fast() {
   run cargo test -p eggserve-core --features http2,tls
   run cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
   run cargo test -p eggserve-bin --features http2,tls
+  run cargo clippy -p eggserve-core --features http3,tls --lib --tests -- -D warnings
+  run cargo test -p eggserve-core --features http3,tls
+  run cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
+  run cargo test -p eggserve-bin --features http3,tls
   run cargo check --manifest-path "$REPO_ROOT/crates/eggserve-python/Cargo.toml" --locked
 }
 

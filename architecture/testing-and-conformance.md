@@ -265,9 +265,13 @@ H2 runtime qualification remain outside routine CI.
 
 The H3 feature suite additionally covers same-port TCP/UDP startup, port-zero
 resolution, identity-required startup failure, canonical request metadata,
-strict content length, and shared shutdown. Independent-client wire
-interoperability, QUIC abuse/resource measurement, and platform evidence are
-owned by Plan 188 rather than routine CI.
+strict content length, QUIC context metadata, Alt-Svc policy, body-timeout
+wakeup, and shared shutdown. Routine CI now compiles/tests the H3/TLS
+representative and checks it at MSRV. Independent-client wire
+interoperability, QUIC abuse/resource measurement, and platform evidence stay
+manual; `bash scripts/qualify-http3.sh` records the available evidence and
+`release/plan-188-http3-qualification.md` records the current experimental
+decision.
 
 ## See Also
 

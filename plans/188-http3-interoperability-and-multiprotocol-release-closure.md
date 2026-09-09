@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — final qualification/closure for the Plans 183–188 protocol program.**
+**CLOSED — H3 remains experimental; the protocol program is closed with explicit evidence gaps.**
 
 Prerequisites: Plan 187 deterministic HTTP/3 implementation tests green; Plan 186 has already established the HTTP/2 support tier and qualification method.
 
@@ -480,3 +480,30 @@ Run the documented external HTTP/3 client qualification and, where available, th
 ## Handoff
 
 Plans 183–188 are complete only when protocol support is represented as one canonical EggServe service/runtime model with protocol-specific transport adapters and evidence-backed support tiers. Any remaining gap should be recorded as a narrow follow-up plan rather than reopening broad server scope.
+
+## Execution and closure decision
+
+Plan 188 was executed on Linux x86_64 on 2026-09-09. The result is a
+qualification closure, not a promotion of HTTP/3 to the supported tier:
+
+- HTTP/3 remains **experimental**. The deterministic feature suite, bounded
+  Quinn configuration, same-port startup, runtime-owned Alt-Svc policy,
+  canonical request/response adapter, QUIC context metadata, deferred request
+  body timeout cancellation, and H1 fallback checks are implemented and tested.
+- H2 remains **experimental** under the Plan 186 decision. H1 remains the
+  minimal/default protocol and the Python compatibility facade remains
+  HTTP/1.1-shaped.
+- The available host has curl 8.5.0 with HTTP/2 but without HTTP/3 support;
+  nghttp3-client, quiche-client, browsers, and network-emulation tooling were
+  unavailable. Consequently no independent direct-H3 client evidence or
+  impairment/platform runtime evidence is claimed. The release record and
+  [`scripts/qualify-http3.sh`](../scripts/qualify-http3.sh) make that gap
+  reproducible and fail when required client evidence is requested.
+- No H3 extension was added. 0-RTT application requests, WebTransport,
+  datagrams, CONNECT/WebSocket tunnels, server push, DNS HTTPS/SVCB
+  management, proxying, ACME, routing, middleware, and application-server
+  behavior remain out of scope.
+
+The detailed evidence, dependency versions, standards ownership, commands,
+measurements, platform limits, and follow-up criteria are recorded in
+[`release/plan-188-http3-qualification.md`](../release/plan-188-http3-qualification.md).

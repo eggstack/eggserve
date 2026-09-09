@@ -208,17 +208,22 @@ pub(crate) fn finalize_runtime_response(
         }
     }
     #[cfg(feature = "http3")]
-    if config.http3.enabled
-        && config.http3.advertise_alt_svc
-        && !policy
-            .stripped_response_headers
-            .iter()
-            .any(|name| name.eq_ignore_ascii_case("alt-svc"))
-    {
-        let value = format!("h3=\":{}\"; ma=86400", config.bind.port());
-        if let Ok(value) = hyper::header::HeaderValue::from_str(&value) {
-            response.headers_mut().remove("alt-svc");
-            response.headers_mut().insert("alt-svc", value);
+    if config.http3.enabled {
+        // Alt-Svc is runtime-owned whenever the H3 endpoint is active. This
+        // prevents an application from advertising a different H3 endpoint
+        // when the operator has disabled advertisement or requested a
+        // minimal-fingerprint response profile.
+        response.headers_mut().remove("alt-svc");
+        if config.http3.advertise_alt_svc
+            && !policy
+                .stripped_response_headers
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case("alt-svc"))
+        {
+            let value = format!("h3=\":{}\"; ma=86400", config.bind.port());
+            if let Ok(value) = hyper::header::HeaderValue::from_str(&value) {
+                response.headers_mut().insert("alt-svc", value);
+            }
         }
     }
     // 4. Last-Modified must not be later than Date (RFC). When Date is
@@ -282,17 +287,19 @@ pub(crate) fn finalize_canonical_response(
             let _ = headers.push_str("date", httpdate::fmt_http_date(now));
         }
         #[cfg(feature = "http3")]
-        if config.http3.enabled
-            && config.http3.advertise_alt_svc
-            && !policy
-                .stripped_response_headers
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case("alt-svc"))
-        {
-            let _ = headers.push_str(
-                "alt-svc",
-                format!("h3=\":{}\"; ma=86400", config.bind.port()),
-            );
+        if config.http3.enabled {
+            headers.retain(|field| !field.name.as_str().eq_ignore_ascii_case("alt-svc"));
+            if config.http3.advertise_alt_svc
+                && !policy
+                    .stripped_response_headers
+                    .iter()
+                    .any(|name| name.eq_ignore_ascii_case("alt-svc"))
+            {
+                let _ = headers.push_str(
+                    "alt-svc",
+                    format!("h3=\":{}\"; ma=86400", config.bind.port()),
+                );
+            }
         }
     }
     response
@@ -345,6 +352,27 @@ mod tests {
             response.headers().get("alt-svc").unwrap(),
             "h3=\":9443\"; ma=86400"
         );
+    }
+
+    #[cfg(feature = "http3")]
+    #[test]
+    fn active_h3_runtime_owns_alt_svc_when_advertisement_is_disabled() {
+        let config = RuntimeConfig::builder()
+            .bind("127.0.0.1:9443".parse().unwrap())
+            .http3(crate::server::Http3Config {
+                enabled: true,
+                advertise_alt_svc: false,
+                ..crate::server::Http3Config::default()
+            })
+            .build()
+            .unwrap();
+        let mut response = crate::response::not_found(false);
+        response.headers_mut().insert(
+            "alt-svc",
+            hyper::header::HeaderValue::from_static("h3=\":different\""),
+        );
+        let response = finalize_runtime_response(response, &config);
+        assert!(response.headers().get("alt-svc").is_none());
     }
 
     #[test]

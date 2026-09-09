@@ -130,7 +130,7 @@ documented separately in `docs/python-api.md`.
 | `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal |
 | `LifecycleState` | experimental | Lifecycle state machine: Created, Starting, Running, Draining, Stopped, Failed |
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
-| `ConnectionContext` | experimental | Transport-neutral context for strict H1 and feature-gated H1/H2 connection drivers: `for_tcp()`, `for_non_socket()` |
+| `ConnectionContext` | experimental | Transport-neutral context for strict H1, feature-gated H1/H2, and H3 drivers: `for_tcp()`, `for_quic()`, `for_non_socket()` |
 | `ConnectionShutdown` | experimental | Level-triggered idempotent shutdown token; `cancelled()` observes pre-signaled shutdown; clone for select |
 | `ConnectionOutcome` | experimental | Connection result: `Normal`, `ClientError`, `HeaderTimeout`, `IdleTimeout`, `WriteTimeout`, `TotalTimeout`, `Shutdown`, or `Internal` |
 | `serve_http1_connection` | experimental | Transport-neutral HTTP/1 driver over any `AsyncRead + AsyncWrite` |
@@ -138,6 +138,7 @@ documented separately in `docs/python-api.md`.
 | `serve_http_connection` | experimental (`http2`) | H1/H2 caller-owned driver; cleartext uses bounded prior-knowledge detection; see the Plan 186 qualification record |
 | `serve_http_connection_with_id` | experimental (`http2`) | H1/H2 caller-owned driver with explicit connection ID |
 | `RuntimeState` | experimental | Shared admission pool; `new(&config)` is public, `new_for_testing` is hidden |
+| `Http3Config` | experimental (`http3`) | Bounded QUIC/H3 stream, window, handshake, field-section, idle, retry, and send-buffer policy; direct H3 remains experimental under Plan 188 |
 
 ### `config` Module
 

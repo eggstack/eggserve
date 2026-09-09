@@ -36,7 +36,7 @@ free-threaded CPython are not supported.
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
 | `http2` | No | Experimental bounded native Rust HTTP/2 runtime; Plan 186 closes the feature at experimental tier; not enabled by the Python compatibility facade |
-| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plan 187 implements the feature and Plan 188 owns interoperability/qualification; not enabled by the Python compatibility facade |
+| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plan 188 closes the feature at experimental tier because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete; not enabled by the Python compatibility facade |
 
 ## Runtime Service Boundary (Experimental)
 

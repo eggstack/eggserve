@@ -42,6 +42,8 @@ jobs:
         run: cargo +1.88 check --workspace --all-targets
       - name: MSRV HTTP/2 cargo check
         run: cargo +1.88 check --workspace --all-targets --features http2,tls
+      - name: MSRV HTTP/3 cargo check
+        run: cargo +1.88 check --workspace --all-targets --features http3,tls
       - name: Restore stable toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
@@ -62,6 +64,12 @@ jobs:
           cargo test -p eggserve-core --features http2,tls
           cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
           cargo test -p eggserve-bin --features http2,tls
+      - name: HTTP/3 and TLS lint and tests
+        run: |
+          cargo clippy -p eggserve-core --features http3,tls --lib --tests -- -D warnings
+          cargo test -p eggserve-core --features http3,tls
+          cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
+          cargo test -p eggserve-bin --features http3,tls
 
   supply-chain:
     name: supply-chain

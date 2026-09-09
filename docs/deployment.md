@@ -51,9 +51,11 @@ handle certificate management, renewal, public HTTP/2 policy, and other edge
 features. EggServe's native Rust `http2` feature is experimental after Plan
 186 closure; the Python compatibility facade is H1-only. See the [H2
 qualification record](../release/plan-186-http2-qualification.md) for the
-evidence boundary. The native Rust `http3` feature is also experimental and
-requires a separate TLS 1.3 QUIC identity; it binds same-port UDP beside TCP
-and remains subject to Plan 188 interoperability and adversarial qualification.
+evidence boundary. The native Rust `http3` feature is also experimental after
+Plan 188 closure and requires a separate TLS 1.3 QUIC identity; it binds
+same-port UDP beside TCP. Independent-client, adversarial-wire, and
+cross-platform H3 evidence remains a release qualification gap; see the
+[Plan 188 record](../release/plan-188-http3-qualification.md).
 
 ### Connection metadata behind a reverse proxy
 
@@ -77,7 +79,7 @@ routing. Linux wire qualification passes; broad client/platform qualification
 and a safe public per-stream reset hook remain open. See README.md for the
 full specification. The opt-in `http3` build is similarly Rust-only and
 experimental; deploy it only where the operator accepts the Plan 188
-qualification boundary.
+qualification boundary and the absence of general H3 support claims.
 
 ## Per-profile resource defaults (Plan 164)
 

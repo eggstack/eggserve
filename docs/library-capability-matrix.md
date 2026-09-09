@@ -38,7 +38,7 @@ its status using a constrained vocabulary.
 | Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
 | Plaintext HTTP/1.1 | stable | — | experimental | stable | — | stable | stable |
 | Native HTTP/2 (opt-in `http2`; prior knowledge and TLS ALPN) | — | — | experimental (deterministic suite and Linux wire-qualified; broader client/platform evidence and per-stream reset remain open) | — | — | experimental | — |
-| Native HTTP/3/QUIC (opt-in `http3`; same-port UDP, TLS 1.3/`h3` ALPN) | — | — | experimental (deterministic startup/adapter coverage; Plan 188 owns interoperability and adversarial qualification) | — | — | experimental | — |
+| Native HTTP/3/QUIC (opt-in `http3`; same-port UDP, TLS 1.3/`h3` ALPN) | — | — | experimental (deterministic bounded implementation passes; independent-client, adversarial-wire, and cross-platform runtime evidence incomplete; see Plan 188 record) | — | — | experimental | — |
 | TLS server (rustls; H1 by default, experimental H2 ALPN with `http2,tls`) | stable | — | experimental (feature-gated `tls`/`http2`: `RuntimeConfig::tls_config`, ALPN-selected accept loop) | stable (H1-only) | — | stable | stable |
 | GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
 | Request-target validation | stable | stable | experimental | stable | — | stable | — |

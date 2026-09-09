@@ -19,8 +19,10 @@ and a public safe per-stream reset hook are not yet release-complete. See
 [`architecture/http2.md`](../architecture/http2.md) and the
 [`qualification record`](../release/plan-186-http2-qualification.md).
 The H3 transport boundary is documented in
-[`architecture/http3.md`](../architecture/http3.md); independent H3
-qualification belongs to Plan 188.
+[`architecture/http3.md`](../architecture/http3.md). Plan 188 closes H3 as
+experimental: deterministic bounded checks pass, but independent-client,
+adversarial-wire, and cross-platform runtime evidence remains incomplete. See
+the [`qualification record`](../release/plan-188-http3-qualification.md).
 
 ## Supported protocol subset
 

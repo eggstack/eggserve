@@ -157,8 +157,10 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
    feature-gated and experimental. See
    [the qualification record](../release/plan-186-http2-qualification.md).
 2. **Experimental HTTP/3 scope** — The `http3` feature creates a separate
-   TLS 1.3/`h3` QUIC configuration and disables application 0-RTT. It remains
-   experimental pending Plan 188 interoperability and adversarial evidence.
+   TLS 1.3/`h3` QUIC configuration and disables application 0-RTT. Plan 188
+   closed with H3 still experimental because independent-client,
+   adversarial-wire, and cross-platform runtime evidence is incomplete; see
+   [the qualification record](../release/plan-188-http3-qualification.md).
 3. **No OCSP stapling** — Not implemented
 4. **No certificate management** — No ACME, no automatic renewal
 5. **No custom trust stores** — Uses Mozilla's root bundle only

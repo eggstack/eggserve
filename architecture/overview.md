@@ -453,6 +453,7 @@ The `scripts/` directory provides a small, layered verification hierarchy:
 | `release_smoke.py` | Release artifact smoke tests |
 | `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` for manual security checks |
 | `qualify-http2.sh` | Manual Linux H2 wire qualification: TLS ALPN, cleartext prior knowledge, static/range/conditional, parallel streams, and Upgrade absence |
+| `qualify-http3.sh` | Manual H3/QUIC qualification: optional direct independent-client semantics, same-port Alt-Svc, TCP fallback, and minimal-graph checks |
 
 Verification levels:
 - **`fast`** — `cargo fmt --check`, `cargo clippy`, `cargo test --workspace` (routine dev)

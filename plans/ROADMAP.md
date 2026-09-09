@@ -100,7 +100,7 @@ Plan 183 first updates the product/non-goal and pre-1.0 API contract. Plan 184 t
 
 Plan 185 adds HTTP/2 through the existing Hyper/Hyper-Util family, with explicit H2 stream/header/flow-control limits, TLS ALPN, stream-scoped body/error handling, stream-aware response progress, and GOAWAY/drain semantics. Plan 186 provides the independent-client, adversarial/resource, shutdown, platform, footprint, and documentation evidence required before H2 is labeled supported.
 
-Plan 187 treats HTTP/3 correctly as a separate QUIC/UDP transport implementation sharing the same canonical service layer. Its H3/Quinn dependencies must remain optional/internal; it owns dual-listener lifecycle, TLS 1.3/`h3` ALPN, handshake/stream/QPACK budgets, canonical H3 adaptation, stream-specific backpressure/cancellation, GOAWAY/drain, and runtime-owned Alt-Svc. Plan 188 provides external H3 interoperability, network-impairment/resource/security/platform qualification and makes the final support-tier/default-feature/MSRV decisions.
+Plan 187 treats HTTP/3 correctly as a separate QUIC/UDP transport implementation sharing the same canonical service layer. Its H3/Quinn dependencies must remain optional/internal; it owns dual-listener lifecycle, TLS 1.3/`h3` ALPN, handshake/stream/QPACK budgets, canonical H3 adaptation, stream-specific backpressure/cancellation, GOAWAY/drain, and runtime-owned Alt-Svc. Plan 188 closed the feature at the experimental tier after deterministic checks; external H3 interoperability, network-impairment/resource evidence, and cross-platform runtime qualification remain explicit follow-up gates.
 
 The program explicitly does **not** authorize WebSockets, WebTransport, datagrams, CONNECT tunnels, server push, reverse proxying, ACME, routing, middleware, uploads, application workers, or in-tree ASGI/WSGI semantics. The six-class Python `http.server` compatibility facade remains HTTP/1.1-shaped unless a later separate product decision changes it.
 
@@ -210,7 +210,7 @@ Avoid `reqwest`, Axum, Tower, Tera, Askama, libmagic bindings, compression stack
 
 An alpha can ship after M0-M5 if the docs clearly mark it as early and the unsafe areas are not exposed. A beta should require M6. A production-ready 1.0 should require M7-M9, a platform test matrix, dependency audit, fuzz corpus, and a written security review.
 
-Optional HTTP/2/HTTP/3 support does not become part of the release promise merely because code exists. H2 must pass Plan 186 before being labeled supported; H3 must pass Plan 188. Either may remain experimental/disabled independently while the HTTP/1/static product continues to ship.
+Optional HTTP/2/HTTP/3 support does not become part of the release promise merely because code exists. H2 remains experimental under Plan 186, and H3 remains experimental under Plan 188 because its broader independent-client, adversarial, and platform gates are incomplete. Either may remain experimental/disabled independently while the HTTP/1/static product continues to ship.
 
 The 1.0 promise should remain bounded: static serving is the primary product;
 stable hardened HTTP primitives and policies are the core library promise; and

@@ -60,8 +60,9 @@ The following dependency categories are approved for initial development:
 - H3 dependencies are optional and feature-gated behind `http3` (which also
   enables `tls`). The adapter keeps Quinn/h3 types internal, pins the selected
   versions in `Cargo.lock`, and is covered by the same `cargo audit`/`cargo deny`
-  gates as the default graph. Plan 188 owns independent interoperability and
-  adversarial QUIC qualification.
+  gates as the default graph. Plan 188 closed with H3 experimental because
+  independent-client and adversarial QUIC evidence was unavailable on the
+  qualification host; the manual script remains the release path.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a
   current-thread runtime, while Python enables a bounded multi-thread runtime

@@ -165,9 +165,11 @@ beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
 `--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
 advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
-HTTP/3 remains Rust-only and experimental pending the independent-client and
-adversarial qualification owned by Plan 188. See the
-[HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md).
+HTTP/3 remains Rust-only and experimental after Plan 188 closure: deterministic
+bounded implementation checks pass, but independent-client, adversarial-wire,
+and cross-platform runtime evidence is incomplete. See the
+[HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
+and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md).
 `Service` owns request handling and response construction. Connections,
 in-flight service executions, and file streams have independent observable
 budgets; parser ceilings, keep-alive idle, per-connection request counts, and
@@ -324,7 +326,7 @@ point; it does not bundle a second standalone CLI binary. See
 ./scripts/verify.sh full    # fast + examples + TLS + installed Python wheel checks
 ./scripts/verify.sh deep    # expensive suites selected for release risk
 bash scripts/qualify-http2.sh  # manual H2 wire/ALPN qualification
-# H3 interoperability and adversarial qualification is owned by Plan 188.
+bash scripts/qualify-http3.sh  # manual H3/QUIC qualification; external clients required for direct H3
 ```
 
 The routine CI workflow has separate Rust and Python jobs. Platform

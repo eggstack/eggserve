@@ -349,7 +349,8 @@ bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
 `Service`, and the following per-connection state:
 
 - **`ConnectionContext`** — transport description: `for_tcp(local, remote, tls)`
-  for real socket connections, `for_non_socket(scheme, tls)` for caller-owned
+  for TCP/TLS socket connections, `for_quic(local, remote, tls)` for native
+  HTTP/3 QUIC sockets, and `for_non_socket(scheme, tls)` for caller-owned
   streams. No I2P types, no `Any` map, no fabricated addresses.
   `Forwarded`/`X-Forwarded-*` headers are ordinary untrusted headers, not part
   of this type. Scheme and TLS are asserted by the caller.

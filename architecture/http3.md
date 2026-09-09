@@ -1,10 +1,10 @@
 # HTTP/3 and QUIC transport boundary
 
-EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It is an
-experimental transport adapter, not a change to the Python compatibility
-surface or to the static service planner. The implementation uses `h3` with
-`h3-quinn` and Quinn over Tokio; those dependencies are absent from the
-default, HTTP/1, and HTTP/2 graphs.
+EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
+an experimental transport adapter after Plan 188 closure, not a change to the
+Python compatibility surface or to the static service planner. The
+implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
+dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
 
 ## Ownership
 
@@ -99,11 +99,11 @@ denylist contains `alt-svc`.
 ## Observability and qualification
 
 The adapter uses the runtime `OpsContext` for listener readiness, admission,
-handshake failures/timeouts, max-request drain, and shared counters. It does
-not log QUIC connection IDs, tokens, TLS secrets, packets, or raw request
-values. H3 is classified as experimental until Plan 188 supplies independent
-client interoperability, adversarial QUIC/resource evidence, platform
-results, and a support-tier decision.
+handshake failures/timeouts, max-request drain, body timeouts, and shared
+counters. It does not log QUIC connection IDs, tokens, TLS secrets, packets,
+or raw request values. Plan 188 keeps H3 experimental because the available
+qualification host had no direct H3 client, second independent client,
+adversarial network environment, or non-Linux H3 runtime.
 
 Deterministic local coverage lives in the `http3` feature tests:
 
@@ -113,8 +113,27 @@ cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http3,tls
 cargo tree -p eggserve-core --no-default-features
+bash scripts/qualify-http3.sh
 ```
 
-The no-feature tree must not contain h3, h3-quinn, or Quinn. Independent
-wire-client interoperability and adversarial transport qualification are
-deliberately deferred to Plan 188.
+The no-feature tree must not contain h3, h3-quinn, or Quinn. The manual
+qualification script records dependency/client versions, proves same-port
+Alt-Svc and TCP fallback, and runs direct H3 semantic checks when curl has
+HTTP/3 support. Set `EGGSERVE_REQUIRE_H3_CLIENTS=1` or
+`EGGSERVE_REQUIRE_TWO_H3_CLIENTS=1` when a release environment must fail on
+missing independent-client evidence. The complete decision and evidence
+boundary are in [`release/plan-188-http3-qualification.md`](../release/plan-188-http3-qualification.md).
+
+## Standards boundary
+
+The ownership review uses [RFC 9110](https://www.rfc-editor.org/rfc/rfc9110.html)
+for common HTTP semantics, [RFC 9114](https://www.rfc-editor.org/rfc/rfc9114.html)
+for HTTP/3 mapping and stream/control rules,
+[RFC 9000](https://www.rfc-editor.org/rfc/rfc9000.html) for QUIC transport,
+[RFC 9001](https://www.rfc-editor.org/rfc/rfc9001.html) for TLS 1.3/QUIC,
+[RFC 9204](https://www.rfc-editor.org/rfc/rfc9204.html) for QPACK, and
+[RFC 7838](https://www.rfc-editor.org/rfc/rfc7838.html) for Alt-Svc. EggServe
+owns canonical semantics, aggregate limits, admission, body lifecycle,
+response privacy, and shutdown policy. `h3`, Quinn, rustls, and the operating
+system own wire parsing, QPACK encoding/decoding, packet recovery, TLS key
+schedule, retry/amplification behavior, and path/MTU mechanics.

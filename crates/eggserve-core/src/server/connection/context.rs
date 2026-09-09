@@ -71,6 +71,25 @@ impl ConnectionContext {
         }
     }
 
+    /// Context for a real QUIC connection with observed UDP endpoints.
+    ///
+    /// QUIC uses UDP for its packet transport, but HTTP/3 still has HTTPS
+    /// origin semantics and a completed TLS 1.3 session. Keeping this
+    /// constructor separate from [`Self::for_tcp`] prevents transport
+    /// metadata from being mislabelled at the canonical request boundary.
+    pub fn for_quic(
+        local_addr: std::net::SocketAddr,
+        remote_addr: std::net::SocketAddr,
+        tls: TlsInfo,
+    ) -> Self {
+        Self {
+            local_addr: Some(local_addr),
+            remote_addr: Some(remote_addr),
+            scheme: Scheme::Https,
+            tls: Some(tls),
+        }
+    }
+
     /// Context for a caller-owned non-socket byte stream.
     ///
     /// No socket endpoints are recorded and no addresses are fabricated.
@@ -323,6 +342,25 @@ mod tests {
         let anon = ConnectionContext::for_non_socket(Scheme::Http, None);
         assert!(!anon.has_socket_endpoints());
         assert!(anon.socket_endpoints().is_none());
+    }
+
+    #[test]
+    fn quic_context_preserves_udp_endpoints_and_https_semantics() {
+        let context = ConnectionContext::for_quic(
+            "127.0.0.1:443".parse().unwrap(),
+            "127.0.0.1:54321".parse().unwrap(),
+            TlsInfo {
+                protocol_version: Some("TLSv1.3".into()),
+                server_name: Some("example.test".into()),
+            },
+        );
+        assert_eq!(context.scheme, Scheme::Https);
+        assert_eq!(context.local_addr.unwrap().port(), 443);
+        assert_eq!(context.remote_addr.unwrap().port(), 54321);
+        assert_eq!(
+            context.tls.unwrap().protocol_version.as_deref(),
+            Some("TLSv1.3")
+        );
     }
 
     #[test]

@@ -19,6 +19,7 @@ use crate::primitives::method::Method;
 use crate::primitives::request::Request;
 use crate::primitives::request_body::IncomingError;
 use crate::primitives::request_head::RequestHead;
+use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
 use crate::primitives::request_target::RequestTarget;
 use crate::primitives::version::HttpVersion;
 use crate::server::config::RuntimeConfig;
@@ -291,30 +292,36 @@ async fn handle_request<S, C>(
         Ok(head) => head,
         Err(error) => {
             let response = error_response(error.status_code(), &config);
-            let _ = send_canonical_response(
+            if send_canonical_response(
                 &mut send_stream,
                 response,
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
             )
-            .await;
-            send_stream.stop_stream(h3::error::Code::H3_MESSAGE_ERROR);
+            .await
+            .is_err()
+            {
+                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+            }
             return;
         }
     };
     let declared_length = match declared_content_length(&request) {
         Ok(length) => length,
         Err(error) => {
-            let _ = send_canonical_response(
+            if send_canonical_response(
                 &mut send_stream,
                 error_response(error.status_code(), &config),
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
             )
-            .await;
-            send_stream.stop_stream(h3::error::Code::H3_MESSAGE_ERROR);
+            .await
+            .is_err()
+            {
+                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+            }
             return;
         }
     };
@@ -325,52 +332,88 @@ async fn handle_request<S, C>(
     if let Some(limit) = policy.max_bytes() {
         if declared_length.is_some_and(|length| length > limit) {
             let response = error_response(413, &config);
-            let _ = send_canonical_response(
+            if send_canonical_response(
                 &mut send_stream,
                 response,
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
             )
-            .await;
+            .await
+            .is_err()
+            {
+                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+            }
             recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-            send_stream.stop_stream(h3::error::Code::H3_REQUEST_CANCELLED);
             return;
         }
     }
     if policy.is_reject() && declared_length.is_some_and(|length| length > 0) {
         let response = error_response(413, &config);
-        let _ = send_canonical_response(
+        if send_canonical_response(
             &mut send_stream,
             response,
             &config,
             is_head,
             runtime_state.file_stream_semaphore(),
         )
-        .await;
+        .await
+        .is_err()
+        {
+            send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+        }
         recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-        send_stream.stop_stream(h3::error::Code::H3_REQUEST_CANCELLED);
         return;
     }
 
-    let body_stream = stream::unfold(recv_stream, |mut stream| async move {
-        match stream.recv_data().await {
-            Ok(Some(mut data)) => {
-                let bytes = data.copy_to_bytes(data.remaining());
-                Some((Ok::<_, IncomingError>(bytes), stream))
-            }
-            Ok(None) => None,
-            Err(error) => Some((Err(IncomingError(error.to_string())), stream)),
-        }
-    });
     let request_body = if policy.is_reject() {
+        // A missing Content-Length does not prove that an H3 request has no
+        // content. Stop the receive direction for every rejected body policy
+        // so a peer cannot continue sending data after the response starts.
+        recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
         crate::primitives::request_body::RequestBody::empty()
     } else {
-        crate::primitives::request_body::RequestBody::from_incoming(
+        let body_cancel = tokio::sync::watch::channel(false);
+        let body_stream = stream::unfold(
+            (recv_stream, body_cancel.1),
+            |(mut stream, mut cancel)| async move {
+                if *cancel.borrow() {
+                    stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                    return None;
+                }
+                tokio::select! {
+                    changed = cancel.changed() => {
+                        if changed.is_ok() {
+                            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                        }
+                        None
+                    }
+                    data = stream.recv_data() => match data {
+                        Ok(Some(mut data)) => {
+                            let bytes = data.copy_to_bytes(data.remaining());
+                            Some((Ok::<_, IncomingError>(bytes), (stream, cancel)))
+                        }
+                        Ok(None) => None,
+                        Err(error) => Some((Err(IncomingError(error.to_string())), (stream, cancel))),
+                    }
+                }
+            },
+        );
+        let shared = RequestShared::new_active();
+        let request_body = crate::primitives::request_body::RequestBody::from_incoming_with_shared(
             body_stream,
             declared_length,
             policy.max_bytes().unwrap_or(config.max_request_body_bytes),
-        )
+            shared.clone(),
+        );
+        spawn_body_timeout_watchdog(
+            shared.clone(),
+            body_cancel.0,
+            tokio::time::Instant::now() + config.body_read_timeout,
+            conn_id,
+            runtime_state.ops().clone(),
+        );
+        request_body
     };
     let request_body = match policy {
         crate::primitives::request_body_policy::RequestBodyPolicy::Buffer { max_bytes } => {
@@ -379,27 +422,33 @@ async fn handle_request<S, C>(
                     crate::primitives::request_body::RequestBody::from_bytes(bytes, max_bytes)
                 }
                 Ok(Err(error)) => {
-                    let _ = send_canonical_response(
+                    if send_canonical_response(
                         &mut send_stream,
                         error_response(error.to_status_code(), &config),
                         &config,
                         is_head,
                         runtime_state.file_stream_semaphore(),
                     )
-                    .await;
-                    send_stream.stop_stream(h3::error::Code::H3_REQUEST_CANCELLED);
+                    .await
+                    .is_err()
+                    {
+                        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+                    }
                     return;
                 }
                 Err(_) => {
-                    let _ = send_canonical_response(
+                    if send_canonical_response(
                         &mut send_stream,
                         error_response(408, &config),
                         &config,
                         is_head,
                         runtime_state.file_stream_semaphore(),
                     )
-                    .await;
-                    send_stream.stop_stream(h3::error::Code::H3_REQUEST_CANCELLED);
+                    .await
+                    .is_err()
+                    {
+                        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+                    }
                     return;
                 }
             }
@@ -409,13 +458,13 @@ async fn handle_request<S, C>(
     let request = Request::new(
         head,
         request_body,
-        ConnectionContext::for_tcp(
+        ConnectionContext::for_quic(
             local_addr,
             remote_addr,
-            Some(TlsInfo {
+            TlsInfo {
                 protocol_version: Some("TLSv1.3".into()),
                 server_name: None,
-            }),
+            },
         )
         .connection_info(),
     );
@@ -443,14 +492,44 @@ async fn handle_request<S, C>(
         Ok(response) => response,
         Err(error) => error_response(error.status_code(), &config),
     };
-    let _ = send_canonical_response(
+    if send_canonical_response(
         &mut send_stream,
         response,
         &config,
         is_head,
         runtime_state.file_stream_semaphore(),
     )
-    .await;
+    .await
+    .is_err()
+    {
+        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+    }
+}
+
+fn spawn_body_timeout_watchdog(
+    shared: Arc<RequestShared>,
+    cancel: tokio::sync::watch::Sender<bool>,
+    deadline: tokio::time::Instant,
+    conn_id: u64,
+    ops: crate::ops::OpsContext,
+) {
+    tokio::spawn(async move {
+        tokio::select! {
+            _ = shared.wait_body_terminal() => {}
+            _ = tokio::time::sleep_until(deadline) => {
+                if shared.mark_failed_with_reason(RequestCancellationReason::ConnectionTimeout) {
+                    let _ = cancel.send(true);
+                    ops.counters().body_read_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    ops.counters().deferred_body_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    ops.emit(crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::DeferredBodyTimeout,
+                        "HTTP/3 request body timeout",
+                    ).connection_id(conn_id));
+                }
+            }
+        }
+    });
 }
 
 async fn invoke_service<S: Service>(
@@ -801,5 +880,36 @@ mod tests {
             declared_content_length(&request).unwrap_err().status_code(),
             400
         );
+    }
+
+    #[test]
+    fn http3_config_rejects_missing_unidirectional_stream_headroom() {
+        let error = RuntimeConfig::builder()
+            .http3(crate::server::Http3Config {
+                enabled: true,
+                max_concurrent_uni_streams: 2,
+                ..crate::server::Http3Config::default()
+            })
+            .build()
+            .unwrap_err();
+        assert!(error.to_string().contains("max_concurrent_uni_streams"));
+    }
+
+    #[tokio::test]
+    async fn body_timeout_marks_h3_body_failed_and_wakes_stream() {
+        let shared = RequestShared::new_active();
+        let (cancel, mut cancelled) = tokio::sync::watch::channel(false);
+        spawn_body_timeout_watchdog(
+            shared.clone(),
+            cancel,
+            tokio::time::Instant::now() + std::time::Duration::from_millis(10),
+            1,
+            crate::ops::OpsContext::global().clone(),
+        );
+        tokio::time::timeout(std::time::Duration::from_secs(1), cancelled.changed())
+            .await
+            .expect("H3 body timeout should wake the receive stream")
+            .expect("watch sender should remain alive until timeout");
+        assert!(!shared.is_body_active());
     }
 }
