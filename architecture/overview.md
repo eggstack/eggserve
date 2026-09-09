@@ -37,9 +37,10 @@ gateways implement the canonical `Service` trait and return canonical
 
 Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed
 (`Request` has no upgrade capability, `Service` returns `Response` only,
-101 handshakes cannot survive normalization; `.with_upgrades()` remains an
-internal Hyper detail). Downstream WebSocket-class servers are not
-currently buildable on the canonical boundary and must not bypass it via
+101 handshakes cannot survive normalization; the ordinary Hyper HTTP/1
+connection is used and upgrade machinery is not enabled. Downstream
+WebSocket-class servers are not currently buildable on the canonical boundary
+and must not bypass it via
 raw Hyper types; see [../docs/non-goals.md](../docs/non-goals.md) and
 [../docs/downstream-app-server.md](../docs/downstream-app-server.md).
 
@@ -414,7 +415,7 @@ existing Rust/Python checks rather than a separate CI job.
 
 | Target | What It Fuzzes |
 |--------|---------------|
-| `request_target` | HTTP origin-form parsing, path confinement, request target validation |
+| `request_target` | Canonical HTTP target classification and path-confinement handoff |
 | `percent_decode` | Single-pass percent decoding |
 | `path_components` | Path normalization and component validation |
 | `validate_method` | HTTP method construction and validation, body rejection |
@@ -524,7 +525,6 @@ src/
 ├── mime.rs                   # MIME type detection via phf map (~60 extensions)
 ├── path/
 │   ├── mod.rs                # ConfinedPath type
-│   ├── request_target.rs     # origin-form parsing
 │   ├── decode.rs             # single-pass percent decoding
 │   ├── components.rs         # normalization, splitting, validation
 │   ├── rejected.rs           # PathRejection (17 variants)

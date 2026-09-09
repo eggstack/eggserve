@@ -17,6 +17,7 @@ use http_body::{Body, Frame};
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 
+use super::lifecycle::LifecycleDisposition;
 use super::response::finalize_runtime_response;
 
 /// Per-connection request/response activity shared between the Hyper service
@@ -37,6 +38,7 @@ pub(crate) struct ConnectionActivity {
     in_flight: AtomicU64,
     outstanding: AtomicU64,
     completed: AtomicU64,
+    next_request_id: AtomicU64,
     /// Deferred request bodies still owned past `Service::call` return
     /// (Plan 174 Track B). While >0 the connection is not idle even when
     /// no service execution is in-flight and no response is outstanding:
@@ -69,6 +71,7 @@ impl ConnectionActivity {
             in_flight: AtomicU64::new(0),
             outstanding: AtomicU64::new(0),
             completed: AtomicU64::new(0),
+            next_request_id: AtomicU64::new(1),
             deferred: AtomicU64::new(0),
             body_timeout_fired: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
@@ -88,6 +91,18 @@ impl ConnectionActivity {
             .active_service_requests
             .fetch_add(1, Ordering::Relaxed);
         self.notify.notify_one();
+    }
+
+    /// Allocate a request/response activity identity. HTTP/1 maps one active
+    /// identity to its serial request; multiplexed adapters can retain the
+    /// same hook with one identity per stream.
+    pub(crate) fn begin_request(self: &Arc<Self>) -> RequestActivity {
+        let id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
+        self.request_started();
+        RequestActivity {
+            connection: self.clone(),
+            id,
+        }
     }
 
     /// The service pipeline produced a response without invoking the
@@ -212,19 +227,22 @@ impl ConnectionActivity {
 /// all known paths go through `finish`), the slot is still released on drop
 /// so permits and gauges cannot leak.
 pub(crate) struct InFlightGuard {
-    activity: Arc<ConnectionActivity>,
+    request_activity: RequestActivity,
     service_permit: Option<tokio::sync::OwnedSemaphorePermit>,
     finished: bool,
 }
 
 impl InFlightGuard {
     pub(crate) fn new(activity: Arc<ConnectionActivity>) -> Self {
-        activity.request_started();
         Self {
-            activity,
+            request_activity: activity.begin_request(),
             service_permit: None,
             finished: false,
         }
+    }
+
+    pub(crate) fn request_id(&self) -> u64 {
+        self.request_activity.id()
     }
 
     /// Try to admit one service execution under the server-wide in-flight
@@ -245,12 +263,13 @@ impl InFlightGuard {
                 None
             }
             Err(_) => {
-                self.activity
+                self.request_activity
+                    .connection
                     .ops()
                     .counters()
                     .service_admission_rejected
                     .fetch_add(1, Ordering::Relaxed);
-                self.activity.ops().emit(
+                self.request_activity.connection.ops().emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Warn,
                         crate::ops::EventKind::ServiceAdmissionRejected,
@@ -273,22 +292,29 @@ impl InFlightGuard {
     /// releases the outstanding slot.
     pub(crate) fn finish(
         mut self,
-        mut response: hyper::Response<BoxBodyInner>,
+        response: hyper::Response<BoxBodyInner>,
         config: &RuntimeConfig,
         conn_id: u64,
-    ) -> hyper::Response<BoxBodyInner> {
+        mut disposition: LifecycleDisposition,
+    ) -> (hyper::Response<BoxBodyInner>, LifecycleDisposition) {
         self.finished = true;
         self.service_permit.take();
-        self.activity.request_finished_without_service();
-        let completed = self.activity.completed.fetch_add(1, Ordering::Relaxed) + 1;
+        self.request_activity.request_finished();
+        let completed = self
+            .request_activity
+            .connection
+            .completed
+            .fetch_add(1, Ordering::Relaxed)
+            + 1;
         if let Some(max) = config.max_requests_per_connection {
             if completed >= max {
-                self.activity
+                self.request_activity
+                    .connection
                     .ops()
                     .counters()
                     .max_requests_closes
                     .fetch_add(1, Ordering::Relaxed);
-                self.activity.ops().emit(
+                self.request_activity.connection.ops().emit(
                     crate::ops::Event::new(
                         crate::ops::Severity::Debug,
                         crate::ops::EventKind::MaxRequestsClose,
@@ -296,16 +322,20 @@ impl InFlightGuard {
                     )
                     .connection_id(conn_id),
                 );
-                response.headers_mut().insert(
-                    hyper::header::CONNECTION,
-                    hyper::header::HeaderValue::from_static("close"),
-                );
+                disposition = LifecycleDisposition::close_after_response()
+                    .with_graceful_drain()
+                    .with_transport_termination();
             }
         }
-        self.activity.response_started();
+        self.request_activity.response_started();
         let response = finalize_runtime_response(response, config);
-        let activity = self.activity.clone();
-        response.map(move |body| BoxBodyInner::new(TrackedBody::new(body, activity)))
+        let activity = self.request_activity.connection.clone();
+        let request_id = self.request_id();
+        (
+            response
+                .map(move |body| BoxBodyInner::new(TrackedBody::new(body, activity, request_id))),
+            disposition,
+        )
     }
 }
 
@@ -313,7 +343,7 @@ impl Drop for InFlightGuard {
     fn drop(&mut self) {
         if !self.finished {
             self.service_permit.take();
-            self.activity.request_finished_without_service();
+            self.request_activity.request_finished();
         }
     }
 }
@@ -327,14 +357,17 @@ impl Drop for InFlightGuard {
 struct TrackedBody {
     inner: BoxBodyInner,
     activity: Arc<ConnectionActivity>,
+    #[allow(dead_code)]
+    request_id: u64,
     done: AtomicBool,
 }
 
 impl TrackedBody {
-    fn new(inner: BoxBodyInner, activity: Arc<ConnectionActivity>) -> Self {
+    fn new(inner: BoxBodyInner, activity: Arc<ConnectionActivity>, request_id: u64) -> Self {
         Self {
             inner,
             activity,
+            request_id,
             done: AtomicBool::new(false),
         }
     }
@@ -343,6 +376,29 @@ impl TrackedBody {
         if !self.done.swap(true, Ordering::AcqRel) {
             self.activity.response_finished();
         }
+    }
+}
+
+/// Per-request/response activity identity. The connection remains the owner
+/// of aggregate deadlines and counters, while this record is the future hook
+/// for stream-local progress, cancellation, and timeout state.
+#[derive(Debug, Clone)]
+pub(crate) struct RequestActivity {
+    connection: Arc<ConnectionActivity>,
+    id: u64,
+}
+
+impl RequestActivity {
+    fn id(&self) -> u64 {
+        self.id
+    }
+
+    fn request_finished(&self) {
+        self.connection.request_finished_without_service();
+    }
+
+    fn response_started(&self) {
+        self.connection.response_started();
     }
 }
 

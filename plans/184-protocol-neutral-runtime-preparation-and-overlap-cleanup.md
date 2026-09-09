@@ -2,7 +2,8 @@
 
 ## Status
 
-**PLANNED — prerequisite refactor; no HTTP/2 or HTTP/3 listener is enabled by this plan.**
+**IMPLEMENTED — HTTP/1 regression-closed prerequisite refactor; no HTTP/2 or
+HTTP/3 listener is enabled by this plan.**
 
 Prerequisite: Plan 183's scope/API contract must be accepted and implemented first. This plan must preserve HTTP/1 wire behavior and the current Python compatibility surface while removing protocol-specific assumptions that would otherwise be duplicated by Plans 185 and 187.
 
@@ -356,6 +357,26 @@ The workspace currently declares Rust 1.87 while ordinary CI tests `stable`. Add
 
 Prefer one lightweight check in an existing workflow over a new matrix/job explosion. Ensure protocol feature additions in later plans are also checked against the supported MSRV or explicitly revise MSRV during the minor release.
 
+## Implementation closure
+
+Tracks A–H and J are implemented. `RequestTarget` is now the sole HTTP syntax
+classifier, with `ConfinedPath::from_path_component` as the path-only security
+handoff. Canonical version metadata is non-exhaustive and fallible at the
+Hyper boundary; `Authority` is the protocol-neutral effective-host field.
+Body-policy branches converge on one service invocation kernel, lifecycle
+requirements use typed `LifecycleDisposition` state, request/response activity
+has an internal per-request identity, HTTP/1 parser knobs project through
+`Http1Config`, and Hyper upgrade machinery is disabled.
+
+Track I2 is deliberately deferred: `StaticService` still accepts
+`ServeConfig` through its existing compatibility adapter because the current
+consumer-facing `ServeConfig`/`ServeState` ownership is useful and the
+refactor would otherwise expand this protocol prerequisite. No new coupling
+was added; future static-service work should introduce a small internal static
+state only when it removes a measured conversion/ownership cost. Track I1 is
+closed by retaining planner APIs as compatibility adapters while the runtime
+continues to consume canonical responses.
+
 ## Verification
 
 Run the full existing regression set with HTTP/2/3 still disabled:
@@ -389,22 +410,22 @@ If an MSRV gate is added, run it explicitly as part of closure.
 
 ## Acceptance criteria
 
-- [ ] there is one authoritative HTTP request-target classifier; confinement no longer independently reimplements HTTP target-form classification.
-- [ ] canonical/path direct-use behavior changes are documented under the planned 0.2 transition and covered by a shared corpus.
-- [ ] `HttpVersion` no longer silently coerces unsupported versions to HTTP/1.1.
-- [ ] canonical version metadata is ready to represent HTTP/2 and HTTP/3 without enabling either wire protocol prematurely.
-- [ ] canonical request metadata has a defined authority/scheme model suitable for H1/H2/H3; pseudo-headers do not leak into ordinary headers.
-- [ ] service admission/invocation/panic/timeout/error-response logic exists in one shared path after body preparation.
-- [ ] generic pipeline code no longer uses `Connection: close` itself as the lifecycle decision representation.
-- [ ] HTTP/1 maps neutral lifecycle dispositions back to current close/keep-alive behavior exactly.
-- [ ] connection-level versus request/stream-level activity ownership is explicit and ready for multiplexed protocols.
-- [ ] runtime configuration has a clear shared/HTTP1/protocol-extension ownership model without duplicating Plan 179 defaults.
-- [ ] `.with_upgrades()` and upgradeable connection machinery are removed unless a documented supported dependency requires them.
-- [ ] stable static planner APIs remain functional; new internal work does not deepen duplicate response vocabularies.
-- [ ] `StaticServiceBuilder` no longer needs full runtime compatibility config internally, or the deferral is explicitly documented with no new coupling added.
-- [ ] the declared MSRV is checked or deliberately revised.
-- [ ] all HTTP/1, TLS, Python, and supply-chain regressions remain green.
-- [ ] no HTTP/2 or HTTP/3 listener is enabled by this plan.
+- [x] there is one authoritative HTTP request-target classifier; confinement no longer independently reimplements HTTP target-form classification.
+- [x] canonical/path direct-use behavior changes are documented under the planned 0.2 transition and covered by a shared corpus.
+- [x] `HttpVersion` no longer silently coerces unsupported versions to HTTP/1.1.
+- [x] canonical version metadata is ready to represent HTTP/2 and HTTP/3 without enabling either wire protocol prematurely.
+- [x] canonical request metadata has a defined authority/scheme model suitable for H1/H2/H3; pseudo-headers do not leak into ordinary headers.
+- [x] service admission/invocation/panic/timeout/error-response logic exists in one shared path after body preparation.
+- [x] generic pipeline code no longer uses `Connection: close` itself as the lifecycle decision representation.
+- [x] HTTP/1 maps neutral lifecycle dispositions back to current close/keep-alive behavior exactly.
+- [x] connection-level versus request/stream-level activity ownership is explicit and ready for multiplexed protocols.
+- [x] runtime configuration has a clear shared/HTTP1/protocol-extension ownership model without duplicating Plan 179 defaults.
+- [x] `.with_upgrades()` and upgradeable connection machinery are removed unless a documented supported dependency requires them.
+- [x] stable static planner APIs remain functional; new internal work does not deepen duplicate response vocabularies.
+- [x] `StaticServiceBuilder` no longer needs full runtime compatibility config internally, or the deferral is explicitly documented with no new coupling added.
+- [x] the declared MSRV is checked or deliberately revised.
+- [x] all HTTP/1, TLS, Python, and supply-chain regressions remain green.
+- [x] no HTTP/2 or HTTP/3 listener is enabled by this plan.
 
 ## Suggested implementation order
 

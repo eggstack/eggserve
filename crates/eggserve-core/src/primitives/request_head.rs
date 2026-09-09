@@ -4,6 +4,7 @@
 //! representing the head of an HTTP request (method, target, version,
 //! headers). It contains no Hyper types.
 
+use crate::primitives::authority::Authority;
 use crate::primitives::header_block::HeaderBlock;
 use crate::primitives::method::Method;
 use crate::primitives::request_target::{RequestTarget, RequestTargetError};
@@ -24,6 +25,8 @@ pub enum RequestHeadError {
     AbsoluteForm,
     /// The method is not a valid HTTP token.
     InvalidMethod,
+    /// The effective authority is malformed or appears more than once.
+    Authority(crate::primitives::authority::AuthorityError),
 }
 
 impl std::fmt::Display for RequestHeadError {
@@ -35,6 +38,7 @@ impl std::fmt::Display for RequestHeadError {
             Self::HeaderValue(e) => write!(f, "invalid header value: {e}"),
             Self::AbsoluteForm => write!(f, "absolute-form URI not supported"),
             Self::InvalidMethod => write!(f, "invalid request method token"),
+            Self::Authority(e) => write!(f, "invalid request authority: {e}"),
         }
     }
 }
@@ -48,6 +52,7 @@ impl std::error::Error for RequestHeadError {
             Self::HeaderValue(e) => Some(e),
             Self::AbsoluteForm => None,
             Self::InvalidMethod => None,
+            Self::Authority(e) => Some(e),
         }
     }
 }
@@ -84,6 +89,7 @@ pub struct RequestHead {
     target: RequestTarget,
     version: HttpVersion,
     headers: HeaderBlock,
+    authority: Option<Authority>,
 }
 
 impl RequestHead {
@@ -103,6 +109,24 @@ impl RequestHead {
             target,
             version,
             headers,
+            authority: None,
+        }
+    }
+
+    /// Create a request head with a protocol-adapted effective authority.
+    pub fn new_with_authority(
+        method: Method,
+        target: RequestTarget,
+        version: HttpVersion,
+        headers: HeaderBlock,
+        authority: Option<Authority>,
+    ) -> Self {
+        Self {
+            method,
+            target,
+            version,
+            headers,
+            authority,
         }
     }
 
@@ -124,6 +148,12 @@ impl RequestHead {
     /// Returns the header block.
     pub fn headers(&self) -> &HeaderBlock {
         &self.headers
+    }
+
+    /// Returns the validated effective authority, when supplied by the
+    /// protocol adapter. Forwarded headers are not used for this value.
+    pub fn authority(&self) -> Option<&Authority> {
+        self.authority.as_ref()
     }
 
     /// Returns `true` if this is a HEAD request.
@@ -162,7 +192,7 @@ impl RequestHead {
         let target_str = uri.to_string();
         let target = RequestTarget::parse(target_str)?;
 
-        let version = HttpVersion::from(&req.version());
+        let version = HttpVersion::try_from(&req.version())?;
 
         let mut headers = HeaderBlock::with_capacity(req.headers().len());
         for (name, value) in req.headers().iter() {
@@ -176,7 +206,32 @@ impl RequestHead {
             headers.push(header_name, header_value);
         }
 
-        Ok(Self::new(method, target, version, headers))
+        let authorities = req
+            .headers()
+            .get_all(hyper::header::HOST)
+            .iter()
+            .map(|value| {
+                let text = value.to_str().map_err(|_| {
+                    RequestHeadError::Authority(
+                        crate::primitives::authority::AuthorityError::Invalid,
+                    )
+                })?;
+                Authority::parse(text).map_err(RequestHeadError::Authority)
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let authority = match authorities.as_slice() {
+            [] => None,
+            [first, rest @ ..] if rest.iter().all(|value| value == first) => Some(first.clone()),
+            _ => {
+                return Err(RequestHeadError::Authority(
+                    crate::primitives::authority::AuthorityError::Invalid,
+                ))
+            }
+        };
+
+        Ok(Self::new_with_authority(
+            method, target, version, headers, authority,
+        ))
     }
 }
 

@@ -41,7 +41,7 @@ shutdown; the process harness uses only Python's standard library.
 | `integration.rs` | — | Method validation, body rejection, conditional/range requests, HEAD parity |
 | `http_wire_correctness.rs` | — | Raw TCP wire tests: GET/HEAD/POST/404/403/400/413/206/416/304 |
 | `http_primitives_integration.rs` | — | 15 live TCP tests through hyper client/server stack |
-| `canonical_conformance.rs` | — | Canonical HTTP type conformance: Method, HttpVersion, HeaderBlock, StatusCode, Response normalization |
+| `canonical_conformance.rs` | — | Canonical HTTP type conformance: Method, non-exhaustive HttpVersion metadata, Authority, HeaderBlock, StatusCode, Response normalization |
 | `canonical_wire_interop.rs` | — | Wire-level canonical type interop |
 | `corpus_replay.rs` | — | Replays fuzz seed corpora to catch regressions |
 | `body_conformance.rs` | — | Body policy selection, empty/fixed-length/over-limit/chunked bodies |
@@ -114,7 +114,7 @@ repository root.
 
 | Target | What it fuzzes |
 |--------|---------------|
-| `request_target` | HTTP origin-form parsing, path confinement, request target validation, request head construction |
+| `request_target` | Canonical origin-form classification, path-component confinement, request target validation, authority, and request head construction |
 | `percent_decode` | Single-pass percent decoding |
 | `path_components` | Path normalization and component validation |
 | `validate_method` | HTTP method construction and validation, body rejection for read-only methods |

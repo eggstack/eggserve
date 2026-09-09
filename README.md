@@ -169,6 +169,13 @@ correlation IDs) attached via `ServerBuilder::ops_context` or
 construction clones the process-global default so CLI behavior is unchanged
 (see the [operations logging guide](https://github.com/eggstack/eggserve/blob/main/docs/ops-logging.md)). Services may lower
 request-body ceilings but cannot raise the runtime hard ceiling.
+Canonical `HttpVersion` metadata is non-exhaustive and represents HTTP/1.0,
+HTTP/1.1, HTTP/2, and HTTP/3 without silently relabeling an unsupported
+transport. `RequestHead::authority()` exposes validated effective host
+authority independently of HTTP/1 `Host` or future HTTP/2/3 pseudo-header
+spelling; forwarded headers remain untrusted. The current listener and
+caller-owned driver remain HTTP/1-only, and no H2/H3 wire protocol is enabled
+by this release.
 The `server` module
 is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`

@@ -141,6 +141,7 @@ pub(crate) fn convert_request_head(
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) -> Result<crate::primitives::request_head::RequestHead, ServiceError> {
+    use crate::primitives::authority::Authority;
     use crate::primitives::header_block::HeaderBlock;
     use crate::primitives::method::Method;
     use crate::primitives::request_target::RequestTarget;
@@ -258,9 +259,30 @@ pub(crate) fn convert_request_head(
         headers.push(header_name, header_value);
     }
 
-    Ok(crate::primitives::request_head::RequestHead::new(
-        method, target, version, headers,
-    ))
+    let authorities = req
+        .headers()
+        .get_all(hyper::header::HOST)
+        .iter()
+        .map(|value| {
+            Authority::parse(
+                value
+                    .to_str()
+                    .map_err(|_| ServiceError::rejected(400, "invalid Host header"))?,
+            )
+            .map_err(|_| ServiceError::rejected(400, "invalid Host header"))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+    let authority = match authorities.as_slice() {
+        [] => None,
+        [first, rest @ ..] if rest.iter().all(|value| value == first) => Some(first.clone()),
+        _ => return Err(ServiceError::rejected(400, "conflicting Host headers")),
+    };
+
+    Ok(
+        crate::primitives::request_head::RequestHead::new_with_authority(
+            method, target, version, headers, authority,
+        ),
+    )
 }
 
 #[cfg(test)]

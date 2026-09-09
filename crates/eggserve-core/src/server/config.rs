@@ -135,6 +135,16 @@ pub struct RuntimeConfig {
     pub response_write_timeout: Duration,
 }
 
+/// HTTP/1-only parser and framing settings projected from the compatibility
+/// fields on [`RuntimeConfig`]. Keeping this internal projection lets future
+/// protocol configs own their knobs without duplicating Plan 179 defaults or
+/// changing every existing `RuntimeConfig` literal before the 0.2 transition.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Http1Config {
+    pub(crate) max_buf_size: usize,
+    pub(crate) max_headers: usize,
+}
+
 impl Default for RuntimeConfig {
     fn default() -> Self {
         use crate::runtime_limits as rl;
@@ -166,6 +176,14 @@ impl Default for RuntimeConfig {
 }
 
 impl RuntimeConfig {
+    /// Project the legacy-compatible fields into the HTTP/1 protocol config.
+    pub(crate) fn http1_config(&self) -> Http1Config {
+        Http1Config {
+            max_buf_size: self.max_buf_size,
+            max_headers: self.max_headers,
+        }
+    }
+
     /// Create a new builder with default values.
     pub fn builder() -> RuntimeConfigBuilder {
         RuntimeConfigBuilder {

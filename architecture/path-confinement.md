@@ -4,15 +4,19 @@ The path confinement pipeline validates and normalizes every incoming request ta
 
 ## Pipeline Stages
 
-`ConfinedPath::parse()` (`path/mod.rs:21-38`) runs these stages in order:
+`RequestTarget::parse()` is the sole HTTP request-target classifier. The
+runtime passes its validated `path()` component to
+`ConfinedPath::from_path_component()`. Direct `ConfinedPath::parse()` remains
+the stable convenience adapter for raw target text and delegates
+classification to `RequestTarget` before running path-only security stages.
 
 ```
 Raw Request Target
     │
     ▼
 ┌─────────────────────────────────┐
-│ 1. parse_origin_form()          │  Strip query string, reject non-origin forms
-│    path/request_target.rs       │
+│ 1. RequestTarget::parse()       │  Classify origin form and split query
+│    primitives/request_target.rs │  reject absolute/authority/asterisk forms
 └─────────────────┬───────────────┘
                   │
                   ▼
@@ -53,7 +57,7 @@ Raw Request Target
 | Module | File | Purpose |
 |--------|------|---------|
 | `mod.rs` | `path/mod.rs` | `ConfinedPath` type — the validated path |
-| `request_target.rs` | `path/request_target.rs` | HTTP origin-form parsing |
+| `request_target.rs` | `primitives/request_target.rs` | Canonical HTTP target classification |
 | `decode.rs` | `path/decode.rs` | Percent decoding |
 | `components.rs` | `path/components.rs` | Normalization, splitting, validation |
 | `rejected.rs` | `path/rejected.rs` | `PathRejection` enum (17 variants) |
@@ -76,6 +80,8 @@ Methods:
 - `as_str()` — The full decoded path string
 - `components()` — Slice of path segments
 - `path_policy()` — The policy used during validation
+- `from_path_component()` — Apply path confinement after a canonical target
+  adapter has selected the path component
 
 ## Rejection Types (`PathRejection`)
 

@@ -11,6 +11,8 @@ use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
 use crate::server::service::ServiceError;
 
+use super::lifecycle::LifecycleDisposition;
+
 /// Normalize a service response then convert to Hyper.
 ///
 /// The runtime is the only framing authority: every service response
@@ -74,7 +76,8 @@ where
 ///
 /// Status selection lives here; representation is owned by
 /// [`crate::response::runtime_error_with_policy`] so wire status and body
-/// can never disagree (Plan 178 Track C).
+/// can never disagree (Plan 178 Track C). Transport consequences are returned
+/// separately by [`body_error_disposition`].
 pub(crate) fn body_error_to_response(
     err: crate::primitives::request_body_error::RequestBodyError,
     _head: &crate::primitives::request_head::RequestHead,
@@ -90,24 +93,34 @@ pub(crate) fn body_error_to_response(
     let wire_status = if raw_status == 499 { 500 } else { raw_status };
     let status = hyper::StatusCode::from_u16(wire_status)
         .unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
-    let should_close = raw_status == 499
-        || err.is_transport()
-        || matches!(
-            status,
-            hyper::StatusCode::BAD_REQUEST
-                | hyper::StatusCode::REQUEST_TIMEOUT
-                | hyper::StatusCode::PAYLOAD_TOO_LARGE
-                | hyper::StatusCode::HTTP_VERSION_NOT_SUPPORTED
-        );
     let is_head = _head.method().is_head();
-    let mut resp = crate::response::runtime_error_with_policy(status, is_head, error_policy);
-    if should_close {
-        resp.headers_mut().insert(
+    crate::response::runtime_error_with_policy(status, is_head, error_policy)
+}
+
+/// Return the protocol-neutral lifecycle consequence of a body failure.
+pub(crate) fn body_error_disposition(
+    err: &crate::primitives::request_body_error::RequestBodyError,
+) -> LifecycleDisposition {
+    let raw_status = err.to_status_code();
+    if raw_status == 499 || err.is_transport() || matches!(raw_status, 400 | 408 | 413 | 505) {
+        LifecycleDisposition::close_and_cancel_body()
+    } else {
+        LifecycleDisposition::KEEP_ALIVE
+    }
+}
+
+/// HTTP/1 adapter for protocol-neutral lifecycle dispositions.
+pub(crate) fn apply_http1_disposition(
+    mut response: hyper::Response<BoxBodyInner>,
+    disposition: LifecycleDisposition,
+) -> hyper::Response<BoxBodyInner> {
+    if disposition.close_after_response_required() {
+        response.headers_mut().insert(
             hyper::header::CONNECTION,
             hyper::header::HeaderValue::from_static("close"),
         );
     }
-    resp
+    response
 }
 
 /// Apply the final-boundary response privacy policy at the one Hyper boundary.
@@ -217,21 +230,19 @@ mod tests {
             )
         }
 
-        // Transport failures (500) must force close: the body stream broke
-        // mid-read, so wire framing state is unknown.
+        // Transport failures (500) require a close disposition, but the
+        // response itself remains free of HTTP/1-only headers.
         let transport = body_error_to_response(
             crate::primitives::request_body_error::RequestBodyError::Transport("io".into()),
             &head(),
             crate::policy::ErrorRepresentationPolicy::Minimal,
         );
         assert_eq!(transport.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
-        assert_eq!(
-            transport
-                .headers()
-                .get(hyper::header::CONNECTION)
-                .map(|v| v.as_bytes()),
-            Some(&b"close"[..])
-        );
+        assert!(transport.headers().get(hyper::header::CONNECTION).is_none());
+        assert!(body_error_disposition(
+            &crate::primitives::request_body_error::RequestBodyError::Transport("io".into())
+        )
+        .close_after_response_required());
 
         // Application-state 500s have no wire anomaly and stay reusable.
         let consumed = body_error_to_response(
@@ -242,18 +253,19 @@ mod tests {
         assert_eq!(consumed.status(), hyper::StatusCode::INTERNAL_SERVER_ERROR);
         assert!(consumed.headers().get(hyper::header::CONNECTION).is_none());
 
-        // 499-collapsed disconnects still force close.
+        // 499-collapsed disconnects still require close.
         let disconnected = body_error_to_response(
             crate::primitives::request_body_error::RequestBodyError::Disconnected,
             &head(),
             crate::policy::ErrorRepresentationPolicy::Minimal,
         );
-        assert_eq!(
-            disconnected
-                .headers()
-                .get(hyper::header::CONNECTION)
-                .map(|v| v.as_bytes()),
-            Some(&b"close"[..])
-        );
+        assert!(disconnected
+            .headers()
+            .get(hyper::header::CONNECTION)
+            .is_none());
+        assert!(body_error_disposition(
+            &crate::primitives::request_body_error::RequestBodyError::Disconnected
+        )
+        .close_after_response_required());
     }
 }

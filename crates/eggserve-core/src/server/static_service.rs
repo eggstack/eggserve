@@ -211,7 +211,7 @@ fn plan_static_request(
         },
         reject_backslash: true,
     };
-    let confined = match ConfinedPath::parse(target.path(), &path_policy) {
+    let confined = match ConfinedPath::from_path_component(target.path(), &path_policy) {
         Ok(path) => path,
         Err(rejection) => {
             let malformed = matches!(

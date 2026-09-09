@@ -47,6 +47,7 @@ pub use secure_root::{
     ResourceDeniedReason, SecureRoot,
 };
 
+pub mod authority;
 pub mod body;
 pub mod canonical;
 pub mod connection_info;
@@ -70,6 +71,7 @@ pub use crate::path::decode::percent_decode;
 pub use crate::path::platform::{
     check_component, has_windows_drive_prefix, is_windows_reserved_name,
 };
+pub use authority::{Authority, AuthorityError};
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use canonical::{
     is_hop_by_hop_header, normalize_metadata, normalize_response, to_hyper_response, BodyLength,

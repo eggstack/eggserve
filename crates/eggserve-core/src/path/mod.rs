@@ -5,7 +5,6 @@ pub mod decode;
 pub mod platform;
 pub mod policy;
 pub mod rejected;
-pub mod request_target;
 
 pub use policy::{DotfilePolicy, PathPolicy};
 pub use rejected::PathRejection;
@@ -22,8 +21,28 @@ impl ConfinedPath {
         if raw.len() > 8192 {
             return Err(PathRejection::TooLong);
         }
-        let path = request_target::parse_origin_form(raw)?;
+        // RequestTarget is the sole HTTP syntax classifier. NUL remains a
+        // path-layer rejection because it is also a filesystem-invalid byte.
+        if raw.as_bytes().contains(&0) {
+            return Err(PathRejection::NulByte);
+        }
+        let target = crate::primitives::request_target::RequestTarget::parse(raw.to_owned())
+            .map_err(|error| match error {
+                crate::primitives::request_target::RequestTargetError::Empty => {
+                    PathRejection::Empty
+                }
+                crate::primitives::request_target::RequestTargetError::ContainsWhitespace => {
+                    PathRejection::UnsupportedUriForm
+                }
+                _ => PathRejection::UnsupportedUriForm,
+            })?;
+        Self::from_path_component(target.path(), policy)
+    }
 
+    /// Build confinement state from a path component selected by the
+    /// canonical request-target parser. This handoff performs no HTTP
+    /// target-form classification.
+    pub fn from_path_component(path: &str, policy: &PathPolicy) -> Result<Self, PathRejection> {
         let decoded = decode::percent_decode(path)?;
 
         let normalized = components::normalize_path(&decoded);
@@ -335,15 +354,15 @@ mod tests {
     }
 
     #[test]
-    fn accept_double_slash_as_root() {
-        let p = ConfinedPath::parse("//", &default_policy()).unwrap();
-        assert_eq!(p.components().len(), 0);
-    }
-
-    #[test]
-    fn accept_triple_slash_as_root() {
-        let p = ConfinedPath::parse("///", &default_policy()).unwrap();
-        assert_eq!(p.components().len(), 0);
+    fn reject_leading_network_path_forms() {
+        assert_eq!(
+            ConfinedPath::parse("//", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+        assert_eq!(
+            ConfinedPath::parse("///", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
     }
 
     #[test]

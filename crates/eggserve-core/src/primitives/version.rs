@@ -1,7 +1,8 @@
 //! Canonical HTTP version type.
 //!
 //! [`HttpVersion`] represents the HTTP version used in a request or response.
-//! It covers the versions the runtime actually supports (HTTP/1.0 and HTTP/1.1).
+//! It represents protocol metadata independently of which wire protocols are
+//! enabled by a particular runtime build.
 
 use std::fmt;
 
@@ -24,24 +25,31 @@ impl std::error::Error for HttpVersionError {}
 
 /// An HTTP version.
 ///
-/// Supports HTTP/1.0 and HTTP/1.1, which are the versions the runtime
-/// actually handles. Keep-alive semantics are a runtime concern, not a
-/// property of this value type.
+/// Keep-alive semantics are a runtime concern, not a property of this value
+/// type. The HTTP/1 driver remains HTTP/1-only until the later protocol plans
+/// enable additional wire transports.
 ///
 /// # Serialization
 ///
-/// `Display` produces the wire format: `HTTP/1.0` or `HTTP/1.1`.
+/// `Display` produces descriptive canonical text (`HTTP/1.0`, `HTTP/1.1`,
+/// `HTTP/2`, or `HTTP/3`). HTTP/2 and HTTP/3 do not have request-line forms;
+/// these strings are metadata, not proof of wire acceptance.
 ///
 /// # Comparison
 ///
 /// Two versions are equal if and only if they represent the same HTTP
 /// version. `HTTP/1.0 != HTTP/1.1`.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HttpVersion {
     /// HTTP/1.0.
     Http10,
     /// HTTP/1.1.
     Http11,
+    /// HTTP/2.
+    Http2,
+    /// HTTP/3.
+    Http3,
 }
 
 impl HttpVersion {
@@ -51,11 +59,13 @@ impl HttpVersion {
     /// # Errors
     ///
     /// Returns [`HttpVersionError::Unsupported`] if the version is not
-    /// `HTTP/1.0` or `HTTP/1.1`.
+    /// `HTTP/1.0`, `HTTP/1.1`, `HTTP/2`, or `HTTP/3`.
     pub fn parse(version_str: &str) -> Result<Self, HttpVersionError> {
         match version_str {
             "HTTP/1.0" => Ok(Self::Http10),
             "HTTP/1.1" => Ok(Self::Http11),
+            "HTTP/2" => Ok(Self::Http2),
+            "HTTP/3" => Ok(Self::Http3),
             _ => Err(HttpVersionError::Unsupported),
         }
     }
@@ -65,6 +75,8 @@ impl HttpVersion {
         match self {
             Self::Http10 => "HTTP/1.0",
             Self::Http11 => "HTTP/1.1",
+            Self::Http2 => "HTTP/2",
+            Self::Http3 => "HTTP/3",
         }
     }
 
@@ -73,6 +85,8 @@ impl HttpVersion {
         match self {
             Self::Http10 => 1,
             Self::Http11 => 1,
+            Self::Http2 => 2,
+            Self::Http3 => 3,
         }
     }
 
@@ -81,6 +95,7 @@ impl HttpVersion {
         match self {
             Self::Http10 => 0,
             Self::Http11 => 1,
+            Self::Http2 | Self::Http3 => 0,
         }
     }
 }
@@ -97,13 +112,25 @@ impl AsRef<str> for HttpVersion {
     }
 }
 
-impl From<&hyper::http::Version> for HttpVersion {
-    fn from(v: &hyper::http::Version) -> Self {
+impl TryFrom<&hyper::http::Version> for HttpVersion {
+    type Error = HttpVersionError;
+
+    fn try_from(v: &hyper::http::Version) -> Result<Self, Self::Error> {
         match *v {
-            hyper::http::Version::HTTP_10 => Self::Http10,
-            hyper::http::Version::HTTP_11 => Self::Http11,
-            _ => Self::Http11, // best-effort fallback; unsupported versions are rejected at transport
+            hyper::http::Version::HTTP_10 => Ok(Self::Http10),
+            hyper::http::Version::HTTP_11 => Ok(Self::Http11),
+            hyper::http::Version::HTTP_2 => Ok(Self::Http2),
+            hyper::http::Version::HTTP_3 => Ok(Self::Http3),
+            _ => Err(HttpVersionError::Unsupported),
         }
+    }
+}
+
+impl TryFrom<hyper::http::Version> for HttpVersion {
+    type Error = HttpVersionError;
+
+    fn try_from(version: hyper::http::Version) -> Result<Self, Self::Error> {
+        Self::try_from(&version)
     }
 }
 
@@ -134,6 +161,22 @@ mod tests {
         assert_eq!(
             HttpVersion::parse("").unwrap_err(),
             HttpVersionError::Unsupported
+        );
+    }
+
+    #[test]
+    fn parse_future_protocol_metadata() {
+        assert_eq!(HttpVersion::parse("HTTP/2").unwrap(), HttpVersion::Http2);
+        assert_eq!(HttpVersion::parse("HTTP/3").unwrap(), HttpVersion::Http3);
+        assert_eq!(HttpVersion::Http2.major(), 2);
+        assert_eq!(HttpVersion::Http3.minor(), 0);
+    }
+
+    #[test]
+    fn hyper_conversion_is_fallible_and_lossless() {
+        assert_eq!(
+            HttpVersion::try_from(&hyper::Version::HTTP_2).unwrap(),
+            HttpVersion::Http2
         );
     }
 

@@ -16,7 +16,7 @@ repository = "https://github.com/eggstack/eggserve"
 homepage = "https://github.com/eggstack/eggserve"
 keywords = ["http", "static-file-server", "security", "hardened", "http-server"]
 categories = ["web-programming::http-server"]
-rust-version = "1.87"
+rust-version = "1.88"
 
 [profile.dist]
 inherits = "release"

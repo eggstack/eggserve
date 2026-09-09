@@ -73,7 +73,10 @@ These defaults are not advisory — the code rejects non-conforming requests bef
 
 ### 1. Path Confinement (6-stage pipeline)
 
-All request paths pass through `ConfinedPath::parse()` before touching the filesystem:
+All HTTP request targets are classified by `RequestTarget::parse()`, then their
+validated path component passes through `ConfinedPath::from_path_component()`
+before touching the filesystem. `ConfinedPath::parse()` remains the public
+raw-target compatibility adapter:
 
 1. **Request-target parsing** — only origin-form (`/path`) accepted; absolute/authority/asterisk forms rejected
 2. **Single-pass percent decoding** — `%XX` decoded exactly once; double-encoded traversal (`%252e%252e`) becomes literal `%2e%2e`, not `..`
@@ -81,7 +84,7 @@ All request paths pass through `ConfinedPath::parse()` before touching the files
 4. **Component splitting** — path split into segments
 5. **Per-component validation** — reject `.`, `..`, NUL bytes, backslash (default), dotfiles (default), Windows reserved names, ADS syntax, drive prefixes (cross-platform)
 
-Root confinement (resolved path verified to remain within root) is enforced during filesystem resolution, after `ConfinedPath::parse()` returns.
+Root confinement (resolved path verified to remain within root) is enforced during filesystem resolution, after the path handoff returns.
 
 See [path-confinement.md](path-confinement.md) for the full pipeline.
 

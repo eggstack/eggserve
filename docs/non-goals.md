@@ -20,8 +20,22 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No HTTP trailers** — Trailers are deferred; the canonical response model does not include trailer support
 - **No raw socket response writers** — All responses go through the canonical normalization path
 - **No socketserver implementation identity** — The Python `http.server` facade uses Rust-managed listeners, bounded file-like request/response buffers, and event-driven shutdown; raw sockets, `fileno()`, and exact one-request polling are not compatibility promises
-- **No HTTP/2** — The runtime supports HTTP/1.1 only. HTTP/2 is out of scope.
-- **No WebSocket or upgrade support (Plan 176 deferred)** — The runtime does not support protocol upgrades. The connection executor enables Hyper `.with_upgrades()` internally, but no canonical upgrade capability, 101-handshake path, or upgraded-IO handoff is exposed: `Request` carries head/body/connection/lifecycle only, `Service` returns `Response` only, and normalization strips hop-by-hop handshake headers. Deferred for the same reasons as Plan 167 (no concrete consumer; HTTP-only downstream contract closed by Plans 172–175; product-surface freeze). Downstream WebSocket-class servers are not currently buildable on the canonical boundary and must not bypass it via raw Hyper types; reopen Plan 176 only with a concrete upgrade consumer.
+- **No unqualified protocol expansion** — HTTP/2 and HTTP/3 are optional,
+  separately governed transport work under Plans 183–188. HTTP/1.1 remains
+  the minimal/default compatibility baseline, and this plan does not enable a
+  second wire protocol. Protocol work does not authorize routing, reverse
+  proxying, WebSockets, WebTransport, CONNECT tunnels, server push, ACME,
+  middleware, or application-server behavior in-tree. Python
+  `http.server`-shaped surfaces remain HTTP/1.1-oriented unless a later
+  compatibility decision says otherwise.
+- **No WebSocket or generic upgrade support (Plan 176 deferred)** — The runtime
+  has no canonical upgrade capability, 101-handshake path, or upgraded-IO
+  handoff: `Request` carries head/body/connection/lifecycle only, `Service`
+  returns `Response` only, and normalization strips hop-by-hop handshake
+  headers. The HTTP/1 driver deliberately uses Hyper's ordinary connection;
+  it does not enable `.with_upgrades()`. Downstream WebSocket-class servers
+  must not bypass the canonical boundary via raw Hyper types; reopen Plan 176
+  only with a concrete upgrade consumer and current-Hyper evidence.
 - **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.
 - **No Python existing-socket support** — Passing an already-bound Python socket to the native `Server` is deferred. Rust supports `from_listener()` for existing `TcpListener` ownership, but the Python bindings do not yet expose this. Ownership transfer semantics differ across platforms and would require careful descriptor/handle duplication. This capability may be added in a future milestone if cross-platform safety can be ensured.
 - **No production profile without evidence** — Production profiles require external qualification evidence before hardened status. Production profiles are documented in README.md and `docs/deployment.md`.

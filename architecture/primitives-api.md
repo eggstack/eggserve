@@ -14,10 +14,10 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `secure_root.rs` | `primitives/secure_root.rs` | `SecureRoot`, `ResolvedFile`, `ResolvedDirectory`, `ResolvedResource` |
 | `http.rs` | `primitives/http.rs` | `ReadOnlyMethod`, request validation functions (legacy) |
 | `method.rs` | `primitives/method.rs` | `Method`: validated HTTP method (standard + extension) |
-| `version.rs` | `primitives/version.rs` | `HttpVersion`: HTTP/1.0, HTTP/1.1 |
+| `version.rs` | `primitives/version.rs` | Non-exhaustive `HttpVersion`: HTTP/1.0, HTTP/1.1, HTTP/2, HTTP/3 metadata |
 | `header_block.rs` | `primitives/header_block.rs` | `HeaderBlock`: duplicate-preserving ordered headers |
 | `request_target.rs` | `primitives/request_target.rs` | `RequestTarget`: validated origin-form target |
-| `request_head.rs` | `primitives/request_head.rs` | `RequestHead`: canonical request head with Hyper conversion |
+| `request_head.rs` | `primitives/request_head.rs` | `RequestHead`: canonical request head and effective authority with Hyper conversion |
 | `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`, `SocketEndpoints`: transport metadata with optional endpoints |
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
@@ -29,6 +29,7 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
 | `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 12-variant error type for body consumption failures |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
+| `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
 
 ## Public Types
 

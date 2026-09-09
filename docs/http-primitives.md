@@ -6,7 +6,10 @@ GET/HEAD/DELETE/OPTIONS/extension content. Custom services declare Buffer or
 Stream policy for the actual method within the runtime body ceiling. TRACE
 content remains transport-rejected.
 
-eggserve exposes a documented, reusable HTTP/1.1 primitive contract for downstream projects. This document defines the supported server-side HTTP subset and the behavior guarantees that embedding consumers can depend on.
+eggserve exposes a documented, reusable HTTP primitive contract for downstream
+projects. The current listener/runtime is HTTP/1.1-only; canonical metadata is
+prepared to represent HTTP/2 and HTTP/3 for later protocol adapters without
+enabling either wire protocol in this release.
 
 ## Supported protocol subset
 
@@ -66,7 +69,7 @@ pub enum ReadOnlyMethod {
 
 ## Request target validation
 
-`validate_request_target(target: &str)` validates origin-form request targets:
+`RequestTarget::parse(target)` is the authoritative request-target classifier:
 
 - Must start with `/`
 - Must not be empty
@@ -75,14 +78,19 @@ pub enum ReadOnlyMethod {
 
 Error: `RequestValidationError::InvalidRequestTarget` → HTTP 400 (via path parsing layer).
 
-Note: Full path confinement (traversal, dotfiles, percent-encoding) is handled by `ConfinedPath::parse()`, not by `validate_request_target()`. The target validation is a coarse check; path confinement is the fine-grained check.
+`ConfinedPath::from_path_component()` then performs only path security
+validation (traversal, dotfiles, percent-encoding, and platform rules).
+`ConfinedPath::parse()` remains a compatibility adapter that delegates target
+classification to `RequestTarget`.
 
 ### Parser-level target behavior
 
 Target validation happens at two layers:
 
 1. **Hyper's parser** handles HTTP version parsing and request-line splitting. Hyper accepts HTTP/1.0 version lines, bare LF in header values, and certain malformed inputs that eggserve does not actively reject.
-2. **eggserve's validation** (`validate_request_target()` + `ConfinedPath::parse()`) rejects non-origin-form targets, path traversal, NUL bytes, and encoded separators.
+2. **eggserve's validation** (`RequestTarget::parse()` plus
+   `ConfinedPath::from_path_component()`) rejects non-origin-form targets, path
+   traversal, NUL bytes, and encoded separators.
 
 The wire-correctness tests in `http_wire_correctness.rs` document exactly which rejections come from which layer.
 

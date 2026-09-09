@@ -13,6 +13,10 @@ shared checks to the kernel and appends static-only budgets;
 adapts kernel violations to `ServerError::Config`;
 `try_from_serve_config()` validates `Limits` then projects through the single
 `RuntimeConfig::from_shared_runtime` helper. No new knobs were added.
+The internal `RuntimeConfig::http1_config()` projection owns the HTTP/1 parser
+view of the compatibility `max_buf_size` and `max_headers` fields without
+duplicating defaults or validation. Future protocol-specific controls belong
+to their own projections.
 
 ## Ownership split
 
@@ -61,6 +65,12 @@ A setting may be shared by reference, but only one validated value owns enforcem
 Services may lower request-body ceilings but cannot raise the runtime
 `max_request_body_bytes` hard ceiling.
 
+The compatibility `ServeConfig`/`StaticService` path remains the owner of
+static-service policy. Its bridge projects validated runtime values into the
+same `RuntimeConfig` authority; the broader static-service builder migration
+is intentionally deferred until the compatibility adapter can change without
+breaking its current API.
+
 ## Field inventory
 
 ### Concurrency limits
@@ -78,8 +88,8 @@ Services may lower request-body ceilings but cannot raise the runtime
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `max_buf_size` | `RuntimeConfig` | 65536 | 8192–4194304 | `--max-buf-size` | `max_buf_size` (`lowlevel`; compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection |
-| `max_headers` | `RuntimeConfig` | 100 | 1–10000 | `--max-headers` | `max_headers` (`lowlevel`; compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself) |
+| `max_buf_size` | `RuntimeConfig` → internal `Http1Config` | 65536 | 8192–4194304 | `--max-buf-size` | `max_buf_size` (`lowlevel`; compat default) | Hyper `http1::Builder::max_buf_size`, set explicitly per connection |
+| `max_headers` | `RuntimeConfig` → internal `Http1Config` | 100 | 1–10000 | `--max-headers` | `max_headers` (`lowlevel`; compat default) | Hyper `http1::Builder::max_headers` (Hyper answers 431 itself) |
 | `max_header_bytes` | `RuntimeConfig` | 32768 | 1024–1048576 | `--max-header-bytes` | `max_header_bytes` (`lowlevel`; compat default) | Post-parse aggregate check in `convert_request_head`; 431 pre-service |
 | `max_request_target_bytes` | `RuntimeConfig` | 8192 | 128–65536 | `--max-request-target-bytes` | `max_request_target_bytes` (`lowlevel`; compat default) | Post-parse target check in `convert_request_head`; 414 pre-service |
 

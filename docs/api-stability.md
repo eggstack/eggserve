@@ -20,9 +20,9 @@ Stable enum variants are exhaustive unless documented otherwise. Adding a new va
 
 ### Thread safety (Send/Sync)
 
-All stable canonical request types (`Method`, `HttpVersion`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderValueTextError`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by the selected-type assertions in `public_api_consumers`; response values have the separate `Send` guarantee described below.
+All stable canonical request types (`Method`, non-exhaustive `HttpVersion`, `Authority`, `HeaderBlock`, `HeaderName`, `HeaderValue`, `HeaderValueTextError`, `HeaderField`, `RequestTarget`, `RequestHead`, `ConnectionInfo`, `Scheme`, `TlsInfo`, `SocketEndpoints`, `StatusCode`, `ReadOnlyMethod`) implement `Send + Sync`. This means they can be safely shared between threads and sent across thread boundaries. This is a compile-time guarantee enforced by the selected-type assertions in `public_api_consumers`; response values have the separate `Send` guarantee described below.
 
-Error types (`MethodError`, `HttpVersionError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
+Error types (`MethodError`, `HttpVersionError`, `AuthorityError`, `HeaderError`, `DuplicateHeaderError`, `RequestTargetError`, `RequestHeadError`, `ResponseConstructionError`, `RequestValidationError`) implement `Send` but not necessarily `Sync`, as they may contain `String` payloads.
 
 `ResponseBody` and `Response` implement `Send`; file-backed bodies carry an
 already-opened file capability rather than a path to reopen.
@@ -166,7 +166,7 @@ documented separately in `docs/python-api.md`.
 
 | Item | Tier | Notes |
 |------|------|-------|
-| `ConfinedPath` | stable | Parsed request target |
+| `ConfinedPath` | stable | Validated path component; `parse()` is the raw-target compatibility adapter and `from_path_component()` is the canonical path-security handoff |
 | `PathDotfilePolicy` | stable | Alias for `path::DotfilePolicy` |
 | `PathPolicy` | stable | Parse-time dotfile/backslash policy |
 | `PathRejection` | stable | 17-variant rejection taxonomy |
@@ -210,8 +210,10 @@ documented separately in `docs/python-api.md`.
 |------|------|-------|
 | `Method` | stable | Validated HTTP method; standard + extension support |
 | `MethodError` | stable | Empty, InvalidToken |
-| `HttpVersion` | stable | HTTP/1.0, HTTP/1.1 |
+| `HttpVersion` | stable | Non-exhaustive HTTP/1.0, HTTP/1.1, HTTP/2, HTTP/3 metadata; only HTTP/1 wire support is enabled currently |
 | `HttpVersionError` | stable | Unsupported version |
+| `Authority` | stable | Validated effective authority, independent of protocol-specific header spelling |
+| `AuthorityError` | stable | Invalid or conflicting authority metadata |
 | `HeaderBlock` | stable | Duplicate-preserving ordered header collection; `push_bytes(..)` for opaque values |
 | `HeaderName` | stable | Validated header name (token) |
 | `HeaderValue` | stable | Octet-preserving validated field value (`from_bytes`/`from_static_bytes`/`as_bytes()`; fallible `to_str()`; `OWS` stripped; matches `http::HeaderValue` domain) |
@@ -221,8 +223,8 @@ documented separately in `docs/python-api.md`.
 | `HeaderField` | stable | `pub name: HeaderName`, `pub value: HeaderValue` |
 | `RequestTarget` | stable | Validated origin-form target (path + query; `raw_bytes()`/`path_bytes()`/`query_bytes()`; empty query canonicalizes to `None`) |
 | `RequestTargetError` | stable | 6-variant target validation error |
-| `RequestHead` | stable | Canonical request head: method, target, version, headers |
-| `RequestHeadError` | stable | Conversion error from Hyper |
+| `RequestHead` | stable | Canonical request head: method, target, version, headers, and optional validated authority |
+| `RequestHeadError` | stable | Conversion error from Hyper, including invalid or conflicting authority |
 | `ConnectionInfo` | stable | Transport metadata: optional local/remote addrs (`Option<SocketAddr>`), scheme, TLS. Use `socket_endpoints()` / `has_socket_endpoints()` for socket-aware access |
 | `Scheme` | stable | Http, Https |
 | `TlsInfo` | stable | Protocol version, server name |

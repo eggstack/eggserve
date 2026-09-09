@@ -27,7 +27,7 @@ cargo test -p eggserve-core
 
 | Target | What it exercises | Key invariants |
 |--------|------------------|----------------|
-| `request_target` | `ConfinedPath::parse`, `validate_request_target`, `RequestHead` construction | No `..`/`.` components, no NUL, starts with `/`, valid request target, valid method/target/version |
+| `request_target` | `RequestTarget::parse`, `ConfinedPath::from_path_component`, `validate_request_target`, `RequestHead` construction | No `..`/`.` components, no NUL, starts with `/`, valid request target, valid method/target/version |
 | `percent_decode` | `percent_decode` | No NUL in output, bounded decoded length, valid UTF-8 |
 | `path_components` | `split_components`/`validate_components` | No `..`/`.` accepted, no slash/backslash in component, starts with `/` |
 | `validate_method` | `Method::new`, `validate_method`/`validate_request_body` | Valid method names, GET/HEAD only for read-only, bodies rejected for read-only methods |

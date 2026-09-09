@@ -4,10 +4,10 @@
 //! Sole authority for total lifetime, keep-alive idle timeout, response write
 //! no-progress timeout, deferred-body timeout closure, server/caller
 //! shutdown, and final `ConnectionOutcome` classification. Deadline
-//! computation is not duplicated in transport-specific wrappers. The internal
-//! Hyper connection keeps `.with_upgrades()` as an implementation detail;
-//! no public upgrade vocabulary or escape hatch is exposed (Plan 176 stays
-//! deferred).
+//! computation is not duplicated in transport-specific wrappers. Hyper's
+//! ordinary HTTP/1 connection is used deliberately: no latent upgrade
+//! capability is enabled because the canonical service boundary has no
+//! upgrade handoff (Plan 176 stays deferred).
 
 use std::convert::Infallible;
 use std::sync::atomic::Ordering;
@@ -35,7 +35,7 @@ trait ShutdownConn {
     fn graceful_shutdown(self: std::pin::Pin<&mut Self>);
 }
 
-impl<I, S> ShutdownConn for hyper::server::conn::http1::UpgradeableConnection<I, S>
+impl<I, S> ShutdownConn for hyper::server::conn::http1::Connection<I, S>
 where
     I: hyper::rt::Read + hyper::rt::Write + Unpin,
     S: hyper::service::Service<
@@ -45,7 +45,7 @@ where
     >,
 {
     fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
-        hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown(self);
+        hyper::server::conn::http1::Connection::graceful_shutdown(self);
     }
 }
 
@@ -80,12 +80,17 @@ fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
 /// suppression for privacy profiles). Tests prove exactly zero or one `Date`
 /// according to policy.
 fn hyper_builder(config: &RuntimeConfig) -> http1::Builder {
+    let http1_config = config.http1_config();
     let mut builder = http1::Builder::new();
     builder
         .timer(TokioTimer::new())
         .header_read_timeout(config.header_read_timeout)
-        .max_buf_size(config.max_buf_size.max(crate::limits::MIN_MAX_BUF_SIZE))
-        .max_headers(config.max_headers)
+        .max_buf_size(
+            http1_config
+                .max_buf_size
+                .max(crate::limits::MIN_MAX_BUF_SIZE),
+        )
+        .max_headers(http1_config.max_headers)
         .auto_date_header(false);
     builder
 }
@@ -373,9 +378,7 @@ where
         > + 'static,
 {
     let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
-    let conn = hyper_builder(config)
-        .serve_connection(io, service)
-        .with_upgrades();
+    let conn = hyper_builder(config).serve_connection(io, service);
     let mut conn = std::pin::pin!(conn);
     let shutdown = async move {
         let _ = shutdown_rx.recv().await;
@@ -407,9 +410,7 @@ where
         > + 'static,
 {
     let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
-    let conn = hyper_builder(config)
-        .serve_connection(io, service)
-        .with_upgrades();
+    let conn = hyper_builder(config).serve_connection(io, service);
     let mut conn = std::pin::pin!(conn);
     let shutdown = async move {
         shutdown.cancelled().await;

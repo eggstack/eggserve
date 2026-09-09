@@ -128,8 +128,9 @@ Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed.
 and there is no `UpgradedIo` wrapper. A `101 Switching Protocols` handshake
 cannot be produced through the normal `Response` path: normalization strips
 hop-by-hop handshake headers (`upgrade`/`connection`) and 1xx statuses are
-body-forbidden. The `.with_upgrades()` call in the crate-private connection
-drivers is an internal Hyper detail with no public escape hatch; downstream
+body-forbidden. The crate-private drivers use Hyper's ordinary HTTP/1
+connection; upgrade machinery is intentionally not enabled and there is no
+public escape hatch; downstream
 code must not bypass the canonical boundary via `OnUpgrade`/`Upgraded`
 types. Upgraded-protocol servers (WebSocket-class) are therefore not
 currently buildable on EggServe; reopen Plan 176 only with a concrete
@@ -235,7 +236,9 @@ source is gone); explicit IDs via `serve_http1_connection_with_id` still win.
 The runtime asks the service for the body policy for the actual request. GET,
 HEAD, DELETE, OPTIONS, and extension methods are not globally body-forbidden;
 TRACE content remains rejected. An unconsumed streamed body marks the response
-`Connection: close`, drops the body, and prevents connection reuse.
+the protocol-neutral `close_and_cancel_body` disposition, which the HTTP/1
+adapter maps to `Connection: close`, drops the body, and prevents connection
+reuse.
 
 ## Shutdown Semantics
 
@@ -274,10 +277,15 @@ Three entry paths converge on the same canonical driver (`serve_http1_connection
 
 All paths then share the same steps:
 
-4. HTTP/1 connection setup via Hyper (explicit `max_buf_size`/`max_headers` parser policy)
+4. HTTP/1 connection setup via Hyper (explicit `Http1Config` projection of
+   the compatibility `max_buf_size`/`max_headers` parser policy)
 5. Request conversion to canonical types (EggServe `max_request_target_bytes` → 414, `max_header_bytes` → 431, pre-service)
 6. Body ingestion (policy selection, Content-Length preflight, transfer decoding; Stream creates a shared lifecycle + `RequestLifecycle` and registers for cancellation)
-7. Service admission (`max_in_flight_requests`; 503 on exhaustion) and invocation with timeout (`min(body_read_timeout, handler_timeout)` during the call for compatibility, disambiguated via lifecycle state; `handler_timeout` bounds response-start, remaining `body_read_timeout` continues after response-start via watchdog; streaming progress is bounded by `response_write_timeout`, lifetime by `connection_total_timeout`)
+7. Shared service admission (`max_in_flight_requests`; 503 on exhaustion) and
+   invocation with timeout (`min(body_read_timeout, handler_timeout)` during
+   Stream calls for compatibility, disambiguated via lifecycle state;
+   `handler_timeout` bounds response-start and the remaining
+   `body_read_timeout` continues after response-start via watchdog)
 8. Canonical response normalization (`normalize_then_convert`: idempotent
    `normalize_response` then Hyper conversion; runtime owns `Content-Length`,
    `Transfer-Encoding`, reuse) with `ErrorRepresentationPolicy` for conversion
@@ -289,7 +297,9 @@ All paths then share the same steps:
     construction, `Server` subordinate to policy, `Date` sole authority with
     Hyper auto-`Date` disabled, `Last-Modified <= Date` enforcement, no peer
     metadata copied, no log/error text reflected)
-11. Permit release and connection termination under the driver deadline loop (keep-alive idle, write no-progress, hard lifetime, shutdown)
+11. Protocol-neutral lifecycle disposition and HTTP/1 adapter mapping, then
+    permit release and connection termination under the driver deadline loop
+    (keep-alive idle, write no-progress, hard lifetime, shutdown)
 
 ### Connection module ownership (Plan 180)
 
@@ -303,18 +313,18 @@ External code imports only the facade (`ConnectionContext`,
 |--------|------|
 | `context.rs` | Public facade types: transport context, shutdown token, outcome |
 | `lifecycle.rs` | Live-request registry + abnormal-termination cancellation (contextual) |
-| `activity.rs` | Deadline state, in-flight admission guard, tracked response bodies; carries the connection's `OpsContext` |
+| `activity.rs` | Connection deadlines, request/response activity identities, in-flight admission guard, tracked response bodies; carries the connection's `OpsContext` |
 | `transport.rs` | `ProgressIo` read/write progress observation |
 | `driver.rs` | Hyper builder, graceful close, outcome classification, deadline/select loop (observability via activity's context) |
-| `pipeline.rs` | `CanonicalHyperService`, the single request/service dispatch (explicit `OpsContext` parameter) |
+| `pipeline.rs` | `CanonicalHyperService`, body preparation, and the single shared service-invocation kernel (explicit `OpsContext` parameter) |
 | `request.rs` | Target/header ceilings, framing checks, body-policy selection, body bridge (contextual rejections) |
-| `response.rs` | Normalization, panic containment, body-error mapping, final privacy; contextual streaming/file conversion |
+| `response.rs` | Normalization, panic containment, body-error mapping, neutral dispositions, final privacy, and the HTTP/1 disposition adapter; contextual streaming/file conversion |
 | `deferred_body.rs` | Deferred-body watchdog + terminal-state tracker (contextual) |
 
 Dependency direction is acyclic: `pipeline`/`driver` depend on the rest,
 `activity` depends on `response` (final privacy only), and nothing depends
 back on `pipeline`/`driver` except the facade. Hyper types stay out of public
-signatures; `.with_upgrades()` remains a crate-private driver detail.
+signatures; HTTP/1 upgrade machinery is not enabled.
 
 ### Transport-neutral connection driver (Plan 163)
 

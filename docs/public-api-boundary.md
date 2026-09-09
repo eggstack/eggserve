@@ -39,7 +39,7 @@ The `primitives` module re-exports the following types:
 
 ### Path validation
 
-- **`ConfinedPath`** — Parsed, validated HTTP request target. Only representable after passing through the full validation pipeline (origin-form parsing, percent decoding, path normalization, component validation). Methods: `parse()`, `as_str()`, `components()`.
+- **`ConfinedPath`** — Parsed, validated path component. `RequestTarget::parse()` is the sole HTTP target-form classifier; `ConfinedPath::from_path_component()` applies percent decoding, path normalization, component validation, and platform checks. `parse()` remains the raw-target compatibility adapter. Methods: `parse()`, `from_path_component()`, `as_str()`, `components()`.
 
 - **`PathPolicy`** — Configuration for path validation. Controls dotfile acceptance and backslash rejection during `ConfinedPath` parsing.
 

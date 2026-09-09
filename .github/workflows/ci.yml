@@ -34,6 +34,16 @@ jobs:
         run: python3 scripts/check-python-release-metadata.py
       - name: Format check
         run: cargo fmt --all -- --check
+      - name: MSRV check
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: 1.88
+      - name: MSRV cargo check
+        run: cargo +1.88 check --workspace --all-targets
+      - name: Restore stable toolchain
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
       - name: Clippy
         run: cargo clippy --workspace --lib --bins --tests -- -D warnings
       - name: Workspace tests

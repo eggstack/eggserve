@@ -263,7 +263,7 @@ The canonical request types provide transport-independent, Hyper-independent val
 | Type | Module | Description |
 |------|--------|-------------|
 | `Method` | `primitives::method` | Validated HTTP method (standard + extension). Case-sensitive. |
-| `HttpVersion` | `primitives::version` | HTTP/1.0 or HTTP/1.1. |
+| `HttpVersion` | `primitives::version` | Non-exhaustive HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3 metadata; current listeners remain HTTP/1-only. |
 | `HeaderBlock` | `primitives::header_block` | Ordered, duplicate-preserving header collection. |
 | `HeaderName` | `primitives::header_block` | Validated header name (RFC 9110 token). |
 | `HeaderValue` | `primitives::header_block` | Validated header value (no CR/LF/NUL). |

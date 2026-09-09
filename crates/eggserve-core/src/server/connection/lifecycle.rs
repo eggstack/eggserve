@@ -12,6 +12,74 @@ use std::sync::Arc;
 
 use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
 
+/// Protocol-neutral result of a request lifecycle decision.
+///
+/// The shared request/service policy records what must happen to ownership or
+/// transport state. A protocol adapter maps this value to wire behavior. The
+/// HTTP/1 adapter currently expresses `close_after_response` as
+/// `Connection: close`; HTTP/2/3 adapters can instead reset a stream or begin
+/// connection drain without changing service code.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub(crate) struct LifecycleDisposition {
+    close_after_response: bool,
+    cancel_request_body: bool,
+    graceful_drain: bool,
+    terminate_transport: bool,
+}
+
+impl LifecycleDisposition {
+    pub(crate) const KEEP_ALIVE: Self = Self {
+        close_after_response: false,
+        cancel_request_body: false,
+        graceful_drain: false,
+        terminate_transport: false,
+    };
+
+    pub(crate) const fn close_after_response() -> Self {
+        Self {
+            close_after_response: true,
+            ..Self::KEEP_ALIVE
+        }
+    }
+
+    pub(crate) const fn close_and_cancel_body() -> Self {
+        Self {
+            close_after_response: true,
+            cancel_request_body: true,
+            ..Self::KEEP_ALIVE
+        }
+    }
+
+    pub(crate) const fn with_graceful_drain(mut self) -> Self {
+        self.graceful_drain = true;
+        self
+    }
+
+    pub(crate) const fn with_transport_termination(mut self) -> Self {
+        self.terminate_transport = true;
+        self
+    }
+
+    pub(crate) const fn close_after_response_required(self) -> bool {
+        self.close_after_response
+    }
+
+    #[allow(dead_code)]
+    pub(crate) const fn request_body_cancellation_required(self) -> bool {
+        self.cancel_request_body
+    }
+
+    #[allow(dead_code)]
+    pub(crate) const fn graceful_drain_required(self) -> bool {
+        self.graceful_drain
+    }
+
+    #[allow(dead_code)]
+    pub(crate) const fn transport_termination_required(self) -> bool {
+        self.terminate_transport
+    }
+}
+
 /// Per-connection registry of live request lifecycles (Plan 174 Track D).
 ///
 /// Each canonical request registers a [`Weak`](std::sync::Weak) observer.
