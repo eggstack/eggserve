@@ -14,7 +14,7 @@ For public-facing production deployments, a mature TLS terminator (Caddy, nginx,
 
 ## Production profile
 
-Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited static-server deployment, not an edge platform. The default `tls` build is HTTP/1.1-only; an experimental `http2,tls` Rust build negotiates `h2` before `http/1.1`. Plan 186 closes native H2 as experimental: deterministic tests and Linux wire checks pass, while broad independent-client/platform evidence and a public safe per-stream reset hook remain open. Native TLS does not imply ACME, virtual hosting, or edge parity. The profile remains candidate until its applicable release gates pass.
+Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited static-server deployment, not an edge platform. The default `tls` build is HTTP/1.1-only; an experimental `http2,tls` Rust build negotiates `h2` before `http/1.1`. Plans 186 and 190 close native H2 as experimental: deterministic tests and Linux wire checks pass, while broad independent-client/platform evidence and a public safe per-stream reset hook remain open. Native TLS does not imply ACME, virtual hosting, or edge parity. The profile remains candidate until its applicable release gates pass.
 
 For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefik termination) is preferred. Production profiles are documented in README.md and `docs/deployment.md`.
 

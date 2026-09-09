@@ -112,7 +112,7 @@ eggserve defines production readiness through explicit profiles rather than one 
 This is the preferred public deployment profile. Reverse proxies handle
 certificate management, renewal, public edge HTTP/2 policy, and other edge
 features outside eggserve's scope. EggServe also has an opt-in native Rust H2
-path, but Plan 186 closes it as experimental and it does not change this
+path, but Plans 186 and 190 close it as experimental and it does not change this
 deployment recommendation. External qualification evidence (proxy interop,
 desync corpus, stateful fuzz, filesystem race, fault injection, 24h soak,
 installed artifacts, SBOM/provenance, independent review) is pending.
@@ -132,7 +132,7 @@ Promotion to `supported-hardened` requires all gates to pass.
 
 Native TLS is limited and does not imply ACME, virtual hosting, HTTP/3, or edge
 parity. The default `tls` build is H1-only; native Rust H2 is feature-gated
-and remains experimental after Plan 186 qualification.
+and remains experimental after Plans 186 and 190 qualification.
 
 ### windows-reverse-proxy
 
@@ -216,7 +216,7 @@ The origin communicates with the edge over HTTP/1.1 on loopback. The edge termin
 
 ### Unix direct-HTTPS profile
 
-eggserve terminates TLS directly. Certificate management is manual — the operator must provide certificate and key files and rotate them through a restart. There is no ACME, no SNI-based routing, and no OCSP stapling. The default server is HTTP/1.1; experimental `http2,tls` and `http3` Rust builds add bounded H2 and QUIC/H3 paths, respectively, but neither is a general edge-platform declaration. The H3 path uses a separate TLS 1.3 identity, disables application 0-RTT, and remains experimental after Plan 188 because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete. This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
+eggserve terminates TLS directly. Certificate management is manual — the operator must provide certificate and key files and rotate them through a restart. There is no ACME, no SNI-based routing, and no OCSP stapling. The default server is HTTP/1.1; experimental `http2,tls` and `http3` Rust builds add bounded H2 and QUIC/H3 paths, respectively, but neither is a general edge-platform declaration. The H3 path uses a separate TLS 1.3 identity, disables application 0-RTT, and remains experimental after Plans 188 and 190 because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete. This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
 
 ### Windows profiles
 

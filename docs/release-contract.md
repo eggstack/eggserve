@@ -37,14 +37,14 @@ free-threaded CPython are not supported.
 |---------|---------|---------|
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
-| `http2` | No | Experimental bounded native Rust HTTP/2 runtime; Plan 186 closes the feature at experimental tier; not enabled by the Python compatibility facade |
-| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plan 188 closes the feature at experimental tier because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete; not enabled by the Python compatibility facade |
+| `http2` | No | Experimental bounded native Rust HTTP/2 runtime; Plans 186 and 190 close deterministic qualification at the experimental tier because independent-client/platform and safe stream-reset/wire-progress evidence remain open; not enabled by the Python compatibility facade |
+| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plans 188 and 190 close deterministic qualification at the experimental tier because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete; not enabled by the Python compatibility facade |
 
 ## Runtime Service Boundary (Experimental)
 
 **Stability**: All `server` module types are **experimental**. The interface may change in any release.
 
-The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling by default. With the experimental `http2` feature, native Rust callers may also use bounded H2 prior knowledge and TLS ALPN through the same canonical service pipeline. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns. Plan 186 closes H2 as experimental; see the [qualification record](../release/plan-186-http2-qualification.md) for the evidence boundary.
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling by default. With the experimental `http2` feature, native Rust callers may also use bounded H2 prior knowledge and TLS ALPN through the same canonical service pipeline. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns. Plans 186 and 190 close H2 deterministic qualification as experimental; see the [corrective qualification record](../release/plan-190-multiprotocol-corrective-qualification.md) for the current evidence boundary.
 
 ### Exposed Types
 
@@ -468,7 +468,7 @@ Production profile status is maintained by the project maintainers and documente
 - Reverse-proxy origin (Caddy, nginx, Traefik) is the preferred public deployment.
 - Native TLS is limited and does not imply ACME, virtual hosting, public edge
   HTTP/2 policy, or edge parity; the opt-in native Rust H2 path remains
-  experimental after Plan 186.
+  experimental after Plans 186 and 190.
 - Windows hardening is an active roadmap item, not a permanent non-goal.
 - Public plaintext HTTP without TLS termination is an unsupported production configuration.
 

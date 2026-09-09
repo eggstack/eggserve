@@ -1,7 +1,7 @@
 # HTTP/3 and QUIC transport boundary
 
 EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
-an experimental transport adapter after Plan 188 closure, not a change to the
+an experimental transport adapter after Plans 188 and 190 closure, not a change to the
 Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
 dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
@@ -110,9 +110,13 @@ handshake failures/timeouts, max-request drain, body timeouts, and shared
 counters. Runtime-generated H3 errors use the same canonical status/reason/body
 constructor as H1/H2, including HEAD, `Allow`, empty privacy policy, and
 unassigned-status behavior. It does not log QUIC connection IDs, tokens, TLS
-secrets, packets, or raw request values. Plan 188 keeps H3 experimental because the available
-qualification host had no direct H3 client, second independent client,
-adversarial network environment, or non-Linux H3 runtime.
+secrets, packets, or raw request values. Plans 188 and 190 keep H3
+experimental because the available qualification host had no direct H3 client,
+second independent client, adversarial network environment, or non-Linux H3
+runtime. The in-process H3 qualification now directly covers DATA without
+`Content-Length`, zero-length declarations followed by DATA, bodyless
+dispatch, bounded presence-probe timeouts, sibling survival, and detached
+lifecycle wake-up after peer close.
 
 Deterministic local coverage lives in the `http3` feature tests:
 
@@ -131,7 +135,9 @@ Alt-Svc and TCP fallback, and runs direct H3 semantic checks when curl has
 HTTP/3 support. Set `EGGSERVE_REQUIRE_H3_CLIENTS=1` or
 `EGGSERVE_REQUIRE_TWO_H3_CLIENTS=1` when a release environment must fail on
 missing independent-client evidence. The complete decision and evidence
-boundary are in [`release/plan-188-http3-qualification.md`](../release/plan-188-http3-qualification.md).
+boundary is in [`release/plan-188-http3-qualification.md`](../release/plan-188-http3-qualification.md);
+the post-Plan-189 corrective evidence is in
+[`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md).
 
 ## Standards boundary
 

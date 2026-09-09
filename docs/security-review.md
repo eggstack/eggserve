@@ -104,9 +104,9 @@ When directory listing is enabled:
 4. **Single-range only** — multi-range MIME responses are not supported; single-range requests function correctly
 5. **HTTP/2 scope** — the default build and Python facade remain HTTP/1.1-only;
    the opt-in Rust `http2` feature adds bounded H2 transport with separate
-   stream and application-admission limits. Plan 186 closes it as experimental;
-   broad independent-client/platform evidence and a public safe per-stream
-   reset hook remain open.
+   stream and application-admission limits. Plans 186 and 190 close it as
+   experimental; broad independent-client/platform evidence and a public safe
+   per-stream reset/wire-progress hook remain open.
 6. **No native TLS by default** — requires `tls` feature flag
 7. **Declared request-body policy** — static bodies are rejected; custom services may buffer or stream within configured limits
 8. **No authentication** — access control is network-level only (loopback bind)

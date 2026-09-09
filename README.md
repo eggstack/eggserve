@@ -155,8 +155,9 @@ the opt-in `http2` feature add cleartext prior-knowledge HTTP/2 and, when
 combined with `tls`, ALPN selection (`h2` before `http/1.1`) through the same
 canonical service pipeline. H2 resource limits are owned by `Http2Config` and
 remain separate from server-wide service admission. The feature remains
-experimental after Plan 186 closure: deterministic tests and Linux wire
-qualification pass, but broad independent-client/platform evidence and a
+experimental after Plans 186 and 190: deterministic tests, targeted H2
+body-policy regressions, and Linux wire qualification pass, but broad
+independent-client/platform evidence and a
 public safe per-stream reset hook are still release gaps. See the
 [HTTP/2 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http2.md)
 and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md).
@@ -168,11 +169,13 @@ beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
 `--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
 advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
-HTTP/3 remains Rust-only and experimental after Plan 188 closure: deterministic
-bounded implementation checks pass, but independent-client, adversarial-wire,
-and cross-platform runtime evidence is incomplete. See the
+HTTP/3 remains Rust-only and experimental after Plans 188 and 190 closure:
+deterministic bounded implementation checks and in-process corrective
+regressions pass, but independent-client, adversarial-wire, and cross-platform
+runtime evidence is incomplete. See the
 [HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
-and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md).
+and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md) plus the
+[Plan 190 corrective record](https://github.com/eggstack/eggserve/blob/main/release/plan-190-multiprotocol-corrective-qualification.md).
 Reject-body handling is protocol-aware: H2 uses Hyper's end-stream state and
 H3 performs one bounded receive probe when headers do not establish an empty
 request. H3 request lifecycles are registered for peer-loss, timeout, stream,

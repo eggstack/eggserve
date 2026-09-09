@@ -112,7 +112,7 @@ done
 
 if ((${#H3_CLIENTS[@]} == 0)); then
     echo "No direct HTTP/3 client is installed; H3 wire checks are unavailable."
-    if [[ "$REQUIRE_H3" == 1 ]]; then
+    if [[ "$REQUIRE_H3" == 1 || "$REQUIRE_TWO" == 1 ]]; then
         exit 2
     fi
 else
@@ -156,7 +156,10 @@ wait_for_http1 "$FALLBACK_URL"
     -o /dev/null -w '%{http_code}' "$FALLBACK_URL")" == 200 ]]
 echo "H1 fallback without an H3 endpoint passed"
 
-if [[ "$REQUIRE_H3" == 1 && ${#H3_CLIENTS[@]} -eq 0 ]]; then
+if [[ "$REQUIRE_TWO" == 1 ]] && (( ${#H3_CLIENTS[@]} < 2 )); then
+    exit 2
+fi
+if [[ "$REQUIRE_H3" == 1 ]] && (( ${#H3_CLIENTS[@]} == 0 )); then
     exit 2
 fi
 echo "HTTP/3 qualification baseline completed; consult the release record for the support-tier decision."

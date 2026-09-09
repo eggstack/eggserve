@@ -63,8 +63,9 @@ framing.
 
 ## Release qualification status
 
-Plan 186 closes with H2 classified as **experimental**. The deterministic
-feature suite, local TLS ALPN/static/range/conditional/multiplexed checks, and
+Plans 186 and 190 close with H2 classified as **experimental**. The
+deterministic feature suite, targeted DATA-without-`Content-Length` Reject
+regression, local TLS ALPN/static/range/conditional/multiplexed checks, and
 cleartext prior-knowledge checks pass on Linux x86_64. The manual script is:
 
 ```sh
@@ -77,9 +78,11 @@ responses, parallel streams, forbidden response framing, cleartext prior
 knowledge, and the absence of Upgrade-based h2c. Broad browser, second-client,
 and macOS/Windows native-H2 runtime evidence remains release qualification
 work; the response-stall fallback is also a deliberate hardening limitation.
-Those gaps prevent a general “supported” declaration. See
+Those gaps prevent a general “supported” declaration. See the original
 [`release/plan-186-http2-qualification.md`](../release/plan-186-http2-qualification.md)
-for the captured local evidence and the exact decision.
+and the corrective
+[`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md)
+for the captured evidence and exact decisions.
 
 ## Non-goals
 

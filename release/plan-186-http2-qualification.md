@@ -19,6 +19,11 @@ stream-scoped behavior required for a supported tier.
 
 This record does not claim HTTP/3 support.
 
+Plan 190 re-ran the H2 correction cases and preserves this experimental
+decision. See [`plan-190-multiprotocol-corrective-qualification.md`](plan-190-multiprotocol-corrective-qualification.md)
+for the DATA-without-`Content-Length` regression and current evidence
+inventory.
+
 ## Deterministic repository evidence
 
 The following passed locally:

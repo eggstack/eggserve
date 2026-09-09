@@ -131,8 +131,8 @@ application-task admission is downstream-owned.
 
 - **Clock starts**: A response is handed to Hyper for transmission (all responses, including errors and rejections, arm the budget).
 - **Progress resets**: Yes — every forward socket write (`AsyncWrite::poll_write` / `poll_write_vectored` with `n > 0`) moves the deadline. Steady progress, however slow, never triggers it: this is a no-progress timer, not a total duration.
-- **Progress definition**: Socket bytes written, observed by the `ProgressIo` transport wrapper at the transport boundary (transparent to Hyper framing; identical for TCP, TLS, and caller-owned transports).
-- **Enforcement**: The connection driver closes the connection when a response body is outstanding and no socket progress was made for the interval. Distinguishing "stalled response" from "idle keep-alive" is exact: every response body is wrapped so its end-of-stream, failure, or drop (disconnect/shutdown/cancellation) releases the outstanding slot. Idle connections (nothing outstanding) never trip this timer.
+- **Progress definition**: H1 observes forward socket bytes through `ProgressIo`; H2 observes application-body producer/poll progress per response; H3 observes its bounded send calls. H2 producer progress is not a guarantee that Hyper has advanced stream flow control or put bytes on the wire.
+- **Enforcement**: The connection driver closes the H1 connection when a response body is outstanding and no socket progress was made for the interval. H2 uses the conservative bounded connection-shutdown fallback when the tracked producer stalls; H3 applies the timeout to the affected send/stream path. Every response body releases its outstanding slot on end, failure, or drop. Idle connections (nothing outstanding) never trip this timer.
 - **Terminal behavior**: Graceful shutdown of the Hyper connection (`WriteStallTimeout` event, `write_stall_timeouts` counter, `WriteTimeout` outcome), producer/file work cancelled via body drop. No secondary response is attempted after partial commitment; nothing is buffered to avoid the timeout.
 - **Cleanup**: Connection dropped; file-stream, service, and connection permits released.
 
@@ -146,10 +146,12 @@ Not a timeout, but the third per-connection lifecycle bound alongside the idle a
 
 ## Known limitations
 
-None open from the original production-lifecycle set. The former
-progress-aware write-enforcement limitation is closed: `response_write_timeout`
-is implemented via the `ProgressIo` transport wrapper plus response-body
-completion tracking, as the Plan 164 design spike prescribed. The remaining
+None open from the original production-lifecycle set. H1 progress-aware write
+enforcement is implemented via the `ProgressIo` transport wrapper plus
+response-body completion tracking. H2 deliberately retains the Plan 190
+limitation that public Hyper 1.11.1 does not expose a safe stream-local
+wire-progress/reset hook; its timeout observes producer/poll progress and
+falls back to bounded connection shutdown. The remaining
 intentional non-goals (no per-IP/client rate limiting, no request routing or
 middleware, no custom parser solely for a finer request-line knob) are
 unchanged: Hyper still exposes no aggregate header-byte, request-target, or

@@ -48,14 +48,15 @@ eggserve --directory public
 
 This is the recommended pattern for production deployments. Reverse proxies
 handle certificate management, renewal, public HTTP/2 policy, and other edge
-features. EggServe's native Rust `http2` feature is experimental after Plan
-186 closure; the Python compatibility facade is H1-only. See the [H2
-qualification record](../release/plan-186-http2-qualification.md) for the
-evidence boundary. The native Rust `http3` feature is also experimental after
-Plan 188 closure and requires a separate TLS 1.3 QUIC identity; it binds
+features. EggServe's native Rust `http2` feature is experimental after Plans
+186 and 190 closure; the Python compatibility facade is H1-only. See the [H2
+corrective qualification record](../release/plan-190-multiprotocol-corrective-qualification.md)
+for the evidence boundary. The native Rust `http3` feature is also
+experimental after Plans 188 and 190 closure and requires a separate TLS 1.3
+QUIC identity; it binds
 same-port UDP beside TCP. Independent-client, adversarial-wire, and
 cross-platform H3 evidence remains a release qualification gap; see the
-[Plan 188 record](../release/plan-188-http3-qualification.md).
+[Plan 190 record](../release/plan-190-multiprotocol-corrective-qualification.md).
 
 ### Connection metadata behind a reverse proxy
 

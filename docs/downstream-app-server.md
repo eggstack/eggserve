@@ -2,9 +2,11 @@
 
 EggServe is not an application server. It is a hardened HTTP/static-serving
 runtime with a public canonical service/connection substrate suitable for
-downstream application-server implementations. This document explains how to
-build the HTTP half of a real event-driven application server on that
-substrate without importing Hyper internals, the Python compatibility facade,
+downstream application-server implementations. Plan 190 does not expand this
+HTTP-only consumer boundary or add Python/H2/H3 adapter semantics; native H2/H3
+remain transport qualification concerns for Rust consumers. This document
+explains how to build the HTTP half of a real event-driven application server on
+that substrate without importing Hyper internals, the Python compatibility facade,
 or crate-private modules.
 
 The reference qualification is

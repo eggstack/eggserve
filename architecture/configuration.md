@@ -19,7 +19,7 @@ The internal `RuntimeConfig::http1_config()` projection owns the HTTP/1 parser
 view of the compatibility `max_buf_size` and `max_headers` fields without
 duplicating defaults or validation. With the `http2` feature,
 `RuntimeConfig::http2` owns the bounded H2 transport controls and the driver
-projects them directly into Hyper's HTTP/2 builder. Plan 186 keeps this path
+projects them directly into Hyper's HTTP/2 builder. Plans 186 and 190 keep this path
 experimental; the response-stall fallback is connection-scoped because the
 public Hyper server API has no safe stream-reset hook at EggServe's response
 body boundary. Future protocol-specific controls belong to their own

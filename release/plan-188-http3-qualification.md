@@ -18,6 +18,11 @@ H1 remains the minimal/default protocol. H2 remains experimental under
 [Plan 186](plan-186-http2-qualification.md). The Python compatibility facade
 and wheel remain HTTP/1.1-shaped and do not expose H3.
 
+Plan 190 re-ran the corrected H3 body-presence and lifecycle cases and
+preserves this experimental decision. See
+[`plan-190-multiprotocol-corrective-qualification.md`](plan-190-multiprotocol-corrective-qualification.md)
+for the in-process regression evidence and current independent-client gap.
+
 ## Standards and ownership checklist
 
 The standards baseline checked for this closure is:

@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — qualification and documentation closure after Plan 189.**
+**CLOSED — deterministic corrective qualification completed; H2/H3 remain experimental.**
 
 Prerequisite: Plan 189 implementation is complete and all deterministic H1/H2/H3 regression tests are green on the candidate commit.
 
@@ -477,33 +477,33 @@ Also run direct focused tests for the exact Plan 189 regressions rather than rel
 
 ## Acceptance criteria
 
-- [ ] candidate commit and dependency/client/platform inventory are recorded.
-- [ ] H2 DATA without Content-Length under Reject is deterministically rejected with zero service invocation.
-- [ ] bodyless H2 request without Content-Length still invokes the service.
-- [ ] H2 rejection is stream-scoped and sibling traffic survives.
-- [ ] H3 DATA without Content-Length under Reject is deterministically rejected with zero service invocation.
-- [ ] bodyless H3 request without Content-Length still invokes the service.
-- [ ] H3 body-presence timeout/error path is bounded and releases resources.
-- [ ] declared-length mismatch behavior is tested/owned for H2 and H3.
-- [ ] H1/H2/H3 runtime-generated error semantics match for the representative status matrix.
-- [ ] no H3-local misleading fallback body remains for statuses such as 408.
-- [ ] H3 peer disconnect wakes detached lifecycle waiters.
-- [ ] H3 forced server shutdown wakes remaining lifecycle waiters with the documented reason.
-- [ ] H3 stream-local failure/body timeout cancels only the affected request lifecycle.
-- [ ] normal H3 completion does not spuriously cancel lifecycle.
-- [ ] permit/counter accounting is exactly once under the correction paths and cancellation races.
-- [ ] H2 response-progress documentation and tests match the actual safe public Hyper guarantee.
-- [ ] if true H2 wire progress/reset remains unavailable, that limitation is explicit and H2 remains experimental.
-- [ ] existing H2 ALPN/prior-knowledge/H1 fallback/static/multiplexing qualification still passes where clients are available.
-- [ ] H3 external-client scripts remain evidence-sensitive and are not weakened when clients are unavailable.
-- [ ] minimal dependency graph remains free of H3/QUIC dependencies.
-- [ ] Python compatibility and wheel behavior remain H1.1-shaped.
-- [ ] Plan 183 and roadmap status text no longer contradict the implemented protocol gate.
-- [ ] Plans 189–190 are represented as corrective follow-up, not expanded scope.
-- [ ] migration/release docs prevent the breaking stable API line from being represented as a `0.1.x` patch release.
-- [ ] a Plan 190 closure record captures exact evidence and remaining gaps.
-- [ ] final support tiers are evidence-based and do not promote H2/H3 merely because Plan 189 bugs are fixed.
-- [ ] no new edge-server/framework/protocol-extension feature entered scope.
+- [x] candidate commit and dependency/client/platform inventory are recorded.
+- [x] H2 DATA without Content-Length under Reject is deterministically rejected with zero service invocation.
+- [x] bodyless H2 request without Content-Length still invokes the service.
+- [x] H2 rejection is stream-scoped and sibling traffic survives.
+- [x] H3 DATA without Content-Length under Reject is deterministically rejected with zero service invocation.
+- [x] bodyless H3 request without Content-Length still invokes the service.
+- [x] H3 body-presence timeout/error path is bounded and releases resources.
+- [x] declared-length mismatch behavior is tested/owned for H2 and H3.
+- [x] H1/H2/H3 runtime-generated error semantics match for the representative status matrix.
+- [x] no H3-local misleading fallback body remains for statuses such as 408.
+- [x] H3 peer disconnect wakes detached lifecycle waiters.
+- [x] H3 forced server shutdown wakes remaining lifecycle waiters with the documented reason.
+- [x] H3 stream-local failure/body timeout cancels only the affected request lifecycle.
+- [x] normal H3 completion does not spuriously cancel lifecycle.
+- [x] permit/counter accounting is exactly once under the correction paths and cancellation races.
+- [x] H2 response-progress documentation and tests match the actual safe public Hyper guarantee.
+- [x] if true H2 wire progress/reset remains unavailable, that limitation is explicit and H2 remains experimental.
+- [x] existing H2 ALPN/prior-knowledge/H1 fallback/static/multiplexing qualification still passes where clients are available.
+- [x] H3 external-client scripts remain evidence-sensitive and are not weakened when clients are unavailable.
+- [x] minimal dependency graph remains free of H3/QUIC dependencies.
+- [x] Python compatibility and wheel behavior remain H1.1-shaped.
+- [x] Plan 183 and roadmap status text no longer contradict the implemented protocol gate.
+- [x] Plans 189–190 are represented as corrective follow-up, not expanded scope.
+- [x] migration/release docs prevent the breaking stable API line from being represented as a `0.1.x` patch release.
+- [x] a Plan 190 closure record captures exact evidence and remaining gaps.
+- [x] final support tiers are evidence-based and do not promote H2/H3 merely because Plan 189 bugs are fixed.
+- [x] no new edge-server/framework/protocol-extension feature entered scope.
 
 ## Suggested execution order
 
@@ -529,3 +529,32 @@ Plans 189–190 are complete when the known post-Plan-188 deterministic correctn
 If independent-client, adversarial-network, or platform evidence remains absent, leave H2/H3 experimental and record the gap. Do not create more protocol implementation work merely to manufacture a supported label.
 
 Any future promotion of H2 or H3 should be a narrow evidence/qualification plan against the then-current protocol stack, not another broad architectural expansion.
+
+## Execution record
+
+Plan 190 was executed against candidate `279392c` and completed on 2026-09-09.
+The in-process H2 and H3 regressions pass, including DATA without
+`Content-Length`, bodyless requests, H3 `Content-Length: 0` plus DATA, bounded
+H3 presence-probe timeout, H2 sibling isolation, H3 sibling isolation, and a
+detached H3 lifecycle waiter waking after peer close. The canonical response
+unit matrix covers 400, 405, 408, 413, 414, 431, 500, 503, an unassigned
+status, `HEAD`, and `Empty` policy; H3 timeout responses are checked against
+that same constructor.
+
+The available independent client was curl 8.5.0 with HTTP/2/libnghttp2
+support. `nghttp`, direct HTTP/3 clients, browser clients, non-Linux runtime
+qualification, and adversarial QUIC networking were unavailable. The H2
+qualification script passed with curl; the non-required H3 script passed its
+feature-graph, startup, Alt-Svc, and fallback checks and reported no direct H3
+client. The evidence-required H3 invocations correctly exited 2.
+
+The final support tiers are unchanged: HTTP/1.1 is the supported baseline;
+native H2 and H3 are opt-in experimental Rust paths; the Python facade and
+wheels remain HTTP/1.1-shaped. Hyper 1.11.1 exposes no safe public H2
+stream-local wire-progress/reset hook, so EggServe observes per-response
+application-body producer/poll progress and uses bounded connection shutdown
+as the conservative fallback. The current development metadata remains
+`0.1.2`; the stable API transition must ship as `0.2.0` or later.
+
+See [`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md)
+for the command inventory, evidence table, and remaining release gaps.
