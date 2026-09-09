@@ -28,6 +28,11 @@ general Rust embedding API; Rust applications should use `eggserve-core`.
 `run()` is the executable wrapper that calls `run_cli` and exits with the
 returned code.
 
+When built with `http3`, `--http3` requires the manual TLS certificate/key
+identity, enables the core QUIC endpoint beside TCP, and enables the
+runtime-owned same-port `Alt-Svc` advertisement. The Python compatibility
+facade does not expose this flag as a protocol feature.
+
 The binary crate calls `run()` from `main.rs`. The Python package calls
 `run_cli()` via the native `_run_cli` PyO3 binding, and `ServerProcess`
 launches `python -m eggserve` as a subprocess.

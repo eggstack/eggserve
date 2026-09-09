@@ -40,7 +40,7 @@ Configures and constructs a `Server` via a fluent builder API:
   `start_with_service()` custom-service startup
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
 - `ops_context(ops)` — attach an explicit per-runtime `OpsContext` (sink, counters, correlation IDs); unset clones the process-global default so CLI/compatibility construction needs no new configuration (experimental)
-- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, using strict HTTP/1 by default or the feature-gated H1/H2 selector when `http2` is enabled. Caller-owned streams use the corresponding connection entry points
+- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, using strict HTTP/1 by default or the feature-gated H1/H2 selector when `http2` is enabled. With `http3`, it also binds a same-port UDP/QUIC endpoint after resolving the TCP address; `http3_identity` supplies its separate TLS 1.3/`h3` identity. Caller-owned streams use the corresponding connection entry points
 - `build()` — validate configuration and construct the built-in `StaticService`
   once when `serve_config()` was supplied; invalid static roots fail here
 - `static_service(root)` — convenience: create a `StaticService` rooted at the given path

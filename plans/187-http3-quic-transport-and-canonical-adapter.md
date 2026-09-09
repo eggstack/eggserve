@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — native HTTP/3 implementation after the HTTP/2 phase; feature-gated QUIC/H3 dependencies.**
+**IMPLEMENTED — experimental native HTTP/3/QUIC transport behind the `http3` feature. Plan 188 remains the independent interoperability and qualification handoff.**
 
 Prerequisites: Plans 183–186 complete, with the protocol-neutral request/lifecycle/configuration model stable enough to reuse. HTTP/3 must not fork static planning, service admission, request-target parsing, or application error semantics.
 
@@ -479,4 +479,23 @@ Plan 188 owns independent-client interoperability, adversarial QUIC qualificatio
 
 ## Handoff
 
-Plan 187 is complete when H3 is functionally implemented behind an optional feature with deterministic resource/lifecycle tests. It must still be described as experimental until Plan 188 demonstrates independent-client interoperability, adversarial QUIC robustness, platform behavior, and acceptable footprint.
+Plan 187 is complete: H3 is implemented behind an optional feature with
+deterministic resource, canonical-adapter, listener-lifecycle, response
+policy, and shutdown coverage. It remains experimental until Plan 188
+demonstrates independent-client interoperability, adversarial QUIC
+robustness, platform behavior, and acceptable footprint.
+
+## Implementation record
+
+- Selected the maintained Hyperium `h3` + `h3-quinn` + Quinn stack, pinned as
+  optional dependencies and isolated from default/H1/H2 graphs.
+- Added `Http3Config`, separate TLS 1.3/`h3` QUIC configuration with 0-RTT
+  disabled, shared TCP/QUIC connection admission, pending-handshake limits,
+  and same-port TCP/UDP startup for port `0` and pre-bound TCP listeners.
+- Added canonical H3 metadata/body/service/response adapters with strict
+  connection-header and content-length validation, bounded writes, known
+  stream-length checking, per-stream reset on post-commit failures, GOAWAY
+  drain, runtime-owned `Alt-Svc`, and shared response privacy finalization.
+- Added `--http3` to the native CLI; Python remains HTTP/1.1-shaped.
+- Added deterministic HTTP/3 adapter/startup tests and documented Plan 188's
+  required independent-client, adversarial, platform, and support-tier gates.

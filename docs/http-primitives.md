@@ -9,14 +9,18 @@ content remains transport-rejected.
 eggserve exposes a documented, reusable HTTP primitive contract for downstream
 projects. The default listener/runtime and Python facade are HTTP/1.1-only;
 Rust builds with the opt-in `http2` feature also provide bounded H2 through the
-experimental server boundary. Canonical metadata represents HTTP/2 and HTTP/3
-without silently enabling HTTP/3.
+experimental server boundary. The separate opt-in `http3` feature provides an
+experimental native QUIC/H3 server adapter; canonical metadata alone never
+silently enables either wire protocol.
 
 Plan 186 closes the native H2 path as experimental. The deterministic suite
 and Linux wire qualification pass; broad independent-client/platform evidence
 and a public safe per-stream reset hook are not yet release-complete. See
 [`architecture/http2.md`](../architecture/http2.md) and the
 [`qualification record`](../release/plan-186-http2-qualification.md).
+The H3 transport boundary is documented in
+[`architecture/http3.md`](../architecture/http3.md); independent H3
+qualification belongs to Plan 188.
 
 ## Supported protocol subset
 

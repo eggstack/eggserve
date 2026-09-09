@@ -7,6 +7,7 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 | Feature | Crate | Purpose |
 |---------|-------|---------|
 | `http2` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/2 server path, bounded H2 prior knowledge and protocol config; see [HTTP/2 qualification](http2.md) |
+| `http3` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/3/QUIC server path; enables `tls`, h3 ALPN, and same-port UDP lifecycle; see [HTTP/3 boundary](http3.md) |
 | `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
 
 ## Dependencies
@@ -20,6 +21,12 @@ When `tls` is enabled in `eggserve-core`:
 `eggserve-bin` enables `eggserve-core/tls` and re-exports the module
 (`bin/src/tls.rs` is `pub use eggserve_core::tls::*`). All loading
 logic lives in `eggserve-core::tls`.
+
+The `http3` feature builds a separate Quinn rustls configuration from the
+PEM identity supplied through `ServerBuilder::http3_identity`. It restricts
+QUIC TLS to TLS 1.3, advertises only `h3`, and sets early data to zero. The
+TCP rustls `ServerConfig` is never reused for QUIC because its ALPN and
+protocol configuration are transport-specific.
 
 ## Server TLS
 
@@ -146,13 +153,18 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 1. **Experimental H2 scope** — Plan 186 closes H2 as experimental. The
    deterministic suite and Linux wire checks pass, while broad independent-
    client/platform evidence and a public safe per-stream reset hook remain
-   open; HTTP/3 and HTTP/1 upgrades remain unavailable. See
+   open; HTTP/1 upgrades remain unavailable, and HTTP/3 is separately
+   feature-gated and experimental. See
    [the qualification record](../release/plan-186-http2-qualification.md).
-2. **No OCSP stapling** — Not implemented
-3. **No certificate management** — No ACME, no automatic renewal
-4. **No custom trust stores** — Uses Mozilla's root bundle only
+2. **Experimental HTTP/3 scope** — The `http3` feature creates a separate
+   TLS 1.3/`h3` QUIC configuration and disables application 0-RTT. It remains
+   experimental pending Plan 188 interoperability and adversarial evidence.
+3. **No OCSP stapling** — Not implemented
+4. **No certificate management** — No ACME, no automatic renewal
+5. **No custom trust stores** — Uses Mozilla's root bundle only
 5. **No TLS session tickets** — Not configured by default
-6. **No TLS 1.3 only mode** — Uses rustls defaults (TLS 1.2 + 1.3)
+6. **TCP TLS protocol mode** — Direct TCP TLS uses rustls defaults (TLS 1.2 +
+   1.3); the separate QUIC/H3 configuration is TLS 1.3-only.
 
 ## Platform Support
 

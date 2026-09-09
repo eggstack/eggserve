@@ -25,6 +25,12 @@ public Hyper server API has no safe stream-reset hook at EggServe's response
 body boundary. Future protocol-specific controls belong to their own
 projections.
 
+With the `http3` feature, `RuntimeConfig::http3` owns the optional QUIC/H3
+transport envelope. `ServerBuilder::http3_identity` supplies PEM paths for a
+separate TLS 1.3/`h3` configuration; callers do not provide Quinn or rustls
+transport objects. H3 remains disabled by default and requires the native TCP
+listener alongside its same-port UDP endpoint.
+
 ## Ownership split
 
 **Runtime/transport** (canonical kernel in `runtime_limits.rs`):
@@ -112,6 +118,17 @@ frame, 256 KiB stream receive window, 1 MiB connection receive window, and a
 256 KiB send buffer. Reset-flood ceilings and optional keepalive settings are
 also validated by the config owner. The native Rust runtime uses cleartext
 prior knowledge and TLS ALPN; the Python compatibility facade remains H1-only.
+
+### HTTP/3 and QUIC transport limits (`http3` feature)
+
+`Http3Config` is experimental and disabled by default. It pins 100 incoming
+bidirectional streams, 16 unidirectional streams, 256 KiB per-stream and
+4 MiB per-connection receive windows, a 4 MiB send window, 60 seconds idle
+timeout, 64 pending handshakes, 32 KiB decoded field sections, and a 256 KiB
+outgoing H3 send bound. `stateless_retry` and `advertise_alt_svc` default to
+false. The runtime applies the shared header/target/body/admission/file and
+timeout limits in addition to these protocol-owned values. See
+[`http3.md`](http3.md) for listener, lifecycle, and qualification ownership.
 
 ### Timeouts
 

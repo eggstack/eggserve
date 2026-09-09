@@ -113,6 +113,16 @@ impl ServiceError {
         matches!(self.kind, ServiceErrorKind::Timeout)
     }
 
+    /// Return the sanitized final status used by protocol adapters.
+    #[cfg(feature = "http3")]
+    pub(crate) fn status_code(&self) -> u16 {
+        match self.kind {
+            ServiceErrorKind::Internal | ServiceErrorKind::Panic => 500,
+            ServiceErrorKind::Rejected(status) => status,
+            ServiceErrorKind::Timeout => 504,
+        }
+    }
+
     /// Convert this error into an HTTP response.
     ///
     /// Internal and panic errors map to 500. Timeout errors map to 504.

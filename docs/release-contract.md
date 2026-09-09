@@ -36,6 +36,7 @@ free-threaded CPython are not supported.
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
 | `http2` | No | Experimental bounded native Rust HTTP/2 runtime; Plan 186 closes the feature at experimental tier; not enabled by the Python compatibility facade |
+| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plan 187 implements the feature and Plan 188 owns interoperability/qualification; not enabled by the Python compatibility facade |
 
 ## Runtime Service Boundary (Experimental)
 
@@ -149,7 +150,8 @@ Key properties:
 
 - **Default/Python wire contract** — HTTP/1.1 only. The separate experimental
   Rust `http2` feature adds bounded native H2 but is not enabled by default and
-  is not a release-support declaration; HTTP/3 remains unavailable.
+  is not a release-support declaration; HTTP/3 is likewise experimental and
+  not enabled by the Python compatibility facade.
 - **Read-only methods**: GET and HEAD. All other methods return 405.
 - **Request target**: origin-form only (`/path?query`). Authority-form and absolute-form are rejected.
 - **Static request bodies**: the built-in static service rejects body-bearing
@@ -266,7 +268,7 @@ The canonical request types provide transport-independent, Hyper-independent val
 | Type | Module | Description |
 |------|--------|-------------|
 | `Method` | `primitives::method` | Validated HTTP method (standard + extension). Case-sensitive. |
-| `HttpVersion` | `primitives::version` | Non-exhaustive HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3 metadata; default/Python listeners are H1-only, while the experimental Rust `http2` feature enables H2. |
+| `HttpVersion` | `primitives::version` | Non-exhaustive HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3 metadata; default/Python listeners are H1-only, while experimental Rust `http2` and `http3` features enable bounded H2 and H3 respectively. |
 | `HeaderBlock` | `primitives::header_block` | Ordered, duplicate-preserving header collection. |
 | `HeaderName` | `primitives::header_block` | Validated header name (RFC 9110 token). |
 | `HeaderValue` | `primitives::header_block` | Validated header value (no CR/LF/NUL). |

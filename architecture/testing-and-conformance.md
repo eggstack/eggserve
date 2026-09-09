@@ -42,6 +42,7 @@ shutdown; the process harness uses only Python's standard library.
 | `http_wire_correctness.rs` | — | Raw TCP wire tests: GET/HEAD/POST/404/403/400/413/206/416/304 |
 | `http_primitives_integration.rs` | — | 15 live TCP tests through hyper client/server stack |
 | `http2_runtime.rs` | `http2` (+`tls` for ALPN parity) | Plan 185/186: cleartext prior-knowledge multiplexing, canonical H2 metadata, stream-scoped body rejection, strict H1 regression, TLS H2 ALPN and H1 fallback |
+| `http3_runtime.rs` | `http3` (+`tls`) | Plan 187: same-port TCP/UDP startup, port-zero resolution, identity requirement, and shared shutdown |
 | `canonical_conformance.rs` | — | Canonical HTTP type conformance: Method, non-exhaustive HttpVersion metadata, Authority, HeaderBlock, StatusCode, Response normalization |
 | `canonical_wire_interop.rs` | — | Wire-level canonical type interop |
 | `corpus_replay.rs` | — | Replays fuzz seed corpora to catch regressions |
@@ -246,6 +247,10 @@ cargo clippy -p eggserve-core --features http2,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http2,tls
 cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http2,tls
+cargo clippy -p eggserve-core --features http3,tls --lib --tests -- -D warnings
+cargo test -p eggserve-core --features http3,tls
+cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
+cargo test -p eggserve-bin --features http3,tls
 ```
 
 Broader wire qualification is deliberately manual so routine CI stays
@@ -257,6 +262,12 @@ when available and reports it as unavailable otherwise. The current evidence
 and experimental release decision are recorded in
 `release/plan-186-http2-qualification.md`; browser and native macOS/Windows
 H2 runtime qualification remain outside routine CI.
+
+The H3 feature suite additionally covers same-port TCP/UDP startup, port-zero
+resolution, identity-required startup failure, canonical request metadata,
+strict content length, and shared shutdown. Independent-client wire
+interoperability, QUIC abuse/resource measurement, and platform evidence are
+owned by Plan 188 rather than routine CI.
 
 ## See Also
 

@@ -53,6 +53,8 @@ pub mod config;
 pub mod connection;
 pub mod errors;
 pub mod handle;
+#[cfg(feature = "http3")]
+mod http3;
 pub mod lifecycle;
 pub mod response_policy;
 pub mod service;
@@ -61,6 +63,8 @@ pub mod static_service;
 pub use crate::primitives::request::Request;
 #[cfg(feature = "http2")]
 pub use config::Http2Config;
+#[cfg(feature = "http3")]
+pub use config::Http3Config;
 pub use config::{try_from_serve_config, RuntimeConfig, RuntimeConfigBuilder};
 pub use connection::{
     serve_http1_connection, serve_http1_connection_with_id, ConnectionContext, ConnectionOutcome,
@@ -77,6 +81,8 @@ pub use service::{
 };
 pub use static_service::{StaticService, StaticServiceBuilder};
 
+#[cfg(feature = "http3")]
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
@@ -128,6 +134,8 @@ pub struct Server {
     lifecycle: Arc<Lifecycle>,
     listener_source: Option<ListenerSource>,
     ops: crate::ops::OpsContext,
+    #[cfg(feature = "http3")]
+    http3_identity: Option<(PathBuf, PathBuf)>,
 }
 
 /// Transport state shared by every connection in one running server.
@@ -275,6 +283,8 @@ impl Server {
             serve_config: None,
             listener_source: None,
             ops_context: None,
+            #[cfg(feature = "http3")]
+            http3_identity: None,
         }
     }
 }
@@ -302,6 +312,8 @@ pub struct ServerBuilder {
     serve_config: Option<Arc<ServeConfig>>,
     listener_source: Option<ListenerSource>,
     ops_context: Option<crate::ops::OpsContext>,
+    #[cfg(feature = "http3")]
+    http3_identity: Option<(PathBuf, PathBuf)>,
 }
 
 impl ServerBuilder {
@@ -339,6 +351,22 @@ impl ServerBuilder {
     /// of the `server` module.
     pub fn ops_context(mut self, ops: crate::ops::OpsContext) -> Self {
         self.ops_context = Some(ops);
+        self
+    }
+
+    /// Supply the certificate and private-key PEM paths used by the
+    /// experimental HTTP/3 QUIC endpoint. QUIC builds a separate TLS 1.3
+    /// configuration with the `h3` ALPN; the TCP rustls config is not reused.
+    #[cfg(feature = "http3")]
+    pub fn http3_identity(
+        mut self,
+        cert_path: impl AsRef<Path>,
+        key_path: impl AsRef<Path>,
+    ) -> Self {
+        self.http3_identity = Some((
+            cert_path.as_ref().to_path_buf(),
+            key_path.as_ref().to_path_buf(),
+        ));
         self
     }
 
@@ -401,6 +429,8 @@ impl ServerBuilder {
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
             ops,
+            #[cfg(feature = "http3")]
+            http3_identity: self.http3_identity,
         })
     }
 
@@ -431,6 +461,8 @@ impl ServerBuilder {
             lifecycle: Arc::new(Lifecycle::new()),
             listener_source: self.listener_source,
             ops,
+            #[cfg(feature = "http3")]
+            http3_identity: self.http3_identity,
         })
     }
 }
@@ -448,6 +480,8 @@ impl Server {
             lifecycle,
             listener_source,
             ops,
+            #[cfg(feature = "http3")]
+            http3_identity,
         } = self;
         let service = builtin_static_service.ok_or_else(|| {
             ServerError::Config("serve configuration required for static service".into())
@@ -459,6 +493,8 @@ impl Server {
             lifecycle,
             listener_source,
             ops,
+            #[cfg(feature = "http3")]
+            http3_identity,
         }
         .start_with_service(service)
         .await
@@ -479,6 +515,8 @@ impl Server {
             lifecycle,
             listener_source,
             ops,
+            #[cfg(feature = "http3")]
+            http3_identity,
         } = self;
         // Defense-in-depth: `ServerBuilder::build` already validated, but a
         // future constructor must not silently admit an invalid hand-built
@@ -498,6 +536,31 @@ impl Server {
 
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
 
+        // Once port zero (or a pre-bound listener) has resolved, keep the
+        // actual origin port in the runtime config so response finalization
+        // can construct truthful same-port Alt-Svc metadata.
+        #[cfg(feature = "http3")]
+        let mut runtime_config = runtime_config;
+        #[cfg(feature = "http3")]
+        {
+            runtime_config.bind = local_addr;
+        }
+
+        #[cfg(feature = "http3")]
+        let http3_endpoint = if config_http3_enabled(&runtime_config) {
+            let (cert_path, key_path) = http3_identity.as_ref().ok_or_else(|| {
+                ServerError::Config(
+                    "http3 is enabled but no QUIC certificate/key identity was supplied".into(),
+                )
+            })?;
+            let quic_config =
+                crate::tls::load_quic_server_config(cert_path, key_path, &runtime_config.http3)
+                    .map_err(|e| ServerError::Config(e.to_string()))?;
+            Some(h3_quinn::Endpoint::server(quic_config, local_addr).map_err(ServerError::Bind)?)
+        } else {
+            None
+        };
+
         let config = Arc::new(runtime_config);
         let runtime_state = Arc::new(RuntimeState::with_ops(&config, ops.clone())?);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
@@ -508,13 +571,52 @@ impl Server {
 
         let join = tokio::spawn({
             let lifecycle = lifecycle.clone();
+            #[cfg(feature = "http3")]
+            let http3_endpoint = http3_endpoint;
             async move {
+                #[cfg(feature = "http3")]
+                let service = Arc::new(service);
+                #[cfg(feature = "http3")]
+                if let Some(endpoint) = http3_endpoint {
+                    let shared_service = service.clone();
+                    let tcp = accept_loop_generic(
+                        listener,
+                        local_addr,
+                        config.clone(),
+                        runtime_state.clone(),
+                        connection_semaphore.clone(),
+                        ArcService(shared_service.clone()),
+                        shutdown_rx.resubscribe(),
+                        lifecycle.clone(),
+                    );
+                    let h3 = http3::accept_loop(
+                        endpoint,
+                        local_addr,
+                        config,
+                        runtime_state,
+                        connection_semaphore,
+                        shutdown_rx,
+                        lifecycle,
+                        ArcService(shared_service),
+                    );
+                    let (tcp_result, h3_result) = tokio::join!(tcp, h3);
+                    return if tcp_result == ShutdownResult::Clean
+                        && h3_result == ShutdownResult::Clean
+                    {
+                        ShutdownResult::Clean
+                    } else {
+                        ShutdownResult::Timeout
+                    };
+                }
                 accept_loop_generic(
                     listener,
                     local_addr,
                     config,
                     runtime_state,
                     connection_semaphore,
+                    #[cfg(feature = "http3")]
+                    ArcService(service),
+                    #[cfg(not(feature = "http3"))]
                     service,
                     shutdown_rx,
                     lifecycle,
@@ -531,6 +633,11 @@ impl Server {
             ops,
         ))
     }
+}
+
+#[cfg(feature = "http3")]
+fn config_http3_enabled(config: &RuntimeConfig) -> bool {
+    config.http3.enabled
 }
 
 /// Unified accept loop for both static and custom services.

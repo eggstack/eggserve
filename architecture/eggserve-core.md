@@ -45,9 +45,10 @@ planning without opening a socket. They are compiled by `scripts/verify.sh full`
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
 
-| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, feature-gated `Http2Config`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports strict `serve_http1_connection` and feature-gated `serve_http_connection` plus connection context/outcome types |
+| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, feature-gated `Http2Config`/`Http3Config`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports strict `serve_http1_connection` and feature-gated `serve_http_connection` plus connection context/outcome types |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
 | `server/connection/` | **pub** (experimental) | Transport-neutral driver facade (`mod.rs`: strict H1 entry points, feature-gated H1/H2 `serve_http_connection`, and internal protocol-selected entry); per-connection H1/H2 handling, body ingestion |
+| `server/http3.rs` | **internal** (`http3`) | Quinn endpoint lifecycle and h3 request/response adapter; canonical metadata/body/service/response policy boundary |
 | `server/connection/context.rs` | pub via facade | `ConnectionContext`, `ConnectionShutdown` (level-triggered, idempotent), `ConnectionOutcome` |
 | `server/connection/lifecycle.rs` | pub(crate) | `ConnectionRequests` live-request registry + abnormal-termination cancellation |
 | `server/connection/activity.rs` | pub(crate) | `ConnectionActivity` deadlines state, `InFlightGuard` admission guard, `TrackedBody` completion tracking |

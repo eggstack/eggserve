@@ -160,6 +160,14 @@ qualification pass, but broad independent-client/platform evidence and a
 public safe per-stream reset hook are still release gaps. See the
 [HTTP/2 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http2.md)
 and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md).
+The opt-in `http3` feature adds an experimental native QUIC/HTTP/3 endpoint
+beside that TCP listener. It requires `tls`, a certificate/key identity passed
+to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
+`--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
+advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
+HTTP/3 remains Rust-only and experimental pending the independent-client and
+adversarial qualification owned by Plan 188. See the
+[HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md).
 `Service` owns request handling and response construction. Connections,
 in-flight service executions, and file streams have independent observable
 budgets; parser ceilings, keep-alive idle, per-connection request counts, and
@@ -182,10 +190,12 @@ request-body ceilings but cannot raise the runtime hard ceiling.
 Canonical `HttpVersion` metadata is non-exhaustive and represents HTTP/1.0,
 HTTP/1.1, HTTP/2, and HTTP/3 without silently relabeling an unsupported
 transport. `RequestHead::authority()` exposes validated effective host
-authority independently of HTTP/1 `Host` or HTTP/2 pseudo-header spelling;
+authority independently of HTTP/1 `Host` or HTTP/2/3 pseudo-header spelling;
 forwarded headers remain untrusted. `serve_http1_connection` remains a strict
 HTTP/1 entry point; `serve_http_connection` is the opt-in Rust H1/H2 entry
-point when the `http2` feature is enabled. HTTP/3 remains metadata-only.
+point when the `http2` feature is enabled. The opt-in `http3` feature also
+provides a native experimental QUIC/H3 server path; the Python facade and
+default builds remain HTTP/1.1-shaped.
 The `server` module
 is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`
@@ -314,6 +324,7 @@ point; it does not bundle a second standalone CLI binary. See
 ./scripts/verify.sh full    # fast + examples + TLS + installed Python wheel checks
 ./scripts/verify.sh deep    # expensive suites selected for release risk
 bash scripts/qualify-http2.sh  # manual H2 wire/ALPN qualification
+# H3 interoperability and adversarial qualification is owned by Plan 188.
 ```
 
 The routine CI workflow has separate Rust and Python jobs. Platform

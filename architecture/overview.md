@@ -153,6 +153,7 @@ eggserve-python        → standalone, owns Python packaging
 |---------|-------|---------|
 | `tls` | `eggserve-core`, `eggserve-bin`, `eggserve-python` | Server TLS via rustls/tokio-rustls |
 | `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
+| `http3` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/h3 identity and same-port UDP; Python remains H1-only |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
 | `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification |
 
@@ -187,6 +188,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
 | Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
 | HTTP/2 qualification boundary | `eggserve-core::server` (`http2`) | [http2.md](http2.md) | Hyper-backed opt-in H1/H2 selection, bounded H2 transport policy, ownership checklist, and experimental release status |
+| HTTP/3/QUIC transport boundary | `eggserve-core::server` (`http3`) | [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters, and experimental qualification boundary |
 
 ### Operational Subsystems
 
@@ -235,7 +237,8 @@ HTTP Request
 │    (connection semaphore, default 64; server-wide   │
 │     file-stream semaphore cloned per connection)    │
 │  • Optional TLS handshake (feature-gated)           │
-│  • HTTP/1 via Hyper; optional HTTP/2 via http2      │
+│  • HTTP/1 via Hyper; optional HTTP/2 and HTTP/3     │
+│    via feature-gated http2/http3 (H3 uses QUIC)    │
 │  • Caller-owned stream entry (no socket required)   │
 │  • Lifecycle: Created → Starting → Running →        │
 │    Draining → Stopped/Failed                        │

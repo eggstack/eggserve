@@ -21,6 +21,7 @@ eggserve [OPTIONS] [PORT] [DIRECTORY]
 | `PORT` | Positional port argument; a valid numeric token fills the unoccupied port slot | `8000` |
 | `DIRECTORY` | First positional token not consumed as PORT; once PORT is occupied, it is used verbatim, including numeric names | `.` (current directory) |
 | `--public` | Bind to all interfaces (required for `0.0.0.0` or `::` binds) | off |
+| `--http3` | Enable experimental native HTTP/3/QUIC beside TCP; requires `--tls-cert` (and optionally `--tls-key`), binds same-port UDP, and advertises `Alt-Svc` | off |
 
 `--bind` accepts IPv4/IPv6 literals and hostnames. Hostname resolution happens
 once during argument validation; the resolved address is then used for the

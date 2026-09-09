@@ -3,7 +3,8 @@
 EggServe's native HTTP/2 path is an opt-in Rust feature (`http2`). It uses
 Hyper's HTTP/2 server driver; EggServe does not maintain a second H2 protocol
 stack. The Python compatibility facade and the default CLI build remain
-HTTP/1.1-shaped. HTTP/3 is not part of this boundary.
+HTTP/1.1-shaped. HTTP/3 has its own QUIC boundary in
+[`http3.md`](http3.md).
 
 ## Protocol ownership
 

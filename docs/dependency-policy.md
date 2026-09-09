@@ -32,6 +32,7 @@ The following dependency categories are approved for initial development:
 | TLS | `rustls` (optional, feature-gated) | TLS termination |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
+| HTTP/3 transport | `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 
 ### Tokio feature ownership
@@ -56,6 +57,11 @@ The following dependency categories are approved for initial development:
 - TLS dependencies are optional and feature-gated. Windows filesystem support
   is likewise target-gated; platform-only dependencies do not enter the
   default Unix graph.
+- H3 dependencies are optional and feature-gated behind `http3` (which also
+  enables `tls`). The adapter keeps Quinn/h3 types internal, pins the selected
+  versions in `Cargo.lock`, and is covered by the same `cargo audit`/`cargo deny`
+  gates as the default graph. Plan 188 owns independent interoperability and
+  adversarial QUIC qualification.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a
   current-thread runtime, while Python enables a bounded multi-thread runtime

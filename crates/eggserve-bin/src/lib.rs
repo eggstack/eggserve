@@ -302,6 +302,19 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
             }
         };
         runtime_config.tls_config = tls_config;
+        #[cfg(feature = "http3")]
+        if args.http3 {
+            if runtime_config.tls_config.is_none() {
+                Logger::global().emit(Event::new(
+                    Severity::Error,
+                    EventKind::ProcessStarting,
+                    "--http3 requires --tls-cert (and optionally --tls-key)",
+                ));
+                return 1;
+            }
+            runtime_config.http3.enabled = true;
+            runtime_config.http3.advertise_alt_svc = true;
+        }
 
         let shutdown_timeout = serve_config.limits.graceful_shutdown_timeout;
         // Log the actual serving scheme: the TLS-featured binary still
@@ -313,11 +326,21 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         };
 
         return rt.block_on(async {
-            let server = match Server::builder()
+            let server_builder = Server::builder()
                 .runtime(runtime_config)
-                .serve_config(serve_config)
-                .build()
-            {
+                .serve_config(serve_config);
+            #[cfg(feature = "http3")]
+            let server_builder = if args.http3 {
+                server_builder.http3_identity(
+                    args.tls_cert
+                        .as_ref()
+                        .expect("--http3 requires certificate"),
+                    args.tls_key.as_ref().expect("combined or explicit key"),
+                )
+            } else {
+                server_builder
+            };
+            let server = match server_builder.build() {
                 Ok(server) => server,
                 Err(e) => {
                     Logger::global().emit(Event::new(

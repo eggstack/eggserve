@@ -25,6 +25,7 @@ include = [
 default = []
 http2 = ["hyper/http2", "hyper-util/http2"]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pki-types"]
+http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn"]
 python-bindings-internal = []
 windows-adversarial-qualification = []
 
@@ -48,6 +49,12 @@ tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "i
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
 rustls-pki-types = { version = "1", optional = true, features = ["std"] }
+
+# HTTP/3/QUIC transport (Plan 187). Kept out of the default and HTTP/1/H2
+# graphs; the adapter types remain internal to the experimental server.
+h3 = { version = "0.0.8", optional = true, default-features = false }
+h3-quinn = { version = "0.0.10", optional = true, default-features = false }
+quinn = { version = "0.11.11", optional = true, default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs"] }

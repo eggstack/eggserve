@@ -137,6 +137,112 @@ impl Http2Config {
     }
 }
 
+/// EggServe-owned HTTP/3 and QUIC resource limits.
+///
+/// HTTP/3 is experimental and only available with the `http3` feature. The
+/// defaults intentionally keep the product disabled until a caller supplies
+/// a QUIC TLS identity through [`super::ServerBuilder::http3_identity`].
+#[cfg(feature = "http3")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Http3Config {
+    /// Whether the native server should bind a same-port UDP endpoint.
+    pub enabled: bool,
+    /// Maximum peer-created bidirectional request streams per connection.
+    pub max_concurrent_bidi_streams: u32,
+    /// Maximum peer-created unidirectional streams per connection.
+    pub max_concurrent_uni_streams: u32,
+    /// Per-stream receive window in bytes.
+    pub stream_receive_window: u64,
+    /// Per-connection receive window in bytes.
+    pub connection_receive_window: u64,
+    /// QUIC send window in bytes.
+    pub send_window: u64,
+    /// Maximum idle time for a QUIC connection.
+    pub max_idle_timeout: Duration,
+    /// Maximum number of handshakes admitted to application tasks at once.
+    pub max_pending_handshakes: usize,
+    /// Maximum decoded HTTP/3 field section size.
+    pub max_field_section_size: u64,
+    /// Maximum number of bytes buffered by one outgoing H3 response stream.
+    pub max_send_buf_size: usize,
+    /// Whether Quinn may issue stateless retry tokens.
+    pub stateless_retry: bool,
+    /// Whether TCP/H2 responses advertise this server's active H3 endpoint
+    /// with a runtime-owned `Alt-Svc` field.
+    pub advertise_alt_svc: bool,
+}
+
+#[cfg(feature = "http3")]
+impl Default for Http3Config {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            max_concurrent_bidi_streams: 100,
+            // Three unidirectional streams are needed for H3 control/QPACK;
+            // leave additional bounded room for peer protocol state.
+            max_concurrent_uni_streams: 16,
+            stream_receive_window: 256 * 1024,
+            connection_receive_window: 4 * 1024 * 1024,
+            send_window: 4 * 1024 * 1024,
+            max_idle_timeout: Duration::from_secs(60),
+            max_pending_handshakes: 64,
+            max_field_section_size: 32 * 1024,
+            max_send_buf_size: 256 * 1024,
+            stateless_retry: false,
+            advertise_alt_svc: false,
+        }
+    }
+}
+
+#[cfg(feature = "http3")]
+impl Http3Config {
+    pub(crate) fn validate(&self) -> Result<(), crate::server::errors::ServerError> {
+        let invalid = |field: &str, detail: &str| {
+            crate::server::errors::ServerError::Config(format!("invalid http3.{field}: {detail}"))
+        };
+        if self.max_concurrent_bidi_streams == 0 {
+            return Err(invalid(
+                "max_concurrent_bidi_streams",
+                "must be greater than zero",
+            ));
+        }
+        if self.max_concurrent_uni_streams < 3 {
+            return Err(invalid(
+                "max_concurrent_uni_streams",
+                "must leave room for H3 control and QPACK streams",
+            ));
+        }
+        if self.stream_receive_window == 0 || self.connection_receive_window == 0 {
+            return Err(invalid("receive_window", "must be greater than zero"));
+        }
+        if self.connection_receive_window < self.stream_receive_window {
+            return Err(invalid(
+                "connection_receive_window",
+                "must be at least stream_receive_window",
+            ));
+        }
+        if self.send_window == 0 || self.max_send_buf_size == 0 {
+            return Err(invalid("send_window", "must be greater than zero"));
+        }
+        if self.max_idle_timeout.is_zero() {
+            return Err(invalid("max_idle_timeout", "must be greater than zero"));
+        }
+        if self.max_pending_handshakes == 0 {
+            return Err(invalid(
+                "max_pending_handshakes",
+                "must be greater than zero",
+            ));
+        }
+        if self.max_field_section_size < 1024 {
+            return Err(invalid(
+                "max_field_section_size",
+                "must be at least 1024 bytes",
+            ));
+        }
+        Ok(())
+    }
+}
+
 /// Transport-level runtime configuration.
 ///
 /// All fields have safe defaults that match or strengthen the CLI defaults.
@@ -256,6 +362,9 @@ pub struct RuntimeConfig {
     /// compiled with the `http2` feature.
     #[cfg(feature = "http2")]
     pub http2: Http2Config,
+    /// HTTP/3/QUIC transport policy and resource limits.
+    #[cfg(feature = "http3")]
+    pub http3: Http3Config,
 }
 
 /// HTTP/1-only parser and framing settings projected from the compatibility
@@ -296,6 +405,8 @@ impl Default for RuntimeConfig {
             response_write_timeout: rl::DEFAULT_RESPONSE_WRITE_TIMEOUT,
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
+            #[cfg(feature = "http3")]
+            http3: Http3Config::default(),
         }
     }
 }
@@ -340,6 +451,8 @@ impl RuntimeConfig {
             response_write_timeout: None,
             #[cfg(feature = "http2")]
             http2: None,
+            #[cfg(feature = "http3")]
+            http3: None,
         }
     }
 
@@ -384,6 +497,10 @@ impl RuntimeConfig {
         if self.http2.enabled {
             self.http2.validate()?;
         }
+        #[cfg(feature = "http3")]
+        if self.http3.enabled {
+            self.http3.validate()?;
+        }
         Ok(())
     }
 
@@ -424,6 +541,8 @@ impl RuntimeConfig {
             response_write_timeout: shared.response_write_timeout,
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
+            #[cfg(feature = "http3")]
+            http3: Http3Config::default(),
         }
     }
 }
@@ -460,6 +579,8 @@ pub struct RuntimeConfigBuilder {
     response_write_timeout: Option<Duration>,
     #[cfg(feature = "http2")]
     http2: Option<Http2Config>,
+    #[cfg(feature = "http3")]
+    http3: Option<Http3Config>,
 }
 
 impl RuntimeConfigBuilder {
@@ -676,6 +797,13 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the HTTP/3 and QUIC transport policy and resource limits.
+    #[cfg(feature = "http3")]
+    pub fn http3(mut self, config: Http3Config) -> Self {
+        self.http3 = Some(config);
+        self
+    }
+
     /// Build the runtime configuration.
     ///
     /// Shared runtime checks delegate to the canonical Plan 179 kernel; the
@@ -760,6 +888,12 @@ impl RuntimeConfigBuilder {
         if http2.enabled {
             http2.validate()?;
         }
+        #[cfg(feature = "http3")]
+        let http3 = self.http3.unwrap_or_default();
+        #[cfg(feature = "http3")]
+        if http3.enabled {
+            http3.validate()?;
+        }
         Ok(RuntimeConfig {
             bind: self
                 .bind
@@ -787,6 +921,8 @@ impl RuntimeConfigBuilder {
             response_write_timeout: shared.response_write_timeout,
             #[cfg(feature = "http2")]
             http2,
+            #[cfg(feature = "http3")]
+            http3,
         })
     }
 }
@@ -1504,5 +1640,40 @@ mod tests {
         let msg = err.to_string();
         assert!(msg.contains("max_buf_size"));
         assert!(msg.contains("max_in_flight_requests"));
+    }
+
+    #[cfg(feature = "http3")]
+    #[test]
+    fn http3_defaults_are_disabled_and_bounded() {
+        let config = RuntimeConfig::builder().build().unwrap();
+        assert!(!config.http3.enabled);
+        assert_eq!(config.http3.max_concurrent_bidi_streams, 100);
+        assert_eq!(config.http3.max_pending_handshakes, 64);
+        assert_eq!(config.http3.max_field_section_size, 32 * 1024);
+    }
+
+    #[cfg(feature = "http3")]
+    #[test]
+    fn http3_rejects_invalid_window_and_stream_limits() {
+        let err = RuntimeConfig::builder()
+            .http3(Http3Config {
+                enabled: true,
+                max_concurrent_uni_streams: 2,
+                ..Http3Config::default()
+            })
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("max_concurrent_uni_streams"));
+
+        let err = RuntimeConfig::builder()
+            .http3(Http3Config {
+                enabled: true,
+                stream_receive_window: 4,
+                connection_receive_window: 2,
+                ..Http3Config::default()
+            })
+            .build()
+            .unwrap_err();
+        assert!(err.to_string().contains("connection_receive_window"));
     }
 }

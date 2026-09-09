@@ -41,6 +41,8 @@ pub struct Args {
     pub tls_cert: Option<PathBuf>,
     #[cfg(feature = "tls")]
     pub tls_key: Option<PathBuf>,
+    #[cfg(feature = "http3")]
+    pub http3: bool,
 }
 
 /// Consume the next argument as a value-taking flag's argument.
@@ -97,6 +99,7 @@ fn expand_attached_long_values(args: Vec<String>) -> Result<Vec<String>, String>
         "quiet",
         "help",
         "version",
+        "http3",
     ];
 
     let mut expanded = Vec::with_capacity(args.len());
@@ -254,6 +257,8 @@ impl Args {
         let mut tls_cert_seen = false;
         #[cfg(feature = "tls")]
         let mut tls_key_seen = false;
+        #[cfg(feature = "http3")]
+        let mut http3 = false;
         let mut positional_args: Vec<String> = Vec::new();
         let mut end_of_options = false;
 
@@ -615,6 +620,13 @@ impl Args {
                     let path = require_value(&args, &mut i, "--tls-key")?;
                     tls_key = Some(PathBuf::from(path));
                 }
+                #[cfg(feature = "http3")]
+                "--http3" => {
+                    if http3 {
+                        return Err("--http3 may only be specified once".to_string());
+                    }
+                    http3 = true;
+                }
                 #[cfg(not(feature = "tls"))]
                 "--tls-cert" | "--tls-key" => {
                     return Err(format!(
@@ -734,6 +746,8 @@ impl Args {
             tls_cert,
             #[cfg(feature = "tls")]
             tls_key,
+            #[cfg(feature = "http3")]
+            http3,
         })
     }
 
@@ -845,6 +859,10 @@ pub fn print_usage() {
         println!("  --tls-cert <PATH>          PEM certificate chain (enables TLS)");
         println!("  --tls-key <PATH>           PEM private key (defaults to --tls-cert)");
     }
+    #[cfg(feature = "http3")]
+    println!(
+        "  --http3                    Enable experimental HTTP/3/QUIC beside TCP (requires TLS)"
+    );
     println!("  -h, --help                Print this help message");
     println!("  -V, --version             Print version");
     println!();
