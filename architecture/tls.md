@@ -6,6 +6,7 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 
 | Feature | Crate | Purpose |
 |---------|-------|---------|
+| `http2` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/2 server path, bounded H2 prior knowledge and protocol config |
 | `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
 
 ## Dependencies
@@ -107,7 +108,15 @@ Both accept `certfile` and `keyfile` keyword arguments.
 
 ## ALPN
 
-eggserve supports HTTP/1.1 ALPN only. The TLS configuration does not negotiate HTTP/2. This is intentional — eggserve is an HTTP/1.1 server.
+The default `tls` build advertises HTTP/1.1 only. Builds with both `http2` and
+`tls` advertise `h2` before `http/1.1`; the completed rustls handshake selects
+the corresponding strict Hyper driver, so an ALPN/state-machine mismatch is
+not silently accepted. Python compatibility builds do not enable `http2` and
+remain HTTP/1.1-only.
+
+Cleartext H2 uses prior knowledge, not HTTP/1 `Upgrade: h2c`. A caller-owned
+multi-protocol connection uses a bounded preface classifier so the existing
+HTTP/1 header timeout still applies while protocol selection is pending.
 
 ## Security Considerations
 
@@ -134,7 +143,9 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 
 ## Limitations
 
-1. **HTTP/1.1 only** — No HTTP/2 ALPN negotiation
+1. **Experimental H2 scope** — H2 is feature-gated and pending Plan 186
+   interoperability/release qualification; HTTP/3 and HTTP/1 upgrades remain
+   unavailable.
 2. **No OCSP stapling** — Not implemented
 3. **No certificate management** — No ACME, no automatic renewal
 4. **No custom trust stores** — Uses Mozilla's root bundle only

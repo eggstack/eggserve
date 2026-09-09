@@ -23,6 +23,7 @@ include = [
 
 [features]
 default = []
+http2 = ["hyper/http2", "hyper-util/http2"]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pki-types"]
 python-bindings-internal = []
 windows-adversarial-qualification = []
@@ -52,7 +53,7 @@ rustls-pki-types = { version = "1", optional = true, features = ["std"] }
 rustix = { version = "1", features = ["fs"] }
 
 [dev-dependencies]
-hyper = { version = "1", features = ["client"] }
+hyper = { version = "1", features = ["client", "http2"] }
 libc = "0.2"
 proptest = "1"
 serde = { version = "1", features = ["derive"] }

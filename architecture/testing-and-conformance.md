@@ -7,7 +7,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 31 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 32 files |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 4 files |
 | Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
 | Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
@@ -41,6 +41,7 @@ shutdown; the process harness uses only Python's standard library.
 | `integration.rs` | — | Method validation, body rejection, conditional/range requests, HEAD parity |
 | `http_wire_correctness.rs` | — | Raw TCP wire tests: GET/HEAD/POST/404/403/400/413/206/416/304 |
 | `http_primitives_integration.rs` | — | 15 live TCP tests through hyper client/server stack |
+| `http2_runtime.rs` | `http2` (+`tls` for ALPN parity) | Plan 185: cleartext prior-knowledge multiplexing, canonical H2 metadata, strict H1 caller-owned regression, TLS H2 ALPN and H1 fallback |
 | `canonical_conformance.rs` | — | Canonical HTTP type conformance: Method, non-exhaustive HttpVersion metadata, Authority, HeaderBlock, StatusCode, Response normalization |
 | `canonical_wire_interop.rs` | — | Wire-level canonical type interop |
 | `corpus_replay.rs` | — | Replays fuzz seed corpora to catch regressions |

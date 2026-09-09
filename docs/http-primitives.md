@@ -7,13 +7,15 @@ Stream policy for the actual method within the runtime body ceiling. TRACE
 content remains transport-rejected.
 
 eggserve exposes a documented, reusable HTTP primitive contract for downstream
-projects. The current listener/runtime is HTTP/1.1-only; canonical metadata is
-prepared to represent HTTP/2 and HTTP/3 for later protocol adapters without
-enabling either wire protocol in this release.
+projects. The default listener/runtime and Python facade are HTTP/1.1-only;
+Rust builds with the opt-in `http2` feature also provide bounded H2 through the
+experimental server boundary. Canonical metadata represents HTTP/2 and HTTP/3
+without silently enabling HTTP/3.
 
 ## Supported protocol subset
 
-- HTTP/1.1 server behavior through Hyper.
+- HTTP/1.1 server behavior through Hyper; optional native Rust HTTP/2 through
+  the feature-gated server runtime.
 - GET and HEAD for the static CLI path.
 - Explicit method validation primitive for downstream code (`ReadOnlyMethod`).
 - Origin-form request targets for static path parsing.

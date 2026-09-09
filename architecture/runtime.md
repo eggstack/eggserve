@@ -40,7 +40,7 @@ Configures and constructs a `Server` via a fluent builder API:
   `start_with_service()` custom-service startup
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
 - `ops_context(ops)` — attach an explicit per-runtime `OpsContext` (sink, counters, correlation IDs); unset clones the process-global default so CLI/compatibility construction needs no new configuration (experimental)
-- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, but the canonical driver (`serve_http1_connection`) also serves caller-owned streams
+- `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, using strict HTTP/1 by default or the feature-gated H1/H2 selector when `http2` is enabled. Caller-owned streams use the corresponding connection entry points
 - `build()` — validate configuration and construct the built-in `StaticService`
   once when `serve_config()` was supplied; invalid static roots fail here
 - `static_service(root)` — convenience: create a `StaticService` rooted at the given path
@@ -229,9 +229,10 @@ canonical file and range responses acquire the same file-stream permit at the
 single Hyper conversion boundary, and every `Service::call()` execution holds
 an in-flight permit (acquired with `try_acquire`, so exhaustion answers 503
 immediately with no hidden queue). Custom Rust and Python services have no
-implicit root or static state. Caller-owned drivers (`serve_http1_connection`)
-number connections from the shared state's context (the separate static ID
-source is gone); explicit IDs via `serve_http1_connection_with_id` still win.
+implicit root or static state. Caller-owned drivers (`serve_http1_connection`
+and the feature-gated `serve_http_connection`) number connections from the
+shared state's context (the separate static ID source is gone); explicit IDs
+via the corresponding `*_with_id` functions still win.
 
 The runtime asks the service for the body policy for the actual request. GET,
 HEAD, DELETE, OPTIONS, and extension methods are not globally body-forbidden;
@@ -269,7 +270,10 @@ Same as graceful, but with a caller-specified deadline. If the server doesn't st
 
 ## Connection Pipeline
 
-Three entry paths converge on the same canonical driver (`serve_http1_connection`):
+Three entry paths converge on the same canonical service pipeline. The strict
+`serve_http1_connection` entry remains HTTP/1-only; the feature-gated
+`serve_http_connection` entry and the TCP/TLS accept loop select HTTP/1 or
+HTTP/2 without changing request, response, or lifecycle ownership:
 
 1. TCP accept with connection permit → optional TLS handshake (feature-gated)
 2. TLS accept with connection permit → TLS handshake completed by caller
@@ -277,8 +281,11 @@ Three entry paths converge on the same canonical driver (`serve_http1_connection
 
 All paths then share the same steps:
 
-4. HTTP/1 connection setup via Hyper (explicit `Http1Config` projection of
-   the compatibility `max_buf_size`/`max_headers` parser policy)
+4. Protocol selection and connection setup via Hyper: HTTP/1 uses the explicit
+   `Http1Config` projection of the compatibility `max_buf_size`/`max_headers`
+   parser policy; HTTP/2 uses the validated `Http2Config` projection. Cleartext
+   H2 uses bounded prior-knowledge detection; TLS uses ALPN (`h2` before
+   `http/1.1`). There is no HTTP/1 `Upgrade: h2c` path.
 5. Request conversion to canonical types (EggServe `max_request_target_bytes` → 414, `max_header_bytes` → 431, pre-service)
 6. Body ingestion (policy selection, Content-Length preflight, transfer decoding; Stream creates a shared lifecycle + `RequestLifecycle` and registers for cancellation)
 7. Shared service admission (`max_in_flight_requests`; 503 on exhaustion) and
@@ -297,9 +304,13 @@ All paths then share the same steps:
     construction, `Server` subordinate to policy, `Date` sole authority with
     Hyper auto-`Date` disabled, `Last-Modified <= Date` enforcement, no peer
     metadata copied, no log/error text reflected)
-11. Protocol-neutral lifecycle disposition and HTTP/1 adapter mapping, then
+11. Protocol-neutral lifecycle disposition and protocol adapter mapping, then
     permit release and connection termination under the driver deadline loop
-    (keep-alive idle, write no-progress, hard lifetime, shutdown)
+    (keep-alive idle, write no-progress, hard lifetime, shutdown). H2 response
+    progress is tracked per response stream; if Hyper cannot safely reset one
+    stream from the public server API, the bounded fallback is conservative
+    connection shutdown rather than aggregate socket progress masking a stalled
+    sibling.
 
 ### Connection module ownership (Plan 180)
 
@@ -307,7 +318,8 @@ The pipeline above lives in `server/connection/` (facade `mod.rs` plus nine
 invariant-owned submodules); the split is mechanical and behavior-preserving.
 External code imports only the facade (`ConnectionContext`,
 `ConnectionShutdown`, `ConnectionOutcome`, `serve_http1_connection`,
-`serve_http1_connection_with_id`, `serve_connection_with_runtime_state`).
+`serve_http1_connection_with_id`, and, with `http2`,
+`serve_http_connection`/`serve_http_connection_with_id`).
 
 | Module | Owns |
 |--------|------|
@@ -315,7 +327,7 @@ External code imports only the facade (`ConnectionContext`,
 | `lifecycle.rs` | Live-request registry + abnormal-termination cancellation (contextual) |
 | `activity.rs` | Connection deadlines, request/response activity identities, in-flight admission guard, tracked response bodies; carries the connection's `OpsContext` |
 | `transport.rs` | `ProgressIo` read/write progress observation |
-| `driver.rs` | Hyper builder, graceful close, outcome classification, deadline/select loop (observability via activity's context) |
+| `driver.rs` | HTTP/1 and feature-gated HTTP/2 builders, protocol selection, graceful close/GOAWAY, outcome classification, deadline/select loop (observability via activity's context) |
 | `pipeline.rs` | `CanonicalHyperService`, body preparation, and the single shared service-invocation kernel (explicit `OpsContext` parameter) |
 | `request.rs` | Target/header ceilings, framing checks, body-policy selection, body bridge (contextual rejections) |
 | `response.rs` | Normalization, panic containment, body-error mapping, neutral dispositions, final privacy, and the HTTP/1 disposition adapter; contextual streaming/file conversion |
@@ -324,12 +336,15 @@ External code imports only the facade (`ConnectionContext`,
 Dependency direction is acyclic: `pipeline`/`driver` depend on the rest,
 `activity` depends on `response` (final privacy only), and nothing depends
 back on `pipeline`/`driver` except the facade. Hyper types stay out of public
-signatures; HTTP/1 upgrade machinery is not enabled.
+signatures; HTTP/1 upgrade machinery and H2 extended CONNECT/upgrade paths are
+not enabled.
 
 ### Transport-neutral connection driver (Plan 163)
 
 `serve_http1_connection(io, service, config, context, runtime_state, shutdown)`
-is the canonical connection driver. The caller supplies an already-established
+is the strict HTTP/1 connection driver. With the `http2` feature,
+`serve_http_connection(...)` is the H1/H2 selector for caller-owned streams.
+The caller supplies an already-established
 bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
 `Service`, and the following per-connection state:
 
@@ -361,10 +376,12 @@ EOF/keep-alive close), `ClientError` (protocol or client error),
 `Internal`. `is_clean()` returns `true` for `Normal`, `Shutdown`, and
 `IdleTimeout`.
 
-**TCP/TLS Server** uses the same pipeline via `serve_http1_connection_with_id`,
-bridging its `broadcast` shutdown signal to a per-connection `ConnectionShutdown`
-token. Raw Hyper helpers (`serve_connection`, `serve_connection_with_runtime_state`)
-are `pub(crate)` — external callers must use `serve_http1_connection`.
+**TCP/TLS Server** uses the same pipeline via the strict H1 entry or the
+feature-gated protocol selector, bridging its `broadcast` shutdown signal to a
+per-connection `ConnectionShutdown` token. TLS selects from ALPN (`h2` then
+`http/1.1`); cleartext H2 uses bounded prior-knowledge detection. Raw Hyper
+helpers (`serve_connection`, `serve_connection_with_runtime_state`) are
+`pub(crate)` — external callers use the public connection facade.
 
 The runnable caller-owned-stream demonstration is
 [`caller_owned_stream.rs`](../crates/eggserve-core/examples/caller_owned_stream.rs):
@@ -372,15 +389,20 @@ it drives one request through a `tokio::io::duplex` pair with a non-socket
 `ConnectionContext` and one shared `RuntimeState`, then exits without
 binding a socket.
 
-**Invariants retained:** Hyper HTTP/1.1 parsing, framing validation
+**Invariants retained:** Hyper HTTP/1.1 parsing, and the feature-gated Hyper
+HTTP/2 driver with explicit `Http2Config`, framing validation
 (duplicate-CL rejection; lone TE+CL normalizes to TE-wins per RFC 9112 §6.1), TRACE/body policy, canonical Request conversion, handler timeout
 ceiling, panic containment, canonical response normalization, runtime-owned
 framing (`Content-Length`, `Transfer-Encoding`, reuse), Plan 165 response
 privacy, file/stream admission via shared semaphore, lifecycle-aware
 incomplete-body close (Complete reusable, Active deferred without forced
 close, Abandoned/Failed forced close; Hyper pinned to prevent next-request
-parsing until the framing boundary), and shutdown/drain semantics. All paths share a single normalization
-and framing authority.
+parsing until the framing boundary), and shutdown/drain semantics. H2 keeps
+response-progress accounting per stream so sibling writes cannot mask a
+stalled response; the current Hyper public server API has no safe stream-reset
+hook at this boundary, so an H2 stall uses the conservative bounded
+connection-shutdown fallback. All paths share a single normalization and
+framing authority.
 
 ### Deferred bodies + request lifecycle (Plan 174)
 

@@ -119,6 +119,7 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `tls_handshake_success` | DEBUG | TLS handshake completed |
 | `tls_handshake_failure` | WARN | TLS handshake failed |
 | `tls_handshake_timeout` | WARN | TLS handshake timed out |
+| `protocol_negotiated` | DEBUG | Selected `http/1.1` or experimental `h2`; no client pseudo-header values are logged |
 | `header_timeout` | WARN | Header read timed out (also bounds idle keep-alive gaps; see timeout reference) |
 | `body_read_timeout` | WARN | Body read timed out |
 | `parser_rejection` | DEBUG | HTTP framing rejection (includes Hyper `max_buf_size`/`max_headers` parse failures) |
@@ -127,8 +128,8 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `service_admission_rejected` | WARN | In-flight service budget exhausted (503) |
 | `keep_alive_closed` | DEBUG | Keep-alive connection closed cleanly |
 | `keep_alive_idle_timeout` | DEBUG | Idle keep-alive connection closed after inactivity |
-| `max_requests_close` | DEBUG | Request limit reached; response completed with `Connection: close` |
-| `write_stall_timeout` | WARN | Response outstanding with no socket progress; connection closed |
+| `max_requests_close` | DEBUG | Request limit reached; H1 uses `Connection: close`, H2 begins GOAWAY/drain |
+| `write_stall_timeout` | WARN | Response has no protocol-relevant progress; H2 uses per-stream progress before its conservative fallback close |
 | `connection_total_timeout` | WARN | Total connection lifetime exceeded |
 | `client_disconnect` | DEBUG | Client disconnected |
 | `connection_panic` | ERROR | Handler panic contained |

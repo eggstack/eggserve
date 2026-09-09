@@ -7,7 +7,7 @@ boundary.
 
 External Rust consumers should start with `eggserve_core::primitives` for the
 semver-considered canonical HTTP/security facade. The `eggserve_core::server` module is an
-experimental, transport-owning HTTP/1 runtime exposing `Server`,
+experimental, transport-owning HTTP runtime exposing `Server`,
 `RuntimeConfig`, `ServerHandle`, `Service`, `service_fn`, and `StaticService`.
 The filesystem, path, response, and MIME implementation modules remain
 internal; importing Hyper directly is not required for either static serving or
@@ -45,9 +45,9 @@ planning without opening a socket. They are compiled by `scripts/verify.sh full`
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
 
-| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports `serve_http1_connection`, `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome` from `connection` |
+| `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, feature-gated `Http2Config`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports strict `serve_http1_connection` and feature-gated `serve_http_connection` plus connection context/outcome types |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
-| `server/connection/` | **pub** (experimental) | Transport-neutral driver facade (`mod.rs`: `serve_http1_connection`, `serve_http1_connection_with_id`, `serve_connection_with_runtime_state`, re-exports `ConnectionContext`, `ConnectionShutdown`, `ConnectionOutcome`); per-connection HTTP/1 handling, body ingestion |
+| `server/connection/` | **pub** (experimental) | Transport-neutral driver facade (`mod.rs`: strict H1 entry points, feature-gated H1/H2 `serve_http_connection`, and internal protocol-selected entry); per-connection H1/H2 handling, body ingestion |
 | `server/connection/context.rs` | pub via facade | `ConnectionContext`, `ConnectionShutdown` (level-triggered, idempotent), `ConnectionOutcome` |
 | `server/connection/lifecycle.rs` | pub(crate) | `ConnectionRequests` live-request registry + abnormal-termination cancellation |
 | `server/connection/activity.rs` | pub(crate) | `ConnectionActivity` deadlines state, `InFlightGuard` admission guard, `TrackedBody` completion tracking |
@@ -122,7 +122,7 @@ Resource limits with safe defaults:
 
 **Experimental** — API is subject to change without notice.
 
-The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and the canonical transport-neutral connection driver (`serve_http1_connection`). The driver serves both TCP/TLS connections from the accept loop and caller-owned byte streams sharing the same pipeline. Downstream projects provide a `Service` implementation; the runtime handles everything else.
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and the canonical transport-neutral connection drivers (`serve_http1_connection` for strict H1 and the feature-gated `serve_http_connection` for H1/H2). The drivers serve both TCP/TLS connections from the accept loop and caller-owned byte streams sharing the same pipeline. Downstream projects provide a `Service` implementation; the runtime handles everything else.
 
 ### `Server` and `ServerBuilder`
 
@@ -138,8 +138,8 @@ let handle = server.start().await?;
 
 `ServerBuilder::bind()` overrides the configured socket address. Use
 `ServerBuilder::from_listener()` when transferring ownership of an existing
-Tokio `TcpListener`; the runtime owns TCP acceptance, but the canonical driver
-(`serve_http1_connection`) also serves caller-owned streams.
+Tokio `TcpListener`; the runtime owns TCP acceptance, while the strict H1 and
+feature-gated H1/H2 drivers also serve caller-owned streams.
 
 ### `RuntimeConfig`
 

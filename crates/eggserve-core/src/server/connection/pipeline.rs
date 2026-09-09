@@ -231,6 +231,7 @@ where
                 &req,
                 config.max_request_target_bytes,
                 config.max_header_bytes,
+                context.scheme,
                 conn_id,
                 &ops,
             ) {
@@ -259,7 +260,8 @@ where
                     .and_then(|value| value.to_str().ok())
                     .and_then(|value| value.parse::<u64>().ok())
                     .is_some_and(|length| length > 0)
-                    || req.headers().contains_key(hyper::header::TRANSFER_ENCODING))
+                    || (head.version() != crate::primitives::version::HttpVersion::Http2
+                        && req.headers().contains_key(hyper::header::TRANSFER_ENCODING)))
             {
                 let response = crate::response::bad_request_with_policy(
                     false,
@@ -284,29 +286,31 @@ where
             let (parts, body) = req.into_parts();
 
             // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
-            if let Err(e) = validate_body_framing(&parts.headers) {
-                ops.counters()
-                    .parser_rejects
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                ops.emit(
-                    crate::ops::Event::new(
-                        crate::ops::Severity::Debug,
-                        crate::ops::EventKind::ParserRejection,
-                        format!("parser rejection: {}", e),
-                    )
-                    .connection_id(conn_id),
-                );
-                let is_head = head.method().is_head();
-                return Ok::<_, Infallible>(finish_http1(
-                    guard,
-                    e.to_response_with_head_and_policy(
-                        is_head,
-                        config.response_policy.error_policy,
-                    ),
-                    &config,
-                    conn_id,
-                    LifecycleDisposition::KEEP_ALIVE,
-                ));
+            if head.version() != crate::primitives::version::HttpVersion::Http2 {
+                if let Err(e) = validate_body_framing(&parts.headers) {
+                    ops.counters()
+                        .parser_rejects
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ParserRejection,
+                            format!("parser rejection: {}", e),
+                        )
+                        .connection_id(conn_id),
+                    );
+                    let is_head = head.method().is_head();
+                    return Ok::<_, Infallible>(finish_http1(
+                        guard,
+                        e.to_response_with_head_and_policy(
+                            is_head,
+                            config.response_policy.error_policy,
+                        ),
+                        &config,
+                        conn_id,
+                        LifecycleDisposition::KEEP_ALIVE,
+                    ));
+                }
             }
 
             let declared_length = parts

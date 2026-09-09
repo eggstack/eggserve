@@ -138,6 +138,7 @@ pub(crate) fn convert_request_head(
     req: &Request<Incoming>,
     max_target_bytes: usize,
     max_header_bytes: usize,
+    expected_scheme: crate::primitives::connection_info::Scheme,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) -> Result<crate::primitives::request_head::RequestHead, ServiceError> {
@@ -163,6 +164,7 @@ pub(crate) fn convert_request_head(
     let version = match req.version() {
         hyper::Version::HTTP_10 => HttpVersion::Http10,
         hyper::Version::HTTP_11 => HttpVersion::Http11,
+        hyper::Version::HTTP_2 => HttpVersion::Http2,
         other => {
             return Err(ServiceError::rejected(
                 505,
@@ -200,20 +202,40 @@ pub(crate) fn convert_request_head(
         return Err(ServiceError::rejected(414, "request target too long"));
     }
 
-    // Reject absolute-form URIs (authority present in raw target).
-    // Hyper strips scheme/authority from path_and_query, so we must check
-    // the full URI string.
-    if req.uri().scheme_str().is_some() {
+    let is_h2 = version == HttpVersion::Http2;
+
+    // HTTP/1 absolute-form is intentionally not accepted. HTTP/2 carries
+    // scheme and authority as pseudo-fields, which Hyper represents on the
+    // URI; validate the scheme against the transport context instead.
+    if !is_h2 && req.uri().scheme_str().is_some() {
         return Err(ServiceError::rejected(
             400,
             "absolute-form request target not allowed",
         ));
+    }
+    if is_h2 {
+        if let Some(scheme) = req.uri().scheme_str() {
+            if !scheme.eq_ignore_ascii_case(expected_scheme.as_str()) {
+                return Err(ServiceError::rejected(400, "conflicting request scheme"));
+            }
+        }
     }
 
     // Asterisk-form (`*`) is rejected as method-not-allowed (405) rather
     // than bad-request (400) because the method check must fire before the
     // target-form check per the release contract.
     if raw_target == "*" {
+        return Err(ServiceError::rejected(
+            405,
+            format!("method not allowed: {}", method.as_str()),
+        ));
+    }
+
+    // Authority-form is reserved for CONNECT in HTTP/1, which the static
+    // service does not implement. Preserve the established method-level 405
+    // response before validating Host/authority metadata. HTTP/2 carries
+    // authority as pseudo-field metadata and follows the branch below.
+    if !is_h2 && req.uri().authority().is_some() {
         return Err(ServiceError::rejected(
             405,
             format!("method not allowed: {}", method.as_str()),
@@ -259,7 +281,7 @@ pub(crate) fn convert_request_head(
         headers.push(header_name, header_value);
     }
 
-    let authorities = req
+    let host_authorities = req
         .headers()
         .get_all(hyper::header::HOST)
         .iter()
@@ -272,10 +294,28 @@ pub(crate) fn convert_request_head(
             .map_err(|_| ServiceError::rejected(400, "invalid Host header"))
         })
         .collect::<Result<Vec<_>, _>>()?;
-    let authority = match authorities.as_slice() {
+    let uri_authority = req
+        .uri()
+        .authority()
+        .map(|authority| {
+            Authority::parse(authority.as_str())
+                .map_err(|_| ServiceError::rejected(400, "invalid :authority"))
+        })
+        .transpose()?;
+    let host_authority = match host_authorities.as_slice() {
         [] => None,
         [first, rest @ ..] if rest.iter().all(|value| value == first) => Some(first.clone()),
         _ => return Err(ServiceError::rejected(400, "conflicting Host headers")),
+    };
+    let authority = match (uri_authority, host_authority) {
+        (Some(uri), Some(host)) if uri != host => {
+            return Err(ServiceError::rejected(
+                400,
+                "conflicting authority metadata",
+            ));
+        }
+        (Some(uri), _) => Some(uri),
+        (None, host) => host,
     };
 
     Ok(

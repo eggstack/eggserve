@@ -35,9 +35,11 @@ pub(crate) struct ConnectionActivity {
     pub(crate) start: std::time::Instant,
     ops: crate::ops::OpsContext,
     state: std::sync::Mutex<ActivityState>,
+    response_progress: std::sync::Mutex<Vec<(u64, std::time::Instant)>>,
     in_flight: AtomicU64,
     outstanding: AtomicU64,
     completed: AtomicU64,
+    drain_requested: AtomicBool,
     next_request_id: AtomicU64,
     /// Deferred request bodies still owned past `Service::call` return
     /// (Plan 174 Track B). While >0 the connection is not idle even when
@@ -68,9 +70,11 @@ impl ConnectionActivity {
                 last_activity: now,
                 last_write: now,
             }),
+            response_progress: std::sync::Mutex::new(Vec::new()),
             in_flight: AtomicU64::new(0),
             outstanding: AtomicU64::new(0),
             completed: AtomicU64::new(0),
+            drain_requested: AtomicBool::new(false),
             next_request_id: AtomicU64::new(1),
             deferred: AtomicU64::new(0),
             body_timeout_fired: AtomicBool::new(false),
@@ -151,12 +155,15 @@ impl ConnectionActivity {
     /// A response was handed to Hyper for transmission. Starts the
     /// write-progress budget and marks the connection as busy so the
     /// keep-alive idle timer cannot fire mid-response.
-    pub(crate) fn response_started(&self) {
+    pub(crate) fn response_started(&self, request_id: u64) {
         self.outstanding.fetch_add(1, Ordering::Relaxed);
         let now = std::time::Instant::now();
         if let Ok(mut state) = self.state.lock() {
             state.last_write = now;
             state.last_activity = now;
+        }
+        if let Ok(mut progress) = self.response_progress.lock() {
+            progress.push((request_id, now));
         }
         self.notify.notify_one();
     }
@@ -164,14 +171,57 @@ impl ConnectionActivity {
     /// A response body reached end-of-stream, failed, or was dropped
     /// (cancellation/disconnect/shutdown). Exactly-once per response via
     /// [`TrackedBody`]'s done flag.
-    pub(crate) fn response_finished(&self) {
+    pub(crate) fn response_finished(&self, request_id: u64) {
         if self.outstanding.fetch_sub(1, Ordering::Relaxed) == 0 {
             // Unreachable in correct operation (every finish pairs with one
             // start); restore the counter instead of wrapping to zero.
             self.outstanding.fetch_add(1, Ordering::Relaxed);
         }
+        if let Ok(mut progress) = self.response_progress.lock() {
+            progress.retain(|(id, _)| *id != request_id);
+        }
         self.touch();
         self.notify.notify_one();
+    }
+
+    /// Record progress attributable to one response body. H2 uses this
+    /// stream-local signal; a socket write by a sibling stream never updates
+    /// it.
+    pub(crate) fn response_progress(&self, request_id: u64) {
+        let now = std::time::Instant::now();
+        if let Ok(mut progress) = self.response_progress.lock() {
+            if let Some((_, last)) = progress.iter_mut().find(|(id, _)| *id == request_id) {
+                *last = now;
+            }
+        }
+        self.notify.notify_one();
+    }
+
+    pub(crate) fn h2_response_stalled(
+        &self,
+        now: std::time::Instant,
+        timeout: std::time::Duration,
+    ) -> bool {
+        self.response_progress
+            .lock()
+            .map(|progress| {
+                progress
+                    .iter()
+                    .any(|(_, last)| now.duration_since(*last) >= timeout)
+            })
+            .unwrap_or(false)
+    }
+
+    pub(crate) fn h2_response_deadline(
+        &self,
+        timeout: std::time::Duration,
+    ) -> Option<std::time::Instant> {
+        self.response_progress.lock().ok().and_then(|progress| {
+            progress
+                .iter()
+                .map(|(_, last)| last.checked_add(timeout).unwrap_or(*last))
+                .min()
+        })
     }
 
     /// A deferred body started (service returned with Active body).
@@ -198,6 +248,17 @@ impl ConnectionActivity {
 
     pub(crate) fn take_body_timeout(&self) -> bool {
         self.body_timeout_fired.swap(false, Ordering::AcqRel)
+    }
+
+    /// Request a protocol-level graceful drain (GOAWAY for HTTP/2). The
+    /// HTTP/1 adapter still uses its existing `Connection: close` mapping.
+    pub(crate) fn request_drain(&self) {
+        self.drain_requested.store(true, Ordering::Release);
+        self.notify.notify_one();
+    }
+
+    pub(crate) fn take_drain_request(&self) -> bool {
+        self.drain_requested.swap(false, Ordering::AcqRel)
     }
 
     pub(crate) fn snapshot(&self) -> (u64, u64, u64, u64, ActivityState) {
@@ -325,6 +386,7 @@ impl InFlightGuard {
                 disposition = LifecycleDisposition::close_after_response()
                     .with_graceful_drain()
                     .with_transport_termination();
+                self.request_activity.connection.request_drain();
             }
         }
         self.request_activity.response_started();
@@ -374,7 +436,7 @@ impl TrackedBody {
 
     pub(crate) fn finish(&self) {
         if !self.done.swap(true, Ordering::AcqRel) {
-            self.activity.response_finished();
+            self.activity.response_finished(self.request_id);
         }
     }
 }
@@ -398,7 +460,7 @@ impl RequestActivity {
     }
 
     fn response_started(&self) {
-        self.connection.response_started();
+        self.connection.response_started(self.id);
     }
 }
 
@@ -426,7 +488,11 @@ impl Body for TrackedBody {
                 this.finish();
                 Poll::Ready(Some(Err(e)))
             }
-            other => other,
+            Poll::Ready(Some(Ok(frame))) => {
+                this.activity.response_progress(this.request_id);
+                Poll::Ready(Some(Ok(frame)))
+            }
+            Poll::Pending => Poll::Pending,
         }
     }
 

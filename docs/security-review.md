@@ -13,6 +13,9 @@ eggserve defends against:
 - **Method abuse** — only GET and HEAD are allowed; all other methods return 405
 - **Request body abuse** — the built-in static service rejects body-bearing requests; custom services are bounded by their declared policy and the runtime ceiling
 - **Resource exhaustion** — connection limits, file-stream concurrency limits, header size limits, and timeouts prevent resource exhaustion
+- **HTTP/2 multiplexing exhaustion** — the optional Rust H2 path pins stream,
+  header, frame, flow-control, send-buffer, reset-state, and timeout budgets;
+  server-wide service admission remains a separate semaphore
 - **Log injection** — paths and headers are sanitized before logging
 
 ## Safe defaults
@@ -99,7 +102,9 @@ When directory listing is enabled:
 2. **Follow-symlinks mode uses canonicalize-based resolution** — TOCTOU window exists when `--follow-symlinks` is enabled; final canonical path is still verified against root. This mode is **not** covered by the descriptor-relative hardening guarantee and is treated as weaker/experimental.
 3. **macOS intermediate-component TOCTOU** — on macOS, the statat-to-openat gap for intermediate directory components may not be fully closed by `O_NOFOLLOW` on some filesystem configurations; the final component's `O_NOFOLLOW` open prevents swap attacks where supported by the platform.
 4. **Single-range only** — multi-range MIME responses are not supported; single-range requests function correctly
-5. **No HTTP/2** — HTTP/1.1 only
+5. **HTTP/2 scope** — the default build and Python facade remain HTTP/1.1-only;
+   the opt-in Rust `http2` feature adds bounded H2 transport with separate
+   stream and application-admission limits, pending Plan 186 qualification
 6. **No native TLS by default** — requires `tls` feature flag
 7. **Declared request-body policy** — static bodies are rejected; custom services may buffer or stream within configured limits
 8. **No authentication** — access control is network-level only (loopback bind)

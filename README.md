@@ -149,7 +149,13 @@ and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/
 They use public EggServe modules only, include readiness plus graceful
 shutdown, and are the recommended starting points for custom services.
 
-The runtime owns listeners, HTTP/1 parsing, framing, timeouts, and lifecycle;
+The runtime owns listeners, protocol parsing, framing, timeouts, and lifecycle.
+Default builds and the Python facade remain HTTP/1.1-shaped. Rust builds with
+the opt-in `http2` feature add cleartext prior-knowledge HTTP/2 and, when
+combined with `tls`, ALPN selection (`h2` before `http/1.1`) through the same
+canonical service pipeline. H2 resource limits are owned by `Http2Config` and
+remain separate from server-wide service admission. The feature is
+experimental pending Plan 186 interoperability qualification;
 `Service` owns request handling and response construction. Connections,
 in-flight service executions, and file streams have independent observable
 budgets; parser ceilings, keep-alive idle, per-connection request counts, and
@@ -172,10 +178,10 @@ request-body ceilings but cannot raise the runtime hard ceiling.
 Canonical `HttpVersion` metadata is non-exhaustive and represents HTTP/1.0,
 HTTP/1.1, HTTP/2, and HTTP/3 without silently relabeling an unsupported
 transport. `RequestHead::authority()` exposes validated effective host
-authority independently of HTTP/1 `Host` or future HTTP/2/3 pseudo-header
-spelling; forwarded headers remain untrusted. The current listener and
-caller-owned driver remain HTTP/1-only, and no H2/H3 wire protocol is enabled
-by this release.
+authority independently of HTTP/1 `Host` or HTTP/2 pseudo-header spelling;
+forwarded headers remain untrusted. `serve_http1_connection` remains a strict
+HTTP/1 entry point; `serve_http_connection` is the opt-in Rust H1/H2 entry
+point when the `http2` feature is enabled. HTTP/3 remains metadata-only.
 The `server` module
 is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`
@@ -211,7 +217,7 @@ the experimental `server` module a stable 1.0 API.
 - Path traversal and symlink escape are denied at library level. Unix safe
   defaults use descriptor-relative resolution; Windows is qualified for the
   executed handle-relative classes but remains trusted/local-content only.
-- HTTP/1.1, ranges, conditional requests, canonical response normalization
+- HTTP/1.1, optional Rust HTTP/2, ranges, conditional requests, canonical response normalization
   (including known/unknown-length streaming bodies with runtime-owned
   framing), and bounded resource admission are part of the implemented contract.
 - Final-boundary response privacy: `Server` suppressed by default (optional

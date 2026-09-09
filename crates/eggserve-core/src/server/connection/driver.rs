@@ -9,6 +9,7 @@
 //! capability is enabled because the canonical service boundary has no
 //! upgrade handoff (Plan 176 stays deferred).
 
+use bytes::Bytes;
 use std::convert::Infallible;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -16,6 +17,8 @@ use std::sync::Arc;
 use hyper::body::Incoming;
 use hyper::server::conn::http1;
 use hyper::{Request, Response};
+#[cfg(feature = "http2")]
+use hyper_util::rt::TokioExecutor;
 use hyper_util::rt::{TokioIo, TokioTimer};
 use tokio::sync::broadcast;
 
@@ -27,6 +30,18 @@ use super::activity::ConnectionActivity;
 use super::context::{ConnectionOutcome, ConnectionShutdown};
 use super::lifecycle::ConnectionRequests;
 use super::transport::ProgressIo;
+
+/// Wire protocol selected before the Hyper connection future is constructed.
+/// `Auto` is used for cleartext caller-owned streams and performs a bounded
+/// H2 prior-knowledge preface check. TLS callers use the negotiated ALPN to
+/// select `Http1` or `Http2` strictly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum WireProtocol {
+    Auto,
+    Http1,
+    #[cfg(feature = "http2")]
+    Http2,
+}
 
 /// Graceful-shutdown capability for the pinned Hyper connection future, so
 /// the shared driver below can close idle/stalled/expired connections
@@ -46,6 +61,19 @@ where
 {
     fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
         hyper::server::conn::http1::Connection::graceful_shutdown(self);
+    }
+}
+
+#[cfg(feature = "http2")]
+impl<I, S, E> ShutdownConn for hyper::server::conn::http2::Connection<I, S, E>
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin,
+    S: hyper::service::HttpService<Incoming, ResBody = BoxBodyInner, Error = Infallible>,
+    S::Future: Send + 'static,
+    E: hyper::rt::bounds::Http2ServerConnExec<S::Future, BoxBodyInner>,
+{
+    fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
+        hyper::server::conn::http2::Connection::graceful_shutdown(self);
     }
 }
 
@@ -93,6 +121,167 @@ fn hyper_builder(config: &RuntimeConfig) -> http1::Builder {
         .max_headers(http1_config.max_headers)
         .auto_date_header(false);
     builder
+}
+
+#[cfg(feature = "http2")]
+fn hyper2_builder(config: &RuntimeConfig) -> hyper::server::conn::http2::Builder<TokioExecutor> {
+    let h2 = &config.http2;
+    let mut builder = hyper::server::conn::http2::Builder::new(TokioExecutor::new());
+    builder
+        .timer(TokioTimer::new())
+        .initial_stream_window_size(h2.initial_stream_window_size)
+        .initial_connection_window_size(h2.initial_connection_window_size)
+        .max_frame_size(h2.max_frame_size)
+        .max_header_list_size(h2.max_header_list_size)
+        .max_concurrent_streams(h2.max_concurrent_streams)
+        .max_send_buf_size(h2.max_send_buf_size)
+        .max_local_error_reset_streams(h2.max_local_error_reset_streams)
+        .max_pending_accept_reset_streams(h2.max_pending_accept_reset_streams)
+        .adaptive_window(h2.adaptive_window)
+        .keep_alive_interval(h2.keep_alive_interval)
+        .keep_alive_timeout(h2.keep_alive_timeout)
+        .auto_date_header(false);
+    builder
+}
+
+const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
+
+/// An already-read protocol prefix replayed to Hyper before the underlying
+/// stream. The pre-read is necessary because Hyper's H1/H2 auto detector has
+/// no header-read timeout while it waits for the H2 preface.
+struct PrefixedIo<I> {
+    prefix: Bytes,
+    inner: I,
+}
+
+impl<I> PrefixedIo<I> {
+    fn new(prefix: Vec<u8>, inner: I) -> Self {
+        Self {
+            prefix: Bytes::from(prefix),
+            inner,
+        }
+    }
+}
+
+impl<I: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for PrefixedIo<I> {
+    fn poll_read(
+        mut self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &mut tokio::io::ReadBuf<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        if !self.prefix.is_empty() {
+            let count = self.prefix.len().min(buf.remaining());
+            buf.put_slice(&self.prefix.split_to(count));
+            return std::task::Poll::Ready(Ok(()));
+        }
+        std::pin::Pin::new(&mut self.inner).poll_read(_cx, buf)
+    }
+}
+
+impl<I: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PrefixedIo<I> {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<std::io::Result<()>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_shutdown(cx)
+    }
+
+    fn poll_write_vectored(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+        bufs: &[std::io::IoSlice<'_>],
+    ) -> std::task::Poll<std::io::Result<usize>> {
+        std::pin::Pin::new(&mut self.get_mut().inner).poll_write_vectored(cx, bufs)
+    }
+
+    fn is_write_vectored(&self) -> bool {
+        self.inner.is_write_vectored()
+    }
+}
+
+/// Classify a cleartext stream without losing bytes or weakening H1's header
+/// timeout. A stream that diverges from the H2 preface at any byte is H1;
+/// only the complete preface selects H2.
+async fn classify_cleartext<I>(
+    mut io: I,
+    config: &RuntimeConfig,
+    shutdown: &ConnectionShutdown,
+    activity: &Arc<ConnectionActivity>,
+    conn_id: u64,
+) -> Result<(PrefixedIo<I>, WireProtocol), ConnectionOutcome>
+where
+    I: tokio::io::AsyncRead + Unpin,
+{
+    use tokio::io::AsyncReadExt;
+    let mut prefix = Vec::with_capacity(H2_PREFACE.len());
+    let deadline = tokio::time::sleep(config.header_read_timeout);
+    tokio::pin!(deadline);
+    loop {
+        if !H2_PREFACE.starts_with(&prefix) {
+            return Ok((PrefixedIo::new(prefix, io), WireProtocol::Http1));
+        }
+        if prefix.len() == H2_PREFACE.len() {
+            #[cfg(feature = "http2")]
+            if config.http2.enabled {
+                return Ok((PrefixedIo::new(prefix, io), WireProtocol::Http2));
+            }
+            return Ok((PrefixedIo::new(prefix, io), WireProtocol::Http1));
+        }
+        let mut chunk = [0u8; 24];
+        let remaining = H2_PREFACE.len() - prefix.len();
+        tokio::select! {
+            _ = shutdown.cancelled() => return Err(ConnectionOutcome::Shutdown),
+            _ = &mut deadline => {
+                activity.ops().counters().header_timeouts.fetch_add(1, Ordering::Relaxed);
+                activity.ops().emit(crate::ops::Event::new(
+                    crate::ops::Severity::Warn,
+                    crate::ops::EventKind::HeaderTimeout,
+                    "protocol preface timeout",
+                ).connection_id(conn_id));
+                return Err(ConnectionOutcome::HeaderTimeout);
+            }
+            result = io.read(&mut chunk[..remaining]) => {
+                match result {
+                    Ok(0) => return Ok((PrefixedIo::new(prefix, io), WireProtocol::Http1)),
+                    Ok(count) => prefix.extend_from_slice(&chunk[..count]),
+                    Err(_) => return Err(ConnectionOutcome::ClientError),
+                }
+            }
+        }
+    }
+}
+
+fn record_protocol(protocol: WireProtocol, conn_id: u64, ops: &crate::ops::OpsContext) {
+    let name = match protocol {
+        WireProtocol::Auto => "auto",
+        WireProtocol::Http1 => "http/1.1",
+        #[cfg(feature = "http2")]
+        WireProtocol::Http2 => "h2",
+    };
+    ops.emit(
+        crate::ops::Event::new(
+            crate::ops::Severity::Debug,
+            crate::ops::EventKind::ProtocolNegotiated,
+            "application protocol selected",
+        )
+        .connection_id(conn_id)
+        .field(crate::ops::Field::Str("protocol".into(), name.into())),
+    );
 }
 
 /// Far-future deadline used when a timeout is effectively disabled by a huge
@@ -229,6 +418,7 @@ async fn drive_connection<C, F>(
     activity: &Arc<ConnectionActivity>,
     requests: &Arc<ConnectionRequests>,
     conn_id: u64,
+    multiplexed: bool,
     shutdown: F,
 ) -> ConnectionOutcome
 where
@@ -265,6 +455,11 @@ where
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             return ConnectionOutcome::ClientError;
         }
+        if multiplexed && activity.take_drain_request() {
+            graceful_close(conn.as_mut(), config, conn_id, &ops).await;
+            requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id, &ops);
+            return ConnectionOutcome::Shutdown;
+        }
         let (in_flight, outstanding, _completed, deferred, state) = activity.snapshot();
         let idle = in_flight == 0 && outstanding == 0 && deferred == 0;
         if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
@@ -282,8 +477,12 @@ where
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             return ConnectionOutcome::IdleTimeout;
         }
-        if outstanding > 0 && now.duration_since(state.last_write) >= config.response_write_timeout
-        {
+        let write_stalled = if multiplexed {
+            activity.h2_response_stalled(now, config.response_write_timeout)
+        } else {
+            outstanding > 0 && now.duration_since(state.last_write) >= config.response_write_timeout
+        };
+        if write_stalled {
             ops.counters()
                 .write_stall_timeouts
                 .fetch_add(1, Ordering::Relaxed);
@@ -308,7 +507,11 @@ where
                     .unwrap_or_else(far_future),
             );
         }
-        if outstanding > 0 {
+        if multiplexed {
+            if let Some(deadline) = activity.h2_response_deadline(config.response_write_timeout) {
+                wake = wake.min(deadline);
+            }
+        } else if outstanding > 0 {
             wake = wake.min(
                 state
                     .last_write
@@ -383,7 +586,16 @@ where
     let shutdown = async move {
         let _ = shutdown_rx.recv().await;
     };
-    drive_connection(conn.as_mut(), config, activity, requests, conn_id, shutdown).await
+    drive_connection(
+        conn.as_mut(),
+        config,
+        activity,
+        requests,
+        conn_id,
+        false,
+        shutdown,
+    )
+    .await
 }
 
 /// Drive a Hyper connection with a caller-owned shutdown token.
@@ -408,12 +620,151 @@ where
             Response = Response<BoxBodyInner>,
             Error = Infallible,
         > + 'static,
+    S::Future: Send + 'static,
 {
-    let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
-    let conn = hyper_builder(config).serve_connection(io, service);
-    let mut conn = std::pin::pin!(conn);
+    serve_selected_with_token(
+        io.into_inner(),
+        service,
+        config,
+        activity,
+        requests,
+        shutdown,
+        conn_id,
+        WireProtocol::Http1,
+    )
+    .await
+}
+
+/// Drive a connection after the protocol has been selected by TLS ALPN or a
+/// cleartext preface check. This is also the shared implementation used by
+/// the public multi-protocol caller-owned entry point.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn serve_selected_with_token<I, S>(
+    io: I,
+    service: S,
+    config: &RuntimeConfig,
+    activity: &Arc<ConnectionActivity>,
+    requests: &Arc<ConnectionRequests>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+    protocol: WireProtocol,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: hyper::service::Service<
+            Request<Incoming>,
+            Response = Response<BoxBodyInner>,
+            Error = Infallible,
+        > + 'static,
+    S::Future: Send + 'static,
+{
+    if protocol == WireProtocol::Auto {
+        return match classify_cleartext(io, config, shutdown, activity, conn_id).await {
+            Ok((io, selected)) => {
+                serve_selected_resolved_with_token(
+                    io, service, config, activity, requests, shutdown, conn_id, selected,
+                )
+                .await
+            }
+            Err(outcome) => outcome,
+        };
+    }
+    serve_selected_resolved_with_token(
+        io, service, config, activity, requests, shutdown, conn_id, protocol,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn serve_selected_resolved_with_token<I, S>(
+    io: I,
+    service: S,
+    config: &RuntimeConfig,
+    activity: &Arc<ConnectionActivity>,
+    requests: &Arc<ConnectionRequests>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+    protocol: WireProtocol,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: hyper::service::Service<
+            Request<Incoming>,
+            Response = Response<BoxBodyInner>,
+            Error = Infallible,
+        > + 'static,
+    S::Future: Send + 'static,
+{
+    let ops = activity.ops().clone();
+
+    record_protocol(protocol, conn_id, &ops);
+    let io = TokioIo::new(ProgressIo::new(io, activity.clone()));
     let shutdown = async move {
         shutdown.cancelled().await;
     };
-    drive_connection(conn.as_mut(), config, activity, requests, conn_id, shutdown).await
+    match protocol {
+        WireProtocol::Http1 => {
+            let conn = hyper_builder(config).serve_connection(io, service);
+            let mut conn = std::pin::pin!(conn);
+            drive_connection(
+                conn.as_mut(),
+                config,
+                activity,
+                requests,
+                conn_id,
+                false,
+                shutdown,
+            )
+            .await
+        }
+        #[cfg(feature = "http2")]
+        WireProtocol::Http2 => {
+            let conn = hyper2_builder(config).serve_connection(io, service);
+            let mut conn = std::pin::pin!(conn);
+            drive_connection(
+                conn.as_mut(),
+                config,
+                activity,
+                requests,
+                conn_id,
+                true,
+                shutdown,
+            )
+            .await
+        }
+        WireProtocol::Auto => unreachable!("auto was resolved above"),
+    }
+}
+
+/// Drive a cleartext caller-owned stream, accepting H1 or H2 prior knowledge.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn serve_hyper_with_token_auto<I, S>(
+    io: TokioIo<I>,
+    service: S,
+    config: &RuntimeConfig,
+    activity: &Arc<ConnectionActivity>,
+    requests: &Arc<ConnectionRequests>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: hyper::service::Service<
+            Request<Incoming>,
+            Response = Response<BoxBodyInner>,
+            Error = Infallible,
+        > + 'static,
+    S::Future: Send + 'static,
+{
+    serve_selected_with_token(
+        io.into_inner(),
+        service,
+        config,
+        activity,
+        requests,
+        shutdown,
+        conn_id,
+        WireProtocol::Auto,
+    )
+    .await
 }

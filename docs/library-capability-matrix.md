@@ -37,7 +37,7 @@ its status using a constrained vocabulary.
 |---|---|---|---|---|---|---|---|
 | Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
 | Plaintext HTTP/1.1 | stable | — | experimental | stable | — | stable | stable |
-| TLS server (rustls, HTTP/1.1 ALPN) | stable | — | experimental (feature-gated `tls`: `RuntimeConfig::tls_config`, accept-loop handshake) | stable | — | stable | stable |
+| TLS server (rustls; H1 by default, experimental H2 ALPN with `http2,tls`) | stable | — | experimental (feature-gated `tls`/`http2`: `RuntimeConfig::tls_config`, ALPN-selected accept loop) | stable (H1-only) | — | stable | stable |
 | GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
 | Request-target validation | stable | stable | experimental | stable | — | stable | — |
 | Request-body policy | stable | stable | experimental | stable | — | stable | stable |
@@ -68,6 +68,7 @@ its status using a constrained vocabulary.
 | Streaming response bodies (known/unknown; `Send`, not `Sync`, producer) | — | stable | experimental | — | — | — | — |
 | Low-level handler-only service substrate (`eggserve.lowlevel`) | — | — | experimental (server seam) | stable | — | — | stable |
 | Caller-owned connection driver (`serve_http1_connection`) | — | — | experimental | — | — | — | — |
+| Caller-owned H1/H2 prior-knowledge driver (`serve_http_connection`, `http2`) | — | — | experimental | — | — | — | — |
 | Downstream HTTP-only app-server bridge (bounded full-duplex, deferred body, `RequestLifecycle`, admission split; qualified by `app_server_consumer`) | — | stable (byte metadata, `ResponseStream`) | experimental (`Service`, lifecycle, driver) | — | — | — | — |
 | Response privacy policy (Server/Date/denylist/errors, static validators) | — | stable (static validators) | experimental | stable (safe subset) | — | stable | stable |
 | Generic byte responses | — | stable | — | stable | — | — | stable |

@@ -18,6 +18,125 @@ use std::time::Duration;
 #[cfg(feature = "tls")]
 use std::sync::Arc;
 
+/// EggServe-owned HTTP/2 transport limits.
+///
+/// The values are sent to Hyper explicitly so an upgrade of Hyper or h2 does
+/// not silently change the resource envelope. This configuration is only
+/// available in builds with the `http2` feature; the Python compatibility
+/// crate and H1-only builds therefore retain their existing surface.
+#[cfg(feature = "http2")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Http2Config {
+    /// Whether this runtime accepts cleartext prior-knowledge H2 and H2 on
+    /// TLS connections whose ALPN negotiation selected `h2`.
+    pub enabled: bool,
+    /// Maximum concurrent request streams advertised per connection.
+    pub max_concurrent_streams: u32,
+    /// Maximum decoded header-list size accepted by Hyper/h2.
+    pub max_header_list_size: u32,
+    /// Maximum HTTP/2 frame size emitted by the server.
+    pub max_frame_size: u32,
+    /// Initial receive window for each H2 stream.
+    pub initial_stream_window_size: u32,
+    /// Initial receive window for the H2 connection.
+    pub initial_connection_window_size: u32,
+    /// Maximum pending outbound bytes per H2 stream.
+    pub max_send_buf_size: usize,
+    /// Maximum locally-reset streams retained before Hyper sends GOAWAY.
+    pub max_local_error_reset_streams: usize,
+    /// Maximum peer-reset streams pending acceptance before Hyper sends
+    /// GOAWAY.
+    pub max_pending_accept_reset_streams: usize,
+    /// Whether Hyper may adapt flow-control windows. Disabled by default so
+    /// the initial budgets above remain deterministic.
+    pub adaptive_window: bool,
+    /// Optional H2 PING interval. Disabled by default.
+    pub keep_alive_interval: Option<Duration>,
+    /// Timeout for an H2 keep-alive PING acknowledgement.
+    pub keep_alive_timeout: Duration,
+}
+
+#[cfg(feature = "http2")]
+impl Default for Http2Config {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            max_concurrent_streams: 100,
+            max_header_list_size: 32 * 1024,
+            max_frame_size: 16 * 1024,
+            initial_stream_window_size: 256 * 1024,
+            initial_connection_window_size: 1024 * 1024,
+            max_send_buf_size: 256 * 1024,
+            max_local_error_reset_streams: 1024,
+            max_pending_accept_reset_streams: 20,
+            adaptive_window: false,
+            keep_alive_interval: None,
+            keep_alive_timeout: Duration::from_secs(20),
+        }
+    }
+}
+
+#[cfg(feature = "http2")]
+impl Http2Config {
+    fn validate(&self) -> Result<(), crate::server::errors::ServerError> {
+        let invalid = |field: &str, detail: &str| {
+            crate::server::errors::ServerError::Config(format!("invalid http2.{field}: {detail}"))
+        };
+        if self.max_concurrent_streams == 0 {
+            return Err(invalid(
+                "max_concurrent_streams",
+                "must be greater than zero",
+            ));
+        }
+        if self.max_header_list_size < 1024 {
+            return Err(invalid(
+                "max_header_list_size",
+                "must be at least 1024 bytes",
+            ));
+        }
+        if self.max_frame_size < 16_384 || self.max_frame_size > 16_777_215 {
+            return Err(invalid(
+                "max_frame_size",
+                "must be between 16384 and 16777215 bytes",
+            ));
+        }
+        if self.initial_stream_window_size == 0 {
+            return Err(invalid(
+                "initial_stream_window_size",
+                "must be greater than zero",
+            ));
+        }
+        if self.initial_connection_window_size == 0 {
+            return Err(invalid(
+                "initial_connection_window_size",
+                "must be greater than zero",
+            ));
+        }
+        if self.max_send_buf_size == 0 || self.max_send_buf_size > u32::MAX as usize {
+            return Err(invalid(
+                "max_send_buf_size",
+                "must be between 1 and u32::MAX bytes",
+            ));
+        }
+        if self.max_local_error_reset_streams == 0 {
+            return Err(invalid(
+                "max_local_error_reset_streams",
+                "must be greater than zero",
+            ));
+        }
+        if self.max_pending_accept_reset_streams == 0 {
+            return Err(invalid(
+                "max_pending_accept_reset_streams",
+                "must be greater than zero",
+            ));
+        }
+        if self.keep_alive_timeout.is_zero() {
+            return Err(invalid("keep_alive_timeout", "must be greater than zero"));
+        }
+        Ok(())
+    }
+}
+
 /// Transport-level runtime configuration.
 ///
 /// All fields have safe defaults that match or strengthen the CLI defaults.
@@ -133,6 +252,10 @@ pub struct RuntimeConfig {
     /// never triggers it. Covers files, buffered bodies, and streams, on
     /// TCP, TLS, and caller-owned transports. Default: 30s.
     pub response_write_timeout: Duration,
+    /// HTTP/2 transport policy and resource limits. Present only in builds
+    /// compiled with the `http2` feature.
+    #[cfg(feature = "http2")]
+    pub http2: Http2Config,
 }
 
 /// HTTP/1-only parser and framing settings projected from the compatibility
@@ -171,6 +294,8 @@ impl Default for RuntimeConfig {
             keep_alive_idle_timeout: rl::DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT,
             max_requests_per_connection: None,
             response_write_timeout: rl::DEFAULT_RESPONSE_WRITE_TIMEOUT,
+            #[cfg(feature = "http2")]
+            http2: Http2Config::default(),
         }
     }
 }
@@ -213,6 +338,8 @@ impl RuntimeConfig {
             keep_alive_idle_timeout: None,
             max_requests_per_connection: None,
             response_write_timeout: None,
+            #[cfg(feature = "http2")]
+            http2: None,
         }
     }
 
@@ -253,6 +380,10 @@ impl RuntimeConfig {
         self.response_policy.validate().map_err(|e| {
             crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
         })?;
+        #[cfg(feature = "http2")]
+        if self.http2.enabled {
+            self.http2.validate()?;
+        }
         Ok(())
     }
 
@@ -291,6 +422,8 @@ impl RuntimeConfig {
             keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
             max_requests_per_connection: shared.max_requests_per_connection,
             response_write_timeout: shared.response_write_timeout,
+            #[cfg(feature = "http2")]
+            http2: Http2Config::default(),
         }
     }
 }
@@ -325,6 +458,8 @@ pub struct RuntimeConfigBuilder {
     keep_alive_idle_timeout: Option<Duration>,
     max_requests_per_connection: Option<Option<u64>>,
     response_write_timeout: Option<Duration>,
+    #[cfg(feature = "http2")]
+    http2: Option<Http2Config>,
 }
 
 impl RuntimeConfigBuilder {
@@ -534,6 +669,13 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the HTTP/2 transport policy and resource limits.
+    #[cfg(feature = "http2")]
+    pub fn http2(mut self, config: Http2Config) -> Self {
+        self.http2 = Some(config);
+        self
+    }
+
     /// Build the runtime configuration.
     ///
     /// Shared runtime checks delegate to the canonical Plan 179 kernel; the
@@ -612,6 +754,12 @@ impl RuntimeConfigBuilder {
         response_policy.validate().map_err(|e| {
             crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
         })?;
+        #[cfg(feature = "http2")]
+        let http2 = self.http2.unwrap_or_default();
+        #[cfg(feature = "http2")]
+        if http2.enabled {
+            http2.validate()?;
+        }
         Ok(RuntimeConfig {
             bind: self
                 .bind
@@ -637,6 +785,8 @@ impl RuntimeConfigBuilder {
             keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
             max_requests_per_connection: shared.max_requests_per_connection,
             response_write_timeout: shared.response_write_timeout,
+            #[cfg(feature = "http2")]
+            http2,
         })
     }
 }
@@ -721,6 +871,13 @@ mod tests {
         assert_eq!(config.keep_alive_idle_timeout, Duration::from_secs(60));
         assert_eq!(config.max_requests_per_connection, None);
         assert_eq!(config.response_write_timeout, Duration::from_secs(30));
+        #[cfg(feature = "http2")]
+        {
+            assert_eq!(config.http2.max_concurrent_streams, 100);
+            assert_eq!(config.http2.max_header_list_size, 32 * 1024);
+            assert_eq!(config.http2.max_frame_size, 16 * 1024);
+            assert!(config.http2.validate().is_ok());
+        }
     }
 
     #[test]
@@ -808,6 +965,28 @@ mod tests {
             .build()
             .unwrap_err();
         assert!(err.to_string().contains("max_request_body_bytes"));
+    }
+
+    #[cfg(feature = "http2")]
+    #[test]
+    fn invalid_http2_transport_limits_are_rejected() {
+        let h2 = Http2Config {
+            max_concurrent_streams: 0,
+            ..Http2Config::default()
+        };
+        assert!(RuntimeConfig::builder().http2(h2).build().is_err());
+
+        let h2 = Http2Config {
+            max_frame_size: 1024,
+            ..Http2Config::default()
+        };
+        assert!(RuntimeConfig::builder().http2(h2).build().is_err());
+
+        let h2 = Http2Config {
+            keep_alive_timeout: Duration::ZERO,
+            ..Http2Config::default()
+        };
+        assert!(RuntimeConfig::builder().http2(h2).build().is_err());
     }
 
     #[test]

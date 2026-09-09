@@ -59,11 +59,15 @@ pub mod service;
 pub mod static_service;
 
 pub use crate::primitives::request::Request;
+#[cfg(feature = "http2")]
+pub use config::Http2Config;
 pub use config::{try_from_serve_config, RuntimeConfig, RuntimeConfigBuilder};
 pub use connection::{
     serve_http1_connection, serve_http1_connection_with_id, ConnectionContext, ConnectionOutcome,
     ConnectionShutdown,
 };
+#[cfg(feature = "http2")]
+pub use connection::{serve_http_connection, serve_http_connection_with_id};
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
 pub use lifecycle::LifecycleState;
@@ -645,8 +649,12 @@ async fn accept_loop_generic<S: Service>(
                             {
                                 if let Some(tls_config) = &config.tls_config {
                                     let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    match accept_tls(stream, &tls_acceptor, config.tls_handshake_timeout, conn_id, &conn_ops).await {
-                                        Some((tls_stream, tls_info)) => {
+                                    #[cfg(feature = "http2")]
+                                    let h2_enabled = config.http2.enabled;
+                                    #[cfg(not(feature = "http2"))]
+                                    let h2_enabled = false;
+                                    match accept_tls(stream, &tls_acceptor, config.tls_handshake_timeout, h2_enabled, conn_id, &conn_ops).await {
+                                        Some((tls_stream, tls_info, protocol)) => {
                                             conn_ops.emit(
                                                 crate::ops::Event::new(
                                                     crate::ops::Severity::Debug,
@@ -660,7 +668,7 @@ async fn accept_loop_generic<S: Service>(
                                                 remote_addr,
                                                 Some(tls_info),
                                             );
-                                            let _ = connection::serve_http1_connection_with_id(
+                                            let _ = connection::serve_http_connection_with_id_and_protocol(
                                                 tls_stream,
                                                 ArcService(service),
                                                 config.clone(),
@@ -668,6 +676,7 @@ async fn accept_loop_generic<S: Service>(
                                                 runtime_state.clone(),
                                                 &conn_shutdown,
                                                 conn_id,
+                                                protocol,
                                             ).await;
                                             return;
                                         }
@@ -683,7 +692,7 @@ async fn accept_loop_generic<S: Service>(
                                 remote_addr,
                                 None,
                             );
-                            let _ = connection::serve_http1_connection_with_id(
+                            let _ = connection::serve_http_connection_with_id_and_protocol(
                                 stream,
                                 ArcService(service),
                                 config.clone(),
@@ -691,6 +700,7 @@ async fn accept_loop_generic<S: Service>(
                                 runtime_state.clone(),
                                 &conn_shutdown,
                                 conn_id,
+                                connection::driver::WireProtocol::Auto,
                             ).await;
                         });
                     }
@@ -810,16 +820,60 @@ async fn accept_tls(
     stream: tokio::net::TcpStream,
     tls_acceptor: &tokio_rustls::TlsAcceptor,
     timeout: std::time::Duration,
+    h2_enabled: bool,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) -> Option<(
     tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
     crate::primitives::connection_info::TlsInfo,
+    connection::driver::WireProtocol,
 )> {
     match tokio::time::timeout(timeout, tls_acceptor.accept(stream)).await {
         Ok(Ok(tls_stream)) => {
+            let protocol = {
+                let (_io, conn) = tls_stream.get_ref();
+                #[cfg(feature = "http2")]
+                if conn
+                    .alpn_protocol()
+                    .is_some_and(|protocol| protocol == b"h2")
+                {
+                    if !h2_enabled {
+                        ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::TlsHandshakeFailure,
+                                "TLS negotiated disabled HTTP/2 protocol",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        return None;
+                    }
+                    connection::driver::WireProtocol::Http2
+                } else {
+                    connection::driver::WireProtocol::Http1
+                }
+                #[cfg(not(feature = "http2"))]
+                {
+                    let _ = h2_enabled;
+                    if conn
+                        .alpn_protocol()
+                        .is_some_and(|protocol| protocol == b"h2")
+                    {
+                        ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::TlsHandshakeFailure,
+                                "TLS negotiated unavailable HTTP/2 protocol",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        return None;
+                    }
+                    connection::driver::WireProtocol::Http1
+                }
+            };
             let tls_info = extract_tls_info(&tls_stream);
-            Some((tls_stream, tls_info))
+            Some((tls_stream, tls_info, protocol))
         }
         Ok(Err(_)) => {
             ops.emit(

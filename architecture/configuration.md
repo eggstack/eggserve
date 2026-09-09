@@ -12,18 +12,23 @@ shared checks to the kernel and appends static-only budgets;
 `RuntimeConfigBuilder::build()` builds the candidate shared group once and
 adapts kernel violations to `ServerError::Config`;
 `try_from_serve_config()` validates `Limits` then projects through the single
-`RuntimeConfig::from_shared_runtime` helper. No new knobs were added.
+`RuntimeConfig::from_shared_runtime` helper. Plan 179 shared fields remain
+single-source; the later feature-gated `Http2Config` is intentionally a
+protocol-owned namespace rather than a duplicate shared knob set.
 The internal `RuntimeConfig::http1_config()` projection owns the HTTP/1 parser
 view of the compatibility `max_buf_size` and `max_headers` fields without
-duplicating defaults or validation. Future protocol-specific controls belong
-to their own projections.
+duplicating defaults or validation. With the `http2` feature,
+`RuntimeConfig::http2` owns the bounded H2 transport controls and the driver
+projects them directly into Hyper's HTTP/2 builder. Future protocol-specific
+controls belong to their own projections.
 
 ## Ownership split
 
 **Runtime/transport** (canonical kernel in `runtime_limits.rs`):
 
 - Connection/file-stream concurrency, request-body ceiling, HTTP/1
-  parser buffer/header/target limits, in-flight service admission,
+  parser buffer/header/target limits, optional HTTP/2 stream/flow-control
+  limits, in-flight service admission,
   header/TLS/handshake/handler/body/total/shutdown/keep-alive/response-write
   timeouts, max requests per connection, file-stream chunk size
 - `RuntimeConfig` fields — transport enforcement; `Limits` fields — validated
@@ -94,6 +99,16 @@ breaking its current API.
 | `max_request_target_bytes` | `RuntimeConfig` | 8192 | 128–65536 | `--max-request-target-bytes` | `max_request_target_bytes` (`lowlevel`; compat default) | Post-parse target check in `convert_request_head`; 414 pre-service |
 
 Hyper exposes no aggregate header-byte, request-target, or request-line knob: the request line is bounded jointly by the parser buffer and the target ceiling.
+
+### HTTP/2 transport limits (`http2` feature)
+
+`Http2Config` is opt-in and transport-owned. Its defaults are explicit and
+validated independently of the server-wide `max_in_flight_requests` admission
+semaphore: 100 concurrent streams, 32 KiB decoded header list, 16 KiB maximum
+frame, 256 KiB stream receive window, 1 MiB connection receive window, and a
+256 KiB send buffer. Reset-flood ceilings and optional keepalive settings are
+also validated by the config owner. The native Rust runtime uses cleartext
+prior knowledge and TLS ALPN; the Python compatibility facade remains H1-only.
 
 ### Timeouts
 

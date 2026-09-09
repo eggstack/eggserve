@@ -46,7 +46,10 @@ Then start eggserve without TLS:
 eggserve --directory public
 ```
 
-This is the recommended pattern for production deployments. Reverse proxies handle certificate management, renewal, HTTP/2, and other TLS features that eggserve intentionally does not implement.
+This is the recommended pattern for production deployments. Reverse proxies
+handle certificate management, renewal, public HTTP/2 policy, and other edge
+features. EggServe's native Rust `http2` feature is experimental and remains
+subject to Plan 186 qualification; the Python compatibility facade is H1-only.
 
 ### Connection metadata behind a reverse proxy
 
@@ -62,7 +65,12 @@ The reverse-proxy profile is the preferred public deployment. eggserve binds to 
 
 ### Production profile: unix-direct-https
 
-Native TLS is functional for small deployments or internal tools where reverse proxy complexity is not warranted. It is limited to HTTP/1.1 with manual certificate management. It is not an edge platform — no ACME, virtual hosting, HTTP/2, or multi-certificate routing. External qualification pending. See README.md for the full specification.
+Native TLS is functional for small deployments or internal tools where reverse
+proxy complexity is not warranted. The default `tls` build is H1-only; a Rust
+build with `http2,tls` can negotiate H2 via ALPN, but remains experimental and
+is not an edge platform — no ACME, virtual hosting, or multi-certificate
+routing. External qualification pending. See README.md for the full
+specification.
 
 ## Per-profile resource defaults (Plan 164)
 

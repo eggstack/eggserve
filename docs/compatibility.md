@@ -55,7 +55,9 @@ python -m eggserve [DIRECTORY] [--bind HOST:PORT]  # eggserve via Python
 
 eggserve currently does not support:
 
-- **HTTP/2** — HTTP/1.1 only
+- **HTTP/2** — the Python compatibility facade and default CLI remain
+  HTTP/1.1-only; native Rust builds may opt into the experimental `http2`
+  feature. This does not change the `http.server`-shaped Python contract.
 - **CGI** — intentionally unsupported (Plan 167 no-go; legacy subprocess execution removed from the Python 3.15 `http.server` direction)
 - **FastCGI** — intentionally unsupported (never an `http.server` feature; downstream gateway concern)
 - **PUT/POST/DELETE** — read-only by design

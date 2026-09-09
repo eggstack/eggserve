@@ -21,6 +21,7 @@ path = "src/main.rs"
 
 [features]
 default = []
+http2 = ["eggserve-core/http2"]
 tls = ["eggserve-core/tls"]
 
 [dependencies]

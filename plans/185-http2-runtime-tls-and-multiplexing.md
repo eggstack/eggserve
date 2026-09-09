@@ -2,7 +2,10 @@
 
 ## Status
 
-**PLANNED — native HTTP/2 implementation after Plan 184; Rust runtime/CLI/static first, Python compatibility facade remains HTTP/1.1-shaped.**
+**IMPLEMENTED — native HTTP/2 runtime path landed behind the opt-in `http2`
+feature; Rust runtime/CLI/static first, Python compatibility facade remains
+HTTP/1.1-shaped. Plan 186 still owns interoperability and release
+qualification.**
 
 Prerequisites: Plans 183 and 184 complete. Do not begin by merely turning on Hyper's `http2` feature against the old HTTP/1 lifecycle pipeline.
 
@@ -403,3 +406,29 @@ Plan 186 adds broader interoperability/conformance/release qualification; Plan 1
 ## Handoff
 
 Plan 185 is complete when native H2 is functionally correct and hardened under deterministic tests. It is not yet the release-support declaration. Plan 186 owns cross-implementation conformance, operational qualification, documentation finalization, and the decision to label H2 supported.
+
+## Implementation record
+
+The implementation uses Hyper/Hyper-Util's native HTTP/2 server driver; no
+second protocol stack was added. `Http2Config` owns explicit stream, header,
+frame, flow-control, send-buffer, reset-state, and optional keepalive limits.
+The strict `serve_http1_connection` API remains unchanged, while the
+feature-gated `serve_http_connection` API and the TCP/TLS runtime select H1 or
+H2. Cleartext selection is bounded prior-knowledge detection, TLS selection is
+ALPN (`h2`, then `http/1.1`), and HTTP/1 `Upgrade: h2c` remains unsupported.
+
+Request conversion maps H2 version, authority, scheme, and duplicate-preserving
+ordinary headers into the canonical types. H2 bypasses HTTP/1 transfer-framing
+validation; Hyper owns H2 connection-specific header rejection and canonical
+response normalization remains the single response path. H2 response progress
+is tracked per stream, so sibling socket writes cannot mask a stalled response.
+Because Hyper's public server API does not expose a safe stream-reset hook from
+the response-body adapter, the bounded fallback for that rare stall is
+connection shutdown after lifecycle cancellation; this limitation is explicit
+and remains a Plan 186 qualification item.
+
+Deterministic acceptance coverage includes cleartext prior knowledge with
+multiple concurrent streams, canonical H2 metadata, strict caller-owned H1
+regression behavior, protocol event recording, and TLS ALPN selection/fallback.
+Broader interoperability, reset-stream isolation, flow-control stall evidence,
+and release-support labeling remain intentionally deferred to Plan 186.

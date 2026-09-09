@@ -81,7 +81,11 @@ use crate::server::service::Service;
 use crate::server::RuntimeState;
 
 use self::activity::ConnectionActivity;
-use self::driver::{serve_connection, serve_hyper_with_token};
+#[cfg(feature = "http2")]
+use self::driver::serve_selected_with_token;
+use self::driver::{
+    serve_connection, serve_hyper_with_token, serve_hyper_with_token_auto, WireProtocol,
+};
 use self::lifecycle::ConnectionRequests;
 use self::pipeline::make_canonical_hyper_service;
 
@@ -232,6 +236,66 @@ where
     .await
 }
 
+/// Serve one connection while selecting HTTP/1.1 or HTTP/2 prior knowledge.
+///
+/// Cleartext streams are classified by the HTTP/2 connection preface; TLS
+/// listeners select the protocol from ALPN before entering this same service
+/// pipeline. HTTP/1.1 callers that require a strict wire contract should use
+/// [`serve_http1_connection`] instead.
+#[cfg(feature = "http2")]
+pub async fn serve_http_connection<I, S>(
+    io: I,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    let conn_id = runtime_state.ops().next_connection_id();
+    serve_http_connection_with_id(
+        io,
+        service,
+        config,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+    )
+    .await
+}
+
+/// Multi-protocol counterpart to [`serve_http1_connection_with_id`].
+#[cfg(feature = "http2")]
+pub async fn serve_http_connection_with_id<I, S>(
+    io: I,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    serve_http_connection_with_id_and_protocol(
+        io,
+        service,
+        config,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+        WireProtocol::Auto,
+    )
+    .await
+}
+
 /// Serve one HTTP/1 connection with an explicit connection ID.
 ///
 /// Same as [`serve_http1_connection`] but uses the caller-supplied `conn_id`
@@ -246,6 +310,35 @@ pub async fn serve_http1_connection_with_id<I, S>(
     runtime_state: Arc<RuntimeState>,
     shutdown: &ConnectionShutdown,
     conn_id: u64,
+) -> ConnectionOutcome
+where
+    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+    S: Service,
+{
+    serve_http_connection_with_id_and_protocol(
+        io,
+        service,
+        config,
+        context,
+        runtime_state,
+        shutdown,
+        conn_id,
+        WireProtocol::Http1,
+    )
+    .await
+}
+
+/// Internal protocol-selected entry used by TCP/TLS servers.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn serve_http_connection_with_id_and_protocol<I, S>(
+    io: I,
+    service: S,
+    config: Arc<RuntimeConfig>,
+    context: ConnectionContext,
+    runtime_state: Arc<RuntimeState>,
+    shutdown: &ConnectionShutdown,
+    conn_id: u64,
+    protocol: WireProtocol,
 ) -> ConnectionOutcome
 where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -288,16 +381,46 @@ where
         conn_id,
         ops,
     );
-    serve_hyper_with_token(
-        io,
-        hyper_service,
-        &config,
-        &activity,
-        &requests,
-        shutdown,
-        conn_id,
-    )
-    .await
+    match protocol {
+        WireProtocol::Http1 => {
+            serve_hyper_with_token(
+                io,
+                hyper_service,
+                &config,
+                &activity,
+                &requests,
+                shutdown,
+                conn_id,
+            )
+            .await
+        }
+        #[cfg(feature = "http2")]
+        WireProtocol::Http2 => {
+            serve_selected_with_token(
+                io.into_inner(),
+                hyper_service,
+                &config,
+                &activity,
+                &requests,
+                shutdown,
+                conn_id,
+                WireProtocol::Http2,
+            )
+            .await
+        }
+        WireProtocol::Auto => {
+            serve_hyper_with_token_auto(
+                io,
+                hyper_service,
+                &config,
+                &activity,
+                &requests,
+                shutdown,
+                conn_id,
+            )
+            .await
+        }
+    }
 }
 
 #[cfg(test)]

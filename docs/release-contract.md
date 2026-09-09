@@ -35,12 +35,13 @@ free-threaded CPython are not supported.
 |---------|---------|---------|
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
+| `http2` | No | Experimental bounded native Rust HTTP/2 runtime; not enabled by the Python compatibility facade |
 
 ## Runtime Service Boundary (Experimental)
 
 **Stability**: All `server` module types are **experimental**. The interface may change in any release.
 
-The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns.
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS (feature-gated), and HTTP/1 connection handling by default. With the experimental `http2` feature, native Rust callers may also use bounded H2 prior knowledge and TLS ALPN through the same canonical service pipeline. Downstream projects implement the `Service` trait and provide it to `Server`; the runtime handles transport concerns. Plan 186 still owns interoperability and release qualification, so this is not a general support declaration.
 
 ### Exposed Types
 
@@ -146,7 +147,9 @@ Key properties:
 
 ## Supported Protocol
 
-- **HTTP/1.1 only** — no HTTP/2 or HTTP/3.
+- **Default/Python wire contract** — HTTP/1.1 only. The separate experimental
+  Rust `http2` feature adds bounded native H2 but is not enabled by default and
+  is not a release-support declaration; HTTP/3 remains unavailable.
 - **Read-only methods**: GET and HEAD. All other methods return 405.
 - **Request target**: origin-form only (`/path?query`). Authority-form and absolute-form are rejected.
 - **Static request bodies**: the built-in static service rejects body-bearing
@@ -263,7 +266,7 @@ The canonical request types provide transport-independent, Hyper-independent val
 | Type | Module | Description |
 |------|--------|-------------|
 | `Method` | `primitives::method` | Validated HTTP method (standard + extension). Case-sensitive. |
-| `HttpVersion` | `primitives::version` | Non-exhaustive HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3 metadata; current listeners remain HTTP/1-only. |
+| `HttpVersion` | `primitives::version` | Non-exhaustive HTTP/1.0, HTTP/1.1, HTTP/2, and HTTP/3 metadata; default/Python listeners are H1-only, while the experimental Rust `http2` feature enables H2. |
 | `HeaderBlock` | `primitives::header_block` | Ordered, duplicate-preserving header collection. |
 | `HeaderName` | `primitives::header_block` | Validated header name (RFC 9110 token). |
 | `HeaderValue` | `primitives::header_block` | Validated header value (no CR/LF/NUL). |

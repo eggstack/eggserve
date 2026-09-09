@@ -69,6 +69,8 @@ Every operational event has:
 - `connection_accepted` — new TCP connection accepted with correlation ID
 - `connection_rejected` — connection admission limit reached
 - `tls_handshake_success/failure/timeout` — TLS events (feature-gated)
+- `protocol_negotiated` — selected wire protocol (`http/1.1` or experimental
+  `h2`); emitted once per connection without client pseudo-header values
 - `header_timeout` — HTTP header read timeout (also idle keep-alive gaps when shorter than the idle timeout)
 - `body_read_timeout` — request body read timeout (buffer mode)
 - `parser_rejection` — HTTP framing rejection (incl. Hyper parser-limit parse failures)
@@ -77,8 +79,11 @@ Every operational event has:
 - `service_admission_rejected` — in-flight service budget exhausted (503)
 - `keep_alive_closed` — keep-alive connection closed
 - `keep_alive_idle_timeout` — idle keep-alive connection closed after inactivity
-- `max_requests_close` — request limit reached; current response closes the connection
-- `write_stall_timeout` — response outstanding with no socket progress; connection closed
+- `max_requests_close` — request limit reached; H1 closes the connection and
+  H2 begins a bounded GOAWAY/drain
+- `write_stall_timeout` — response outstanding with no protocol-relevant
+  progress; H1 closes the connection, while H2 uses per-stream progress and a
+  conservative connection close if a safe stream reset is unavailable
 - `connection_total_timeout` — total connection lifetime timeout
 - `client_disconnect` — client disconnected (Debug severity)
 - `connection_panic` — handler panic contained

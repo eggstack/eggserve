@@ -14,7 +14,7 @@ For public-facing production deployments, a mature TLS terminator (Caddy, nginx,
 
 ## Production profile
 
-Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited HTTP/1.1 static-server deployment, not an edge platform. It does not imply ACME, virtual hosting, HTTP/2, or edge parity. External qualification evidence is pending. The profile remains candidate until full qualification passes.
+Native TLS maps to the `unix-direct-https` production profile (status: candidate). It is supported as a limited static-server deployment, not an edge platform. The default `tls` build is HTTP/1.1-only; an experimental `http2,tls` Rust build negotiates `h2` before `http/1.1` and remains subject to Plan 186 interoperability qualification. Native TLS does not imply ACME, virtual hosting, or edge parity. External qualification evidence is pending. The profile remains candidate until full qualification passes.
 
 For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefik termination) is preferred. Production profiles are documented in README.md and `docs/deployment.md`.
 
@@ -22,6 +22,8 @@ For production deployments, the `unix-reverse-proxy` profile (Caddy/nginx/Traefi
 
 ```sh
 cargo install --path crates/eggserve-bin --features tls
+# Experimental Rust H1/H2 + TLS build:
+cargo install --path crates/eggserve-bin --features http2,tls
 ```
 
 Or when building from the workspace root:
@@ -101,7 +103,9 @@ eggserve's TLS support is intentionally minimal:
 - No certificate renewal
 - No SNI virtual hosting
 - No client certificate authentication
-- No HTTP/2 (ALPN is restricted to `http/1.1`)
+- HTTP/2 is not advertised by the default `tls` build; the experimental
+  `http2,tls` Rust build advertises `h2`, then `http/1.1`, and selects the
+  matching Hyper driver. Python HTTPS remains HTTP/1.1-only.
 - No OCSP stapling
 - No hot certificate reload
 - No multi-cert routing

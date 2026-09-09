@@ -152,6 +152,7 @@ eggserve-python        → standalone, owns Python packaging
 | Feature | Crate | Purpose |
 |---------|-------|---------|
 | `tls` | `eggserve-core`, `eggserve-bin`, `eggserve-python` | Server TLS via rustls/tokio-rustls |
+| `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
 | `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification |
 
@@ -233,7 +234,7 @@ HTTP Request
 │    (connection semaphore, default 64; server-wide   │
 │     file-stream semaphore cloned per connection)    │
 │  • Optional TLS handshake (feature-gated)           │
-│  • HTTP/1 connection via Hyper                      │
+│  • HTTP/1 via Hyper; optional HTTP/2 via http2      │
 │  • Caller-owned stream entry (no socket required)   │
 │  • Lifecycle: Created → Starting → Running →        │
 │    Draining → Stopped/Failed                        │
@@ -243,7 +244,7 @@ HTTP Request
                   ▼
 ┌─────────────────────────────────────────────────────┐
 │ Canonical driver (server/connection/)             │
-│  • serve_http1_connection: transport-neutral        │
+│  • strict serve_http1_connection; optional H1/H2    │
 │  • ConnectionContext (TCP, TLS, or caller-owned)    │
 │  • TE+CL framing validation (smuggling prevention)  │
 │  • Body policy selection (Reject/Buffer/Stream)     │
