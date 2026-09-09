@@ -115,9 +115,10 @@ Errors from service handler invocation. The runtime converts these to HTTP respo
 - `ServiceError::panic(msg)` — handler panic (internal)
 - `ServiceError::timeout(msg)` — handler timeout (internal)
 
-**Representation (Plan 178):** status selection lives in `ServiceError`;
-the single response-layer helper `response::runtime_error_with_policy`
-owns the body. Wire status and body never disagree: known statuses emit
+**Representation (Plans 178/189):** status selection lives in `ServiceError`;
+the transport-neutral `primitives::canonical::runtime_error_with_policy`
+owns the generic representation, while the Hyper helper is only a conversion
+wrapper. H1, H2, and H3 use the same authority. Wire status and body never disagree: known statuses emit
 `"<code> <reason>\n"` from the standard phrase, unassigned codes keep
 their status with a neutral empty body, and `HEAD`/`Empty`/body-forbidden
 (`1xx`/`204`/`205`/`304`) emit no bytes. Normalization/framing remains

@@ -190,6 +190,79 @@ impl StatusCode {
     pub fn permits_payload_body(&self) -> bool {
         !self.is_informational() && self.0 != 204 && self.0 != 205 && self.0 != 304
     }
+
+    /// Returns the standard reason phrase, when this status has one.
+    ///
+    /// This deliberately lives on the transport-neutral status type so every
+    /// protocol can derive the same generic runtime-error representation
+    /// without importing a transport status table.
+    pub(crate) fn canonical_reason(&self) -> Option<&'static str> {
+        Some(match self.0 {
+            100 => "Continue",
+            101 => "Switching Protocols",
+            102 => "Processing",
+            103 => "Early Hints",
+            200 => "OK",
+            201 => "Created",
+            202 => "Accepted",
+            203 => "Non-Authoritative Information",
+            204 => "No Content",
+            205 => "Reset Content",
+            206 => "Partial Content",
+            207 => "Multi-Status",
+            208 => "Already Reported",
+            226 => "IM Used",
+            300 => "Multiple Choices",
+            301 => "Moved Permanently",
+            302 => "Found",
+            303 => "See Other",
+            304 => "Not Modified",
+            305 => "Use Proxy",
+            307 => "Temporary Redirect",
+            308 => "Permanent Redirect",
+            400 => "Bad Request",
+            401 => "Unauthorized",
+            402 => "Payment Required",
+            403 => "Forbidden",
+            404 => "Not Found",
+            405 => "Method Not Allowed",
+            406 => "Not Acceptable",
+            407 => "Proxy Authentication Required",
+            408 => "Request Timeout",
+            409 => "Conflict",
+            410 => "Gone",
+            411 => "Length Required",
+            412 => "Precondition Failed",
+            413 => "Payload Too Large",
+            414 => "URI Too Long",
+            415 => "Unsupported Media Type",
+            416 => "Range Not Satisfiable",
+            417 => "Expectation Failed",
+            418 => "I'm a teapot",
+            421 => "Misdirected Request",
+            422 => "Unprocessable Content",
+            423 => "Locked",
+            424 => "Failed Dependency",
+            425 => "Too Early",
+            426 => "Upgrade Required",
+            428 => "Precondition Required",
+            429 => "Too Many Requests",
+            431 => "Request Header Fields Too Large",
+            451 => "Unavailable For Legal Reasons",
+            500 => "Internal Server Error",
+            501 => "Not Implemented",
+            502 => "Bad Gateway",
+            503 => "Service Unavailable",
+            504 => "Gateway Timeout",
+            505 => "HTTP Version Not Supported",
+            506 => "Variant Also Negotiates",
+            507 => "Insufficient Storage",
+            508 => "Loop Detected",
+            510 => "Not Extended",
+            511 => "Network Authentication Required",
+            _ => return None,
+        })
+    }
 }
 
 impl fmt::Display for StatusCode {
@@ -689,6 +762,46 @@ pub fn normalize_metadata(
     }
 
     Ok(())
+}
+
+/// Build a transport-neutral generic runtime error response.
+///
+/// The selected status is authoritative. A standard reason phrase produces a
+/// fixed `"<status> <reason>\n"` representation; an unassigned status keeps
+/// its status and emits no body rather than claiming a different error. This
+/// is the sole runtime-error representation table for H1, H2, and H3.
+pub(crate) fn runtime_error_with_policy(
+    status: StatusCode,
+    is_head: bool,
+    policy: crate::policy::ErrorRepresentationPolicy,
+) -> Response {
+    let body = status
+        .canonical_reason()
+        .map(|reason| format!("{} {reason}\n", status.as_u16()))
+        .unwrap_or_default();
+    let mut builder = Response::builder().status(status);
+    if policy == crate::policy::ErrorRepresentationPolicy::Minimal {
+        builder = builder
+            .header("content-type", "text/plain; charset=utf-8")
+            .expect("canonical runtime error content type is valid");
+    }
+    if status == StatusCode::METHOD_NOT_ALLOWED {
+        builder = builder
+            .header("allow", "GET, HEAD")
+            .expect("canonical runtime error Allow value is valid");
+    }
+    let body = if policy == crate::policy::ErrorRepresentationPolicy::Empty
+        || is_head
+        || !status.permits_payload_body()
+        || body.is_empty()
+    {
+        ResponseBody::Empty
+    } else {
+        ResponseBody::Bytes(body.into_bytes())
+    };
+    builder
+        .body(body)
+        .expect("canonical runtime error response is valid")
 }
 
 /// Returns `true` if the header is a hop-by-hop header that must not be
@@ -1317,6 +1430,91 @@ mod tests {
             .status(StatusCode::OK)
             .body(ResponseBody::File(source))
             .unwrap()
+    }
+
+    #[test]
+    fn runtime_error_representation_preserves_status_and_reason() {
+        for code in [400, 405, 408, 413, 414, 431, 500, 503] {
+            let status = StatusCode::new(code).unwrap();
+            let response = normalize_response(
+                runtime_error_with_policy(
+                    status,
+                    false,
+                    crate::policy::ErrorRepresentationPolicy::Minimal,
+                ),
+                &NormalizeRequest::new(false),
+            )
+            .unwrap();
+            assert_eq!(response.status(), status);
+            assert_eq!(
+                response
+                    .headers()
+                    .get_first("content-type")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "text/plain; charset=utf-8"
+            );
+            assert!(
+                matches!(response.body(), Some(ResponseBody::Bytes(body)) if body.starts_with(code.to_string().as_bytes()))
+            );
+            if code == 405 {
+                assert_eq!(
+                    response
+                        .headers()
+                        .get_first("allow")
+                        .unwrap()
+                        .to_str()
+                        .unwrap(),
+                    "GET, HEAD"
+                );
+            }
+        }
+
+        let unassigned = StatusCode::new(499).unwrap();
+        let response = normalize_response(
+            runtime_error_with_policy(
+                unassigned,
+                false,
+                crate::policy::ErrorRepresentationPolicy::Minimal,
+            ),
+            &NormalizeRequest::new(false),
+        )
+        .unwrap();
+        assert_eq!(response.status(), unassigned);
+        assert!(matches!(response.body(), Some(ResponseBody::Empty)));
+    }
+
+    #[test]
+    fn runtime_error_empty_and_head_suppress_representation_bytes() {
+        let status = StatusCode::INTERNAL_SERVER_ERROR;
+        for (is_head, policy) in [
+            (true, crate::policy::ErrorRepresentationPolicy::Minimal),
+            (false, crate::policy::ErrorRepresentationPolicy::Empty),
+        ] {
+            let response = normalize_response(
+                runtime_error_with_policy(status, is_head, policy),
+                &NormalizeRequest::new(is_head),
+            )
+            .unwrap();
+            if is_head {
+                assert!(matches!(
+                    response.body(),
+                    Some(ResponseBody::EmptyWithLength(0))
+                ));
+            } else {
+                assert!(matches!(response.body(), Some(ResponseBody::Empty)));
+            }
+            assert_eq!(
+                response
+                    .headers()
+                    .get_first("content-length")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "0"
+            );
+        }
     }
 
     #[tokio::test]

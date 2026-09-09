@@ -2,7 +2,9 @@
 
 This document defines the exact product surface, behavioral guarantees, and compatibility commitments for eggserve's first public release. It is the normative reference for what eggserve ships, what is stable, what is experimental, and what is internal.
 
-Release line: 0.1.x (current package version 0.1.2)
+Development metadata: 0.1.2. The next release containing the current stable
+Rust API line must be 0.2.0 or later; the development value is not permission
+to publish a 0.1.x patch release.
 
 Stable Rust API changes follow the pre-1.0 rule in
 [api-stability.md](api-stability.md): patch releases preserve source

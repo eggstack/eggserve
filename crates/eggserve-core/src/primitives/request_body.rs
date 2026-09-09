@@ -133,13 +133,25 @@ impl RequestBody {
     /// `Active` until consumed.
     pub fn from_bytes(data: impl Into<Bytes>, max_bytes: u64) -> Self {
         let data = data.into();
+        let shared = RequestShared::new_active();
+        Self::from_bytes_with_shared(data, max_bytes, shared)
+    }
+
+    /// Create an in-memory body backed by an existing lifecycle allocation.
+    ///
+    /// Runtime adapters use this after bounded pre-buffering so the lifecycle
+    /// registered for the network receive remains the lifecycle exposed by the
+    /// canonical request.
+    pub(crate) fn from_bytes_with_shared(
+        data: impl Into<Bytes>,
+        max_bytes: u64,
+        shared: Arc<RequestShared>,
+    ) -> Self {
+        let data = data.into();
         let len = data.len() as u64;
-        let is_empty = data.is_empty();
-        let shared = if is_empty {
-            RequestShared::new_complete()
-        } else {
-            RequestShared::new_active()
-        };
+        if data.is_empty() {
+            shared.mark_complete();
+        }
         Self {
             inner: Some(BodyInner::Fixed { data, offset: 0 }),
             declared_length: Some(len),
@@ -343,6 +355,16 @@ impl RequestBody {
                             received: new_total,
                         });
                     }
+                    if let Some(declared) = self.declared_length {
+                        if new_total > declared {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::LengthMismatch {
+                                declared,
+                                actual: new_total,
+                            });
+                        }
+                    }
                     self.bytes_received = new_total;
                     buf.extend_from_slice(&chunk);
                 }
@@ -453,6 +475,16 @@ impl RequestBody {
                                 limit: self.max_bytes,
                                 received: new_total,
                             });
+                        }
+                        if let Some(declared) = self.declared_length {
+                            if new_total > declared {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                return Err(RequestBodyError::LengthMismatch {
+                                    declared,
+                                    actual: new_total,
+                                });
+                            }
                         }
                         self.bytes_received = new_total;
                         Ok(Some(chunk))
@@ -608,6 +640,21 @@ impl Stream for RequestBody {
                             limit: max_bytes,
                             received: new_total,
                         })))
+                    } else if let Some(declared) = self.declared_length {
+                        if new_total > declared {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            Poll::Ready(Some(Err(RequestBodyError::LengthMismatch {
+                                declared,
+                                actual: new_total,
+                            })))
+                        } else {
+                            self.bytes_received = new_total;
+                            if self.state == BodyState::Unread {
+                                self.state = BodyState::Streaming;
+                            }
+                            Poll::Ready(Some(Ok(chunk)))
+                        }
                     } else {
                         self.bytes_received = new_total;
                         if self.state == BodyState::Unread {
@@ -826,6 +873,36 @@ mod tests {
         let result = body.read_all().await;
         assert!(result.is_ok());
         assert_eq!(result.unwrap().as_ref(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn over_declared_length_returns_mismatch_before_eof() {
+        use futures_util::stream;
+        let body_stream =
+            stream::once(async { Ok::<_, IncomingError>(Bytes::from_static(b"hello")) });
+        let body = RequestBody::from_incoming(body_stream, Some(3), u64::MAX);
+        assert!(matches!(
+            body.read_all().await,
+            Err(RequestBodyError::LengthMismatch {
+                declared: 3,
+                actual: 5
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn streaming_overrun_returns_mismatch_before_next_chunk() {
+        use futures_util::stream;
+        let body_stream =
+            stream::once(async { Ok::<_, IncomingError>(Bytes::from_static(b"hello")) });
+        let mut body = RequestBody::from_incoming(body_stream, Some(3), u64::MAX);
+        assert!(matches!(
+            body.next_chunk().await,
+            Err(RequestBodyError::LengthMismatch {
+                declared: 3,
+                actual: 5
+            })
+        ));
     }
 
     #[tokio::test]

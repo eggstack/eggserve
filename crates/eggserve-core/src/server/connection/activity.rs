@@ -35,7 +35,7 @@ pub(crate) struct ConnectionActivity {
     pub(crate) start: std::time::Instant,
     ops: crate::ops::OpsContext,
     state: std::sync::Mutex<ActivityState>,
-    response_progress: std::sync::Mutex<Vec<(u64, std::time::Instant)>>,
+    response_poll_progress: std::sync::Mutex<Vec<(u64, std::time::Instant)>>,
     in_flight: AtomicU64,
     outstanding: AtomicU64,
     completed: AtomicU64,
@@ -70,7 +70,7 @@ impl ConnectionActivity {
                 last_activity: now,
                 last_write: now,
             }),
-            response_progress: std::sync::Mutex::new(Vec::new()),
+            response_poll_progress: std::sync::Mutex::new(Vec::new()),
             in_flight: AtomicU64::new(0),
             outstanding: AtomicU64::new(0),
             completed: AtomicU64::new(0),
@@ -162,7 +162,7 @@ impl ConnectionActivity {
             state.last_write = now;
             state.last_activity = now;
         }
-        if let Ok(mut progress) = self.response_progress.lock() {
+        if let Ok(mut progress) = self.response_poll_progress.lock() {
             progress.push((request_id, now));
         }
         self.notify.notify_one();
@@ -177,19 +177,20 @@ impl ConnectionActivity {
             // start); restore the counter instead of wrapping to zero.
             self.outstanding.fetch_add(1, Ordering::Relaxed);
         }
-        if let Ok(mut progress) = self.response_progress.lock() {
+        if let Ok(mut progress) = self.response_poll_progress.lock() {
             progress.retain(|(id, _)| *id != request_id);
         }
         self.touch();
         self.notify.notify_one();
     }
 
-    /// Record progress attributable to one response body. H2 uses this
-    /// stream-local signal; a socket write by a sibling stream never updates
-    /// it.
-    pub(crate) fn response_progress(&self, request_id: u64) {
+    /// Record application-body poll progress attributable to one response.
+    /// H2 uses this stream-local producer signal; a socket write by a sibling
+    /// stream never updates it. It does not prove that Hyper has advanced
+    /// stream-level flow control or put bytes on the wire.
+    pub(crate) fn response_poll_progress(&self, request_id: u64) {
         let now = std::time::Instant::now();
-        if let Ok(mut progress) = self.response_progress.lock() {
+        if let Ok(mut progress) = self.response_poll_progress.lock() {
             if let Some((_, last)) = progress.iter_mut().find(|(id, _)| *id == request_id) {
                 *last = now;
             }
@@ -197,12 +198,12 @@ impl ConnectionActivity {
         self.notify.notify_one();
     }
 
-    pub(crate) fn h2_response_stalled(
+    pub(crate) fn h2_response_producer_stalled(
         &self,
         now: std::time::Instant,
         timeout: std::time::Duration,
     ) -> bool {
-        self.response_progress
+        self.response_poll_progress
             .lock()
             .map(|progress| {
                 progress
@@ -212,16 +213,19 @@ impl ConnectionActivity {
             .unwrap_or(false)
     }
 
-    pub(crate) fn h2_response_deadline(
+    pub(crate) fn h2_response_producer_deadline(
         &self,
         timeout: std::time::Duration,
     ) -> Option<std::time::Instant> {
-        self.response_progress.lock().ok().and_then(|progress| {
-            progress
-                .iter()
-                .map(|(_, last)| last.checked_add(timeout).unwrap_or(*last))
-                .min()
-        })
+        self.response_poll_progress
+            .lock()
+            .ok()
+            .and_then(|progress| {
+                progress
+                    .iter()
+                    .map(|(_, last)| last.checked_add(timeout).unwrap_or(*last))
+                    .min()
+            })
     }
 
     /// A deferred body started (service returned with Active body).
@@ -489,7 +493,7 @@ impl Body for TrackedBody {
                 Poll::Ready(Some(Err(e)))
             }
             Poll::Ready(Some(Ok(frame))) => {
-                this.activity.response_progress(this.request_id);
+                this.activity.response_poll_progress(this.request_id);
                 Poll::Ready(Some(Ok(frame)))
             }
             Poll::Pending => Poll::Pending,

@@ -478,7 +478,7 @@ where
             return ConnectionOutcome::IdleTimeout;
         }
         let write_stalled = if multiplexed {
-            activity.h2_response_stalled(now, config.response_write_timeout)
+            activity.h2_response_producer_stalled(now, config.response_write_timeout)
         } else {
             outstanding > 0 && now.duration_since(state.last_write) >= config.response_write_timeout
         };
@@ -508,7 +508,9 @@ where
             );
         }
         if multiplexed {
-            if let Some(deadline) = activity.h2_response_deadline(config.response_write_timeout) {
+            if let Some(deadline) =
+                activity.h2_response_producer_deadline(config.response_write_timeout)
+            {
                 wake = wake.min(deadline);
             }
         } else if outstanding > 0 {

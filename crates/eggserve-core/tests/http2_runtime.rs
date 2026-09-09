@@ -1,5 +1,7 @@
 #![cfg(feature = "http2")]
 
+use std::convert::Infallible;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use bytes::Bytes;
@@ -12,7 +14,8 @@ use eggserve_core::server::connection::{
 use eggserve_core::server::{
     service_fn, Http2Config, Request, RuntimeConfig, RuntimeState, Server,
 };
-use http_body_util::{BodyExt, Full};
+use futures_util::stream;
+use http_body_util::{BodyExt, Empty, Full, StreamBody};
 use hyper::client::conn::http2;
 use hyper::Request as HyperRequest;
 use hyper_util::rt::{TokioExecutor, TokioIo};
@@ -241,6 +244,82 @@ async fn rejected_body_is_stream_scoped_and_h2_has_no_hop_headers() {
         sibling.into_body().collect().await.unwrap().to_bytes(),
         "sibling survived"
     );
+
+    drop(sender);
+    let _ = connection_task.await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
+#[tokio::test]
+async fn h2_reject_uses_data_presence_without_content_length() {
+    let root = TempDir::new().unwrap();
+    let invocations = Arc::new(AtomicUsize::new(0));
+    let service = {
+        let invocations = invocations.clone();
+        service_fn(move |_request: Request| {
+            let invocations = invocations.clone();
+            async move {
+                invocations.fetch_add(1, Ordering::SeqCst);
+                Ok(Response::builder()
+                    .status(StatusCode::OK)
+                    .body(ResponseBody::Bytes(b"ok".to_vec()))
+                    .unwrap())
+            }
+        })
+    };
+    let server = Server::builder()
+        .runtime(runtime_config())
+        .serve_config(serve_config(&root))
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let stream = tokio::net::TcpStream::connect(handle.local_addr())
+        .await
+        .unwrap();
+    type ClientBody = http_body_util::combinators::UnsyncBoxBody<Bytes, Infallible>;
+    let (mut sender, connection) =
+        http2::handshake::<_, _, ClientBody>(TokioExecutor::new(), TokioIo::new(stream))
+            .await
+            .unwrap();
+    let connection_task = tokio::spawn(connection);
+
+    // StreamBody has no automatic Content-Length header. Its DATA frame must
+    // still be rejected before service invocation.
+    let data_body = StreamBody::new(stream::once(async {
+        Ok::<_, Infallible>(hyper::body::Frame::data(Bytes::from_static(b"body")))
+    }))
+    .boxed_unsync();
+    let rejected = sender
+        .clone()
+        .send_request(
+            HyperRequest::builder()
+                .method("POST")
+                .uri("http://example.test/no-length")
+                .body(data_body)
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(rejected.status(), hyper::StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(invocations.load(Ordering::SeqCst), 0);
+    assert!(rejected.headers().get("connection").is_none());
+    assert!(rejected.headers().get("transfer-encoding").is_none());
+
+    // An END_STREAM request with no Content-Length remains bodyless and is
+    // dispatched normally on the same multiplexed connection.
+    let empty = sender
+        .send_request(
+            HyperRequest::builder()
+                .method("POST")
+                .uri("http://example.test/empty")
+                .body(Empty::<Bytes>::new().boxed_unsync())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(empty.status(), hyper::StatusCode::OK);
+    assert_eq!(invocations.load(Ordering::SeqCst), 1);
 
     drop(sender);
     let _ = connection_task.await;

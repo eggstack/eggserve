@@ -129,7 +129,7 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `keep_alive_closed` | DEBUG | Keep-alive connection closed cleanly |
 | `keep_alive_idle_timeout` | DEBUG | Idle keep-alive connection closed after inactivity |
 | `max_requests_close` | DEBUG | Request limit reached; H1 uses `Connection: close`, H2 begins GOAWAY/drain |
-| `write_stall_timeout` | WARN | Response has no protocol-relevant progress; H2 uses per-stream progress before its conservative fallback close |
+| `write_stall_timeout` | WARN | H1 has no forward socket-write progress; H2 has no per-response producer poll progress and uses conservative connection close (not a wire-progress guarantee) |
 | `connection_total_timeout` | WARN | Total connection lifetime exceeded |
 | `client_disconnect` | DEBUG | Client disconnected |
 | `connection_panic` | ERROR | Handler panic contained |

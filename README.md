@@ -160,6 +160,9 @@ qualification pass, but broad independent-client/platform evidence and a
 public safe per-stream reset hook are still release gaps. See the
 [HTTP/2 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http2.md)
 and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md).
+H2's response no-progress guard observes per-response application-body
+polling, not guaranteed stream-level wire progress after Hyper accepts a
+frame; a stall therefore uses the conservative connection-shutdown fallback.
 The opt-in `http3` feature adds an experimental native QUIC/HTTP/3 endpoint
 beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
@@ -170,6 +173,10 @@ bounded implementation checks pass, but independent-client, adversarial-wire,
 and cross-platform runtime evidence is incomplete. See the
 [HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
 and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md).
+Reject-body handling is protocol-aware: H2 uses Hyper's end-stream state and
+H3 performs one bounded receive probe when headers do not establish an empty
+request. H3 request lifecycles are registered for peer-loss, timeout, stream,
+and forced-shutdown cancellation, while sibling streams remain isolated.
 `Service` owns request handling and response construction. Connections,
 in-flight service executions, and file streams have independent observable
 budgets; parser ceilings, keep-alive idle, per-connection request counts, and

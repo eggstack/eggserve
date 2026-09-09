@@ -35,6 +35,11 @@ framing.
   An ordinary rejected request body is finalized without an H1
   `Connection` header, allowing Hyper to reset that H2 stream while siblings
   continue.
+- Reject-body presence is protocol-aware: a positive declared length still
+  rejects early, while a missing/zero `Content-Length` uses Hyper's public
+  `Incoming::is_end_stream()` state. DATA without that header is rejected
+  before service invocation; an already-ended stream is dispatched as an
+  empty body. H2 has no `Transfer-Encoding` body-presence signal.
 - `Http2Config` defaults are explicit: 100 concurrent streams, 32 KiB
   decoded header list, 16 KiB maximum frame, 256 KiB stream receive window,
   1 MiB connection receive window, 256 KiB per-stream send buffer, 1024 local
@@ -42,12 +47,13 @@ framing.
   keepalive PINGs. Each scalar is validated before runtime use.
 - `max_in_flight_requests` and `max_file_streams` remain server-wide
   application/resource budgets; idle H2 streams do not acquire either permit.
-- H2 response activity is tracked per request stream. Hyper's public server
-  API does not expose a safe stream-reset handle from the response-body
-  adapter, however. If a response stream stalls beyond
-  `response_write_timeout`, EggServe cancels live lifecycles and uses the
-  conservative bounded connection shutdown fallback. A sibling's socket
-  writes do not refresh the stalled stream's timestamp.
+- H2 response activity is tracked per request stream at the application-body
+  poll boundary. Hyper's public server API does not expose a safe stream-reset
+  or wire-progress handle from the response-body adapter, however. If a
+  producer stalls beyond `response_write_timeout`, EggServe cancels live
+  lifecycles and uses the conservative bounded connection shutdown fallback.
+  A sibling's socket writes do not refresh the stalled producer timestamp;
+  bytes already handed to Hyper are not claimed to have made wire progress.
 - Graceful shutdown and `max_requests_per_connection` use the H2 driver's
   graceful shutdown/GOAWAY path. HTTP/1 alone receives `Connection: close`.
 - Responses never originate server push, trailers, extended CONNECT, or

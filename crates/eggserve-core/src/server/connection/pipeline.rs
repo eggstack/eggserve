@@ -292,6 +292,13 @@ where
 
             // Extract body from Hyper request.
             let (parts, body) = req.into_parts();
+            // `Content-Length` and `Transfer-Encoding` are HTTP/1 framing
+            // signals. HTTP/2 has neither framing header requirement and can
+            // carry DATA without Content-Length, so use Hyper's public body
+            // state for the header-time Reject decision. `is_end_stream()`
+            // is bounded: it observes the protocol stream state and never
+            // polls or buffers request DATA.
+            let body_is_end_stream = http_body::Body::is_end_stream(&body);
 
             // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
             if head.version() != crate::primitives::version::HttpVersion::Http2 {
@@ -405,8 +412,12 @@ where
             // unknown until the stream is consumed. Size enforcement for
             // chunked bodies without `Content-Length` is deferred to the
             // streaming limit.
-            let has_body = declared_length.is_some_and(|len| len > 0)
-                || parts.headers.contains_key(hyper::header::TRANSFER_ENCODING);
+            let has_body = if is_h2 {
+                !body_is_end_stream
+            } else {
+                declared_length.is_some_and(|len| len > 0)
+                    || parts.headers.contains_key(hyper::header::TRANSFER_ENCODING)
+            };
             if effective_policy.is_reject() && has_body {
                 ops.counters()
                     .body_rejections

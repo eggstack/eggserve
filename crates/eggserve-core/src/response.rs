@@ -128,27 +128,29 @@ pub(crate) fn canonical_error_owned_with_policy(
     )
 }
 
-/// Central runtime error representation (Plan 178 Track C).
+/// Hyper conversion wrapper for the transport-neutral runtime-error builder
+/// (Plan 178 Track C, corrected by Plan 189).
 ///
-/// Single owner for runtime-generated error bodies: derives a truthful
-/// `"<code> <reason>\n"` body from the standard reason phrase when the
-/// status has one, and emits a neutral empty body (preserving the wire
-/// status) when it does not. The wire status is never rewritten here;
-/// callers select a survivable status first. `HEAD`, `Empty` policy, and
-/// body-forbidden statuses emit no bytes via
-/// [`canonical_error_owned_with_policy`]. No application detail is reflected.
+/// The canonical module owns the status/reason/body representation. This
+/// wrapper applies the existing Hyper body type and leaves status selection to
+/// its callers; no application detail is reflected.
 pub(crate) fn runtime_error_with_policy(
     status: StatusCode,
     is_head: bool,
     policy: crate::policy::ErrorRepresentationPolicy,
 ) -> Response<BoxBodyInner> {
-    let body = match status.canonical_reason() {
-        Some(reason) => format!("{} {}\n", status.as_u16(), reason),
-        // Unassigned codes have no standard phrase: emit nothing rather
-        // than claim a different status. The wire status is preserved.
-        None => String::new(),
-    };
-    canonical_error_owned_with_policy(status, &body, is_head, policy)
+    let canonical_status = crate::primitives::canonical::StatusCode::new(status.as_u16())
+        .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
+    let canonical =
+        crate::primitives::canonical::runtime_error_with_policy(canonical_status, is_head, policy);
+    let normalized = crate::primitives::canonical::normalize_response(
+        canonical,
+        &crate::primitives::canonical::NormalizeRequest::new(is_head),
+    )
+    .expect("canonical runtime error normalizes");
+    crate::primitives::canonical::to_hyper_response(normalized)
+        .expect("canonical runtime error converts to Hyper")
+        .map(|body| body.boxed_unsync())
 }
 
 #[allow(dead_code)]

@@ -306,11 +306,14 @@ All paths then share the same steps:
     metadata copied, no log/error text reflected)
 11. Protocol-neutral lifecycle disposition and protocol adapter mapping, then
     permit release and connection termination under the driver deadline loop
-    (keep-alive idle, write no-progress, hard lifetime, shutdown). H2 response
-    progress is tracked per response stream; if Hyper cannot safely reset one
-    stream from the public server API, the bounded fallback is conservative
-    connection shutdown rather than aggregate socket progress masking a stalled
-    sibling.
+    (keep-alive idle, write no-progress, hard lifetime, shutdown). H2 tracks
+    per-response application-body poll progress, which prevents sibling
+    traffic from refreshing a stalled producer, but Hyper 1.11.1 exposes no
+    safe public stream-local wire-progress/reset hook. Bytes already handed
+    to Hyper are bounded by its configured send buffer and the hard
+    connection lifetime; the timeout therefore uses a conservative
+    connection shutdown and must not be described as a guaranteed per-stream
+    wire no-progress timer.
 
 ### Connection module ownership (Plan 180)
 
@@ -399,11 +402,12 @@ privacy, file/stream admission via shared semaphore, lifecycle-aware
 incomplete-body close (Complete reusable, Active deferred without forced
 close, Abandoned/Failed forced close; Hyper pinned to prevent next-request
 parsing until the framing boundary), and shutdown/drain semantics. H2 keeps
-response-progress accounting per stream so sibling writes cannot mask a
-stalled response; the current Hyper public server API has no safe stream-reset
-hook at this boundary, so an H2 stall uses the conservative bounded
-connection-shutdown fallback. All paths share a single normalization and
-framing authority.
+response-producer poll accounting per stream so sibling writes cannot mask a
+stalled application producer; this is not proof of stream-level flow-control
+or socket progress after Hyper accepts a frame. The current Hyper public
+server API has no safe stream-reset hook at this boundary, so an H2 stall
+uses the conservative bounded connection-shutdown fallback. All paths share
+a single normalization and framing authority.
 
 ### Deferred bodies + request lifecycle (Plan 174)
 
@@ -428,6 +432,14 @@ framing authority.
   downstream app tasks own a separate budget (Track F). Send-side
   response failure may precede lifecycle cancellation; treat either as
   cancellation.
+- H2 Reject uses Hyper's public header-time `Incoming::is_end_stream()`
+  state; H1 continues to use its framing headers. H3 performs one bounded
+  receive probe when `Content-Length` does not prove presence, discarding the
+  first DATA chunk on rejection rather than buffering the request.
+- Every H3 request registers its shared lifecycle. QUIC connection loss
+  cancels all live observers; body/stream failures cancel only that request,
+  and forced graceful-drain termination cancels remaining observers with
+  `ServerShutdown` before task abort.
 
 The downstream builder contract (bounded full-duplex bridging, timeout
 split, admission split, byte metadata, shutdown ordering) is documented in

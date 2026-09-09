@@ -82,8 +82,10 @@ Every operational event has:
 - `max_requests_close` — request limit reached; H1 closes the connection and
   H2 begins a bounded GOAWAY/drain
 - `write_stall_timeout` — response outstanding with no protocol-relevant
-  progress; H1 closes the connection, while H2 uses per-stream progress and a
-  conservative connection close if a safe stream reset is unavailable
+  progress; H1 observes forward socket-write progress, while H2 observes
+  per-response application-body poll progress only and conservatively closes
+  the connection because Hyper exposes no safe public stream reset or
+  wire-progress hook
 - `connection_total_timeout` — total connection lifetime timeout
 - `client_disconnect` — client disconnected (Debug severity)
 - `connection_panic` — handler panic contained

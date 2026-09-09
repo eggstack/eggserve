@@ -23,6 +23,7 @@ use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestSha
 use crate::primitives::request_target::RequestTarget;
 use crate::primitives::version::HttpVersion;
 use crate::server::config::RuntimeConfig;
+use crate::server::connection::lifecycle::{cancel_shared_with_observability, ConnectionRequests};
 use crate::server::connection::ConnectionContext;
 use crate::server::errors::ShutdownResult;
 use crate::server::service::{Service, ServiceError};
@@ -190,6 +191,8 @@ async fn serve_connection<S: Service>(
     conn_id: u64,
     mut shutdown_rx: broadcast::Receiver<()>,
 ) {
+    let connection_closed = connection.clone();
+    let requests_registry = Arc::new(ConnectionRequests::new());
     let mut builder = h3::server::builder();
     builder.max_field_section_size(config.http3.max_field_section_size);
     let mut h3_connection = match builder
@@ -213,21 +216,56 @@ async fn serve_connection<S: Service>(
     let mut requests = tokio::task::JoinSet::new();
     let mut accepted_requests = 0u64;
     let mut draining = false;
+    let mut drain_deadline = None;
     loop {
         tokio::select! {
             _ = shutdown_rx.recv(), if !draining => {
                 let _ = h3_connection.shutdown(0).await;
                 draining = true;
+                drain_deadline = Some(tokio::time::Instant::now() + config.graceful_shutdown_timeout);
+            }
+            _ = async {
+                if let Some(deadline) = drain_deadline {
+                    tokio::time::sleep_until(deadline).await;
+                } else {
+                    std::future::pending::<()>().await;
+                }
+            }, if draining => {
+                requests_registry.cancel_all(
+                    RequestCancellationReason::ServerShutdown,
+                    conn_id,
+                    runtime_state.ops(),
+                );
+                requests.abort_all();
+                return;
+            }
+            closed = connection_closed.closed() => {
+                let reason = h3_connection_close_reason(&closed);
+                requests_registry.cancel_all(reason, conn_id, runtime_state.ops());
+                break;
             }
             accepted = h3_connection.accept() => {
                 let resolver = match accepted {
                     Ok(Some(resolver)) => resolver,
-                    Ok(None) | Err(_) => break,
+                    Ok(None) => break,
+                    Err(_) => {
+                        requests_registry.cancel_all(
+                            h3_connection_close_reason(
+                                &connection_closed
+                                    .close_reason()
+                                    .unwrap_or(quinn::ConnectionError::LocallyClosed),
+                            ),
+                            conn_id,
+                            runtime_state.ops(),
+                        );
+                        break;
+                    }
                 };
                 accepted_requests = accepted_requests.saturating_add(1);
                 if !draining && config.max_requests_per_connection.is_some_and(|max| accepted_requests >= max) {
                     let _ = h3_connection.shutdown(0).await;
                     draining = true;
+                    drain_deadline = Some(tokio::time::Instant::now() + config.graceful_shutdown_timeout);
                     runtime_state.ops().emit(
                         crate::ops::Event::new(
                             crate::ops::Severity::Debug,
@@ -240,21 +278,41 @@ async fn serve_connection<S: Service>(
                 let service = service.clone();
                 let config = config.clone();
                 let state = runtime_state.clone();
+                let requests_registry = requests_registry.clone();
                 requests.spawn(async move {
                     let (request, stream) = match resolver.resolve_request().await {
                         Ok(value) => value,
                         Err(_) => return,
                     };
-                    handle_request(request, stream, local_addr, remote_addr, service, config, state, conn_id).await;
+                    let shared = RequestShared::new_active();
+                    requests_registry.register(&shared);
+                    handle_request(
+                        request,
+                        stream,
+                        local_addr,
+                        remote_addr,
+                        service,
+                        config,
+                        state,
+                        shared,
+                        conn_id,
+                    )
+                    .await;
                 });
             }
         }
     }
 
-    let deadline = tokio::time::Instant::now() + config.graceful_shutdown_timeout;
+    let deadline = drain_deadline
+        .unwrap_or_else(|| tokio::time::Instant::now() + config.graceful_shutdown_timeout);
     loop {
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
+            requests_registry.cancel_all(
+                RequestCancellationReason::ServerShutdown,
+                conn_id,
+                runtime_state.ops(),
+            );
             requests.abort_all();
             return;
         }
@@ -264,6 +322,11 @@ async fn serve_connection<S: Service>(
                 if requests.is_empty() {
                     return;
                 }
+                requests_registry.cancel_all(
+                    RequestCancellationReason::ServerShutdown,
+                    conn_id,
+                    runtime_state.ops(),
+                );
                 requests.abort_all();
                 return;
             }
@@ -280,6 +343,7 @@ async fn handle_request<S, C>(
     service: Arc<S>,
     config: Arc<RuntimeConfig>,
     runtime_state: Arc<RuntimeState>,
+    shared: Arc<RequestShared>,
     conn_id: u64,
 ) where
     S: Service,
@@ -291,18 +355,20 @@ async fn handle_request<S, C>(
     let head = match convert_request_head(&request, &config, conn_id, runtime_state.ops()) {
         Ok(head) => head,
         Err(error) => {
-            let response = error_response(error.status_code(), &config);
-            if send_canonical_response(
+            let response = runtime_error_response(error.status_code(), is_head, &config);
+            if !send_response_or_cancel(
                 &mut send_stream,
                 response,
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                runtime_state.ops(),
             )
             .await
-            .is_err()
             {
-                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+                return;
             }
             return;
         }
@@ -310,18 +376,17 @@ async fn handle_request<S, C>(
     let declared_length = match declared_content_length(&request) {
         Ok(length) => length,
         Err(error) => {
-            if send_canonical_response(
+            let _ = send_response_or_cancel(
                 &mut send_stream,
-                error_response(error.status_code(), &config),
+                runtime_error_response(error.status_code(), is_head, &config),
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                runtime_state.ops(),
             )
-            .await
-            .is_err()
-            {
-                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
-            }
+            .await;
             return;
         }
     };
@@ -331,47 +396,106 @@ async fn handle_request<S, C>(
     );
     if let Some(limit) = policy.max_bytes() {
         if declared_length.is_some_and(|length| length > limit) {
-            let response = error_response(413, &config);
-            if send_canonical_response(
+            let response = runtime_error_response(413, is_head, &config);
+            let _ = send_response_or_cancel(
                 &mut send_stream,
                 response,
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                runtime_state.ops(),
             )
-            .await
-            .is_err()
-            {
-                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
-            }
+            .await;
             recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
             return;
         }
     }
     if policy.is_reject() && declared_length.is_some_and(|length| length > 0) {
-        let response = error_response(413, &config);
-        if send_canonical_response(
+        let response = runtime_error_response(413, is_head, &config);
+        let _ = send_response_or_cancel(
             &mut send_stream,
             response,
             &config,
             is_head,
             runtime_state.file_stream_semaphore(),
+            &shared,
+            conn_id,
+            runtime_state.ops(),
         )
-        .await
-        .is_err()
-        {
-            send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
-        }
+        .await;
         recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
         return;
     }
 
     let request_body = if policy.is_reject() {
-        // A missing Content-Length does not prove that an H3 request has no
-        // content. Stop the receive direction for every rejected body policy
-        // so a peer cannot continue sending data after the response starts.
-        recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-        crate::primitives::request_body::RequestBody::empty()
+        // A missing or zero Content-Length does not prove that an H3 request
+        // has no content. Perform one bounded protocol read so Reject is
+        // based on actual stream state, not HTTP/1 header inference. The
+        // first DATA chunk is discarded and the receive direction is then
+        // cancelled; the request is never buffered in full or dispatched.
+        let presence =
+            tokio::time::timeout(config.body_read_timeout, recv_stream.recv_data()).await;
+        match presence {
+            Ok(Ok(Some(_data))) => {
+                let response = runtime_error_response(413, is_head, &config);
+                let _ = send_response_or_cancel(
+                    &mut send_stream,
+                    response,
+                    &config,
+                    is_head,
+                    runtime_state.file_stream_semaphore(),
+                    &shared,
+                    conn_id,
+                    runtime_state.ops(),
+                )
+                .await;
+                recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                return;
+            }
+            Ok(Ok(None)) => {
+                shared.mark_complete();
+                crate::primitives::request_body::RequestBody::from_incoming_with_shared(
+                    stream::empty(),
+                    Some(0),
+                    0,
+                    shared.clone(),
+                )
+            }
+            Ok(Err(_error)) => {
+                shared.mark_failed();
+                let _ = send_response_or_cancel(
+                    &mut send_stream,
+                    runtime_error_response(500, is_head, &config),
+                    &config,
+                    is_head,
+                    runtime_state.file_stream_semaphore(),
+                    &shared,
+                    conn_id,
+                    runtime_state.ops(),
+                )
+                .await;
+                send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+                return;
+            }
+            Err(_) => {
+                shared.mark_failed_with_reason(RequestCancellationReason::ConnectionTimeout);
+                let _ = send_response_or_cancel(
+                    &mut send_stream,
+                    runtime_error_response(408, is_head, &config),
+                    &config,
+                    is_head,
+                    runtime_state.file_stream_semaphore(),
+                    &shared,
+                    conn_id,
+                    runtime_state.ops(),
+                )
+                .await;
+                recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                return;
+            }
+        }
     } else {
         let body_cancel = tokio::sync::watch::channel(false);
         let body_stream = stream::unfold(
@@ -399,7 +523,6 @@ async fn handle_request<S, C>(
                 }
             },
         );
-        let shared = RequestShared::new_active();
         let request_body = crate::primitives::request_body::RequestBody::from_incoming_with_shared(
             body_stream,
             declared_length,
@@ -419,36 +542,39 @@ async fn handle_request<S, C>(
         crate::primitives::request_body_policy::RequestBodyPolicy::Buffer { max_bytes } => {
             match tokio::time::timeout(config.body_read_timeout, request_body.read_all()).await {
                 Ok(Ok(bytes)) => {
-                    crate::primitives::request_body::RequestBody::from_bytes(bytes, max_bytes)
+                    crate::primitives::request_body::RequestBody::from_bytes_with_shared(
+                        bytes,
+                        max_bytes,
+                        shared.clone(),
+                    )
                 }
                 Ok(Err(error)) => {
-                    if send_canonical_response(
+                    let _ = send_response_or_cancel(
                         &mut send_stream,
-                        error_response(error.to_status_code(), &config),
+                        runtime_error_response(error.to_status_code(), is_head, &config),
                         &config,
                         is_head,
                         runtime_state.file_stream_semaphore(),
+                        &shared,
+                        conn_id,
+                        runtime_state.ops(),
                     )
-                    .await
-                    .is_err()
-                    {
-                        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
-                    }
+                    .await;
                     return;
                 }
                 Err(_) => {
-                    if send_canonical_response(
+                    shared.mark_failed_with_reason(RequestCancellationReason::ConnectionTimeout);
+                    let _ = send_response_or_cancel(
                         &mut send_stream,
-                        error_response(408, &config),
+                        runtime_error_response(408, is_head, &config),
                         &config,
                         is_head,
                         runtime_state.file_stream_semaphore(),
+                        &shared,
+                        conn_id,
+                        runtime_state.ops(),
                     )
-                    .await
-                    .is_err()
-                    {
-                        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
-                    }
+                    .await;
                     return;
                 }
             }
@@ -476,12 +602,15 @@ async fn handle_request<S, C>(
     {
         Ok(permit) => permit,
         Err(_) => {
-            let _ = send_canonical_response(
+            let _ = send_response_or_cancel(
                 &mut send_stream,
-                error_response(503, &config),
+                runtime_error_response(503, is_head, &config),
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                runtime_state.ops(),
             )
             .await;
             return;
@@ -490,20 +619,19 @@ async fn handle_request<S, C>(
     let result = invoke_service(service, request, permit, &config, runtime_state.ops()).await;
     let response = match result {
         Ok(response) => response,
-        Err(error) => error_response(error.status_code(), &config),
+        Err(error) => runtime_error_response(error.status_code(), is_head, &config),
     };
-    if send_canonical_response(
+    let _ = send_response_or_cancel(
         &mut send_stream,
         response,
         &config,
         is_head,
         runtime_state.file_stream_semaphore(),
+        &shared,
+        conn_id,
+        runtime_state.ops(),
     )
-    .await
-    .is_err()
-    {
-        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
-    }
+    .await;
 }
 
 fn spawn_body_timeout_watchdog(
@@ -670,7 +798,7 @@ where
 {
     response = match normalize_response(response, &NormalizeRequest::new(is_head)) {
         Ok(response) => response,
-        Err(_) => error_response(500, config),
+        Err(_) => runtime_error_response(500, is_head, config),
     };
     response = crate::server::connection::response::finalize_canonical_response(response, config);
     let status =
@@ -772,6 +900,38 @@ where
         .map_err(|e| e.to_string())
 }
 
+/// Send one H3 response and cancel only its request lifecycle when the stream
+/// becomes unusable. QUIC stream failures are deliberately not promoted to a
+/// connection-wide cancellation here; sibling request streams remain live.
+#[allow(clippy::too_many_arguments)]
+async fn send_response_or_cancel<S>(
+    stream: &mut h3::server::RequestStream<S, H3Bytes>,
+    response: Response,
+    config: &RuntimeConfig,
+    is_head: bool,
+    file_stream_semaphore: &Arc<Semaphore>,
+    shared: &Arc<RequestShared>,
+    conn_id: u64,
+    ops: &crate::ops::OpsContext,
+) -> bool
+where
+    S: h3::quic::SendStream<H3Bytes>,
+{
+    match send_canonical_response(stream, response, config, is_head, file_stream_semaphore).await {
+        Ok(()) => true,
+        Err(_) => {
+            cancel_shared_with_observability(
+                shared,
+                RequestCancellationReason::TransportFailure,
+                conn_id,
+                ops,
+            );
+            stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+            false
+        }
+    }
+}
+
 async fn send_bytes<S>(
     stream: &mut h3::server::RequestStream<S, H3Bytes>,
     bytes: Bytes,
@@ -797,26 +957,25 @@ where
     Ok(())
 }
 
-fn error_response(status: u16, config: &RuntimeConfig) -> Response {
+fn runtime_error_response(status: u16, is_head: bool, config: &RuntimeConfig) -> Response {
     let status = crate::primitives::canonical::StatusCode::new(status)
         .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
-    let body =
-        if config.response_policy.error_policy == crate::policy::ErrorRepresentationPolicy::Empty {
-            ResponseBody::Empty
-        } else {
-            ResponseBody::Bytes(match status.as_u16() {
-                400 => b"bad request".to_vec(),
-                413 => b"payload too large".to_vec(),
-                414 => b"request-target too long".to_vec(),
-                431 => b"request headers too large".to_vec(),
-                503 => b"service unavailable".to_vec(),
-                _ => b"internal server error".to_vec(),
-            })
-        };
-    Response::builder()
-        .status(status)
-        .body(body)
-        .expect("valid runtime error response")
+    crate::primitives::canonical::runtime_error_with_policy(
+        status,
+        is_head,
+        config.response_policy.error_policy,
+    )
+}
+
+fn h3_connection_close_reason(error: &quinn::ConnectionError) -> RequestCancellationReason {
+    match error {
+        quinn::ConnectionError::ApplicationClosed(_)
+        | quinn::ConnectionError::ConnectionClosed(_)
+        | quinn::ConnectionError::Reset => RequestCancellationReason::PeerDisconnected,
+        quinn::ConnectionError::TimedOut => RequestCancellationReason::ConnectionTimeout,
+        quinn::ConnectionError::LocallyClosed => RequestCancellationReason::ServerShutdown,
+        _ => RequestCancellationReason::TransportFailure,
+    }
 }
 
 #[cfg(test)]
@@ -911,5 +1070,21 @@ mod tests {
             .expect("H3 body timeout should wake the receive stream")
             .expect("watch sender should remain alive until timeout");
         assert!(!shared.is_body_active());
+    }
+
+    #[test]
+    fn connection_close_reasons_use_transport_neutral_taxonomy() {
+        assert_eq!(
+            h3_connection_close_reason(&quinn::ConnectionError::TimedOut),
+            RequestCancellationReason::ConnectionTimeout
+        );
+        assert_eq!(
+            h3_connection_close_reason(&quinn::ConnectionError::Reset),
+            RequestCancellationReason::PeerDisconnected
+        );
+        assert_eq!(
+            h3_connection_close_reason(&quinn::ConnectionError::LocallyClosed),
+            RequestCancellationReason::ServerShutdown
+        );
     }
 }

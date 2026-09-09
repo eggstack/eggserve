@@ -38,8 +38,11 @@ The shared `max_connections` semaphore covers accepted TCP and QUIC
 connections. QUIC handshakes additionally consume the H3
 `max_pending_handshakes` budget until handshake completion. Shutdown closes
 the endpoint, sends H3 GOAWAY through the h3 connection driver, drains active
-request tasks up to the common graceful deadline, and then aborts remaining
-tasks.
+request tasks up to the common graceful deadline, and then cancels remaining
+request lifecycles with `ServerShutdown` before aborting tasks. A connection
+that becomes unusable for peer or transport reasons cancels every still-live
+request observer; a stream-local receive/send failure cancels only its own
+observer.
 
 ## TLS and protocol policy
 
@@ -83,9 +86,13 @@ scheme, authority, and `HttpVersion::Http3`; pseudo-header names never reach a
 service. `https` is required, connection-specific headers are rejected, `TE`
 is accepted only for `trailers`, and `Content-Length` is strict and unique.
 Request DATA is a pull-driven canonical `RequestBody`, so Buffer and Stream
-policies preserve bounded memory and body lifecycle semantics. Reject and
+policies preserve bounded memory and body lifecycle semantics. Under Reject,
+H3 performs at most one bounded receive to distinguish immediate end-of-stream
+from DATA when `Content-Length` is absent or zero; DATA is discarded and the
+receive direction is cancelled without invoking the service. Reject and
 body-limit failures send the canonical error, issue stream control, and leave
-sibling QUIC streams alive.
+sibling QUIC streams alive. Declared-length under/overrun checks are owned by
+the shared `RequestBody` consumer.
 
 Responses pass through canonical normalization and the shared privacy policy.
 H3 omits HTTP/1 framing and connection fields, sends bytes/files/known-length
@@ -100,8 +107,10 @@ denylist contains `alt-svc`.
 
 The adapter uses the runtime `OpsContext` for listener readiness, admission,
 handshake failures/timeouts, max-request drain, body timeouts, and shared
-counters. It does not log QUIC connection IDs, tokens, TLS secrets, packets,
-or raw request values. Plan 188 keeps H3 experimental because the available
+counters. Runtime-generated H3 errors use the same canonical status/reason/body
+constructor as H1/H2, including HEAD, `Allow`, empty privacy policy, and
+unassigned-status behavior. It does not log QUIC connection IDs, tokens, TLS
+secrets, packets, or raw request values. Plan 188 keeps H3 experimental because the available
 qualification host had no direct H3 client, second independent client,
 adversarial network environment, or non-Linux H3 runtime.
 

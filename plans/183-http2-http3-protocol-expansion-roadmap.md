@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — explicit product-scope/API transition gate for optional HTTP/2 and HTTP/3 support.**
+**IMPLEMENTED — explicit product-scope/API transition gate for optional HTTP/2 and HTTP/3 support.**
 
 This plan is the umbrella and sequencing authority for Plans 184–188. It does not itself implement a second protocol. Implementation of this plan first changes the repository contract so the later plans are permitted to proceed.
 
@@ -299,4 +299,8 @@ Also search the repository for stale categorical statements such as `HTTP/1.1 on
 
 ## Handoff
 
-Plan 183 is complete when maintainers can implement the prerequisite refactor without violating the repository's own scope and stability rules. It intentionally produces no partially enabled H2/H3 runtime. Protocol code starts in Plan 185 only after Plan 184 establishes a protocol-neutral request/lifecycle foundation.
+Plan 183 is complete as the product/scope and API-transition gate. Plans 184–188
+implemented the narrowly authorized protocol adapters, and Plans 189–190 own
+the corrective qualification pass. H2 and H3 remain experimental; completion
+of this gate never promoted either protocol or authorized unrelated edge-server
+features.

@@ -2,7 +2,7 @@
 
 ## Status
 
-**PLANNED — narrow corrective implementation after Plans 183–188.**
+**IMPLEMENTED — narrow corrective implementation after Plans 183–188.**
 
 Baseline: `main` at or after the Plan 188 closure (`a96966bbd899cbc5ca4df722a4d38b8fd3eb3d05` when this plan was written). Re-read current code before implementation and preserve any later valid changes.
 
@@ -446,8 +446,34 @@ Do not require external H3 clients or privileged network emulation to implement 
 10. Synchronize Plan 183/roadmap/release-boundary bookkeeping.
 11. Hand the corrected implementation to Plan 190 for evidence-based closure.
 
+## Implementation record
+
+- H1 keeps its existing framing-based `Reject` decision. The shared H1/H2
+  pipeline now uses Hyper's public end-stream state for H2, and the H3 adapter
+  performs one timeout-bounded receive probe before dispatching a request with
+  absent or zero `Content-Length` under `Reject`.
+- Canonical request-body consumption now reports both premature EOF and
+  overrun against a declared length, while buffered H3 bodies retain the
+  registered request lifecycle.
+- Runtime error status/reason/body construction is owned by the canonical
+  primitives layer; the Hyper path is a conversion wrapper and H3 no longer
+  maintains a local status/body table.
+- H3 request lifecycles use the shared connection registry, with prompt
+  connection-level cancellation and stream-local failure handling. Forced
+  drain termination cancels remaining lifecycle waiters before aborting tasks.
+- H2 response tracking is named and documented as application-body
+  producer/poll progress; no unsupported public Hyper stream-reset or
+  stream-wire-progress capability was introduced.
+- The deterministic project matrix, including H1/H2/H3/TLS, Python, and
+  supply-chain checks, passed locally on 2026-09-09. Independent H3 client,
+  adversarial-wire, platform, and broader support-tier evidence remains the
+  separate Plan 190 qualification work.
+
 ## Handoff
 
-Plan 189 is complete when the known post-188 correctness gaps are fixed without changing EggServe's product scope or protocol support tiers.
+Plan 189 is complete when the known post-188 correctness gaps are fixed
+without changing EggServe's product scope or protocol support tiers. Plan 190
+remains the separate evidence/qualification closure for independent-client and
+broader protocol claims.
 
 Do not use completion of this plan as evidence that HTTP/2 or HTTP/3 is production-supported. Plan 190 owns corrected-regression qualification, external protocol checks where available, documentation synchronization, and the final post-correction support-tier statement.

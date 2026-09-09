@@ -4,8 +4,9 @@
 //! On abnormal connection termination the driver cancels all still-live
 //! lifecycles with a best-effort reason so idle downstream waiters wake
 //! without polling body/response IO. Completed requests prune lazily on next
-//! registration; the list stays tiny because HTTP/1 processes one request at
-//! a time (plus at most one deferred body).
+//! registration; multiplexed H2/H3 connections may retain several weak
+//! observers, so registration also removes entries whose request ownership
+//! has ended.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -86,8 +87,9 @@ impl LifecycleDisposition {
 /// On abnormal connection termination the driver cancels all still-live
 /// lifecycles with a best-effort reason so idle downstream waiters wake
 /// without polling body/response IO. Completed requests prune lazily on
-/// next registration; the list stays tiny because HTTP/1 processes one
-/// request at a time (plus at most one deferred body).
+/// next registration; multiplexed H2/H3 connections may retain several
+/// weak observers concurrently, while dead entries are removed on each
+/// registration.
 #[derive(Debug, Default)]
 pub(crate) struct ConnectionRequests {
     inner: std::sync::Mutex<Vec<std::sync::Weak<RequestShared>>>,
@@ -172,4 +174,48 @@ pub(crate) fn cancel_shared_with_observability(
         }
     }
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::primitives::request_lifecycle::RequestLifecycle;
+
+    #[tokio::test]
+    async fn registry_cancels_multiple_live_request_observers() {
+        let registry = ConnectionRequests::new();
+        let first = RequestShared::new_active();
+        let second = RequestShared::new_active();
+        let first_lifecycle = RequestLifecycle::from_shared(first.clone());
+        let second_lifecycle = RequestLifecycle::from_shared(second.clone());
+        registry.register(&first);
+        registry.register(&second);
+
+        registry.cancel_all(
+            RequestCancellationReason::PeerDisconnected,
+            17,
+            crate::ops::OpsContext::global(),
+        );
+
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            first_lifecycle.cancelled(),
+        )
+        .await
+        .expect("first H2/H3 lifecycle should wake");
+        tokio::time::timeout(
+            std::time::Duration::from_secs(1),
+            second_lifecycle.cancelled(),
+        )
+        .await
+        .expect("second H2/H3 lifecycle should wake");
+        assert_eq!(
+            first_lifecycle.cancellation_reason(),
+            Some(RequestCancellationReason::PeerDisconnected)
+        );
+        assert_eq!(
+            second_lifecycle.cancellation_reason(),
+            Some(RequestCancellationReason::PeerDisconnected)
+        );
+    }
 }
