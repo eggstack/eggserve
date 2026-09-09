@@ -40,8 +40,8 @@ management, framework loading, lifespan, and application concurrency policy.
 
 1. Safety over exact `http.server` compatibility. Compatibility should be ergonomic and operational, not behavioral. Unsafe standard-library behaviors must not be preserved by default.
 2. Explicit policy. Filesystem, path, symlink, dotfile, directory listing, MIME, caching, logging, and bind-address behavior should be visible and configurable through typed policy structures.
-3. Controlled protocol scope. HTTP/1.1 remains the minimal/default compatibility baseline. Optional HTTP/2 and HTTP/3 runtime support may proceed only through the explicit Plans 183–188 scope/API, prerequisite, implementation, and qualification gates; those plans do not authorize unrelated edge-server or framework features. Static/default services reject request bodies by default, while custom Rust services may opt into bounded request-body streaming through the experimental runtime seam.
-4. Small dependency graph. Hyper is the HTTP/1/2 substrate. Avoid `reqwest`, full web frameworks, reverse-proxy stacks, templating engines, and broad middleware systems unless a specific milestone justifies them. HTTP/3/QUIC dependencies, if implemented under Plans 187–188, remain optional and isolated from the minimal build.
+3. Controlled protocol scope. HTTP/1.1 remains the minimal/default compatibility baseline. Optional HTTP/2 and HTTP/3 runtime support is governed by the explicit Plans 183–188 scope/API, implementation, and qualification program plus the narrow Plans 189–190 post-closure correctness pass; none of those plans authorizes unrelated edge-server or framework features. Static/default services reject request bodies by default, while custom Rust services may opt into bounded request-body streaming through the experimental runtime seam.
+4. Small dependency graph. Hyper is the HTTP/1/2 substrate. Avoid `reqwest`, full web frameworks, reverse-proxy stacks, templating engines, and broad middleware systems unless a specific milestone justifies them. HTTP/3/QUIC dependencies remain optional and isolated from the minimal build.
 5. Auditable implementation. Security-critical behavior should live in small, independently tested modules with fuzz targets and regression corpora.
 6. Stable foundation before features. Range requests, TLS, CORS, custom directory rendering, Python APIs, Rust library stabilization, and additional protocols should follow only after the path confinement and resource-limit model is proven.
 
@@ -78,12 +78,12 @@ exists.
 
 The core crate should have no Python awareness. The binary should be a thin consumer of the core crate. The Python package should initially be a very thin launcher for the Rust binary, not a premature extension API. Once the core is stable, expose a Python API as a narrow wrapper around typed Rust configuration.
 
-## Planned protocol expansion program — Plans 183–188
+## Protocol expansion and corrective closure — Plans 183–190
 
-The current live product contract in `docs/non-goals.md` remains authoritative until Plan 183 is implemented: writing these plans does not by itself enable HTTP/2 or HTTP/3 or override the product-surface freeze. The program is deliberately ordered so protocol work cannot bypass the scope/API gate or fork the existing canonical service pipeline.
+Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 are a corrective follow-up for deterministic semantic gaps discovered by the post-188 review; they do not reopen protocol scope or authorize another feature family.
 
 ```text
-183  HTTP/2 and HTTP/3 protocol expansion roadmap
+183  HTTP/2 and HTTP/3 protocol expansion roadmap / product gate
  |
 184  Protocol-neutral runtime preparation and overlap cleanup
  |
@@ -94,13 +94,19 @@ The current live product contract in `docs/non-goals.md` remains authoritative u
 187  HTTP/3 QUIC transport and canonical adapter
  |
 188  HTTP/3 interoperability and multi-protocol release closure
+ |
+189  Multiprotocol request-body, error, and lifecycle correctness
+ |
+190  Multiprotocol corrective qualification and release closure
 ```
 
-Plan 183 first updates the product/non-goal and pre-1.0 API contract. Plan 184 then removes the remaining duplicated request-target parser, repeated service-invocation logic, HTTP/1-specific lifecycle decisions in shared code, lossy version conversion, latent upgradeable-connection machinery, and ambiguous protocol-specific configuration ownership while proving HTTP/1 behavior unchanged.
+Plan 183 updates the product/non-goal and pre-1.0 API contract. Plan 184 removes the remaining duplicated request-target parser, repeated service-invocation logic, HTTP/1-specific lifecycle decisions in shared code, lossy version conversion, latent upgradeable-connection machinery, and ambiguous protocol-specific configuration ownership while proving HTTP/1 behavior unchanged.
 
-Plan 185 adds HTTP/2 through the existing Hyper/Hyper-Util family, with explicit H2 stream/header/flow-control limits, TLS ALPN, stream-scoped body/error handling, stream-aware response progress, and GOAWAY/drain semantics. Plan 186 provides the independent-client, adversarial/resource, shutdown, platform, footprint, and documentation evidence required before H2 is labeled supported.
+Plan 185 adds HTTP/2 through the existing Hyper/Hyper-Util family, with explicit H2 stream/header/flow-control limits, TLS ALPN, stream-scoped body/error handling, stream-aware response activity, and GOAWAY/drain semantics. Plan 186 provides the independent-client, adversarial/resource, shutdown, platform, footprint, and documentation evidence required before H2 is labeled supported; its executed result keeps H2 experimental because meaningful evidence and per-stream reset/progress limitations remain.
 
-Plan 187 treats HTTP/3 correctly as a separate QUIC/UDP transport implementation sharing the same canonical service layer. Its H3/Quinn dependencies must remain optional/internal; it owns dual-listener lifecycle, TLS 1.3/`h3` ALPN, handshake/stream/QPACK budgets, canonical H3 adaptation, stream-specific backpressure/cancellation, GOAWAY/drain, and runtime-owned Alt-Svc. Plan 188 closed the feature at the experimental tier after deterministic checks; external H3 interoperability, network-impairment/resource evidence, and cross-platform runtime qualification remain explicit follow-up gates.
+Plan 187 treats HTTP/3 correctly as a separate QUIC/UDP transport implementation sharing the same canonical service layer. Its H3/Quinn dependencies remain optional/internal; it owns dual-listener lifecycle, TLS 1.3/`h3` ALPN, handshake/stream/QPACK budgets, canonical H3 adaptation, stream-specific backpressure/cancellation, GOAWAY/drain, and runtime-owned Alt-Svc. Plan 188 closed the feature at the experimental tier after deterministic checks; external H3 interoperability, network-impairment/resource evidence, and cross-platform runtime qualification remain explicit follow-up gates.
+
+Plan 189 corrects the narrow post-188 findings: H2/H3 Reject-body handling must detect DATA without relying on `Content-Length`, H3 runtime errors must share the canonical representation authority, H3 must provide connection/stream `RequestLifecycle` cancellation parity, and H2 response-progress wording/behavior must match what the public Hyper stack can actually observe. Plan 190 directly reproduces those bug classes, re-runs protocol qualification where evidence is available, synchronizes the plan/release documentation, and records final post-correction support tiers without treating bug fixes as protocol promotion.
 
 The program explicitly does **not** authorize WebSockets, WebTransport, datagrams, CONNECT tunnels, server push, reverse proxying, ACME, routing, middleware, uploads, application workers, or in-tree ASGI/WSGI semantics. The six-class Python `http.server` compatibility facade remains HTTP/1.1-shaped unless a later separate product decision changes it.
 
@@ -112,7 +118,7 @@ The safe default should be deliberately conservative:
 bind address: 127.0.0.1
 methods: GET, HEAD
 request bodies: rejected
-HTTP version: HTTP/1.1 compatibility baseline; optional H2/H3 only after Plans 183–188 qualification
+HTTP version: HTTP/1.1 compatibility baseline; H2/H3 remain opt-in experimental under Plans 186/188 and corrective Plans 189–190
 directory listing: disabled unless explicitly enabled
 index files: enabled for index.html by default
 symlinks: denied by default
@@ -201,7 +207,7 @@ percent-encoding or equivalent: path decoding, if selected after review
 pico-args or minimal parser: CLI argument handling
 tracing/tracing-subscriber: optional structured logging
 rustls/tokio-rustls: optional TLS feature only
-QUIC/H3 stack: optional only under Plans 187–188; never required by the minimal build
+QUIC/H3 stack: optional only under Plans 187–190; never required by the minimal build
 ```
 
 Avoid `reqwest`, Axum, Tower, Tera, Askama, libmagic bindings, compression stacks, ACME clients, database crates, and app-framework dependencies in the initial milestones.
@@ -210,7 +216,9 @@ Avoid `reqwest`, Axum, Tower, Tera, Askama, libmagic bindings, compression stack
 
 An alpha can ship after M0-M5 if the docs clearly mark it as early and the unsafe areas are not exposed. A beta should require M6. A production-ready 1.0 should require M7-M9, a platform test matrix, dependency audit, fuzz corpus, and a written security review.
 
-Optional HTTP/2/HTTP/3 support does not become part of the release promise merely because code exists. H2 remains experimental under Plan 186, and H3 remains experimental under Plan 188 because its broader independent-client, adversarial, and platform gates are incomplete. Either may remain experimental/disabled independently while the HTTP/1/static product continues to ship.
+Optional HTTP/2/HTTP/3 support does not become part of the release promise merely because code exists. H2 remains experimental under Plan 186 and H3 remains experimental under Plan 188; Plans 189–190 must close the identified deterministic correctness gaps without promoting either protocol by implication. Broader independent-client, adversarial, and platform gates remain required for any future supported-tier decision. Either protocol may remain experimental/disabled independently while the HTTP/1/static product continues to ship.
+
+The current stable-Rust API line also contains documented pre-1.0 breaking changes and must not be published as a `0.1.x` patch release. Release preparation should use the synchronized metadata ownership established by Plan 182 and publish that line as `0.2.0` or later, with the migration guide/release notes updated in the same release change.
 
 The 1.0 promise should remain bounded: static serving is the primary product;
 stable hardened HTTP primitives and policies are the core library promise; and
