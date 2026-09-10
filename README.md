@@ -155,12 +155,14 @@ the opt-in `http2` feature add cleartext prior-knowledge HTTP/2 and, when
 combined with `tls`, ALPN selection (`h2` before `http/1.1`) through the same
 canonical service pipeline. H2 resource limits are owned by `Http2Config` and
 remain separate from server-wide service admission. The feature remains
-experimental after Plans 186 and 190: deterministic tests, targeted H2
-body-policy regressions, and Linux wire qualification pass, but broad
-independent-client/platform evidence and a
+experimental after Plans 186, 190, and 191: deterministic tests, targeted H2
+body-policy regressions, two-family interop (curl/libnghttp2 plus python-h2),
+h2spec classification, and Linux wire/flow-control/load qualification pass, but
+browser/platform evidence, trailer-scope determinism, and a
 public safe per-stream reset hook are still release gaps. See the
 [HTTP/2 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http2.md)
-and [qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md).
+and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-186-http2-qualification.md) plus the
+[Plan 191 promotion attempt](https://github.com/eggstack/eggserve/blob/main/release/plan-191-http2-supported-tier-qualification.md).
 H2's response no-progress guard observes per-response application-body
 polling, not guaranteed stream-level wire progress after Hyper accepts a
 frame; a stall therefore uses the conservative connection-shutdown fallback.

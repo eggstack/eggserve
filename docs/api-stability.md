@@ -120,7 +120,7 @@ documented separately in `docs/python-api.md`.
 | `ServerBuilder` | experimental | Configured builder; `.runtime()`, `.serve_config()`, `.static_service()`, `.start()`, `.bind()`, `.from_listener()` |
 | `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, body ceiling, optional TLS |
-| `Http2Config` | experimental (`http2`) | Explicit bounded H2 stream/header/frame/flow-control/reset/keepalive limits; Rust only; Plans 186/190 close H2 as experimental |
+| `Http2Config` | experimental (`http2`) | Explicit bounded H2 stream/header/frame/flow-control/reset/keepalive limits; Rust only; Plans 186/190/191 keep H2 experimental (see the Plan 191 closure record) |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
 | `Service` trait | experimental | `call(Request) -> Result<Response, ServiceError>` (updated from `RequestHead`) |
 | `service_fn` | experimental | Create a Service from a closure |

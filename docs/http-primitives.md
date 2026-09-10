@@ -13,11 +13,12 @@ experimental server boundary. The separate opt-in `http3` feature provides an
 experimental native QUIC/H3 server adapter; canonical metadata alone never
 silently enables either wire protocol.
 
-Plans 186 and 190 close the native H2 path as experimental. The deterministic suite
-and Linux wire qualification pass; broad independent-client/platform evidence
+Plans 186, 190, and 191 keep the native H2 path experimental. The deterministic suite,
+two-family interop, h2spec classification, and Linux wire/flow-control/load
+qualification pass; browser/platform evidence, trailer-scope determinism,
 and a public safe per-stream reset hook are not yet release-complete. See
 [`architecture/http2.md`](../architecture/http2.md) and the
-[`qualification record`](../release/plan-190-multiprotocol-corrective-qualification.md).
+[`qualification record`](../release/plan-191-http2-supported-tier-qualification.md).
 For H2 Reject policy, DATA presence is taken from Hyper's protocol body state,
 not from `Content-Length`; the response timeout observes application-body poll
 progress rather than guaranteed stream-level wire progress.

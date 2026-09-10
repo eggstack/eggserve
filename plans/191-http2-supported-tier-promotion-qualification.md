@@ -2,7 +2,18 @@
 
 ## Status
 
-**PLANNED — evidence-led promotion attempt for opt-in native HTTP/2.**
+**CLOSED — promotion attempt executed 2026-09-10; H2 remains experimental.**
+
+Outcome: two independent H2 implementation families (curl/libnghttp2,
+python-h2), h2spec classification, multiplexing/header/flow-control/GOAWAY,
+and h2load evidence were collected, and `scripts/qualify-http2.sh` now fails
+closed on missing promotion evidence. Browser evidence and macOS/Windows
+runtime evidence were unavailable in the execution environment, so per the
+decision rule the tier is retained as experimental with blockers isolated for
+future work. Full evidence in
+[`release/plan-191-http2-supported-tier-qualification.md`](../release/plan-191-http2-supported-tier-qualification.md).
+
+Original plan below (historical):
 
 Baseline: `main` at or after the Plan 190 closure (`dbac1b70fd77b1d10984c2af697e3722a27a2156` when this plan was written). Re-read the current implementation, dependency versions, open upstream issues, and release documentation before execution.
 

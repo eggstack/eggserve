@@ -5,11 +5,23 @@
 # command-line client (curl with HTTP/2 support) and OpenSSL for a temporary
 # loopback certificate. If nghttp is installed, it is used as a second client
 # as well; otherwise the evidence record must say that it was unavailable.
+#
+# Promotion gates fail closed: curl and nghttp share the libnghttp2 stack and
+# count as ONE implementation family. Set EGGSERVE_REQUIRE_TWO_H2_CLIENTS=1 to
+# require two independent implementation families (exit 2 when absent),
+# EGGSERVE_REQUIRE_BROWSER_EVIDENCE=1 to require caller-supplied browser
+# evidence via EGGSERVE_H2_BROWSER_EVIDENCE (exit 2 when absent), and
+# EGGSERVE_REQUIRE_PLATFORM_EVIDENCE=1 to require caller-supplied platform
+# evidence via EGGSERVE_H2_PLATFORM_EVIDENCE (exit 2 when absent).
+# "Tool not installed" is never reported as a passing promotion gate.
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+REQUIRE_TWO="${EGGSERVE_REQUIRE_TWO_H2_CLIENTS:-0}"
+REQUIRE_BROWSER="${EGGSERVE_REQUIRE_BROWSER_EVIDENCE:-0}"
+REQUIRE_PLATFORM="${EGGSERVE_REQUIRE_PLATFORM_EVIDENCE:-0}"
 
 command -v cargo >/dev/null 2>&1 || { echo "cargo is required" >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
@@ -65,6 +77,21 @@ stop_server() {
     fi
 }
 
+echo "Toolchain and client versions"
+rustc --version
+cargo --version
+curl -V | sed -n '1,3p'
+if command -v nghttp >/dev/null 2>&1; then
+    nghttp --version 2>&1 | head -2 || true
+else
+    echo "nghttp: not installed"
+fi
+if python3 -c 'import h2; print("python-h2", h2.__version__)' 2>/dev/null; then
+    true
+else
+    echo "python-h2: not installed (no second implementation family from Python)"
+fi
+
 echo "Building the H2/TLS CLI"
 cargo build --locked -p eggserve-bin --features http2,tls
 
@@ -119,7 +146,40 @@ if command -v nghttp >/dev/null 2>&1; then
     nghttp -nv -y "$TLS_URL" >/dev/null
     echo "nghttp: passed"
 else
-    echo "nghttp: unavailable (curl was the only independent client in this environment)"
+    echo "nghttp: unavailable (curl was the only command-line client in this environment)"
+fi
+
+# Count independent implementation families, not frontends. curl and nghttp
+# share libnghttp2 and count as one family; python-h2 counts as a second
+# family only when the module is importable.
+H2_FAMILIES=()
+if curl --version 2>/dev/null | grep -q 'nghttp2'; then
+    H2_FAMILIES+=(libnghttp2)
+elif curl --version 2>/dev/null | grep -q 'HTTP2'; then
+    H2_FAMILIES+=(curl-h2)
+fi
+if python3 -c 'import h2' 2>/dev/null; then
+    H2_FAMILIES+=(python-h2)
+fi
+# Deduplicate (curl+nghttp already collapsed to one entry above).
+printf 'Detected H2 implementation families: %s\n' "${H2_FAMILIES[*]:-<none>}"
+if [[ "$REQUIRE_TWO" == 1 && ${#H2_FAMILIES[@]} -lt 2 ]]; then
+    echo "promotion gate: fewer than two independent H2 implementation families are available" >&2
+    exit 2
+fi
+if [[ "$REQUIRE_BROWSER" == 1 ]]; then
+    if [[ -z "${EGGSERVE_H2_BROWSER_EVIDENCE:-}" || ! -f "${EGGSERVE_H2_BROWSER_EVIDENCE:-}" ]]; then
+        echo "promotion gate: browser evidence file is required (set EGGSERVE_H2_BROWSER_EVIDENCE to an existing file)" >&2
+        exit 2
+    fi
+    echo "browser evidence supplied: $EGGSERVE_H2_BROWSER_EVIDENCE"
+fi
+if [[ "$REQUIRE_PLATFORM" == 1 ]]; then
+    if [[ -z "${EGGSERVE_H2_PLATFORM_EVIDENCE:-}" || ! -f "${EGGSERVE_H2_PLATFORM_EVIDENCE:-}" ]]; then
+        echo "promotion gate: platform evidence file is required (set EGGSERVE_H2_PLATFORM_EVIDENCE to an existing file)" >&2
+        exit 2
+    fi
+    echo "platform evidence supplied: $EGGSERVE_H2_PLATFORM_EVIDENCE"
 fi
 stop_server
 

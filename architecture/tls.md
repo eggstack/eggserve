@@ -150,12 +150,12 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 
 ## Limitations
 
-1. **Experimental H2 scope** — Plans 186 and 190 close H2 as experimental. The
-   deterministic suite and Linux wire checks pass, while broad independent-
-   client/platform evidence and a public safe per-stream reset hook remain
-   open; HTTP/1 upgrades remain unavailable, and HTTP/3 is separately
+1. **Experimental H2 scope** — Plans 186, 190, and 191 keep H2 experimental. The
+   deterministic suite and Linux wire checks pass, while browser/platform
+   evidence, trailer-scope determinism, and a public safe per-stream reset
+   hook remain open; HTTP/1 upgrades remain unavailable, and HTTP/3 is separately
    feature-gated and experimental. See
-   [the qualification record](../release/plan-190-multiprotocol-corrective-qualification.md).
+   [the qualification record](../release/plan-191-http2-supported-tier-qualification.md).
 2. **Experimental HTTP/3 scope** — The `http3` feature creates a separate
    TLS 1.3/`h3` QUIC configuration and disables application 0-RTT. Plans 188
    and 190 close with H3 still experimental because independent-client,

@@ -67,7 +67,6 @@ Plans 186 and 190 close with H2 classified as **experimental**. The
 deterministic feature suite, targeted DATA-without-`Content-Length` Reject
 regression, local TLS ALPN/static/range/conditional/multiplexed checks, and
 cleartext prior-knowledge checks pass on Linux x86_64. The manual script is:
-
 ```sh
 bash scripts/qualify-http2.sh
 ```
@@ -83,6 +82,15 @@ Those gaps prevent a general “supported” declaration. See the original
 and the corrective
 [`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md)
 for the captured evidence and exact decisions.
+
+Plan 191 (2026-09-10) attempted supported-tier promotion and retained the
+**experimental** tier: two independent client families (curl/libnghttp2 plus
+python-h2), h2spec classification, multiplexing/header/flow-control/GOAWAY,
+and h2load evidence were collected, but browser and macOS/Windows runtime
+evidence were unavailable, so the mandatory gates could not pass. The
+promotion harness now fails closed on missing evidence. See the
+[`release/plan-191-http2-supported-tier-qualification.md`](../release/plan-191-http2-supported-tier-qualification.md)
+closure record for the full evidence and blocker list.
 
 ## Non-goals
 
