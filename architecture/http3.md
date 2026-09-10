@@ -1,7 +1,7 @@
 # HTTP/3 and QUIC transport boundary
 
 EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
-an experimental transport adapter after Plans 188, 190, and 192 closure, not a change to the
+an experimental transport adapter after Plans 188, 190, 192, and 193 closure, not a change to the
 Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
 dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
@@ -110,7 +110,7 @@ handshake failures/timeouts, max-request drain, body timeouts, and shared
 counters. Runtime-generated H3 errors use the same canonical status/reason/body
 constructor as H1/H2, including HEAD, `Allow`, empty privacy policy, and
 unassigned-status behavior. It does not log QUIC connection IDs, tokens, TLS
-secrets, packets, or raw request values. Plans 188, 190, and 192 keep H3
+ secrets, packets, or raw request values. Plans 188, 190, 192, and 193 keep H3
 experimental because the available qualification host had no direct H3 client,
 second independent client, adversarial network environment, or non-Linux H3
 runtime. The in-process H3 qualification now directly covers DATA without
@@ -136,9 +136,13 @@ Alt-Svc and TCP fallback, and runs direct H3 semantic checks when curl has
 HTTP/3 support. Set `EGGSERVE_REQUIRE_H3_CLIENTS=1` or
 `EGGSERVE_REQUIRE_TWO_H3_CLIENTS=1` when a release environment must fail on
 missing independent-client evidence. The complete decision and evidence
-boundary is in [`release/plan-188-http3-qualification.md`](../release/plan-188-http3-qualification.md);
+ boundary is in [`release/plan-188-http3-qualification.md`](../release/plan-188-http3-qualification.md);
 the post-Plan-189 corrective evidence is in
-[`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md).
+[`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md),
+the dependency-readiness gate is in
+[`release/plan-192-http3-dependency-readiness.md`](../release/plan-192-http3-dependency-readiness.md),
+and the promotion-attempt outcome is in
+[`release/plan-193-http3-supported-tier-qualification.md`](../release/plan-193-http3-supported-tier-qualification.md).
 
 ## Standards boundary
 
@@ -180,5 +184,10 @@ the durable contract points are:
   class as PASS/SKIP (never mistaking unavailable for passed) and fails closed
   under `EGGSERVE_REQUIRE_ADVERSARIAL_H3`, `EGGSERVE_REQUIRE_H3_BROWSER`,
   `EGGSERVE_REQUIRE_H3_IMPAIRMENT`, and `EGGSERVE_REQUIRE_H3_PLATFORM`.
-- **Plan 193 gate**: do not execute Plan 193 until a later narrow readiness
-  update resolves the two upstream blockers and re-freezes the candidate.
+- **Plan 193 gate**: Plan 193 executed the promotion attempt on 2026-09-10
+  against the unchanged frozen candidate and retained the experimental tier
+  (unmet Plan 192 prerequisite, `#338`/`#262` still open, and every mandatory
+  external evidence class unavailable on the execution host). See
+  [`release/plan-193-http3-supported-tier-qualification.md`](../release/plan-193-http3-supported-tier-qualification.md).
+  A future promotion requires a new scoped plan; Plan 193 is no longer an open
+  promotion authority.

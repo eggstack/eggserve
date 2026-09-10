@@ -38,7 +38,7 @@ its status using a constrained vocabulary.
 | Bind/listen lifecycle | stable | — | experimental | stable | — | stable | stable |
 | Plaintext HTTP/1.1 | stable | — | experimental | stable | — | stable | stable |
 | Native HTTP/2 (opt-in `http2`; prior knowledge and TLS ALPN) | — | — | experimental (Plan 190 DATA/body-policy corrections pass; broader client/platform evidence and safe stream-local reset/wire-progress remain open) | — | — | experimental | — |
-| Native HTTP/3/QUIC (opt-in `http3`; same-port UDP, TLS 1.3/`h3` ALPN) | — | — | experimental (Plan 190 in-process body/lifecycle corrections pass; Plan 192 `BLOCKED` on latest released stack with upstream `h3#338` unfixed and `#262` remainder open; independent-client, adversarial-wire, and cross-platform runtime evidence remain incomplete) | — | — | experimental | — |
+| Native HTTP/3/QUIC (opt-in `http3`; same-port UDP, TLS 1.3/`h3` ALPN) | — | — | experimental (Plan 190 in-process body/lifecycle corrections pass; Plan 192 `BLOCKED` on latest released stack with upstream `h3#338` unfixed and `#262` remainder open; Plan 193 retains experimental on the unchanged candidate with two-family, browser, adversarial, impairment, and platform evidence still missing) | — | — | experimental | — |
 | TLS server (rustls; H1 by default, experimental H2 ALPN with `http2,tls`) | stable | — | experimental (feature-gated `tls`/`http2`: `RuntimeConfig::tls_config`, ALPN-selected accept loop) | stable (H1-only) | — | stable | stable |
 | GET/HEAD static serving | stable | stable | experimental | stable | — | stable | — |
 | Request-target validation | stable | stable | experimental | stable | — | stable | — |

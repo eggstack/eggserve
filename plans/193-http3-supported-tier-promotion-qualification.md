@@ -2,7 +2,17 @@
 
 ## Status
 
-**PLANNED — final evidence-led support-tier decision after Plan 192 dependency readiness.**
+**CLOSED — promotion attempt executed 2026-09-10; `EXPERIMENTAL` retained, promotion blocked.**
+
+Outcome: the Plan 192 `BLOCKED` prerequisite was unmet (no readiness update
+since), the frozen candidate (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn 0.11.11)
+is unchanged, upstream `hyperium/h3#338` remains open with no released fix,
+the `#262` remainder stands, and every mandatory external evidence class (two
+independent H3 families, browser Alt-Svc, adversarial frames, network
+impairment, cross-platform H3 runtime) is unavailable on the execution host.
+See `release/plan-193-http3-supported-tier-qualification.md`. A future
+promotion requires a new scoped plan once the readiness blockers resolve;
+Plan 193 is no longer an open promotion authority.
 
 Prerequisite: Plan 192 must close with `READY FOR PLAN 193` against a frozen H3 dependency/runtime candidate. If Plan 192 is `BLOCKED`, do not execute this plan until its blocker is resolved through a later narrow readiness update.
 

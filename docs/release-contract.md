@@ -38,7 +38,7 @@ free-threaded CPython are not supported.
 | (none) | Yes | Core server + primitives |
 | `python-bindings-internal` | No | `ResolvedFile` extraction methods for Python bindings only |
 | `http2` | No | Experimental bounded native Rust HTTP/2 runtime; Plans 186, 190, and 191 close qualification at the experimental tier (191 adds two-family interop, h2spec classification, and flow-control/load evidence; browser/platform evidence, trailer-scope determinism, and safe stream-reset/wire-progress remain open); not enabled by the Python compatibility facade |
-| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plans 188, 190, and 192 close at the experimental tier — Plan 192 is `BLOCKED` on the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn 0.11.11) with upstream `hyperium/h3#338` unfixed and the `#262` stream-drop remainder open, plus incomplete independent-client, adversarial-wire, and cross-platform runtime evidence; not enabled by the Python compatibility facade |
+| `http3` | No | Experimental bounded native Rust HTTP/3/QUIC runtime; Plans 188, 190, and 192 close at the experimental tier — Plan 192 is `BLOCKED` on the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn 0.11.11) with upstream `hyperium/h3#338` unfixed and the `#262` stream-drop remainder open, plus incomplete independent-client, adversarial-wire, and cross-platform runtime evidence; Plan 193 (2026-09-10) re-checked the unchanged candidate and retained the experimental tier; not enabled by the Python compatibility facade |
 
 ## Runtime Service Boundary (Experimental)
 
