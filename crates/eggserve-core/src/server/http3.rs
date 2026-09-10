@@ -892,12 +892,23 @@ where
                 response_stream,
                 crate::primitives::response_stream::ResponseStream::empty(),
             ));
-            while let Some(chunk) = response_stream.next().await {
+            // Plan 194: producer no-progress budget. Armed once response
+            // HEADERS have been sent; only meaningful (non-empty) production
+            // followed by successful send re-arms it. Empty chunks preserve
+            // the existing deadline so they cannot refresh the budget.
+            let mut producer_deadline = tokio::time::Instant::now() + config.response_write_timeout;
+            loop {
+                let next = tokio::time::timeout_at(producer_deadline, response_stream.next())
+                    .await
+                    .map_err(|_| "response producer timeout".to_string())?;
+                let Some(chunk) = next else { break };
                 let chunk = chunk.map_err(|_| "response producer failed".to_string())?;
-                if !chunk.is_empty() {
-                    emitted = emitted.saturating_add(chunk.len() as u64);
-                    send_bytes(stream, chunk, config).await?;
+                if chunk.is_empty() {
+                    continue;
                 }
+                emitted = emitted.saturating_add(chunk.len() as u64);
+                send_bytes(stream, chunk, config).await?;
+                producer_deadline = tokio::time::Instant::now() + config.response_write_timeout;
             }
             if let Some(declared) = declared {
                 if emitted != declared {
@@ -933,7 +944,25 @@ where
 {
     match send_canonical_response(stream, response, config, is_head, file_stream_semaphore).await {
         Ok(()) => true,
-        Err(_) => {
+        Err(error) => {
+            // Plan 194: producer/send no-progress timeouts are observable as
+            // write-stall timeouts (stream-scoped for H3), matching the H1/H2
+            // `write_stall_timeouts` signal without introducing a connection
+            // fallback. Explicit producer `Err` keeps the generic failure
+            // path with no stall counter.
+            if error == "response producer timeout" || error == "response write timeout" {
+                ops.counters()
+                    .write_stall_timeouts
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::WriteStallTimeout,
+                        "H3 response write stall timeout",
+                    )
+                    .connection_id(conn_id),
+                );
+            }
             cancel_shared_with_observability(
                 shared,
                 RequestCancellationReason::TransportFailure,

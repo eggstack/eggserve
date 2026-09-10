@@ -14,7 +14,7 @@ This document defines every timeout and lifecycle deadline in the eggserve runti
 | 6 | Connection total timeout | `connection_total_timeout` | 60s | HTTP/1 connection created | No | N/A | Connection driver deadline loop | Graceful shutdown of Hyper connection | Connection dropped |
 | 7 | Graceful shutdown timeout | `graceful_shutdown_timeout` | 10s | Shutdown requested | No | All connection tasks complete | `accept_loop()` drain loop | Abort remaining tasks, transition to Stopped | JoinSet aborted and joined |
 | 8 | Keep-alive idle timeout | `keep_alive_idle_timeout` | 60s | Last request/transport activity | Yes — every request completion and socket read/write | Completed response, new request bytes, any socket progress | Connection driver deadline loop | Graceful shutdown of Hyper connection | Connection dropped |
-| 9 | Response write no-progress timeout | `response_write_timeout` | 30s | Response handed to Hyper | H1: every forward socket write; H2: application-body poll; H3: each send call | Protocol-specific observable progress | Connection driver + `ProgressIo` (H1), tracked producer polls (H2), H3 send calls | Graceful shutdown/reset of the affected transport path, producer cancelled | Connection/stream dropped, permits released |
+| 9 | Response write no-progress timeout | `response_write_timeout` | 30s | Response handed to Hyper (H1/H2) or H3 send path | H1: every forward socket write; H2: per-response producer/poll; H3: absolute producer no-progress deadline + per-send bound | Protocol-specific observable progress | Connection driver + `ProgressIo` (H1), tracked producer polls (H2), H3 absolute producer deadline + send timeouts | H1/H2: connection shutdown; H3: stream reset (`H3_INTERNAL_ERROR`), siblings survive; producer cancelled | Connection/stream dropped, permits released |
 
 Lifecycle controls that are not timeouts but bound connection use: `max_requests_per_connection` (default unlimited; when reached, the current response completes with `Connection: close`) and `max_in_flight_requests` (default 64; exhaustion answers 503 before service invocation).
 
@@ -141,9 +141,9 @@ application-task admission is downstream-owned.
 
 - **Clock starts**: A response is handed to Hyper for transmission (all responses, including errors and rejections, arm the budget).
 - **Progress resets**: Yes — every forward socket write (`AsyncWrite::poll_write` / `poll_write_vectored` with `n > 0`) moves the deadline. Steady progress, however slow, never triggers it: this is a no-progress timer, not a total duration.
-- **Progress definition**: H1 observes forward socket bytes through `ProgressIo`; H2 observes application-body producer/poll progress per response; H3 observes its bounded send calls. H2 producer progress is not a guarantee that Hyper has advanced stream flow control or put bytes on the wire.
-- **Enforcement**: The connection driver closes the H1 connection when a response body is outstanding and no socket progress was made for the interval. H2 uses the conservative bounded connection-shutdown fallback when the tracked producer stalls; H3 applies the timeout to the affected send/stream path. Every response body releases its outstanding slot on end, failure, or drop. Idle connections (nothing outstanding) never trip this timer.
-- **Terminal behavior**: Graceful shutdown of the Hyper connection (`WriteStallTimeout` event, `write_stall_timeouts` counter, `WriteTimeout` outcome), producer/file work cancelled via body drop. No secondary response is attempted after partial commitment; nothing is buffered to avoid the timeout.
+- **Progress definition**: H1 observes forward socket bytes through `ProgressIo`; H2 observes application-body producer/poll progress per response; H3 observes meaningful producer progress plus bounded send calls (Plan 194). H2 producer progress is not a guarantee that Hyper has advanced stream flow control or put bytes on the wire.
+- **Enforcement**: The connection driver closes the H1 connection when a response body is outstanding and no socket progress was made for the interval. H2 uses the conservative bounded connection-shutdown fallback when the tracked producer stalls. For H3 streaming responses, `response_write_timeout` is a per-response no-progress budget across application body production and each bounded H3 send operation: response HEADERS keep their one-operation send timeout, then an absolute producer deadline is armed; meaningful produced body data followed by successful send re-arms the producer budget while empty chunks do not; a stalled send stays bounded by its own send timeout under QUIC flow control. Producer silence or a stalled send resets only the affected stream with `H3_INTERNAL_ERROR` while siblings survive. Every response body releases its outstanding slot on end, failure, or drop. Idle connections (nothing outstanding) never trip this timer. QUIC connection lifetime remains governed by `Http3Config::max_idle_timeout` plus per-operation deadlines rather than `connection_total_timeout`.
+- **Terminal behavior**: H1/H2: graceful shutdown of the Hyper connection (`WriteStallTimeout` event, `write_stall_timeouts` counter, `WriteTimeout` outcome). H3: per-stream reset with the same `WriteStallTimeout` event/counter scoped to the affected stream. Producer/file work cancelled via body drop. No secondary response is attempted after partial commitment; nothing is buffered to avoid the timeout.
 - **Cleanup**: Connection dropped; file-stream, service, and connection permits released.
 
 ### Maximum requests per connection
@@ -161,7 +161,13 @@ enforcement is implemented via the `ProgressIo` transport wrapper plus
 response-body completion tracking. H2 deliberately retains the Plan 190
 limitation that public Hyper 1.11.1 does not expose a safe stream-local
 wire-progress/reset hook; its timeout observes producer/poll progress and
-falls back to bounded connection shutdown. The remaining
+falls back to bounded connection shutdown. H3 enforces an absolute
+`response_write_timeout` producer no-progress deadline plus per-send bounds
+(Plan 194 closes the earlier producer-silence gap described in the Plan 192
+readiness record); only meaningful production followed by successful send
+re-arms the deadline, empty chunks do not, a stall resets only the
+affected stream with `H3_INTERNAL_ERROR` and observes `WriteStallTimeout`,
+with siblings surviving. The remaining
 intentional non-goals (no per-IP/client rate limiting, no request routing or
 middleware, no custom parser solely for a finer request-line knob) are
 unchanged: Hyper still exposes no aggregate header-byte, request-target, or

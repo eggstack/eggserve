@@ -1,7 +1,8 @@
 # HTTP/3 and QUIC transport boundary
 
 EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
-an experimental transport adapter after Plans 188, 190, 192, and 193 closure, not a change to the
+an experimental transport adapter after Plans 188, 190, 192, 193, and 194
+closure, not a change to the
 Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
 dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
@@ -97,27 +98,36 @@ the shared `RequestBody` consumer.
 Responses pass through canonical normalization and the shared privacy policy.
 H3 omits HTTP/1 framing and connection fields, sends bytes/files/known-length
 streams/unknown-length streams under QUIC backpressure, splits writes at the
-configured H3 send bound, and validates known stream lengths. A producer
-failure, stream-length mismatch, or per-stream write timeout resets only the
-affected request stream after response commitment. Runtime-owned `Alt-Svc`
+configured H3 send bound, and validates known stream lengths. Producer waits
+use a `response_write_timeout` absolute no-progress deadline and each send
+call keeps its own bound (Plan 194): only non-empty production followed by
+successful send re-arms the producer deadline, so slow-but-progressing
+producers never spuriously time out while empty chunks cannot refresh the
+budget. Producer silence or a stalled send resets only the affected request
+stream with `H3_INTERNAL_ERROR` (siblings survive) and observes
+`WriteStallTimeout`. A producer failure or stream-length mismatch uses the
+same stream-scoped reset path. Runtime-owned `Alt-Svc`
 uses the actual same-port listener and is suppressed when the response policy
 denylist contains `alt-svc`.
 
 ## Observability and qualification
 
 The adapter uses the runtime `OpsContext` for listener readiness, admission,
-handshake failures/timeouts, max-request drain, body timeouts, and shared
+handshake failures/timeouts, max-request drain, body timeouts, response
+write-stall timeouts, and shared
 counters. Runtime-generated H3 errors use the same canonical status/reason/body
 constructor as H1/H2, including HEAD, `Allow`, empty privacy policy, and
 unassigned-status behavior. It does not log QUIC connection IDs, tokens, TLS
- secrets, packets, or raw request values. Plans 188, 190, 192, and 193 keep H3
+ secrets, packets, or raw request values. Plans 188, 190, 192, 193, and 194
+keep H3
 experimental because the available qualification host had no direct H3 client,
 second independent client, adversarial network environment, or non-Linux H3
 runtime. The in-process H3 qualification now directly covers DATA without
 `Content-Length`, zero-length declarations followed by DATA, bodyless
 dispatch, bounded presence-probe timeouts, sibling survival, detached
-lifecycle wake-up after peer close, early-error stream scoping, and
-complete-response survival across an immediate peer close.
+lifecycle wake-up after peer close, early-error stream scoping,
+complete-response survival across an immediate peer close, and stalled
+response-producer timeout with sibling survival (Plan 194).
 
 Deterministic local coverage lives in the `http3` feature tests:
 
@@ -184,10 +194,19 @@ the durable contract points are:
   class as PASS/SKIP (never mistaking unavailable for passed) and fails closed
   under `EGGSERVE_REQUIRE_ADVERSARIAL_H3`, `EGGSERVE_REQUIRE_H3_BROWSER`,
   `EGGSERVE_REQUIRE_H3_IMPAIRMENT`, and `EGGSERVE_REQUIRE_H3_PLATFORM`.
-- **Plan 193 gate**: Plan 193 executed the promotion attempt on 2026-09-10
-  against the unchanged frozen candidate and retained the experimental tier
-  (unmet Plan 192 prerequisite, `#338`/`#262` still open, and every mandatory
-  external evidence class unavailable on the execution host). See
+- **Plan 193 gate**: Plan 193 closed at preflight on 2026-09-10 without
+  entering promotion qualification (unmet Plan 192 prerequisite). The pass
+  inventoried the unchanged frozen candidate, re-checked `#338`/`#262` as
+  still open, and recorded every mandatory external evidence class as
+  unavailable on the execution host. See
   [`release/plan-193-http3-supported-tier-qualification.md`](../release/plan-193-http3-supported-tier-qualification.md).
   A future promotion requires a new scoped plan; Plan 193 is no longer an open
   promotion authority.
+- **Plan 194 correction**: Plan 194 bounds the H3 `ResponseStream` producer
+  poll with a `response_write_timeout` absolute no-progress deadline (only
+  non-empty production followed by successful send re-arms it; empty chunks
+  preserve the deadline; silence resets only the affected stream and observes
+  `WriteStallTimeout`), correcting the Plan 192 Track F disposition that
+  claimed existing bounds already covered the stall. H3 stays experimental;
+  Plans 192/193 blockers stand. See
+  [`release/plan-194-http3-producer-timeout-correction.md`](../release/plan-194-http3-producer-timeout-correction.md).

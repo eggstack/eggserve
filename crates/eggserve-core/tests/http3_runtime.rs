@@ -5,9 +5,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::{Buf, Bytes};
-use eggserve_core::primitives::canonical::{Response, ResponseBody, StatusCode};
+use eggserve_core::primitives::canonical::{
+    Response, ResponseBody, ResponseStream, ResponseStreamError, StatusCode,
+};
 use eggserve_core::server::{service_fn, Http3Config, Request, RuntimeConfig, Server};
-use futures_util::future;
+use futures_util::{future, StreamExt};
 use h3::client;
 use h3_quinn::quinn::crypto::rustls::QuicClientConfig;
 use h3_quinn::quinn::{ClientConfig, Endpoint, VarInt};
@@ -654,4 +656,385 @@ async fn h3_forced_shutdown_wakes_remaining_lifecycle_waiter() {
     drop(sender);
     endpoint.close(VarInt::from_u32(0), b"test complete");
     let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+}
+
+/// Plan 194: a stalled `ResponseStream` producer must hit the per-stream
+/// `response_write_timeout` no-progress deadline (stream reset), not park the
+/// H3 request task indefinitely. A sibling stream on the same connection must
+/// still complete normally.
+#[tokio::test]
+async fn h3_stalled_response_producer_times_out_and_sibling_survives() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|request: Request| async move {
+        if request.head().target().path() == "/stalled" {
+            let pending = futures_util::stream::pending::<Result<Bytes, ResponseStreamError>>();
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Stream(ResponseStream::new(pending)))
+                .unwrap())
+        } else {
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Bytes(b"sibling ok".to_vec()))
+                .unwrap())
+        }
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .response_write_timeout(Duration::from_millis(100))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    // Headers are sent before the stalled body, so the client observes 200
+    // and then a stream reset once the producer no-progress deadline fires.
+    let mut stalled = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/stalled")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    stalled.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), stalled.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    let stalled_outcome = tokio::time::timeout(Duration::from_secs(2), stalled.recv_data()).await;
+    let stalled_outcome =
+        stalled_outcome.expect("stalled H3 producer must terminate via producer timeout, not hang");
+    // The stalled stream must terminate without yielding application bytes:
+    // either a reset error or a clean end-of-stream, never a data chunk.
+    match stalled_outcome {
+        Ok(None) => {}
+        Err(_) => {}
+        Ok(Some(_)) => panic!("stalled H3 producer must not yield bytes"),
+    }
+
+    let mut sibling = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/sibling")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    sibling.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), sibling.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    assert_eq!(collect_h3_body(&mut sibling).await, b"sibling ok");
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
+/// Plan 194 Track G: a producer that yields one real chunk and then parks is
+/// bounded from its last meaningful progress point, not from response
+/// creation. The client observes the first chunk, then the stream terminates.
+#[tokio::test]
+async fn h3_producer_stall_after_progress_times_out_from_last_progress() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|_request: Request| async move {
+        let first = futures_util::stream::iter(vec![Ok::<_, ResponseStreamError>(
+            Bytes::from_static(b"first"),
+        )])
+        .chain(futures_util::stream::pending());
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::new(first)))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .response_write_timeout(Duration::from_millis(150))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/progress-then-stall")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), request.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    // The first real chunk must reach the client before the stall terminates
+    // the stream.
+    let first = tokio::time::timeout(Duration::from_secs(2), request.recv_data())
+        .await
+        .expect("first chunk should arrive before the producer deadline")
+        .expect("stream should still be open for the first chunk");
+    assert!(first.is_some());
+    // After the stall, the stream must terminate without further data.
+    let stalled = tokio::time::timeout(Duration::from_secs(2), request.recv_data()).await;
+    let stalled =
+        stalled.expect("stalled-after-progress producer must terminate via producer timeout");
+    match stalled {
+        Ok(None) => {}
+        Err(_) => {}
+        Ok(Some(_)) => panic!("no further bytes expected after the producer stall"),
+    }
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
+/// Plan 194 Track G: slow but steadily progressing producers never spuriously
+/// time out. Total stream duration exceeds one timeout interval while every
+/// inter-chunk gap stays below it.
+#[tokio::test]
+async fn h3_slow_progressing_producer_completes_beyond_one_timeout_interval() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|_request: Request| async move {
+        let slow = futures_util::stream::unfold(0u32, |count| async move {
+            if count >= 4 {
+                return None;
+            }
+            tokio::time::sleep(Duration::from_millis(60)).await;
+            Some((
+                Ok::<_, ResponseStreamError>(Bytes::from_static(b"x")),
+                count + 1,
+            ))
+        });
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::new(slow)))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .response_write_timeout(Duration::from_millis(200))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/slow")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(5), request.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    // Four 60 ms gaps total ~240 ms, beyond one 200 ms interval: completion
+    // proves no-progress rather than total-duration semantics.
+    let body = tokio::time::timeout(Duration::from_secs(5), collect_h3_body(&mut request))
+        .await
+        .expect("slow-but-progressing stream must complete");
+    assert_eq!(body, b"xxxx");
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
+/// Plan 194 Track G (E1): empty chunks followed by real data within the
+/// original deadline succeed; empty chunks do not alter body accounting.
+#[tokio::test]
+async fn h3_empty_chunks_then_data_within_deadline_succeed() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|_request: Request| async move {
+        let stream = futures_util::stream::iter(vec![
+            Ok::<_, ResponseStreamError>(Bytes::new()),
+            Ok::<_, ResponseStreamError>(Bytes::new()),
+            Ok::<_, ResponseStreamError>(Bytes::from_static(b"data")),
+        ]);
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::new(stream)))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .response_write_timeout(Duration::from_millis(300))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/empty-then-data")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), request.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    let body = tokio::time::timeout(Duration::from_secs(2), collect_h3_body(&mut request))
+        .await
+        .expect("empty chunks followed by prompt data must succeed");
+    assert_eq!(body, b"data");
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
+/// Plan 194 Track G (E2): empty chunks cannot refresh the producer deadline.
+/// A producer that yields empty chunks and then parks times out against the
+/// original meaningful-progress point.
+#[tokio::test]
+async fn h3_empty_chunks_do_not_refresh_producer_deadline() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|_request: Request| async move {
+        let stream = futures_util::stream::iter(vec![
+            Ok::<_, ResponseStreamError>(Bytes::new()),
+            Ok::<_, ResponseStreamError>(Bytes::new()),
+        ])
+        .chain(futures_util::stream::pending());
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::new(stream)))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .response_write_timeout(Duration::from_millis(150))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/empty-then-stall")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), request.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    // Empty chunks carry no bytes, so the client must observe termination
+    // (reset or EOS) rather than an indefinite live stream.
+    let outcome = tokio::time::timeout(Duration::from_secs(2), request.recv_data()).await;
+    let outcome = outcome.expect("empty-then-parked producer must terminate via producer timeout");
+    match outcome {
+        Ok(None) => {}
+        Err(_) => {}
+        Ok(Some(_)) => panic!("empty chunks must not yield application bytes"),
+    }
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
 }

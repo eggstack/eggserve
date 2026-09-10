@@ -1,28 +1,29 @@
 # Plan 193 HTTP/3 Supported-Tier Promotion Qualification
 
-Date: 2026-09-10
+Date: 2026-09-10 (Plan 194 corrective note appended 2026-09-10; evidence below unchanged)
 Candidate base: `71dc693 Close Plan 192 HTTP/3 dependency readiness as BLOCKED`
 Environment: Linux x86_64 (Ubuntu 24.04, kernel 6.8.0-139-generic), loopback qualification
-Decision: **remain experimental — promotion blocked (entry prerequisite unmet plus missing mandatory evidence)**
+Decision: **remain experimental — promotion preflight blocked (entry prerequisite unmet); supported-tier qualification was not entered**
 
 ## Scope
 
-Plan 193 attempted to promote the existing opt-in Rust `http3` feature from
-experimental to supported, opt-in, against the frozen Plan 192 candidate. No
-runtime source change was required or made: the candidate already carries the
-Plan 192 narrow hardening, and every deterministic gate passes against it. The
-only repository changes in this pass are this closure record, the CLOSED status
-pointer on the plan file, and short blocker pointers in the live documentation.
-No dependency was added or upgraded; no Python, default-feature, or
-`server`-API surface changed.
+Plan 193 was closed at preflight without entering supported-tier promotion
+qualification: Plan 192 closed `BLOCKED`, not `READY FOR PLAN 193`, so the
+mandatory promotion qualification phase was not eligible to run per the plan's
+own decision rule ("If Plan 192 is `BLOCKED`, do not execute this plan until
+its blocker is resolved"). The work performed was a preflight/evidence
+inventory against the frozen Plan 192 candidate — candidate freeze,
+upstream-blocker re-check, environment/tool availability inventory,
+deterministic gate rerun, and fail-closed promotion-gate probes — with H3
+retained as experimental. No runtime source change was made; no dependency
+was added or upgraded; no Python, default-feature, or `server`-API surface
+changed. All tool/environment/blocker evidence inventoried here remains
+useful for a future scoped promotion plan.
 
-The entry prerequisite is itself unmet: Plan 192 closed `BLOCKED`, not `READY
-FOR PLAN 193`. Per the plan's own decision rule ("If Plan 192 is `BLOCKED`, do
-not execute this plan until its blocker is resolved"), a promotion campaign
-cannot proceed. This pass therefore records the candidate freeze, re-checks the
-named upstream blockers, probes every mandatory evidence class on this host,
-and closes with H3 experimental — the same honest outcome shape as the Plan 191
-H2 promotion attempt.
+(Plan 194 corrective note: the pre-194 wording described this pass as a
+promotion attempt that was "executed". The accurate history is preflight-blocked
+closure without entering promotion qualification. Test counts, environment
+details, blocker inventory, and gate results below are preserved as recorded.)
 
 ## Track A — Candidate freeze and evidence inventory
 

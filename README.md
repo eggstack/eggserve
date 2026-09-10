@@ -166,24 +166,33 @@ and [qualification records](https://github.com/eggstack/eggserve/blob/main/relea
 H2's response no-progress guard observes per-response application-body
 polling, not guaranteed stream-level wire progress after Hyper accepts a
 frame; a stall therefore uses the conservative connection-shutdown fallback.
-The opt-in `http3` feature adds an experimental native QUIC/HTTP/3 endpoint
+H3's guard is per-stream instead: the `ResponseStream` producer wait runs
+under an absolute `response_write_timeout` no-progress deadline that only
+non-empty production plus successful send re-arms (Plan 194; empty chunks are
+not progress), each send call keeps its own bound, and a stall resets
+only the affected stream while siblings survive. The opt-in `http3` feature
+adds an experimental native QUIC/HTTP/3 endpoint
 beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
 `--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
 advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
-HTTP/3 remains Rust-only and experimental after Plans 188, 190, 192, and 193 closure:
+HTTP/3 remains Rust-only and experimental after Plans 188, 190, 192, 193, and 194 closure:
 deterministic bounded implementation checks and in-process corrective
 regressions pass, but independent-client, adversarial-wire, and cross-platform
 runtime evidence is incomplete, and the Plan 192 dependency-readiness gate
 closed `BLOCKED` on the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 /
 Quinn 0.11.11): upstream `hyperium/h3#338` has no released fix and the
-`hyperium/h3#262` stream-drop remainder is unresolved. Plan 193 re-checked both
-issues against the unchanged candidate and retained the experimental tier. See the
+`hyperium/h3#262` stream-drop remainder is unresolved. Plan 193 closed at preflight
+without entering promotion qualification (unmet Plan 192 prerequisite) after
+re-checking both issues and inventorying the missing evidence; Plan 194
+bounds the H3 response-producer wait without changing
+the tier. See the
 [HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
 and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md) plus the
 [Plan 190 corrective record](https://github.com/eggstack/eggserve/blob/main/release/plan-190-multiprotocol-corrective-qualification.md), the
-[Plan 192 readiness record](https://github.com/eggstack/eggserve/blob/main/release/plan-192-http3-dependency-readiness.md), and the
-[Plan 193 promotion record](https://github.com/eggstack/eggserve/blob/main/release/plan-193-http3-supported-tier-qualification.md).
+[Plan 192 readiness record](https://github.com/eggstack/eggserve/blob/main/release/plan-192-http3-dependency-readiness.md), the
+[Plan 193 promotion record](https://github.com/eggstack/eggserve/blob/main/release/plan-193-http3-supported-tier-qualification.md), and the
+[Plan 194 correction record](https://github.com/eggstack/eggserve/blob/main/release/plan-194-http3-producer-timeout-correction.md).
 Reject-body handling is protocol-aware: H2 uses Hyper's end-stream state and
 H3 performs one bounded receive probe when headers do not establish an empty
 request. H3 request lifecycles are registered for peer-loss, timeout, stream,

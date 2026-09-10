@@ -2,9 +2,17 @@
 
 ## Status
 
-**PLANNED — narrow post-Plan-193 corrective implementation pass.**
+**CLOSED — implemented 2026-09-10; H3 remains experimental.**
 
-Baseline when written: `main` at `368fc2aad973bd4eecbc1d041ea3778630165f1c` (`Close Plan 193 HTTP/3 promotion attempt as experimental`). Re-read current source, plan status, release records, and documentation before implementation in case `main` has moved.
+Outcome: absolute producer no-progress deadline (`timeout_at`, empty chunks
+excluded) with stream-scoped reset and `WriteStallTimeout` observability,
+five Track G regression tests (H3 suite 9 → 14), Plan 193 preflight-blocked
+trace correction, Plan 192 corrective note, and synchronized timeout docs.
+No promotion granted; Plans 192/193 blockers stand. See
+`release/plan-194-http3-producer-timeout-correction.md`. Handoff to Plan 195
+for corrective qualification.
+
+Baseline when written: `main` at `368fc2aad973bd4eecbc1d041ea3778630165f1c` (`Close Plan 193 HTTP/3 promotion attempt as experimental`). Implemented on top of `8128fe7 Add Plan 195 H3 response timeout qualification` (planning handoff). Re-read current source, plan status, release records, and documentation before implementation in case `main` has moved.
 
 Prerequisites:
 

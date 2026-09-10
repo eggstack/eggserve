@@ -138,7 +138,7 @@ documented separately in `docs/python-api.md`.
 | `serve_http_connection` | experimental (`http2`) | H1/H2 caller-owned driver; cleartext uses bounded prior-knowledge detection; see the Plan 190 corrective qualification record |
 | `serve_http_connection_with_id` | experimental (`http2`) | H1/H2 caller-owned driver with explicit connection ID |
 | `RuntimeState` | experimental | Shared admission pool; `new(&config)` is public, `new_for_testing` is hidden |
-| `Http3Config` | experimental (`http3`) | Bounded QUIC/H3 stream, window, handshake, field-section, idle, retry, and send-buffer policy; deterministic corrective qualification passed under Plan 190, early-error stream scoping added under Plan 192, while direct H3 remains experimental (`BLOCKED` readiness record) |
+| `Http3Config` | experimental (`http3`) | Bounded QUIC/H3 stream, window, handshake, field-section, idle, retry, and send-buffer policy; deterministic corrective qualification passed under Plan 190, early-error stream scoping added under Plan 192, per-stream producer timeout added under Plan 194, while direct H3 remains experimental (`BLOCKED` readiness + Plan 193 retained tier) |
 
 ### `config` Module
 

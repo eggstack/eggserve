@@ -2,17 +2,26 @@
 
 ## Status
 
-**CLOSED — promotion attempt executed 2026-09-10; `EXPERIMENTAL` retained, promotion blocked.**
+**CLOSED — promotion preflight blocked 2026-09-10; supported-tier qualification was not entered; `EXPERIMENTAL` retained.**
 
 Outcome: the Plan 192 `BLOCKED` prerequisite was unmet (no readiness update
-since), the frozen candidate (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn 0.11.11)
-is unchanged, upstream `hyperium/h3#338` remains open with no released fix,
-the `#262` remainder stands, and every mandatory external evidence class (two
+since), so the mandatory promotion qualification phase was not eligible to
+run. The work performed was a preflight/evidence inventory against the frozen
+candidate (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn 0.11.11, unchanged):
+upstream `hyperium/h3#338` re-checked open with no released fix, the `#262`
+remainder standing, and every mandatory external evidence class (two
 independent H3 families, browser Alt-Svc, adversarial frames, network
-impairment, cross-platform H3 runtime) is unavailable on the execution host.
+impairment, cross-platform H3 runtime) inventoried as unavailable on the
+execution host, with fail-closed gate probes recorded.
 See `release/plan-193-http3-supported-tier-qualification.md`. A future
 promotion requires a new scoped plan once the readiness blockers resolve;
 Plan 193 is no longer an open promotion authority.
+
+(Plan 194 corrective note: the pre-194 wording above said the promotion
+attempt was "executed". Per the Plan 192 prerequisite — "If Plan 192 is
+`BLOCKED`, do not execute this plan" — the accurate history is that Plan 193
+closed at preflight without entering promotion qualification. The evidence
+inventory and gate probes it recorded remain useful and are preserved.)
 
 Prerequisite: Plan 192 must close with `READY FOR PLAN 193` against a frozen H3 dependency/runtime candidate. If Plan 192 is `BLOCKED`, do not execute this plan until its blocker is resolved through a later narrow readiness update.
 

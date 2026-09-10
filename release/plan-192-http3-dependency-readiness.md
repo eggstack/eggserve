@@ -224,6 +224,16 @@ the #262 remainder and part of the BLOCKED decision.
   existing handler/stream semantics plus the documented bounds already cover
   it, and the residual risk is the stream-local reset remainder above, not an
   unbounded pin.
+
+  (Plan 194 corrective note, 2026-09-10: the paragraph above overstates the
+  baseline. The `next().await` producer wait itself had no deadline, so a
+  producer that never yields after response commitment bypassed
+  `response_write_timeout` whenever no send was outstanding; QUIC idle is
+  transport-wide rather than a per-response producer guarantee. Plan 194 adds
+  the missing absolute producer no-progress deadline — only non-empty
+  production plus successful send re-arms it, empty chunks do not — with
+  stream-scoped reset and `WriteStallTimeout` observability. The BLOCKED
+  decision and all other evidence above are unchanged.)
 - Independent flow-control verification (real-credit withholding with two
   clients) remains Plan 193 evidence; the deterministic tests prove
   stream-scoping and timeout representation (408 via the canonical
