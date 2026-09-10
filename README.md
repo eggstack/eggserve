@@ -171,13 +171,17 @@ beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
 `--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
 advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
-HTTP/3 remains Rust-only and experimental after Plans 188 and 190 closure:
+HTTP/3 remains Rust-only and experimental after Plans 188, 190, and 192 closure:
 deterministic bounded implementation checks and in-process corrective
 regressions pass, but independent-client, adversarial-wire, and cross-platform
-runtime evidence is incomplete. See the
+runtime evidence is incomplete, and the Plan 192 dependency-readiness gate
+closed `BLOCKED` on the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 /
+Quinn 0.11.11): upstream `hyperium/h3#338` has no released fix and the
+`hyperium/h3#262` stream-drop remainder is unresolved. See the
 [HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
 and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md) plus the
-[Plan 190 corrective record](https://github.com/eggstack/eggserve/blob/main/release/plan-190-multiprotocol-corrective-qualification.md).
+[Plan 190 corrective record](https://github.com/eggstack/eggserve/blob/main/release/plan-190-multiprotocol-corrective-qualification.md) and the
+[Plan 192 readiness record](https://github.com/eggstack/eggserve/blob/main/release/plan-192-http3-dependency-readiness.md).
 Reject-body handling is protocol-aware: H2 uses Hyper's end-stream state and
 H3 performs one bounded receive probe when headers do not establish an empty
 request. H3 request lifecycles are registered for peer-loss, timeout, stream,

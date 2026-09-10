@@ -62,7 +62,13 @@ The following dependency categories are approved for initial development:
   versions in `Cargo.lock`, and is covered by the same `cargo audit`/`cargo deny`
   gates as the default graph. Plans 188 and 190 close with H3 experimental because
   independent-client and adversarial QUIC evidence was unavailable on the
-  qualification host; the manual script remains the release path.
+  qualification host; the manual script remains the release path. Plan 192
+  freezes the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn
+  0.11.11 / rustls 0.23.x) and closes `BLOCKED`: `hyperium/h3#338` has no
+  released fix and the `hyperium/h3#262` stream-drop remainder is unresolved,
+  so H3 stays experimental until a later readiness update (see
+  `release/plan-192-http3-dependency-readiness.md`). No fork or vendored H3
+  patch is permitted to force a supported label.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a
   current-thread runtime, while Python enables a bounded multi-thread runtime

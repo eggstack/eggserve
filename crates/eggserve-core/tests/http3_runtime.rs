@@ -427,6 +427,165 @@ async fn h3_normal_completion_does_not_cancel_lifecycle() {
     handle.wait().await.unwrap();
 }
 
+/// Plan 192 Track C/D (#262): an early request error must terminate only its
+/// own stream. A rejected stream sends the canonical error while a sibling
+/// stream on the same connection still completes normally.
+#[tokio::test]
+async fn h3_early_head_error_is_stream_scoped_and_sibling_survives() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|_request: Request| async move {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Bytes(b"sibling ok".to_vec()))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    // `TE: chunked` is forbidden on H3; the adapter must answer 400 without
+    // invoking the service and without disturbing sibling streams.
+    let mut rejected = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/rejected")
+                .header("te", "chunked")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    rejected.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(1), rejected.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::BAD_REQUEST);
+    let _ = collect_h3_body(&mut rejected).await;
+
+    let mut sibling = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/sibling")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    sibling.finish().await.unwrap();
+    let response = sibling.recv_response().await.unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    assert_eq!(collect_h3_body(&mut sibling).await, b"sibling ok");
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
+/// Plan 192 Track D (#338 deterministic simulation): bytes for a valid
+/// response that are already buffered must not be discarded when the peer
+/// closes immediately after a complete exchange. The complete body is
+/// observed, the detached lifecycle reports peer close, and the server stays
+/// usable for a new connection.
+#[tokio::test]
+async fn h3_complete_response_survives_immediate_peer_close() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let service = service_fn(|_request: Request| async move {
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Bytes(b"plan-192-data".to_vec()))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let addr = handle.local_addr();
+    let (endpoint, connection, mut driver, mut sender) =
+        connect_h3(addr, certificate.clone()).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/data")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = request.recv_response().await.unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    assert_eq!(collect_h3_body(&mut request).await, b"plan-192-data");
+    // Close immediately after the complete exchange; the already-observed
+    // bytes must remain valid and the close must surface as a connection
+    // event rather than retroactively failing the request.
+    connection.close(VarInt::from_u32(0), b"race close");
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+
+    // The server endpoint must remain usable for a fresh connection.
+    let (endpoint2, _connection2, mut driver2, mut sender2) = connect_h3(addr, certificate).await;
+    let driver_task2 =
+        tokio::spawn(async move { future::poll_fn(|cx| driver2.poll_close(cx)).await });
+    let mut retry = sender2
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/again")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    retry.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), retry.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    assert_eq!(collect_h3_body(&mut retry).await, b"plan-192-data");
+    drop(sender2);
+    endpoint2.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task2).await;
+
+    handle.shutdown();
+    handle.wait().await.unwrap();
+}
+
 #[tokio::test]
 async fn h3_forced_shutdown_wakes_remaining_lifecycle_waiter() {
     let _ = rustls::crypto::ring::default_provider().install_default();

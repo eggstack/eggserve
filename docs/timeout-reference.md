@@ -95,6 +95,16 @@ application-task admission is downstream-owned.
 
 ### 6. Connection total timeout
 
+- **Scope**: TCP transports only (HTTP/1, HTTP/2). It does **not** bound
+  QUIC/HTTP-3 connection lifetime: H3 connections use QUIC idle timeout
+  (`Http3Config::max_idle_timeout`, default 60 s) plus the per-operation and
+  per-request deadlines (`tls_handshake_timeout`, `body_read_timeout`,
+  `handler_timeout`, `response_write_timeout`), the
+  `max_requests_per_connection` drain, and the graceful-shutdown deadline
+  (Plan 192 decision; see `release/plan-192-http3-dependency-readiness.md`).
+  Builder validation still requires H3 handler/body budgets to fit under an
+  explicit `connection_total_timeout`, but no total-lifetime timer runs on
+  the QUIC path.
 - **Clock starts**: HTTP/1 connection created (after TCP accept, optional TLS handshake).
 - **Progress resets**: No — this is a total connection lifetime limit, not an inactivity timeout.
 - **Progress definition**: N/A (timer never resets).

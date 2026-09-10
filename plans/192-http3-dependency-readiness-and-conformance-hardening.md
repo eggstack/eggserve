@@ -2,7 +2,18 @@
 
 ## Status
 
-**PLANNED — prerequisite readiness gate before any HTTP/3 supported-tier promotion attempt.**
+**CLOSED — readiness gate executed 2026-09-10; `BLOCKED`, H3 remains experimental.**
+
+Outcome: the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn
+0.11.11 / rustls 0.23.x) was inventoried with no upgrade candidate available;
+`hyperium/h3#338` is open with no released fix and applicable to EggServe's
+server HEADERS/DATA paths; three `hyperium/h3#262` early-error paths now abort
+receive explicitly while three residual paths remain; QPACK/resource,
+flow-control, lifetime (QUIC idle documented as the H3 contract),
+Alt-Svc, and TLS audits are recorded; two regression tests and fail-closed
+Plan 193 evidence gates were added. See
+`release/plan-192-http3-dependency-readiness.md`. Plan 193 must not execute
+until a later narrow readiness update resolves the blockers.
 
 Baseline: `main` at or after Plan 190 (`dbac1b70fd77b1d10984c2af697e3722a27a2156` when this plan was written). Re-read current code, dependency versions, upstream issue state, and standards before implementation because the HTTP/3 ecosystem is still moving quickly.
 

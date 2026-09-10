@@ -157,10 +157,12 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
    feature-gated and experimental. See
    [the qualification record](../release/plan-191-http2-supported-tier-qualification.md).
 2. **Experimental HTTP/3 scope** — The `http3` feature creates a separate
-   TLS 1.3/`h3` QUIC configuration and disables application 0-RTT. Plans 188
-   and 190 close with H3 still experimental because independent-client,
-   adversarial-wire, and cross-platform runtime evidence is incomplete; see
-   [the qualification record](../release/plan-190-multiprotocol-corrective-qualification.md).
+   TLS 1.3/`h3` QUIC configuration and disables application 0-RTT. Plans 188,
+   190, and 192 close with H3 still experimental because independent-client,
+   adversarial-wire, and cross-platform runtime evidence is incomplete, and
+   Plan 192 additionally blocks on upstream `hyperium/h3#338` (no released
+   fix) and the `#262` stream-drop remainder; see
+   [the Plan 192 readiness record](../release/plan-192-http3-dependency-readiness.md).
 3. **No OCSP stapling** — Not implemented
 4. **No certificate management** — No ACME, no automatic renewal
 5. **No custom trust stores** — Uses Mozilla's root bundle only

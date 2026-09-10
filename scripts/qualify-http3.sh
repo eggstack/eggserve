@@ -8,6 +8,14 @@
 #
 # Set EGGSERVE_REQUIRE_H3_CLIENTS=1 to fail when direct H3 cannot be tested,
 # and EGGSERVE_REQUIRE_TWO_H3_CLIENTS=1 to require two client implementations.
+#
+# Plan 192 evidence classes (all fail closed when required but unavailable):
+#   EGGSERVE_REQUIRE_ADVERSARIAL_H3=1  — require an adversarial H3 frame client (h3i)
+#   EGGSERVE_REQUIRE_H3_BROWSER=1      — require browser Alt-Svc evidence
+#   EGGSERVE_REQUIRE_H3_IMPAIRMENT=1   — require network-impairment evidence
+#   EGGSERVE_REQUIRE_H3_PLATFORM=1     — require non-Linux platform evidence
+# Plan 192 only requires that missing evidence is reported as SKIP, never as
+# PASS; Plan 193 sets the REQUIRE_* gates to enforce its promotion campaign.
 
 set -euo pipefail
 
@@ -15,6 +23,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REQUIRE_H3="${EGGSERVE_REQUIRE_H3_CLIENTS:-0}"
 REQUIRE_TWO="${EGGSERVE_REQUIRE_TWO_H3_CLIENTS:-0}"
+REQUIRE_ADVERSARIAL="${EGGSERVE_REQUIRE_ADVERSARIAL_H3:-0}"
+REQUIRE_BROWSER="${EGGSERVE_REQUIRE_H3_BROWSER:-0}"
+REQUIRE_IMPAIRMENT="${EGGSERVE_REQUIRE_H3_IMPAIRMENT:-0}"
+REQUIRE_PLATFORM="${EGGSERVE_REQUIRE_H3_PLATFORM:-0}"
 
 command -v cargo >/dev/null 2>&1 || { echo "cargo is required" >&2; exit 1; }
 command -v curl >/dev/null 2>&1 || { echo "curl is required" >&2; exit 1; }
@@ -160,6 +172,33 @@ if [[ "$REQUIRE_TWO" == 1 ]] && (( ${#H3_CLIENTS[@]} < 2 )); then
     exit 2
 fi
 if [[ "$REQUIRE_H3" == 1 ]] && (( ${#H3_CLIENTS[@]} == 0 )); then
+    exit 2
+fi
+
+echo "Plan 193 evidence-class summary (SKIP means tool/evidence unavailable, never PASS)"
+ADVERSARIAL="SKIP"
+if command -v h3i >/dev/null 2>&1; then
+    ADVERSARIAL="PRESENT(h3i)"
+fi
+printf '  direct-h3-clients: %s\n' "${H3_CLIENTS[*]:-<none>}"
+printf '  adversarial-h3-client: %s\n' "$ADVERSARIAL"
+printf '  browser-alt-svc-evidence: %s\n' "${EGGSERVE_H3_BROWSER_EVIDENCE:-SKIP}"
+printf '  network-impairment-evidence: %s\n' "${EGGSERVE_H3_IMPAIRMENT_EVIDENCE:-SKIP}"
+printf '  platform-evidence: %s\n' "$(uname -srm)"
+if [[ "$REQUIRE_ADVERSARIAL" == 1 ]] && [[ "$ADVERSARIAL" == SKIP ]]; then
+    echo "adversarial H3 client is required but unavailable (h3i not installed)" >&2
+    exit 2
+fi
+if [[ "$REQUIRE_BROWSER" == 1 && "${EGGSERVE_H3_BROWSER_EVIDENCE:-}" != PASS ]]; then
+    echo "browser Alt-Svc evidence is required but missing" >&2
+    exit 2
+fi
+if [[ "$REQUIRE_IMPAIRMENT" == 1 && "${EGGSERVE_H3_IMPAIRMENT_EVIDENCE:-}" != PASS ]]; then
+    echo "network-impairment evidence is required but missing" >&2
+    exit 2
+fi
+if [[ "$REQUIRE_PLATFORM" == 1 && "$(uname -s)" == Linux ]]; then
+    echo "non-Linux platform evidence is required but this host is Linux" >&2
     exit 2
 fi
 echo "HTTP/3 qualification baseline completed; consult the release record for the support-tier decision."

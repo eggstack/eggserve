@@ -1,7 +1,7 @@
 # HTTP/3 and QUIC transport boundary
 
 EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
-an experimental transport adapter after Plans 188 and 190 closure, not a change to the
+an experimental transport adapter after Plans 188, 190, and 192 closure, not a change to the
 Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
 dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
@@ -110,13 +110,14 @@ handshake failures/timeouts, max-request drain, body timeouts, and shared
 counters. Runtime-generated H3 errors use the same canonical status/reason/body
 constructor as H1/H2, including HEAD, `Allow`, empty privacy policy, and
 unassigned-status behavior. It does not log QUIC connection IDs, tokens, TLS
-secrets, packets, or raw request values. Plans 188 and 190 keep H3
+secrets, packets, or raw request values. Plans 188, 190, and 192 keep H3
 experimental because the available qualification host had no direct H3 client,
 second independent client, adversarial network environment, or non-Linux H3
 runtime. The in-process H3 qualification now directly covers DATA without
 `Content-Length`, zero-length declarations followed by DATA, bodyless
-dispatch, bounded presence-probe timeouts, sibling survival, and detached
-lifecycle wake-up after peer close.
+dispatch, bounded presence-probe timeouts, sibling survival, detached
+lifecycle wake-up after peer close, early-error stream scoping, and
+complete-response survival across an immediate peer close.
 
 Deterministic local coverage lives in the `http3` feature tests:
 
@@ -152,3 +153,32 @@ owns canonical semantics, aggregate limits, admission, body lifecycle,
 response privacy, and shutdown policy. `h3`, Quinn, rustls, and the operating
 system own wire parsing, QPACK encoding/decoding, packet recovery, TLS key
 schedule, retry/amplification behavior, and path/MTU mechanics.
+
+## Plan 192 dependency readiness (BLOCKED)
+
+Plan 192 re-evaluated the frozen candidate (`h3` 0.0.8 / `h3-quinn` 0.0.10 /
+Quinn 0.11.11 / rustls 0.23.x — the latest released versions; no upgrade
+candidate exists) and closed with `BLOCKED`, leaving H3 experimental. The
+full matrices and dispositions live in
+[`release/plan-192-http3-dependency-readiness.md`](../release/plan-192-http3-dependency-readiness.md);
+the durable contract points are:
+
+- **Upstream blockers**: `hyperium/h3#338` (open; server HEADERS/DATA paths
+  traverse the affected frame layer, no released fix) and the `hyperium/h3#262`
+  remainder (three early-error paths now abort receive explicitly with
+  `H3_REQUEST_CANCELLED`; the 503-admission, Buffer-error, and
+  post-service unconsumed-body paths still drop receive without an explicit
+  public-API abort). No fork or vendored patch was introduced.
+- **QPACK/resources**: the request path uses stateless decode capped by
+  `max_field_section_size` and responses use stateless encode, so no dynamic-table
+  knob is owed; control-stream uniqueness and frame-parser correctness stay
+  dependency-owned with adversarial proof deferred to Plan 193.
+- **Lifetime**: QUIC idle (`max_idle_timeout`) plus per-operation/request
+  deadlines is the documented H3 contract; `connection_total_timeout` does not
+  bound QUIC connection lifetime (see `docs/timeout-reference.md`).
+- **Tooling**: `scripts/qualify-http3.sh` reports every Plan 193 evidence
+  class as PASS/SKIP (never mistaking unavailable for passed) and fails closed
+  under `EGGSERVE_REQUIRE_ADVERSARIAL_H3`, `EGGSERVE_REQUIRE_H3_BROWSER`,
+  `EGGSERVE_REQUIRE_H3_IMPAIRMENT`, and `EGGSERVE_REQUIRE_H3_PLATFORM`.
+- **Plan 193 gate**: do not execute Plan 193 until a later narrow readiness
+  update resolves the two upstream blockers and re-freezes the candidate.

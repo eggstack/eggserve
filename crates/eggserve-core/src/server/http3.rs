@@ -368,8 +368,16 @@ async fn handle_request<S, C>(
             )
             .await
             {
+                // Plan 192 (#262): the send direction is already reset inside
+                // `send_response_or_cancel` on failure; still abort receive so
+                // a dropped half does not leave a live QUIC stream.
+                recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
                 return;
             }
+            // The request was rejected before any application processing, so
+            // abort the receive direction explicitly (RFC 9114 §4.1.1). A
+            // bare `RequestStream` drop does not reset the QUIC stream.
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
             return;
         }
     };
@@ -387,6 +395,9 @@ async fn handle_request<S, C>(
                 runtime_state.ops(),
             )
             .await;
+            // Same early-rejection ownership as above: the error response is
+            // sent on the send direction while receive is aborted here.
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
             return;
         }
     };
@@ -477,6 +488,9 @@ async fn handle_request<S, C>(
                 )
                 .await;
                 send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+                // The probe read failed, so the receive direction is already
+                // unusable; abort it explicitly rather than relying on drop.
+                recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
                 return;
             }
             Err(_) => {
