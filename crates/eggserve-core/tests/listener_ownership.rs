@@ -263,6 +263,7 @@ async fn prebound_udp_without_h3_enabled_fails_closed() {
 #[cfg(feature = "http3")]
 #[tokio::test]
 async fn prebound_udp_port_mismatch_fails_with_validation() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
     let key_pair = rcgen::KeyPair::generate().unwrap();
     let params = rcgen::CertificateParams::new(vec!["localhost".to_string()]).unwrap();
     let certificate = params.self_signed(&key_pair).unwrap();
