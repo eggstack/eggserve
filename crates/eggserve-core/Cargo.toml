@@ -26,12 +26,17 @@ default = []
 http2 = ["hyper/http2", "hyper-util/http2"]
 tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pki-types"]
 http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn"]
+http-interop = ["dep:http"]
+tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
 python-bindings-internal = []
 windows-adversarial-qualification = []
 
 [dependencies]
 bytes = "1"
 futures-util = "0.3"
+http = { version = "1", optional = true }
+tower-service = { version = "0.3", optional = true }
+tower-layer = { version = "0.3", optional = true }
 # Direct use: TrackedBody implements http_body::Body to observe response-body
 # completion for the write-no-progress timeout (Plan 164). Already in the
 # tree via hyper; pinned directly so the impl does not rely on transitive

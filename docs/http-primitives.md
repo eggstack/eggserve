@@ -122,6 +122,18 @@ Initial headers, trailers, interim responses, and final responses are distinct:
   project the capability to `eggserve.lowlevel` without changing the synchronous
   `http.server` surface.
 
+### Ecosystem interoperability (Plan 200, implemented)
+
+Optional `http` / `http-body` / Tower adapters live behind `http-interop`
+and `tower` features (never in default builds). See
+[http-interop.md](http-interop.md): loss-aware metadata conversions with
+`RawTargetExt` / `ConnectionInfoExt` / `AuthorityExt` / `LifecycleExt`,
+`RequestBody: http_body::Body` (data + trailers, backpressured, sanitized),
+`response_from_http_body` (framing-authoritative, validated trailers),
+`TowerToEggserve` (per-request clones, no shared mutex) and
+`EggserveToTower` (adapter-local readiness). Interim/tunnel capabilities
+never enter `http::Extensions`.
+
 ### Generic tunnels (Plan 199)
 
 Validated H1 `Upgrade`, `CONNECT`, and H2/H3 Extended `CONNECT` yield a

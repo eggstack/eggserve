@@ -120,6 +120,14 @@ adapter; its returned body type is opaque, so consumers should rely on the
 classified as the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented
 in the [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md).
 
+Optional ecosystem adapters (never in default builds) connect the canonical
+model to standard types: `http-interop` (`primitives::interop` — loss-aware
+`http`/`http-body` conversions, `RequestBody: http_body::Body`,
+`response_from_http_body`) and `tower` (`server::tower` —
+`TowerToEggserve` per-request clones plus `EggserveToTower`); see the
+[interop guide](https://github.com/eggstack/eggserve/blob/main/docs/http-interop.md).
+Native `Service` remains the maximum-fidelity path.
+
 The concise static-server flow is:
 
 ```rust,no_run

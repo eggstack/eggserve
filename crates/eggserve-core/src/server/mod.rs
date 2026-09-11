@@ -59,6 +59,8 @@ pub mod lifecycle;
 pub mod response_policy;
 pub mod service;
 pub mod static_service;
+#[cfg(feature = "tower")]
+pub mod tower;
 
 pub use crate::primitives::request::Request;
 #[cfg(feature = "http2")]
@@ -80,6 +82,8 @@ pub use service::{
     service_fn, service_fn_head, service_fn_with_policy, Service, ServiceError, ServiceFn,
 };
 pub use static_service::{StaticService, StaticServiceBuilder};
+#[cfg(feature = "tower")]
+pub use tower::{EggserveToTower, TowerAdapterError, TowerToEggserve};
 
 #[cfg(feature = "http3")]
 use std::path::{Path, PathBuf};

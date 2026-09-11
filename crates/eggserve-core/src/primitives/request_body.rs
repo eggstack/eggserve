@@ -494,6 +494,46 @@ impl RequestBody {
         Ok(self.completed_trailers.clone())
     }
 
+    /// Synchronous snapshot of validated terminal trailers (Plan 200).
+    ///
+    /// Returns the completed trailer block when content has completed
+    /// successfully, `None` otherwise. Used by the `http_body::Body`
+    /// adapter to serve the terminal `Frame::trailers` without an extra
+    /// async round-trip; the async [`RequestBody::trailers`] remains the
+    /// normative accessor for services.
+    #[cfg(feature = "http-interop")]
+    pub(crate) fn completed_trailers_snapshot(&self) -> Option<Trailers> {
+        if self.state != BodyState::Complete {
+            return None;
+        }
+        if self.completed_trailer_error.is_some() {
+            return None;
+        }
+        self.completed_trailers.clone()
+    }
+
+    /// Take the completed trailer block for one-shot `http_body` emission.
+    ///
+    /// Returns the stored trailers once, leaving `None` so a second
+    /// `poll_frame` observes end-of-stream. Only meaningful after
+    /// completion; returns `None` otherwise.
+    #[cfg(feature = "http-interop")]
+    pub(crate) fn take_completed_trailers(&mut self) -> Option<Trailers> {
+        if self.state != BodyState::Complete {
+            return None;
+        }
+        if self.completed_trailer_error.is_some() {
+            return None;
+        }
+        self.completed_trailers.take()
+    }
+
+    /// Returns the stored trailer failure, if any (Plan 200).
+    #[cfg(feature = "http-interop")]
+    pub(crate) fn completed_trailer_failure(&self) -> Option<String> {
+        self.completed_trailer_error.clone()
+    }
+
     /// Consume the body and its terminal trailers together.
     ///
     /// Defined alternative to [`read_all`](RequestBody::read_all) for callers

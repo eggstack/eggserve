@@ -1,6 +1,6 @@
 # Primitives API — Deep Dive
 
-The `primitives` module is the intended public boundary for embedding consumers. It provides path validation, filesystem resolution, HTTP request validation, and response planning without requiring Hyper for canonical application-facing types. Two explicitly documented conversion adapters may mention Hyper: `RequestHead::try_from_hyper()` inbound and `to_hyper_response()` outbound.
+The `primitives` module is the intended public boundary for embedding consumers. It provides path validation, filesystem resolution, HTTP request validation, and response planning without requiring Hyper for canonical application-facing types. Two explicitly documented conversion adapters may mention Hyper: `RequestHead::try_from_hyper()` inbound and `to_hyper_response()` outbound. Optional ecosystem adapters live behind `http-interop` (`primitives::interop`, loss-aware `http`/`http-body` conversions; see `docs/http-interop.md`) and `tower` (`server::tower`) without entering default builds.
 
 ## Module Location
 
@@ -33,6 +33,7 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `interim.rs` | `primitives/interim.rs` | `InterimSender`, `InterimLimits`, `InterimError`, `ExpectDecision` — bounded request-scoped 1xx (no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100) |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
+| `interop.rs` | `primitives/interop.rs` | `http-interop` adapters (Plan 200): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt`/`AuthorityExt`/`LifecycleExt`, `RequestBody: http_body::Body`, `response_from_http_body` |
 
 ## Public Types
 

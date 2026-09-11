@@ -55,6 +55,8 @@ pub mod header_block;
 pub mod http;
 pub mod incomplete_body_policy;
 pub mod interim;
+#[cfg(feature = "http-interop")]
+pub mod interop;
 pub mod method;
 pub mod planner;
 pub mod request;

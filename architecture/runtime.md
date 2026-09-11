@@ -94,7 +94,7 @@ pub trait Service: Send + Sync + 'static {
 - `request_body_policy()` declares the service's body policy per request head; default is `Reject` (safe static default). The runtime enforces the hard `max_request_body_bytes` ceiling — services may lower it, never raise it
 - Receives canonical `Request` envelope (RequestHead + RequestBody + `RequestContext`)
 - Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape (no `ServiceOutcome`); Plan 198 implements trailers in the message-body abstraction (`ResponseStream::with_trailers`) and interim via the request-scoped `InterimSender`, tunnel deferred to Plan 199
-- Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in Plan 200 adapters, native admission stays runtime-owned and deterministic (Plan 197 Track E)
+- Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in the `tower` adapters (`TowerToEggserve` per-request clones, `EggserveToTower` adapter-local ready; Plan 200 implemented), native admission stays runtime-owned and deterministic (Plan 197 Track E)
 - Panics caught at tokio task boundary
 
 ### RequestContext (Plans 197–198)
@@ -106,7 +106,8 @@ bounded `InterimSender` (`interim()`); tunnel capabilities (Plan 199) attach
 there when that plan lands. Cloning is cheap (`ConnectionInfo`
 value + `Arc`-backed lifecycle/interim) and never clones the one-shot
 `RequestBody`. There is no generic type map: downstream state belongs in
-the service wrapper, Tower/framework maps belong in Plan 200 adapters. No
+the service wrapper, Tower/framework maps belong in the `http-interop`/`tower`
+adapters (Plan 200 implemented; see `docs/http-interop.md`). No
 raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
 `ConnectionInfo`/`TlsInfo` come from the observed transport only;
 `Forwarded`/`X-Forwarded-*` stay ordinary untrusted headers.

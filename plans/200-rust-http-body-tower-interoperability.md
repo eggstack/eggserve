@@ -2,7 +2,13 @@
 
 ## Status
 
-**PLANNED.** Prerequisite: Plan 197. May proceed in parallel with Plans 198–199 once the native request/response contract is settled.
+**IMPLEMENTED / CLOSED.**
+
+Prerequisite: Plan 197. Implemented in parallel with Plans 198–199 on the settled native request/response contract.
+
+## Closure record
+
+Implemented on `main`: `http-interop` feature (`dep:http`, `primitives::interop` — loss-aware method/status/version/authority/URI/header conversions via `from_bytes`, `RawTargetExt`/`ConnectionInfoExt`/`AuthorityExt`/`LifecycleExt`, `RequestBody: http_body::Body` with data+trailers/backpressure/sanitized errors, `response_from_http_body` framing-authoritative with validated trailers, `response_from_bytes`/`empty_response_from_http` conveniences) and `tower` feature (`http-interop` + `dep:tower-service`/`dep:tower-layer`, `server::tower` — `TowerToEggserve` per-request clones driving `poll_ready` with explicit body policy, `EggserveToTower` adapter-local ready via normalization + `to_hyper_response` boxing; no shared mutex, `max_in_flight_requests` stays outer ceiling); middleware boundary after parsing/validation before normalization documented in `docs/http-interop.md`; fixtures in `crates/eggserve-core/tests/interop_http_tower.rs` (full/streaming, duplicates/opaque, request/response trailers, header middleware, readiness clones, errors, HEAD non-poll, H1 TCP parity, round-trip, native-independence) plus `primitives::interop` unit tests; docs updated (`http-interop.md`, `downstream-app-server.md`, `http-primitives.md`, `public-api-boundary.md`, `primitives-api.md`, `runtime.md`, `README.md`, `AGENTS.md`, skill). Verification: workspace fmt/clippy/tests plus `http-interop,tower` matrices green locally before push.
 
 ## Purpose
 

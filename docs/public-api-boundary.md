@@ -18,10 +18,12 @@ to import Hyper.
 | Module | Visibility | Stability | Purpose |
 |--------|------------|-----------|---------|
 | `primitives` | `pub` | Stable (semver-considered) | Core types for embedding: path validation, policy enforcement, rejection taxonomy |
+| `primitives::interop` | `pub` | Stable (semver-considered, `http-interop` feature) | Loss-aware `http`/`http-body` adapters; native remains authoritative |
 | `config` | `pub` | Stable-ish | `ServeConfig`, `ServeState`, `StartupSummary` |
 | `limits` | `pub` | Stable-ish | `Limits` (connections, streams, timeouts) |
 | `policy` | `pub` | Stable-ish | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `StaticMetadataPolicy`, `ErrorRepresentationPolicy` |
 | `server::service` | `pub` | Experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
+| `server::tower` | `pub` | Experimental (`tower` feature) | `TowerToEggserve` / `EggserveToTower` adapters; per-request clones, no shared mutex |
 
 ## Internal modules (not public API)
 
@@ -85,6 +87,16 @@ Error = std::io::Error>` behavior, not `BoxBody` or another concrete erasure
 type. The runtime's semaphore-aware conversion helper is internal. Hyper is
 otherwise an implementation dependency of the runtime, not a requirement for
 canonical consumers or `Service` implementations.
+
+Plan 200 adds optional ecosystem adapters without leaking Hyper (see
+[http-interop.md](http-interop.md)):
+
+- `primitives::interop` (`http-interop` feature) — loss-aware `http` metadata
+  conversions, `RequestBody: http_body::Body` with trailers, and
+  `response_from_http_body` into the canonical pipeline (EggServe stays the
+  framing authority);
+- `server::tower` (`tower` feature) — `TowerToEggserve` (per-request Tower
+  clones, no shared mutex) and `EggserveToTower` (adapter-local readiness).
 
 The downstream application-server contract is qualified externally by
 `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175), which uses

@@ -65,7 +65,8 @@ downstream responsibility.
   + one-shot `TunnelCapability` (`take_tunnel()`; H1 `Upgrade`, `CONNECT`,
   H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8). There is no generic type map: downstream application state
   belongs in the service wrapper, and Tower/framework extension maps belong
-  in the Plan 200 adapters. No raw socket, Hyper, H2/H3, rustls-session, or
+  in the `http-interop`/`tower` adapters (Plan 200, implemented; see
+  [http-interop.md](http-interop.md)). No raw socket, Hyper, H2/H3, rustls-session, or
   executor handle is exposed here.
 - `ConnectionInfo` / `TlsInfo` come from the observed transport or the
   explicit caller-owned `ConnectionContext`. `Forwarded` / `X-Forwarded-*`
@@ -241,7 +242,9 @@ after final commitment.
 
 Native `Service` stays `Send + Sync + 'static` and is shared across
 connection tasks. There is no `poll_ready` on the native trait: Tower
-readiness belongs in the Plan 200 adapters. Native admission stays
+readiness belongs in the `tower` adapters (`TowerToEggserve` per-request
+clones, `EggserveToTower` adapter-local ready; see
+[http-interop.md](http-interop.md)). Native admission stays
 runtime-owned and deterministic (`max_in_flight_requests` held across
 `Service::call`, 503 on exhaustion, permit released at response-start).
 
@@ -330,8 +333,9 @@ implements generic tunnels (`take_tunnel()`/`accept`/`TunnelIo`; H1 `101` /
 downstream (see `tunnel_upgrade.rs`). Raw Hyper/h2/h3/Quinn bypass remains
 unsupported. No Tower `Service`,
 `poll_ready`, routing, middleware, or worker semantics enter the native
-contract (Plan 197 Track E); those belong in downstream adapters
-(Plan 200). Python
+contract (Plan 197 Track E); those belong in the optional `tower` adapters
+(`server::tower`, Plan 200 implemented; see [http-interop.md](http-interop.md)).
+Python
 FFI/asyncio architecture belongs in the downstream project's repository.
 Downstream gateways build on the canonical `Service` boundary instead
 (see [extension-contract.md](extension-contract.md) and
