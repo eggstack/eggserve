@@ -358,6 +358,12 @@ pub struct RuntimeConfig {
     /// never triggers it. Covers files, buffered bodies, and streams, on
     /// TCP, TLS, and caller-owned transports. Default: 30s.
     pub response_write_timeout: Duration,
+    /// Maximum concurrent active tunnels (generic upgrade / CONNECT /
+    /// Extended CONNECT duplex sessions). H1 tunnels hold the owning
+    /// connection's lifetime as outer bound; H2/H3 tunnels are stream-scoped
+    /// (siblings survive). Exhaustion fails new handshakes with 503.
+    /// Default: 64.
+    pub max_active_tunnels: usize,
     /// HTTP/2 transport policy and resource limits. Present only in builds
     /// compiled with the `http2` feature.
     #[cfg(feature = "http2")]
@@ -403,6 +409,7 @@ impl Default for RuntimeConfig {
             keep_alive_idle_timeout: rl::DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT,
             max_requests_per_connection: None,
             response_write_timeout: rl::DEFAULT_RESPONSE_WRITE_TIMEOUT,
+            max_active_tunnels: rl::DEFAULT_MAX_ACTIVE_TUNNELS,
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
             #[cfg(feature = "http3")]
@@ -449,6 +456,7 @@ impl RuntimeConfig {
             keep_alive_idle_timeout: None,
             max_requests_per_connection: None,
             response_write_timeout: None,
+            max_active_tunnels: None,
             #[cfg(feature = "http2")]
             http2: None,
             #[cfg(feature = "http3")]
@@ -539,6 +547,7 @@ impl RuntimeConfig {
             keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
             max_requests_per_connection: shared.max_requests_per_connection,
             response_write_timeout: shared.response_write_timeout,
+            max_active_tunnels: shared.max_active_tunnels,
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
             #[cfg(feature = "http3")]
@@ -577,6 +586,7 @@ pub struct RuntimeConfigBuilder {
     keep_alive_idle_timeout: Option<Duration>,
     max_requests_per_connection: Option<Option<u64>>,
     response_write_timeout: Option<Duration>,
+    max_active_tunnels: Option<usize>,
     #[cfg(feature = "http2")]
     http2: Option<Http2Config>,
     #[cfg(feature = "http3")]
@@ -790,6 +800,14 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the maximum concurrent active tunnels.
+    ///
+    /// Must be > 0. Default: 64. Exhaustion fails new handshakes with 503.
+    pub fn max_active_tunnels(mut self, max: usize) -> Self {
+        self.max_active_tunnels = Some(max);
+        self
+    }
+
     /// Set the HTTP/2 transport policy and resource limits.
     #[cfg(feature = "http2")]
     pub fn http2(mut self, config: Http2Config) -> Self {
@@ -856,6 +874,9 @@ impl RuntimeConfigBuilder {
             response_write_timeout: self
                 .response_write_timeout
                 .unwrap_or(rl::DEFAULT_RESPONSE_WRITE_TIMEOUT),
+            max_active_tunnels: self
+                .max_active_tunnels
+                .unwrap_or(rl::DEFAULT_MAX_ACTIVE_TUNNELS),
         };
         let violations = shared.validate();
         if !violations.is_empty() {
@@ -919,6 +940,7 @@ impl RuntimeConfigBuilder {
             keep_alive_idle_timeout: shared.keep_alive_idle_timeout,
             max_requests_per_connection: shared.max_requests_per_connection,
             response_write_timeout: shared.response_write_timeout,
+            max_active_tunnels: shared.max_active_tunnels,
             #[cfg(feature = "http2")]
             http2,
             #[cfg(feature = "http3")]

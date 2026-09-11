@@ -315,6 +315,34 @@ pub(crate) fn convert_request_head(
         return Err(ServiceError::rejected(414, "request target too long"));
     }
 
+    // CONNECT authority-form carries its primary identifier in the URI
+    // authority, not in `path_and_query` (which falls back to `/`). Bound it
+    // with the same target ceiling before allocation/service dispatch.
+    if let Some(authority) = req.uri().authority() {
+        if authority.as_str().len() > max_target_bytes {
+            ops.counters()
+                .request_target_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            ops.emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::RequestTargetTooLong,
+                    "CONNECT authority too long",
+                )
+                .connection_id(conn_id)
+                .field(crate::ops::Field::U64(
+                    "target_bytes".into(),
+                    authority.as_str().len() as u64,
+                ))
+                .field(crate::ops::Field::U64(
+                    "limit_bytes".into(),
+                    max_target_bytes as u64,
+                )),
+            );
+            return Err(ServiceError::rejected(414, "request target too long"));
+        }
+    }
+
     let is_h2 = version == HttpVersion::Http2;
 
     // HTTP/1 absolute-form is intentionally not accepted. HTTP/2 carries
@@ -344,19 +372,33 @@ pub(crate) fn convert_request_head(
         ));
     }
 
-    // Authority-form is reserved for CONNECT in HTTP/1, which the static
-    // service does not implement. Preserve the established method-level 405
-    // response before validating Host/authority metadata. HTTP/2 carries
-    // authority as pseudo-field metadata and follows the branch below.
-    if !is_h2 && req.uri().authority().is_some() {
+    // Authority-form is reserved for CONNECT in HTTP/1. Plain `CONNECT`
+    // authority-form is a generic tunnel candidate (Plan 199, kind `Connect`),
+    // not an ordinary origin-form request. Let it through with a placeholder
+    // target so the pipeline can attach a validated tunnel capability;
+    // services that ignore the capability (e.g. `StaticService`) still return
+    // the established method-level 405. Other methods with authority-form
+    // keep the 405. HTTP/2 carries authority as pseudo-field metadata and
+    // follows the branch below.
+    let connect_authority_form =
+        !is_h2 && req.uri().authority().is_some() && method.as_str() == "CONNECT";
+    if !is_h2 && req.uri().authority().is_some() && !connect_authority_form {
         return Err(ServiceError::rejected(
             405,
             format!("method not allowed: {}", method.as_str()),
         ));
     }
 
-    let target = RequestTarget::parse(raw_target)
-        .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?;
+    let target = if connect_authority_form {
+        // Placeholder: CONNECT authority is carried in `TunnelRequest`, not in
+        // the origin-form target. `/` parses infallibly; the real authority
+        // is validated below from the URI authority (+ Host consistency).
+        RequestTarget::parse("/")
+            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?
+    } else {
+        RequestTarget::parse(raw_target)
+            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?
+    };
 
     let mut headers = HeaderBlock::new();
     let mut header_bytes: usize = 0;

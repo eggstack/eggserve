@@ -63,9 +63,9 @@ the [`qualification record`](../release/plan-190-multiprotocol-corrective-qualif
 - Multipart range responses.
 - Manual chunked construction (`Transfer-Encoding` stays runtime-owned;
   services use `ResponseStream::new` and let the runtime frame).
-- Upgrade semantics.
+- Upgrade semantics except via Plan 199 generic tunnel (`take_tunnel()`/`accept`/`TunnelIo`; H1 `101` / `200` otherwise; denial ordinary HTTP).
 - Absolute-form proxy requests.
-- Authority-form CONNECT requests.
+- Authority-form CONNECT except as Plan 199 `Connect` tunnel (validated, bounded; denial 405/400 for static).
 - Asterisk-form OPTIONS requests.
 
 ### Canonical trailers and interim responses (Plan 198)
@@ -121,6 +121,31 @@ Initial headers, trailers, interim responses, and final responses are distinct:
 - **Python**: `validate_trailers` / `validate_interim` text-only bounded helpers
   project the capability to `eggserve.lowlevel` without changing the synchronous
   `http.server` surface.
+
+### Generic tunnels (Plan 199)
+
+Validated H1 `Upgrade`, `CONNECT`, and H2/H3 Extended `CONNECT` yield a
+one-shot, transport-backed `TunnelCapability` on `RequestContext`
+(`take_tunnel()`; second take `None`; `AfterCommit` after final commitment).
+`TunnelRequest` carries `TunnelKind` (`Http1Upgrade`/`Connect`/
+`ExtendedConnect`), optional bounded `ProtocolName` (`token`, 1–64, generic —
+no hard-coded `WebSocket` variant), and optional `Authority`.
+Pseudo-headers never appear as ordinary headers; protocol bytes are bounded
+before allocation; ordinary header construction cannot fabricate a capability.
+`accept(headers, handler)` consumes the capability and returns a handshake
+`Response` (`101` H1 with runtime-added `Upgrade`/`Connection`, `200`
+otherwise; framing rejected, hop-by-hop stripped, 32 fields / 8 KiB bound;
+runtime — not the application — writes transition bytes, no raw socket) plus
+bounded single-owner `TunnelIo` (`AsyncRead + AsyncWrite`, 32 KiB duplex,
+`tokio::io::split` for explicit split, lifecycle-aware, no payload logged).
+Denial is ordinary HTTP (unused capability dropped). H1 preserves read-ahead
+bytes; H2/H3 respect flow control (stream-local, siblings survive); H3 generic
+`:protocol` (e.g. `websocket`) is blocked by `h3` 0.0.8 (only
+`webtransport`/`connect-udp` plus plain `CONNECT` supported). Tunnels hold a
+server-wide `max_active_tunnels` permit (default 64, 503 on exhaustion,
+released exactly once); ordinary `response_write_timeout` does not apply after
+transition; hard `connection_total_timeout` remains the outer bound; graceful
+shutdown drains within the deadline then aborts (no detached survivors).
 
 ## Request method validation
 
@@ -386,7 +411,7 @@ value (never versions). See `docs/deployment.md` minimal-fingerprint profile.
 
 ## Downstream use by app-server/adapter projects
 
-eggserve's primitive layer is designed for embedding. Downstream projects may build ASGI/WSGI/CGI/FastCGI/app servers externally using these primitives, but eggserve does not implement those protocols in-tree (Plan 167 no-go for CGI/FastCGI). Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed, so WebSocket-class servers are not currently buildable on the canonical boundary.
+eggserve's primitive layer is designed for embedding. Downstream projects may build ASGI/WSGI/CGI/FastCGI/app servers externally using these primitives, but eggserve does not implement those protocols in-tree (Plan 167 no-go for CGI/FastCGI). Plan 199 provides generic tunnel handoff (`TunnelRequest`/`TunnelCapability`/`TunnelIo`; H1 `Upgrade`/`CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8); WebSocket framing itself stays downstream (see `tunnel_upgrade.rs`).
 
 ### Rust embedding
 

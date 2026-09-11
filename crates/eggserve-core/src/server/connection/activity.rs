@@ -52,6 +52,11 @@ pub(crate) struct ConnectionActivity {
     /// and cancelled the lifecycle.
     body_timeout_fired: AtomicBool,
     pub(crate) notify: tokio::sync::Notify,
+    /// Active tunnel tasks (Plan 199). Spawned on validated handshake;
+    /// the driver drains these before reporting connection completion so no
+    /// detached tunnel survives `ServerHandle::wait()` and H1 tunnels keep
+    /// the owning connection's lifetime as outer bound.
+    tunnels: tokio::sync::Mutex<tokio::task::JoinSet<()>>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -79,6 +84,7 @@ impl ConnectionActivity {
             deferred: AtomicU64::new(0),
             body_timeout_fired: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
+            tunnels: tokio::sync::Mutex::new(tokio::task::JoinSet::new()),
         }
     }
 
@@ -263,6 +269,59 @@ impl ConnectionActivity {
 
     pub(crate) fn take_drain_request(&self) -> bool {
         self.drain_requested.swap(false, Ordering::AcqRel)
+    }
+
+    /// Spawn a tunnel task tracked for shutdown accounting (Plan 199).
+    ///
+    /// The driver drains these before reporting completion, so H1 tunnels
+    /// keep the owning connection alive and no detached task survives
+    /// `ServerHandle::wait()`.
+    pub(crate) async fn spawn_tunnel(
+        self: &Arc<Self>,
+        fut: impl std::future::Future<Output = ()> + Send + 'static,
+    ) {
+        let mut guard = self.tunnels.lock().await;
+        guard.spawn(fut);
+    }
+
+    /// Number of tracked tunnel tasks (including completed-but-not-reaped).
+    pub(crate) async fn tunnel_count(&self) -> usize {
+        self.tunnels.lock().await.len()
+    }
+
+    /// Wait for tracked tunnels until `deadline`, then abort remainders.
+    ///
+    /// Returns `true` when all tunnels drained cleanly, `false` on timeout
+    /// (remainders aborted). Called by the driver after Hyper completion and
+    /// on total/shutdown paths so tunnels never outlive the connection task.
+    pub(crate) async fn drain_tunnels(self: &Arc<Self>, deadline: tokio::time::Instant) -> bool {
+        loop {
+            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
+            if remaining.is_zero() {
+                let mut guard = self.tunnels.lock().await;
+                guard.abort_all();
+                // Reap aborted tasks promptly (no unbounded wait: they were
+                // just aborted; join_next returns quickly).
+                while guard.join_next().await.is_some() {}
+                return false;
+            }
+            let joined = {
+                let mut guard = self.tunnels.lock().await;
+                if guard.is_empty() {
+                    return true;
+                }
+                tokio::time::timeout(remaining, guard.join_next()).await
+            };
+            match joined {
+                Ok(_) => continue,
+                Err(_) => {
+                    let mut guard = self.tunnels.lock().await;
+                    guard.abort_all();
+                    while guard.join_next().await.is_some() {}
+                    return false;
+                }
+            }
+        }
     }
 
     pub(crate) fn snapshot(&self) -> (u64, u64, u64, u64, ActivityState) {

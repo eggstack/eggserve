@@ -81,6 +81,75 @@ fn h1_trailers_allowed(head: &crate::primitives::request_head::RequestHead) -> b
     }
 }
 
+/// Classify a validated tunnel candidate (Plan 199 Track B/E).
+///
+/// Returns `(TunnelRequest, OnUpgrade)` only when:
+/// - no body is present (`has_body == false`; smuggled CL/TE/body never
+///   crosses the transition),
+/// - transport provides `OnUpgrade` (H1/H2; `None` => ordinary path),
+/// - H1 `Upgrade`/`Connection` tokens strictly validate (single `upgrade`
+///   token, single protocol token, HTTP/1.1 only),
+/// - `CONNECT` authority validates (already in `head.authority()`),
+/// - H2 `:protocol` (when present) strictly validates; present-but-invalid
+///   yields no capability (ordinary denial, never fallback to plain CONNECT).
+///
+/// Pseudo-headers never appear as ordinary headers; protocol bytes are
+/// bounded before allocation; ordinary requests cannot fabricate a
+/// transport-backed capability (constructor is crate-private + `OnUpgrade`
+/// presence required).
+fn classify_tunnel(
+    head: &crate::primitives::request_head::RequestHead,
+    has_body: bool,
+    on_upgrade: Option<hyper::upgrade::OnUpgrade>,
+    h2_protocol_raw: Option<String>,
+) -> Option<(
+    crate::primitives::tunnel::TunnelRequest,
+    hyper::upgrade::OnUpgrade,
+)> {
+    use crate::primitives::tunnel::{classify_extended_protocol, classify_h1_upgrade};
+    use crate::primitives::tunnel::{TunnelKind, TunnelRequest};
+    use crate::primitives::version::HttpVersion;
+
+    if has_body {
+        return None;
+    }
+    let upgrade = on_upgrade?;
+    let method_is_connect = head.method().as_str() == "CONNECT";
+    match head.version() {
+        HttpVersion::Http11 => {
+            if method_is_connect {
+                let authority = head.authority().cloned()?;
+                let req = TunnelRequest::new(TunnelKind::Connect, None, Some(authority));
+                Some((req, upgrade))
+            } else {
+                let protocol = classify_h1_upgrade(head.headers(), head.version())?;
+                let req = TunnelRequest::new(
+                    TunnelKind::Http1Upgrade,
+                    Some(protocol),
+                    head.authority().cloned(),
+                );
+                Some((req, upgrade))
+            }
+        }
+        HttpVersion::Http2 => {
+            if !method_is_connect {
+                return None;
+            }
+            let authority = head.authority().cloned();
+            if let Some(raw) = h2_protocol_raw {
+                let protocol = classify_extended_protocol(Some(&raw))?;
+                let req =
+                    TunnelRequest::new(TunnelKind::ExtendedConnect, Some(protocol), authority);
+                Some((req, upgrade))
+            } else {
+                let req = TunnelRequest::new(TunnelKind::Connect, None, authority);
+                Some((req, upgrade))
+            }
+        }
+        HttpVersion::Http10 | HttpVersion::Http3 => None,
+    }
+}
+
 /// Execute the protocol-neutral service kernel after a body policy has
 /// prepared a canonical request. Body acquisition stays outside this helper;
 /// admission, panic containment, timeout, error conversion, normalization, and
@@ -107,26 +176,37 @@ async fn invoke_service<S>(
     error_policy: crate::policy::ErrorRepresentationPolicy,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
+    activity: &Arc<ConnectionActivity>,
+    tunnel_semaphore: &Arc<tokio::sync::Semaphore>,
 ) -> hyper::Response<BoxBodyInner>
 where
     S: Service + 'static,
 {
     if let Some(unavailable) = guard.admit(service_semaphore, conn_id, error_policy) {
         // Admission rejection commits implicitly: no service ran, but mark
-        // interim committed so late sends cannot follow the 503.
+        // interim + tunnel committed so late sends/accepts cannot follow 503.
         if let Some(interim) = request.context().interim() {
             interim.mark_committed();
+        }
+        if let Some(shared) = request.context().tunnel_shared() {
+            shared.mark_committed();
         }
         return unavailable;
     }
 
-    // Capture trailer policy + interim before the request moves into the service.
+    // Capture trailer policy + interim + tunnel commitment/lifecycle before the
+    // request moves into the service.
     let trailer_allowed = h1_trailers_allowed(request.head());
     let interim = request.context().interim().cloned();
+    let tunnel_shared = request.context().tunnel_shared();
+    let tunnel_lifecycle = request.lifecycle_clone();
     let result = tokio::time::timeout(timeout, contain_service_panic(service.call(request))).await;
-    // Final commitment: no interim after this point regardless of outcome.
+    // Final commitment: no interim/tunnel after this point regardless of outcome.
     if let Some(ref sender) = interim {
         sender.mark_committed();
+    }
+    if let Some(ref shared) = tunnel_shared {
+        shared.mark_committed();
     }
     match result {
         Ok(Ok(mut canonical)) => {
@@ -140,6 +220,26 @@ where
                     .connection_id(conn_id),
                 );
                 canonical.strip_response_trailers();
+            }
+            // Tunnel acceptance: admit via server-wide budget and spawn the
+            // tracked duplex task before sending the validated handshake.
+            // Ordinary denial (no `is_tunnel`) uses the normal path.
+            if canonical.is_tunnel() {
+                let acceptance = canonical.take_tunnel_acceptance();
+                if let Some(acceptance) = acceptance {
+                    let admitted = super::tunnel::admit_and_spawn_h1_h2(
+                        activity,
+                        tunnel_semaphore,
+                        ops,
+                        conn_id,
+                        tunnel_lifecycle,
+                        acceptance,
+                    )
+                    .await;
+                    if !admitted {
+                        return crate::response::service_unavailable_with_policy(error_policy);
+                    }
+                }
             }
             normalize_then_convert(
                 canonical,
@@ -259,6 +359,7 @@ pub(crate) fn make_canonical_hyper_service<S>(
     config: Arc<RuntimeConfig>,
     file_stream_semaphore: Arc<tokio::sync::Semaphore>,
     service_semaphore: Arc<tokio::sync::Semaphore>,
+    tunnel_semaphore: Arc<tokio::sync::Semaphore>,
     activity: Arc<ConnectionActivity>,
     requests: Arc<ConnectionRequests>,
     stream_chunk_size: usize,
@@ -289,6 +390,7 @@ where
         let context = context.clone();
         let file_stream_semaphore = file_stream_semaphore.clone();
         let service_semaphore = service_semaphore.clone();
+        let tunnel_semaphore = tunnel_semaphore.clone();
         let activity = activity.clone();
         let requests = requests.clone();
         let config = config.clone();
@@ -357,7 +459,21 @@ where
             let effective_policy = select_body_policy(service_policy, max_body_bytes);
 
             // Extract body from Hyper request.
-            let (parts, body) = req.into_parts();
+            let (mut parts, body) = req.into_parts();
+            // Transport-backed upgrade capability (Plan 199): `OnUpgrade`
+            // (H1/H2, includes buffered read-ahead for H1) + generic
+            // `:protocol` (H2 Extended CONNECT via `hyper::ext::Protocol`).
+            // Removed here so the canonical pipeline owns them; ordinary
+            // denial drops them safely (pending sender fails safe).
+            let on_upgrade: Option<hyper::upgrade::OnUpgrade> =
+                parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
+            #[cfg(feature = "http2")]
+            let h2_protocol_raw: Option<String> = parts
+                .extensions
+                .remove::<hyper::ext::Protocol>()
+                .map(|p| String::from_utf8_lossy(p.as_ref()).into_owned());
+            #[cfg(not(feature = "http2"))]
+            let h2_protocol_raw: Option<String> = None;
             // `Content-Length` and `Transfer-Encoding` are HTTP/1 framing
             // signals. HTTP/2 has neither framing header requirement and can
             // carry DATA without Content-Length, so use Hyper's public body
@@ -558,6 +674,21 @@ where
             // Trailers ride a wire slot populated only from protocol trailer
             // frames (H1 chunked trailers, H2 terminal HEADERS); H1 without
             // valid framing cannot inject.
+            //
+            // Tunnel classification (Plan 199 Track B): validated upgrade /
+            // CONNECT / Extended CONNECT intent becomes a one-shot
+            // transport-backed capability. `has_body` true => no capability
+            // (smuggled body never crosses the transition). `OnUpgrade`
+            // presence required (H1/H2); H3 handled in its adapter.
+            let mut tunnel_capability: Option<crate::primitives::tunnel::TunnelCapability> =
+                classify_tunnel(&head, has_body, on_upgrade, h2_protocol_raw).map(
+                    |(tunnel_request, upgrade)| {
+                        crate::primitives::tunnel::TunnelCapability::new(
+                            tunnel_request,
+                            Some(upgrade),
+                        )
+                    },
+                );
             let request_body = match &effective_policy {
                 RequestBodyPolicy::Reject => crate::primitives::request_body::RequestBody::empty(),
                 RequestBodyPolicy::Buffer { max_bytes }
@@ -584,8 +715,25 @@ where
                 RequestBodyPolicy::Reject => {
                     let connection = context.connection_info();
                     requests.register(&request_body.shared());
-                    let request =
-                        crate::primitives::request::Request::new(head, request_body, connection);
+                    let request = match tunnel_capability.take() {
+                        Some(cap) => {
+                            let lifecycle = request_body.lifecycle();
+                            let version = head.version();
+                            let ctx =
+                                crate::primitives::request_context::RequestContext::new_with_version(
+                                    connection, lifecycle, version,
+                                )
+                                .with_tunnel(cap);
+                            crate::primitives::request::Request::new_with_context(
+                                head,
+                                request_body,
+                                ctx,
+                            )
+                        }
+                        None => {
+                            crate::primitives::request::Request::new(head, request_body, connection)
+                        }
+                    };
                     let response = invoke_service(
                         &mut guard,
                         service.as_ref(),
@@ -599,6 +747,8 @@ where
                         config.response_policy.error_policy,
                         conn_id,
                         &ops,
+                        &activity,
+                        &tunnel_semaphore,
                     )
                     .await;
                     Ok::<_, Infallible>(finish_response(
@@ -675,8 +825,25 @@ where
                     };
                     let connection = context.connection_info();
                     requests.register(&request_body.shared());
-                    let request =
-                        crate::primitives::request::Request::new(head, request_body, connection);
+                    let request = match tunnel_capability.take() {
+                        Some(cap) => {
+                            let lifecycle = request_body.lifecycle();
+                            let version = head.version();
+                            let ctx =
+                                crate::primitives::request_context::RequestContext::new_with_version(
+                                    connection, lifecycle, version,
+                                )
+                                .with_tunnel(cap);
+                            crate::primitives::request::Request::new_with_context(
+                                head,
+                                request_body,
+                                ctx,
+                            )
+                        }
+                        None => {
+                            crate::primitives::request::Request::new(head, request_body, connection)
+                        }
+                    };
                     let response = invoke_service(
                         &mut guard,
                         service.as_ref(),
@@ -690,6 +857,8 @@ where
                         config.response_policy.error_policy,
                         conn_id,
                         &ops,
+                        &activity,
+                        &tunnel_semaphore,
                     )
                     .await;
                     Ok::<_, Infallible>(finish_response(
@@ -720,8 +889,25 @@ where
                     // the service owns/moves the actual body (Track A/B1).
                     let body_shared = request_body.shared();
                     requests.register(&body_shared);
-                    let request =
-                        crate::primitives::request::Request::new(head, request_body, connection);
+                    let request = match tunnel_capability.take() {
+                        Some(cap) => {
+                            let lifecycle = request_body.lifecycle();
+                            let version = head.version();
+                            let ctx =
+                                crate::primitives::request_context::RequestContext::new_with_version(
+                                    connection, lifecycle, version,
+                                )
+                                .with_tunnel(cap);
+                            crate::primitives::request::Request::new_with_context(
+                                head,
+                                request_body,
+                                ctx,
+                            )
+                        }
+                        None => {
+                            crate::primitives::request::Request::new(head, request_body, connection)
+                        }
+                    };
 
                     let response = invoke_service(
                         &mut guard,
@@ -736,6 +922,8 @@ where
                         config.response_policy.error_policy,
                         conn_id,
                         &ops,
+                        &activity,
+                        &tunnel_semaphore,
                     )
                     .await;
 

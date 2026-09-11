@@ -165,6 +165,7 @@ pub struct Server {
 pub struct RuntimeState {
     pub(crate) file_stream_semaphore: Arc<tokio::sync::Semaphore>,
     pub(crate) service_semaphore: Arc<tokio::sync::Semaphore>,
+    pub(crate) tunnel_semaphore: Arc<tokio::sync::Semaphore>,
     ops: crate::ops::OpsContext,
 }
 
@@ -216,6 +217,7 @@ impl RuntimeState {
         Ok(Self {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
             service_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests)),
+            tunnel_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_active_tunnels)),
             ops,
         })
     }
@@ -233,6 +235,9 @@ impl RuntimeState {
             file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(max_file_streams)),
             service_semaphore: Arc::new(tokio::sync::Semaphore::new(
                 crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+            )),
+            tunnel_semaphore: Arc::new(tokio::sync::Semaphore::new(
+                crate::runtime_limits::DEFAULT_MAX_ACTIVE_TUNNELS,
             )),
             ops: crate::ops::OpsContext::global().clone(),
         }
@@ -263,6 +268,14 @@ impl RuntimeState {
     /// keep-alive connections.
     pub fn service_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
         &self.service_semaphore
+    }
+
+    /// Return the server-wide active-tunnel admission pool (Plan 199).
+    ///
+    /// Bounds concurrent accepted duplex tunnels independently of ordinary
+    /// HTTP admission; exhaustion fails new handshakes with 503.
+    pub fn tunnel_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
+        &self.tunnel_semaphore
     }
 }
 

@@ -33,6 +33,7 @@ The following dependency categories are approved for initial development:
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
 | HTTP/3 transport | `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
+| WebSocket interop fixture (dev-only) | `tokio-tungstenite` (dev-dependency, tests only) | Plan 199 Track I: proves generic tunnel handoff sufficient for downstream WS codec (handshake via EggServe, framing over `TunnelIo`); never enters production `eggserve-core`/`eggserve-bin` graphs |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 
 ### Tokio feature ownership

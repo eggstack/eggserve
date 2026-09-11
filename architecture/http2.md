@@ -57,8 +57,8 @@ framing.
 - Graceful shutdown and `max_requests_per_connection` use the H2 driver's
   graceful shutdown/GOAWAY path. HTTP/1 alone receives `Connection: close`.
 - Responses never originate server push, extended CONNECT, or
-  WebSocket framing. A canonical `101` upgrade handoff is not available.
-  HTTP/1 Upgrade headers remain ordinary unsupported application behavior and
+  WebSocket framing. Generic tunnels use H2 Extended `CONNECT` (one stream, siblings survive) via `take_tunnel()`/`accept`/`TunnelIo`; see Plan 199. H1 `101` stays H1-only.
+  HTTP/1 `Upgrade` remains H1-only (validated `101` via Plan 199); H2 uses Extended `CONNECT`, not `Upgrade` and
   cannot bypass canonical response normalization.
 - Trailers (Plan 198): H2 request/response trailers use stream-local terminal
   HEADERS via Hyper body frames, validated by the single canonical `Trailers`

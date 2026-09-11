@@ -1,45 +1,4 @@
-//! Typed request context / capability container (Plan 197).
-//!
-//! [`RequestContext`] is the single deliberate attachment point for
-//! transport-authenticated request metadata and optional one-shot
-//! capabilities. Ordinary services keep using [`Request`](super::request::Request)
-//! by value; advanced capabilities attach here rather than as ad hoc
-//! top-level `Request` fields.
-//!
-//! # What lives here
-//!
-//! - [`ConnectionInfo`](super::connection_info::ConnectionInfo): trustworthy
-//!   transport metadata (socket endpoints when present, scheme, TLS session
-//!   metadata). Values come from the actual transport or the explicit
-//!   caller-owned [`ConnectionContext`](crate::server::connection::ConnectionContext).
-//!   `Forwarded` / `X-Forwarded-*` headers are ordinary untrusted headers and
-//!   are never copied here.
-//! - [`RequestLifecycle`](super::request_lifecycle::RequestLifecycle):
-//!   cloneable disconnect/cancel observer sharing the request body's
-//!   allocation. Clone before moving the body into a downstream task.
-//!
-//! # What does NOT live here
-//!
-//! - No generic type map (`Any`, extension map) is provided. Downstream
-//!   application state belongs in the service wrapper / adapter, not in the
-//!   canonical request. Tower/framework extension maps belong in the Plan 200
-//!   adapters unless a narrowly scoped native map is justified by a concrete
-//!   consumer with allocation/cost evidence.
-//! - No raw socket, Hyper, H2/H3, rustls-session, or executor handles are
-//!   exposed. Transport capabilities remain opaque and capability-based.
-//! - No upgrade/tunnel handles exist yet (Plan 176 deferred, Plan 199 owns
-//!   the tunnel design). No interim-response sender exists yet (Plan 198 owns
-//!   interim/trailer design). Those attach here as opaque capabilities when
-//!   their plans land, without changing `Service::call` for ordinary services.
-//!
-//! # Cloning
-//!
-//! `RequestContext` is cheaply cloneable: [`ConnectionInfo`] is a small
-//! value and [`RequestLifecycle`] is an `Arc`-backed observer. Cloning never
-//! clones the one-shot [`RequestBody`](super::request_body::RequestBody);
-//! the body stays with the owning `Request` value.
-
-//! Typed request context / capability container (Plans 197–198).
+//! Typed request context / capability container (Plans 197–199).
 //!
 //! [`RequestContext`] is the single deliberate attachment point for
 //! transport-authenticated request metadata and optional one-shot
@@ -61,6 +20,11 @@
 //! - [`InterimSender`](super::interim::InterimSender): bounded request-scoped
 //!   interim (1xx) capability (Plan 198). `None` in hand-constructed contexts
 //!   that opt out; the runtime always attaches one.
+//! - [`TunnelCapability`](super::tunnel::TunnelCapability): one-shot,
+//!   transport-backed tunnel capability (Plan 199). `None` when the request
+//!   is not a validated upgrade/`CONNECT`/Extended `CONNECT`; the runtime
+//!   attaches one only after header/pseudo-header validation. Takes via
+//!   [`RequestContext::take_tunnel`]; clones share the slot (no duplication).
 //!
 //! # What does NOT live here
 //!
@@ -71,8 +35,6 @@
 //!   consumer with allocation/cost evidence.
 //! - No raw socket, Hyper, H2/H3, rustls-session, or executor handles are
 //!   exposed. Transport capabilities remain opaque and capability-based.
-//! - No upgrade/tunnel handles exist yet (Plan 176 deferred, Plan 199 owns
-//!   the tunnel design).
 //!
 //! # Cloning
 //!
@@ -80,15 +42,17 @@
 //! value, [`RequestLifecycle`] and [`InterimSender`] are `Arc`-backed.
 //! Cloning never clones the one-shot [`RequestBody`](super::request_body::RequestBody);
 //! the body stays with the owning `Request` value. Cloning shares the same
-//! interim allocation (count/commitment visible on all clones).
+//! interim allocation (count/commitment visible on all clones) and the same
+//! tunnel slot (taking via one clone removes for all; ownership never duplicates).
 
 use crate::primitives::connection_info::ConnectionInfo;
 use crate::primitives::interim::InterimSender;
 use crate::primitives::request_lifecycle::RequestLifecycle;
+use crate::primitives::tunnel::{TunnelCapability, TunnelRequest, TunnelShared};
 use crate::primitives::version::HttpVersion;
 
 /// Stable place for transport-authenticated metadata and optional
-/// one-shot capabilities (Plan 197 Track B, extended by Plan 198).
+/// one-shot capabilities (Plan 197 Track B, extended by Plans 198–199).
 ///
 /// Ordinary metadata access remains cheap (borrowed accessors). Typed values
 /// cannot be forged via untrusted request headers: the runtime constructs
@@ -99,6 +63,7 @@ pub struct RequestContext {
     connection: ConnectionInfo,
     lifecycle: RequestLifecycle,
     interim: Option<InterimSender>,
+    tunnel: std::sync::Arc<std::sync::Mutex<Option<TunnelCapability>>>,
 }
 
 impl RequestContext {
@@ -116,6 +81,7 @@ impl RequestContext {
             connection,
             lifecycle,
             interim: None,
+            tunnel: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -133,12 +99,25 @@ impl RequestContext {
             connection,
             lifecycle,
             interim: Some(InterimSender::new(version)),
+            tunnel: std::sync::Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
     /// Attach an explicit interim sender (tests/downstream with owned limits).
     pub fn with_interim(mut self, sender: InterimSender) -> Self {
         self.interim = Some(sender);
+        self
+    }
+
+    /// Attach a one-shot tunnel capability (runtime only, after validation).
+    ///
+    /// Consuming builder for capability-bearing contexts (Plan 199). Ordinary
+    /// clones share the same slot (taking via one clone removes for all),
+    /// so ownership is never duplicated.
+    pub fn with_tunnel(self, capability: TunnelCapability) -> Self {
+        if let Ok(mut slot) = self.tunnel.lock() {
+            *slot = Some(capability);
+        }
         self
     }
 
@@ -174,6 +153,41 @@ impl RequestContext {
     /// count/bytes, HTTP/1.0 suppressed.
     pub fn interim(&self) -> Option<&InterimSender> {
         self.interim.as_ref()
+    }
+
+    /// Inspect validated tunnel intent without taking ownership, if present.
+    ///
+    /// Clones the [`TunnelRequest`] metadata (kind/protocol/authority) for
+    /// routing decisions; use [`take_tunnel`](Self::take_tunnel) to obtain
+    /// the one-shot acceptance capability.
+    pub fn tunnel_request(&self) -> Option<TunnelRequest> {
+        self.tunnel
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|cap| cap.request().clone()))
+    }
+
+    /// Take the one-shot tunnel capability, if present and not yet taken.
+    ///
+    /// Ordinary clones share the slot: taking via one clone removes for all,
+    /// so double-accept is impossible (second `take` returns `None`).
+    /// Dropping/ignoring uses the normal HTTP denial path. After final
+    /// response commitment, `accept` on a taken capability fails with
+    /// `AfterCommit`.
+    pub fn take_tunnel(&self) -> Option<TunnelCapability> {
+        self.tunnel.lock().ok().and_then(|mut slot| slot.take())
+    }
+
+    /// Shared commitment state for the attached tunnel, if any (crate-internal).
+    ///
+    /// The runtime snapshots this before `Service::call` and marks committed
+    /// after the final outcome, so a background task holding a taken
+    /// capability cannot accept after commitment.
+    pub(crate) fn tunnel_shared(&self) -> Option<std::sync::Arc<TunnelShared>> {
+        self.tunnel
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|cap| cap.shared()))
     }
 }
 

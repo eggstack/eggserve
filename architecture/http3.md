@@ -185,7 +185,7 @@ schedule, retry/amplification behavior, and path/MTU mechanics.
 ## Plan 192 dependency readiness (BLOCKED)
 
 Plan 192 re-evaluated the frozen candidate (`h3` 0.0.8 / `h3-quinn` 0.0.10 /
-Quinn 0.11.11 / rustls 0.23.x — the latest released versions; no upgrade
+Quinn 0.11.11 / rustls 0.23.x — the latest released versions; generic tunnel via plain `CONNECT` + h3-crate Extended `CONNECT` (`webtransport`/`connect-udp`); generic `:protocol` (e.g. `websocket`) blocked by `h3` 0.0.8
 candidate exists) and closed with `BLOCKED`, leaving H3 experimental. The
 full matrices and dispositions live in
 [`release/plan-192-http3-dependency-readiness.md`](../release/plan-192-http3-dependency-readiness.md);

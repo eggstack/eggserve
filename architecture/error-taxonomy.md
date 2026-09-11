@@ -114,7 +114,7 @@ Errors from service handler invocation. The runtime converts these to HTTP respo
 **Constructors:**
 - `ServiceError::internal(msg)` — 500 error
 - `ServiceError::rejected(status, msg)` — `200..=599` preserved; `100..=199`
-  interim (including `101` upgrade, still deferred) and out-of-range codes
+  interim (including `101`, still no interim `101`; tunnel `101` only via `TunnelCapability::accept` (Plan 199)) and out-of-range codes
   collapse to 500 so no impossible final status is promised
 - `ServiceError::panic(msg)` — handler panic (internal)
 - `ServiceError::timeout(msg)` — handler timeout (internal)

@@ -90,13 +90,13 @@ its status using a constrained vocabulary.
 | Decompression | — | — | — | — | — | — | — |
 | ASGI/WSGI adapters | — | — | — | — | — | — | — |
 | CGI / FastCGI adapters (Plan 167 no-go) | — | — | — | — | — | — | — |
-| Generic HTTP upgrade handoff (Plan 176 deferred) | — | — | — | — | — | — | — |
+| Generic tunnel handoff (Plan 199; H1 `Upgrade`/`CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked) | — | — | experimental | experimental | experimental | — | — |
 | Windows reparse-point hardening | — | — | — | — | — | — | — |
 
 Rows with no annotation in any column are **intentionally unsupported** (empty
 cell = not applicable to that surface). General application redirects,
-retries, cookies, proxies, decompression, ASGI/WSGI/CGI/FastCGI, generic
-upgrade handoffs/WebSockets, and Windows
+retries, cookies, proxies, decompression, ASGI/WSGI/CGI/FastCGI, WebSocket
+framing (tunnel handoff itself experimental per above), and Windows
 reparse-point hardening remain intentionally unsupported or platform-limited as
 noted. Static directory canonicalization is the implemented narrow redirect
 behavior.

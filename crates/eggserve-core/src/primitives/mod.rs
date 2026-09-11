@@ -68,6 +68,7 @@ pub mod request_target;
 pub mod response;
 pub mod response_stream;
 pub mod trailers;
+pub mod tunnel;
 pub mod version;
 
 pub use crate::path::decode::percent_decode;
@@ -114,6 +115,11 @@ pub use response_stream::MAX_RESPONSE_STREAM_CHUNK_BYTES;
 pub use trailers::{
     is_forbidden_trailer_field, trailer_block_bytes, validate_trailers, TrailerLimits,
     TrailerValidationError, Trailers, DEFAULT_MAX_TRAILER_BYTES, DEFAULT_MAX_TRAILER_FIELDS,
+};
+pub use tunnel::{
+    ProtocolName, TunnelCapability, TunnelError, TunnelIo, TunnelKind, TunnelRequest,
+    MAX_TUNNEL_HEADER_BYTES, MAX_TUNNEL_HEADER_COUNT, MAX_TUNNEL_PROTOCOL_BYTES,
+    TUNNEL_IO_BUFFER_BYTES,
 };
 pub use version::{HttpVersion, HttpVersionError};
 

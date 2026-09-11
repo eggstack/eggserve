@@ -94,6 +94,13 @@ pub const MAX_MAX_REQUEST_TARGET_BYTES: usize = 64 * 1024;
 /// Default maximum concurrent in-flight service executions.
 pub const DEFAULT_MAX_IN_FLIGHT_REQUESTS: usize = 64;
 
+/// Default maximum concurrent active tunnels (generic upgrade / CONNECT /
+/// Extended CONNECT duplex sessions). Long-lived tunnels hold a tunnel permit
+/// until close; exhaustion fails new tunnel handshakes with 503 without
+/// affecting ordinary HTTP. Default matches `max_connections` so one tunnel
+/// per connection is possible by default.
+pub const DEFAULT_MAX_ACTIVE_TUNNELS: usize = 64;
+
 // ---------------------------------------------------------------------------
 // Shared value group
 // ---------------------------------------------------------------------------
@@ -124,6 +131,7 @@ pub(crate) struct SharedRuntimeValues {
     pub keep_alive_idle_timeout: Duration,
     pub max_requests_per_connection: Option<u64>,
     pub response_write_timeout: Duration,
+    pub max_active_tunnels: usize,
 }
 
 impl Default for SharedRuntimeValues {
@@ -147,6 +155,7 @@ impl Default for SharedRuntimeValues {
             keep_alive_idle_timeout: DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT,
             max_requests_per_connection: None,
             response_write_timeout: DEFAULT_RESPONSE_WRITE_TIMEOUT,
+            max_active_tunnels: DEFAULT_MAX_ACTIVE_TUNNELS,
         }
     }
 }
@@ -215,6 +224,9 @@ impl SharedRuntimeValues {
             keep_alive_idle_timeout: limits.keep_alive_idle_timeout,
             max_requests_per_connection: limits.max_requests_per_connection,
             response_write_timeout: limits.response_write_timeout,
+            // Static `Limits` has no tunnel budget (static never tunnels);
+            // projection uses the canonical default.
+            max_active_tunnels: DEFAULT_MAX_ACTIVE_TUNNELS,
         }
     }
 
@@ -239,6 +251,7 @@ impl SharedRuntimeValues {
             keep_alive_idle_timeout: config.keep_alive_idle_timeout,
             max_requests_per_connection: config.max_requests_per_connection,
             response_write_timeout: config.response_write_timeout,
+            max_active_tunnels: config.max_active_tunnels,
         }
     }
 
@@ -443,6 +456,20 @@ impl SharedRuntimeValues {
                 "response_write_timeout",
                 "0s".into(),
                 "> 0".into(),
+            ));
+        }
+
+        if self.max_active_tunnels == 0 {
+            errors.push(Violation::new(
+                "max_active_tunnels",
+                "0".into(),
+                "> 0".into(),
+            ));
+        } else if self.max_active_tunnels > max_semaphore_permits {
+            errors.push(Violation::new(
+                "max_active_tunnels",
+                self.max_active_tunnels.to_string(),
+                format!("<= {max_semaphore_permits} (Semaphore::MAX_PERMITS)"),
             ));
         }
 

@@ -214,6 +214,10 @@ point-in-time snapshot of one runtime's counters
 | `deferred_body_timeouts` | Deferred body timeouts after response-start |
 | `lifecycle_peer_disconnects` | Lifecycle peer-disconnect cancellations |
 | `lifecycle_runtime_cancels` | Lifecycle runtime cancellations |
+| `tunnels_accepted` | Tunnels accepted (handshake sent, duplex spawned) |
+| `tunnels_rejected` | Tunnel handshakes refused by `max_active_tunnels` (503) |
+| `active_tunnels` | Currently active duplex tunnels |
+| `tunnel_upgrade_failures` | Transport upgrade failures after admission (peer gone, no `OnUpgrade`) |
 
 ## Troubleshooting
 

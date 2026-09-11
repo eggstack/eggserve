@@ -91,6 +91,11 @@ pub enum EventKind {
     InterimSent,
     InterimRejected,
     ExpectationFailed,
+    // Generic tunnel / upgrade (Plan 199)
+    TunnelAccepted,
+    TunnelRejected,
+    TunnelClosed,
+    TunnelUpgradeFailed,
 
     // Operational
     ListenerTransientError,
@@ -161,6 +166,10 @@ impl fmt::Display for EventKind {
             EventKind::InterimSent => "interim_sent",
             EventKind::InterimRejected => "interim_rejected",
             EventKind::ExpectationFailed => "expectation_failed",
+            EventKind::TunnelAccepted => "tunnel_accepted",
+            EventKind::TunnelRejected => "tunnel_rejected",
+            EventKind::TunnelClosed => "tunnel_closed",
+            EventKind::TunnelUpgradeFailed => "tunnel_upgrade_failed",
 
             EventKind::ListenerTransientError => "listener_transient_error",
             EventKind::ListenerPersistentError => "listener_persistent_error",
@@ -842,6 +851,10 @@ pub struct OpsCounters {
     pub deferred_body_timeouts: AtomicU64,
     pub lifecycle_peer_disconnects: AtomicU64,
     pub lifecycle_runtime_cancels: AtomicU64,
+    pub tunnels_accepted: AtomicU64,
+    pub tunnels_rejected: AtomicU64,
+    pub active_tunnels: AtomicU64,
+    pub tunnel_upgrade_failures: AtomicU64,
 }
 
 impl Default for OpsCounters {
@@ -886,6 +899,10 @@ impl OpsCounters {
             deferred_body_timeouts: AtomicU64::new(0),
             lifecycle_peer_disconnects: AtomicU64::new(0),
             lifecycle_runtime_cancels: AtomicU64::new(0),
+            tunnels_accepted: AtomicU64::new(0),
+            tunnels_rejected: AtomicU64::new(0),
+            active_tunnels: AtomicU64::new(0),
+            tunnel_upgrade_failures: AtomicU64::new(0),
         }
     }
 
@@ -924,6 +941,10 @@ impl OpsCounters {
             deferred_body_timeouts: self.deferred_body_timeouts.load(Ordering::Relaxed),
             lifecycle_peer_disconnects: self.lifecycle_peer_disconnects.load(Ordering::Relaxed),
             lifecycle_runtime_cancels: self.lifecycle_runtime_cancels.load(Ordering::Relaxed),
+            tunnels_accepted: self.tunnels_accepted.load(Ordering::Relaxed),
+            tunnels_rejected: self.tunnels_rejected.load(Ordering::Relaxed),
+            active_tunnels: self.active_tunnels.load(Ordering::Relaxed),
+            tunnel_upgrade_failures: self.tunnel_upgrade_failures.load(Ordering::Relaxed),
         }
     }
 }
@@ -963,6 +984,10 @@ pub struct OpsSnapshot {
     pub deferred_body_timeouts: u64,
     pub lifecycle_peer_disconnects: u64,
     pub lifecycle_runtime_cancels: u64,
+    pub tunnels_accepted: u64,
+    pub tunnels_rejected: u64,
+    pub active_tunnels: u64,
+    pub tunnel_upgrade_failures: u64,
 }
 
 #[cfg(test)]

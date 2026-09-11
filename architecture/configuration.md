@@ -94,6 +94,7 @@ breaking its current API.
 | `max_connections` | `RuntimeConfig` | 64 | > 0 | `--max-connections` | `max_connections` (`Server` + `lowlevel.RuntimeConfig`) | Connection semaphore in accept loop |
 | `max_in_flight_requests` | `RuntimeConfig` | 64 | > 0 | `--max-in-flight-requests` | `max_in_flight_requests` (`lowlevel`; compat facade default) | Service semaphore held across `Service::call`; 503 on exhaustion |
 | `max_file_streams` | `RuntimeConfig` | 32 | > 0 | `--max-file-streams` | `max_file_streams` | One file-stream semaphore per running server |
+| `max_active_tunnels` | `RuntimeConfig` | 64 | > 0 | — (static never tunnels; Rust `RuntimeConfigBuilder::max_active_tunnels`) | — (Python sync facade unchanged; async projection owns Plan 204) | Server-wide tunnel semaphore held until tunnel close; 503 on exhaustion; H1 keeps owning connection alive, H2/H3 stream-scoped |
 | `max_python_callbacks` | `PyServer` | 8 | > 0 | N/A | `max_python_callbacks` | Callback semaphore in `PythonCallbackService` |
 | `max_listing_entries` | `Limits` | 4096 | > 0, <= 10485760 (entries) | N/A | N/A | Directory listing enumeration |
 | `max_listing_response_bytes` | `Limits` | 1 MiB | > 0 | N/A | N/A | Directory listing response body cap |

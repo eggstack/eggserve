@@ -176,25 +176,23 @@ framing/normalization and the Plan 165 privacy boundary, and enforces its own
 bounds (subprocess concurrency, env/PARAMS caps, stdout header scan, STDERR
 cap, deadlines, kill/abort with reaping on timeout/disconnect/shutdown/drop).
 
-### Upgrade handoff (Plan 176 deferred — no upgrade capability)
+### Tunnel handoff (Plan 199 — generic upgrade/Extended CONNECT)
 
-Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed.
-`Request` carries head/body/context only (no `UpgradeRequest`),
-`Service` returns `Response` only (no `ServiceOutcome`/`UpgradeResponse`
-— Plan 197 Track C deliberately keeps this shape),
-and there is no `UpgradedIo` wrapper. A `101 Switching Protocols` handshake
-cannot be produced through the normal `Response` path: normalization strips
-hop-by-hop handshake headers (`upgrade`/`connection`) and 1xx statuses are
-body-forbidden. The crate-private drivers use Hyper's ordinary HTTP/1
-connection; upgrade machinery is intentionally not enabled and there is no
-public escape hatch; downstream
-code must not bypass the canonical boundary via `OnUpgrade`/`Upgraded`
-types. Upgraded-protocol servers (WebSocket-class) are therefore not
-currently buildable on EggServe; reopen Plan 176 only with a concrete
-upgrade consumer and current-Hyper Phase 0 evidence. Plan 199 owns the
-tunnel/Extended CONNECT design and attaches any accepted-tunnel outcome to
-`RequestContext` only if pairing a continuation with a final response
-cannot be made type-safe otherwise.
+Plan 199 implements generic tunnels, superseding deferred Plan 176.
+`RequestContext::take_tunnel()` yields a one-shot, transport-backed
+`TunnelCapability` (validated H1 `Upgrade`, `CONNECT`, H2/H3 Extended
+`CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8). `Service` still
+returns `Response` only (Plan 197 Track C kept; no `ServiceOutcome`):
+`accept(headers, handler)` consumes the capability and returns a handshake
+`Response` (`101` H1 / `200` otherwise, runtime owns framing, no raw socket)
+carrying a crate-private acceptance token plus bounded single-owner `TunnelIo`
+(`AsyncRead + AsyncWrite`, 32 KiB, lifecycle-aware). Ordinary `101` via
+`Response` still cannot survive normalization (only `accept` forges the token).
+H1 runs with `.with_upgrades()` (read-ahead preserved), H2 with
+`enable_connect_protocol()`, H3 with `enable_extended_connect(true)`;
+unused capabilities drop (denial stays ordinary HTTP). Downstream WebSocket
+framing lives over `TunnelIo` (see `tunnel_upgrade.rs`); raw Hyper/h2/h3/Quinn
+bypass remains unsupported.
 
 ### ServerHandle
 

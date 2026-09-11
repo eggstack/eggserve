@@ -5,9 +5,10 @@
 //! no-progress timeout, deferred-body timeout closure, server/caller
 //! shutdown, and final `ConnectionOutcome` classification. Deadline
 //! computation is not duplicated in transport-specific wrappers. Hyper's
-//! ordinary HTTP/1 connection is used deliberately: no latent upgrade
-//! capability is enabled because the canonical service boundary has no
-//! upgrade handoff (Plan 176 stays deferred).
+//! HTTP/1 connection runs with `.with_upgrades()` so genuine transport-backed
+//! `OnUpgrade` capabilities reach the canonical pipeline for validated tunnel
+//! handshakes (Plan 199); ordinary services pay no upgrade complexity (unused
+//! capabilities are dropped, denial stays ordinary HTTP).
 
 use bytes::Bytes;
 use std::convert::Infallible;
@@ -61,6 +62,21 @@ where
 {
     fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
         hyper::server::conn::http1::Connection::graceful_shutdown(self);
+    }
+}
+
+impl<I, S> ShutdownConn for hyper::server::conn::http1::UpgradeableConnection<I, S>
+where
+    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send,
+    S: hyper::service::Service<
+            Request<Incoming>,
+            Response = Response<BoxBodyInner>,
+            Error = Infallible,
+        > + 'static,
+    S::Future: Send + 'static,
+{
+    fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
+        hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown(self);
     }
 }
 
@@ -140,6 +156,7 @@ fn hyper2_builder(config: &RuntimeConfig) -> hyper::server::conn::http2::Builder
         .adaptive_window(h2.adaptive_window)
         .keep_alive_interval(h2.keep_alive_interval)
         .keep_alive_timeout(h2.keep_alive_timeout)
+        .enable_connect_protocol()
         .auto_date_header(false);
     builder
 }
@@ -444,6 +461,8 @@ where
             );
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
+            // Outer bound for tunnels (Plan 199 Track F): abort remaining.
+            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
             return ConnectionOutcome::TotalTimeout;
         }
         // Deferred-body timeout fired by the per-request watchdog: the body
@@ -453,15 +472,20 @@ where
         if activity.take_body_timeout() {
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
+            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
             return ConnectionOutcome::ClientError;
         }
         if multiplexed && activity.take_drain_request() {
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
             requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id, &ops);
+            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
             return ConnectionOutcome::Shutdown;
         }
         let (in_flight, outstanding, _completed, deferred, state) = activity.snapshot();
-        let idle = in_flight == 0 && outstanding == 0 && deferred == 0;
+        // Tunnels keep the connection busy (Plan 199): H1 owns the connection,
+        // H2/H3 stream tunnels prevent idle close while active.
+        let tunnels_active = activity.tunnel_count().await > 0;
+        let idle = in_flight == 0 && outstanding == 0 && deferred == 0 && !tunnels_active;
         if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
             ops.counters()
                 .keepalive_idle_timeouts
@@ -475,6 +499,7 @@ where
                 .connection_id(conn_id),
             );
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
+            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
             return ConnectionOutcome::IdleTimeout;
         }
         let write_stalled = if multiplexed {
@@ -496,6 +521,7 @@ where
             );
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
+            let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
             return ConnectionOutcome::WriteTimeout;
         }
         let mut wake = total_deadline.unwrap_or_else(far_future);
@@ -536,11 +562,48 @@ where
                     }
                     _ => {}
                 }
+                // Tunnels keep the task alive (Plan 199 Track F): wait within
+                // the hard total lifetime, then abort remainders. Ordinary
+                // connections have an empty set (immediate). Shutdown during
+                // drain cancels lifecycles and uses the post-shutdown budget.
+                if activity.tunnel_count().await > 0 {
+                    let total_tokio = total_deadline
+                        .map(tokio::time::Instant::from_std)
+                        .unwrap_or_else(|| tokio::time::Instant::from_std(far_future()));
+                    tokio::select! {
+                        drained = activity.drain_tunnels(total_tokio) => {
+                            if !drained {
+                                requests.cancel_all(
+                                    RequestCancellationReason::ConnectionTimeout,
+                                    conn_id,
+                                    &ops,
+                                );
+                                return ConnectionOutcome::TotalTimeout;
+                            }
+                        }
+                        _ = &mut shutdown => {
+                            requests.cancel_all(
+                                RequestCancellationReason::ServerShutdown,
+                                conn_id,
+                                &ops,
+                            );
+                            let deadline = tokio::time::Instant::now()
+                                + post_shutdown_drain_budget(config);
+                            let _ = activity.drain_tunnels(deadline).await;
+                            return ConnectionOutcome::Shutdown;
+                        }
+                    }
+                }
                 return outcome;
             }
             _ = &mut shutdown => {
                 requests.cancel_all(RequestCancellationReason::ServerShutdown, conn_id, &ops);
                 graceful_close(conn.as_mut(), config, conn_id, &ops).await;
+                // Graceful shutdown waits for tunnels within the drain budget,
+                // then aborts remainders (no detached task survives `wait()`).
+                let deadline =
+                    tokio::time::Instant::now() + post_shutdown_drain_budget(config);
+                let _ = activity.drain_tunnels(deadline).await;
                 return ConnectionOutcome::Shutdown;
             }
             // A state change may have created an earlier deadline (new
@@ -581,9 +644,12 @@ where
             Response = Response<BoxBodyInner>,
             Error = Infallible,
         > + 'static,
+    S::Future: Send + 'static,
 {
     let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
-    let conn = hyper_builder(config).serve_connection(io, service);
+    let conn = hyper_builder(config)
+        .serve_connection(io, service)
+        .with_upgrades();
     let mut conn = std::pin::pin!(conn);
     let shutdown = async move {
         let _ = shutdown_rx.recv().await;
@@ -706,7 +772,9 @@ where
     };
     match protocol {
         WireProtocol::Http1 => {
-            let conn = hyper_builder(config).serve_connection(io, service);
+            let conn = hyper_builder(config)
+                .serve_connection(io, service)
+                .with_upgrades();
             let mut conn = std::pin::pin!(conn);
             drive_connection(
                 conn.as_mut(),

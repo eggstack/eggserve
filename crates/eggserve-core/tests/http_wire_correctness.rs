@@ -156,9 +156,13 @@ async fn ws_a_absolute_form_rejected() {
 #[tokio::test]
 async fn ws_a_authority_form_rejected() {
     let s = start_server(None).await;
+    // CONNECT authority-form with matching Host is a tunnel candidate (Plan
+    // 199, kind `Connect`), but `StaticService` ignores the capability and
+    // returns the established 405. Mismatched Host vs authority is 400
+    // (conflicting metadata, validated before tunnel classification).
     let line = status_line(
         s.addr,
-        b"CONNECT example.com:443 HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
+        b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nConnection: close\r\n\r\n",
     )
     .await;
     assert!(line.contains("405"), "Expected 405, got: {}", line);

@@ -68,6 +68,7 @@ pub(crate) mod pipeline;
 pub(crate) mod request;
 pub(crate) mod response;
 pub(crate) mod transport;
+pub(crate) mod tunnel;
 
 pub use context::{ConnectionContext, ConnectionOutcome, ConnectionShutdown};
 
@@ -125,6 +126,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
+    let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
     let ops = runtime_state.ops().clone();
     let activity = Arc::new(ConnectionActivity::new(ops.clone()));
     let requests = Arc::new(ConnectionRequests::new());
@@ -133,6 +135,7 @@ pub async fn serve_connection_with_runtime_state<I, S>(
         config.clone(),
         file_stream_semaphore,
         service_semaphore,
+        tunnel_semaphore,
         activity.clone(),
         requests.clone(),
         config.stream_chunk_size,
@@ -363,6 +366,7 @@ where
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
+    let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
     let ops = runtime_state.ops().clone();
     let activity = Arc::new(ConnectionActivity::new(ops.clone()));
     let requests = Arc::new(ConnectionRequests::new());
@@ -371,6 +375,7 @@ where
         config.clone(),
         file_stream_semaphore,
         service_semaphore,
+        tunnel_semaphore,
         activity.clone(),
         requests.clone(),
         config.stream_chunk_size,

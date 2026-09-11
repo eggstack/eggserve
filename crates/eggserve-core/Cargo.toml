@@ -69,3 +69,7 @@ tempfile = "3"
 rcgen = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread"] }
 tokio-rustls = "0.26"
+# Plan 199 Track I: dev-only WebSocket interop fixture proving the generic
+# tunnel handoff is sufficient for a downstream codec. Production core has no
+# WebSocket framing/dependency; this stays in tests only.
+tokio-tungstenite = "0.26"

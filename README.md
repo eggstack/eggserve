@@ -296,12 +296,19 @@ the experimental `server` module a stable 1.0 API.
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
   async Python handlers, unbounded response generators, ASGI/WSGI, and
   CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
-  gateways are intentionally unavailable. Generic HTTP upgrade handoffs
-  (WebSocket-class; Plan 176 deferred, no concrete consumer) are also
-  unavailable: `Request` carries head/body/context only (`RequestContext`: connection + lifecycle + bounded interim),
-  `Service` returns `Response` only, and 101 handshakes cannot survive
-  normalization. Downstream gateways build on the
-  canonical `Service` boundary instead.
+  gateways are intentionally unavailable. Generic tunnel handoff (Plan 199,
+  superseding deferred Plan 176) **is** available: validated H1 `Upgrade`,
+  `CONNECT`, and H2/H3 Extended `CONNECT` (H3 generic `:protocol` blocked by
+  `h3` 0.0.8, see tunnel docs) yield a one-shot, transport-backed
+  `TunnelCapability` on `RequestContext` (`take_tunnel()`, double-take `None`,
+  `AfterCommit` after final commitment). `accept(headers, handler)` returns a
+  handshake `Response` (`101` for H1, `200` otherwise; runtime owns
+  transition/framing bytes, no raw socket) and a bounded, single-owner
+  `TunnelIo` (`AsyncRead + AsyncWrite`, 32 KiB backpressure, lifecycle-aware,
+  no payload logged) for the downstream codec. Denial stays ordinary HTTP;
+  WebSocket framing itself remains downstream (see `tunnel_upgrade.rs`
+  echo + `tokio-tungstenite` interop fixture, no WS in core). Downstream
+  gateways build on the canonical `Service` boundary instead.
 
 See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),
 [threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md),

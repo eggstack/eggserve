@@ -28,20 +28,14 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 - Not an ASGI/WSGI server, CGI executor, FastCGI gateway, or web framework
 - Not a reverse proxy, ACME client, or plugin host
 - Not a file upload handler, auth system, or template engine
-- Not a WebSocket/upgraded-protocol server (no upgrade handoff)
+- Not a WebSocket framing server (generic tunnel handoff via Plan 199; framing stays downstream)
 
 Plan 167 closed as no-go: no in-tree CGI/FastCGI adapters. Downstream
 gateways implement the canonical `Service` trait and return canonical
 `Response` values; see [runtime.md](runtime.md) and
 [../docs/extension-contract.md](../docs/extension-contract.md).
 
-Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed
-(`Request` has no upgrade capability, `Service` returns `Response` only,
-101 handshakes cannot survive normalization; the ordinary Hyper HTTP/1
-connection is used and upgrade machinery is not enabled. Downstream
-WebSocket-class servers are not currently buildable on the canonical boundary
-and must not bypass it via
-raw Hyper types; see [../docs/non-goals.md](../docs/non-goals.md) and
+Plan 199 implements generic tunnel/upgrade/Extended CONNECT, superseding deferred Plan 176: `take_tunnel()` yields a one-shot transport-backed capability (H1 `Upgrade`, `CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8), `accept` returns a handshake `Response` (`101` H1 / `200` otherwise) plus bounded `TunnelIo`; denial stays ordinary HTTP; WebSocket framing stays downstream (see `tunnel_upgrade.rs`). Downstream servers must not bypass via raw Hyper/h2/h3/Quinn types; see [../docs/non-goals.md](../docs/non-goals.md) and
 [../docs/downstream-app-server.md](../docs/downstream-app-server.md).
 
 The user-facing Python compatibility matrix is maintained in

@@ -28,14 +28,18 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
   middleware, or application-server behavior in-tree. Python
   `http.server`-shaped surfaces remain HTTP/1.1-oriented unless a later
   compatibility decision says otherwise.
-- **No WebSocket or generic upgrade support (Plan 176 deferred)** — The runtime
-  has no canonical upgrade capability, 101-handshake path, or upgraded-IO
-  handoff: `Request` carries head/body/context only (`RequestContext`: connection + lifecycle), `Service`
-  returns `Response` only, and normalization strips hop-by-hop handshake
-  headers. The HTTP/1 driver deliberately uses Hyper's ordinary connection;
-  it does not enable `.with_upgrades()`. Downstream WebSocket-class servers
-  must not bypass the canonical boundary via raw Hyper types; reopen Plan 176
-  only with a concrete upgrade consumer and current-Hyper evidence.
+- **No WebSocket framing in core (Plan 199 generic tunnel supported)** — The
+  runtime provides a safe, generic duplex handoff (`TunnelRequest`/
+  `TunnelCapability`/`TunnelIo` on `RequestContext`; H1 `Upgrade`, `CONNECT`,
+  H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8),
+  not a WebSocket codec. `Service` still returns `Response` only; `accept`
+  returns the validated handshake (`101` H1 / `200` otherwise, runtime owns
+  framing, no raw socket) plus bounded `TunnelIo` for the downstream codec.
+  Ordinary denial stays ordinary HTTP. WebSocket ping/pong, fragmentation,
+  close codes, permessage-deflate, and ASGI `websocket.*` events remain
+  downstream (see `tunnel_upgrade.rs` echo + `tokio-tungstenite` fixture).
+  Downstream servers must not bypass the canonical boundary via raw
+  Hyper/h2/h3/Quinn types.
 - **No middleware stack in the server module** — The `Service` trait is a single-layer abstraction. Composition via middleware is left to downstream projects.
 - **No Python existing-socket support** — Passing an already-bound Python socket to the native `Server` is deferred. Rust supports `from_listener()` for existing `TcpListener` ownership, but the Python bindings do not yet expose this. Ownership transfer semantics differ across platforms and would require careful descriptor/handle duplication. This capability may be added in a future milestone if cross-platform safety can be ensured.
 - **No production profile without evidence** — Production profiles require external qualification evidence before hardened status. Production profiles are documented in README.md and `docs/deployment.md`.

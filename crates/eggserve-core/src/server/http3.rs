@@ -195,6 +195,12 @@ async fn serve_connection<S: Service>(
     let requests_registry = Arc::new(ConnectionRequests::new());
     let mut builder = h3::server::builder();
     builder.max_field_section_size(config.http3.max_field_section_size);
+    // Advertise Extended CONNECT (Plan 199 Track A): H3 supports `CONNECT`
+    // (kind `Connect`) and the h3-crate `:protocol` values (`webtransport`,
+    // `connect-udp`, kind `ExtendedConnect`). Generic `:protocol` (e.g.
+    // `websocket`) is rejected as malformed by `h3` 0.0.8 before EggServe
+    // sees it — documented as blocked, not bypassed.
+    builder.enable_extended_connect(true);
     let mut h3_connection = match builder
         .build::<_, H3Bytes>(h3_quinn::Connection::new(connection))
         .await
@@ -348,6 +354,7 @@ async fn handle_request<S, C>(
 ) where
     S: Service,
     C: h3::quic::BidiStream<H3Bytes>,
+    C::SendStream: Send + 'static,
     C::RecvStream: Send + 'static,
 {
     let is_head = request.method() == hyper::Method::HEAD;
@@ -381,6 +388,30 @@ async fn handle_request<S, C>(
             return;
         }
     };
+    // CONNECT / Extended CONNECT tunnel candidate (Plan 199 Track B).
+    // Plain `CONNECT` (no `:protocol`) => kind `Connect`; `:protocol`
+    // present (h3-crate `webtransport`/`connect-udp`) => `ExtendedConnect`.
+    // Generic `:protocol` (e.g. `websocket`) is rejected as malformed by `h3`
+    // 0.0.8 before this point (documented as blocked). Bodies never cross:
+    // `Content-Length > 0` => 413, no capability. No DATA probe here so early
+    // tunnel DATA stays in the QUIC stream for the bridge.
+    if head.method().as_str() == "CONNECT" {
+        handle_h3_connect::<S, C>(
+            request,
+            head,
+            send_stream,
+            recv_stream,
+            local_addr,
+            remote_addr,
+            service,
+            config,
+            runtime_state,
+            shared,
+            conn_id,
+        )
+        .await;
+        return;
+    }
     let declared_length = match declared_content_length(&request) {
         Ok(length) => length,
         Err(error) => {
@@ -729,6 +760,481 @@ async fn handle_request<S, C>(
         runtime_state.ops(),
     )
     .await;
+}
+
+/// H3 CONNECT / Extended CONNECT tunnel path (Plan 199 Tracks B–G).
+///
+/// - Plain `CONNECT` (no `:protocol`) => `Connect`; `:protocol` present
+///   (`webtransport`/`connect-udp` via h3-crate) => `ExtendedConnect`.
+/// - `Content-Length > 0` or invalid length => 413/400, no capability (body
+///   never crosses). No DATA probe so early tunnel DATA stays buffered.
+/// - Empty body + one-shot capability attached; service denial sends ordinary
+///   response (recv aborted); acceptance sends `200` (no `101`, no body, no
+///   `finish` yet) then runs a stream-scoped duplex tunnel (siblings survive).
+/// - Admission via server-wide `max_active_tunnels` (503 on exhaustion);
+///   lifecycle cancellation wakes idle tunnels; hard shutdown aborts via the
+///   parent `requests` JoinSet (this task stays alive until tunnel close, so
+///   `wait()` accounts for tunnels).
+#[allow(clippy::too_many_arguments)]
+async fn handle_h3_connect<S, C>(
+    request: hyper::Request<()>,
+    head: RequestHead,
+    mut send_stream: h3::server::RequestStream<C::SendStream, H3Bytes>,
+    mut recv_stream: h3::server::RequestStream<C::RecvStream, H3Bytes>,
+    local_addr: std::net::SocketAddr,
+    remote_addr: std::net::SocketAddr,
+    service: Arc<S>,
+    config: Arc<RuntimeConfig>,
+    runtime_state: Arc<RuntimeState>,
+    shared: Arc<RequestShared>,
+    conn_id: u64,
+) where
+    S: Service,
+    C: h3::quic::BidiStream<H3Bytes>,
+    C::SendStream: Send + 'static,
+    C::RecvStream: Send + 'static,
+{
+    use crate::primitives::tunnel::{classify_extended_protocol, TunnelKind, TunnelRequest};
+    use crate::primitives::tunnel::{TunnelCapability, TunnelIo};
+
+    let ops = runtime_state.ops().clone();
+    // Bodies never cross the transition (Track H).
+    match declared_content_length(&request) {
+        Ok(Some(len)) if len > 0 => {
+            let _ = send_response_or_cancel(
+                &mut send_stream,
+                runtime_error_response(413, false, &config),
+                &config,
+                false,
+                runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                &ops,
+            )
+            .await;
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
+        Ok(_) => {}
+        Err(error) => {
+            let _ = send_response_or_cancel(
+                &mut send_stream,
+                runtime_error_response(error.status_code(), false, &config),
+                &config,
+                false,
+                runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                &ops,
+            )
+            .await;
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
+    }
+    let protocol_raw: Option<String> = request
+        .extensions()
+        .get::<h3::ext::Protocol>()
+        .map(|p| p.as_str().to_string());
+    let (kind, protocol) = match protocol_raw {
+        Some(raw) => match classify_extended_protocol(Some(&raw)) {
+            Some(valid) => (TunnelKind::ExtendedConnect, Some(valid)),
+            None => {
+                // Present-but-invalid `:protocol`: no capability, ordinary
+                // denial (400). Never fallback to plain CONNECT.
+                let _ = send_response_or_cancel(
+                    &mut send_stream,
+                    runtime_error_response(400, false, &config),
+                    &config,
+                    false,
+                    runtime_state.file_stream_semaphore(),
+                    &shared,
+                    conn_id,
+                    &ops,
+                )
+                .await;
+                recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                return;
+            }
+        },
+        None => (TunnelKind::Connect, None),
+    };
+    let Some(authority) = head.authority().cloned() else {
+        let _ = send_response_or_cancel(
+            &mut send_stream,
+            runtime_error_response(400, false, &config),
+            &config,
+            false,
+            runtime_state.file_stream_semaphore(),
+            &shared,
+            conn_id,
+            &ops,
+        )
+        .await;
+        recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+        return;
+    };
+    let tunnel_request = TunnelRequest::new(kind, protocol, Some(authority));
+    let capability = TunnelCapability::new(tunnel_request, None);
+    let tunnel_shared = capability.shared();
+    // Empty body sharing the registered allocation (lifecycle continuity).
+    let request_body = crate::primitives::request_body::RequestBody::from_incoming_with_shared(
+        futures_util::stream::empty(),
+        Some(0),
+        0,
+        shared.clone(),
+    );
+    // `from_incoming_with_shared` with empty stream starts Active; mark
+    // Complete immediately (no DATA to consume, no probe to preserve tunnel
+    // bytes). Safe: empty stream never yields DATA, terminal immediately.
+    shared.mark_complete();
+    let connection_info = ConnectionContext::for_quic(
+        local_addr,
+        remote_addr,
+        TlsInfo {
+            protocol_version: Some("TLSv1.3".into()),
+            server_name: None,
+        },
+    )
+    .connection_info();
+    let version = head.version();
+    let ctx = crate::primitives::request_context::RequestContext::new_with_version(
+        connection_info,
+        request_body.lifecycle(),
+        version,
+    )
+    .with_tunnel(capability);
+    let request_for_service =
+        crate::primitives::request::Request::new_with_context(head, request_body, ctx);
+    let interim = request_for_service.context().interim().cloned();
+    let lifecycle = request_for_service.lifecycle_clone();
+    // Service admission (pre-response `max_in_flight_requests`, outer ceiling).
+    let permit = match runtime_state
+        .service_semaphore()
+        .clone()
+        .try_acquire_owned()
+    {
+        Ok(p) => p,
+        Err(_) => {
+            if let Some(s) = interim.as_ref() {
+                s.mark_committed();
+            }
+            tunnel_shared.mark_committed();
+            let _ = send_response_or_cancel(
+                &mut send_stream,
+                runtime_error_response(503, false, &config),
+                &config,
+                false,
+                runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                &ops,
+            )
+            .await;
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
+    };
+    let _permit = permit;
+    let result = crate::server::connection::response::invoke_canonical_service(
+        service.as_ref(),
+        request_for_service,
+        config.handler_timeout,
+        &ops,
+    )
+    .await;
+    if let Some(s) = interim.as_ref() {
+        s.mark_committed();
+    }
+    tunnel_shared.mark_committed();
+    let mut canonical = match result {
+        Ok(r) => r,
+        Err(error) => {
+            let response = runtime_error_response(error.status_code(), false, &config);
+            let _ = send_response_or_cancel(
+                &mut send_stream,
+                response,
+                &config,
+                false,
+                runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                &ops,
+            )
+            .await;
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
+    };
+    if !canonical.is_tunnel() {
+        // Ordinary denial: normal response, recv aborted (no tunnel DATA).
+        let _ = send_response_or_cancel(
+            &mut send_stream,
+            canonical,
+            &config,
+            false,
+            runtime_state.file_stream_semaphore(),
+            &shared,
+            conn_id,
+            &ops,
+        )
+        .await;
+        recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+        return;
+    }
+    let acceptance = canonical
+        .take_tunnel_acceptance()
+        .expect("is_tunnel checked");
+    // Tunnel admission (server-wide, 503 on exhaustion, no handler run).
+    let tunnel_permit = match runtime_state.tunnel_semaphore().clone().try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            ops.counters()
+                .tunnels_rejected
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ops.emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Warn,
+                    crate::ops::EventKind::TunnelRejected,
+                    "tunnel saturated: active tunnel limit",
+                )
+                .connection_id(conn_id),
+            );
+            let _ = send_response_or_cancel(
+                &mut send_stream,
+                runtime_error_response(503, false, &config),
+                &config,
+                false,
+                runtime_state.file_stream_semaphore(),
+                &shared,
+                conn_id,
+                &ops,
+            )
+            .await;
+            recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+            return;
+        }
+    };
+    let _tunnel_permit = tunnel_permit;
+    // Send `200` handshake (no body, no FIN yet; stream stays open for duplex).
+    // Reuse canonical privacy (Server/Date/denylist) without inventing
+    // `Content-Length`; hop-by-hop already stripped in `accept`.
+    let mut handshake = canonical;
+    // `take_tunnel_acceptance` left head/body; ensure no body bytes.
+    if let Some(body) = handshake.take_body() {
+        drop(body);
+    }
+    // Re-attach empty body for `send_canonical_response`-style conversion?
+    // Instead, send headers directly (no body, no trailers, no finish).
+    let send_result = send_h3_tunnel_handshake(&mut send_stream, handshake, &config).await;
+    if send_result.is_err() {
+        ops.counters()
+            .tunnel_upgrade_failures
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        ops.emit(
+            crate::ops::Event::new(
+                crate::ops::Severity::Debug,
+                crate::ops::EventKind::TunnelUpgradeFailed,
+                "H3 tunnel handshake failed",
+            )
+            .connection_id(conn_id),
+        );
+        crate::server::connection::lifecycle::cancel_shared_with_observability(
+            &shared,
+            RequestCancellationReason::TransportFailure,
+            conn_id,
+            &ops,
+        );
+        send_stream.stop_stream(h3::error::Code::H3_INTERNAL_ERROR);
+        recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+        return;
+    }
+    ops.counters()
+        .tunnels_accepted
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ops.counters()
+        .active_tunnels
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ops.emit(
+        crate::ops::Event::new(
+            crate::ops::Severity::Info,
+            crate::ops::EventKind::TunnelAccepted,
+            format!("tunnel accepted: {}", acceptance.kind),
+        )
+        .connection_id(conn_id),
+    );
+    let _active_guard = H3ActiveTunnelGuard { ops: ops.clone() };
+    let (io_handler, io_bridge) = TunnelIo::pair();
+    let handler_lifecycle = lifecycle.clone();
+    let bridge_lifecycle_a = lifecycle.clone();
+    let bridge_lifecycle_b = lifecycle.clone();
+    let handler_join = tokio::spawn(async move {
+        (acceptance.handler)(io_handler, handler_lifecycle).await;
+    });
+    // Stream-scoped duplex (siblings survive): two concurrent directions with
+    // bounded chunks, lifecycle wakes idle, half-close propagates (recv EOF
+    // shuts duplex write, duplex EOF finishes H3 send).
+    let duplex = io_bridge.into_duplex();
+    let (mut duplex_read, mut duplex_write) = tokio::io::split(duplex);
+    // Client -> server: H3 DATA -> duplex.
+    let recv_task = tokio::spawn(async move {
+        use tokio::io::AsyncWriteExt;
+        let mut recv_stream = recv_stream;
+        loop {
+            tokio::select! {
+                data = recv_stream.recv_data() => {
+                    match data {
+                        Ok(Some(mut chunk)) => {
+                            use bytes::Buf;
+                            let bytes = chunk.copy_to_bytes(chunk.remaining());
+                            if duplex_write.write_all(&bytes).await.is_err() {
+                                break;
+                            }
+                        }
+                        Ok(None) => {
+                            let _ = duplex_write.shutdown().await;
+                            break;
+                        }
+                        Err(_) => break,
+                    }
+                }
+                _ = bridge_lifecycle_a.cancelled() => break,
+            }
+        }
+        recv_stream
+    });
+    // Server -> client: duplex -> H3 DATA (16 KiB frames, flow-controlled).
+    let send_task = tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        let mut send_stream = send_stream;
+        let mut buf = vec![0u8; 16 * 1024];
+        loop {
+            tokio::select! {
+                read = duplex_read.read(&mut buf) => {
+                    match read {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            let chunk = Bytes::copy_from_slice(&buf[..n]);
+                            if send_stream.send_data(chunk).await.is_err() {
+                                break;
+                            }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                _ = bridge_lifecycle_b.cancelled() => break,
+            }
+        }
+        send_stream
+    });
+    let (recv_res, send_res) = tokio::join!(recv_task, send_task);
+    handler_join.abort();
+    let _ = handler_join.await;
+    // Orderly/error closure maps to this H3 request stream only (siblings
+    // survive). On normal duplex EOF, FIN the send direction; always stop
+    // the recv direction (already EOF or cancelled).
+    if let Ok(mut send_stream) = send_res {
+        let _ = tokio::time::timeout(config.response_write_timeout, send_stream.finish()).await;
+    }
+    if let Ok(mut recv_stream) = recv_res {
+        recv_stream.stop_sending(h3::error::Code::H3_NO_ERROR);
+    }
+    ops.emit(
+        crate::ops::Event::new(
+            crate::ops::Severity::Debug,
+            crate::ops::EventKind::TunnelClosed,
+            format!("tunnel closed: {}", kind_string(kind)),
+        )
+        .connection_id(conn_id),
+    );
+}
+
+fn kind_string(kind: crate::primitives::tunnel::TunnelKind) -> &'static str {
+    match kind {
+        crate::primitives::tunnel::TunnelKind::Http1Upgrade => "http1-upgrade",
+        crate::primitives::tunnel::TunnelKind::Connect => "connect",
+        crate::primitives::tunnel::TunnelKind::ExtendedConnect => "extended-connect",
+    }
+}
+
+struct H3ActiveTunnelGuard {
+    ops: crate::ops::OpsContext,
+}
+
+impl Drop for H3ActiveTunnelGuard {
+    fn drop(&mut self) {
+        self.ops
+            .counters()
+            .active_tunnels
+            .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+/// Send an H3 tunnel `200` handshake (headers only, no body, no FIN).
+///
+/// Applies canonical privacy (Server/Date/denylist) like ordinary responses
+/// but never invents `Content-Length`/`Transfer-Encoding` and never finishes
+/// the stream (duplex continues). Hop-by-hop already stripped in `accept`.
+async fn send_h3_tunnel_handshake<S>(
+    stream: &mut h3::server::RequestStream<S, H3Bytes>,
+    response: Response,
+    config: &RuntimeConfig,
+) -> Result<(), String>
+where
+    S: h3::quic::SendStream<H3Bytes>,
+{
+    // Start from accepted handshake headers (validated/bounded, no framing,
+    // no hop-by-hop), then apply canonical privacy (Server/Date/denylist).
+    let mut builder_block = HeaderBlock::new();
+    for field in response.headers().iter() {
+        // Defense in depth: strip framing/hop-by-hop even though `accept`
+        // already did (`head_mut` clears tunnel, so this is unchanged, but
+        // re-validate before wire).
+        if field.name.as_str().eq_ignore_ascii_case("content-length")
+            || field
+                .name
+                .as_str()
+                .eq_ignore_ascii_case("transfer-encoding")
+            || crate::primitives::canonical::is_hop_by_hop_header(field.name.as_str())
+        {
+            continue;
+        }
+        builder_block.push(field.name.clone(), field.value.clone());
+    }
+    let mut tmp = Response::builder()
+        .status(response.status())
+        .body(ResponseBody::Empty)
+        .map_err(|e| e.to_string())?;
+    for field in builder_block.iter() {
+        // `head_mut` clears tunnel acceptance, but `tmp` has none (fresh),
+        // so safe: we are building a wire head, not mutating the handshake.
+        tmp.head_mut()
+            .headers_mut()
+            .push(field.name.clone(), field.value.clone());
+    }
+    let tmp = crate::server::connection::response::finalize_canonical_response(tmp, config);
+    let status = hyper::StatusCode::from_u16(tmp.status().as_u16()).map_err(|e| e.to_string())?;
+    // Ensure 200 (not 101) for H3 Extended/CONNECT; reject 101 defensively.
+    if status == hyper::StatusCode::SWITCHING_PROTOCOLS {
+        return Err("H3 tunnel must not synthesize 101".to_string());
+    }
+    let mut headers = hyper::HeaderMap::new();
+    for field in tmp.headers().iter() {
+        let name = hyper::header::HeaderName::from_bytes(field.name.as_str().as_bytes())
+            .map_err(|e| e.to_string())?;
+        let value = hyper::header::HeaderValue::from_bytes(field.value.as_bytes())
+            .map_err(|e| e.to_string())?;
+        headers.append(name, value);
+    }
+    let mut head = hyper::Response::builder()
+        .status(status)
+        .body(())
+        .map_err(|e| e.to_string())?;
+    *head.headers_mut() = headers;
+    tokio::time::timeout(config.response_write_timeout, stream.send_response(head))
+        .await
+        .map_err(|_| "response write timeout".to_string())?
+        .map_err(|e| e.to_string())
 }
 
 fn h3_trailers_to_block(map: &hyper::HeaderMap) -> Result<HeaderBlock, String> {

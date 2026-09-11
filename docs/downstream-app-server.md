@@ -47,7 +47,9 @@ downstream responsibility.
   Plan 197 keeps this shape deliberately: no `ServiceOutcome` exists.
   Plan 198 implements trailers in the message-body abstraction
   (`ResponseStream::with_trailers`) and interim via the request-scoped
-  `InterimSender`; accepted-tunnel outcome deferred to Plan 199 only if needed.
+  `InterimSender`; Plan 199 implements generic tunnels via one-shot
+  `TunnelCapability` + `TunnelIo` (no `ServiceOutcome`; `accept` returns a
+  handshake `Response`).
   Ordinary services convert via `Ok(Response)`; `service_fn` stays simple.
 - `Request` bundles `RequestHead` (method, target, version, headers),
   `RequestBody` (one-shot, bounded, with terminal `trailers()` /
@@ -59,8 +61,9 @@ downstream responsibility.
   together. Cloning the context never clones the one-shot body.
 - `RequestContext` is the single deliberate attachment point for
   transport-authenticated metadata and opaque capabilities. It owns
-  `ConnectionInfo` + `RequestLifecycle` + bounded `InterimSender` (`interim()`);
-  tunnel capabilities (Plan 199) attach there when that plan lands. There is no generic type map: downstream application state
+  `ConnectionInfo` + `RequestLifecycle` + bounded `InterimSender` (`interim()`)
+  + one-shot `TunnelCapability` (`take_tunnel()`; H1 `Upgrade`, `CONNECT`,
+  H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8). There is no generic type map: downstream application state
   belongs in the service wrapper, and Tower/framework extension maps belong
   in the Plan 200 adapters. No raw socket, Hyper, H2/H3, rustls-session, or
   executor handle is exposed here.
@@ -203,9 +206,12 @@ earlier ones:
    timeout/transport) drops producers promptly; failure after commitment
    (including trailer producer failure) closes (H1) or resets the stream
    (H2/H3, siblings survive) with sanitized diagnostics only.
-7. **transitioned into a non-HTTP tunnel where applicable** — deferred
-   (Plan 176 deferred, Plan 199 owns the design). No tunnel outcome exists
-   today; 101 handshakes cannot survive normalization.
+7. **transitioned into a non-HTTP tunnel where applicable** — via
+   `take_tunnel()` + `accept(headers, handler)` (Plan 199): validated H1
+   `101` / `200` for `CONNECT`/Extended (runtime owns framing, no raw
+   socket) plus bounded single-owner `TunnelIo`; denial stays ordinary HTTP;
+   ordinary `101` via `Response` still cannot survive normalization (only
+   `accept` forges the handshake token).
 
 What happens on races:
 
@@ -214,6 +220,8 @@ What happens on races:
   empty; no detail leak);
 - interim attempt **after** final commitment → `InterimError::AfterCommit`
   (fail closed, no wire bytes);
+- tunnel `accept` **after** final commitment → `TunnelError::AfterCommit`;
+  second `take_tunnel()` → `None` (double-accept impossible);
 - response/trailer producer errors **after** commitment → transport close/reset,
   never a second HTTP error; `ResponseStreamError` display stays generic;
 - request body still delegated (`Active`) after response-start → reuse
@@ -316,13 +324,11 @@ deferred body consumption still active.
 
 EggServe does not implement ASGI/WSGI/framework/process semantics:
 application protocol adaptation, event loops, routing, middleware, worker
-supervision, lifespan state machines, HTTP/2/3, trailers, or WebSocket
-framing. Plan 176 closed as deferred: no generic HTTP upgrade handoff is
-exposed (`Request` / `RequestContext` have no upgrade/tunnel capability,
-`Service` returns `Response` only — Plan 197 Track C keeps this shape —
-101 handshakes cannot survive normalization), so upgraded protocols
-are not currently buildable on the canonical boundary and raw Hyper
-`OnUpgrade`/`Upgraded` bypass is unsupported. No Tower `Service`,
+supervision, lifespan state machines, or WebSocket framing. Plan 199
+implements generic tunnels (`take_tunnel()`/`accept`/`TunnelIo`; H1 `101` /
+`200` otherwise; denial ordinary HTTP); WebSocket framing itself stays
+downstream (see `tunnel_upgrade.rs`). Raw Hyper/h2/h3/Quinn bypass remains
+unsupported. No Tower `Service`,
 `poll_ready`, routing, middleware, or worker semantics enter the native
 contract (Plan 197 Track E); those belong in downstream adapters
 (Plan 200). Python
