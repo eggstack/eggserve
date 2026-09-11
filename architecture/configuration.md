@@ -15,15 +15,19 @@ adapts kernel violations to `ServerError::Config`;
 `RuntimeConfig::from_shared_runtime` helper. Plan 179 shared fields remain
 single-source; the later feature-gated `Http2Config` is intentionally a
 protocol-owned namespace rather than a duplicate shared knob set.
-The internal `RuntimeConfig::http1_config()` projection owns the HTTP/1 parser
-view of the compatibility `max_buf_size` and `max_headers` fields without
-duplicating defaults or validation. With the `http2` feature,
-`RuntimeConfig::http2` owns the bounded H2 transport controls and the driver
-projects them directly into Hyper's HTTP/2 builder. Plans 186 and 190 keep this path
-experimental; the response-stall fallback is connection-scoped because the
-public Hyper server API has no safe stream-reset hook at EggServe's response
-body boundary. Future protocol-specific controls belong to their own
-projections.
+
+**Plan 206 Track E** splits the `server/config/` directory into submodules:
+
+| Module | Visibility | Purpose |
+|--------|-----------|---------|
+| `config.rs` (facade) | **pub** (experimental) | `ServerBuilder` + `try_from_serve_config` + re-exports + tests; owns the public config surface |
+| `config/runtime.rs` | pub via facade | `RuntimeConfig` — single validation authority delegating to `runtime_limits` |
+| `config/http1.rs` | `pub(crate)` | `Http1Config` projection of compatibility `max_buf_size`/`max_headers` parser policy (no duplicate defaults) |
+| `config/http2.rs` | `pub(super)` | `Http2Config` protocol-owned controls (validate `pub(super)`) |
+| `config/http3.rs` | `pub(super)` | `Http3Config` optional QUIC/H3 envelope (validate `pub(super)`) |
+| `config/tls.rs` | pub via facade | TLS ownership pointer (no new knobs; PEM reload handle via `RuntimeConfig`) |
+
+Public import paths (`server::RuntimeConfig`, `server::RuntimeConfigBuilder`) resolve unchanged through the facade `config.rs`.
 
 With the `http3` feature, `RuntimeConfig::http3` owns the optional QUIC/H3
 transport envelope. `ServerBuilder::http3_identity` supplies PEM paths for a

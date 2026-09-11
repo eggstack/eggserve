@@ -182,7 +182,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
 | Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
 | HTTP/2 qualification boundary | `eggserve-core::server` (`http2`) | [http2.md](http2.md) | Hyper-backed opt-in H1/H2 selection, bounded H2 transport policy, ownership checklist, and experimental release status |
-| HTTP/3/QUIC transport boundary | `eggserve-core::server` (`http3`) | [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters, and experimental qualification boundary |
+| HTTP/3/QUIC transport boundary | `eggserve-core::server` (`http3`) | [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters (facade `http3.rs` + submodules `endpoint`/`request`/`response`/`tunnel`), and experimental qualification boundary |
 
 ### Operational Subsystems
 
@@ -337,9 +337,9 @@ CLI flags / Python params / Rust structs
 | `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
 | `response.rs` | pub(crate) | Response helpers (file streaming, directory listing, error responses) | Internal |
 | `mime.rs` | pub(crate) | MIME type detection via `phf` map (~60 extensions) | Internal |
-| `ops.rs` | **pub** | Structured logging, operational events, counters | Stable-ish |
+| `ops/` | **pub** | Structured logging, operational events, counters (Plan 206 Track H: `mod.rs` OpsContext authority, `events.rs`/`sinks.rs`/`counters.rs` submodules) | Stable-ish |
 | `primitives/` | **pub** | Public facade — all canonical types for embedding consumers | Stable |
-| `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle | Experimental |
+| `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle (facade `mod.rs`; Plan 206 Track A: `runtime.rs`/`accept.rs`; Track E: `config/` submodules; Track C: `http3/` submodules) | Experimental |
 | `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |
 
 ---
@@ -520,7 +520,7 @@ src/
 ├── config.rs                 # ServeConfig, ServeState, StartupSummary
 ├── limits.rs                 # Limits — connections, streams, timeouts
 ├── policy.rs                 # StaticPolicy, SymlinkPolicy, DotfilePolicy, DirectoryListingPolicy
-├── ops.rs                    # structured logging event model, OpsCounters
+├── ops/                    # structured logging event model, OpsCounters (Plan 206: mod.rs + events.rs + sinks.rs + counters.rs)
 ├── tls.rs                    # TLS config loading (feature-gated)
 ├── response.rs               # Hyper response helpers, file streaming, error responses
 ├── mime.rs                   # MIME type detection via phf map (~60 extensions)
@@ -539,7 +539,7 @@ src/
 │   ├── mod.rs                # re-exports all public types
 │   ├── secure_root.rs        # SecureRoot, ResolvedFile, ResolvedDirectory, ResolvedResource
 │   ├── body.rs               # BodySource, BodyKind, BodySourceError
-│   ├── canonical.rs          # StatusCode, Response, normalize_response, normalize_metadata
+│   ├── canonical.rs          # facade re-exporting canonical/ submodules (Plan 206 Track D)
 │   ├── method.rs             # Method (canonical HTTP method)
 │   ├── version.rs            # HttpVersion
 │   ├── header_block.rs       # HeaderBlock, HeaderName, HeaderValue
@@ -556,8 +556,13 @@ src/
 │   ├── response.rs           # StaticResponsePlan, BodyPlan, FileRange, ResponseStatus
 │   └── http.rs               # ReadOnlyMethod, validate_method/body/target
 └── server/
-    ├── mod.rs                # Server, ServerBuilder, RuntimeState, accept_loop_generic
-    ├── config.rs             # RuntimeConfig, RuntimeConfigBuilder
+    ├── mod.rs                # Server, ServerBuilder, re-exports + tests (facade)
+    ├── runtime.rs            # RuntimeState (Plan 206 Track A)
+    ├── accept.rs             # accept_loop_multi, TLS helpers, listener adoption (pub(super))
+    ├── config.rs             # facade: Builder + try_from_serve_config + re-exports + tests
+    ├── config/               # Plan 206 Track E: runtime.rs (RuntimeConfig), http1.rs, http2.rs, http3.rs, tls.rs
+    ├── http3.rs              # facade: accept_loop + tests (qualifies endpoint::/request::/response::/tunnel::)
+    ├── http3/                # Plan 206 Track C: endpoint.rs, request.rs, response.rs, tunnel.rs
     ├── connection/         # Transport-neutral driver facade (mod.rs: serve_http1_connection, ConnectionContext, ConnectionShutdown, ConnectionOutcome; context/lifecycle/activity/transport/driver/pipeline/request/response/deferred_body submodules)
     ├── errors.rs             # ServerError, ShutdownResult
     ├── handle.rs             # ServerHandle (lifecycle control)
@@ -582,7 +587,7 @@ src/
 ```
 src/
 ├── lib.rs     # PyO3 module registration: 20 exceptions, 24 classes, 7 functions
-└── server.rs  # PyRequestBody, PyRequest, PyResponse, PythonCallbackService, PyServer
+└── server.rs  # facade: declares mods + re-exports Py* types; submodules (Plan 206 Track B): errors, body_bridge, request_bridge, response_bridge, tunnel_bridge, static_responder, sync_handler, runtime, lifecycle (pointer), async_handler (pointer to Python-side Plan 204)
 
 python/eggserve/
 ├── __init__.py     # top-level namespace (version, serve_directory, facade classes)

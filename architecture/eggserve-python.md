@@ -91,8 +91,18 @@ in the same namespace (manual asyncio bridge, no new native dependency):
 `read_chunk`/`aiter_chunks`/`trailers`, lifecycle/interim/tunnel handles),
 `AsyncResponse.stream` (async iterables via a bounded 16-queue plus
 `stream_with_trailers`), and `TunnelCapability`/`Tunnel` (one-shot accept,
-bounded duplex). Sync/async handler logic is separate in `lowlevel.py`;
-shared canonical conversion stays in `server.rs`. `eggserve.subprocess` is the canonical owner of
+bounded duplex). Sync/async handler logic is separate in `lowlevel.py`; shared canonical
+conversion stays in `server.rs` submodules (Plan 206 Track B): `errors.rs`
+centralizes exception mapping; `body_bridge` and `response_bridge` each own
+one channel state machine; `request_bridge` owns `PyRequest`; `tunnel_bridge`
+owns tunnel duplex; `static_responder` owns caller-owned composition (no
+routing, no event-loop mixing); `sync_handler` owns the single
+Python-to-canonical conversion; `runtime` owns `PyServer` lifecycle on the
+shared native runtime; `lifecycle` documents the state machine; `async_handler`
+points to the Python-side Plan 204 asyncio bridge (no duplicated Rust
+conversion). Cross-module fields/methods are `pub(super)` (parent-visible,
+not crate-wide); PyO3 getters unchanged. Async lives in
+`python/eggserve/lowlevel.py`. `eggserve.subprocess` is the canonical owner of
 `ServeConfig`, `ServerProcess`, `StaticPolicy`, and the `serve_directory`
 convenience (Plan 182); `eggserve.server` keeps compatibility re-exports of
 those names without expanding its six-class `__all__`. The top-level package
@@ -118,7 +128,17 @@ crates/eggserve-python/
 ├── pyproject.toml      # maturin metadata and entry points
 ├── src/
 │   ├── lib.rs          # PyO3 module registration
-│   └── server.rs       # internal runtime bridge and response primitives
+│   └── server.rs       # facade: declares mods + re-exports Py* types for lib.rs
+│       ├── errors.rs       # exception mapping
+│       ├── body_bridge.rs  # channel state machine for request bodies
+│       ├── request_bridge.rs  # PyRequest
+│       ├── response_bridge.rs # PyResponse channel state machine
+│       ├── tunnel_bridge.rs   # tunnel duplex
+│       ├── static_responder.rs # caller-owned composition (no routing)
+│       ├── sync_handler.rs    # single Python-to-canonical conversion
+│       ├── runtime.rs         # PyServer lifecycle on shared native runtime
+│       ├── lifecycle.rs       # state machine pointer
+│       └── async_handler.rs   # pointer to Python-side Plan 204 asyncio bridge
 └── python/eggserve/
     ├── __init__.py     # small supported top-level namespace
     ├── _bin.py         # CLI entry point via native _run_cli

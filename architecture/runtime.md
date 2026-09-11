@@ -289,6 +289,12 @@ undispatched transports.
 
 ### Runtime ownership corrective contract
 
+`RuntimeState` now lives in `server/runtime.rs` and `accept_loop_multi` plus
+TLS handlers live in `server/accept.rs` (Plan 206 Track A). The facade
+`server/mod.rs` keeps `Server`/`ServerBuilder` and re-exports
+`RuntimeState`/`accept::*` (`pub(super)` where facade needs). Public import
+paths (`server::RuntimeState`) resolve unchanged.
+
 Each running server creates exactly one `RuntimeState`, including one
 `max_file_streams` semaphore, one `max_in_flight_requests` semaphore, and one
 observability context (`OpsContext`: sink, counters, correlation-ID source).

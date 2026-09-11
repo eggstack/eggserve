@@ -399,6 +399,15 @@ whether reached via a direct path or a directory index lookup
 
 This guarantees that `/directory/index.html` and `/directory/` (resolving to the same file) share identical metadata, validators, conditional handling, range handling, content headers, and streaming behavior.
 
+### Track D: one-way adapter (Plan 206)
+
+`StaticService` in `server/static_service.rs` owns an explicit one-way
+`canonical_response()` adapter that converts the pure planner output into a
+canonical `Response` and applies `normalize_response`. The planner remains
+pure (no duplicate validation, no canonical types dependency). The adapter is
+the single place where `StaticResponsePlan` meets `StatusCode`/`ResponseHead`/`ResponseBody`;
+this boundary is intentionally not shared with custom services.
+
 ## See Also
 
 - [primitives-api.md](primitives-api.md) — Public API for response planning

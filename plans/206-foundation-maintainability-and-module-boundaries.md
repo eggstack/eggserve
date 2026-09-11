@@ -2,7 +2,43 @@
 
 ## Status
 
-**PLANNED — behavior-preserving cleanup after Plans 197–205 settle feature/API shapes.**
+**IMPLEMENTED / CLOSED (behavior-preserving).**
+
+## Closure record
+
+Implemented 2026-09-11: Track A ownership/coupling map drove extraction order
+(lowest coupling first). Track B split `eggserve-python/src/server.rs` (3851
+lines) into `server/` (`errors`/`body_bridge`/`request_bridge`/`tunnel_bridge`/
+`response_bridge`/`static_responder`/`sync_handler`/`runtime` +
+`lifecycle`/`async_handler` pointers; sync/async conversion shares helpers,
+async Plan 204 stays Python-side in `lowlevel.py`, PyO3 registration stays
+small in facade). Track C split `primitives/canonical.rs` (2335 lines) into
+`canonical/` (`status`/`headers`/`response_body`/`response`/`adapters`;
+`Response.body` + `remove/strip` are `pub(super)`; tests stay in facade).
+Track D confirmed the explicit one-way `StaticService::canonical_response()`
+planner→canonical adapter (planner stays pure, no duplicate validation).
+Track E split `server/config.rs` (1847 lines) into `server/config/`
+(`runtime` single validation authority + `http1`/`http2`/`http3`/`tls`
+protocol owners; `Http2/3::validate` are `pub(super)`; no new knobs).
+Track F split `server/http3.rs` (1771 lines) into `server/http3/`
+(`endpoint`/`request`/`response`/`tunnel`; `accept_loop` qualifies as
+`endpoint::`/`request::`/`response::`/`tunnel::`; one shared kernel).
+Track G extracted `server/runtime.rs` (`RuntimeState`) + `server/accept.rs`
+(`accept_loop_multi`/handlers/sources/TLS helpers) from `server/mod.rs`
+(2062 lines); facade keeps `Server`/`ServerBuilder` + re-exports. Track H
+split `ops.rs` (1090 lines) into `ops/` (`mod` authority +
+`events`/`sinks`/`counters`). Track I found no deprecated adapters to
+remove (single `TODO` in Windows test is legitimate; `config.rs`/`canonical.rs`
+facades preserve paths so existing references stay valid; no new
+dependencies). Track J updated architecture module maps, AGENTS.md, and both
+skill copies; README needed no changes (no internals). Visibility was never
+widened beyond `pub(super)` for extraction; public import compatibility is
+preserved (`primitives::canonical::X`, `primitives::X`,
+`server::RuntimeState`, `server::Py*` still resolve). No wire/security/
+lifecycle behavior changes. Qualification: `cargo fmt --check`, workspace
+clippy/tests incl. `http2,tls` + `http3,tls` feature combos, Python crate
+`cargo check --locked`, plus full `verify.sh` / wheel suites before commit
+(see commit). No line-count gates added.
 
 ## Purpose
 

@@ -4,6 +4,19 @@
 
 eggserve uses structured JSON Lines logging for machine-consumable operational events, with a text mode fallback for human readability. The system is defined in `eggserve-core::ops`.
 
+## Module layout (Plan 206 Track H)
+
+`eggserve-core::ops/` — the public observability module:
+
+| Module | File | Purpose |
+|--------|------|---------|
+| `mod.rs` | `ops/mod.rs` | `OpsContext` authority (sink + counters + correlation IDs), context-local sink-failure accounting |
+| `events.rs` | `ops/events.rs` | `Severity`, `EventKind`, `Field`, `Event`, sanitization, JSON rendering |
+| `sinks.rs` | `ops/sinks.rs` | `LogSink` implementations (`NopLogSink`, `FilteredLogSink`, `CompositeLogSink`) |
+| `counters.rs` | `ops/counters.rs` | `OpsCounters`, `Snapshot` |
+
+Public import paths (`ops::OpsContext`, `ops::Event`, `ops::Severity`, etc.) resolve unchanged through the `mod.rs` facade.
+
 ## Ownership: per-runtime contexts with a process-global default
 
 Live server/connection execution resolves observability through an explicit

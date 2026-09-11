@@ -7,6 +7,21 @@ Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
 dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
 
+## Adapter ownership (Plan 206 Track C)
+
+The `server/http3/` directory is split into four submodules:
+
+| Module | Owns |
+|--------|------|
+| `endpoint.rs` | `ActiveConnectionGuard`, close-reason classification |
+| `request.rs` | H3→canonical request conversion, declared-length checks, trailers, `invoke_service` |
+| `response.rs` | `runtime_error` construction, `response_write_timeout` watchdog, `send_*` trio (data, trailers, known-length) |
+| `tunnel.rs` | `kind_string`, `H3ActiveTunnelGuard`, `send_h3_tunnel_handshake` |
+
+The facade `server/http3.rs` owns `accept_loop` and tests, qualifying calls as
+`endpoint::`/`request::`/`response::`/`tunnel::`. One shared kernel, no
+H3-specific semantics.
+
 ## Ownership
 
 | Concern | Owner | Boundary |
