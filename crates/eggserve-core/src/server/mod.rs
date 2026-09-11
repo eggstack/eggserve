@@ -56,6 +56,7 @@ pub mod handle;
 #[cfg(feature = "http3")]
 mod http3;
 pub mod lifecycle;
+pub mod listener;
 pub mod response_policy;
 pub mod service;
 pub mod static_service;
@@ -77,6 +78,9 @@ pub use connection::{serve_http_connection, serve_http_connection_with_id};
 pub use errors::{ServerError, ShutdownResult};
 pub use handle::ServerHandle;
 pub use lifecycle::LifecycleState;
+pub use listener::BoundEndpoint;
+#[cfg(unix)]
+pub use listener::{clear_systemd_activation_env, systemd_activation_count};
 pub use response_policy::{validate_stripped_header_name, DatePolicy, ResponsePolicy};
 pub use service::{
     service_fn, service_fn_head, service_fn_with_policy, Service, ServiceError, ServiceFn,
@@ -136,10 +140,14 @@ pub struct Server {
     config: RuntimeConfig,
     builtin_static_service: Option<StaticService>,
     lifecycle: Arc<Lifecycle>,
-    listener_source: Option<ListenerSource>,
+    tcp_source: Option<TcpListenerSource>,
+    #[cfg(unix)]
+    unix_source: Option<UnixListenerSource>,
     ops: crate::ops::OpsContext,
     #[cfg(feature = "http3")]
     http3_identity: Option<(PathBuf, PathBuf)>,
+    #[cfg(feature = "http3")]
+    http3_socket: Option<std::net::UdpSocket>,
 }
 
 /// Transport state shared by every connection in one running server.
@@ -283,13 +291,22 @@ impl RuntimeState {
     }
 }
 
-/// Source for the TCP listener.
+/// Source for the TCP listener (Plan 201 Track B).
 #[derive(Debug)]
-enum ListenerSource {
+enum TcpListenerSource {
     /// Bind to this address on start.
     Bind(std::net::SocketAddr),
-    /// Use this pre-bound listener.
+    /// Use this pre-bound listener (no duplicate bind).
     Listener(TcpListener),
+}
+
+/// Source for the Unix-domain listener (Plan 201 Track C, Unix only).
+#[cfg(unix)]
+#[derive(Debug)]
+enum UnixListenerSource {
+    /// Use this pre-bound Unix listener. Filesystem path ownership stays
+    /// with the caller; EggServe never unlinks.
+    Listener(tokio::net::UnixListener),
 }
 
 impl Server {
@@ -298,10 +315,14 @@ impl Server {
         ServerBuilder {
             runtime_config: None,
             serve_config: None,
-            listener_source: None,
+            tcp_source: None,
+            #[cfg(unix)]
+            unix_source: None,
             ops_context: None,
             #[cfg(feature = "http3")]
             http3_identity: None,
+            #[cfg(feature = "http3")]
+            http3_socket: None,
         }
     }
 }
@@ -327,10 +348,14 @@ impl Server {
 pub struct ServerBuilder {
     runtime_config: Option<RuntimeConfig>,
     serve_config: Option<Arc<ServeConfig>>,
-    listener_source: Option<ListenerSource>,
+    tcp_source: Option<TcpListenerSource>,
+    #[cfg(unix)]
+    unix_source: Option<UnixListenerSource>,
     ops_context: Option<crate::ops::OpsContext>,
     #[cfg(feature = "http3")]
     http3_identity: Option<(PathBuf, PathBuf)>,
+    #[cfg(feature = "http3")]
+    http3_socket: Option<std::net::UdpSocket>,
 }
 
 impl ServerBuilder {
@@ -354,7 +379,7 @@ impl ServerBuilder {
     /// This overrides the bind address from `RuntimeConfig`. The server will
     /// bind to this address when `start()` is called.
     pub fn bind(mut self, addr: std::net::SocketAddr) -> Self {
-        self.listener_source = Some(ListenerSource::Bind(addr));
+        self.tcp_source = Some(TcpListenerSource::Bind(addr));
         self
     }
 
@@ -403,7 +428,113 @@ impl ServerBuilder {
     /// After `start()`, the runtime owns the listener. The caller must not
     /// use the listener after passing it to the builder.
     pub fn from_listener(mut self, listener: TcpListener) -> Self {
-        self.listener_source = Some(ListenerSource::Listener(listener));
+        self.tcp_source = Some(TcpListenerSource::Listener(listener));
+        self
+    }
+
+    /// Use a caller-bound standard-library TCP listener (Plan 201 Track B).
+    ///
+    /// Prefer this at process-manager boundaries to reduce Tokio coupling:
+    /// nonblocking mode is normalized internally and all other socket
+    /// options are preserved. No duplicate bind is performed; the listener's
+    /// actual local address becomes server readiness metadata.
+    ///
+    /// Ownership transfers to the builder on success. Failed conversion
+    /// drops (closes) the passed socket; do not reuse it after this call.
+    pub fn from_std_listener(
+        mut self,
+        listener: std::net::TcpListener,
+    ) -> Result<Self, ServerError> {
+        let tokio_listener = crate::server::listener::normalize_std_tcp_listener(listener)
+            .map_err(ServerError::Bind)?;
+        self.tcp_source = Some(TcpListenerSource::Listener(tokio_listener));
+        Ok(self)
+    }
+
+    /// Use a pre-bound Unix-domain listener (Plan 201 Track C, Unix only).
+    ///
+    /// The listener must already be bound. Ownership transfers to the
+    /// runtime after a successful `start()`; filesystem socket-path creation
+    /// and removal stay with the caller — EggServe never unlinks. Abstract
+    /// namespace sockets need no cleanup. TLS configured for TCP is not
+    /// implicitly enabled over Unix streams (Unix is plaintext); H3 is not
+    /// available over Unix streams (QUIC/UDP only).
+    #[cfg(unix)]
+    pub fn from_unix_listener(mut self, listener: tokio::net::UnixListener) -> Self {
+        self.unix_source = Some(UnixListenerSource::Listener(listener));
+        self
+    }
+
+    /// Use a caller-bound standard-library Unix listener (Plan 201 Track C).
+    ///
+    /// Nonblocking mode is normalized; path ownership stays with the caller.
+    /// Failed conversion drops (closes) the passed socket.
+    #[cfg(unix)]
+    pub fn from_std_unix_listener(
+        mut self,
+        listener: std::os::unix::net::UnixListener,
+    ) -> Result<Self, ServerError> {
+        let tokio_listener = crate::server::listener::normalize_std_unix_listener(listener)
+            .map_err(ServerError::Bind)?;
+        self.unix_source = Some(UnixListenerSource::Listener(tokio_listener));
+        Ok(self)
+    }
+
+    /// Adopt the `index`-th systemd/socket-activation descriptor (Unix only).
+    ///
+    /// Reads `LISTEN_PID`/`LISTEN_FDS`, requires an explicit `index` (never
+    /// silently takes fd 3), validates `SOCK_STREAM` type, listening state,
+    /// and family (`AF_INET`/`AF_INET6` → TCP, `AF_UNIX` → Unix), and rejects
+    /// datagram descriptors and connected sockets adopted as listeners.
+    /// Ownership transfers on success; validation failure never closes the
+    /// descriptor. No process supervision, notification, or unit management
+    /// is added to core. Call
+    /// [`crate::server::listener::clear_systemd_activation_env`] after
+    /// adoption when spawning children that must not inherit activation
+    /// state.
+    #[cfg(unix)]
+    pub fn from_systemd_index(mut self, index: usize) -> Result<Self, ServerError> {
+        match crate::server::listener::adopt_systemd_listener(index)? {
+            crate::server::listener::SystemdListener::Tcp(l) => {
+                self.tcp_source = Some(TcpListenerSource::Listener(l));
+            }
+            crate::server::listener::SystemdListener::Unix(l) => {
+                self.unix_source = Some(UnixListenerSource::Listener(l));
+            }
+        }
+        Ok(self)
+    }
+
+    /// Adopt a systemd descriptor by `LISTEN_FDNAMES` entry (Unix only).
+    ///
+    /// Requires `LISTEN_FDNAMES` to map `name` explicitly; never guesses.
+    /// Validation and ownership match [`ServerBuilder::from_systemd_index`].
+    #[cfg(unix)]
+    pub fn from_systemd_name(mut self, name: &str) -> Result<Self, ServerError> {
+        match crate::server::listener::adopt_systemd_listener_by_name(name)? {
+            crate::server::listener::SystemdListener::Tcp(l) => {
+                self.tcp_source = Some(TcpListenerSource::Listener(l));
+            }
+            crate::server::listener::SystemdListener::Unix(l) => {
+                self.unix_source = Some(UnixListenerSource::Listener(l));
+            }
+        }
+        Ok(self)
+    }
+
+    /// Supply a caller-owned bound UDP socket for the experimental H3/QUIC
+    /// endpoint (Plan 201 Track E).
+    ///
+    /// The socket must already be bound. At startup the runtime wraps it in
+    /// Quinn (`TokioRuntime`) without exposing Quinn types here; no duplicate
+    /// bind is performed. When both a prebound TCP listener and a prebound
+    /// UDP socket are supplied, their ports must match (same-port
+    /// TCP+UDP semantics where requested); a mismatch fails startup with a
+    /// `Config` error. Port-zero callers must discover the TCP port first
+    /// and bind UDP to the same explicit port.
+    #[cfg(feature = "http3")]
+    pub fn http3_socket(mut self, socket: std::net::UdpSocket) -> Self {
+        self.http3_socket = Some(socket);
         self
     }
 
@@ -440,14 +571,29 @@ impl ServerBuilder {
             .map(|sc| StaticService::from_serve_config_with_ops(sc, ops.clone()))
             .transpose()
             .map_err(|e| ServerError::Config(e.to_string()))?;
+        // Unix plaintext rule is enforced at startup (needs TLS presence),
+        // but fail fast here when the combination is already known: a
+        // Unix-only server with no TCP source cannot meaningfully carry a
+        // TCP TLS identity. TCP+Unix with TLS is allowed (TCP uses TLS,
+        // Unix stays plaintext; see start_with_service).
+        #[cfg(all(unix, feature = "tls"))]
+        if self.unix_source.is_some() && self.tcp_source.is_none() && config.tls_config.is_some() {
+            return Err(ServerError::Config(
+                "TLS requires a TCP listener; Unix-domain sockets are plaintext and H3 is unavailable over them".into(),
+            ));
+        }
         Ok(Server {
             config,
             builtin_static_service,
             lifecycle: Arc::new(Lifecycle::new()),
-            listener_source: self.listener_source,
+            tcp_source: self.tcp_source,
+            #[cfg(unix)]
+            unix_source: self.unix_source,
             ops,
             #[cfg(feature = "http3")]
             http3_identity: self.http3_identity,
+            #[cfg(feature = "http3")]
+            http3_socket: self.http3_socket,
         })
     }
 
@@ -476,10 +622,14 @@ impl ServerBuilder {
             config,
             builtin_static_service: Some(builtin_static_service),
             lifecycle: Arc::new(Lifecycle::new()),
-            listener_source: self.listener_source,
+            tcp_source: self.tcp_source,
+            #[cfg(unix)]
+            unix_source: self.unix_source,
             ops,
             #[cfg(feature = "http3")]
             http3_identity: self.http3_identity,
+            #[cfg(feature = "http3")]
+            http3_socket: self.http3_socket,
         })
     }
 }
@@ -495,10 +645,14 @@ impl Server {
             config,
             builtin_static_service,
             lifecycle,
-            listener_source,
+            tcp_source,
+            #[cfg(unix)]
+            unix_source,
             ops,
             #[cfg(feature = "http3")]
             http3_identity,
+            #[cfg(feature = "http3")]
+            http3_socket,
         } = self;
         let service = builtin_static_service.ok_or_else(|| {
             ServerError::Config("serve configuration required for static service".into())
@@ -508,10 +662,14 @@ impl Server {
             config,
             builtin_static_service: None,
             lifecycle,
-            listener_source,
+            tcp_source,
+            #[cfg(unix)]
+            unix_source,
             ops,
             #[cfg(feature = "http3")]
             http3_identity,
+            #[cfg(feature = "http3")]
+            http3_socket,
         }
         .start_with_service(service)
         .await
@@ -530,10 +688,14 @@ impl Server {
             config: runtime_config,
             builtin_static_service: _,
             lifecycle,
-            listener_source,
+            tcp_source,
+            #[cfg(unix)]
+            unix_source,
             ops,
             #[cfg(feature = "http3")]
             http3_identity,
+            #[cfg(feature = "http3")]
+            http3_socket,
         } = self;
         // Defense-in-depth: `ServerBuilder::build` already validated, but a
         // future constructor must not silently admit an invalid hand-built
@@ -541,17 +703,88 @@ impl Server {
         runtime_config.validate()?;
         lifecycle.start()?;
 
-        let listener = match listener_source {
-            Some(ListenerSource::Listener(l)) => l,
-            Some(ListenerSource::Bind(addr)) => {
-                TcpListener::bind(addr).await.map_err(ServerError::Bind)?
+        // Resolve TCP listener: explicit source wins; an explicit Unix-only
+        // server (unix set, tcp unset) serves Unix alone; otherwise bind the
+        // runtime address (no duplicate bind for prebound sockets).
+        #[cfg(unix)]
+        let unix_only = unix_source.is_some() && tcp_source.is_none();
+        let (tcp_listener, tcp_addr): (Option<TcpListener>, Option<std::net::SocketAddr>) =
+            match tcp_source {
+                Some(TcpListenerSource::Listener(l)) => {
+                    let addr = l.local_addr().map_err(ServerError::Bind)?;
+                    (Some(l), Some(addr))
+                }
+                Some(TcpListenerSource::Bind(addr)) => {
+                    let l = TcpListener::bind(addr).await.map_err(ServerError::Bind)?;
+                    let actual = l.local_addr().map_err(ServerError::Bind)?;
+                    (Some(l), Some(actual))
+                }
+                None => {
+                    #[cfg(unix)]
+                    if unix_only {
+                        (None, None)
+                    } else {
+                        let l = TcpListener::bind(runtime_config.bind)
+                            .await
+                            .map_err(ServerError::Bind)?;
+                        let actual = l.local_addr().map_err(ServerError::Bind)?;
+                        (Some(l), Some(actual))
+                    }
+                    #[cfg(not(unix))]
+                    {
+                        let l = TcpListener::bind(runtime_config.bind)
+                            .await
+                            .map_err(ServerError::Bind)?;
+                        let actual = l.local_addr().map_err(ServerError::Bind)?;
+                        (Some(l), Some(actual))
+                    }
+                }
+            };
+
+        // Resolve Unix listener (Unix only). Path ownership stays with the
+        // caller; EggServe never unlinks.
+        #[cfg(unix)]
+        let (unix_listener, unix_path): (
+            Option<tokio::net::UnixListener>,
+            Option<std::path::PathBuf>,
+        ) = match unix_source {
+            Some(UnixListenerSource::Listener(l)) => {
+                let path = crate::server::listener::unix_listener_path(&l);
+                (Some(l), path)
             }
-            None => TcpListener::bind(runtime_config.bind)
-                .await
-                .map_err(ServerError::Bind)?,
+            None => (None, None),
         };
 
-        let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
+        #[cfg(unix)]
+        if tcp_listener.is_none() && unix_listener.is_none() {
+            return Err(ServerError::Config("no listener source configured".into()));
+        }
+
+        // Explicit Unix/TLS rule: TLS applies to TCP only. A Unix-only
+        // server with TLS would silently ignore it, so fail closed. TCP+Unix
+        // with TLS serves TCP via TLS and Unix as plaintext (documented).
+        #[cfg(all(unix, feature = "tls"))]
+        if tcp_listener.is_none() && runtime_config.tls_config.is_some() {
+            return Err(ServerError::Config(
+                "TLS requires a TCP listener; Unix-domain sockets are plaintext and H3 is unavailable over them".into(),
+            ));
+        }
+
+        // Bound endpoints with stable IDs for readiness/handles/logs.
+        let mut endpoints: Vec<crate::server::listener::BoundEndpoint> = Vec::new();
+        if let Some(addr) = tcp_addr {
+            endpoints.push(crate::server::listener::BoundEndpoint::Tcp {
+                id: "tcp-0".into(),
+                addr,
+            });
+        }
+        #[cfg(unix)]
+        if unix_listener.is_some() {
+            endpoints.push(crate::server::listener::BoundEndpoint::Unix {
+                id: "unix-0".into(),
+                path: unix_path.clone(),
+            });
+        }
 
         // Once port zero (or a pre-bound listener) has resolved, keep the
         // actual origin port in the runtime config so response finalization
@@ -559,12 +792,17 @@ impl Server {
         #[cfg(feature = "http3")]
         let mut runtime_config = runtime_config;
         #[cfg(feature = "http3")]
-        {
-            runtime_config.bind = local_addr;
+        if let Some(addr) = tcp_addr {
+            runtime_config.bind = addr;
         }
 
         #[cfg(feature = "http3")]
         let http3_endpoint = if config_http3_enabled(&runtime_config) {
+            let tcp_bind = tcp_addr.ok_or_else(|| {
+                ServerError::Config(
+                    "http3 requires a TCP listener; H3 is not available over Unix streams".into(),
+                )
+            })?;
             let (cert_path, key_path) = http3_identity.as_ref().ok_or_else(|| {
                 ServerError::Config(
                     "http3 is enabled but no QUIC certificate/key identity was supplied".into(),
@@ -573,8 +811,35 @@ impl Server {
             let quic_config =
                 crate::tls::load_quic_server_config(cert_path, key_path, &runtime_config.http3)
                     .map_err(|e| ServerError::Config(e.to_string()))?;
-            Some(h3_quinn::Endpoint::server(quic_config, local_addr).map_err(ServerError::Bind)?)
+            if let Some(socket) = http3_socket {
+                socket.set_nonblocking(true).map_err(ServerError::Bind)?;
+                let udp_addr = socket.local_addr().map_err(ServerError::Bind)?;
+                if udp_addr.port() != tcp_bind.port() {
+                    return Err(ServerError::Config(format!(
+                        "prebound H3 UDP port {} does not match TCP port {}; same-port TCP+UDP required",
+                        udp_addr.port(),
+                        tcp_bind.port()
+                    )));
+                }
+                let endpoint = quinn::Endpoint::new(
+                    quinn::EndpointConfig::default(),
+                    Some(quic_config),
+                    socket,
+                    std::sync::Arc::new(quinn::TokioRuntime),
+                )
+                .map_err(ServerError::Bind)?;
+                Some(endpoint)
+            } else {
+                Some(h3_quinn::Endpoint::server(quic_config, tcp_bind).map_err(ServerError::Bind)?)
+            }
         } else {
+            // H3 disabled but a prebound UDP socket was supplied: fail
+            // closed rather than silently ignoring a caller-owned descriptor.
+            if http3_socket.is_some() {
+                return Err(ServerError::Config(
+                    "prebound H3 UDP socket supplied but http3 is not enabled".into(),
+                ));
+            }
             None
         };
 
@@ -590,15 +855,23 @@ impl Server {
             let lifecycle = lifecycle.clone();
             #[cfg(feature = "http3")]
             let http3_endpoint = http3_endpoint;
+            let endpoints_for_task = endpoints.clone();
+            // `tcp_addr` is Copy; move a copy into the task.
+            #[cfg(feature = "http3")]
+            let tcp_addr_for_h3 = tcp_addr;
             async move {
                 #[cfg(feature = "http3")]
                 let service = Arc::new(service);
                 #[cfg(feature = "http3")]
                 if let Some(endpoint) = http3_endpoint {
+                    let h3_bind = tcp_addr_for_h3.expect("h3 requires TCP addr (checked)");
                     let shared_service = service.clone();
-                    let tcp = accept_loop_generic(
-                        listener,
-                        local_addr,
+                    let tcp = accept_loop_multi(
+                        tcp_listener,
+                        tcp_addr_for_h3,
+                        #[cfg(unix)]
+                        unix_listener,
+                        endpoints_for_task,
                         config.clone(),
                         runtime_state.clone(),
                         connection_semaphore.clone(),
@@ -608,7 +881,7 @@ impl Server {
                     );
                     let h3 = http3::accept_loop(
                         endpoint,
-                        local_addr,
+                        h3_bind,
                         config,
                         runtime_state,
                         connection_semaphore,
@@ -625,9 +898,12 @@ impl Server {
                         ShutdownResult::Timeout
                     };
                 }
-                accept_loop_generic(
-                    listener,
-                    local_addr,
+                accept_loop_multi(
+                    tcp_listener,
+                    tcp_addr,
+                    #[cfg(unix)]
+                    unix_listener,
+                    endpoints_for_task,
                     config,
                     runtime_state,
                     connection_semaphore,
@@ -642,8 +918,8 @@ impl Server {
             }
         });
 
-        Ok(ServerHandle::new(
-            local_addr,
+        Ok(ServerHandle::new_with_endpoints(
+            endpoints,
             shutdown_tx_clone,
             join,
             lifecycle,
@@ -657,12 +933,20 @@ fn config_http3_enabled(config: &RuntimeConfig) -> bool {
     config.http3.enabled
 }
 
-/// Unified accept loop for both static and custom services.
+/// Unified multi-listener accept loop (Plan 201 Tracks A/C/F/G).
 ///
+/// One loop drives every adopted stream listener (TCP and, on Unix, UDS)
+/// through the same admission, TLS, protocol-selection, and lifecycle
+/// pipeline — not a second accept loop. Connection-semaphore admission uses
+/// `try_acquire` so accepted sockets never accumulate unboundedly; accept
+/// errors share bounded backoff + observability; shutdown wakes the loop
+/// promptly and undispatched transports are dropped.
 #[allow(clippy::too_many_arguments)]
-async fn accept_loop_generic<S: Service>(
-    listener: TcpListener,
-    local_addr: std::net::SocketAddr,
+async fn accept_loop_multi<S: Service>(
+    tcp_listener: Option<TcpListener>,
+    tcp_addr: Option<std::net::SocketAddr>,
+    #[cfg(unix)] unix_listener: Option<tokio::net::UnixListener>,
+    endpoints: Vec<crate::server::listener::BoundEndpoint>,
     config: Arc<RuntimeConfig>,
     runtime_state: Arc<RuntimeState>,
     connection_semaphore: Arc<tokio::sync::Semaphore>,
@@ -672,7 +956,7 @@ async fn accept_loop_generic<S: Service>(
 ) -> ShutdownResult {
     let service = Arc::new(service);
 
-    // Signal that we're running (listener bound, accept loop about to poll).
+    // Signal that we're running (listeners bound, accept loop about to poll).
     // If shutdown raced before this point, `drain()` has already transitioned
     // `Starting` → `Stopped` and `mark_running()` will fail. `mark_failed()`
     // is a no-op in that terminal state, so we return `Clean`.
@@ -682,11 +966,22 @@ async fn accept_loop_generic<S: Service>(
     }
 
     let ops = runtime_state.ops().clone();
-    ops.emit(crate::ops::Event::new(
-        crate::ops::Severity::Info,
-        crate::ops::EventKind::ListenerReady,
-        "accept loop started",
-    ));
+    let endpoint_summary = endpoints
+        .iter()
+        .map(|ep| ep.to_string())
+        .collect::<Vec<_>>()
+        .join(", ");
+    ops.emit(
+        crate::ops::Event::new(
+            crate::ops::Severity::Info,
+            crate::ops::EventKind::ListenerReady,
+            format!("accept loop started: {endpoint_summary}"),
+        )
+        .field(crate::ops::Field::Str(
+            "endpoints".into(),
+            endpoint_summary.clone(),
+        )),
+    );
 
     // Track spawned connection tasks for graceful drain.
     let mut tasks = tokio::task::JoinSet::new();
@@ -694,139 +989,93 @@ async fn accept_loop_generic<S: Service>(
     let mut error_repeat_count: usize = 0;
     let mut last_error_kind: Option<String> = None;
 
+    // Readiness (Track G) already means every endpoint above was adopted and
+    // protocol configuration validated before this task spawned.
+    #[cfg(unix)]
+    let has_unix = unix_listener.is_some();
+    #[cfg(not(unix))]
+    let has_unix = false;
+    let has_tcp = tcp_listener.is_some();
+    debug_assert!(has_tcp || has_unix, "accept loop needs a listener");
+
     loop {
+        // `pending()` branches keep `select!` well-formed when a family is
+        // absent (Unix-only or TCP-only servers).
+        let tcp_accept = async {
+            match &tcp_listener {
+                Some(l) => l.accept().await.map(|(s, p)| (Some(s), p)),
+                None => {
+                    std::future::pending::<
+                        Result<
+                            (Option<tokio::net::TcpStream>, std::net::SocketAddr),
+                            std::io::Error,
+                        >,
+                    >()
+                    .await
+                }
+            }
+        };
+        #[cfg(unix)]
+        let unix_accept = async {
+            match &unix_listener {
+                Some(l) => l.accept().await.map(|(s, _cred)| s),
+                None => {
+                    std::future::pending::<Result<tokio::net::UnixStream, std::io::Error>>().await
+                }
+            }
+        };
+        #[cfg(not(unix))]
+        let unix_accept: std::future::Pending<Result<(), std::io::Error>> = std::future::pending();
+
         tokio::select! {
-            result = listener.accept() => {
+            result = tcp_accept => {
                 match result {
-                    Ok((stream, peer_addr)) => {
-                        let _ = stream.set_nodelay(true);
+                    Ok((Some(stream), peer_addr)) => {
+                        let tcp_bind = tcp_addr.expect("tcp listener has an addr");
+                        handle_tcp_accept(
+                            stream,
+                            peer_addr,
+                            tcp_bind,
+                            "tcp-0",
+                            &config,
+                            &runtime_state,
+                            &connection_semaphore,
+                            &service,
+                            &shutdown_rx,
+                            &mut tasks,
+                            &ops,
+                        );
                         backoff_idx = 0;
                         error_repeat_count = 0;
                         last_error_kind = None;
-                        let conn_id = ops.next_connection_id();
-                        ops.counters()
-                            .connections_accepted
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                        ops.emit(
-                            crate::ops::Event::new(
-                                crate::ops::Severity::Debug,
-                                crate::ops::EventKind::ConnectionAccepted,
-                                "connection accepted",
-                            )
-                            .connection_id(conn_id),
+                    }
+                    Ok((None, _)) => {}
+                    Err(e) => {
+                        let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind, &ops).await;
+                        if fatal {
+                            break;
+                        }
+                    }
+                }
+            }
+            result = unix_accept => {
+                #[cfg(unix)]
+                match result {
+                    Ok(stream) => {
+                        handle_unix_accept(
+                            stream,
+                            "unix-0",
+                            &config,
+                            &runtime_state,
+                            &connection_semaphore,
+                            &service,
+                            &shutdown_rx,
+                            &mut tasks,
+                            &ops,
                         );
-
-                        let permit = match connection_semaphore.clone().try_acquire_owned() {
-                            Ok(p) => p,
-                            Err(_) => {
-                                ops.counters()
-                                    .connections_rejected
-                                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                                ops.emit(
-                                    crate::ops::Event::new(
-                                        crate::ops::Severity::Debug,
-                                        crate::ops::EventKind::ConnectionRejected,
-                                        "connection rejected: admission limit",
-                                    )
-                                    .connection_id(conn_id),
-                                );
-                                drop(stream);
-                                continue;
-                            }
-                        };
-
-                        let runtime_state = runtime_state.clone();
-                        let conn_ops = ops.clone();
-                        let config = config.clone();
-                        let service = service.clone();
-                        let remote_addr = peer_addr;
-                        let local_addr_pre_tls = stream.local_addr().unwrap_or(local_addr);
-
-                        // Count the connection as active only after it has
-                        // been admitted; rejected connections must not skew
-                        // the gauge.
-                        conn_ops
-                            .counters()
-                            .active_connections
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-
-                        let forwarder_rx = shutdown_rx.resubscribe();
-                        tasks.spawn(async move {
-                            let _permit = permit;
-                            let _active_connection = ActiveConnectionGuard {
-                                ops: conn_ops.clone(),
-                            };
-
-                            // Bridge the server broadcast shutdown to the
-                            // canonical per-connection token so TCP/TLS and
-                            // caller-owned streams share one driver pipeline.
-                            let conn_shutdown = connection::ConnectionShutdown::new();
-                            let forwarder_shutdown = conn_shutdown.clone();
-                            let mut forwarder_rx = forwarder_rx;
-                            tokio::spawn(async move {
-                                let _ = forwarder_rx.recv().await;
-                                forwarder_shutdown.shutdown();
-                            });
-
-                            #[cfg(feature = "tls")]
-                            {
-                                if let Some(tls_config) = &config.tls_config {
-                                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
-                                    #[cfg(feature = "http2")]
-                                    let h2_enabled = config.http2.enabled;
-                                    #[cfg(not(feature = "http2"))]
-                                    let h2_enabled = false;
-                                    match accept_tls(stream, &tls_acceptor, config.tls_handshake_timeout, h2_enabled, conn_id, &conn_ops).await {
-                                        Some((tls_stream, tls_info, protocol)) => {
-                                            conn_ops.emit(
-                                                crate::ops::Event::new(
-                                                    crate::ops::Severity::Debug,
-                                                    crate::ops::EventKind::TlsHandshakeSuccess,
-                                                    "TLS handshake completed",
-                                                )
-                                                .connection_id(conn_id),
-                                            );
-                                            let context = connection::ConnectionContext::for_tcp(
-                                                local_addr_pre_tls,
-                                                remote_addr,
-                                                Some(tls_info),
-                                            );
-                                            let _ = connection::serve_http_connection_with_id_and_protocol(
-                                                tls_stream,
-                                                ArcService(service),
-                                                config.clone(),
-                                                context,
-                                                runtime_state.clone(),
-                                                &conn_shutdown,
-                                                conn_id,
-                                                protocol,
-                                            ).await;
-                                            return;
-                                        }
-                                        None => {
-                                            return;
-                                        }
-                                    }
-                                }
-                            }
-
-                            let context = connection::ConnectionContext::for_tcp(
-                                local_addr_pre_tls,
-                                remote_addr,
-                                None,
-                            );
-                            let _ = connection::serve_http_connection_with_id_and_protocol(
-                                stream,
-                                ArcService(service),
-                                config.clone(),
-                                context,
-                                runtime_state.clone(),
-                                &conn_shutdown,
-                                conn_id,
-                                connection::driver::WireProtocol::Auto,
-                            ).await;
-                        });
+                        backoff_idx = 0;
+                        error_repeat_count = 0;
+                        last_error_kind = None;
                     }
                     Err(e) => {
                         let fatal = classify_accept_error(&e, &mut shutdown_rx, &mut backoff_idx, &mut error_repeat_count, &mut last_error_kind, &ops).await;
@@ -834,6 +1083,10 @@ async fn accept_loop_generic<S: Service>(
                             break;
                         }
                     }
+                }
+                #[cfg(not(unix))]
+                {
+                    let _ = result;
                 }
             }
             _ = shutdown_rx.recv() => {
@@ -932,6 +1185,265 @@ async fn accept_loop_generic<S: Service>(
     ));
 
     result
+}
+
+/// Admit and dispatch one accepted TCP connection (Plan 201 Track F).
+///
+/// Shared by every TCP listener source (address-bound, prebound, systemd).
+/// Admission uses `try_acquire` so saturation drops (closes) the accepted
+/// socket instead of queueing unboundedly. Rejected connections never skew
+/// the active-connection gauge. The spawned task owns TLS handshake (bounded
+/// by `tls_handshake_timeout`), protocol selection, and the canonical
+/// service pipeline.
+#[allow(clippy::too_many_arguments)]
+fn handle_tcp_accept<S: Service>(
+    stream: tokio::net::TcpStream,
+    peer_addr: std::net::SocketAddr,
+    tcp_bind: std::net::SocketAddr,
+    listener_id: &'static str,
+    config: &Arc<RuntimeConfig>,
+    runtime_state: &Arc<RuntimeState>,
+    connection_semaphore: &Arc<tokio::sync::Semaphore>,
+    service: &Arc<S>,
+    shutdown_rx: &broadcast::Receiver<()>,
+    tasks: &mut tokio::task::JoinSet<()>,
+    ops: &crate::ops::OpsContext,
+) {
+    let _ = stream.set_nodelay(true);
+    let conn_id = ops.next_connection_id();
+    ops.counters()
+        .connections_accepted
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    ops.emit(
+        crate::ops::Event::new(
+            crate::ops::Severity::Debug,
+            crate::ops::EventKind::ConnectionAccepted,
+            format!("connection accepted ({listener_id})"),
+        )
+        .connection_id(conn_id)
+        .field(crate::ops::Field::Str(
+            "listener".into(),
+            listener_id.into(),
+        )),
+    );
+
+    let permit = match connection_semaphore.clone().try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            ops.counters()
+                .connections_rejected
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ops.emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::ConnectionRejected,
+                    "connection rejected: admission limit",
+                )
+                .connection_id(conn_id)
+                .field(crate::ops::Field::Str(
+                    "listener".into(),
+                    listener_id.into(),
+                )),
+            );
+            drop(stream);
+            return;
+        }
+    };
+
+    let runtime_state = runtime_state.clone();
+    let conn_ops = ops.clone();
+    let config = config.clone();
+    let service = service.clone();
+    let remote_addr = peer_addr;
+    let local_addr_pre_tls = stream.local_addr().unwrap_or(tcp_bind);
+
+    // Count the connection as active only after it has been admitted;
+    // rejected connections must not skew the gauge.
+    conn_ops
+        .counters()
+        .active_connections
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+
+    let forwarder_rx = shutdown_rx.resubscribe();
+    tasks.spawn(async move {
+        let _permit = permit;
+        let _active_connection = ActiveConnectionGuard {
+            ops: conn_ops.clone(),
+        };
+
+        // Bridge the server broadcast shutdown to the canonical
+        // per-connection token so TCP/TLS and caller-owned streams share one
+        // driver pipeline.
+        let conn_shutdown = connection::ConnectionShutdown::new();
+        let forwarder_shutdown = conn_shutdown.clone();
+        let mut forwarder_rx = forwarder_rx;
+        tokio::spawn(async move {
+            let _ = forwarder_rx.recv().await;
+            forwarder_shutdown.shutdown();
+        });
+
+        #[cfg(feature = "tls")]
+        {
+            if let Some(tls_config) = &config.tls_config {
+                let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
+                #[cfg(feature = "http2")]
+                let h2_enabled = config.http2.enabled;
+                #[cfg(not(feature = "http2"))]
+                let h2_enabled = false;
+                match accept_tls(
+                    stream,
+                    &tls_acceptor,
+                    config.tls_handshake_timeout,
+                    h2_enabled,
+                    conn_id,
+                    &conn_ops,
+                )
+                .await
+                {
+                    Some((tls_stream, tls_info, protocol)) => {
+                        conn_ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::TlsHandshakeSuccess,
+                                "TLS handshake completed",
+                            )
+                            .connection_id(conn_id),
+                        );
+                        let context = connection::ConnectionContext::for_tcp(
+                            local_addr_pre_tls,
+                            remote_addr,
+                            Some(tls_info),
+                        );
+                        let _ = connection::serve_http_connection_with_id_and_protocol(
+                            tls_stream,
+                            ArcService(service),
+                            config.clone(),
+                            context,
+                            runtime_state.clone(),
+                            &conn_shutdown,
+                            conn_id,
+                            protocol,
+                        )
+                        .await;
+                        return;
+                    }
+                    None => {
+                        return;
+                    }
+                }
+            }
+        }
+
+        let context = connection::ConnectionContext::for_tcp(local_addr_pre_tls, remote_addr, None);
+        let _ = connection::serve_http_connection_with_id_and_protocol(
+            stream,
+            ArcService(service),
+            config.clone(),
+            context,
+            runtime_state.clone(),
+            &conn_shutdown,
+            conn_id,
+            connection::driver::WireProtocol::Auto,
+        )
+        .await;
+    });
+}
+
+/// Admit and dispatch one accepted Unix-domain connection (Plan 201 Track C).
+///
+/// Same admission/backoff/observability as TCP: `try_acquire` (no unbounded
+/// queue), stable `listener` field, prompt close of undispatched transports
+/// on shutdown via the drain below. No TLS handshake (Unix is plaintext by
+/// explicit policy) and no fabricated IP endpoints (`for_unix()`); the H1/H2
+/// selector still applies over the byte stream.
+#[cfg(unix)]
+#[allow(clippy::too_many_arguments)]
+fn handle_unix_accept<S: Service>(
+    stream: tokio::net::UnixStream,
+    listener_id: &'static str,
+    config: &Arc<RuntimeConfig>,
+    runtime_state: &Arc<RuntimeState>,
+    connection_semaphore: &Arc<tokio::sync::Semaphore>,
+    service: &Arc<S>,
+    shutdown_rx: &broadcast::Receiver<()>,
+    tasks: &mut tokio::task::JoinSet<()>,
+    ops: &crate::ops::OpsContext,
+) {
+    let conn_id = ops.next_connection_id();
+    ops.counters()
+        .connections_accepted
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    ops.emit(
+        crate::ops::Event::new(
+            crate::ops::Severity::Debug,
+            crate::ops::EventKind::ConnectionAccepted,
+            format!("connection accepted ({listener_id})"),
+        )
+        .connection_id(conn_id)
+        .field(crate::ops::Field::Str(
+            "listener".into(),
+            listener_id.into(),
+        )),
+    );
+
+    let permit = match connection_semaphore.clone().try_acquire_owned() {
+        Ok(p) => p,
+        Err(_) => {
+            ops.counters()
+                .connections_rejected
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ops.emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::ConnectionRejected,
+                    "connection rejected: admission limit",
+                )
+                .connection_id(conn_id)
+                .field(crate::ops::Field::Str(
+                    "listener".into(),
+                    listener_id.into(),
+                )),
+            );
+            drop(stream);
+            return;
+        }
+    };
+
+    let runtime_state = runtime_state.clone();
+    let conn_ops = ops.clone();
+    let config = config.clone();
+    let service = service.clone();
+    conn_ops
+        .counters()
+        .active_connections
+        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let forwarder_rx = shutdown_rx.resubscribe();
+    tasks.spawn(async move {
+        let _permit = permit;
+        let _active_connection = ActiveConnectionGuard {
+            ops: conn_ops.clone(),
+        };
+        let conn_shutdown = connection::ConnectionShutdown::new();
+        let forwarder_shutdown = conn_shutdown.clone();
+        let mut forwarder_rx = forwarder_rx;
+        tokio::spawn(async move {
+            let _ = forwarder_rx.recv().await;
+            forwarder_shutdown.shutdown();
+        });
+        let context = connection::ConnectionContext::for_unix();
+        let _ = connection::serve_http_connection_with_id_and_protocol(
+            stream,
+            ArcService(service),
+            config.clone(),
+            context,
+            runtime_state.clone(),
+            &conn_shutdown,
+            conn_id,
+            connection::driver::WireProtocol::Auto,
+        )
+        .await;
+    });
 }
 
 /// Accept a TLS connection with timeout.

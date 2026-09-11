@@ -44,6 +44,10 @@ Configures and constructs a `Server` via a fluent builder API:
 - `bind(addr)` — override the bind address; the server will bind to this address on `start()`
 - `ops_context(ops)` — attach an explicit per-runtime `OpsContext` (sink, counters, correlation IDs); unset clones the process-global default so CLI/compatibility construction needs no new configuration (experimental)
 - `from_listener(listener)` — use a pre-bound `TcpListener` instead of binding on start; ownership transfers to the runtime after `start()`, and nonblocking mode is normalized automatically. The runtime owns TCP acceptance, using strict HTTP/1 by default or the feature-gated H1/H2 selector when `http2` is enabled. With `http3`, it also binds a same-port UDP/QUIC endpoint after resolving the TCP address; `http3_identity` supplies its separate TLS 1.3/`h3` identity. Caller-owned streams use the corresponding connection entry points
+- `from_std_listener(std_listener)` (Plan 201) — same as above from a standard-library TCP listener; nonblocking normalized, other socket options preserved, no duplicate bind. Returns `Result` (failed conversion closes the passed socket)
+- `from_unix_listener(listener)` / `from_std_unix_listener(std_listener)` (Plan 201, Unix only) — serve HTTP over a pre-bound Unix-domain listener through the same accept/admission/pipeline (`ConnectionContext::for_unix()`, truthful `None` IP endpoints). Filesystem path creation/removal stays with the caller (never unlinked); abstract-namespace sockets need no cleanup. Unix is plaintext (TCP TLS is not implicitly enabled) and H3 is unavailable over Unix streams
+- `from_systemd_index(i)` / `from_systemd_name(name)` (Plan 201, Unix only) — adopt an explicit socket-activation descriptor (`LISTEN_PID`/`LISTEN_FDS`/`LISTEN_FDNAMES`, never silent fd 3; `SOCK_STREAM` + `SO_ACCEPTCONN` + `AF_INET`/`AF_INET6`→TCP / `AF_UNIX`→Unix via `rustix::net`; datagram/connected-socket rejection; failure never closes). Returns `Result`; no supervision/notification in core (`clear_systemd_activation_env` is explicit)
+- `http3_socket(std_socket)` (Plan 201, `http3` only) — prebound UDP for the QUIC endpoint, wrapped in Quinn (`TokioRuntime`) at startup with no Quinn types in the public contract; ports must match the resolved TCP port (same-port TCP+UDP), and a supplied socket with H3 disabled fails closed
 - `build()` — validate configuration and construct the built-in `StaticService`
   once when `serve_config()` was supplied; invalid static roots fail here
 - `static_service(root)` — convenience: create a `StaticService` rooted at the given path
@@ -200,6 +204,8 @@ bypass remains unsupported.
 Control handle returned by `Server::start()`. Not `Clone` — there is exactly one handle per server instance.
 
 - `local_addr()` — bound address (useful for port-zero discovery)
+- `tcp_local_addr()` (Plan 201) — `Some` TCP address, or `None` for Unix-only servers (never fabricated); `local_addr()` panics there with a pointer to `endpoints()`
+- `endpoints()` (Plan 201) — all adopted listeners as `BoundEndpoint` with stable IDs (`tcp-0`, `unix-0`), not positions; readiness means every entry was adopted and protocol config validated
 - `state()` — current `LifecycleState`
 - `ready().await` — wait for Running state; returns `Startup` if the server failed during startup or if a shutdown raced startup (`Starting` → `Stopped` via `Lifecycle::drain`); other non-ready states return `Config`
 - `shutdown()` — trigger graceful shutdown (idempotent; multiple calls are safe)
@@ -260,6 +266,14 @@ Race safety: state is stored in an `AtomicU8` with `compare_exchange` for all tr
 ## Listener Error Classification
 
 Listener errors are classified by `io::ErrorKind` into transient, resource-exhaustion, and persistent categories. Transient errors use bounded exponential backoff (1ms to 50ms cap). All errors emit structured log events via `classify_accept_error()`.
+
+Plan 201 runs one `accept_loop_multi` over every adopted listener (TCP plus,
+on Unix, UDS) through the same admission/backoff/pipeline — not a second
+loop. Admission uses `try_acquire` so accepted sockets never queue
+unboundedly (saturation drops/closes); the backoff state is shared across
+families; every accept event carries a stable `listener` field (`tcp-0`,
+`unix-0`); shutdown breaks the select promptly and the drain below closes
+undispatched transports.
 
 ## Connection/Task Tracking
 
@@ -336,7 +350,8 @@ HTTP/2 without changing request, response, or lifecycle ownership:
 
 1. TCP accept with connection permit → optional TLS handshake (feature-gated)
 2. TLS accept with connection permit → TLS handshake completed by caller
-3. Caller-owned stream (no socket, scheme asserted by caller)
+3. Unix-domain accept with connection permit (Plan 201, Unix only; plaintext, `for_unix()`)
+4. Caller-owned stream (no socket, scheme asserted by caller)
 
 All paths then share the same steps:
 
@@ -412,7 +427,8 @@ bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
 
 - **`ConnectionContext`** — transport description: `for_tcp(local, remote, tls)`
   for TCP/TLS socket connections, `for_quic(local, remote, tls)` for native
-  HTTP/3 QUIC sockets, and `for_non_socket(scheme, tls)` for caller-owned
+  HTTP/3 QUIC sockets, `for_unix()` for Unix-domain streams (Unix only;
+  plaintext, no IP endpoints), and `for_non_socket(scheme, tls)` for caller-owned
   streams. No I2P types, no `Any` map, no fabricated addresses.
   `Forwarded`/`X-Forwarded-*` headers are ordinary untrusted headers, not part
   of this type. Scheme and TLS are asserted by the caller.

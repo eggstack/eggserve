@@ -139,8 +139,12 @@ let handle = server.start().await?;
 
 `ServerBuilder::bind()` overrides the configured socket address. Use
 `ServerBuilder::from_listener()` when transferring ownership of an existing
-Tokio `TcpListener`; the runtime owns TCP acceptance, while the strict H1 and
-feature-gated H1/H2 drivers also serve caller-owned streams.
+Tokio `TcpListener` (or `from_std_listener` for a std listener, `from_unix_listener` /
+`from_std_unix_listener` for Unix-domain listeners on Unix, `from_systemd_index` /
+`from_systemd_name` for socket-activation descriptors, and `http3_socket` for a
+prebound H3 UDP socket; Plan 201); the runtime owns acceptance over the single
+`accept_loop_multi`, while the strict H1 and feature-gated H1/H2 drivers also
+serve caller-owned streams.
 
 ### `RuntimeConfig`
 

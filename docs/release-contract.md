@@ -51,7 +51,7 @@ The `server` module provides a reusable, transport-owning HTTP runtime for embed
 | Type | Description |
 |------|-------------|
 | `Server` | Main entry point; creates via `Server::builder()` |
-| `ServerBuilder` | Configured builder for `Server`; supports `.bind()` and `.from_listener()` for existing listeners |
+| `ServerBuilder` | Configured builder for `Server`; supports `.bind()`, `.from_listener()` / `.from_std_listener()`, Unix `.from_unix_listener()` / `.from_std_unix_listener()`, systemd `.from_systemd_index()` / `.from_systemd_name()`, and H3 `.http3_socket()` for existing listeners |
 | `ServerHandle` | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | Transport-level configuration (bind, limits, timeouts, body ceiling, optional TLS) |
 | `Service` trait | Receives `Request` (envelope: `RequestHead` + `RequestBody` + `ConnectionInfo` + `RequestLifecycle`), returns `Result<Response, ServiceError>` |

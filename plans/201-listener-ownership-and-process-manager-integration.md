@@ -2,7 +2,13 @@
 
 ## Status
 
-**PLANNED.** Prerequisite: Plan 197 request/connection contract. Independent of application message feature plans.
+**IMPLEMENTED / CLOSED.**
+
+Prerequisite: Plan 197 request/connection contract. Independent of application message feature plans.
+
+## Closure record
+
+Implemented on `main`: `server::listener` ownership vocabulary (`BoundEndpoint` with stable `tcp-0`/`unix-0` IDs, std-listener normalization preserving socket options except nonblocking, systemd `LISTEN_PID`/`LISTEN_FDS`/`LISTEN_FDNAMES` validation via `rustix` `net` (`SOCK_STREAM` + `SO_ACCEPTCONN` + family, datagram/connected-socket rejection, no silent fd 3, failure never closes), `clear_systemd_activation_env` helper, `adopt_validated_fd` descriptor-level test hook); `ServerBuilder::from_std_listener` / `from_unix_listener` / `from_std_unix_listener` / `from_systemd_index` / `from_systemd_name` / `http3_socket(std::net::UdpSocket)` (Quinn `TokioRuntime` wrap at startup, same-port TCP+UDP validation, no Quinn types in the public contract); single unified `accept_loop_multi` for TCP+Unix (shared `try_acquire` admission, shared bounded backoff, `listener` event field, TLS on TCP only with explicit Unix-plaintext/H3-unavailable rules, Unix `for_unix()` truthful metadata, no unlink, abstract namespace documented); `ServerHandle::endpoints()` + `tcp_local_addr()` with `local_addr()` preserved for the TCP path; `ConnectionContext::for_unix()`; `tests/listener_ownership.rs` (address/prebound parity, std adoption, Unix-only/combined, TLS/H3 Unix rejection, H3 UDP mismatch/disabled rejection) plus `listener.rs` descriptor unit tests (TCP adopt, connected-socket, datagram, Unix adopt). Docs updated (`README`, `AGENTS.md`, skill, `runtime`, `eggserve-core`, `http3`, `dependency-policy`, `api-stability`, `release-contract`, `non-goals`). Verification: `cargo fmt`, workspace clippy/tests, `http2,tls` + `http3,tls` matrices green locally before push (see Handoff). Python `http.server` compatibility unchanged (Plan 204 owns async projection).
 
 ## Purpose
 
@@ -139,15 +145,15 @@ Add deterministic integration tests for address-bound and prebound parity, Unix 
 
 ## Acceptance criteria
 
-- [ ] caller can hand EggServe a prebound TCP listener and use the same runtime/Service pipeline as normal startup;
-- [ ] listener injection does not duplicate the accept/connection driver;
-- [ ] Unix-domain HTTP is supported on Unix with truthful endpoint metadata and documented cleanup ownership;
-- [ ] Linux socket-activation descriptors can be validated/adopted without adding process supervision to core;
-- [ ] accepted connection/resource queues remain bounded under saturation/failure;
-- [ ] graceful shutdown wakes accept/admission waits and closes undispatched transports;
-- [ ] H3 prebound UDP/endpoint injection is either implemented safely or explicitly documented as the remaining protocol-specific gap;
-- [ ] minimal/default builds do not acquire unnecessary service-manager dependencies;
-- [ ] Python `http.server` compatibility behavior remains unchanged.
+- [x] caller can hand EggServe a prebound TCP listener and use the same runtime/Service pipeline as normal startup;
+- [x] listener injection does not duplicate the accept/connection driver;
+- [x] Unix-domain HTTP is supported on Unix with truthful endpoint metadata and documented cleanup ownership;
+- [x] Linux socket-activation descriptors can be validated/adopted without adding process supervision to core;
+- [x] accepted connection/resource queues remain bounded under saturation/failure;
+- [x] graceful shutdown wakes accept/admission waits and closes undispatched transports;
+- [x] H3 prebound UDP/endpoint injection is either implemented safely or explicitly documented as the remaining protocol-specific gap;
+- [x] minimal/default builds do not acquire unnecessary service-manager dependencies;
+- [x] Python `http.server` compatibility behavior remains unchanged.
 
 ## Handoff
 

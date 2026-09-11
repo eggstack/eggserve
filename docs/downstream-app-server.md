@@ -320,7 +320,8 @@ deferred body consumption still active.
   metadata rather than fabricating bytes the parser cannot truthfully
   provide.
 - `ConnectionInfo.local_addr` / `remote_addr` are `Option<SocketAddr>`;
-  caller-owned transports expose `None` (`without_socket_addrs`). TLS
+  caller-owned transports expose `None` (`without_socket_addrs`), as do
+  Unix-domain listeners (`ConnectionContext::for_unix()`, Plan 201). TLS
   session metadata is caller-asserted `TlsInfo`, not a raw session object.
 
 ## What EggServe does not do

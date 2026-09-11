@@ -102,6 +102,23 @@ impl ConnectionContext {
         }
     }
 
+    /// Context for a local Unix-domain connection (Plan 201 Track C).
+    ///
+    /// Unix streams have no IP endpoints, so no addresses are recorded or
+    /// fabricated (same truthfulness as [`Self::for_non_socket`]; kept as a
+    /// separate constructor so transport intent is explicit at the accept
+    /// boundary). The scheme is always [`Scheme::Http`]: TLS over Unix
+    /// sockets is not implicitly enabled by a TCP TLS configuration.
+    #[cfg(unix)]
+    pub fn for_unix() -> Self {
+        Self {
+            local_addr: None,
+            remote_addr: None,
+            scheme: Scheme::Http,
+            tls: None,
+        }
+    }
+
     /// Paired socket endpoints when both addresses are present.
     pub fn socket_endpoints(&self) -> Option<SocketEndpoints> {
         match (self.local_addr, self.remote_addr) {

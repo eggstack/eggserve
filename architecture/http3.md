@@ -30,9 +30,10 @@ When `RuntimeConfig::http3.enabled` is true, `Server::start_with_service`:
 
 Port `0` therefore resolves to one origin port. A UDP bind failure is returned
 before the server task is started, and the TCP listener is dropped as part of
-the failed startup. `from_listener(TcpListener)` uses the supplied listener's
-resolved address for the UDP bind; caller-owned Quinn endpoints are not part
-of this initial surface. H3 intentionally requires the accompanying TCP
+the failed startup. `from_listener(TcpListener)` / `from_std_listener` uses the supplied listener's
+resolved address for the UDP bind; `http3_socket(std UdpSocket)` (Plan 201) supplies a prebound
+UDP socket instead (same-port TCP+UDP validated, Quinn-wrapped at startup, no
+Quinn types in the public contract). H3 intentionally requires the accompanying TCP
 listener so `ServerHandle::local_addr()` remains a truthful origin address.
 
 The shared `max_connections` semaphore covers accepted TCP and QUIC

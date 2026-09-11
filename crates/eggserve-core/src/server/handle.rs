@@ -45,7 +45,7 @@ use crate::server::lifecycle::Lifecycle;
 /// Dropping the handle triggers graceful shutdown — the server stops
 /// accepting new connections and drains in-flight requests.
 pub struct ServerHandle {
-    local_addr: SocketAddr,
+    endpoints: Vec<crate::server::listener::BoundEndpoint>,
     shutdown_tx: broadcast::Sender<()>,
     join: Option<tokio::task::JoinHandle<ShutdownResult>>,
     lifecycle: std::sync::Arc<Lifecycle>,
@@ -55,13 +55,18 @@ pub struct ServerHandle {
 impl std::fmt::Debug for ServerHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ServerHandle")
-            .field("local_addr", &self.local_addr)
+            .field("endpoints", &self.endpoints)
             .field("state", &self.lifecycle.state())
             .finish()
     }
 }
 
 impl ServerHandle {
+    /// Compatibility constructor for the common one-TCP-listener path.
+    ///
+    /// Integration-unit tests use this; production startup uses
+    /// `new_with_endpoints` so multi-listener readiness is explicit.
+    #[allow(dead_code)]
     pub(crate) fn new(
         local_addr: SocketAddr,
         shutdown_tx: broadcast::Sender<()>,
@@ -69,8 +74,27 @@ impl ServerHandle {
         lifecycle: std::sync::Arc<Lifecycle>,
         ops: crate::ops::OpsContext,
     ) -> Self {
+        Self::new_with_endpoints(
+            vec![crate::server::listener::BoundEndpoint::Tcp {
+                id: "tcp-0".into(),
+                addr: local_addr,
+            }],
+            shutdown_tx,
+            join,
+            lifecycle,
+            ops,
+        )
+    }
+
+    pub(crate) fn new_with_endpoints(
+        endpoints: Vec<crate::server::listener::BoundEndpoint>,
+        shutdown_tx: broadcast::Sender<()>,
+        join: tokio::task::JoinHandle<ShutdownResult>,
+        lifecycle: std::sync::Arc<Lifecycle>,
+        ops: crate::ops::OpsContext,
+    ) -> Self {
         Self {
-            local_addr,
+            endpoints,
             shutdown_tx,
             join: Some(join),
             lifecycle,
@@ -78,11 +102,33 @@ impl ServerHandle {
         }
     }
 
+    /// All successfully adopted listener endpoints (Plan 201 Track G).
+    ///
+    /// Entries carry stable string IDs (`tcp-0`, `unix-0`, ...) rather than
+    /// positional meaning. Readiness implies every entry here was adopted
+    /// and protocol configuration validated, not merely that a task spawned.
+    pub fn endpoints(&self) -> &[crate::server::listener::BoundEndpoint] {
+        &self.endpoints
+    }
+
+    /// TCP local address of the first TCP endpoint, when one exists.
+    ///
+    /// Returns `None` for Unix-only servers (which have no IP endpoint and
+    /// never fabricate one); use [`ServerHandle::endpoints`] there.
+    pub fn tcp_local_addr(&self) -> Option<SocketAddr> {
+        self.endpoints.iter().find_map(|ep| ep.tcp_addr())
+    }
+
     /// Returns the address the server is listening on.
     ///
     /// Useful when binding to port 0 to discover the actual port.
+    ///
+    /// This preserves the common one-TCP-listener path. Unix-only servers
+    /// have no TCP address: this panics with an actionable message directing
+    /// to [`ServerHandle::endpoints`]/[`ServerHandle::tcp_local_addr`].
     pub fn local_addr(&self) -> SocketAddr {
-        self.local_addr
+        self.tcp_local_addr()
+            .expect("unix-only server has no TCP local address; use ServerHandle::endpoints()")
     }
 
     /// This server's observability context.

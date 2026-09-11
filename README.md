@@ -243,7 +243,18 @@ is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`
 drives the same canonical pipeline over any `AsyncRead + AsyncWrite` stream
 with an explicit `ConnectionContext` (no fabricated socket addresses) and
-shared `RuntimeState` admission. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
+shared `RuntimeState` admission. For caller-owned listeners, the same runtime
+accepts prebound sockets without rebinding: `ServerBuilder::from_listener` /
+`from_std_listener` (Tokio / std TCP, socket options preserved except
+nonblocking), `from_unix_listener` / `from_std_unix_listener` (Unix-only,
+EggServe never unlinks filesystem paths; Unix is plaintext and H3 is
+unavailable over it), `from_systemd_index` / `from_systemd_name`
+(validated `LISTEN_PID`/`LISTEN_FDS`/`LISTEN_FDNAMES`, `SOCK_STREAM` plus
+listening-state plus family checks, no silent fd 3, no supervision in core),
+and `http3_socket` (prebound UDP wrapped in Quinn at startup with same-port
+TCP+UDP validation). `ServerHandle::endpoints()` exposes the adopted
+endpoints with stable `tcp-0`/`unix-0` IDs; `local_addr()` preserves the
+common TCP path. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
 [primitives facade](https://github.com/eggstack/eggserve/blob/main/architecture/primitives-api.md), and
 [runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 

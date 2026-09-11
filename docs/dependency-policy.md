@@ -37,6 +37,7 @@ The following dependency categories are approved for initial development:
 | HTTP/3 transport | `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
 | WebSocket interop fixture (dev-only) | `tokio-tungstenite` (dev-dependency, tests only) | Plan 199 Track I: proves generic tunnel handoff sufficient for downstream WS codec (handshake via EggServe, framing over `TunnelIo`); never enters production `eggserve-core`/`eggserve-bin` graphs |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
+| Unix syscalls | `rustix` (Unix-only: `fs` + `net`) | Descriptor-relative filesystem confinement plus socket-activation fd validation (`SOCK_STREAM`/`SO_ACCEPTCONN`/family); no service-manager crate in default or minimal builds |
 
 ### Tokio feature ownership
 
