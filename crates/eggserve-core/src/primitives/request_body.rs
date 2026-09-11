@@ -1,4 +1,4 @@
-//! Transport-independent, one-shot request body.
+//! Transport-independent, one-shot request body with terminal trailers.
 //!
 //! [`RequestBody`] wraps the transfer-decoded body stream from an HTTP
 //! request. It provides one-shot consumption (either fully buffered or
@@ -12,6 +12,30 @@
 //! reads chunks incrementally. Mixing consumption modes is detected and
 //! returns [`RequestBodyError::MixedConsumptionMode`].
 //!
+//! # Trailers (Plan 198 Track B)
+//!
+//! Terminal trailer metadata is distinct from initial headers and becomes
+//! available only after content completion:
+//!
+//! ```no_run
+//! # async fn example(mut body: eggserve_core::primitives::RequestBody) -> Result<(), eggserve_core::primitives::RequestBodyError> {
+//! while let Some(chunk) = body.next_chunk().await? {
+//!     let _ = chunk;
+//! }
+//! let trailers = body.trailers().await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `read_all()` discards trailers by type (it returns bytes only); callers
+//! needing trailers must use [`read_all_with_trailers`](RequestBody::read_all_with_trailers).
+//! Body byte limits remain byte limits; trailer metadata has separate bounds
+//! ([`TrailerLimits`](super::trailers::TrailerLimits)). Malformed/oversized
+//! trailers fail the body with [`RequestBodyError::InvalidTrailers`] and mark
+//! the lifecycle failed. Dropping before trailers preserves abandoned-body
+//! safety. H1 requests without valid trailer framing cannot inject post-body
+//! bytes as trailers (adapters only populate from protocol trailer frames).
+//!
 //! # Transport independence
 //!
 //! No Hyper type appears in this struct or its public API. The body
@@ -20,11 +44,13 @@
 use bytes::Bytes;
 use futures_util::Stream;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 
+use super::header_block::HeaderBlock;
 use super::request_body_error::RequestBodyError;
 use super::request_lifecycle::{RequestLifecycle, RequestShared};
+use super::trailers::{TrailerLimits, Trailers};
 
 /// The consumption state of a request body.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,6 +102,75 @@ pub struct RequestBody {
     /// object capable of distinguishing completion from abandonment and active
     /// delegated ownership. Observers do not require holding the body itself.
     shared: Arc<RequestShared>,
+    /// Canonical trailer limits (separate from body byte limits).
+    trailer_limits: TrailerLimits,
+    /// Validated terminal trailers, populated on content completion.
+    completed_trailers: Option<Trailers>,
+    /// Trailer validation failure, surfaced as `InvalidTrailers` on completion.
+    completed_trailer_error: Option<String>,
+    /// Wire trailer slot shared with the transport bridge.
+    ///
+    /// Adapters populate this only from protocol trailer frames (H1 chunked
+    /// trailers, H2 terminal HEADERS, H3 terminal field section). Post-body
+    /// header-like bytes without valid framing never reach here. `None` means
+    /// no trailer frame arrived yet; `Some(Ok)` holds raw validated-header
+    /// fields awaiting canonical trailer validation; `Some(Err)` holds a
+    /// sanitized failure message.
+    wire_slot: Arc<Mutex<Option<Result<HeaderBlock, String>>>>,
+}
+
+/// Shared wire-trailer slot type for transport bridges.
+pub(crate) type WireTrailerSlot = Arc<Mutex<Option<Result<HeaderBlock, String>>>>;
+
+/// Create a fresh empty wire-trailer slot.
+pub(crate) fn new_wire_slot() -> WireTrailerSlot {
+    Arc::new(Mutex::new(None))
+}
+
+/// Drain and validate wire trailers without borrowing a whole `RequestBody`.
+///
+/// Returns `Ok(None)` when no wire trailers arrived, `Ok(Some)` with the
+/// validated value, or `Err(message)` for slot failures/validation failures.
+/// Callers store the result and set error state; repeated-block detection
+/// (pre-set `completed_trailers` plus wire trailers) is left to the caller
+/// so this helper never holds two mutable field borrows at once.
+fn drain_and_validate_wire_slot(
+    wire_slot: &WireTrailerSlot,
+    limits: &TrailerLimits,
+) -> Result<Option<Trailers>, String> {
+    let wire = wire_slot.lock().ok().and_then(|mut g| g.take());
+    let Some(wire) = wire else {
+        return Ok(None);
+    };
+    let block = wire?;
+    match Trailers::with_limits(block, limits) {
+        Ok(trailers) => Ok(Some(trailers)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn finalize_wire_slot(
+    wire_slot: &WireTrailerSlot,
+    limits: &TrailerLimits,
+    completed_trailers: &mut Option<Trailers>,
+    completed_error: &mut Option<String>,
+) -> Result<(), String> {
+    match drain_and_validate_wire_slot(wire_slot, limits) {
+        Ok(None) => Ok(()),
+        Ok(Some(trailers)) => {
+            if completed_trailers.is_some() {
+                let msg = "repeated trailer block".to_string();
+                *completed_error = Some(msg.clone());
+                return Err(msg);
+            }
+            *completed_trailers = Some(trailers);
+            Ok(())
+        }
+        Err(msg) => {
+            *completed_error = Some(msg.clone());
+            Err(msg)
+        }
+    }
 }
 
 /// Internal body stream, hidden from public API.
@@ -119,6 +214,10 @@ impl RequestBody {
             state: BodyState::Unread,
             max_bytes: u64::MAX,
             shared: RequestShared::new_complete(),
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
         }
     }
 
@@ -135,6 +234,22 @@ impl RequestBody {
         let data = data.into();
         let shared = RequestShared::new_active();
         Self::from_bytes_with_shared(data, max_bytes, shared)
+    }
+
+    /// Create an in-memory body with terminal trailers (tests/adapters).
+    ///
+    /// `trailers` must already satisfy [`Trailers`] validation; byte limits
+    /// still apply to `data`, trailer bounds were checked at `Trailers`
+    /// construction. Trailers become available via [`RequestBody::trailers`]
+    /// only after content completion, identical to wire trailers.
+    pub fn from_bytes_with_trailers(
+        data: impl Into<Bytes>,
+        max_bytes: u64,
+        trailers: Trailers,
+    ) -> Self {
+        let mut body = Self::from_bytes(data, max_bytes);
+        body.completed_trailers = Some(trailers);
+        body
     }
 
     /// Create an in-memory body backed by an existing lifecycle allocation.
@@ -159,6 +274,10 @@ impl RequestBody {
             state: BodyState::Unread,
             max_bytes,
             shared,
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
         }
     }
 
@@ -182,6 +301,10 @@ impl RequestBody {
             state: BodyState::Unread,
             max_bytes,
             shared: RequestShared::new_active(),
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
         }
     }
 
@@ -205,7 +328,53 @@ impl RequestBody {
             state: BodyState::Unread,
             max_bytes,
             shared,
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
         }
+    }
+
+    /// Create a streaming body sharing a wire-trailer slot.
+    ///
+    /// The transport bridge populates `wire_slot` only from protocol trailer
+    /// frames. Validation happens once in [`RequestBody`] via the canonical
+    /// [`Trailers`] validator — adapters never maintain a second policy.
+    pub(crate) fn from_incoming_with_shared_and_wire_slot(
+        stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
+        declared_length: Option<u64>,
+        max_bytes: u64,
+        shared: Arc<RequestShared>,
+        wire_slot: WireTrailerSlot,
+    ) -> Self {
+        Self {
+            inner: Some(BodyInner::Incoming {
+                stream: Box::pin(stream),
+            }),
+            declared_length,
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes,
+            shared,
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot,
+        }
+    }
+
+    /// Returns the wire-trailer slot shared with the transport bridge.
+    #[allow(dead_code)]
+    pub(crate) fn wire_slot(&self) -> WireTrailerSlot {
+        self.wire_slot.clone()
+    }
+
+    /// Set terminal trailers before content completion (tests/adapters).
+    ///
+    /// Services that ignore trailers pay no cost: this only stores a validated
+    /// value. Validation uses the canonical denylist + limits.
+    pub fn set_trailers(&mut self, trailers: Trailers) {
+        self.completed_trailers = Some(trailers);
     }
 
     /// Returns the declared body length from `Content-Length`, if present.
@@ -282,6 +451,90 @@ impl RequestBody {
         self.shared.mark_failed();
     }
 
+    /// Complete trailer handling after byte content validated.
+    ///
+    /// Drains the wire slot (populated only from protocol trailer frames),
+    /// validates via the single canonical [`Trailers`] validator, and stores
+    /// the result. Invalid/oversized trailers fail the body with
+    /// `InvalidTrailers` and mark the lifecycle failed. Must be called with
+    /// byte-length checks already passing, immediately before marking
+    /// `Complete`.
+    fn finalize_trailers(&mut self) -> Result<(), RequestBodyError> {
+        // In-memory pre-set trailers (tests) are already validated; wire
+        // trailers still need canonical validation before exposure.
+        match finalize_wire_slot(
+            &self.wire_slot,
+            &self.trailer_limits,
+            &mut self.completed_trailers,
+            &mut self.completed_trailer_error,
+        ) {
+            Ok(()) => Ok(()),
+            Err(msg) => {
+                self.state = BodyState::Error;
+                self.shared.mark_failed();
+                Err(RequestBodyError::InvalidTrailers(msg))
+            }
+        }
+    }
+
+    /// Terminal trailer metadata, available only after content completion.
+    ///
+    /// Returns `Ok(None)` when the body completed without trailers,
+    /// `Ok(Some)` with the validated terminal block, or
+    /// `InvalidTrailers` when trailers were malformed/oversized.
+    /// Calling before completion returns [`RequestBodyError::TrailersNotReady`].
+    /// Services that ignore trailers pay minimal overhead (one state check).
+    pub async fn trailers(&mut self) -> Result<Option<Trailers>, RequestBodyError> {
+        if let Some(msg) = self.completed_trailer_error.clone() {
+            return Err(RequestBodyError::InvalidTrailers(msg));
+        }
+        if self.state != BodyState::Complete {
+            return Err(RequestBodyError::TrailersNotReady);
+        }
+        Ok(self.completed_trailers.clone())
+    }
+
+    /// Consume the body and its terminal trailers together.
+    ///
+    /// Defined alternative to [`read_all`](RequestBody::read_all) for callers
+    /// needing trailers: `read_all` returns bytes only and discards trailers
+    /// by type (documented, not silent — use this method when trailers matter).
+    /// Trailer bounds are separate from `max_bytes`; invalid trailers fail
+    /// with `InvalidTrailers` instead of returning bytes.
+    pub async fn read_all_with_trailers(
+        mut self,
+    ) -> Result<(Bytes, Option<Trailers>), RequestBodyError> {
+        // Reuse `read_all` byte logic via streaming to keep trailer
+        // finalization in one place: drain via `next_chunk` until EOF, then
+        // collect. Simpler than duplicating limit checks.
+        if self.state == BodyState::Complete || self.state == BodyState::Error {
+            return Err(RequestBodyError::AlreadyConsumed);
+        }
+        if self.state == BodyState::Streaming {
+            return Err(RequestBodyError::MixedConsumptionMode);
+        }
+        let mut buf = Vec::new();
+        // Take inner to drive manually (mirrors `read_all` without duplicating
+        // its match). We cannot call `self.read_all()` because it consumes
+        // `self` and would discard trailers; instead replicate the flow but
+        // retain `self` for trailer finalization.
+        let inner = self.inner.take().ok_or(RequestBodyError::AlreadyConsumed)?;
+        // Temporarily restore for chunk loop via direct handling:
+        self.inner = Some(inner);
+        // Switch to streaming internally to reuse `next_chunk` limit checks.
+        // `next_chunk` transitions Unread->Streaming on first call.
+        while let Some(chunk) = self.next_chunk().await? {
+            buf.extend_from_slice(&chunk);
+        }
+        // `next_chunk` EOF already ran `finalize_trailers`; surface any
+        // trailer failure stored there.
+        if let Some(msg) = self.completed_trailer_error.clone() {
+            return Err(RequestBodyError::InvalidTrailers(msg));
+        }
+        let trailers = self.completed_trailers.clone();
+        Ok((Bytes::from(buf), trailers))
+    }
+
     /// Consume the entire body into a single `Bytes` value.
     ///
     /// This is the simplest way to consume a body. After this call,
@@ -303,6 +556,7 @@ impl RequestBody {
 
         match inner {
             BodyInner::Empty => {
+                self.finalize_trailers()?;
                 self.state = BodyState::Complete;
                 self.mark_consumed();
                 Ok(Bytes::new())
@@ -325,6 +579,7 @@ impl RequestBody {
                     });
                 }
                 self.bytes_received = total;
+                self.finalize_trailers()?;
                 self.state = BodyState::Complete;
                 self.mark_consumed();
                 Ok(data.slice(offset..))
@@ -380,6 +635,7 @@ impl RequestBody {
                         });
                     }
                 }
+                self.finalize_trailers()?;
                 self.state = BodyState::Complete;
                 self.mark_consumed();
                 Ok(Bytes::from(buf))
@@ -420,12 +676,36 @@ impl RequestBody {
 
         match inner {
             BodyInner::Empty => {
+                let slot = self.wire_slot.clone();
+                let limits = self.trailer_limits;
+                if let Err(msg) = finalize_wire_slot(
+                    &slot,
+                    &limits,
+                    &mut self.completed_trailers,
+                    &mut self.completed_trailer_error,
+                ) {
+                    self.state = BodyState::Error;
+                    self.shared.mark_failed();
+                    return Err(RequestBodyError::InvalidTrailers(msg));
+                }
                 self.state = BodyState::Complete;
                 self.mark_consumed();
                 Ok(None)
             }
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
+                    let slot = self.wire_slot.clone();
+                    let limits = self.trailer_limits;
+                    if let Err(msg) = finalize_wire_slot(
+                        &slot,
+                        &limits,
+                        &mut self.completed_trailers,
+                        &mut self.completed_trailer_error,
+                    ) {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        return Err(RequestBodyError::InvalidTrailers(msg));
+                    }
                     self.state = BodyState::Complete;
                     self.shared.mark_complete();
                     return Ok(None);
@@ -507,6 +787,18 @@ impl RequestBody {
                                 });
                             }
                         }
+                        let slot = self.wire_slot.clone();
+                        let limits = self.trailer_limits;
+                        if let Err(msg) = finalize_wire_slot(
+                            &slot,
+                            &limits,
+                            &mut self.completed_trailers,
+                            &mut self.completed_trailer_error,
+                        ) {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::InvalidTrailers(msg));
+                        }
                         self.state = BodyState::Complete;
                         self.shared.mark_complete();
                         Ok(None)
@@ -568,12 +860,58 @@ impl Stream for RequestBody {
 
         match inner {
             BodyInner::Empty => {
+                let slot = self.wire_slot.clone();
+                let limits = self.trailer_limits;
+                match drain_and_validate_wire_slot(&slot, &limits) {
+                    Ok(None) => {}
+                    Ok(Some(t)) => {
+                        if self.completed_trailers.is_some() {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            self.completed_trailer_error =
+                                Some("repeated trailer block".to_string());
+                            return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(
+                                "repeated trailer block".to_string(),
+                            ))));
+                        }
+                        self.completed_trailers = Some(t);
+                    }
+                    Err(msg) => {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        self.completed_trailer_error = Some(msg.clone());
+                        return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(msg))));
+                    }
+                }
                 self.state = BodyState::Complete;
                 self.shared.mark_complete();
                 Poll::Ready(None)
             }
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
+                    let slot = self.wire_slot.clone();
+                    let limits = self.trailer_limits;
+                    match drain_and_validate_wire_slot(&slot, &limits) {
+                        Ok(None) => {}
+                        Ok(Some(t)) => {
+                            if self.completed_trailers.is_some() {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                self.completed_trailer_error =
+                                    Some("repeated trailer block".to_string());
+                                return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(
+                                    "repeated trailer block".to_string(),
+                                ))));
+                            }
+                            self.completed_trailers = Some(t);
+                        }
+                        Err(msg) => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            self.completed_trailer_error = Some(msg.clone());
+                            return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(msg))));
+                        }
+                    }
                     self.state = BodyState::Complete;
                     self.shared.mark_complete();
                     Poll::Ready(None)
@@ -679,6 +1017,29 @@ impl Stream for RequestBody {
                                 received,
                                 expected: Some(declared),
                             })));
+                        }
+                    }
+                    let slot = self.wire_slot.clone();
+                    let limits = self.trailer_limits;
+                    match drain_and_validate_wire_slot(&slot, &limits) {
+                        Ok(None) => {}
+                        Ok(Some(t)) => {
+                            if self.completed_trailers.is_some() {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                self.completed_trailer_error =
+                                    Some("repeated trailer block".to_string());
+                                return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(
+                                    "repeated trailer block".to_string(),
+                                ))));
+                            }
+                            self.completed_trailers = Some(t);
+                        }
+                        Err(msg) => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            self.completed_trailer_error = Some(msg.clone());
+                            return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(msg))));
                         }
                     }
                     self.state = BodyState::Complete;

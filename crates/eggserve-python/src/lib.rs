@@ -993,6 +993,65 @@ fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<PyObject>
     }
 }
 
+/// Validate trailer fields without changing the synchronous facade.
+///
+/// Text-only, bounded projection for `eggserve.lowlevel` (Plan 198 Track H):
+/// takes a list of `(name, value)` string tuples, validates via the single
+/// canonical `Trailers` validator (denylist + count/byte limits, default
+/// limits), and raises `HeaderError`/`ValueError` on failure. Opaque
+/// (non-UTF-8) trailer octets remain Rust-only; Python conversion never coerces
+/// them. Async event naming belongs to Plan 204/downstream mapping.
+#[pyfunction]
+#[pyo3(name = "validate_trailers")]
+#[pyo3(signature = (fields,))]
+fn validate_trailers_fn(fields: Vec<(String, String)>) -> PyResult<()> {
+    use eggserve_core::primitives::header_block::HeaderBlock;
+    use eggserve_core::primitives::trailers::{TrailerLimits, Trailers};
+    let mut block = HeaderBlock::new();
+    for (name, value) in fields {
+        block
+            .push_str(name, value)
+            .map_err(|e| HeaderError::new_err((e.to_string(), "invalid_header")))?;
+    }
+    Trailers::with_limits(block, &TrailerLimits::default()).map_err(|e| {
+        // Forbidden/oversized trailers map to ValueError with sanitized text;
+        // header-syntax failures already mapped above.
+        pyo3::exceptions::PyValueError::new_err((e.to_string(), "invalid_trailers"))
+    })?;
+    Ok(())
+}
+
+/// Validate an interim (1xx) status + headers without emitting.
+///
+/// Bounded, text-only projection for `eggserve.lowlevel`: validates `status`
+/// is 1xx (no 101), strips hop-by-hop, rejects framing, enforces count/byte
+/// bounds via a one-shot `InterimSender` with default limits. Raises
+/// `ValueError` on failure. Wire emission stays runtime-owned; this helper
+/// only proves the capability projects without changing the synchronous
+/// `http.server` compatibility surface.
+#[pyfunction]
+#[pyo3(name = "validate_interim")]
+#[pyo3(signature = (status, fields=None))]
+fn validate_interim_fn(status: u16, fields: Option<Vec<(String, String)>>) -> PyResult<()> {
+    use eggserve_core::primitives::canonical::StatusCode;
+    use eggserve_core::primitives::header_block::HeaderBlock;
+    use eggserve_core::primitives::interim::InterimSender;
+    use eggserve_core::primitives::version::HttpVersion;
+    let code =
+        StatusCode::new(status).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
+    let mut block = HeaderBlock::new();
+    for (name, value) in fields.unwrap_or_default() {
+        block
+            .push_str(name, value)
+            .map_err(|e| HeaderError::new_err((e.to_string(), "invalid_header")))?;
+    }
+    let sender = InterimSender::new(HttpVersion::Http11);
+    sender.send(code, block).map_err(|e| {
+        pyo3::exceptions::PyValueError::new_err((e.to_string(), "invalid_interim"))
+    })?;
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Module
 // ---------------------------------------------------------------------------
@@ -1632,6 +1691,8 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(generate_etag_fn, m)?)?;
     m.add_function(wrap_pyfunction!(parse_method_fn, m)?)?;
     m.add_function(wrap_pyfunction!(parse_http_version_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_trailers_fn, m)?)?;
+    m.add_function(wrap_pyfunction!(validate_interim_fn, m)?)?;
     m.add_function(wrap_pyfunction!(run_cli_fn, m)?)?;
 
     m.add_class::<server::PyRequestBody>()?;

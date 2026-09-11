@@ -2,7 +2,13 @@
 
 ## Status
 
-**PLANNED.** Prerequisite: Plan 197 contract shape settled. Protocol adapters from Plans 185–195 remain experimental inputs.
+**IMPLEMENTED / CLOSED.**
+
+Prerequisite: Plan 197 contract shape settled. Protocol adapters from Plans 185–195 remain experimental inputs.
+
+## Closure record
+
+Implemented on `main`: canonical `Trailers` (`trailers.rs`, denylist + 32/8KiB limits, one validator for H1/H2/H3) + `TrailerLimits`; `RequestBody::trailers()`/`read_all_with_trailers()`/`from_bytes_with_trailers()` with wire-slot bridge populated only from protocol trailer frames (H1 chunked trailers via `BodyStream`, H2 terminal HEADERS via same path, H3 bounded `recv_trailers` probe; repeated/data-after-trailers fail with `InvalidTrailers`, new `RequestBodyError::InvalidTrailers`/`TrailersNotReady`); `ResponseStream::with_trailers`/`with_known_length_and_trailers` (one terminal block, no data after, HEAD/body-forbidden never poll, known length counts data only, adapters map without buffering; H1 `Frame::trailers`, H2 terminal HEADERS stream-local, H3 `send_trailers` stream-local with same no-progress deadline); H1 policy (`TE: trailers` required, HTTP/1.0 suppressed, `Trailer`/`Transfer-Encoding` runtime-owned, producer failure truncates, no second error); bounded `InterimSender` in `RequestContext::interim()` (only 1xx no 101, no body/trailers, no post-commit, 4/8KiB bounds, HTTP/1.0 suppressed, single 100, `103` allowed); `100 Continue` deterministic with body policy (`Reject` → 413 without inviting, `Buffer`/`Stream` → Hyper owns wire `100`, unknown `Expect` → 417, app 100 deduped); Python `_native.validate_trailers`/`validate_interim` text-only bounded projection without changing sync facade; `trailers_interim.rs` hostile/acceptance suite (26 tests) + existing matrices green. Docs updated (`http-primitives.md`, `downstream-app-server.md`, `runtime.md`, `primitives-api.md`, `http2.md`, `http3.md`, `error-taxonomy.md`, `README.md`, `AGENTS.md`, skill). Verification: `cargo fmt`, workspace clippy/tests, `http2,tls` + `http3,tls` matrices, Python crate check green locally before push.
 
 ## Purpose
 
@@ -194,16 +200,16 @@ No absolute timing CI gates.
 
 ## Acceptance criteria
 
-- [ ] request trailers are available as distinct terminal metadata with explicit bounds;
-- [ ] response trailers stream without full-body buffering and cannot be followed by data;
-- [ ] H1/H2/H3 use one canonical trailer validation model;
-- [ ] application code never controls transfer coding to obtain trailers;
-- [ ] interim 1xx responses have a bounded request-scoped API and cannot carry content/trailers;
-- [ ] `100 Continue` behavior is deterministic with request-body acceptance policy;
-- [ ] HEAD/body-forbidden semantics never poll discarded producers;
-- [ ] stream-local H2/H3 failures do not unnecessarily terminate siblings;
-- [ ] Python low-level bindings can project the capability without changing the synchronous compatibility surface;
-- [ ] docs clearly distinguish initial headers, trailers, interim responses, and final responses.
+- [x] request trailers are available as distinct terminal metadata with explicit bounds;
+- [x] response trailers stream without full-body buffering and cannot be followed by data;
+- [x] H1/H2/H3 use one canonical trailer validation model;
+- [x] application code never controls transfer coding to obtain trailers;
+- [x] interim 1xx responses have a bounded request-scoped API and cannot carry content/trailers;
+- [x] `100 Continue` behavior is deterministic with request-body acceptance policy;
+- [x] HEAD/body-forbidden semantics never poll discarded producers;
+- [x] stream-local H2/H3 failures do not unnecessarily terminate siblings;
+- [x] Python low-level bindings can project the capability without changing the synchronous compatibility surface;
+- [x] docs clearly distinguish initial headers, trailers, interim responses, and final responses.
 
 ## Handoff
 

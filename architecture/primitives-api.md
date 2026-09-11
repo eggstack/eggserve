@@ -22,13 +22,15 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
-| `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
-| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody` (incl. `Stream`), `BodyLength`, `ResponseStream`/`ResponseStreamError`, `Response`, `normalize_response`, `to_hyper_response` — canonical response types plus the explicit outbound transport adapter |
+| `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies with one terminal trailer source (`with_trailers`, `with_known_length_and_trailers`) |
+| `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody` (incl. `Stream`), `BodyLength`, `ResponseStream`/`ResponseStreamError`, `Response` (`strip_response_trailers`, `has_response_trailers`), `normalize_response`, `to_hyper_response` — canonical response types plus the explicit outbound transport adapter |
 | `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + `RequestContext`) |
-| `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body |
+| `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body with terminal trailers (`trailers()`, `read_all_with_trailers()`, `from_bytes_with_trailers()`) |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
-| `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 12-variant `#[non_exhaustive]` error type for body consumption failures |
-| `request_context.rs` | `primitives/request_context.rs` | `RequestContext` — typed context/capability container (Plan 197): `connection()` + `lifecycle()` today; interim/tunnel capabilities attach here |
+| `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 14-variant `#[non_exhaustive]` error type for body consumption failures (incl. `InvalidTrailers`, `TrailersNotReady`) |
+| `request_context.rs` | `primitives/request_context.rs` | `RequestContext` — typed context/capability container (Plans 197–198): `connection()` + `lifecycle()` + bounded `interim()` (`InterimSender`) |
+| `trailers.rs` | `primitives/trailers.rs` | `Trailers`, `TrailerLimits`, `TrailerValidationError` — distinct terminal metadata, denylist + count/byte limits, one validator for H1/H2/H3 |
+| `interim.rs` | `primitives/interim.rs` | `InterimSender`, `InterimLimits`, `InterimError`, `ExpectDecision` — bounded request-scoped 1xx (no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100) |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
 

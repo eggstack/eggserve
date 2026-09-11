@@ -10,7 +10,7 @@ eggserve uses five distinct error layers, each scoped to a specific subsystem. T
 | HTTP-level | `RequestValidationError` | Request framing and method | 6 |
 | Server lifecycle | `ServerError` | Startup, bind, shutdown | 10 |
 | Per-request | `ServiceError` | Service handler failures | 4 (kinds) |
-| Body consumption | `RequestBodyError` | Request body reading | 12 |
+| Body consumption | `RequestBodyError` | Request body reading (incl. trailers) | 14 |
 
 The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) are carried by a private kind enum; the public surface is the `ServiceError` struct plus its constructors. Plan 197 Track F: `ServerError`, `RequestBodyError`, `RequestCancellationReason`, and `ConnectionOutcome` are `#[non_exhaustive]` — match with a wildcard arm. Transport-specific H2/H3 reset codes are not exposed to ordinary applications.
 

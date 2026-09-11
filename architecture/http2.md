@@ -56,10 +56,14 @@ framing.
   bytes already handed to Hyper are not claimed to have made wire progress.
 - Graceful shutdown and `max_requests_per_connection` use the H2 driver's
   graceful shutdown/GOAWAY path. HTTP/1 alone receives `Connection: close`.
-- Responses never originate server push, trailers, extended CONNECT, or
+- Responses never originate server push, extended CONNECT, or
   WebSocket framing. A canonical `101` upgrade handoff is not available.
   HTTP/1 Upgrade headers remain ordinary unsupported application behavior and
   cannot bypass canonical response normalization.
+- Trailers (Plan 198): H2 request/response trailers use stream-local terminal
+  HEADERS via Hyper body frames, validated by the single canonical `Trailers`
+  validator (no second H2 policy). `TE` negotiation artifacts are omitted
+  (protocol-native). Trailer/reset failures are stream-scoped; siblings survive.
 
 ## Release qualification status
 
@@ -95,6 +99,7 @@ closure record for the full evidence and blocker list.
 ## Non-goals
 
 This boundary does not add server push, proxying, middleware, routing,
-upgrades, WebSockets, trailers, or HTTP/3. A reverse proxy may terminate H2
+upgrades, WebSockets, or HTTP/3. Trailers are supported via Plan 198 terminal
+HEADERS (not server push). A reverse proxy may terminate H2
 and forward H1 to EggServe; native H2 is available only when an operator
 builds/enables the Rust feature and accepts its experimental status.

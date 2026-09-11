@@ -162,6 +162,10 @@ impl From<RustBodyError> for RawBodyError {
             RustBodyError::AlreadyConsumed => Self::AlreadyConsumed,
             RustBodyError::MixedConsumptionMode => Self::MixedConsumptionMode,
             RustBodyError::Transport(msg) => Self::Transport(msg),
+            // Plan 198: trailer failures never reach the synchronous facade as
+            // trailers (facade unchanged); map to sanitized transport failure.
+            RustBodyError::InvalidTrailers(msg) => Self::Transport(msg),
+            RustBodyError::TrailersNotReady => Self::AlreadyConsumed,
             // Plan 197: `RequestBodyError` is `#[non_exhaustive]`; future
             // categories map to a sanitized transport failure (500) without
             // leaking variant detail.

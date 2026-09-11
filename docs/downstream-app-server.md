@@ -45,23 +45,22 @@ downstream responsibility.
 - `Service: Send + Sync + 'static` receives a canonical `Request` by value
   and returns a canonical `Response`. No Hyper type appears in the trait.
   Plan 197 keeps this shape deliberately: no `ServiceOutcome` exists.
-  Trailers belong to the message-body abstraction (Plan 198), interim
-  responses use a request-scoped capability (Plan 198), and any
-  accepted-tunnel outcome is deferred to Plan 199 only if pairing a
-  continuation with a final response cannot be made type-safe otherwise.
+  Plan 198 implements trailers in the message-body abstraction
+  (`ResponseStream::with_trailers`) and interim via the request-scoped
+  `InterimSender`; accepted-tunnel outcome deferred to Plan 199 only if needed.
   Ordinary services convert via `Ok(Response)`; `service_fn` stays simple.
 - `Request` bundles `RequestHead` (method, target, version, headers),
-  `RequestBody` (one-shot, bounded), and a typed `RequestContext`
-  (Plan 197 Track B). `Request::connection()` / `lifecycle()` forward to
+  `RequestBody` (one-shot, bounded, with terminal `trailers()` /
+  `read_all_with_trailers()`), and a typed `RequestContext`
+  (Plans 197–198). `Request::connection()` / `lifecycle()` forward to
   the context for the Plan 175 common path; new code should prefer
   `Request::context()`, `into_parts_with_context()`, and
   `Request::new_with_context()` when threading metadata + cancellation
   together. Cloning the context never clones the one-shot body.
 - `RequestContext` is the single deliberate attachment point for
-  transport-authenticated metadata and future opaque capabilities. It owns
-  `ConnectionInfo` + `RequestLifecycle` today; interim-response senders
-  (Plan 198) and tunnel capabilities (Plan 199) attach there when their
-  plans land. There is no generic type map: downstream application state
+  transport-authenticated metadata and opaque capabilities. It owns
+  `ConnectionInfo` + `RequestLifecycle` + bounded `InterimSender` (`interim()`);
+  tunnel capabilities (Plan 199) attach there when that plan lands. There is no generic type map: downstream application state
   belongs in the service wrapper, and Tower/framework extension maps belong
   in the Plan 200 adapters. No raw socket, Hyper, H2/H3, rustls-session, or
   executor handle is exposed here.
@@ -185,23 +184,25 @@ earlier ones:
 
 1. **not started** — admission (`max_in_flight_requests`, 503 on
    exhaustion), body-policy selection, pre-service ceilings (414 target,
-   431 header). No service code has run.
-2. **interim metadata emitted** — reserved for Plan 198. Services must not
-   emit interim responses via `Response` today; 1xx statuses cannot be
-   final responses and `ServiceError::rejected(1xx)` collapses to 500.
+   431 header, 417 unknown `Expect`). No service code has run.
+2. **interim metadata emitted** — bounded via `request.context().interim()`
+   (`InterimSender`): only 1xx (no 101/body/trailers), bounded count/bytes,
+   HTTP/1.0 suppressed, single 100, no post-commit. `ServiceError::rejected(1xx)`
+   still collapses to 500; final responses never carry 1xx.
 3. **final response head committed** — the service returned
    `Ok(Response)` and the runtime normalized it (hop-by-hop stripping,
-   framing, Plan 165 privacy). This is the single commitment point.
+   framing, Plan 165 privacy) and marked interim committed. This is the single commitment point.
 4. **body streaming** — the runtime polls the `ResponseStream` producer
    with backpressure; `response_write_timeout` (no-progress) and the hard
    connection lifetime bound it. Empty chunks are skipped, not progress.
-5. **terminal metadata/trailers emitted** — reserved for Plan 198. No
-   trailer API exists yet; trailers will belong to the message-body
-   abstraction, not to a new outcome enum.
+5. **terminal metadata/trailers emitted** — one terminal `Trailers` block via
+   `ResponseStream::with_trailers` after data completion (no data after,
+   `HEAD`/body-forbidden never poll, known length counts data only).
 6. **complete / cancelled / failed** — normal completion releases permits
    and may keep the connection reusable; cancellation (peer/shutdown/
    timeout/transport) drops producers promptly; failure after commitment
-   closes (H1) or resets the stream (H3) with sanitized diagnostics only.
+   (including trailer producer failure) closes (H1) or resets the stream
+   (H2/H3, siblings survive) with sanitized diagnostics only.
 7. **transitioned into a non-HTTP tunnel where applicable** — deferred
    (Plan 176 deferred, Plan 199 owns the design). No tunnel outcome exists
    today; 101 handshakes cannot survive normalization.
@@ -211,9 +212,9 @@ What happens on races:
 - service errors/panics **before** final commitment → sanitized runtime
   error response (`Minimal` fixed body or `Empty`; `HEAD`/body-forbidden
   empty; no detail leak);
-- interim attempt **after** final commitment → impossible today (no
-  interim sender); Plan 198 senders must fail closed after commitment;
-- response producer errors **after** commitment → transport close/reset,
+- interim attempt **after** final commitment → `InterimError::AfterCommit`
+  (fail closed, no wire bytes);
+- response/trailer producer errors **after** commitment → transport close/reset,
   never a second HTTP error; `ResponseStreamError` display stays generic;
 - request body still delegated (`Active`) after response-start → reuse
   waits for body `Complete`; `Abandoned`/`Failed` forces safe close;

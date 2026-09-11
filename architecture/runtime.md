@@ -93,18 +93,18 @@ pub trait Service: Send + Sync + 'static {
 
 - `request_body_policy()` declares the service's body policy per request head; default is `Reject` (safe static default). The runtime enforces the hard `max_request_body_bytes` ceiling — services may lower it, never raise it
 - Receives canonical `Request` envelope (RequestHead + RequestBody + `RequestContext`)
-- Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape deliberately (no `ServiceOutcome`; trailers → message body in Plan 198, interim → request-scoped capability in Plan 198, tunnel → Plan 199 only if needed)
+- Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape (no `ServiceOutcome`); Plan 198 implements trailers in the message-body abstraction (`ResponseStream::with_trailers`) and interim via the request-scoped `InterimSender`, tunnel deferred to Plan 199
 - Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in Plan 200 adapters, native admission stays runtime-owned and deterministic (Plan 197 Track E)
 - Panics caught at tokio task boundary
 
-### RequestContext (Plan 197 Track B)
+### RequestContext (Plans 197–198)
 
 `eggserve_core::primitives::RequestContext` is the single deliberate
-attachment point for transport-authenticated metadata and future opaque
-capabilities. It owns `ConnectionInfo` + `RequestLifecycle` today;
-interim-response senders (Plan 198) and tunnel capabilities (Plan 199)
-attach there when their plans land. Cloning is cheap (`ConnectionInfo`
-value + `Arc`-backed lifecycle) and never clones the one-shot
+attachment point for transport-authenticated metadata and opaque
+capabilities. It owns `ConnectionInfo` + `RequestLifecycle` +
+bounded `InterimSender` (`interim()`); tunnel capabilities (Plan 199) attach
+there when that plan lands. Cloning is cheap (`ConnectionInfo`
+value + `Arc`-backed lifecycle/interim) and never clones the one-shot
 `RequestBody`. There is no generic type map: downstream state belongs in
 the service wrapper, Tower/framework maps belong in Plan 200 adapters. No
 raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
@@ -117,15 +117,19 @@ raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
 `into_parts_with_lifecycle()` forward to the context and preserve the
 Plan 175 common path.
 
-### Commitment and cancellation contract (Plan 197 Track D, normative)
+### Commitment and cancellation contract (Plans 197–198, normative)
 
-Seven ordered stages (not started → interim reserved → final head
-committed → body streaming → terminal trailers reserved → complete /
+Seven ordered stages (not started → interim emitted → final head
+committed → body streaming → terminal trailers emitted → complete /
 cancelled / failed → tunnel-transition deferred); later stages never
-revisit earlier ones. The final head commits once the service returns
-`Ok(Response)` and the runtime normalizes it. There is never a second
-HTTP error after commitment: producer/body failures after commitment
-close (H1) or reset the stream (H3) with sanitized diagnostics only.
+revisit earlier ones. Interim 1xx are bounded via `InterimSender` (only 1xx,
+no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100).
+The final head commits once the service returns
+`Ok(Response)` and the runtime normalizes it (marking interim committed).
+Response trailers stream as one terminal block after body completion (no data
+after, `HEAD`/body-forbidden never poll). There is never a second
+HTTP error after commitment: producer/body/trailer failures after commitment
+close (H1) or reset the stream (H2/H3, siblings survive) with sanitized diagnostics only.
 Peer/shutdown/timeout/transport failure cancels the `RequestLifecycle`
 (first reason wins; `#[non_exhaustive]` — match with a wildcard);
 normal return, body EOF, or normal keep-alive completion never cancel by

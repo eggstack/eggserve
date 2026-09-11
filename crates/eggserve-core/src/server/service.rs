@@ -209,10 +209,11 @@ impl From<RequestBodyError> for ServiceError {
             RequestBodyError::InvalidChunkFraming(_) => "invalid request body framing",
             RequestBodyError::Cancelled => "request body consumption cancelled",
             RequestBodyError::Disconnected => "client disconnected while sending request body",
-            RequestBodyError::AlreadyConsumed | RequestBodyError::MixedConsumptionMode => {
-                "request body was already consumed"
-            }
+            RequestBodyError::AlreadyConsumed
+            | RequestBodyError::MixedConsumptionMode
+            | RequestBodyError::TrailersNotReady => "request body was already consumed",
             RequestBodyError::Transport(_) => "request body transport failure",
+            RequestBodyError::InvalidTrailers(_) => "invalid request trailers",
         };
         ServiceError::rejected(status, message)
     }

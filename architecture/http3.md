@@ -98,15 +98,23 @@ the shared `RequestBody` consumer.
 Responses pass through canonical normalization and the shared privacy policy.
 H3 omits HTTP/1 framing and connection fields, sends bytes/files/known-length
 streams/unknown-length streams under QUIC backpressure, splits writes at the
-configured H3 send bound, and validates known stream lengths. Producer waits
+configured H3 send bound, and validates known stream lengths. Response trailers
+(Plan 198) use stream-local terminal field sections (`send_trailers`) after data
+completion under the same no-progress deadline, validated by the single canonical
+`Trailers` validator; failures reset only the affected stream (siblings survive).
+Producer waits
 use a `response_write_timeout` absolute no-progress deadline and each send
 call keeps its own bound (Plan 194): only non-empty production followed by
 successful send re-arms the producer deadline, so slow-but-progressing
 producers never spuriously time out while empty chunks cannot refresh the
 budget. Producer silence or a stalled send resets only the affected request
 stream with `H3_INTERNAL_ERROR` (siblings survive) and observes
-`WriteStallTimeout`. A producer failure or stream-length mismatch uses the
-same stream-scoped reset path. Runtime-owned `Alt-Svc`
+`WriteStallTimeout`. A producer/trailer failure or stream-length mismatch uses the
+same stream-scoped reset path. Request trailers (Plan 198) use a bounded
+`recv_trailers` probe after DATA EOF with the same canonical validator
+(stream-local, siblings survive). Interim 1xx are validated/recorded via the
+shared `InterimSender` core; wire emission follows current `h3` server-API
+support (no raw fallback). Runtime-owned `Alt-Svc`
 uses the actual same-port listener and is suppressed when the response policy
 denylist contains `alt-svc`.
 

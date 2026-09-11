@@ -85,6 +85,12 @@ pub enum EventKind {
     DeferredBodyTimeout,
     RequestLifecyclePeerDisconnect,
     RequestLifecycleRuntimeCancel,
+    // Trailers + interim responses (Plan 198)
+    RequestTrailerRejected,
+    ResponseTrailerSuppressed,
+    InterimSent,
+    InterimRejected,
+    ExpectationFailed,
 
     // Operational
     ListenerTransientError,
@@ -150,6 +156,11 @@ impl fmt::Display for EventKind {
             EventKind::DeferredBodyTimeout => "deferred_body_timeout",
             EventKind::RequestLifecyclePeerDisconnect => "request_lifecycle_peer_disconnect",
             EventKind::RequestLifecycleRuntimeCancel => "request_lifecycle_runtime_cancel",
+            EventKind::RequestTrailerRejected => "request_trailer_rejected",
+            EventKind::ResponseTrailerSuppressed => "response_trailer_suppressed",
+            EventKind::InterimSent => "interim_sent",
+            EventKind::InterimRejected => "interim_rejected",
+            EventKind::ExpectationFailed => "expectation_failed",
 
             EventKind::ListenerTransientError => "listener_transient_error",
             EventKind::ListenerPersistentError => "listener_persistent_error",

@@ -63,11 +63,64 @@ the [`qualification record`](../release/plan-190-multiprotocol-corrective-qualif
 - Multipart range responses.
 - Manual chunked construction (`Transfer-Encoding` stays runtime-owned;
   services use `ResponseStream::new` and let the runtime frame).
-- HTTP trailers.
 - Upgrade semantics.
 - Absolute-form proxy requests.
 - Authority-form CONNECT requests.
 - Asterisk-form OPTIONS requests.
+
+### Canonical trailers and interim responses (Plan 198)
+
+Initial headers, trailers, interim responses, and final responses are distinct:
+
+- **Initial headers** arrive with the request head / final response head.
+- **Trailers** are terminal metadata (`Trailers`, distinct from `HeaderBlock`
+  by type, duplicate/order-preserving, byte-preserving). Validation reuses
+  canonical header rules plus a conservative denylist (framing/routing:
+  `content-length`, `transfer-encoding`, `trailer`, `te`, `connection`,
+  `keep-alive`, `proxy-*`, `upgrade`, `host`, `expect`). Limits default to
+  `32` fields / `8 KiB` aggregate, enforced before unbounded allocation and
+  before exposing data to services. One canonical validator serves H1/H2/H3;
+  no adapter maintains a second policy.
+- **Request trailers** become available only after content completion:
+  `while next_chunk() {}; body.trailers().await?`, or
+  `read_all_with_trailers()` for buffered bodies (`read_all()` discards by
+  type, documented). Byte limits stay byte limits; trailer bounds are separate.
+  Malformed/oversized trailers fail with `InvalidTrailers` (400) and mark the
+  lifecycle failed. Dropping before trailers preserves abandoned-body safety.
+  H1 without valid chunked-trailer framing cannot inject (adapters populate
+  only from protocol trailer frames; repeated/data-after-trailers fail).
+- **Response trailers** attach as one terminal source:
+  `ResponseStream::with_trailers(stream, future)` /
+  `with_known_length_and_trailers` (known length counts data only). Exactly one
+  block, no data after (adapter polls bytes to completion, then the future
+  once, then ends). `HEAD`/body-forbidden never poll either producer.
+  Cancellation/drop is deterministic. Adapters map without buffering the body.
+- **H1 policy**: application code never sets `Transfer-Encoding`/`Trailer`
+  (runtime-owned, stripped). Response trailers emit only when the request
+  signals `TE: trailers`; otherwise suppressed with diagnostics. `Trailer`
+  header naming is omitted when not knowable (allowed). HTTP/1.0 never carries
+  trailers (suppressed). Trailer producer failure after commitment truncates
+  (H1 close / H2 stream reset / H3 stream reset, siblings survive), never a
+  second HTTP error.
+- **H2/H3**: terminal HEADERS / terminal field section via protocol-native
+  frames, same canonical validator. Failures are stream-local, never widen to
+  siblings.
+- **Interim 1xx** use a bounded request-scoped `InterimSender`
+  (`request.context().interim()`): only 1xx (no `101`, no `200+`), headers only
+  (no body/trailers by type), no interim after final commitment, bounded
+  `4` messages / `8 KiB` aggregate, runtime-owned fields normalized, HTTP/1.0
+  suppressed (validated/counted, no wire bytes). `103 Early Hints` allowed
+  generically; EggServe invents no preload policy.
+- **`100 Continue`**: `Reject` rejects without inviting the body (413, no `100`);
+  `Buffer`/`Stream` accept and Hyper owns wire `100` when the body is polled.
+  Unknown `Expect` values fail with `417`. At most one application `100` per
+  request via interim (second fails `DuplicateContinue`); runtime `100` is the
+  wire authority and never duplicated by application interims on the wire in
+  the current Hyper pipeline (interims validated/recorded; Hyper server APIs
+  own emission where permitted — no raw-socket fallback).
+- **Python**: `validate_trailers` / `validate_interim` text-only bounded helpers
+  project the capability to `eggserve.lowlevel` without changing the synchronous
+  `http.server` surface.
 
 ## Request method validation
 

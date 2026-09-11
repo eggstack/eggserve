@@ -470,6 +470,25 @@ impl Response {
     pub fn body(&self) -> Option<&ResponseBody> {
         self.body.as_ref()
     }
+
+    /// Strip terminal response trailers, if any (H1 policy suppression).
+    ///
+    /// Drops the trailer producer without polling (deterministic release).
+    /// Used when the request did not indicate trailer willingness (`TE:
+    /// trailers`) or the version cannot carry trailers (HTTP/1.0). Invalidates
+    /// prior normalization so framing is recomputed without trailers.
+    pub fn strip_response_trailers(&mut self) {
+        if let Some(ResponseBody::Stream(stream)) = self.body.as_mut() {
+            // Drop without polling: `take_trailer_future` + drop.
+            let _ = stream.take_trailer_future();
+        }
+        self.normalized = false;
+    }
+
+    /// Returns `true` when the response carries a terminal trailer source.
+    pub fn has_response_trailers(&self) -> bool {
+        matches!(self.body.as_ref(), Some(ResponseBody::Stream(s)) if s.has_trailers())
+    }
 }
 
 impl fmt::Debug for Response {
@@ -1146,6 +1165,18 @@ struct ResponseStreamAdapter {
             Box<dyn futures_util::Stream<Item = Result<bytes::Bytes, ResponseStreamError>> + Send>,
         >,
     >,
+    trailers: Option<
+        StdPin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<
+                            Option<crate::primitives::trailers::Trailers>,
+                            ResponseStreamError,
+                        >,
+                    > + Send,
+            >,
+        >,
+    >,
     declared: Option<u64>,
     emitted: u64,
     chunk_size: usize,
@@ -1165,8 +1196,10 @@ impl ResponseStreamAdapter {
     ) -> Self {
         let declared = stream.known_length();
         let chunk_size = chunk_size.max(1);
+        let (inner, trailers) = stream.into_parts();
         Self {
-            inner: Some(stream.into_inner()),
+            inner: Some(inner),
+            trailers,
             declared,
             emitted: 0,
             chunk_size,
@@ -1299,13 +1332,74 @@ impl futures_util::Stream for ResponseStreamAdapter {
         if self.finished {
             return TaskPoll::Ready(None);
         }
-        let inner = match self.inner.as_mut() {
-            Some(i) => i,
-            None => return TaskPoll::Ready(None),
+        // Body phase: poll byte stream while present.
+        if self.inner.is_some() {
+            // Borrow dance: take inner temporarily to allow trailer handling
+            // after EOF without holding the borrow across `self` mutation.
+            let polled = {
+                let inner = self.inner.as_mut().expect("checked is_some");
+                std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    inner.as_mut().poll_next(cx)
+                }))
+            };
+            let next = match polled {
+                Ok(n) => n,
+                Err(_) => {
+                    let err = self.fail_panic();
+                    return TaskPoll::Ready(Some(Err(err)));
+                }
+            };
+            match next {
+                TaskPoll::Pending => return TaskPoll::Pending,
+                TaskPoll::Ready(None) => {
+                    // End of producer stream: validate known length, then
+                    // transition to trailer phase (no data after trailers by
+                    // construction: body already ended).
+                    if let Some(declared) = self.declared {
+                        if self.emitted != declared {
+                            let emitted = self.emitted;
+                            let err = self.fail_length_mismatch(emitted);
+                            return TaskPoll::Ready(Some(Err(err)));
+                        }
+                    }
+                    self.inner = None;
+                    // Fall through to trailer handling below.
+                }
+                TaskPoll::Ready(Some(Ok(chunk))) => {
+                    if chunk.is_empty() {
+                        cx.waker().wake_by_ref();
+                        return TaskPoll::Pending;
+                    }
+                    let mut chunk = chunk;
+                    if chunk.len() > self.chunk_size {
+                        let remainder = chunk.split_off(self.chunk_size);
+                        self.pending_split = Some(remainder);
+                    }
+                    let len = chunk.len() as u64;
+                    let emitted = self.emitted.saturating_add(len);
+                    if let Some(declared) = self.declared {
+                        if emitted > declared {
+                            self.pending_split = None;
+                            let err = self.fail_length_mismatch(emitted);
+                            return TaskPoll::Ready(Some(Err(err)));
+                        }
+                    }
+                    self.emitted = emitted;
+                    return TaskPoll::Ready(Some(Ok(hyper::body::Frame::data(chunk))));
+                }
+                TaskPoll::Ready(Some(Err(_detail))) => {
+                    let err = self.fail_producer();
+                    return TaskPoll::Ready(Some(Err(err)));
+                }
+            }
+        }
+        // Trailer phase: body ended, poll the single terminal future once.
+        let Some(trailer_fut) = self.trailers.as_mut() else {
+            self.complete_ok();
+            return TaskPoll::Ready(None);
         };
-        // Contain producer panics at this task boundary.
         let polled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            inner.as_mut().poll_next(cx)
+            trailer_fut.as_mut().poll(cx)
         }));
         let next = match polled {
             Ok(n) => n,
@@ -1316,59 +1410,83 @@ impl futures_util::Stream for ResponseStreamAdapter {
         };
         match next {
             TaskPoll::Pending => TaskPoll::Pending,
-            TaskPoll::Ready(None) => {
-                // End of producer stream.
-                if let Some(declared) = self.declared {
-                    if self.emitted != declared {
-                        let emitted = self.emitted;
-                        let err = self.fail_length_mismatch(emitted);
-                        return TaskPoll::Ready(Some(Err(err)));
-                    }
-                }
+            TaskPoll::Ready(Ok(None)) => {
+                // No trailers: terminal, no extra frame.
+                self.trailers = None;
                 self.complete_ok();
                 TaskPoll::Ready(None)
             }
-            TaskPoll::Ready(Some(Ok(chunk))) => {
-                if chunk.is_empty() {
-                    // Skip empty chunks: wake immediately for next poll
-                    // without emitting a frame. Producers that spam empty
-                    // chunks synchronously will spin here — that is a
-                    // producer bug; the contract says empty chunks are
-                    // skipped and producers should avoid them.
-                    cx.waker().wake_by_ref();
-                    return TaskPoll::Pending;
-                }
-                // Split large chunks zero-copy instead of rejecting.
-                let mut chunk = chunk;
-                if chunk.len() > self.chunk_size {
-                    let remainder = chunk.split_off(self.chunk_size);
-                    self.pending_split = Some(remainder);
-                    // `split_off` keeps [..chunk_size] in `chunk`? For
-                    // `Bytes`, `split_off(at)` returns [at..] and keeps
-                    // [..at] in self. So `chunk` is now the first piece.
-                }
-                let len = chunk.len() as u64;
-                let emitted = self.emitted.saturating_add(len);
-                if let Some(declared) = self.declared {
-                    if emitted > declared {
-                        // Buffer the overrun remainder? No — overrun is
-                        // fatal; drop pending split to avoid reuse ambiguity.
+            TaskPoll::Ready(Ok(Some(trailers))) => {
+                // Exactly one terminal block; no data may follow by
+                // construction (body already ended, future polled once).
+                match trailers_to_header_map(&trailers) {
+                    Ok(map) => {
+                        self.trailers = None;
+                        // Emit one trailer frame; next poll completes.
+                        // Mark `finished` only after the terminal EOF so
+                        // `Drop` accounting distinguishes cancel vs complete.
+                        // Store a sentinel: clear trailers, keep finished
+                        // false until next poll returns None.
+                        // Use pending_split as terminal marker? Instead track
+                        // via inner=None + trailers=None + emitted trailer
+                        // pending: set a flag by marking trailers None and
+                        // returning the frame; next poll will complete_ok.
+                        // To avoid a second trailer poll, we already cleared.
+                        // Remember that we emitted trailers so completion is
+                        // still counted once.
                         self.pending_split = None;
-                        let err = self.fail_length_mismatch(emitted);
-                        return TaskPoll::Ready(Some(Err(err)));
+                        // Temporarily store completion intent: set emitted
+                        // trailer flag via `finished` dance — emit frame now,
+                        // complete on next poll.
+                        // We use a two-step: return trailer frame now, and on
+                        // next poll (inner None, trailers None) complete_ok.
+                        // To distinguish "trailer emitted, awaiting EOF" from
+                        // "no trailers", set `finished` to false but record
+                        // via a private marker: reuse `declared`? No — use a
+                        // dedicated bool via `pending_split`? Simplest: set a
+                        // flag in `emitted`? Instead, push a one-shot state by
+                        // setting `trailers` to None and returning frame; next
+                        // poll sees both None and completes. No extra flag
+                        // needed because completion happens on next poll
+                        // uniformly. The only difference is we must not
+                        // complete_ok twice: completion happens once on the
+                        // following None poll, not here.
+                        TaskPoll::Ready(Some(Ok(hyper::body::Frame::trailers(map))))
+                    }
+                    Err(_) => {
+                        let err = self.fail_producer();
+                        TaskPoll::Ready(Some(Err(err)))
                     }
                 }
-                self.emitted = emitted;
-                TaskPoll::Ready(Some(Ok(hyper::body::Frame::data(chunk))))
             }
-            TaskPoll::Ready(Some(Err(_detail))) => {
-                // Never serialize producer detail to the client; wire sees
-                // only a generic failure that closes the connection.
+            TaskPoll::Ready(Err(_detail)) => {
+                // Trailer producer failure after commitment: truncated close,
+                // no second HTTP error, sanitized diagnostics only.
                 let err = self.fail_producer();
                 TaskPoll::Ready(Some(Err(err)))
             }
         }
     }
+}
+
+/// Convert validated canonical trailers to a Hyper trailer map.
+///
+/// Validation already ran at [`Trailers`] construction via the single
+/// canonical validator; this conversion never re-implements policy. Failures
+/// here are transport-conversion bugs (should be unreachable) and surface as
+/// producer errors that close the connection.
+fn trailers_to_header_map(
+    trailers: &crate::primitives::trailers::Trailers,
+) -> Result<hyper::HeaderMap, ()> {
+    let mut map = hyper::HeaderMap::new();
+    for field in trailers.iter() {
+        let name = hyper::header::HeaderName::from_bytes(field.name.as_str().as_bytes())
+            .map_err(|_| ())?;
+        let value =
+            hyper::header::HeaderValue::from_bytes(field.value.as_bytes()).map_err(|_| ())?;
+        map.append(name, value);
+    }
+    Ok(map)
 }
 
 struct CountingFileStreamPermit {

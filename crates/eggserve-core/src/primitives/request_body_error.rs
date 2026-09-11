@@ -45,6 +45,12 @@ pub enum RequestBodyError {
     MixedConsumptionMode,
     /// A transport-level error occurred (mapped to 500 since eggserve is an origin server).
     Transport(String),
+    /// Request trailers failed validation (forbidden field, oversized block,
+    /// malformed H1 chunk trailers). Maps to 400; trailers never reach the
+    /// service when invalid.
+    InvalidTrailers(String),
+    /// Trailers were requested before body content completed.
+    TrailersNotReady,
 }
 
 impl fmt::Display for RequestBodyError {
@@ -90,6 +96,10 @@ impl fmt::Display for RequestBodyError {
                 )
             }
             Self::Transport(msg) => write!(f, "transport error: {msg}"),
+            Self::InvalidTrailers(msg) => write!(f, "invalid request trailers: {msg}"),
+            Self::TrailersNotReady => {
+                write!(f, "request trailers not ready: complete the body first")
+            }
         }
     }
 }
@@ -122,7 +132,10 @@ impl RequestBodyError {
 
     /// Returns `true` if this error is a consumption-state error.
     pub fn is_consumption_state(&self) -> bool {
-        matches!(self, Self::AlreadyConsumed | Self::MixedConsumptionMode)
+        matches!(
+            self,
+            Self::AlreadyConsumed | Self::MixedConsumptionMode | Self::TrailersNotReady
+        )
     }
 
     /// Returns `true` if this error is a transport-level failure.
@@ -148,6 +161,8 @@ impl RequestBodyError {
             Self::AlreadyConsumed => 500,
             Self::MixedConsumptionMode => 500,
             Self::Transport(_) => 500,
+            Self::InvalidTrailers(_) => 400,
+            Self::TrailersNotReady => 500,
         }
     }
 }

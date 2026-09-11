@@ -274,7 +274,16 @@ the experimental `server` module a stable 1.0 API.
   executed handle-relative classes but remains trusted/local-content only.
 - HTTP/1.1, optional Rust HTTP/2, ranges, conditional requests, canonical response normalization
   (including known/unknown-length streaming bodies with runtime-owned
-  framing), and bounded resource admission are part of the implemented contract.
+  framing, terminal trailers, and bounded interim 1xx), and bounded resource admission are part of the implemented contract.
+  Request trailers arrive as distinct terminal metadata (`trailers()` /
+  `read_all_with_trailers()`, denylist + count/byte limits, one validator for
+  H1/H2/H3); response trailers stream as one terminal block
+  (`ResponseStream::with_trailers`, no data after, `HEAD`/body-forbidden never
+  poll); interim 1xx are bounded request-scoped (`InterimSender`, no 101/body,
+  no post-commit, HTTP/1.0 suppressed, single 100); `100 Continue` follows body
+  policy (`Reject` → 413 without inviting, `Buffer`/`Stream` → Hyper owns wire
+  `100`, unknown `Expect` → 417). H1 trailers require `TE: trailers`;
+  HTTP/1.0 carries none. See [HTTP primitives](https://github.com/eggstack/eggserve/blob/main/docs/http-primitives.md).
 - Final-boundary response privacy: `Server` suppressed by default (optional
   fixed value, never versions), EggServe-owned `Date` (system clock by default,
   caller-supplied provider or explicit suppression), validated header denylist,
@@ -289,7 +298,7 @@ the experimental `server` module a stable 1.0 API.
   CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
   gateways are intentionally unavailable. Generic HTTP upgrade handoffs
   (WebSocket-class; Plan 176 deferred, no concrete consumer) are also
-  unavailable: `Request` carries head/body/context only (`RequestContext`: connection + lifecycle),
+  unavailable: `Request` carries head/body/context only (`RequestContext`: connection + lifecycle + bounded interim),
   `Service` returns `Response` only, and 101 handshakes cannot survive
   normalization. Downstream gateways build on the
   canonical `Service` boundary instead.

@@ -99,21 +99,134 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
 ///
 /// This bridges the Hyper body type to the canonical `RequestBody` type
 /// without leaking Hyper into the public API.
+#[allow(dead_code)]
 pub(crate) fn wrap_incoming_body(
     body: Incoming,
 ) -> impl futures_util::Stream<
     Item = Result<bytes::Bytes, crate::primitives::request_body::IncomingError>,
 > + Send
        + 'static {
+    wrap_incoming_body_with_trailers(body, crate::primitives::request_body::new_wire_slot()).0
+}
+
+/// Wrap Hyper `Incoming` while capturing terminal trailers into `slot`.
+///
+/// Data frames yield `Bytes`; trailer frames are converted to [`HeaderBlock`]
+/// (canonical header validation) and stored in `slot` for [`RequestBody`]
+/// canonical trailer validation. Only protocol trailer frames populate the
+/// slot — H1 requests without valid chunked-trailer framing never produce a
+/// trailer frame here, so post-body header-like bytes cannot be injected.
+/// Malformed trailer conversion, repeated trailer blocks, and data-after-
+/// trailers are recorded as slot errors that fail the body with
+/// `InvalidTrailers` (never exposed to services).
+pub(crate) fn wrap_incoming_body_with_trailers(
+    body: Incoming,
+    slot: crate::primitives::request_body::WireTrailerSlot,
+) -> (
+    impl futures_util::Stream<
+            Item = Result<bytes::Bytes, crate::primitives::request_body::IncomingError>,
+        > + Send
+        + 'static,
+    crate::primitives::request_body::WireTrailerSlot,
+) {
     use futures_util::StreamExt;
-    http_body_util::BodyStream::new(body).filter_map(|result| async {
-        match result {
-            Ok(frame) => frame.into_data().ok().map(Ok),
-            Err(e) => Some(Err(crate::primitives::request_body::IncomingError(
-                e.to_string(),
-            ))),
+    use std::sync::{Arc, Mutex};
+    let seen = Arc::new(Mutex::new(false));
+    let seen_clone = seen.clone();
+    let slot_clone = slot.clone();
+    let stream = http_body_util::BodyStream::new(body).filter_map(move |result| {
+        let slot = slot_clone.clone();
+        let seen = seen_clone.clone();
+        async move {
+            match result {
+                Ok(frame) => {
+                    // Trailer frames: convert and store, never yield as data.
+                    if frame.is_trailers() {
+                        let mut seen_guard = seen.lock().ok()?;
+                        if *seen_guard {
+                            // Repeated trailer block.
+                            if let Ok(mut g) = slot.lock() {
+                                if g.is_none() {
+                                    *g = Some(Err("repeated trailer block".to_string()));
+                                }
+                            }
+                            return None;
+                        }
+                        *seen_guard = true;
+                        match frame.into_trailers() {
+                            Ok(map) => {
+                                match hyper_to_header_block(&map) {
+                                    Ok(block) => {
+                                        if let Ok(mut g) = slot.lock() {
+                                            if g.is_none() {
+                                                *g = Some(Ok(block));
+                                            } else {
+                                                *g =
+                                                    Some(Err("repeated trailer block".to_string()));
+                                            }
+                                        }
+                                    }
+                                    Err(msg) => {
+                                        if let Ok(mut g) = slot.lock() {
+                                            if g.is_none() {
+                                                *g = Some(Err(msg));
+                                            }
+                                        }
+                                    }
+                                }
+                                None
+                            }
+                            Err(_) => {
+                                if let Ok(mut g) = slot.lock() {
+                                    if g.is_none() {
+                                        *g = Some(Err("malformed trailer frame".to_string()));
+                                    }
+                                }
+                                None
+                            }
+                        }
+                    } else {
+                        // Data frame: data-after-trailers is a protocol error.
+                        if seen.lock().map(|g| *g).unwrap_or(false) {
+                            if let Ok(mut g) = slot.lock() {
+                                *g = Some(Err("data after trailers".to_string()));
+                            }
+                            return Some(Err(crate::primitives::request_body::IncomingError(
+                                "data after trailers".to_string(),
+                            )));
+                        }
+                        match frame.into_data() {
+                            Ok(data) => Some(Ok(data)),
+                            Err(_) => None,
+                        }
+                    }
+                }
+                Err(e) => Some(Err(crate::primitives::request_body::IncomingError(
+                    e.to_string(),
+                ))),
+            }
         }
-    })
+    });
+    (stream, slot)
+}
+
+/// Convert a Hyper trailer map to a canonical [`HeaderBlock`].
+///
+/// Uses canonical name/value validation so opaque legal octets round-trip.
+/// Failures are sanitized messages for `InvalidTrailers` (never wire bytes).
+fn hyper_to_header_block(
+    map: &hyper::HeaderMap,
+) -> Result<crate::primitives::header_block::HeaderBlock, String> {
+    use crate::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+    let mut block = HeaderBlock::new();
+    for (name, value) in map.iter() {
+        let name =
+            HeaderName::new(name.as_str()).map_err(|_| "invalid trailer name".to_string())?;
+        let value = HeaderValue::from_bytes(value.as_bytes())
+            .map_err(|_| "invalid trailer value".to_string())?;
+        block.push(name, value);
+    }
+    Ok(block)
 }
 
 /// Convert a Hyper request to a canonical [`RequestHead`], enforcing the

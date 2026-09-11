@@ -58,7 +58,8 @@ impl Request {
     /// observed transport, never from untrusted request headers.
     pub fn new(head: RequestHead, body: RequestBody, connection: ConnectionInfo) -> Self {
         let lifecycle = body.lifecycle();
-        let context = RequestContext::new(connection, lifecycle);
+        let version = head.version();
+        let context = RequestContext::new_with_version(connection, lifecycle, version);
         Self {
             head,
             body,

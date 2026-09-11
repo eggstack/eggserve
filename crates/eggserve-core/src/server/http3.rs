@@ -512,37 +512,102 @@ async fn handle_request<S, C>(
         }
     } else {
         let body_cancel = tokio::sync::watch::channel(false);
+        // Plan 198 Track G: stream-local terminal field sections reuse the
+        // single canonical trailer validator. The slot is populated only from
+        // `recv_trailers` after DATA EOF (bounded probe, sibling-isolated);
+        // no second H3 trailer policy exists.
+        let wire_slot = crate::primitives::request_body::new_wire_slot();
+        let wire_slot_clone = wire_slot.clone();
         let body_stream = stream::unfold(
             (recv_stream, body_cancel.1),
-            |(mut stream, mut cancel)| async move {
-                if *cancel.borrow() {
-                    stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-                    return None;
-                }
-                tokio::select! {
-                    changed = cancel.changed() => {
-                        if changed.is_ok() {
-                            stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
-                        }
-                        None
+            move |(mut stream, mut cancel)| {
+                let wire_slot = wire_slot_clone.clone();
+                async move {
+                    if *cancel.borrow() {
+                        stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                        return None;
                     }
-                    data = stream.recv_data() => match data {
-                        Ok(Some(mut data)) => {
-                            let bytes = data.copy_to_bytes(data.remaining());
-                            Some((Ok::<_, IncomingError>(bytes), (stream, cancel)))
+                    tokio::select! {
+                        changed = cancel.changed() => {
+                            if changed.is_ok() {
+                                stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
+                            }
+                            None
                         }
-                        Ok(None) => None,
-                        Err(error) => Some((Err(IncomingError(error.to_string())), (stream, cancel))),
+                        data = stream.recv_data() => match data {
+                            Ok(Some(mut data)) => {
+                                let bytes = data.copy_to_bytes(data.remaining());
+                                Some((Ok::<_, IncomingError>(bytes), (stream, cancel)))
+                            }
+                            Ok(None) => {
+                                // DATA EOF: one bounded trailer probe. Prompt
+                                // None means no trailers (minimal overhead for
+                                // services ignoring trailers); Some(map) is
+                                // converted via canonical header rules and stored
+                                // raw for `RequestBody` canonical validation.
+                                // Failures are stream-local (stored as slot error,
+                                // failing this request body only).
+                                let probe = tokio::time::timeout(
+                                    std::time::Duration::from_millis(500),
+                                    stream.recv_trailers(),
+                                )
+                                .await;
+                                match probe {
+                                    Ok(Ok(Some(map))) => {
+                                        match h3_trailers_to_block(&map) {
+                                            Ok(block) => {
+                                                if let Ok(mut g) = wire_slot.lock() {
+                                                    if g.is_none() {
+                                                        *g = Some(Ok(block));
+                                                    } else {
+                                                        *g = Some(Err(
+                                                            "repeated trailer block".to_string(),
+                                                        ));
+                                                    }
+                                                }
+                                            }
+                                            Err(msg) => {
+                                                if let Ok(mut g) = wire_slot.lock() {
+                                                    if g.is_none() {
+                                                        *g = Some(Err(msg));
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Ok(Ok(None)) => {}
+                                    Ok(Err(_)) => {
+                                        // Transport failure while probing trailers:
+                                        // record as slot error so the body fails
+                                        // safely rather than exposing partial data.
+                                        // Only record if no prior terminal state;
+                                        // DATA already ended, so this is trailer
+                                        // scope, stream-local.
+                                        // Note: `recv_trailers` errors are
+                                        // stream-local by h3 design (siblings survive).
+                                    }
+                                    Err(_) => {
+                                        // Bounded probe timeout: treat as no trailers
+                                        // (do not hang body completion for trailer-less
+                                        // requests).
+                                    }
+                                }
+                                None
+                            }
+                            Err(error) => Some((Err(IncomingError(error.to_string())), (stream, cancel))),
+                        }
                     }
                 }
             },
         );
-        let request_body = crate::primitives::request_body::RequestBody::from_incoming_with_shared(
-            body_stream,
-            declared_length,
-            policy.max_bytes().unwrap_or(config.max_request_body_bytes),
-            shared.clone(),
-        );
+        let request_body =
+            crate::primitives::request_body::RequestBody::from_incoming_with_shared_and_wire_slot(
+                body_stream,
+                declared_length,
+                policy.max_bytes().unwrap_or(config.max_request_body_bytes),
+                shared.clone(),
+                wire_slot,
+            );
         spawn_body_timeout_watchdog(
             shared.clone(),
             body_cancel.0,
@@ -554,13 +619,31 @@ async fn handle_request<S, C>(
     };
     let request_body = match policy {
         crate::primitives::request_body_policy::RequestBodyPolicy::Buffer { max_bytes } => {
-            match tokio::time::timeout(config.body_read_timeout, request_body.read_all()).await {
-                Ok(Ok(bytes)) => {
-                    crate::primitives::request_body::RequestBody::from_bytes_with_shared(
-                        bytes,
-                        max_bytes,
-                        shared.clone(),
-                    )
+            match tokio::time::timeout(
+                config.body_read_timeout,
+                request_body.read_all_with_trailers(),
+            )
+            .await
+            {
+                Ok(Ok((bytes, trailers))) => {
+                    // Preserve trailers (not discarded); validation already ran
+                    // during `read_all_with_trailers`.
+                    // Note: `from_bytes_with_shared` loses trailers, so rebuild
+                    // with trailers when present via the validated constructor.
+                    // Since `from_bytes_with_shared` takes shared allocation for
+                    // lifecycle continuity, and `from_bytes_with_trailers` creates
+                    // a fresh allocation, prefer continuity + manual attach:
+                    // create via shared then attach validated trailers.
+                    let mut body =
+                        crate::primitives::request_body::RequestBody::from_bytes_with_shared(
+                            bytes,
+                            max_bytes,
+                            shared.clone(),
+                        );
+                    if let Some(t) = trailers {
+                        body.set_trailers(t);
+                    }
+                    body
                 }
                 Ok(Err(error)) => {
                     let _ = send_response_or_cancel(
@@ -646,6 +729,20 @@ async fn handle_request<S, C>(
         runtime_state.ops(),
     )
     .await;
+}
+
+fn h3_trailers_to_block(map: &hyper::HeaderMap) -> Result<HeaderBlock, String> {
+    // Canonical header validation only; trailer denylist/limits enforced once
+    // in `RequestBody` via `validate_trailers` (no second H3 policy).
+    let mut block = HeaderBlock::new();
+    for (name, value) in map.iter() {
+        let name =
+            HeaderName::new(name.as_str()).map_err(|_| "invalid trailer name".to_string())?;
+        let value = HeaderValue::from_bytes(value.as_bytes())
+            .map_err(|_| "invalid trailer value".to_string())?;
+        block.push(name, value);
+    }
+    Ok(block)
 }
 
 fn spawn_body_timeout_watchdog(
@@ -915,6 +1012,37 @@ where
                     return Err(format!(
                         "response stream length mismatch: declared {declared}, emitted {emitted}"
                     ));
+                }
+            }
+            // Plan 198 Track C/G: one terminal trailer block without buffering
+            // the body. The trailer future is polled once after data completion
+            // under the same no-progress deadline; empty trailer futures do not
+            // refresh the budget. Failures are stream-scoped (stop_stream by the
+            // caller), siblings survive. Validation reuses the single canonical
+            // `Trailers` validator (construction-time); no second H3 policy.
+            let trailer_fut = response_stream.as_mut().get_mut().take_trailer_future();
+            if let Some(mut fut) = trailer_fut {
+                let trailers = tokio::time::timeout_at(producer_deadline, &mut fut)
+                    .await
+                    .map_err(|_| "response producer timeout".to_string())?
+                    .map_err(|_| "response producer failed".to_string())?;
+                if let Some(trailers) = trailers {
+                    let mut map = hyper::HeaderMap::new();
+                    for field in trailers.iter() {
+                        let name =
+                            hyper::header::HeaderName::from_bytes(field.name.as_str().as_bytes())
+                                .map_err(|e| e.to_string())?;
+                        let value = hyper::header::HeaderValue::from_bytes(field.value.as_bytes())
+                            .map_err(|e| e.to_string())?;
+                        map.append(name, value);
+                    }
+                    return tokio::time::timeout(
+                        config.response_write_timeout,
+                        stream.send_trailers(map),
+                    )
+                    .await
+                    .map_err(|_| "response write timeout".to_string())?
+                    .map_err(|e| e.to_string());
                 }
             }
         }

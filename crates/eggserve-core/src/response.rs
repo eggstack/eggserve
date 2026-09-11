@@ -231,6 +231,18 @@ pub fn service_unavailable_with_policy(
     )
 }
 
+pub fn expectation_failed_with_policy(
+    is_head: bool,
+    policy: crate::policy::ErrorRepresentationPolicy,
+) -> Response<BoxBodyInner> {
+    canonical_error_with_policy(
+        StatusCode::EXPECTATION_FAILED,
+        "417 Expectation Failed\n",
+        is_head,
+        policy,
+    )
+}
+
 #[cfg(test)]
 pub fn not_found(is_head: bool) -> Response<BoxBodyInner> {
     canonical_error(StatusCode::NOT_FOUND, "404 Not Found\n", is_head)

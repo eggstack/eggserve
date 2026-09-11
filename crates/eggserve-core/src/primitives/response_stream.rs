@@ -1,4 +1,4 @@
-//! Transport-independent streaming response bodies.
+//! Transport-independent streaming response bodies with trailers.
 //!
 //! [`ResponseStream`] is the canonical one-shot byte stream for application
 //! responses. It carries no Hyper types: it yields [`bytes::Bytes`] chunks or
@@ -29,6 +29,28 @@
 //!   commitment the connection is closed and structured diagnostics are
 //!   emitted. No second HTTP error response is attempted.
 //!
+//! # Trailers (Plan 198 Track C)
+//!
+//! One terminal trailer source may be attached via
+//! [`ResponseStream::with_trailers`] (unknown length) or
+//! [`ResponseStream::with_known_length_and_trailers`] (known length):
+//!
+//! - exactly one terminal trailer block; no data after trailers (enforced by
+//!   the transport adapter, which polls the byte stream to completion, then
+//!   polls the trailer future once, then ends);
+//! - `HEAD`/body-forbidden responses never poll the body or trailer producer
+//!   (dropping releases both promptly);
+//! - producer cancellation/drop remains deterministic (dropping the
+//!   `ResponseStream` drops both the byte stream and the trailer future);
+//! - known-length semantics stay coherent: the declared length counts data
+//!   bytes only, trailers never count toward it;
+//! - adapters map trailers without buffering the entire body (incremental
+//!   body polling, then one trailer future poll);
+//! - ordinary byte-only streams stay ergonomic via [`ResponseStream::new`].
+//!
+//! Trailer validation reuses the single canonical [`Trailers`](super::trailers::Trailers)
+//! validator; adapters never maintain a second policy.
+//!
 //! # Error privacy
 //!
 //! Producer failure details never reach the client. The wire sees only a
@@ -38,8 +60,11 @@
 use bytes::Bytes;
 use futures_util::Stream;
 use std::fmt;
+use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
+
+use super::trailers::Trailers;
 
 /// Maximum advisory application chunk size.
 ///
@@ -108,6 +133,15 @@ impl From<std::io::Error> for ResponseStreamError {
     }
 }
 
+/// Terminal trailer future: polled once after bytes, yielding one block or none.
+#[allow(clippy::type_complexity)]
+pub(crate) type TrailerFuture =
+    Pin<Box<dyn Future<Output = Result<Option<Trailers>, ResponseStreamError>> + Send>>;
+
+/// Byte-stream half of a response stream.
+#[allow(clippy::type_complexity)]
+pub(crate) type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>>;
+
 /// A one-shot, transport-independent byte stream for responses.
 ///
 /// Wraps any `Stream<Item = Result<Bytes, ResponseStreamError>>` without
@@ -118,10 +152,12 @@ impl From<std::io::Error> for ResponseStreamError {
 ///
 /// The stream is one-shot: it is consumed once by transport conversion.
 /// Dropping it (HEAD/body-forbidden suppression, client disconnect, shutdown)
-/// releases producer resources promptly without polling.
+/// releases producer resources promptly without polling (both byte and trailer
+/// producers are dropped together).
 pub struct ResponseStream {
-    inner: Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>>,
+    inner: ByteStream,
     known_length: Option<u64>,
+    trailers: Option<TrailerFuture>,
 }
 
 impl ResponseStream {
@@ -136,6 +172,7 @@ impl ResponseStream {
         Self {
             inner: Box::pin(stream),
             known_length: None,
+            trailers: None,
         }
     }
 
@@ -151,6 +188,42 @@ impl ResponseStream {
         Self {
             inner: Box::pin(stream),
             known_length: Some(len),
+            trailers: None,
+        }
+    }
+
+    /// Create an unknown-length stream with one terminal trailer source.
+    ///
+    /// The trailer future is polled exactly once after the byte stream ends;
+    /// `Ok(None)` means no trailers, `Ok(Some(block))` emits one terminal
+    /// block, `Err` fails the stream after commitment (truncated close, no
+    /// second HTTP error). No data may follow trailers by construction.
+    pub fn with_trailers<S, F>(stream: S, trailer_future: F) -> Self
+    where
+        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + 'static,
+        F: Future<Output = Result<Option<Trailers>, ResponseStreamError>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(stream),
+            known_length: None,
+            trailers: Some(Box::pin(trailer_future)),
+        }
+    }
+
+    /// Create a known-length stream with one terminal trailer source.
+    ///
+    /// The declared length counts data bytes only; trailers never count
+    /// toward it. Length validation runs on data bytes before the trailer
+    /// future is polled.
+    pub fn with_known_length_and_trailers<S, F>(stream: S, len: u64, trailer_future: F) -> Self
+    where
+        S: Stream<Item = Result<Bytes, ResponseStreamError>> + Send + 'static,
+        F: Future<Output = Result<Option<Trailers>, ResponseStreamError>> + Send + 'static,
+    {
+        Self {
+            inner: Box::pin(stream),
+            known_length: Some(len),
+            trailers: Some(Box::pin(trailer_future)),
         }
     }
 
@@ -164,15 +237,29 @@ impl ResponseStream {
         self.known_length.is_some()
     }
 
+    /// Returns `true` when a terminal trailer source is attached.
+    pub fn has_trailers(&self) -> bool {
+        self.trailers.is_some()
+    }
+
     /// Create an empty known-length (0) stream.
     pub fn empty() -> Self {
         Self::with_known_length(futures_util::stream::empty(), 0)
     }
 
-    pub(crate) fn into_inner(
-        self,
-    ) -> Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>> {
+    #[allow(dead_code)]
+    pub(crate) fn into_inner(self) -> ByteStream {
         self.inner
+    }
+
+    /// Take the terminal trailer future, if attached.
+    pub(crate) fn take_trailer_future(&mut self) -> Option<TrailerFuture> {
+        self.trailers.take()
+    }
+
+    /// Take both the byte stream and the trailer future.
+    pub(crate) fn into_parts(self) -> (ByteStream, Option<TrailerFuture>) {
+        (self.inner, self.trailers)
     }
 }
 
@@ -180,6 +267,7 @@ impl fmt::Debug for ResponseStream {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("ResponseStream")
             .field("known_length", &self.known_length)
+            .field("has_trailers", &self.has_trailers())
             .finish_non_exhaustive()
     }
 }

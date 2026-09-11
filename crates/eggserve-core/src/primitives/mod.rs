@@ -54,6 +54,7 @@ pub mod connection_info;
 pub mod header_block;
 pub mod http;
 pub mod incomplete_body_policy;
+pub mod interim;
 pub mod method;
 pub mod planner;
 pub mod request;
@@ -66,6 +67,7 @@ pub mod request_lifecycle;
 pub mod request_target;
 pub mod response;
 pub mod response_stream;
+pub mod trailers;
 pub mod version;
 
 pub use crate::path::decode::percent_decode;
@@ -89,6 +91,7 @@ pub use http::{
     RequestValidationError,
 };
 pub use incomplete_body_policy::IncompleteBodyPolicy;
+pub use interim::{ExpectDecision, InterimDisposition, InterimError, InterimLimits, InterimSender};
 pub use method::{Method, MethodError};
 pub use planner::{
     evaluate_conditional_headers, evaluate_if_match, evaluate_if_none_match, evaluate_if_range,
@@ -108,6 +111,10 @@ pub use response::{
     ResponseHeader, ResponseStatus, StaticResponsePlan,
 };
 pub use response_stream::MAX_RESPONSE_STREAM_CHUNK_BYTES;
+pub use trailers::{
+    is_forbidden_trailer_field, trailer_block_bytes, validate_trailers, TrailerLimits,
+    TrailerValidationError, Trailers, DEFAULT_MAX_TRAILER_BYTES, DEFAULT_MAX_TRAILER_FIELDS,
+};
 pub use version::{HttpVersion, HttpVersionError};
 
 #[cfg(test)]

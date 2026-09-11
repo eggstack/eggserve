@@ -25,7 +25,8 @@ use super::deferred_body::{spawn_body_timeout_watchdog, spawn_deferred_tracker};
 use super::lifecycle::ConnectionRequests;
 use super::lifecycle::LifecycleDisposition;
 use super::request::{
-    convert_request_head, select_body_policy, validate_body_framing, wrap_incoming_body,
+    convert_request_head, select_body_policy, validate_body_framing,
+    wrap_incoming_body_with_trailers,
 };
 use super::response::{
     apply_http1_disposition, body_error_disposition, body_error_to_response, contain_service_panic,
@@ -48,10 +49,50 @@ fn finish_response(
     }
 }
 
+/// H1 trailer negotiation policy (Plan 198 Track D).
+///
+/// - HTTP/1.0: trailers unavailable, always suppressed.
+/// - HTTP/1.1: trailers emitted only when the request indicates willingness
+///   via `TE: trailers` (case-insensitive token). Otherwise suppressed with
+///   diagnostics; the runtime never emits a `Trailer` header for suppressed
+///   responses.
+/// - HTTP/2, HTTP/3: protocol-native terminal fields, always allowed (H1
+///   negotiation artifacts omitted).
+///
+/// Application code never controls transfer coding: services declare trailers
+/// via `ResponseStream::with_trailers`, never by setting `Transfer-Encoding`
+/// or `Trailer` (both stripped as runtime-owned in normalization).
+fn h1_trailers_allowed(head: &crate::primitives::request_head::RequestHead) -> bool {
+    use crate::primitives::version::HttpVersion;
+    match head.version() {
+        HttpVersion::Http10 => false,
+        HttpVersion::Http11 => {
+            let Some(te) = head.headers().get_first("te") else {
+                return false;
+            };
+            let Ok(text) = te.to_str() else {
+                return false;
+            };
+            text.split(',')
+                .map(str::trim)
+                .any(|token| token.eq_ignore_ascii_case("trailers"))
+        }
+        HttpVersion::Http2 | HttpVersion::Http3 => true,
+    }
+}
+
 /// Execute the protocol-neutral service kernel after a body policy has
 /// prepared a canonical request. Body acquisition stays outside this helper;
 /// admission, panic containment, timeout, error conversion, normalization, and
 /// response conversion are deliberately shared by Reject, Buffer, and Stream.
+///
+/// Interim commitment is owned here: the request's interim sender (if any) is
+/// cloned before `Service::call` consumes the request and marked committed
+/// once the final outcome is known, so no interim can follow final commitment.
+/// H1 trailer policy is also owned here: responses carrying trailers are
+/// suppressed when the request version/TE forbids them (HTTP/1.0 never,
+/// H1.1 only with `TE: trailers`; H2/H3 always allow protocol-native terminal
+/// fields).
 #[allow(clippy::too_many_arguments)]
 async fn invoke_service<S>(
     guard: &mut InFlightGuard,
@@ -71,19 +112,44 @@ where
     S: Service + 'static,
 {
     if let Some(unavailable) = guard.admit(service_semaphore, conn_id, error_policy) {
+        // Admission rejection commits implicitly: no service ran, but mark
+        // interim committed so late sends cannot follow the 503.
+        if let Some(interim) = request.context().interim() {
+            interim.mark_committed();
+        }
         return unavailable;
     }
 
+    // Capture trailer policy + interim before the request moves into the service.
+    let trailer_allowed = h1_trailers_allowed(request.head());
+    let interim = request.context().interim().cloned();
     let result = tokio::time::timeout(timeout, contain_service_panic(service.call(request))).await;
+    // Final commitment: no interim after this point regardless of outcome.
+    if let Some(ref sender) = interim {
+        sender.mark_committed();
+    }
     match result {
-        Ok(Ok(canonical)) => normalize_then_convert(
-            canonical,
-            is_head,
-            file_stream_semaphore,
-            stream_chunk_size,
-            error_policy,
-            Some(ops),
-        ),
+        Ok(Ok(mut canonical)) => {
+            if canonical.has_response_trailers() && !trailer_allowed {
+                ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Debug,
+                        crate::ops::EventKind::ResponseTrailerSuppressed,
+                        "response trailers suppressed by H1 policy",
+                    )
+                    .connection_id(conn_id),
+                );
+                canonical.strip_response_trailers();
+            }
+            normalize_then_convert(
+                canonical,
+                is_head,
+                file_stream_semaphore,
+                stream_chunk_size,
+                error_policy,
+                Some(ops),
+            )
+        }
         Ok(Err(service_err)) => {
             let severity = if service_err.is_panic() || !service_err.is_timeout() {
                 crate::ops::Severity::Error
@@ -369,39 +435,64 @@ where
                 }
             }
 
-            // Reject Expect: 100-continue early — do not send an invitation
-            // to send a body that will be rejected.
-            if effective_policy.is_reject() {
-                if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
-                    if expect
-                        .to_str()
-                        .ok()
-                        .is_some_and(|value| value.trim().eq_ignore_ascii_case("100-continue"))
-                    {
-                        ops.counters()
-                            .body_rejections
-                            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                        ops.emit(
-                            crate::ops::Event::new(
-                                crate::ops::Severity::Debug,
-                                crate::ops::EventKind::BodyPolicyRejection,
-                                "100-continue rejected by body policy",
-                            )
-                            .connection_id(conn_id),
-                        );
-                        let response = crate::response::payload_too_large_with_policy(
-                            is_head,
-                            config.response_policy.error_policy,
-                        );
-                        return Ok::<_, Infallible>(finish_response(
-                            guard,
-                            response,
-                            &config,
-                            conn_id,
-                            is_h2,
-                            LifecycleDisposition::close_and_cancel_body(),
-                        ));
-                    }
+            // Expect handling (Plan 198 Track F): deterministic with body policy.
+            // - Unknown (non-100-continue) expectations fail with 417 without
+            //   inviting the body.
+            // - `Reject` + `100-continue` is rejected early (413) without
+            //   encouraging the client to send the body.
+            // - `Buffer`/`Stream` + `100-continue` is accepted: Hyper owns wire
+            //   `100` emission when the body is polled; EggServe owns the policy
+            //   decision. App-generated 100s via the interim capability never
+            //   duplicate the runtime `100` on the wire (interims are validated
+            //   and recorded; Hyper server APIs own emission where permitted).
+            if let Some(expect) = parts.headers.get(hyper::header::EXPECT) {
+                let value = expect.to_str().ok().map(str::trim).unwrap_or("");
+                if !value.eq_ignore_ascii_case("100-continue") && !value.is_empty() {
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::ExpectationFailed,
+                            "unknown Expect header",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    let response = crate::response::expectation_failed_with_policy(
+                        false,
+                        config.response_policy.error_policy,
+                    );
+                    return Ok::<_, Infallible>(finish_response(
+                        guard,
+                        response,
+                        &config,
+                        conn_id,
+                        is_h2,
+                        LifecycleDisposition::KEEP_ALIVE,
+                    ));
+                }
+                if effective_policy.is_reject() && value.eq_ignore_ascii_case("100-continue") {
+                    ops.counters()
+                        .body_rejections
+                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    ops.emit(
+                        crate::ops::Event::new(
+                            crate::ops::Severity::Debug,
+                            crate::ops::EventKind::BodyPolicyRejection,
+                            "100-continue rejected by body policy",
+                        )
+                        .connection_id(conn_id),
+                    );
+                    let response = crate::response::payload_too_large_with_policy(
+                        is_head,
+                        config.response_policy.error_policy,
+                    );
+                    return Ok::<_, Infallible>(finish_response(
+                        guard,
+                        response,
+                        &config,
+                        conn_id,
+                        is_h2,
+                        LifecycleDisposition::close_and_cancel_body(),
+                    ));
                 }
             }
 
@@ -464,14 +555,26 @@ where
             // `read_all()` and fails fast; `Stream` delegates to the handler
             // under `min(body_read_timeout, handler_timeout)` and fails lazily
             // as `RequestBody` is consumed — intentional behavioral difference.
+            // Trailers ride a wire slot populated only from protocol trailer
+            // frames (H1 chunked trailers, H2 terminal HEADERS); H1 without
+            // valid framing cannot inject.
             let request_body = match &effective_policy {
                 RequestBodyPolicy::Reject => crate::primitives::request_body::RequestBody::empty(),
                 RequestBodyPolicy::Buffer { max_bytes }
                 | RequestBodyPolicy::Stream { max_bytes } => {
-                    crate::primitives::request_body::RequestBody::from_incoming(
-                        wrap_incoming_body(body),
+                    let slot = crate::primitives::request_body::new_wire_slot();
+                    let (stream, slot) = wrap_incoming_body_with_trailers(body, slot);
+                    // Shared allocation so `RequestBody` and `RequestLifecycle`
+                    // observe the same ownership state.
+                    let shared = crate::primitives::request_lifecycle::RequestShared::new_active();
+                    // `requests` registry needs the shared observer; register
+                    // after construction below via the body's shared clone.
+                    crate::primitives::request_body::RequestBody::from_incoming_with_shared_and_wire_slot(
+                        stream,
                         declared_length,
                         *max_bytes,
+                        shared,
+                        slot,
                     )
                 }
             };
@@ -509,20 +612,28 @@ where
                 }
                 RequestBodyPolicy::Buffer { .. } => {
                     // Buffer: body is fully consumed during pre-buffering.
-                    // No incomplete body handling needed.
+                    // No incomplete body handling needed. Trailers are
+                    // preserved via `read_all_with_trailers` (not discarded).
                     let body_limit = match effective_policy {
                         RequestBodyPolicy::Buffer { max_bytes } => max_bytes,
                         _ => unreachable!("buffer branch requires a buffer policy"),
                     };
                     let request_body = match tokio::time::timeout(
                         body_read_timeout,
-                        request_body.read_all(),
+                        request_body.read_all_with_trailers(),
                     )
                     .await
                     {
-                        Ok(Ok(bytes)) => crate::primitives::request_body::RequestBody::from_bytes(
-                            bytes, body_limit,
-                        ),
+                        Ok(Ok((bytes, trailers))) => {
+                            match trailers {
+                                Some(t) => crate::primitives::request_body::RequestBody::from_bytes_with_trailers(
+                                    bytes, body_limit, t,
+                                ),
+                                None => crate::primitives::request_body::RequestBody::from_bytes(
+                                    bytes, body_limit,
+                                ),
+                            }
+                        }
                         Ok(Err(err)) => {
                             let disposition = body_error_disposition(&err);
                             return Ok::<_, Infallible>(finish_response(
