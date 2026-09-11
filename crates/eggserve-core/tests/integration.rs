@@ -22,12 +22,12 @@ use std::net::SocketAddr;
 use tempfile::TempDir;
 
 fn test_connection() -> ConnectionInfo {
-    ConnectionInfo {
-        local_addr: Some("127.0.0.1:8000".parse::<SocketAddr>().unwrap()),
-        remote_addr: Some("127.0.0.1:12345".parse::<SocketAddr>().unwrap()),
-        scheme: Scheme::Http,
-        tls: None,
-    }
+    ConnectionInfo::with_socket_addrs(
+        "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
+        "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+        Scheme::Http,
+        None,
+    )
 }
 
 fn make_request(method: Method, path: &str) -> Request {

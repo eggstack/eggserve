@@ -980,12 +980,12 @@ fn connection_info_construction() {
             None
         };
 
-        let info = ConnectionInfo {
-            local_addr: Some("127.0.0.1:8000".parse().unwrap()),
-            remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
+        let info = ConnectionInfo::with_socket_addrs(
+            "127.0.0.1:8000".parse().unwrap(),
+            "127.0.0.1:12345".parse().unwrap(),
             scheme,
             tls,
-        };
+        );
 
         assert_eq!(
             info.scheme == Scheme::Http,

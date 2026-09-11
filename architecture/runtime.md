@@ -114,7 +114,9 @@ the service wrapper, Tower/framework maps belong in the `http-interop`/`tower`
 adapters (Plan 200 implemented; see `docs/http-interop.md`). No
 raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
 `ConnectionInfo`/`TlsInfo` come from the observed transport only;
-`Forwarded`/`X-Forwarded-*` stay ordinary untrusted headers.
+`Forwarded`/`X-Forwarded-*` stay ordinary untrusted headers by default and
+populate provenance-tagged effective fields only under an explicit Plan 202
+trusted-proxy policy (raw peer/local endpoints are always preserved).
 
 `Request` exposes `context()` / `new_with_context()` /
 `into_parts_with_context()` for the forward-compatible path;
@@ -430,8 +432,10 @@ bidirectional async byte stream (`AsyncRead + AsyncWrite`), a canonical
   HTTP/3 QUIC sockets, `for_unix()` for Unix-domain streams (Unix only;
   plaintext, no IP endpoints), and `for_non_socket(scheme, tls)` for caller-owned
   streams. No I2P types, no `Any` map, no fabricated addresses.
-  `Forwarded`/`X-Forwarded-*` headers are ordinary untrusted headers, not part
-  of this type. Scheme and TLS are asserted by the caller.
+  `Forwarded`/`X-Forwarded-*` headers are ordinary untrusted headers by
+  default, not part of this type; a Plan 202 trusted-proxy policy may attach
+  a PROXY preamble result here via `with_proxy_endpoints` (raw endpoints
+  preserved). Scheme and TLS are asserted by the caller.
 - **`ConnectionShutdown`** — per-connection graceful-shutdown token, independent
   of `ServerHandle`. Shutdown is level-triggered and idempotent: once
   `shutdown()` is called, every current and future `cancelled()` waiter

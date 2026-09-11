@@ -121,12 +121,19 @@ server.wait()
 - `RuntimeConfig` is frozen and validated: bind/port, connection/in-flight/
   callback limits, body ceiling/mode, parser ceilings, all timeouts,
   `max_requests_per_connection` (`None` disables, `0` rejected), TLS files,
-  and the safe privacy subset (`server_header`, `date_policy`
+  the safe privacy subset (`server_header`, `date_policy`
   `system`/`suppress`, `stripped_response_headers`, `error_policy`
-  `minimal`/`empty`). Custom Rust clocks stay Rust-only. Projection to the
+  `minimal`/`empty`), and the Plan 202 trusted-proxy subset
+  (`trusted_proxies` IP/CIDR list with no implicit loopback trust,
+  `trust_unix_local`, `proxy_protocol` preamble mode, `forwarded_standard` /
+  `forwarded_legacy` header switches; all default to nothing trusted).
+  Custom Rust clocks stay Rust-only. Projection to the
   native constructor flows through the single `_native_kwargs()` helper;
   only Python-domain enum/`None` checks live in Python and Rust remains
-  the final limit authority.
+  the final limit authority. `Request` exposes `remote_addr` unchanged for
+  compatibility plus provenance-tagged `effective_addr`/`effective_address` /
+  `effective_scheme` / `effective_authority` / `proxy_provenance` /
+  `forwarded_provenance` (all `None`/absent without explicit trust).
 - `Response.stream(status, iterable, headers, content_length)` consumes a
   synchronous bytes iterable incrementally through a bounded 16-chunk bridge:
   backpressure stalls the iterator, `content_length` selects known-length

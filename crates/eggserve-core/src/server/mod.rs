@@ -57,6 +57,7 @@ pub mod handle;
 mod http3;
 pub mod lifecycle;
 pub mod listener;
+pub mod proxy;
 pub mod response_policy;
 pub mod service;
 pub mod static_service;
@@ -1283,6 +1284,201 @@ fn handle_tcp_accept<S: Service>(
             forwarder_shutdown.shutdown();
         });
 
+        // Plan 202 Track C: optional PROXY preamble before TLS/HTTP.
+        // Disabled listeners interpret bytes normally (existing path below
+        // unchanged). Enabled listeners require trust and a bounded preamble;
+        // malformed/untrusted input closes before TLS/HTTP and never reaches
+        // a service. Order: TCP accept -> PROXY -> TLS (optional) -> HTTP.
+        if config.trusted_proxy.proxy_protocol.enabled {
+            use std::sync::atomic::Ordering as ProxyOrdering;
+
+            if !config.trusted_proxy.is_trusted_peer(&remote_addr) {
+                conn_ops
+                    .counters()
+                    .proxy_rejected
+                    .fetch_add(1, ProxyOrdering::Relaxed);
+                conn_ops.emit(
+                    crate::ops::Event::new(
+                        crate::ops::Severity::Warn,
+                        crate::ops::EventKind::ProxyProtocolRejected,
+                        "proxy preamble rejected: untrusted peer",
+                    )
+                    .connection_id(conn_id)
+                    .field(crate::ops::Field::Str(
+                        "listener".into(),
+                        listener_id.into(),
+                    ))
+                    .field(crate::ops::Field::Str(
+                        "peer".into(),
+                        remote_addr.to_string(),
+                    ))
+                    .field(crate::ops::Field::Str(
+                        "category".into(),
+                        "untrusted_peer".into(),
+                    )),
+                );
+                return;
+            }
+
+            let mut tcp_stream = stream;
+            let (proxy_source, proxy_destination, proxy_kind, proxy_leftover) =
+                match crate::server::proxy::read_proxy_preamble(
+                    &mut tcp_stream,
+                    config.trusted_proxy.proxy_protocol.timeout,
+                )
+                .await
+                {
+                    Ok((endpoints, leftover)) => {
+                        conn_ops
+                            .counters()
+                            .proxy_accepted
+                            .fetch_add(1, ProxyOrdering::Relaxed);
+                        let effective = endpoints
+                            .source
+                            .map(|addr| addr.to_string())
+                            .unwrap_or_else(|| "none".to_owned());
+                        conn_ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Debug,
+                                crate::ops::EventKind::ProxyProtocolAccepted,
+                                format!("proxy preamble accepted ({})", endpoints.kind),
+                            )
+                            .connection_id(conn_id)
+                            .field(crate::ops::Field::Str(
+                                "listener".into(),
+                                listener_id.into(),
+                            ))
+                            .field(crate::ops::Field::Str(
+                                "peer".into(),
+                                remote_addr.to_string(),
+                            ))
+                            .field(crate::ops::Field::Str(
+                                "source".into(),
+                                endpoints.kind.as_str().to_owned(),
+                            ))
+                            .field(crate::ops::Field::Str("effective".into(), effective)),
+                        );
+                        (
+                            endpoints.source,
+                            endpoints.destination,
+                            endpoints.kind,
+                            leftover,
+                        )
+                    }
+                    Err(error) => {
+                        let category = match error {
+                            crate::server::proxy::ProxyReadError::Timeout => "timeout",
+                            crate::server::proxy::ProxyReadError::TooLong => "too_long",
+                            crate::server::proxy::ProxyReadError::Invalid => "invalid",
+                            crate::server::proxy::ProxyReadError::Io => "io",
+                        };
+                        conn_ops
+                            .counters()
+                            .proxy_rejected
+                            .fetch_add(1, ProxyOrdering::Relaxed);
+                        conn_ops.emit(
+                            crate::ops::Event::new(
+                                crate::ops::Severity::Warn,
+                                crate::ops::EventKind::ProxyProtocolRejected,
+                                format!("proxy preamble rejected: {category}"),
+                            )
+                            .connection_id(conn_id)
+                            .field(crate::ops::Field::Str(
+                                "listener".into(),
+                                listener_id.into(),
+                            ))
+                            .field(crate::ops::Field::Str(
+                                "peer".into(),
+                                remote_addr.to_string(),
+                            ))
+                            .field(crate::ops::Field::Str(
+                                "category".into(),
+                                category.to_owned(),
+                            )),
+                        );
+                        return;
+                    }
+                };
+
+            #[cfg(feature = "tls")]
+            {
+                if let Some(tls_config) = &config.tls_config {
+                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
+                    #[cfg(feature = "http2")]
+                    let h2_enabled = config.http2.enabled;
+                    #[cfg(not(feature = "http2"))]
+                    let h2_enabled = false;
+                    let prefixed = connection::driver::PrefixedIo::new(proxy_leftover, tcp_stream);
+                    match accept_tls(
+                        prefixed,
+                        &tls_acceptor,
+                        config.tls_handshake_timeout,
+                        h2_enabled,
+                        conn_id,
+                        &conn_ops,
+                    )
+                    .await
+                    {
+                        Some((tls_stream, tls_info, protocol)) => {
+                            conn_ops.emit(
+                                crate::ops::Event::new(
+                                    crate::ops::Severity::Debug,
+                                    crate::ops::EventKind::TlsHandshakeSuccess,
+                                    "TLS handshake completed",
+                                )
+                                .connection_id(conn_id),
+                            );
+                            let context = connection::ConnectionContext::for_tcp(
+                                local_addr_pre_tls,
+                                remote_addr,
+                                Some(tls_info),
+                            )
+                            .with_proxy_endpoints(
+                                proxy_source,
+                                proxy_destination,
+                                proxy_kind,
+                            );
+                            let _ = connection::serve_http_connection_with_id_and_protocol(
+                                tls_stream,
+                                ArcService(service),
+                                config.clone(),
+                                context,
+                                runtime_state.clone(),
+                                &conn_shutdown,
+                                conn_id,
+                                protocol,
+                            )
+                            .await;
+                            return;
+                        }
+                        None => {
+                            return;
+                        }
+                    }
+                }
+            }
+
+            // Cleartext (or TLS feature disabled) with replayed preamble bytes.
+            {
+                let prefixed = connection::driver::PrefixedIo::new(proxy_leftover, tcp_stream);
+                let context =
+                    connection::ConnectionContext::for_tcp(local_addr_pre_tls, remote_addr, None)
+                        .with_proxy_endpoints(proxy_source, proxy_destination, proxy_kind);
+                let _ = connection::serve_http_connection_with_id_and_protocol(
+                    prefixed,
+                    ArcService(service),
+                    config.clone(),
+                    context,
+                    runtime_state.clone(),
+                    &conn_shutdown,
+                    conn_id,
+                    connection::driver::WireProtocol::Auto,
+                )
+                .await;
+                return;
+            }
+        }
+
         #[cfg(feature = "tls")]
         {
             if let Some(tls_config) = &config.tls_config {
@@ -1451,19 +1647,26 @@ fn handle_unix_accept<S: Service>(
 /// Returns the TLS stream and TLS session metadata on success, or `None` if
 /// the handshake failed or timed out. Emits `TlsHandshakeFailure` or
 /// `TlsHandshakeTimeout` events on failure.
+///
+/// Generic over the transport so Plan 202 PROXY-preamble replay
+/// (`PrefixedIo<TcpStream>`) shares the same handshake path as plain
+/// `TcpStream` with no behavior change when PROXY is disabled.
 #[cfg(feature = "tls")]
-async fn accept_tls(
-    stream: tokio::net::TcpStream,
+async fn accept_tls<S>(
+    stream: S,
     tls_acceptor: &tokio_rustls::TlsAcceptor,
     timeout: std::time::Duration,
     h2_enabled: bool,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) -> Option<(
-    tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
+    tokio_rustls::server::TlsStream<S>,
     crate::primitives::connection_info::TlsInfo,
     connection::driver::WireProtocol,
-)> {
+)>
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
+{
     match tokio::time::timeout(timeout, tls_acceptor.accept(stream)).await {
         Ok(Ok(tls_stream)) => {
             let protocol = {
@@ -1538,9 +1741,12 @@ async fn accept_tls(
 
 /// Extract TLS session metadata from a completed TLS stream.
 #[cfg(feature = "tls")]
-fn extract_tls_info(
-    tls_stream: &tokio_rustls::server::TlsStream<tokio::net::TcpStream>,
-) -> crate::primitives::connection_info::TlsInfo {
+fn extract_tls_info<S>(
+    tls_stream: &tokio_rustls::server::TlsStream<S>,
+) -> crate::primitives::connection_info::TlsInfo
+where
+    S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
+{
     use crate::primitives::connection_info::TlsInfo;
 
     let (_io, conn) = tls_stream.get_ref();

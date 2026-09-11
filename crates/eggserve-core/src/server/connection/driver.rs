@@ -166,13 +166,16 @@ const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 /// An already-read protocol prefix replayed to Hyper before the underlying
 /// stream. The pre-read is necessary because Hyper's H1/H2 auto detector has
 /// no header-read timeout while it waits for the H2 preface.
-struct PrefixedIo<I> {
+///
+/// Also reused by the Plan 202 PROXY preamble path to replay bytes read
+/// beyond the preamble (e.g., the start of a TLS ClientHello) without loss.
+pub(crate) struct PrefixedIo<I> {
     prefix: Bytes,
     inner: I,
 }
 
 impl<I> PrefixedIo<I> {
-    fn new(prefix: Vec<u8>, inner: I) -> Self {
+    pub(crate) fn new(prefix: Vec<u8>, inner: I) -> Self {
         Self {
             prefix: Bytes::from(prefix),
             inner,

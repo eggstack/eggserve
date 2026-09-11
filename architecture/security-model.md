@@ -185,7 +185,7 @@ An attacker can:
 - Local privileged attacker modifying served files concurrently
 - Kernel or filesystem compromise
 - Malicious operator-provided root directory
-- Full reverse-proxy threat model
+- Full reverse-proxy threat model (a compromised edge proxy outside the explicit Plan 202 trust set remains untrusted; trusted-proxy mode only narrows the inbound metadata boundary, never forwards requests upstream)
 - TLS certificate lifecycle automation
 
 ## Platform Security

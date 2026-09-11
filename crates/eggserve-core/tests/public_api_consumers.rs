@@ -285,12 +285,12 @@ fn request_head_clone_preserves_values() {
 
 #[test]
 fn connection_info_construction() {
-    let info = ConnectionInfo {
-        local_addr: Some("127.0.0.1:8000".parse::<SocketAddr>().unwrap()),
-        remote_addr: Some("127.0.0.1:12345".parse::<SocketAddr>().unwrap()),
-        scheme: Scheme::Http,
-        tls: None,
-    };
+    let info = ConnectionInfo::with_socket_addrs(
+        "127.0.0.1:8000".parse::<SocketAddr>().unwrap(),
+        "127.0.0.1:12345".parse::<SocketAddr>().unwrap(),
+        Scheme::Http,
+        None,
+    );
     assert_eq!(info.local_addr.unwrap().port(), 8000);
     assert_eq!(info.remote_addr.unwrap().port(), 12345);
     assert_eq!(info.scheme, Scheme::Http);
@@ -299,15 +299,15 @@ fn connection_info_construction() {
 
 #[test]
 fn connection_info_with_tls() {
-    let info = ConnectionInfo {
-        local_addr: Some("0.0.0.0:443".parse::<SocketAddr>().unwrap()),
-        remote_addr: Some("10.0.0.1:54321".parse::<SocketAddr>().unwrap()),
-        scheme: Scheme::Https,
-        tls: Some(TlsInfo {
+    let info = ConnectionInfo::with_socket_addrs(
+        "0.0.0.0:443".parse::<SocketAddr>().unwrap(),
+        "10.0.0.1:54321".parse::<SocketAddr>().unwrap(),
+        Scheme::Https,
+        Some(TlsInfo {
             protocol_version: Some("TLSv1.3".to_string()),
             server_name: Some("example.com".to_string()),
         }),
-    };
+    );
     assert_eq!(info.scheme, Scheme::Https);
     let tls = info.tls.as_ref().unwrap();
     assert_eq!(tls.protocol_version.as_deref(), Some("TLSv1.3"));
@@ -328,12 +328,12 @@ fn scheme_display() {
 
 #[test]
 fn connection_info_equality() {
-    let a = ConnectionInfo {
-        local_addr: Some("127.0.0.1:8000".parse().unwrap()),
-        remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
-        scheme: Scheme::Http,
-        tls: None,
-    };
+    let a = ConnectionInfo::with_socket_addrs(
+        "127.0.0.1:8000".parse().unwrap(),
+        "127.0.0.1:12345".parse().unwrap(),
+        Scheme::Http,
+        None,
+    );
     let b = a.clone();
     assert_eq!(a, b);
 }

@@ -726,12 +726,12 @@ mod tests {
                 headers,
             ),
             crate::primitives::request_body::RequestBody::empty(),
-            crate::primitives::connection_info::ConnectionInfo {
-                local_addr: Some("127.0.0.1:8000".parse().unwrap()),
-                remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
-                scheme: crate::primitives::connection_info::Scheme::Http,
-                tls: None,
-            },
+            crate::primitives::connection_info::ConnectionInfo::with_socket_addrs(
+                "127.0.0.1:8000".parse().unwrap(),
+                "127.0.0.1:12345".parse().unwrap(),
+                crate::primitives::connection_info::Scheme::Http,
+                None,
+            ),
         )
     }
 
@@ -768,12 +768,12 @@ mod tests {
                 range_headers,
             ),
             crate::primitives::request_body::RequestBody::empty(),
-            crate::primitives::connection_info::ConnectionInfo {
-                local_addr: Some("127.0.0.1:8000".parse().unwrap()),
-                remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
-                scheme: crate::primitives::connection_info::Scheme::Http,
-                tls: None,
-            },
+            crate::primitives::connection_info::ConnectionInfo::with_socket_addrs(
+                "127.0.0.1:8000".parse().unwrap(),
+                "127.0.0.1:12345".parse().unwrap(),
+                crate::primitives::connection_info::Scheme::Http,
+                None,
+            ),
         );
         let range = service.call(range_request).await.unwrap();
         assert!(matches!(

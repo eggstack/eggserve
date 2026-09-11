@@ -49,6 +49,121 @@ fn finish_response(
     }
 }
 
+/// Apply trusted header-derived forwarding policy for one request (Plan 202 Track D).
+///
+/// Trust uses the immediate transport peer (`context.remote_addr`) or, for
+/// peer-less transports, the explicit `trust_unix` flag. Untrusted peers,
+/// disabled policy, conflicts, oversized chains, and malformed values all
+/// fail closed to the base connection (raw peer preserved). Accepted values
+/// enrich the provenance-tagged effective layer without rewriting the
+/// canonical Host/target.
+fn apply_forwarded_policy(
+    base: crate::primitives::connection_info::ConnectionInfo,
+    head: &crate::primitives::request_head::RequestHead,
+    config: &RuntimeConfig,
+    context: &ConnectionContext,
+    conn_id: u64,
+    ops: &crate::ops::OpsContext,
+) -> crate::primitives::connection_info::ConnectionInfo {
+    use crate::primitives::proxy::{derive_forwarded_effective, ForwardedRejection};
+
+    if config.trusted_proxy.forwarded.is_disabled() {
+        return base;
+    }
+    let trusted_peer = match context.remote_addr {
+        Some(peer) => config.trusted_proxy.is_trusted_peer(&peer),
+        None => config.trusted_proxy.trust_unix,
+    };
+    match derive_forwarded_effective(
+        head.headers(),
+        &config.trusted_proxy.forwarded,
+        trusted_peer,
+    ) {
+        Ok(None) => base,
+        Ok(Some(effective)) => {
+            ops.counters()
+                .forwarded_accepted
+                .fetch_add(1, Ordering::Relaxed);
+            let effective_client = effective
+                .client
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "none".to_owned());
+            let effective_scheme = effective
+                .scheme
+                .map(|scheme| scheme.as_str().to_owned())
+                .unwrap_or_else(|| "none".to_owned());
+            let effective_authority = effective
+                .authority
+                .as_ref()
+                .map(|authority| authority.as_str().to_owned())
+                .unwrap_or_else(|| "none".to_owned());
+            let peer = context
+                .remote_addr
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "unix-or-opaque".to_owned());
+            ops.emit(
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::ForwardedMetadataAccepted,
+                    format!("forwarded metadata accepted ({})", effective.provenance),
+                )
+                .connection_id(conn_id)
+                .field(crate::ops::Field::Str("peer".into(), peer))
+                .field(crate::ops::Field::Str(
+                    "source".into(),
+                    effective.provenance.as_str().to_owned(),
+                ))
+                .field(crate::ops::Field::Str(
+                    "effective_client".into(),
+                    effective_client,
+                ))
+                .field(crate::ops::Field::Str(
+                    "effective_scheme".into(),
+                    effective_scheme,
+                ))
+                .field(crate::ops::Field::Str(
+                    "effective_authority".into(),
+                    effective_authority,
+                )),
+            );
+            base.with_forwarded_effective(&effective)
+        }
+        Err(rejection) => {
+            ops.counters()
+                .forwarded_rejected
+                .fetch_add(1, Ordering::Relaxed);
+            let (severity, category) = match rejection {
+                ForwardedRejection::UntrustedPeer => {
+                    (crate::ops::Severity::Debug, "untrusted_peer")
+                }
+                ForwardedRejection::Disabled => (crate::ops::Severity::Debug, "disabled"),
+                ForwardedRejection::Conflict => (crate::ops::Severity::Warn, "conflict"),
+                ForwardedRejection::TooLarge => (crate::ops::Severity::Warn, "too_large"),
+                ForwardedRejection::TooMany => (crate::ops::Severity::Warn, "too_many"),
+                ForwardedRejection::Invalid => (crate::ops::Severity::Warn, "invalid"),
+            };
+            let peer = context
+                .remote_addr
+                .map(|addr| addr.to_string())
+                .unwrap_or_else(|| "unix-or-opaque".to_owned());
+            ops.emit(
+                crate::ops::Event::new(
+                    severity,
+                    crate::ops::EventKind::ForwardedMetadataRejected,
+                    format!("forwarded metadata rejected: {category}"),
+                )
+                .connection_id(conn_id)
+                .field(crate::ops::Field::Str("peer".into(), peer))
+                .field(crate::ops::Field::Str(
+                    "category".into(),
+                    category.to_owned(),
+                )),
+            );
+            base
+        }
+    }
+}
+
 /// H1 trailer negotiation policy (Plan 198 Track D).
 ///
 /// - HTTP/1.0: trailers unavailable, always suppressed.
@@ -454,6 +569,18 @@ where
             let is_head = head.method().is_head();
             let is_h2 = head.version() == crate::primitives::version::HttpVersion::Http2;
 
+            // Plan 202 Track D: trusted header-derived effective metadata.
+            // Raw peer/local endpoints stay preserved in `context`; accepted
+            // values populate the provenance-tagged effective layer only.
+            let connection_template = apply_forwarded_policy(
+                context.connection_info(),
+                &head,
+                &config,
+                &context,
+                conn_id,
+                &ops,
+            );
+
             // Select effective body policy.
             let service_policy = service.request_body_policy(&head);
             let effective_policy = select_body_policy(service_policy, max_body_bytes);
@@ -713,7 +840,7 @@ where
             // For Buffer policy, pre-buffer the body under timeout.
             match &effective_policy {
                 RequestBodyPolicy::Reject => {
-                    let connection = context.connection_info();
+                    let connection = connection_template.clone();
                     requests.register(&request_body.shared());
                     let request = match tunnel_capability.take() {
                         Some(cap) => {
@@ -823,7 +950,7 @@ where
                             ));
                         }
                     };
-                    let connection = context.connection_info();
+                    let connection = connection_template.clone();
                     requests.register(&request_body.shared());
                     let request = match tunnel_capability.take() {
                         Some(cap) => {
@@ -884,7 +1011,7 @@ where
                     // Total body deadline from ingestion start for the
                     // post-return watchdog.
                     let body_deadline = tokio::time::Instant::now() + body_read_timeout;
-                    let connection = context.connection_info();
+                    let connection = connection_template.clone();
                     // Shared lifecycle observer retained by the runtime while
                     // the service owns/moves the actual body (Track A/B1).
                     let body_shared = request_body.shared();

@@ -8,6 +8,7 @@
 use std::sync::Arc;
 
 use crate::primitives::connection_info::{Scheme, SocketEndpoints, TlsInfo};
+use crate::primitives::proxy::ProxySourceKind;
 
 /// Trustworthy per-connection transport description supplied by the caller.
 ///
@@ -22,8 +23,11 @@ use crate::primitives::connection_info::{Scheme, SocketEndpoints, TlsInfo};
 /// No I2P `Destination`, tunnel IDs, router identities, or LeaseSet types
 /// enter EggServe. If downstream code needs peer identity it retains that
 /// identity outside EggServe and associates it with its own service
-/// wrapper/session state. Forwarded/`X-Forwarded-*` values remain ordinary
-/// untrusted HTTP headers.
+/// wrapper/session state. `Forwarded`/`X-Forwarded-*` values are ordinary
+/// untrusted headers unless a Plan 202 trusted-proxy policy explicitly
+/// trusts the immediate peer; trusted values populate the provenance-tagged
+/// effective layer on [`crate::primitives::connection_info::ConnectionInfo`]
+/// and never overwrite raw endpoints.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionContext {
     /// Local socket address when the transport has one.
@@ -34,6 +38,12 @@ pub struct ConnectionContext {
     pub scheme: Scheme,
     /// TLS session metadata when EggServe knows the session.
     pub tls: Option<TlsInfo>,
+    /// Proxy-reported source from a trusted PROXY preamble, if accepted.
+    pub proxy_source: Option<std::net::SocketAddr>,
+    /// Proxy-reported destination from a trusted PROXY preamble, if accepted.
+    pub proxy_destination: Option<std::net::SocketAddr>,
+    /// Which PROXY preamble version was accepted, if any.
+    pub proxy_provenance: Option<ProxySourceKind>,
 }
 
 impl ConnectionContext {
@@ -49,6 +59,9 @@ impl ConnectionContext {
             remote_addr,
             scheme,
             tls,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
         }
     }
 
@@ -68,6 +81,9 @@ impl ConnectionContext {
             remote_addr: Some(remote_addr),
             scheme,
             tls,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
         }
     }
 
@@ -87,6 +103,9 @@ impl ConnectionContext {
             remote_addr: Some(remote_addr),
             scheme: Scheme::Https,
             tls: Some(tls),
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
         }
     }
 
@@ -99,6 +118,9 @@ impl ConnectionContext {
             remote_addr: None,
             scheme,
             tls,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
         }
     }
 
@@ -116,7 +138,26 @@ impl ConnectionContext {
             remote_addr: None,
             scheme: Scheme::Http,
             tls: None,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
         }
+    }
+
+    /// Attach a trusted PROXY preamble result (runtime accept path only).
+    ///
+    /// Records provenance even when `source`/`destination` are `None`
+    /// (`LOCAL`/`UNKNOWN`/`UNSPEC`/UNIX truthful absence).
+    pub fn with_proxy_endpoints(
+        mut self,
+        source: Option<std::net::SocketAddr>,
+        destination: Option<std::net::SocketAddr>,
+        kind: ProxySourceKind,
+    ) -> Self {
+        self.proxy_source = source;
+        self.proxy_destination = destination;
+        self.proxy_provenance = Some(kind);
+        self
     }
 
     /// Paired socket endpoints when both addresses are present.
@@ -133,13 +174,29 @@ impl ConnectionContext {
     }
 
     /// Convert into the per-request [`crate::primitives::connection_info::ConnectionInfo`].
+    ///
+    /// Preserves raw endpoints and carries the accepted PROXY layer into
+    /// the effective layer (`effective_client` starts as the PROXY source;
+    /// header-derived forwarding may add scheme/authority later but never
+    /// overrides a PROXY client).
     pub fn connection_info(&self) -> crate::primitives::connection_info::ConnectionInfo {
-        crate::primitives::connection_info::ConnectionInfo {
+        let mut info = crate::primitives::connection_info::ConnectionInfo {
             local_addr: self.local_addr,
             remote_addr: self.remote_addr,
             scheme: self.scheme,
             tls: self.tls.clone(),
-        }
+            proxy_source: self.proxy_source,
+            proxy_destination: self.proxy_destination,
+            proxy_provenance: self.proxy_provenance,
+            effective_client: self.proxy_source,
+            effective_scheme: None,
+            effective_authority: None,
+            forwarded_provenance: None,
+        };
+        // When the preamble carried no source (LOCAL/UNKNOWN), effective
+        // stays absent (truthful); `proxy_provenance` still records acceptance.
+        let _ = &mut info;
+        info
     }
 }
 

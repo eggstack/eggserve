@@ -364,6 +364,15 @@ pub struct RuntimeConfig {
     /// (siblings survive). Exhaustion fails new handshakes with 503.
     /// Default: 64.
     pub max_active_tunnels: usize,
+    /// Trusted proxy policy (Plan 202).
+    ///
+    /// Defaults trust nothing: no peer is trusted (loopback included),
+    /// Unix requires explicit `trust_unix`, PROXY parsing is disabled, and
+    /// header-derived forwarding is disabled. When enabled, PROXY preambles
+    /// are read before TLS/HTTP only from trusted peers, and `Forwarded` /
+    /// `X-Forwarded-*` populate provenance-tagged effective fields without
+    /// rewriting the canonical Host/target. H3 ignores this policy.
+    pub trusted_proxy: crate::primitives::proxy::TrustedProxyConfig,
     /// HTTP/2 transport policy and resource limits. Present only in builds
     /// compiled with the `http2` feature.
     #[cfg(feature = "http2")]
@@ -410,6 +419,7 @@ impl Default for RuntimeConfig {
             max_requests_per_connection: None,
             response_write_timeout: rl::DEFAULT_RESPONSE_WRITE_TIMEOUT,
             max_active_tunnels: rl::DEFAULT_MAX_ACTIVE_TUNNELS,
+            trusted_proxy: crate::primitives::proxy::TrustedProxyConfig::default(),
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
             #[cfg(feature = "http3")]
@@ -457,6 +467,7 @@ impl RuntimeConfig {
             max_requests_per_connection: None,
             response_write_timeout: None,
             max_active_tunnels: None,
+            trusted_proxy: None,
             #[cfg(feature = "http2")]
             http2: None,
             #[cfg(feature = "http3")]
@@ -500,6 +511,9 @@ impl RuntimeConfig {
         }
         self.response_policy.validate().map_err(|e| {
             crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
+        })?;
+        self.trusted_proxy.validate().map_err(|e| {
+            crate::server::errors::ServerError::Config(format!("invalid trusted_proxy: {e}"))
         })?;
         #[cfg(feature = "http2")]
         if self.http2.enabled {
@@ -548,6 +562,7 @@ impl RuntimeConfig {
             max_requests_per_connection: shared.max_requests_per_connection,
             response_write_timeout: shared.response_write_timeout,
             max_active_tunnels: shared.max_active_tunnels,
+            trusted_proxy: crate::primitives::proxy::TrustedProxyConfig::default(),
             #[cfg(feature = "http2")]
             http2: Http2Config::default(),
             #[cfg(feature = "http3")]
@@ -587,6 +602,7 @@ pub struct RuntimeConfigBuilder {
     max_requests_per_connection: Option<Option<u64>>,
     response_write_timeout: Option<Duration>,
     max_active_tunnels: Option<usize>,
+    trusted_proxy: Option<crate::primitives::proxy::TrustedProxyConfig>,
     #[cfg(feature = "http2")]
     http2: Option<Http2Config>,
     #[cfg(feature = "http3")]
@@ -808,6 +824,67 @@ impl RuntimeConfigBuilder {
         self
     }
 
+    /// Set the complete trusted-proxy policy (Plan 202).
+    ///
+    /// Defaults trust nothing. Use this for explicit `TrustedProxyConfig`
+    /// values; the convenience setters below mutate the same policy.
+    pub fn trusted_proxy(mut self, config: crate::primitives::proxy::TrustedProxyConfig) -> Self {
+        self.trusted_proxy = Some(config);
+        self
+    }
+
+    fn trusted_proxy_mut(&mut self) -> &mut crate::primitives::proxy::TrustedProxyConfig {
+        if self.trusted_proxy.is_none() {
+            self.trusted_proxy = Some(crate::primitives::proxy::TrustedProxyConfig::default());
+        }
+        self.trusted_proxy.as_mut().expect("just initialized")
+    }
+
+    /// Trust one immediate peer (`IP` or `IP/prefix`, no DNS).
+    ///
+    /// Repeatable via chaining. Loopback must be listed explicitly; it is
+    /// never implicitly trusted. Invalid entries fail at [`Self::build`].
+    pub fn trusted_proxy_peer(mut self, prefix: crate::primitives::proxy::IpPrefix) -> Self {
+        self.trusted_proxy_mut().peers.push(prefix);
+        self
+    }
+
+    /// Trust Unix-domain listeners for header-derived forwarding.
+    ///
+    /// Never implicit. PROXY preambles are not read from Unix streams.
+    pub fn trust_unix_local(mut self, trust: bool) -> Self {
+        self.trusted_proxy_mut().trust_unix = trust;
+        self
+    }
+
+    /// Enable or disable PROXY protocol preamble parsing (default disabled).
+    ///
+    /// When enabled, only explicitly trusted peers may send a preamble;
+    /// all other peers close before TLS/HTTP. Disabled listeners interpret
+    /// bytes normally with no auto-detection.
+    pub fn proxy_protocol_enabled(mut self, enabled: bool) -> Self {
+        self.trusted_proxy_mut().proxy_protocol.enabled = enabled;
+        self
+    }
+
+    /// Set the PROXY preamble read timeout (default 5s, max 60s).
+    pub fn proxy_protocol_timeout(mut self, timeout: Duration) -> Self {
+        self.trusted_proxy_mut().proxy_protocol.timeout = timeout;
+        self
+    }
+
+    /// Honor the standardized `Forwarded` header from trusted peers.
+    pub fn forwarded_standard(mut self, enabled: bool) -> Self {
+        self.trusted_proxy_mut().forwarded.standard_enabled = enabled;
+        self
+    }
+
+    /// Honor legacy `X-Forwarded-*` headers from trusted peers.
+    pub fn forwarded_legacy(mut self, enabled: bool) -> Self {
+        self.trusted_proxy_mut().forwarded.legacy_enabled = enabled;
+        self
+    }
+
     /// Set the HTTP/2 transport policy and resource limits.
     #[cfg(feature = "http2")]
     pub fn http2(mut self, config: Http2Config) -> Self {
@@ -903,6 +980,10 @@ impl RuntimeConfigBuilder {
         response_policy.validate().map_err(|e| {
             crate::server::errors::ServerError::Config(format!("invalid response_policy: {e}"))
         })?;
+        let trusted_proxy = self.trusted_proxy.unwrap_or_default();
+        trusted_proxy.validate().map_err(|e| {
+            crate::server::errors::ServerError::Config(format!("invalid trusted_proxy: {e}"))
+        })?;
         #[cfg(feature = "http2")]
         let http2 = self.http2.unwrap_or_default();
         #[cfg(feature = "http2")]
@@ -941,6 +1022,7 @@ impl RuntimeConfigBuilder {
             max_requests_per_connection: shared.max_requests_per_connection,
             response_write_timeout: shared.response_write_timeout,
             max_active_tunnels: shared.max_active_tunnels,
+            trusted_proxy,
             #[cfg(feature = "http2")]
             http2,
             #[cfg(feature = "http3")]

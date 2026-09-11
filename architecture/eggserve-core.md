@@ -44,12 +44,15 @@ planning without opening a socket. They are compiled by `scripts/verify.sh full`
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical.rs` | **pub** | `StatusCode`, `ResponseHead`, `ResponseBody`, `Response`, `normalize_response`, `normalize_metadata`, `to_hyper_response` — canonical response types and normalization |
+| `primitives/connection_info.rs` | **pub** | `ConnectionInfo` raw peer/local plus Plan 202 effective layer (`proxy_source`/`proxy_destination`/`proxy_provenance`, `effective_client`/`effective_scheme`/`effective_authority`/`forwarded_provenance`) |
+| `primitives/proxy.rs` | **pub** | Plan 202 policy and bounded parsers (`IpPrefix`, `ProxySourceKind`, `TrustedProxyConfig`/`ProxyProtocolConfig`/`ForwardedConfig`, PROXY v1/v2, `Forwarded`/`X-Forwarded-*` single-hop) |
 
 | `server/` | **pub** (experimental) | Runtime service boundary: `Server`, `ServerBuilder`, `ServerHandle`, `RuntimeConfig`, feature-gated `Http2Config`/`Http3Config`, `Service` trait, `service_fn`, `StaticService`, `ServiceError`, `ServerError`; re-exports strict `serve_http1_connection` and feature-gated `serve_http_connection` plus connection context/outcome types |
 | `server/lifecycle.rs` | **pub** (experimental) | `LifecycleState` — lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed) |
 | `server/connection/` | **pub** (experimental) | Transport-neutral driver facade (`mod.rs`: strict H1 entry points, feature-gated H1/H2 `serve_http_connection`, and internal protocol-selected entry); per-connection H1/H2 handling, body ingestion |
 | `server/http3.rs` | **internal** (`http3`) | Quinn endpoint lifecycle and h3 request/response adapter; canonical metadata/body/service/response policy boundary |
-| `server/connection/context.rs` | pub via facade | `ConnectionContext`, `ConnectionShutdown` (level-triggered, idempotent), `ConnectionOutcome` |
+| `server/connection/context.rs` | pub via facade | `ConnectionContext`, `ConnectionShutdown` (level-triggered, idempotent), `ConnectionOutcome`; `ConnectionContext` carries an optional Plan 202 PROXY layer (`proxy_source`/`proxy_destination`/`proxy_provenance` via `with_proxy_endpoints`) |
+| `server/proxy.rs` | pub(crate) | Plan 202 PROXY preamble reader: bounded timeout-protected `read_proxy_preamble` before TLS/HTTP with leftover replay (`PrefixedIo`); `LOCAL`/`UNKNOWN`/`UNSPEC`/UNIX truthful absence; TLVs ignored bounded |
 | `server/connection/lifecycle.rs` | pub(crate) | `ConnectionRequests` live-request registry + abnormal-termination cancellation |
 | `server/connection/activity.rs` | pub(crate) | `ConnectionActivity` deadlines state, `InFlightGuard` admission guard, `TrackedBody` completion tracking |
 | `server/connection/transport.rs` | pub(crate) | `ProgressIo` read/write progress observation |

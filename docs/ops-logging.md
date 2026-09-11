@@ -133,6 +133,10 @@ Each element is an object with a single key-value pair. Values preserve their ty
 | `connection_total_timeout` | WARN | Total connection lifetime exceeded |
 | `client_disconnect` | DEBUG | Client disconnected |
 | `connection_panic` | ERROR | Handler panic contained |
+| `proxy_protocol_accepted` | DEBUG | Trusted PROXY preamble accepted (fields: `listener`, `peer`, `source`=`proxy_v1`/`proxy_v2`, sanitized `effective`; no preamble bytes/TLVs) |
+| `proxy_protocol_rejected` | WARN | PROXY preamble rejected before TLS/HTTP (fields: `listener`, `peer`, `category`=`untrusted_peer`/`timeout`/`too_long`/`invalid`/`io`; never reaches a service) |
+| `forwarded_metadata_accepted` | DEBUG | Trusted header metadata accepted (fields: `peer`, `source`=`forwarded`/`legacy_forwarded`, sanitized `effective_client`/`effective_scheme`/`effective_authority`; canonical Host/target never rewritten) |
+| `forwarded_metadata_rejected` | DEBUG/WARN | Header metadata rejected, remains untrusted (`untrusted_peer`/`disabled` at DEBUG; `conflict`/`too_large`/`too_many`/`invalid` at WARN; full chains never logged) |
 
 ### Request/service
 
@@ -218,6 +222,10 @@ point-in-time snapshot of one runtime's counters
 | `tunnels_rejected` | Tunnel handshakes refused by `max_active_tunnels` (503) |
 | `active_tunnels` | Currently active duplex tunnels |
 | `tunnel_upgrade_failures` | Transport upgrade failures after admission (peer gone, no `OnUpgrade`) |
+| `proxy_accepted` | Trusted PROXY preambles accepted |
+| `proxy_rejected` | PROXY preambles rejected (untrusted/malformed/oversized/slow) |
+| `forwarded_accepted` | Trusted header metadata accepted |
+| `forwarded_rejected` | Header metadata rejected, remains untrusted |
 
 ## Troubleshooting
 

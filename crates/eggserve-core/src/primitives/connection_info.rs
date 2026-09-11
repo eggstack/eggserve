@@ -7,6 +7,9 @@
 use std::fmt;
 use std::net::SocketAddr;
 
+use crate::primitives::authority::Authority;
+use crate::primitives::proxy::ProxySourceKind;
+
 /// TLS metadata for a connection.
 ///
 /// Contains information about the TLS session, if any. Bounded to
@@ -36,9 +39,16 @@ pub struct SocketEndpoints {
 
 /// Immutable connection metadata for an HTTP request.
 ///
-/// Values come from the actual transport. `Forwarded` and
-/// `X-Forwarded-*` headers are ordinary untrusted headers and are not
-/// part of this type.
+/// Raw transport peer/local endpoints are always preserved. Trusted
+/// proxy-reported values (Plan 202) populate a separate provenance-tagged
+/// effective layer and never overwrite the raw endpoints.
+///
+/// `Forwarded` and `X-Forwarded-*` headers are ordinary untrusted headers by
+/// default; they populate trusted fields only when an explicit
+/// [`crate::primitives::proxy::TrustedProxyConfig`] trusts the immediate
+/// peer. The canonical `Host`/request-target is never silently rewritten;
+/// trusted authority populates [`ConnectionInfo::effective_authority`] for
+/// the downstream application to use explicitly.
 ///
 /// # Socket endpoints
 ///
@@ -52,10 +62,10 @@ pub struct SocketEndpoints {
 ///
 /// # Separation from headers
 ///
-/// Connection metadata is never mixed into request headers. Callers who
-/// need proxy-trusted values should read `Forwarded` or
-/// `X-Forwarded-*` headers separately and validate them according to
-/// their trust model.
+/// Connection metadata is never mixed into request headers. Untrusted
+/// deployments should keep reading `Forwarded` or `X-Forwarded-*` headers
+/// separately under their own trust model; trusted deployments read the
+/// effective accessors below.
 ///
 /// # Migration (Plan 163)
 ///
@@ -63,6 +73,13 @@ pub struct SocketEndpoints {
 /// fields. They are now `Option<SocketAddr>`: wrap TCP addresses in
 /// `Some(..)` and use `None` for non-socket transports. Prefer the
 /// constructors below over struct literals.
+///
+/// # Migration (Plan 202)
+///
+/// New provenance-tagged effective fields default to `None` (no trusted
+/// proxy metadata). Existing constructors preserve that default; struct
+/// literals must add `..Default::default()`-style fields or use the
+/// constructors. `Clone`/`PartialEq` include the new fields.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionInfo {
     /// The local socket address, when the transport has one.
@@ -77,6 +94,29 @@ pub struct ConnectionInfo {
     /// stream carrying HTTP) leave this as `None` unless the caller
     /// explicitly terminates HTTPS on the stream.
     pub tls: Option<TlsInfo>,
+    /// Proxy-reported source endpoint from a trusted PROXY preamble, if any.
+    ///
+    /// `None` for `LOCAL`/`UNKNOWN`/`UNSPEC`/UNIX (truthful absence) and
+    /// when no preamble was accepted. Never replaces [`Self::remote_addr`].
+    pub proxy_source: Option<SocketAddr>,
+    /// Proxy-reported destination endpoint from a trusted PROXY preamble.
+    pub proxy_destination: Option<SocketAddr>,
+    /// Which PROXY preamble version populated the proxy layer, if any.
+    pub proxy_provenance: Option<ProxySourceKind>,
+    /// Final effective client endpoint (PROXY wins over header-derived).
+    ///
+    /// `None` means no trusted override; use [`Self::remote_addr`].
+    /// Ports are `0` when a header carried an IP without a port.
+    pub effective_client: Option<SocketAddr>,
+    /// Trusted external scheme override (from header policy only; PROXY
+    /// carries no scheme). `None` means use [`Self::scheme`].
+    pub effective_scheme: Option<Scheme>,
+    /// Trusted external authority override (from header policy only).
+    /// `None` means use the canonical request authority. Never rewrites the
+    /// request target/Host by itself.
+    pub effective_authority: Option<Authority>,
+    /// Which header family populated the forwarded layer, if any.
+    pub forwarded_provenance: Option<ProxySourceKind>,
 }
 
 impl ConnectionInfo {
@@ -86,6 +126,8 @@ impl ConnectionInfo {
     /// callers must pass `None` for both; half-present endpoints are
     /// collapsed to `None` by [`ConnectionInfo::socket_endpoints`] and
     /// reported as absent by [`ConnectionInfo::has_socket_endpoints`].
+    ///
+    /// Trusted proxy layers default to absent (`None` provenance).
     pub fn new(
         local_addr: Option<SocketAddr>,
         remote_addr: Option<SocketAddr>,
@@ -97,6 +139,13 @@ impl ConnectionInfo {
             remote_addr,
             scheme,
             tls,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
+            effective_client: None,
+            effective_scheme: None,
+            effective_authority: None,
+            forwarded_provenance: None,
         }
     }
 
@@ -112,6 +161,13 @@ impl ConnectionInfo {
             remote_addr: Some(remote_addr),
             scheme,
             tls,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
+            effective_client: None,
+            effective_scheme: None,
+            effective_authority: None,
+            forwarded_provenance: None,
         }
     }
 
@@ -126,7 +182,59 @@ impl ConnectionInfo {
             remote_addr: None,
             scheme,
             tls,
+            proxy_source: None,
+            proxy_destination: None,
+            proxy_provenance: None,
+            effective_client: None,
+            effective_scheme: None,
+            effective_authority: None,
+            forwarded_provenance: None,
         }
+    }
+
+    /// Attach a trusted PROXY preamble result (runtime only).
+    ///
+    /// `source`/`destination` may both be `None` for `LOCAL`/`UNKNOWN`/
+    /// `UNSPEC`/UNIX (truthful absence); provenance is still recorded so
+    /// observability can distinguish "preamble accepted, no identity" from
+    /// "no preamble". Also populates [`Self::effective_client`] when the
+    /// preamble carries a source and no effective client is set yet (PROXY
+    /// wins over later header-derived values).
+    pub fn with_proxy_endpoints(
+        mut self,
+        source: Option<SocketAddr>,
+        destination: Option<SocketAddr>,
+        kind: ProxySourceKind,
+    ) -> Self {
+        self.proxy_source = source;
+        self.proxy_destination = destination;
+        self.proxy_provenance = Some(kind);
+        if self.effective_client.is_none() {
+            self.effective_client = source;
+        }
+        self
+    }
+
+    /// Attach trusted header-derived effective metadata (runtime only).
+    ///
+    /// PROXY-derived [`Self::effective_client`] wins when already present;
+    /// scheme/authority always come from the header layer. Provenance is
+    /// recorded separately from [`Self::proxy_provenance`].
+    pub fn with_forwarded_effective(
+        mut self,
+        effective: &crate::primitives::proxy::ForwardedEffective,
+    ) -> Self {
+        if self.effective_client.is_none() {
+            self.effective_client = effective.client;
+        }
+        if self.effective_scheme.is_none() {
+            self.effective_scheme = effective.scheme;
+        }
+        if self.effective_authority.is_none() {
+            self.effective_authority = effective.authority.clone();
+        }
+        self.forwarded_provenance = Some(effective.provenance);
+        self
     }
 
     /// Paired socket endpoints when both addresses are present.
@@ -140,6 +248,26 @@ impl ConnectionInfo {
     /// Returns `true` when both socket endpoints are present.
     pub fn has_socket_endpoints(&self) -> bool {
         self.local_addr.is_some() && self.remote_addr.is_some()
+    }
+
+    /// Final effective client endpoint: trusted override if present, else raw peer.
+    pub fn effective_client_addr(&self) -> Option<SocketAddr> {
+        self.effective_client.or(self.remote_addr)
+    }
+
+    /// Final effective scheme: trusted override if present, else direct scheme.
+    pub fn effective_scheme_value(&self) -> Scheme {
+        self.effective_scheme.unwrap_or(self.scheme)
+    }
+
+    /// Trusted external authority override, if accepted.
+    pub fn effective_authority_value(&self) -> Option<&Authority> {
+        self.effective_authority.as_ref()
+    }
+
+    /// Returns `true` when any trusted proxy layer was accepted.
+    pub fn has_trusted_proxy_metadata(&self) -> bool {
+        self.proxy_provenance.is_some() || self.forwarded_provenance.is_some()
     }
 }
 

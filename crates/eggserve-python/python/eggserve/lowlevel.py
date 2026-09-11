@@ -124,6 +124,19 @@ class RuntimeConfig:
     date_policy: str = "system"
     stripped_response_headers: tuple = ()
     error_policy: str = "minimal"
+    # Plan 202 trusted-proxy policy (safe defaults: nothing trusted).
+    # `trusted_proxies` lists exact IPs/CIDRs trusted as immediate peers
+    # (loopback included only when listed explicitly; no DNS). `proxy_protocol`
+    # enables HAProxy PROXY v1/v2 preamble parsing before TLS/HTTP (only from
+    # trusted peers). `forwarded_standard`/`forwarded_legacy` honor
+    # `Forwarded` / `X-Forwarded-*` from trusted peers into
+    # provenance-tagged effective fields (`effective_*` on Request);
+    # `remote_addr` never changes for compatibility.
+    trusted_proxies: tuple = ()
+    trust_unix_local: bool = False
+    proxy_protocol: bool = False
+    forwarded_standard: bool = False
+    forwarded_legacy: bool = False
 
     def __post_init__(self) -> None:
         if self.request_body_mode not in ("reject", "buffer", "stream"):
@@ -174,6 +187,11 @@ class RuntimeConfig:
             "date_policy": self.date_policy,
             "stripped_response_headers": list(self.stripped_response_headers),
             "error_policy": self.error_policy,
+            "trusted_proxies": list(self.trusted_proxies),
+            "trust_unix_local": self.trust_unix_local,
+            "proxy_protocol": self.proxy_protocol,
+            "forwarded_standard": self.forwarded_standard,
+            "forwarded_legacy": self.forwarded_legacy,
         }
 
 

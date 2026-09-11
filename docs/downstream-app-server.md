@@ -70,7 +70,9 @@ downstream responsibility.
   executor handle is exposed here.
 - `ConnectionInfo` / `TlsInfo` come from the observed transport or the
   explicit caller-owned `ConnectionContext`. `Forwarded` / `X-Forwarded-*`
-  stay ordinary untrusted headers and never populate the context.
+  stay ordinary untrusted headers by default and populate provenance-tagged
+  effective fields only under an explicit Plan 202 trusted-proxy policy
+  (raw peer preserved; canonical `Host`/target never rewritten).
 - `RequestBodyPolicy::Stream { max_bytes }` selects deferred ownership.
   The runtime enforces the hard `max_request_body_bytes` ceiling; services
   may only lower it.

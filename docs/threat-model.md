@@ -57,6 +57,10 @@ An attacker who opens many connections simultaneously and holds them open with s
 
 An attacker who sends requests to a reverse proxy (Caddy, nginx, HAProxy, cloud load balancer) with the intent that the proxy and EggServe disagree on request boundaries. EggServe's hardened framing checks (TE+CL rejection, duplicate Content-Length rejection, wire-level validation) ensure that ambiguous requests are rejected at the origin, preventing desynchronization. The proxy desynchronization corpus exercises Caddy and nginx. This attacker is in scope because reverse-proxy deployment is the preferred production profile.
 
+### Forwarding-spoof attacker against trusted-proxy boundaries
+
+An attacker who connects directly to EggServe and sends spoofed `Forwarded` / `X-Forwarded-*` headers or bytes beginning with a PROXY v1/v2 signature. Forwarding metadata is untrusted by default and only adopted under an explicit Plan 202 trusted-proxy policy (exact IP/CIDR peers with no implicit loopback trust, optional Unix local-trust flag, bounded PROXY preamble before TLS/HTTP only from trusted peers, single-hop header policy with conflict fail-closed and hard size/element bounds). Direct spoofing remains untrusted; untrusted or malformed PROXY input closes before TLS/HTTP and never reaches a service as trusted facts; ambiguous chains fail closed with truthful absence (`unknown`/obfuscated) rather than invented identity.
+
 ### Filesystem namespace attacker able to mutate content within or adjacent to the root
 
 An attacker with the ability to create, rename, delete, or modify files within the serving root or in directories adjacent to it. The attacker may attempt:
@@ -87,7 +91,7 @@ A Python callback registered through the `Server` primitive that is slow, unresp
 
 The following are explicitly out of scope:
 
-- **Compromised reverse proxy** — if the edge/origin proxy is compromised, the attacker can inject arbitrary requests and no origin-level defense is meaningful
+- **Compromised reverse proxy** — if the edge/origin proxy is compromised, the attacker can inject arbitrary requests and no origin-level defense is meaningful. Trusted-proxy mode explicitly shifts this boundary: only the configured immediate peers may supply trusted metadata, and a compromised proxy outside that set remains untrusted.
 - **Kernel or filesystem compromise** — if the kernel or filesystem layer is compromised, path confinement and file-open guarantees are moot
 - **Privileged local attacker** — a local attacker with root or equivalent privileges can bypass all process-level controls
 - **Malicious operator root directory** — an operator who intentionally places sensitive files in the serving root and then serves it is responsible for the outcome

@@ -643,6 +643,26 @@ pub struct PyRequest {
     http_version: String,
     #[pyo3(get)]
     body: Option<PyRequestBody>,
+    /// Final effective client (trusted PROXY/header override if accepted,
+    /// else raw peer). `remote_addr`/`remote_address` never change for
+    /// compatibility; read these for downstream decisions. (Plan 202)
+    #[pyo3(get)]
+    effective_addr: Option<String>,
+    #[pyo3(get)]
+    effective_address: Option<(String, u16)>,
+    /// Final effective scheme (trusted override if accepted, else `scheme`).
+    #[pyo3(get)]
+    effective_scheme: Option<String>,
+    /// Trusted external authority override, if accepted. `None` means use
+    /// the canonical Host/target (never silently rewritten).
+    #[pyo3(get)]
+    effective_authority: Option<String>,
+    /// PROXY preamble source kind (`proxy_v1`/`proxy_v2`), if accepted.
+    #[pyo3(get)]
+    proxy_provenance: Option<String>,
+    /// Header family source kind (`forwarded`/`legacy_forwarded`), if accepted.
+    #[pyo3(get)]
+    forwarded_provenance: Option<String>,
 }
 
 #[pymethods]
@@ -1627,6 +1647,24 @@ impl PythonCallbackService {
             scheme,
             http_version,
             body: if has_body { py_body } else { None },
+            effective_addr: connection
+                .effective_client_addr()
+                .map(|addr| addr.to_string()),
+            effective_address: connection
+                .effective_client_addr()
+                .map(|addr| (addr.ip().to_string(), addr.port())),
+            effective_scheme: Some(
+                connection.effective_scheme_value().as_str().to_owned(),
+            ),
+            effective_authority: connection
+                .effective_authority_value()
+                .map(|authority| authority.as_str().to_owned()),
+            proxy_provenance: connection
+                .proxy_provenance
+                .map(|kind| kind.as_str().to_owned()),
+            forwarded_provenance: connection
+                .forwarded_provenance
+                .map(|kind| kind.as_str().to_owned()),
         }
     }
 }
@@ -1987,13 +2025,19 @@ pub struct PyServer {
     date_suppressed: bool,
     stripped_response_headers: Vec<String>,
     error_empty: bool,
+    // Plan 202 trusted-proxy policy (safe defaults: nothing trusted).
+    trusted_proxies: Vec<String>,
+    trust_unix_local: bool,
+    proxy_protocol: bool,
+    forwarded_standard: bool,
+    forwarded_legacy: bool,
 }
 
 #[pymethods]
 impl PyServer {
     #[new]
     #[allow(clippy::too_many_arguments)]
-    #[pyo3(signature = (root=None, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None, default_content_type="application/octet-stream", extra_response_headers=None, max_in_flight_requests=64, max_buf_size=65536, max_headers=100, max_header_bytes=32768, max_request_target_bytes=8192, keep_alive_idle_timeout_secs=60, max_requests_per_connection=None, response_write_timeout_secs=30, server_header=None, date_policy="system", stripped_response_headers=None, error_policy="minimal"))]
+    #[pyo3(signature = (root=None, bind="127.0.0.1", port=8000, policy=None, handler=None, public=false, max_connections=64, max_file_streams=32, max_python_callbacks=8, header_timeout_secs=10, connection_total_timeout_secs=60, handler_timeout_secs=30, graceful_shutdown_timeout_secs=10, request_body_mode="reject", max_request_body_bytes=0, body_timeout_secs=30, tls_certfile=None, tls_keyfile=None, default_content_type="application/octet-stream", extra_response_headers=None, max_in_flight_requests=64, max_buf_size=65536, max_headers=100, max_header_bytes=32768, max_request_target_bytes=8192, keep_alive_idle_timeout_secs=60, max_requests_per_connection=None, response_write_timeout_secs=30, server_header=None, date_policy="system", stripped_response_headers=None, error_policy="minimal", trusted_proxies=None, trust_unix_local=false, proxy_protocol=false, forwarded_standard=false, forwarded_legacy=false))]
     fn new(
         root: Option<String>,
         bind: &str,
@@ -2027,6 +2071,11 @@ impl PyServer {
         date_policy: &str,
         stripped_response_headers: Option<Vec<String>>,
         error_policy: &str,
+        trusted_proxies: Option<Vec<String>>,
+        trust_unix_local: bool,
+        proxy_protocol: bool,
+        forwarded_standard: bool,
+        forwarded_legacy: bool,
     ) -> PyResult<Self> {
         // rustls can be built with more than one provider through the
         // workspace's feature-unified dependency graph. Select the same
@@ -2254,6 +2303,16 @@ impl PyServer {
             }
         };
 
+        // Plan 202 trusted-proxy policy: validate CIDR/IP literals eagerly;
+        // DNS names and out-of-range prefixes fail before listener startup.
+        // Loopback is not implicitly trusted; list it explicitly when needed.
+        let trusted_proxies = trusted_proxies.unwrap_or_default();
+        for entry in &trusted_proxies {
+            eggserve_core::primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid trusted_proxies entry: {e}"))
+            })?;
+        }
+
         Ok(Self {
             bind: bind.to_string(),
             port,
@@ -2292,6 +2351,11 @@ impl PyServer {
             date_suppressed,
             stripped_response_headers,
             error_empty,
+            trusted_proxies,
+            trust_unix_local,
+            proxy_protocol,
+            forwarded_standard,
+            forwarded_legacy,
         })
     }
 
@@ -2383,6 +2447,11 @@ impl PyServer {
             date_suppressed,
             stripped_response_headers,
             error_empty,
+            trusted_proxies,
+            trust_unix_local,
+            proxy_protocol,
+            forwarded_standard,
+            forwarded_legacy,
         ) = {
             let this = slf.borrow(py);
             let handler = this
@@ -2430,6 +2499,11 @@ impl PyServer {
                 this.date_suppressed,
                 this.stripped_response_headers.clone(),
                 this.error_empty,
+                this.trusted_proxies.clone(),
+                this.trust_unix_local,
+                this.proxy_protocol,
+                this.forwarded_standard,
+                this.forwarded_legacy,
             )
         };
 
@@ -2491,6 +2565,28 @@ impl PyServer {
         } else {
             eggserve_core::policy::ErrorRepresentationPolicy::Minimal
         });
+        // Plan 202 trusted-proxy policy: explicit peers/CIDRs (no DNS),
+        // Unix local-trust flag, PROXY preamble mode, and header-derived
+        // forwarding switches. Defaults trust nothing; `remote_addr` never
+        // changes for compatibility, effective values are separate getters.
+        {
+            use eggserve_core::primitives::proxy::TrustedProxyConfig;
+            let mut proxy_config = TrustedProxyConfig::default();
+            for entry in &trusted_proxies {
+                let prefix =
+                    eggserve_core::primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
+                        pyo3::exceptions::PyValueError::new_err(format!(
+                            "invalid trusted_proxies entry: {e}"
+                        ))
+                    })?;
+                proxy_config.peers.push(prefix);
+            }
+            proxy_config.trust_unix = trust_unix_local;
+            proxy_config.proxy_protocol.enabled = proxy_protocol;
+            proxy_config.forwarded.standard_enabled = forwarded_standard;
+            proxy_config.forwarded.legacy_enabled = forwarded_legacy;
+            runtime_builder = runtime_builder.trusted_proxy(proxy_config);
+        }
         let runtime_config = runtime_builder
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;

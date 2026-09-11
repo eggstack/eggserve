@@ -10,10 +10,12 @@
 //!
 //! - [`ConnectionInfo`](super::connection_info::ConnectionInfo): trustworthy
 //!   transport metadata (socket endpoints when present, scheme, TLS session
-//!   metadata). Values come from the actual transport or the explicit
+//!   metadata, plus Plan 202 provenance-tagged effective fields when an
+//!   explicit trusted-proxy policy adopted them). Values come from the actual
+//!   transport or the explicit
 //!   caller-owned [`ConnectionContext`](crate::server::connection::ConnectionContext).
-//!   `Forwarded` / `X-Forwarded-*` headers are ordinary untrusted headers and
-//!   are never copied here.
+//!   `Forwarded` / `X-Forwarded-*` headers are ordinary untrusted headers by
+//!   default and never populate trusted fields without explicit trust.
 //! - [`RequestLifecycle`](super::request_lifecycle::RequestLifecycle):
 //!   cloneable disconnect/cancel observer sharing the request body's
 //!   allocation. Clone before moving the body into a downstream task.
@@ -123,8 +125,10 @@ impl RequestContext {
 
     /// Transport-authenticated connection metadata.
     ///
-    /// Values come from the actual transport. Proxy-derived values are never
-    /// trusted implicitly; read forwarding headers separately under an
+    /// Values come from the actual transport, plus Plan 202
+    /// provenance-tagged effective fields when an explicit trusted-proxy
+    /// policy adopted them. Untrusted forwarding headers never populate
+    /// trusted fields implicitly; read them separately only under an
     /// explicit trust policy (Plans 201–202 own listener/proxy metadata).
     pub fn connection(&self) -> &ConnectionInfo {
         &self.connection

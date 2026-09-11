@@ -684,6 +684,11 @@ class ProjectionCompletenessTests(unittest.TestCase):
             date_policy="suppress",
             stripped_response_headers=("x-powered-by",),
             error_policy="empty",
+            trusted_proxies=("127.0.0.1/32",),
+            trust_unix_local=True,
+            proxy_protocol=True,
+            forwarded_standard=True,
+            forwarded_legacy=False,
         )
 
     def test_native_kwargs_covers_all_fields(self):
@@ -717,6 +722,11 @@ class ProjectionCompletenessTests(unittest.TestCase):
             "date_policy": "suppress",
             "stripped_response_headers": ["x-powered-by"],
             "error_policy": "empty",
+            "trusted_proxies": ["127.0.0.1/32"],
+            "trust_unix_local": True,
+            "proxy_protocol": True,
+            "forwarded_standard": True,
+            "forwarded_legacy": False,
         }
         self.assertEqual(kwargs, expected)
 

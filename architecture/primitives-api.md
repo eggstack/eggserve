@@ -18,7 +18,8 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `header_block.rs` | `primitives/header_block.rs` | `HeaderBlock`: duplicate-preserving ordered headers |
 | `request_target.rs` | `primitives/request_target.rs` | `RequestTarget`: validated origin-form target |
 | `request_head.rs` | `primitives/request_head.rs` | `RequestHead`: canonical request head and effective authority with Hyper conversion |
-| `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`, `SocketEndpoints`: transport metadata with optional endpoints |
+| `connection_info.rs` | `primitives/connection_info.rs` | `ConnectionInfo`, `SocketEndpoints`: raw transport metadata (optional endpoints) plus Plan 202 provenance-tagged effective layer (`proxy_source`/`proxy_destination`/`proxy_provenance`, `effective_client`/`effective_scheme`/`effective_authority`/`forwarded_provenance`; `effective_client_addr()`/`effective_scheme_value()`/`has_trusted_proxy_metadata()`) |
+| `proxy.rs` | `primitives/proxy.rs` | Plan 202 trusted-proxy policy and bounded parsers: `IpPrefix`, `ProxySourceKind`, `TrustedProxyConfig`/`ProxyProtocolConfig`/`ForwardedConfig`, `ProxyEndpoints`/`ProxyParseError`, `parse_proxy_v1_line`/`parse_proxy_v2_header`, `ForwardedEffective`/`ForwardedRejection`, `derive_forwarded_effective` |
 | `planner.rs` | `primitives/planner.rs` | Response planning (conditional, range, ETag) |
 | `response.rs` | `primitives/response.rs` | Planning types (`StaticResponsePlan`, `BodyPlan`, etc.) |
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
@@ -28,12 +29,12 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body with terminal trailers (`trailers()`, `read_all_with_trailers()`, `from_bytes_with_trailers()`) |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
 | `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 14-variant `#[non_exhaustive]` error type for body consumption failures (incl. `InvalidTrailers`, `TrailersNotReady`) |
-| `request_context.rs` | `primitives/request_context.rs` | `RequestContext` — typed context/capability container (Plans 197–198): `connection()` + `lifecycle()` + bounded `interim()` (`InterimSender`) |
+| `request_context.rs` | `primitives/request_context.rs` | `RequestContext` — typed context/capability container (Plans 197–199): `connection()` + `lifecycle()` + bounded `interim()` (`InterimSender`) + one-shot `take_tunnel()`; `connection()` carries Plan 202 effective fields when trusted |
 | `trailers.rs` | `primitives/trailers.rs` | `Trailers`, `TrailerLimits`, `TrailerValidationError` — distinct terminal metadata, denylist + count/byte limits, one validator for H1/H2/H3 |
 | `interim.rs` | `primitives/interim.rs` | `InterimSender`, `InterimLimits`, `InterimError`, `ExpectDecision` — bounded request-scoped 1xx (no 101/body/trailers, no post-commit, HTTP/1.0 suppressed, single 100) |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
-| `interop.rs` | `primitives/interop.rs` | `http-interop` adapters (Plan 200): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt`/`AuthorityExt`/`LifecycleExt`, `RequestBody: http_body::Body`, `response_from_http_body` |
+| `interop.rs` | `primitives/interop.rs` | `http-interop` adapters (Plan 200): `InteropError`, scalar/header/URI conversions, `RawTargetExt`/`ConnectionInfoExt` (already includes Plan 202 effective fields)/`AuthorityExt`/`LifecycleExt`, `RequestBody: http_body::Body`, `response_from_http_body` |
 
 ## Public Types
 

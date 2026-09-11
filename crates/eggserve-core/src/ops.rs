@@ -96,6 +96,11 @@ pub enum EventKind {
     TunnelRejected,
     TunnelClosed,
     TunnelUpgradeFailed,
+    // Trusted proxy metadata (Plan 202)
+    ProxyProtocolAccepted,
+    ProxyProtocolRejected,
+    ForwardedMetadataAccepted,
+    ForwardedMetadataRejected,
 
     // Operational
     ListenerTransientError,
@@ -170,6 +175,10 @@ impl fmt::Display for EventKind {
             EventKind::TunnelRejected => "tunnel_rejected",
             EventKind::TunnelClosed => "tunnel_closed",
             EventKind::TunnelUpgradeFailed => "tunnel_upgrade_failed",
+            EventKind::ProxyProtocolAccepted => "proxy_protocol_accepted",
+            EventKind::ProxyProtocolRejected => "proxy_protocol_rejected",
+            EventKind::ForwardedMetadataAccepted => "forwarded_metadata_accepted",
+            EventKind::ForwardedMetadataRejected => "forwarded_metadata_rejected",
 
             EventKind::ListenerTransientError => "listener_transient_error",
             EventKind::ListenerPersistentError => "listener_persistent_error",
@@ -855,6 +864,10 @@ pub struct OpsCounters {
     pub tunnels_rejected: AtomicU64,
     pub active_tunnels: AtomicU64,
     pub tunnel_upgrade_failures: AtomicU64,
+    pub proxy_accepted: AtomicU64,
+    pub proxy_rejected: AtomicU64,
+    pub forwarded_accepted: AtomicU64,
+    pub forwarded_rejected: AtomicU64,
 }
 
 impl Default for OpsCounters {
@@ -903,6 +916,10 @@ impl OpsCounters {
             tunnels_rejected: AtomicU64::new(0),
             active_tunnels: AtomicU64::new(0),
             tunnel_upgrade_failures: AtomicU64::new(0),
+            proxy_accepted: AtomicU64::new(0),
+            proxy_rejected: AtomicU64::new(0),
+            forwarded_accepted: AtomicU64::new(0),
+            forwarded_rejected: AtomicU64::new(0),
         }
     }
 
@@ -945,6 +962,10 @@ impl OpsCounters {
             tunnels_rejected: self.tunnels_rejected.load(Ordering::Relaxed),
             active_tunnels: self.active_tunnels.load(Ordering::Relaxed),
             tunnel_upgrade_failures: self.tunnel_upgrade_failures.load(Ordering::Relaxed),
+            proxy_accepted: self.proxy_accepted.load(Ordering::Relaxed),
+            proxy_rejected: self.proxy_rejected.load(Ordering::Relaxed),
+            forwarded_accepted: self.forwarded_accepted.load(Ordering::Relaxed),
+            forwarded_rejected: self.forwarded_rejected.load(Ordering::Relaxed),
         }
     }
 }
@@ -988,6 +1009,10 @@ pub struct OpsSnapshot {
     pub tunnels_rejected: u64,
     pub active_tunnels: u64,
     pub tunnel_upgrade_failures: u64,
+    pub proxy_accepted: u64,
+    pub proxy_rejected: u64,
+    pub forwarded_accepted: u64,
+    pub forwarded_rejected: u64,
 }
 
 #[cfg(test)]

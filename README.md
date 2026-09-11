@@ -233,7 +233,9 @@ Canonical `HttpVersion` metadata is non-exhaustive and represents HTTP/1.0,
 HTTP/1.1, HTTP/2, and HTTP/3 without silently relabeling an unsupported
 transport. `RequestHead::authority()` exposes validated effective host
 authority independently of HTTP/1 `Host` or HTTP/2/3 pseudo-header spelling;
-forwarded headers remain untrusted. `serve_http1_connection` remains a strict
+forwarding headers are untrusted by default and populate provenance-tagged
+effective fields (`effective_client`/`effective_scheme`/`effective_authority`)
+only under an explicit Plan 202 trusted-proxy policy. `serve_http1_connection` remains a strict
 HTTP/1 entry point; `serve_http_connection` is the opt-in Rust H1/H2 entry
 point when the `http2` feature is enabled. The opt-in `http3` feature also
 provides a native experimental QUIC/H3 server path; the Python facade and

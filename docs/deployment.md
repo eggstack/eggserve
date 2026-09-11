@@ -64,7 +64,9 @@ remains `BLOCKED` on upstream `h3#338`/`h3#262`; see the
 
 ### Connection metadata behind a reverse proxy
 
-When eggserve runs behind a reverse proxy, connection metadata (`remote_addr`, `local_addr`, `scheme`, `tls`) reflects the **transport peer** — the proxy's address, not the end client's. eggserve does not automatically trust `Forwarded` or `X-Forwarded-*` headers. If you need end-client identity, implement proxy-header validation in your service layer with an explicit allowlist.
+When eggserve runs behind a reverse proxy, raw connection metadata (`remote_addr`, `local_addr`, `scheme`, `tls`) always reflects the **transport peer** — the proxy's address, not the end client's. Forwarding signals are untrusted by default.
+
+Opt-in Plan 202 trusted-proxy policy (`RuntimeConfig.trusted_proxy`: explicit IP/CIDR peers with no implicit loopback trust, optional Unix local-trust flag, optional PROXY v1/v2 preamble before TLS/HTTP, optional `Forwarded` / `X-Forwarded-*` single-hop policy with hard size/element bounds and conflict fail-closed) populates provenance-tagged effective fields (`effective_client`/`effective_scheme`/`effective_authority` with `proxy_v1`/`proxy_v2`/`forwarded`/`legacy_forwarded` provenance) without rewriting the canonical `Host`/target. Use the effective accessors for secure-cookie, URL-construction, logging, rate-limit, and allowlist decisions only when the immediate peer is explicitly trusted; otherwise keep validating headers in your service layer. H3 ignores this policy (separately specified datagram proxying is out of scope).
 
 ### Body handling behind a reverse proxy
 
@@ -213,7 +215,7 @@ A common setup for small deployments:
 - Never expose eggserve directly to the public internet without proper TLS and access control.
 - Every production deployment must name a profile from the production profiles table in README.md. No document should claim production support without naming the profile.
 - **Directory listing is opt-in and disabled by default.** When enabled with `--directory-listing`, it exposes file names and directory structure. Listing responses are bounded (max 4096 entries, 1 MiB body). Symlink entries are hidden from listings by default. Do not enable directory listing for untrusted content without understanding the information disclosure implications.
-- **Connection metadata is transport-peer metadata.** `remote_addr` on the `Request` object reflects the TCP peer address (proxy address when behind a reverse proxy). Do not use it for end-client identification without proxy-header validation.
+- **Connection metadata is transport-peer metadata by default.** `remote_addr` on the `Request` object reflects the TCP peer address (proxy address when behind a reverse proxy). Use provenance-tagged effective fields only under an explicit Plan 202 trusted-proxy policy; otherwise validate proxy headers in your service layer. See “Connection metadata behind a reverse proxy” above.
 
 ## Structured Logging
 

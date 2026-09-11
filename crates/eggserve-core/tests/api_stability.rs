@@ -99,12 +99,12 @@ fn stable_connection_info_accessible() {
         ConnectionInfo, Scheme, SocketEndpoints, TlsInfo,
     };
 
-    let info = ConnectionInfo {
-        local_addr: Some("127.0.0.1:8000".parse().unwrap()),
-        remote_addr: Some("127.0.0.1:12345".parse().unwrap()),
-        scheme: Scheme::Http,
-        tls: None,
-    };
+    let info = ConnectionInfo::with_socket_addrs(
+        "127.0.0.1:8000".parse().unwrap(),
+        "127.0.0.1:12345".parse().unwrap(),
+        Scheme::Http,
+        None,
+    );
     assert_eq!(Scheme::Http.as_str(), "http");
     assert_eq!(Scheme::Https.as_str(), "https");
     assert_eq!(info.scheme, Scheme::Http);

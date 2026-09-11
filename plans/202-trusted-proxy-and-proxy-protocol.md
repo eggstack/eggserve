@@ -2,7 +2,23 @@
 
 ## Status
 
-**PLANNED.** Prerequisites: Plan 197 connection/request context; Plan 201 listener architecture should be settled or developed in parallel.
+**IMPLEMENTED / CLOSED.**
+
+Prerequisites: Plan 197 connection/request context (settled); Plan 201 listener architecture (settled, developed in parallel and closed first).
+
+## Closure record
+
+Implemented as specified with a conservative single-trusted-hop scope:
+
+- Track A: `ConnectionInfo` preserves raw peer/local and adds provenance-tagged `proxy_source`/`proxy_destination`/`proxy_provenance` + `effective_client`/`effective_scheme`/`effective_authority`/`forwarded_provenance` with `effective_client_addr()`/`effective_scheme_value()`/`has_trusted_proxy_metadata()`; `ConnectionContext` carries the PROXY layer via `with_proxy_endpoints()` into per-request `ConnectionInfo`.
+- Track B: `TrustedProxyConfig` with explicit `IpPrefix` peers/CIDRs (no DNS, no implicit loopback), explicit `trust_unix`, validated ranges; defaults trust nothing.
+- Track C: `primitives::proxy` pure bounded parsers (v1 107B strict, v2 16+≤1024B with signature/version/command/family/protocol/length validation, `LOCAL`/`UNKNOWN`/`UNSPEC`/UNIX truthful absence, TLVs ignored bounded) plus `server::proxy::read_proxy_preamble` timeout-protected read with `PrefixedIo` leftover replay; accept order `TCP → PROXY → TLS → HTTP`; disabled interprets bytes normally; malformed/untrusted closes before TLS/HTTP.
+- Track D: `Forwarded` (RFC 7239 `for=`/`proto=`/`host=` with quoted values, IPv4/IPv6/ports, `unknown`/obfuscated) and legacy `X-Forwarded-*` single-hop rightmost-wins policy with 4 KiB/16-element budgets, conflict fail-closed, canonical Host/target never rewritten.
+- Track E: transport TLS remains direct-`https` source; trusted proxy asserts external `https` only via header policy into `effective_scheme`; `effective_authority` never rewrites the request.
+- Track F: `proxy_protocol_accepted`/`rejected` + `forwarded_metadata_accepted`/`rejected` events/counters with sanitized `peer`/`source`/`effective`/`category` (no chains/TLVs).
+- Track G: native `RequestContext`/`ConnectionInfo` carry effective fields; Tower via `ConnectionInfoExt` (already includes effective); Python `lowlevel` exposes `trusted_proxies`/`trust_unix_local`/`proxy_protocol`/`forwarded_*` config plus `effective_*`/`*_provenance` getters with `remote_addr` unchanged; sync facade never changes `client_address`.
+
+Qualification: `crates/eggserve-core/tests/trusted_proxy.rs` (36 tests with TLS: peer policy, v1/v2 parsing incl. fragmented/timeout/oversized/family matrix/LOCAL/UNKNOWN, header hop/conflict/bounds/IPv4/IPv6/ports, spoofed-untrusted, trusted standard/legacy, conflict fail-closed, PROXY v1/v2 trusted/untrusted/disabled/UNKNOWN/malformed, TLS-after-PROXY ordering, H1/H2 parity via shared pipeline, H3 out-of-scope, fuzz ceilings, no-reverse-proxying boundary). H3 datagram proxying remains out of scope; multi-hop beyond one trusted hop remains untrusted by documentation.
 
 ## Purpose
 
@@ -158,16 +174,16 @@ Fuzz PROXY and forwarding-header parsers with hard allocation ceilings.
 
 ## Acceptance criteria
 
-- [ ] raw immediate peer/local metadata is always preserved;
-- [ ] default configuration trusts no proxy metadata;
-- [ ] trusted peer policy is explicit and validated before metadata adoption;
-- [ ] PROXY v1/v2 parsing is optional, bounded, timeout-protected, and occurs before TLS/HTTP;
-- [ ] malformed or untrusted PROXY input never reaches application services as trusted facts;
-- [ ] header-derived forwarded metadata has an explicit hop/conflict policy and hard size bounds;
-- [ ] canonical Host/request-target semantics are not silently rewritten by forwarded values;
-- [ ] native, Tower, and low-level Python consumers can access provenance-tagged effective metadata;
-- [ ] synchronous Python compatibility behavior does not silently change;
-- [ ] EggServe still performs no reverse proxying.
+- [x] raw immediate peer/local metadata is always preserved;
+- [x] default configuration trusts no proxy metadata;
+- [x] trusted peer policy is explicit and validated before metadata adoption;
+- [x] PROXY v1/v2 parsing is optional, bounded, timeout-protected, and occurs before TLS/HTTP;
+- [x] malformed or untrusted PROXY input never reaches application services as trusted facts;
+- [x] header-derived forwarded metadata has an explicit hop/conflict policy and hard size bounds;
+- [x] canonical Host/request-target semantics are not silently rewritten by forwarded values;
+- [x] native, Tower, and low-level Python consumers can access provenance-tagged effective metadata;
+- [x] synchronous Python compatibility behavior does not silently change;
+- [x] EggServe still performs no reverse proxying.
 
 ## Handoff
 

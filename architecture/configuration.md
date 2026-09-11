@@ -163,6 +163,10 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `response_policy.server_identification` | `RuntimeConfig` | None (suppressed) | None \| fixed string | N/A (Rust `server_header(..)`) | `server_header` (`lowlevel`; compat default suppressed) | `Server` on responses; never versions |
 | `response_policy.date_policy` | `RuntimeConfig` | SystemClock | `SystemClock` \| `Custom` \| `Suppress` | N/A (Rust-only) | `date_policy` (`lowlevel` `system`/`suppress`; `Custom` Rust-only) | Sole `Date` authority; Hyper auto-`Date` disabled |
 | `response_policy.stripped_response_headers` | `RuntimeConfig` | none | validated denylist (no framing/`date`/`content-range`) | N/A (Rust-only) | `stripped_response_headers` (`lowlevel`; compat default none) | Post-service removal; `minimal_fingerprint()` strips `x-powered-by` |
+| `trusted_proxy.peers` | `RuntimeConfig` | none (nothing trusted, loopback included) | exact IP/CIDR list, no DNS | N/A (Rust `trusted_proxy_peer(..)`; CLI safe-default) | `trusted_proxies` (`lowlevel` list; compat default none) | Immediate-peer trust for PROXY/forwarded; untrusted stays untrusted |
+| `trusted_proxy.trust_unix` | `RuntimeConfig` | false (never implicit) | bool | N/A (Rust `trust_unix_local(..)`) | `trust_unix_local` (`lowlevel`) | Unix/peer-less header trust only when explicitly set; PROXY never read from Unix |
+| `trusted_proxy.proxy_protocol` | `RuntimeConfig` | disabled, 5s timeout (max 60s) | `enabled` + `timeout` | N/A (Rust `proxy_protocol_enabled(..)`/`proxy_protocol_timeout(..)`) | `proxy_protocol` (`lowlevel` bool) | Bounded preamble before TLS/HTTP only from trusted peers; malformed/untrusted closes before service; disabled interprets bytes normally |
+| `trusted_proxy.forwarded` | `RuntimeConfig` | disabled, 4 KiB / 16 elements (256–16384 B, 1–64 elements) | `standard_enabled` + `legacy_enabled` + budgets | N/A (Rust `forwarded_standard(..)`/`forwarded_legacy(..)`) | `forwarded_standard`/`forwarded_legacy` (`lowlevel`) | Single-hop rightmost-wins header policy with conflict fail-closed; canonical Host/target never rewritten; H3 ignores |
 
 ### Filesystem policy
 

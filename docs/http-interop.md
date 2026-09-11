@@ -42,7 +42,9 @@ eggserve-core = { version = "0.1", features = ["tower"] }         # + Tower adap
   bytes survive in `RawTargetExt`.
 - **Opaque values**: map through `HeaderValue::from_bytes`, never mandatory
   UTF-8.
-- **Metadata**: `ConnectionInfo`, effective `Authority`, and `RequestLifecycle`
+- **Metadata**: `ConnectionInfo` (including Plan 202 provenance-tagged
+  effective fields when an explicit trusted-proxy policy adopted them),
+  effective `Authority`, and `RequestLifecycle`
   travel in typed extensions (`ConnectionInfoExt`, `AuthorityExt`,
   `LifecycleExt`). Interim senders and one-shot tunnel capabilities never
   enter `Extensions` (clonable); they stay in native `RequestContext`.

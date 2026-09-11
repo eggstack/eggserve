@@ -59,6 +59,7 @@ pub mod interim;
 pub mod interop;
 pub mod method;
 pub mod planner;
+pub mod proxy;
 pub mod request;
 pub mod request_body;
 pub mod request_body_error;
@@ -100,6 +101,15 @@ pub use planner::{
     evaluate_conditional_headers, evaluate_if_match, evaluate_if_none_match, evaluate_if_range,
     evaluate_range_header, generate_etag, plan_directory_listing, plan_file_response,
     plan_file_response_with_preconditions, plan_file_response_with_preconditions_and_metadata,
+};
+pub use proxy::{
+    derive_forwarded_effective, parse_proxy_v1_line, parse_proxy_v2_header, ForwardedConfig,
+    ForwardedEffective, ForwardedRejection, IpPrefix, ProxyEndpoints, ProxyParseError,
+    ProxyProtocolConfig, ProxySourceKind, TrustedProxyConfig, TrustedProxyConfigError,
+    DEFAULT_FORWARDED_MAX_BYTES, DEFAULT_FORWARDED_MAX_ELEMENTS, DEFAULT_PROXY_PROTOCOL_TIMEOUT,
+    MAX_FORWARDED_MAX_BYTES, MAX_FORWARDED_MAX_ELEMENTS, MIN_FORWARDED_MAX_BYTES,
+    MIN_FORWARDED_MAX_ELEMENTS, PROXY_V1_MAX_BYTES, PROXY_V2_HEADER_LEN, PROXY_V2_MAX_LEN,
+    PROXY_V2_SIGNATURE,
 };
 pub use request::Request;
 pub use request_body::{BodyState, RequestBody};
