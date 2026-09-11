@@ -7,7 +7,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Layer | Location | Scope | Count |
 |-------|----------|-------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic | current suite |
-| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 32 files |
+| Rust integration tests | `crates/eggserve-core/tests/*.rs` | Cross-module, live TCP, TLS | 52 files |
 | Rust bin tests | `crates/eggserve-bin/tests/*.rs` | Production binary paths | 4 files |
 | Python native primitives | `crates/eggserve-python/tests/test_primitives.py` | PyO3 bindings and canonical types | current suite |
 | Python server façade | `crates/eggserve-python/tests/test_https_server_compat.py`, `test_http_server_compat.py`, `test_simple_http_handler_compat.py` | HTTP server compatibility, TLS, and policy behavior | current suite |
@@ -23,7 +23,7 @@ eggserve uses a multi-layered testing strategy: Rust unit/integration tests, Pyt
 | Python public API | `crates/eggserve-python/tests/test_public_api.py` | Supported namespace and demotion checks | focused |
 | Python parity matrix | `crates/eggserve-python/tests/test_parity_matrix.py` | Real-socket Rust/Python parity | current suite |
 | Fuzz targets | `fuzz/fuzz_targets/*.rs` | Property-based input fuzzing | 11 targets |
-| Conformance corpus | `conformance/*.json` | Shared Rust/Python test data | 2 corpora |
+| Conformance corpora | `conformance/*.json` + `conformance/*.toml` | Shared Rust/Python test data + normative matrices | 2 corpora + 2 matrices |
 | Executable examples | `examples/`, `crates/eggserve-core/examples/` | Canonical CLI/Python/Rust product demonstrations | current |
 
 The installed-wheel script is the authoritative Python test entry point; its count changes with the compatibility façade and is intentionally not duplicated here.
@@ -63,6 +63,7 @@ shutdown; the process harness uses only Python's standard library.
 | `public_api_consumers.rs` | — | Validates public API surface (incl. byte-preserving header/target APIs; Plan 197 adds `Request`/`RequestBody`/`RequestContext`/lifecycle import + Send/Sync checks) |
 | `api_stability.rs` | — | API stability snapshot checks (incl. Plan 173 octet contract; Plan 197 adds `RequestContext` access + `#[non_exhaustive]` wildcard tolerance) |
 | `application_service_contract.rs` | — | Plan 197: Hyper-free stabilized-contract fixture — `RequestContext` attachment, buffered/streamed/lifecycle, commitment/admission, `#[non_exhaustive]` tolerance |
+| `cross_protocol_conformance.rs` | — (+`http2` for sibling isolation, +`tower` for adapter parity, Unix-only socket case) | Plan 207: routine cross-protocol subset — H1 TCP/prebound/Unix/caller-owned metadata/body/response/lifecycle/tunnel parity, framing/oversized/proxy-spoof rejection, admission recovery, H2 sibling survival, Tower parity |
 | `no_hyper_in_public_api.rs` | — | Ensures canonical application-facing types remain Hyper-free while enumerating the intentional inbound/outbound conversion adapters |
 | `octet_fidelity.rs` | — | Plan 173: header octet preservation (inbound/outbound via duplex parser path, duplicates, `OWS`, policy), request-target byte fidelity corpus |
 | `production_path.rs` (bin) | — | Binary production path validation |
@@ -78,6 +79,11 @@ shutdown; the process harness uses only Python's standard library.
 | `windows_feasibility.rs` | `windows-adversarial-qualification` | Windows feasibility spike |
 | `windows_plan084.rs` | `windows-adversarial-qualification` | Windows handle-relative directory retention |
 | `windows_plan086.rs` | `windows-adversarial-qualification` | Windows adversarial filesystem qualification |
+`interop_http_tower.rs` | `tower` | Plan 200: `http`/`http-body`/Tower adapters — streaming, trailers, middleware, H1 parity |
+`trailers_interim.rs` | — | Plan 198: canonical trailers + bounded interim 1xx |
+`tunnel_upgrade.rs` | — (+`http2`/`http3` for Extended CONNECT, dev `tokio-tungstenite` for WS interop) | Plan 199: generic tunnel/upgrade/Extended CONNECT + denial + duplex |
+`trusted_proxy.rs` | — | Plan 202: PROXY protocol + Forwarded provenance, fail-closed |
+`listener_ownership.rs` | — (Unix-only socket case) | Plan 201: prebound TCP/Unix/systemd/H3-UDP parity |
 | `streaming_buffer_qualification.rs` | — | Exact range boundaries, chunk-crossing, buffer isolation, zero-length files, client disconnect release, forced shutdown release, concurrent exhaustion (503), HEAD non-acquisition, configurable chunk sizes |
 
 ## Conformance Corpora
@@ -239,6 +245,10 @@ scaling, bounded streaming, the low-level substrate, embedding overhead, TLS
 overhead, and static migration behavior. It does not qualify arm64
 performance when no arm64 host was available and does not establish edge
 server parity, DDoS resistance, anonymity, or universal superiority.
+
+## Plan 207 cross-protocol conformance
+
+One normative inventory (`conformance/app_server_conformance.toml`: 55 scenarios, 47 routine) drives application-server qualification across H1 TCP/TLS/prebound/Unix, H2 prior/TLS/prebound, H3 QUIC, and caller-owned duplex with native/`http`/Tower/async-Python/ASGI consumers. The routine deterministic subset lives in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 + prebound + Unix + caller-owned + H2/Tower-gated, 17–18 tests); H1 TLS, H2 TLS, H3, `http-interop`, async Python, and the ASGI fixture are owned by their existing suites (`tls_identity.rs`, `http2_runtime.rs`, `http3_runtime.rs`, `interop_http_tower.rs`, `test_async_bridge.py`) and referenced from the inventory rather than duplicated. `scripts/verify-conformance-matrix.py` validates both the static matrix (51 entries) and the app-server inventory. Expensive two-client/browser/soak/impairment/perf evidence stays manual and fail-closed (`qualify-http2.sh`/`qualify-http3.sh`, `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental. Plan 208 decides promotion.
 
 ## HTTP/2 qualification
 

@@ -69,16 +69,19 @@ tests/                  # repo-level integration tests (proxy interop, soak, ins
 
 ## Common commands
 
-Routine CI (`.github/workflows/ci.yml`) runs two concurrent jobs:
+Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 
 ```sh
 # rust job
-python3 scripts/verify-conformance-matrix.py                # corpus/matrix consistency gate (runs first!)
+python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
+cargo +1.88 check --workspace --all-targets
+cargo +1.88 check --workspace --all-targets --features http2,tls
 cargo +1.88 check --workspace --all-targets --features http3,tls
 cargo clippy --workspace --lib --bins --tests -- -D warnings   # warnings are errors
 cargo test --workspace
+cargo check --manifest-path crates/eggserve-python/Cargo.toml --locked  # excluded crate still parses
 cargo clippy -p eggserve-core --features http2,tls --lib --tests -- -D warnings
 cargo test -p eggserve-core --features http2,tls
 cargo clippy -p eggserve-bin --features http2,tls --lib --bins --tests -- -D warnings
@@ -90,6 +93,7 @@ cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http3,tls
 
+# supply-chain job: install-cargo-tools.sh, cargo audit, cargo deny check
 # python job: bash scripts/test-python-wheel.sh
 # preflight re-runs check-python-release-metadata.py, then
 # builds wheel with maturin, installs in venv, runs smoke + tests
@@ -186,6 +190,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 - **Ecosystem interop (Plan 200)** — optional `http-interop` (`primitives::interop`: loss-aware `http` conversions, `RequestBody: http_body::Body` with data+trailers, `response_from_http_body` framing-authoritative) and `tower` (`server::tower`: `TowerToEggserve` per-request clones driving `poll_ready`, `EggserveToTower` adapter-local ready). Header cross-name order does not round-trip via `HeaderMap`; opaque values use `from_bytes`; interim/tunnel never enter `http::Extensions`; middleware runs after parsing/validation, before normalization (see `docs/http-interop.md`). Never add Tower/`http` to default builds.
 - **Response-planning edge semantics (Plan 168)** — inverted ranges (`start > end`) are invalid: the Range header is ignored (full 200), never 416 (RFC 9110 § 14.1.2); `evaluate_if_match("*", None)` is `false`; HEAD normalization retains known lengths via `ResponseBody::EmptyWithLength` (zero wire bytes); a literal `#` with no `?` is an ordinary path character.
 - **Foundation maintainability (Plan 206)** — behavior-preserving module boundaries; public import paths preserved via re-exports (`primitives::canonical::X`, `primitives::X`, `server::RuntimeState`, `server::Py*` still resolve); cross-module helpers are `pub(super)` (parent-visible, never widened for convenience). Ownership: `ops/` (`mod` authority + `events`/`sinks`/`counters`); `primitives/canonical/` (`status`/`headers`/`response_body`/`response`/`adapters`; `Response.body` + `remove/strip` are `pub(super)`; tests stay in facade); `server/config/` (`runtime` single validation authority delegating to `runtime_limits` + `http1`/`http2`/`http3`/`tls` protocol owners; `Http2/3::validate` are `pub(super)`); `server/http3/` (`endpoint`/`request`/`response`/`tunnel`; `accept_loop` qualifies as `endpoint::`/`request::`/`response::`/`tunnel::`; one shared kernel, no H3-specific semantics); `server/` (`runtime.rs` owns `RuntimeState`, `accept.rs` owns `accept_loop_multi`/handlers/sources/TLS helpers with `pub(super)` enums/fns; facade keeps `Server`/`ServerBuilder` + re-exports); `eggserve-python/src/server/` (`errors`/`body_bridge`/`request_bridge`/`tunnel_bridge`/`response_bridge`/`static_responder`/`sync_handler`/`runtime` + `lifecycle`/`async_handler` pointers; async Plan 204 stays Python-side in `lowlevel.py` with no duplicated Rust conversion; PyO3 registration stays small in facade). Static planner stays pure with the explicit one-way `StaticService::canonical_response()` adapter (no duplicate status/header/body validation). No wire/security/lifecycle behavior change; no line-count gates.
+- **Cross-protocol conformance (Plan 207)** — one normative inventory (`conformance/app_server_conformance.toml`: 55 scenarios, 47 routine) drives qualification across H1 TCP/TLS/prebound/Unix, H2 prior/TLS/prebound, H3 QUIC, and caller-owned duplex with native/`http`/Tower/async-Python/ASGI consumers. Routine subset lives in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 + prebound + Unix + caller-owned + H2/Tower-gated); H1 TLS/H2 TLS/H3/`http-interop`/async-Python/ASGI are owned by their existing suites and referenced, not duplicated. Expensive two-client/browser/soak/impairment/perf evidence stays manual and fail-closed (`qualify-http2.sh`/`qualify-http3.sh` + `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental.
 
 ### CLI
 

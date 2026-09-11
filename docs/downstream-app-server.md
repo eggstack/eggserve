@@ -9,6 +9,8 @@ explains how to build the HTTP half of a real event-driven application server on
 that substrate without importing Hyper internals, the Python compatibility facade,
 or crate-private modules.
 
+The cross-protocol inventory is `conformance/app_server_conformance.toml` (Plan 207, 55 scenarios) with the routine deterministic subset in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 TCP/prebound/Unix/caller-owned + H2/Tower-gated; H1 TLS/H2 TLS/H3/`http-interop`/async-Python/ASGI owned by their existing suites; see `release/plan-207-cross-protocol-conformance.md`).
+
 The reference qualification is
 `crates/eggserve-core/tests/app_server_consumer.rs`: an external consumer
 using only `eggserve_core::primitives` + `eggserve_core::server` plus

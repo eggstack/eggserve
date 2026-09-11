@@ -20,9 +20,86 @@ REQUIRED = {
 METHODS = {"GET", "HEAD", "POST"}
 CONNECTIONS = {"close", "keep_alive"}
 
+# Plan 207 cross-protocol inventory vocabulary.
+APP_REQUIRED = {"id", "category", "description", "transports", "consumers", "routine", "evidence"}
+APP_TRANSPORTS = {
+    "h1_tcp",
+    "h1_tls",
+    "h1_prebound",
+    "h1_unix",
+    "h2_prior",
+    "h2_tls",
+    "h2_prebound",
+    "h3_quic",
+    "caller_owned",
+}
+APP_CONSUMERS = {"native", "http_interop", "tower", "async_python", "asgi_fixture"}
+APP_CATEGORIES = {
+    "request_metadata",
+    "request_body",
+    "response",
+    "lifecycle",
+    "multiplexing",
+    "tunnel",
+    "security",
+    "resources",
+    "consumer",
+    "interop",
+    "python_loop",
+    "performance",
+    "ci_release",
+}
+
+
+def validate_app_server_conformance(root: Path) -> None:
+    inventory_path = root / "conformance" / "app_server_conformance.toml"
+    with inventory_path.open("rb") as inventory_file:
+        document = tomllib.load(inventory_file)
+    scenarios = document.get("scenario")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise SystemExit("app-server conformance inventory has no [[scenario]] entries")
+    seen_ids: set[str] = set()
+    for index, entry in enumerate(scenarios, start=1):
+        missing = APP_REQUIRED - entry.keys()
+        if missing:
+            raise SystemExit(f"app-server scenario {index} is missing: {sorted(missing)}")
+        scenario_id = entry["id"]
+        if scenario_id in seen_ids:
+            raise SystemExit(f"duplicate app-server scenario id: {scenario_id}")
+        seen_ids.add(scenario_id)
+        if entry["category"] not in APP_CATEGORIES:
+            raise SystemExit(f"app-server scenario {scenario_id} has invalid category")
+        if not isinstance(entry["description"], str) or not entry["description"].strip():
+            raise SystemExit(f"app-server scenario {scenario_id} needs a description")
+        for transport in entry["transports"]:
+            if transport not in APP_TRANSPORTS:
+                raise SystemExit(
+                    f"app-server scenario {scenario_id} has invalid transport {transport}"
+                )
+        for consumer in entry["consumers"]:
+            if consumer not in APP_CONSUMERS:
+                raise SystemExit(
+                    f"app-server scenario {scenario_id} has invalid consumer {consumer}"
+                )
+        if not isinstance(entry["routine"], bool):
+            raise SystemExit(f"app-server scenario {scenario_id} needs a boolean routine flag")
+        if not isinstance(entry["evidence"], str) or not entry["evidence"].strip():
+            raise SystemExit(f"app-server scenario {scenario_id} needs evidence")
+    exercised = {e["category"] for e in scenarios}
+    missing_categories = APP_CATEGORIES - exercised
+    if missing_categories:
+        raise SystemExit(
+            f"app-server categories not exercised: {sorted(missing_categories)}"
+        )
+    routine = [e for e in scenarios if e["routine"]]
+    if not routine:
+        raise SystemExit("app-server inventory has no routine CI scenarios")
+    print(f"validated {len(scenarios)} app-server scenarios ({len(routine)} routine)")
+
 
 def main() -> None:
-    matrix_path = Path(__file__).resolve().parents[1] / "conformance" / "conformance_matrix.toml"
+    root = Path(__file__).resolve().parents[1]
+    matrix_path = root / "conformance" / "conformance_matrix.toml"
     with matrix_path.open("rb") as matrix_file:
         document = tomllib.load(matrix_file)
 
@@ -62,6 +139,7 @@ def main() -> None:
         )
 
     print(f"validated {len(entries)} conformance matrix entries")
+    validate_app_server_conformance(root)
 
 
 if __name__ == "__main__":

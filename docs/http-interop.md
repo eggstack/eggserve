@@ -83,7 +83,8 @@ Adapters are transport-independent: the same Tower application runs on H1
 today and on H2/H3 through the same canonical kernel where those features
 are enabled. Qualification fixtures prove H1 over TCP
 (`tests/interop_http_tower.rs`); H2/H3 reuse the existing runtime
-qualification plus the shared body/timeout accounting.
+qualification plus the shared body/timeout accounting. Plan 207 records this
+mapping in `conformance/app_server_conformance.toml` and proves H1 + H2/Tower-gated parity in `tests/cross_protocol_conformance.rs` (see `release/plan-207-cross-protocol-conformance.md`).
 
 ## Fidelity rule
 

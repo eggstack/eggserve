@@ -21,10 +21,10 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No raw socket response writers** — All responses go through the canonical normalization path
 - **No socketserver implementation identity** — The Python `http.server` facade uses Rust-managed listeners, bounded file-like request/response buffers, and event-driven shutdown; raw sockets, `fileno()`, and exact one-request polling are not compatibility promises
 - **No unqualified protocol expansion** — HTTP/2 and HTTP/3 are optional,
-  separately governed transport work under Plans 183–188. HTTP/1.1 remains
+  separately governed transport work under Plans 183–190 (plus 191–195 promotion/dependency gates and Plan 207 cross-protocol conformance). HTTP/1.1 remains
   the minimal/default compatibility baseline, and this plan does not enable a
   second wire protocol. Protocol work does not authorize routing, reverse
-  proxying, WebSockets, WebTransport, CONNECT tunnels, server push, ACME,
+  proxying, WebSockets, WebTransport, server push, ACME,
   middleware, or application-server behavior in-tree. Python
   `http.server`-shaped surfaces remain HTTP/1.1-oriented unless a later
   compatibility decision says otherwise.

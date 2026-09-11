@@ -91,6 +91,7 @@ its status using a constrained vocabulary.
 | ASGI/WSGI adapters | — | — | — | — | — | — | — |
 | CGI / FastCGI adapters (Plan 167 no-go) | — | — | — | — | — | — | — |
 | Generic tunnel handoff (Plan 199; H1 `Upgrade`/`CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked) | — | — | experimental | experimental | experimental | — | — |
+| Cross-protocol application conformance (Plan 207; `app_server_conformance.toml` inventory + `cross_protocol_conformance.rs` routine subset; H1/TLS/prebound/Unix, H2, H3, caller-owned; native/`http`/Tower/async-Python/ASGI) | — | — | experimental (routine H1/prebound/Unix/caller-owned + H2/Tower-gated; H1 TLS/H2 TLS/H3/`http-interop`/Python owned by existing suites; manual interop/soak fail-closed) | — (Python H1-only by contract) | — | — | — |
 | Windows reparse-point hardening | — | — | — | — | — | — | — |
 
 Rows with no annotation in any column are **intentionally unsupported** (empty

@@ -1,0 +1,573 @@
+# Plan 207 — Cross-Protocol Application-Server Conformance Inventory
+#
+# Normative semantic scenario inventory (Track A) with transport (Track B)
+# and consumer (Track C) applicability. One scenario is defined once here;
+# qualification runs it through every applicable transport/consumer.
+#
+# Vocabulary:
+#   transports: h1_tcp | h1_tls | h1_prebound | h1_unix | h2_prior | h2_tls |
+#               h2_prebound | h3_quic | caller_owned
+#   consumers:  native | http_interop | tower | async_python | asgi_fixture
+#   routine:    true  -> deterministic Linux subset in routine CI
+#               false -> manual/release evidence (expensive, external tooling,
+#                        browsers, soak, impairment, cross-platform)
+#
+# Capability-gated skips are explicit (`skip_reason`), never silent.
+# H3 over Unix stream is impossible by construction and never listed.
+# Python consumers are H1-only by product contract; H2/H3 never list them.
+
+[meta]
+version = 1
+plan = 207
+
+# ---------------------------------------------------------------------------
+# Request metadata (Track A: metadata)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "meta-method-target-query"
+category = "request_metadata"
+description = "GET with extension method, raw target bytes, path/query fidelity, authority, scheme, version"
+transports = ["h1_tcp", "h1_tls", "h1_prebound", "h1_unix", "h2_prior", "h2_tls", "caller_owned", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::metadata_parity_across_transports + http3_runtime.rs::canonical_metadata"
+
+[[scenario]]
+id = "meta-duplicate-opaque-headers"
+category = "request_metadata"
+description = "Ordered duplicate and opaque (non-UTF8) request headers survive to the service"
+transports = ["h1_tcp", "h1_prebound", "caller_owned", "h2_prior", "h2_tls", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::metadata_parity_across_transports + app_server_consumer.rs::metadata_fidelity"
+
+[[scenario]]
+id = "meta-peer-local-endpoints"
+category = "request_metadata"
+description = "Immediate peer/local endpoints truthful per transport; Unix and caller-owned duplex expose None"
+transports = ["h1_tcp", "h1_prebound", "h1_unix", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::endpoint_truthfulness"
+
+[[scenario]]
+id = "meta-trusted-proxy-provenance"
+category = "request_metadata"
+description = "Forwarded/X-Forwarded-* stay untrusted by default; explicit trusted-proxy policy populates provenance-tagged effective fields without rewriting Host/target"
+transports = ["h1_tcp", "h2_prior"]
+consumers = ["native"]
+routine = true
+evidence = "trusted_proxy.rs + cross_protocol_conformance.rs::untrusted_forwarded_headers_stay_untrusted"
+
+[[scenario]]
+id = "meta-tls-sni-alpn"
+category = "request_metadata"
+description = "TLS SNI/ALPN/client-auth metadata present only on TLS transports; plaintext never fabricates it"
+transports = ["h1_tls", "h2_tls", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "tls_identity.rs + http2_runtime.rs::tls_alpn_selects_h2_and_falls_back_to_h1"
+
+# ---------------------------------------------------------------------------
+# Request body (Track A: body)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "body-empty-fixed"
+category = "request_body"
+description = "Empty body and fixed known-length body stream incrementally without read_all"
+transports = ["h1_tcp", "h1_tls", "h1_prebound", "caller_owned", "h2_prior", "h2_tls", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::body_empty_and_fixed_parity"
+
+[[scenario]]
+id = "body-chunked-h1"
+category = "request_body"
+description = "H1 chunked transfer streams incrementally; H2/H3 have no Transfer-Encoding framing"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+skip_reason_h2_h3 = "H2/H3 have no chunked framing by protocol design"
+evidence = "cross_protocol_conformance.rs::h1_chunked_streams + request_body_wire.rs"
+
+[[scenario]]
+id = "body-no-length-data-h2h3"
+category = "request_body"
+description = "DATA without Content-Length under H2/H3 is rejected for Reject services and dispatched empty when end-stream"
+transports = ["h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "http2_runtime.rs::h2_reject_uses_data_presence_without_content_length + http3_runtime.rs::data-without-length"
+
+[[scenario]]
+id = "body-read-all-bounded"
+category = "request_body"
+description = "read_all bounded path enforces the effective limit (413 on excess)"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::over_limit_body_rejected + body_conformance.rs"
+
+[[scenario]]
+id = "body-trailers-terminal"
+category = "request_body"
+description = "Request trailers arrive only after content completion as one terminal validated block"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native", "http_interop", "tower"]
+routine = true
+evidence = "trailers_interim.rs + interop_http_tower.rs::trailer_echo"
+
+[[scenario]]
+id = "body-partial-abandon-close"
+category = "request_body"
+description = "Partial consumption/abandonment after response-start forces safe close, never parses trailing bytes as a new request"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "deferred_lifecycle.rs + cross_protocol_conformance.rs::abandoned_body_forces_close"
+
+[[scenario]]
+id = "body-over-limit"
+category = "request_body"
+description = "Over-limit body yields canonical 413 without invoking the service when declared length exceeds the ceiling"
+transports = ["h1_tcp", "h2_prior", "h3_quic", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::over_limit_body_rejected"
+
+[[scenario]]
+id = "body-slow-stalled-manual"
+category = "request_body"
+description = "Slow/stalled body and peer reset/disconnect cancel the lifecycle promptly"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = false
+evidence = "MANUAL: request_body_timeout_interaction.rs + lifecycle cancellation suites with impairment tooling"
+skip_reason = "timing/impairment sensitive; routine CI covers bounded timeout unit paths only"
+
+# ---------------------------------------------------------------------------
+# Response (Track A: response)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "resp-empty-bytes-streams"
+category = "response"
+description = "Empty/bytes/known-length stream/unknown-length stream produce protocol-correct framing on every transport"
+transports = ["h1_tcp", "h1_tls", "h1_prebound", "caller_owned", "h2_prior", "h2_tls", "h3_quic"]
+consumers = ["native", "http_interop", "tower"]
+routine = true
+evidence = "cross_protocol_conformance.rs::response_variants_parity + interop_http_tower.rs::streaming"
+
+[[scenario]]
+id = "resp-duplicate-opaque-headers"
+category = "response"
+description = "Duplicate and opaque response headers emit byte-faithfully without importing http::HeaderValue"
+transports = ["h1_tcp", "caller_owned", "h2_prior"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::response_variants_parity + octet_fidelity.rs"
+
+[[scenario]]
+id = "resp-head-body-forbidden"
+category = "response"
+description = "HEAD and 204/304/1xx never poll the producer and emit no body bytes (304 retains matching Content-Length)"
+transports = ["h1_tcp", "caller_owned", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::head_and_body_forbidden_never_poll"
+
+[[scenario]]
+id = "resp-trailers-terminal"
+category = "response"
+description = "Response trailers stream as one terminal block; HEAD/body-forbidden never poll; failures close/reset without a second HTTP error"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native", "http_interop", "tower"]
+routine = true
+evidence = "trailers_interim.rs + interop_http_tower.rs"
+
+[[scenario]]
+id = "resp-interim-bounded"
+category = "response"
+description = "Bounded interim 1xx (no 101/body/trailers, no post-commit, H1.0 suppressed, single 100)"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "trailers_interim.rs::interim_* + cross_protocol_conformance.rs::interim_sender_bounds"
+
+[[scenario]]
+id = "resp-producer-error-commit"
+category = "response"
+description = "Producer error before commitment yields sanitized runtime error; after commitment closes/resets without a second HTTP error"
+transports = ["h1_tcp", "caller_owned", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::producer_panic_maps_to_500 + trailers_interim.rs::trailer_producer_error_after_commit"
+
+[[scenario]]
+id = "resp-stalled-producer-timeout"
+category = "response"
+description = "Stalled producer hits response_write_timeout no-progress semantics; H1 closes, H2 uses connection fallback, H3 resets only the stream"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "http3_runtime.rs::write-stall suite + response_streaming.rs (H1/H2 producer accounting)"
+
+[[scenario]]
+id = "resp-panic-sanitized"
+category = "response"
+description = "Application panic maps to sanitized 500 with no detail leak on every transport"
+transports = ["h1_tcp", "caller_owned", "h2_prior"]
+consumers = ["native", "tower"]
+routine = true
+evidence = "cross_protocol_conformance.rs::producer_panic_maps_to_500"
+
+[[scenario]]
+id = "resp-length-mismatch"
+category = "response"
+description = "Declared known-length mismatch and framing attempts from the service cannot corrupt framing; runtime is sole framing authority"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native", "http_interop"]
+routine = true
+evidence = "response_streaming.rs::mismatch teardown + interop_http_tower.rs::framing stripped"
+
+# ---------------------------------------------------------------------------
+# Full duplex / lifecycle (Track A: lifecycle, Track D isolation)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "life-early-response-reuse"
+category = "lifecycle"
+description = "Early response while upload continues; reuse waits for body Complete"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "deferred_lifecycle.rs + app_server_consumer.rs::D1-D5"
+
+[[scenario]]
+id = "life-abandoned-after-start"
+category = "lifecycle"
+description = "Body abandoned after response-start forces safe close"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::abandoned_body_forces_close"
+
+[[scenario]]
+id = "life-shutdown-drain"
+category = "lifecycle"
+description = "Graceful shutdown at each request phase drains eligible work; forced shutdown after deadline aborts; hard timeout observed"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "lifecycle_integration.rs + server_integration.rs + http3_runtime.rs::shutdown-race drain"
+
+[[scenario]]
+id = "life-admission-saturation-recovery"
+category = "lifecycle"
+description = "Application admission saturation yields 503 and recovers; counters return to baseline"
+transports = ["h1_tcp", "caller_owned", "h2_prior"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::admission_saturation_recovers + production_controls.rs"
+
+[[scenario]]
+id = "mux-sibling-isolation"
+category = "multiplexing"
+description = "One oversized/rejected request, one stalled producer, one tunnel reset stays stream-local; siblings survive; GOAWAY stops new work"
+transports = ["h2_prior", "h2_tls", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "http2_runtime.rs::rejected_body_is_stream_scoped + http3_runtime.rs::sibling suite + cross_protocol_conformance.rs::h2_sibling_survives_reject (H2)"
+
+[[scenario]]
+id = "mux-shared-admission-stream-limits"
+category = "multiplexing"
+description = "Server-wide application admission shared across connections/streams; protocol stream limits bound hostile idle/open streams; IDs/events distinct"
+transports = ["h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "production_controls.rs + http2_runtime.rs + http3_runtime.rs::stream-limit budgets"
+
+# ---------------------------------------------------------------------------
+# Tunnels (Track A: tunnels)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "tunnel-denial-ordinary-http"
+category = "tunnel"
+description = "Ordinary denial stays ordinary HTTP on every transport"
+transports = ["h1_tcp", "h2_prior", "h3_quic", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::denial + cross_protocol_conformance.rs::tunnel_denial_stays_http"
+
+[[scenario]]
+id = "tunnel-h1-upgrade-echo"
+category = "tunnel"
+description = "H1 Upgrade success echoes duplex bytes with read-ahead preserved and backpressure"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::h1_upgrade_echo_preserves_readahead + cross_protocol_conformance.rs::h1_upgrade_echo"
+
+[[scenario]]
+id = "tunnel-h2-extended-connect"
+category = "tunnel"
+description = "H2 Extended CONNECT success keeps siblings healthy; reset stays stream-local"
+transports = ["h2_prior", "h2_tls"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::h2_tunnel_*"
+
+[[scenario]]
+id = "tunnel-h3-connect-scoped"
+category = "tunnel"
+description = "H3 CONNECT/Extended CONNECT stream-scoped; generic :protocol (websocket) blocked by h3 0.0.8"
+transports = ["h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::h3_tunnel_* + http3.md blocker note"
+
+[[scenario]]
+id = "tunnel-close-shutdown-sibling"
+category = "tunnel"
+description = "Peer/local close/reset terminates only the tunnel; shutdown with active tunnel accounted; multiplexed sibling survives"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::close/shutdown/sibling suite"
+
+# ---------------------------------------------------------------------------
+# Security corpus through real drivers (Track E)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "sec-framing-smuggling-h1"
+category = "security"
+description = "H1 smuggling/framing ambiguity corpus rejected before service invocation"
+transports = ["h1_tcp", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "http_wire_correctness.rs::smuggling corpus + cross_protocol_conformance.rs::framing_ambiguity_rejected"
+
+[[scenario]]
+id = "sec-oversized-target-headers-trailers"
+category = "security"
+description = "Oversized targets/headers/trailers yield 414/431/400 without expensive work"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "production_controls.rs + cross_protocol_conformance.rs::oversized_target_yields_414"
+
+[[scenario]]
+id = "sec-pseudo-header-delegation"
+category = "security"
+description = "Invalid H2/H3 pseudo-header combinations delegated to parser libraries plus EggServe adapter limits"
+transports = ["h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "http2.md/http3.md ownership + http2_runtime.rs + http3_runtime.rs adapter-limit tests"
+
+[[scenario]]
+id = "sec-forbidden-response-fields"
+category = "security"
+description = "Forbidden connection-specific response fields and invalid trailer fields never reach the wire"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native", "http_interop", "tower"]
+routine = true
+evidence = "trailers_interim.rs::forbidden_* + interop_http_tower.rs::framing stripped"
+
+[[scenario]]
+id = "sec-proxy-spoofing"
+category = "security"
+description = "Spoofed proxy headers and untrusted PROXY preamble cannot forge trusted identity; malformed/untrusted closes before TLS/HTTP"
+transports = ["h1_tcp", "h2_prior"]
+consumers = ["native"]
+routine = true
+evidence = "trusted_proxy.rs + cross_protocol_conformance.rs::untrusted_forwarded_headers_stay_untrusted"
+
+[[scenario]]
+id = "sec-slowloris-manual"
+category = "security"
+description = "Slowloris header/body/TLS/PROXY-preamble behavior bounded by timeouts"
+transports = ["h1_tcp"]
+consumers = ["native"]
+routine = false
+evidence = "MANUAL: production_controls.rs timeout suites + tls_abuse.rs with impairment harness"
+skip_reason = "timing sensitive; routine CI covers deadline wiring, not wall-clock adversarial rates"
+
+[[scenario]]
+id = "sec-invalid-tunnel-service-output"
+category = "security"
+description = "Invalid upgrade/Extended CONNECT attempts denied as ordinary HTTP; malformed service output/length mismatch cannot corrupt framing"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::denial/malformed + response_streaming.rs::mismatch"
+
+# ---------------------------------------------------------------------------
+# Resources and leaks (Track F)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "res-admission-recovery"
+category = "resources"
+description = "Connection/in-flight/file-stream/tunnel/Python-task admission exhausts deterministically and recovers; semaphores/counters return to baseline"
+transports = ["h1_tcp", "caller_owned", "h2_prior"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs::admission_saturation_recovers + production_controls.rs + streaming_buffer_qualification.rs"
+
+[[scenario]]
+id = "res-body-cancellation-tls-shutdown"
+category = "resources"
+description = "Request/response body cancellation, TLS handshake limit/timeout, and shutdown churn release permits without leaks"
+transports = ["h1_tcp", "h1_tls", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "request_body_cancellation.rs + tls_abuse.rs + lifecycle_integration.rs"
+
+[[scenario]]
+id = "res-soak-manual"
+category = "resources"
+description = "Long-running soak with memory-growth observation (no absolute-RSS gate in routine CI)"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native", "tower", "async_python"]
+routine = false
+evidence = "MANUAL: tests/soak + benchmarks/170-closure harness; release evidence only"
+skip_reason = "expensive; routine CI uses bounded saturation/recovery cycles instead"
+
+# ---------------------------------------------------------------------------
+# Consumers (Track C)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "consumer-native-baseline"
+category = "consumer"
+description = "Native Service is the normative baseline for every routine scenario"
+transports = ["h1_tcp", "h1_prebound", "caller_owned"]
+consumers = ["native"]
+routine = true
+evidence = "cross_protocol_conformance.rs (all tests use native Service)"
+
+[[scenario]]
+id = "consumer-http-tower-parity"
+category = "consumer"
+description = "http/http-body and Tower consumers prove streaming, trailers, middleware, and H1 transport parity with documented loss (cross-name header order)"
+transports = ["h1_tcp"]
+consumers = ["http_interop", "tower"]
+routine = true
+evidence = "interop_http_tower.rs (feature tower) + cross_protocol_conformance.rs::tower_adapter_parity (feature tower)"
+
+[[scenario]]
+id = "consumer-async-python-h1"
+category = "consumer"
+description = "Async Python lowlevel handler proves H1 request/response streaming, backpressure, cancellation, and tunnel handoff"
+transports = ["h1_tcp"]
+consumers = ["async_python"]
+routine = true
+evidence = "crates/eggserve-python/tests/test_async_bridge.py (installed wheel job)"
+
+[[scenario]]
+id = "consumer-asgi-fixture"
+category = "consumer"
+description = "Plan 204 ASGI test fixture proves downstream adaptation without becoming a product server"
+transports = ["h1_tcp"]
+consumers = ["asgi_fixture"]
+routine = true
+evidence = "crates/eggserve-python/tests/asgi_fixture.py + test_async_bridge.py::asgi subset"
+
+# ---------------------------------------------------------------------------
+# Interop clients (Track G, manual)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "interop-two-clients-h2"
+category = "interop"
+description = "H2 retains two independent client families (curl/libnghttp2 + python-h2) plus h2spec classification"
+transports = ["h2_prior", "h2_tls"]
+consumers = ["native"]
+routine = false
+evidence = "MANUAL: scripts/qualify-http2.sh + release/plan-191-*.md; routine CI uses in-process Hyper H2 client only"
+skip_reason = "external tooling/browsers; routine CI stays in-process"
+
+[[scenario]]
+id = "interop-two-clients-h3"
+category = "interop"
+description = "H3 retains independent current H3 tooling/clients; missing feature support recorded explicitly"
+transports = ["h3_quic"]
+consumers = ["native"]
+routine = false
+evidence = "MANUAL: scripts/qualify-http3.sh with EGGSERVE_REQUIRE_TWO_H3_CLIENTS=1 for release; routine CI uses in-process h3 client"
+skip_reason = "no independent H3 client on routine host; fail-closed for promotion"
+
+[[scenario]]
+id = "interop-websocket-codec"
+category = "interop"
+description = "WebSocket-class tunnel qualification uses one independent downstream codec/client, not EggServe self-talk"
+transports = ["h1_tcp"]
+consumers = ["native"]
+routine = true
+evidence = "tunnel_upgrade.rs::ws_interop_* (tokio-tungstenite dev fixture)"
+
+# ---------------------------------------------------------------------------
+# Python event-loop stress (Track H)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "pyloop-concurrent-backpressure"
+category = "python_loop"
+description = "Concurrent H1 requests with slow Python consumer/producer apply backpressure without deadlock; bounded 16-queues hold"
+transports = ["h1_tcp"]
+consumers = ["async_python"]
+routine = true
+evidence = "test_async_bridge.py::concurrency/backpressure subset (wheel job)"
+
+[[scenario]]
+id = "pyloop-cancellation-shutdown-stress"
+category = "python_loop"
+description = "Python task cancellation before/after commitment, event-loop shutdown with active requests, repeated start/stop, GIL contention"
+transports = ["h1_tcp"]
+consumers = ["async_python"]
+routine = false
+evidence = "MANUAL: test_async_bridge.py stress subset + soak; routine wheel job runs bounded cancellation only"
+skip_reason = "expensive/flaky under load; routine CI covers deterministic cancellation paths"
+
+[[scenario]]
+id = "pyloop-h2h3-manual"
+category = "python_loop"
+description = "Concurrent requests on H2/H3 through the Python bridge"
+transports = ["h2_prior", "h3_quic"]
+consumers = ["async_python"]
+routine = false
+evidence = "MANUAL: out of scope by product contract (Python remains H1-only); recorded as capability skip, not a gap"
+skip_reason = "Python facade is H1-only by design; H2/H3 are Rust-only"
+
+# ---------------------------------------------------------------------------
+# Performance sanity (Track I, manual)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "perf-sanity-no-serialization"
+category = "performance"
+description = "Same-machine native H1/H2/H3 trivial + streaming, Tower overhead, async-Python overhead, static regression show no accidental global serialization"
+transports = ["h1_tcp", "h2_prior", "h3_quic"]
+consumers = ["native", "tower", "async_python"]
+routine = false
+evidence = "MANUAL: benchmarks/170-closure/benchmark.py same-machine matrix; stored under benchmarks/207-conformance/ when executed"
+skip_reason = "no absolute gates in CI; manual same-machine evidence only"
+
+# ---------------------------------------------------------------------------
+# CI/release partition (Track J)
+# ---------------------------------------------------------------------------
+
+[[scenario]]
+id = "ci-bounded-release-fail-closed"
+category = "ci_release"
+description = "Routine CI runs the deterministic subset on Linux; release fails closed when mandatory external evidence unavailable"
+transports = ["h1_tcp", "h1_tls", "h1_prebound", "h1_unix", "h2_prior", "h2_tls", "caller_owned", "h3_quic"]
+consumers = ["native", "http_interop", "tower", "async_python", "asgi_fixture"]
+routine = true
+evidence = ".github/workflows/ci.yml + scripts/qualify-http2.sh + scripts/qualify-http3.sh (fail-closed flags)"

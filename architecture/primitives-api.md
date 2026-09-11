@@ -368,7 +368,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 ### Error taxonomy
 
-- `RequestBodyError` — 12 variants (`#[non_exhaustive]`, match with wildcard) covering policy, limit, timeout, disconnect, consumption state
+- `RequestBodyError` — 14 variants (`#[non_exhaustive]`, match with wildcard) covering policy, limit, timeout, disconnect, consumption state
 - Classification helpers: `is_policy_rejection`, `is_limit_exceeded`, `is_timeout`, `is_disconnect`, `is_consumption_state`
 - HTTP status code mapping: `to_status_code()`
 

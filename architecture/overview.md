@@ -354,7 +354,7 @@ Five distinct error layers, each scoped to a specific subsystem:
 | `RequestValidationError` | HTTP-level | 6 variants: `MethodNotAllowed`, `InvalidContentLength`, `BodyTooLarge`, `UnsupportedTransferEncoding`, `ConflictingBodyHeaders`, `InvalidRequestTarget` |
 | `ServerError` | Server lifecycle | 10 variants: `Bind`, `Config`, `AlreadyStarted`, `NotStarted`, `Accept`, `TlsSetup`, `Transport`, `ShutdownTimeout`, `Startup`, `Terminal` |
 | `ServiceError` | Per-request | `Internal`, `Rejected(u16)`, `Panic`, `Timeout` |
-| `RequestBodyError` | Body consumption | 12 variants: `RejectedByPolicy`, `LimitExceeded`, `ReadTimeout`, `PrematureEof`, `AlreadyConsumed`, ... |
+| `RequestBodyError` | Body consumption | 14 variants: `RejectedByPolicy`, `LimitExceeded`, `ReadTimeout`, `PrematureEof`, `AlreadyConsumed`, ... |
 
 ---
 
@@ -391,7 +391,7 @@ Multi-layered testing spans the Python and Rust suites, 11 fuzz targets, and 2 c
 | Layer | Location | Scope |
 |-------|----------|-------|
 | Rust unit tests | `crates/*/src/**/*.rs` (inline `#[cfg(test)]`) | Module-level logic |
-| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS (30 files in core, 4 in bin) |
+| Rust integration tests | `crates/*/tests/*.rs` | Cross-module, live TCP, TLS (52 files in core, 4 in bin) |
 | Python test suites | `crates/eggserve-python/tests/test_*.py` | Compatibility facade, TLS, low-level primitives, conformance, body, boundary hardening |
 | Packaging smoke tests | `crates/eggserve-python/packaging-tests/` | Installed-wheel validation |
 | Conformance corpora | `conformance/*.json` | Shared Rust/Python test data |
@@ -549,7 +549,7 @@ src/
 │   ├── request.rs            # Request (head + body + RequestContext)
 │   ├── request_context.rs    # RequestContext (Plan 197: connection + lifecycle)
 │   ├── request_body.rs       # RequestBody, BodyState
-│   ├── request_body_error.rs # RequestBodyError (12 variants)
+│   ├── request_body_error.rs # RequestBodyError (14 variants)
 │   ├── request_body_policy.rs# RequestBodyPolicy (Reject/Buffer/Stream)
 │   ├── incomplete_body_policy.rs # IncompleteBodyPolicy
 │   ├── planner.rs            # plan_file_response, conditional/range/ETag evaluation

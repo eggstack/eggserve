@@ -276,6 +276,7 @@ and `#[non_exhaustive]` error tolerance) is documented in
 [downstream-app-server.md](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md)
 and qualified externally by `crates/eggserve-core/tests/app_server_consumer.rs`
 plus the Hyper-free `crates/eggserve-core/tests/application_service_contract.rs`.
+Cross-protocol conformance is inventoried once in `conformance/app_server_conformance.toml` (Plan 207, 55 scenarios) with the routine deterministic subset in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 TCP/prebound/Unix/caller-owned plus H2/Tower-gated; H1 TLS/H2 TLS/H3/`http-interop`/async-Python/ASGI owned by their existing suites; manual interop/soak fail-closed; see `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental.
 The minimal native demonstration is
 `crates/eggserve-core/examples/application_service.rs` (buffered echo,
 bounded streamed pipe, lifecycle long-poll, no static filesystem).
