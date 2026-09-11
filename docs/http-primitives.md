@@ -119,8 +119,10 @@ Initial headers, trailers, interim responses, and final responses are distinct:
   the current Hyper pipeline (interims validated/recorded; Hyper server APIs
   own emission where permitted — no raw-socket fallback).
 - **Python**: `validate_trailers` / `validate_interim` text-only bounded helpers
-  project the capability to `eggserve.lowlevel` without changing the synchronous
-  `http.server` surface.
+  project validation to `eggserve.lowlevel` without changing the synchronous
+  `http.server` surface; the experimental async substrate (`AsyncServer`)
+  adds wire support (`read_chunk`/`trailers`, `stream_with_trailers`,
+  `send_interim`, `take_tunnel`/`accept` + bounded `Tunnel`).
 
 ### Ecosystem interoperability (Plan 200, implemented)
 

@@ -99,7 +99,13 @@ public `eggserve.lowlevel` runtime/service substrate: handler-only
 parser, timeout, and safe privacy controls, projected via the single
 `_native_kwargs()` helper), bounded `Response.stream` over a
 16-chunk backpressured bridge (HEAD/body-forbidden never advance the iterator;
-async producers rejected), and caller-owned `StaticResponder` composition. The
+sync iterables only), and caller-owned `StaticResponder` composition. For
+async downstream servers, use the experimental H1-only
+`AsyncServer(config, async_handler, max_async_tasks=...)` with incremental
+`aread`/`aiter_chunks`/`trailers`, `AsyncResponse.stream` over async
+iterables (bounded 16-queue, trailers via `stream_with_trailers`), bounded
+interim 1xx (`send_interim`), and one-shot generic tunnels (`take_tunnel` /
+`accept` + bounded `recv`/`send`; WebSocket framing stays downstream). The
 optional subprocess helpers are canonically owned by `eggserve.subprocess`
 (`eggserve.server` retains compatibility re-exports; top-level
 `eggserve.serve_directory` re-exports the subprocess implementation); the primary API is
@@ -325,9 +331,11 @@ the experimental `server` module a stable 1.0 API.
   compatible and H3 keeps a separate QUIC identity requiring endpoint
   replacement (see `docs/tls.md`).
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
-  async Python handlers, unbounded response generators, ASGI/WSGI, and
+  unbounded response generators, ASGI/WSGI server implementations, and
   CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
-  gateways are intentionally unavailable. Generic tunnel handoff (Plan 199,
+  gateways are intentionally unavailable. Sync `Response.stream` still rejects
+  async producers (use `AsyncServer`/`AsyncResponse.stream` for asyncio).
+  Generic tunnel handoff (Plan 199,
   superseding deferred Plan 176) **is** available: validated H1 `Upgrade`,
   `CONNECT`, and H2/H3 Extended `CONNECT` (H3 generic `:protocol` blocked by
   `h3` 0.0.8, see tunnel docs) yield a one-shot, transport-backed
@@ -336,9 +344,13 @@ the experimental `server` module a stable 1.0 API.
   handshake `Response` (`101` for H1, `200` otherwise; runtime owns
   transition/framing bytes, no raw socket) and a bounded, single-owner
   `TunnelIo` (`AsyncRead + AsyncWrite`, 32 KiB backpressure, lifecycle-aware,
-  no payload logged) for the downstream codec. Denial stays ordinary HTTP;
+  no payload logged) for the downstream codec. The Python async substrate
+  exposes the same one-shot capability (`take_tunnel` / `accept` returning a
+  handshake plus bounded `Tunnel` with 16-chunk backpressure; H1 in Python,
+  H2/H3 Rust-only). Denial stays ordinary HTTP;
   WebSocket framing itself remains downstream (see `tunnel_upgrade.rs`
-  echo + `tokio-tungstenite` interop fixture, no WS in core). Downstream
+  echo + `tokio-tungstenite` interop fixture, no WS in core; Python ASGI
+  WebSocket echo lives in the test fixture only). Downstream
   gateways build on the canonical `Service` boundary instead.
 
 See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),

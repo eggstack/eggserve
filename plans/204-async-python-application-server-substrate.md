@@ -2,7 +2,42 @@
 
 ## Status
 
-**PLANNED.** Prerequisites: Plan 197; Plan 198 for trailers/interim semantics; Plan 199 for WebSocket/tunnel capability. Plan 200 is useful but not required.
+**IMPLEMENTED (experimental, H1-only Python bridge).** Prerequisites met:
+Plan 197 (service contract/context), Plan 198 (trailers/interim), Plan 199
+(tunnel/Extended CONNECT). Plan 200 useful but not required (not used).
+
+Implemented on `main`: manual asyncio bridge (Track A decision: no new PyO3
+async dependency — abi3-py311 compatible, no extra supply-chain surface;
+Rust releases the GIL during all waits via `allow_threads`/`blocking_*`,
+Python never blocks the loop on Rust except via `asyncio.to_thread` +
+`run_coroutine_threadsafe(...).result()` with GIL released during wait;
+bounded 16-chunk queues both directions, no unbounded cross-runtime queue;
+cancellation both ways via lifecycle/channel-close/task-cancel; explicit
+loop ownership tied to server lifetime; no callbacks from arbitrary Tokio
+workers except thread-safe `call_soon_threadsafe`/`run_coroutine_threadsafe`;
+H2/H3 remain Rust-only experimental, Python bridge H1-only with explicit
+limitation). `eggserve.lowlevel.AsyncServer(config, async_handler,
+max_async_tasks)` + `AsyncRequest`/`AsyncBody`/`AsyncResponse`/`Tunnel`
+(Tracks B–I) + `stream_with_trailers`/`read_chunk`/`trailers`/`send_interim`/
+`take_tunnel`/`accept` native projections + `crates/eggserve-python/tests/
+asgi_fixture.py` HTTP/WebSocket test/example adapter (Track J, no
+lifespan/workers/reload/router) + `test_async_bridge.py` qualification
+(Track J cases) + `examples/python_async_server.py`. GIL/perf evidence
+(Track K): architectural (no GIL across waits, bounded memory) + same-machine
+smoke (no absolute CI gates, per benchmarks policy). Security verification
+per plan (framing/denylist authoritative, ceilings never raised, dropped
+tasks release ownership, sanitized type-only diagnostics, one-shot tunnels,
+verified TLS/proxy never mislabeled, cross-loop misuse fails safely,
+shutdown cancels tracked tasks, no orphans). `eggserve.server` sync surface
+intact (all changes additive; sync `Response.stream` still rejects async
+producers). Docs updated (`README.md`, `examples/README.md`,
+`docs/python-api.md`, `docs/non-goals.md`, `docs/http-primitives.md`,
+`architecture/eggserve-python.md`, `AGENTS.md`, skill).
+
+Verification: `cargo fmt`, workspace clippy/tests, `http2,tls` +
+`http3,tls` matrices, Python crate check, wheel build + installed-wheel
+suite including `test_async_bridge.py` green locally before push; routine CI
+must confirm remotely.
 
 ## Purpose
 

@@ -157,6 +157,58 @@ lifecycle helpers are under `eggserve.subprocess` (a process-management
 convenience, not the preferred in-process embedding API); `_native` remains private
 implementation detail.
 
+## Async low-level substrate (Plan 204, experimental, H1-only)
+
+`eggserve.lowlevel.AsyncServer(config, handler, max_async_tasks=...)` is the
+async bridge for downstream ASGI-class servers (EggServe itself remains a
+static server/library, not a maintained ASGI server). Handlers are
+`async def handler(request: AsyncRequest) -> Response`:
+
+- Same native runtime as the sync facade (no second accept loop, H1-only;
+  H2/H3 remain Rust-only experimental). `eggserve.server` stays synchronous.
+- Manual asyncio bridge (no new PyO3 async dependency, abi3 compatible):
+  Rust releases the GIL during all network/body waits; Python never blocks
+  the loop on Rust (blocking native calls go via `asyncio.to_thread`).
+- Byte-fidelity metadata: `header_items_bytes`, `raw_target_bytes`,
+  `path_bytes`/`query_bytes`, ordered duplicate-preserving headers,
+  canonical `authority`/`scheme`, provenance-tagged effective/proxy fields,
+  and verified TLS fields (`tls_server_name`, `tls_alpn`,
+  `client_authenticated`).
+- Bounded incremental bodies: `await body.aread()` (buffered, ceiling
+  enforced) vs `async for chunk in body.aiter_chunks()` (streaming via
+  `read_chunk`, no hidden `read_all`); `await body.trailers()` after
+  terminal state (`None` when absent).
+- Incremental responses: `AsyncResponse.stream(status, async_iterable,
+  headers, content_length, trailers)` bridges async iterables through a
+  bounded 16-queue (backpressure, HEAD/body-forbidden never advance,
+  unknown length allowed, trailers validated before commitment via
+  `stream_with_trailers`, no second response after commitment).
+- Interim 1xx: `await request.send_interim(status, headers)` (native
+  1xx-only/no-101/ordering/bounds enforcement; Python cannot bypass).
+- Generic tunnels: `request.take_tunnel()` (one-shot) then
+  `handshake, tunnel = cap.accept(headers)` (validated H1 Upgrade/CONNECT
+  and Extended CONNECT where the runtime attaches a capability; runtime owns
+  101/200 framing, no raw socket) plus bounded `await tunnel.recv()` /
+  `send()` / `close()` (16-chunk backpressure, lifecycle-aware). Denial
+  stays ordinary HTTP; WebSocket framing stays downstream (fixture-only).
+- Admission: `max_async_tasks` (default `config.max_python_callbacks`)
+  bounds app-task lifetime separately from pre-response
+  `max_in_flight_requests`; overload fails fast with `503`; streaming
+  producers and tunnel drivers hold the permit until completion;
+  disconnect/cancel/shutdown releases exactly once and wakes blocked sends.
+- Ownership: constructed outside a loop, `await start()` captures the
+  running loop (wrong-loop/closed-loop misuse raises `RuntimeError`),
+  `await shutdown()` cancels tracked tasks deterministically (graceful
+  timeout from config) and joins the native runtime. No destructor network
+  cleanup (explicit shutdown required). Long-lived tunnel/SSE drivers should
+  be registered via `server.track(task)`.
+- ASGI sufficiency is demonstrated by the test/example fixture
+  (`crates/eggserve-python/tests/asgi_fixture.py`: HTTP + WebSocket echo,
+  no lifespan/workers/reload/router), not a maintained server.
+
+The runnable async demonstration is `examples/python_async_server.py`
+(`create_server(port)` with port `0` support).
+
 ## Compatibility boundary
 
 The façade is not ASGI, WSGI, CGI, FastCGI, a routing framework, middleware, a proxy, or a

@@ -1698,6 +1698,9 @@ fn _native(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<server::PyRequestBody>()?;
     m.add_class::<server::PyBodyChunkIterator>()?;
     m.add_class::<server::PyRequest>()?;
+    m.add_class::<server::PyTunnelRequest>()?;
+    m.add_class::<server::PyTunnelCapability>()?;
+    m.add_class::<server::PyTunnel>()?;
     m.add_class::<server::PyResponse>()?;
     m.add_class::<server::PyStaticResponder>()?;
     m.add_class::<server::PyStaticPolicyWrapper>()?;

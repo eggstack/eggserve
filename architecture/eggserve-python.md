@@ -82,9 +82,17 @@ primitives) plus the Plan 166 public runtime substrate: frozen `RuntimeConfig`
 (projected via the single `_native_kwargs()` helper; Plan 182),
 handler-only `Server(config, handler)` over the shared native runtime (no
 second accept loop, no static root), bounded `Response.stream` (16-chunk
-backpressured bridge; HEAD/body-forbidden never advance the iterator; async
-rejected; `Transfer-Encoding` never service-set), and caller-owned
-`StaticResponder` composition. `eggserve.subprocess` is the canonical owner of
+backpressured bridge; HEAD/body-forbidden never advance the iterator; sync
+iterables only; `Transfer-Encoding` never service-set), and caller-owned
+`StaticResponder` composition. Plan 204 adds the experimental async substrate
+in the same namespace (manual asyncio bridge, no new native dependency):
+`AsyncServer(config, async_handler, max_async_tasks)` over the shared runtime
+(H1-only), `AsyncRequest`/`AsyncBody` (byte-fidelity metadata, incremental
+`read_chunk`/`aiter_chunks`/`trailers`, lifecycle/interim/tunnel handles),
+`AsyncResponse.stream` (async iterables via a bounded 16-queue plus
+`stream_with_trailers`), and `TunnelCapability`/`Tunnel` (one-shot accept,
+bounded duplex). Sync/async handler logic is separate in `lowlevel.py`;
+shared canonical conversion stays in `server.rs`. `eggserve.subprocess` is the canonical owner of
 `ServeConfig`, `ServerProcess`, `StaticPolicy`, and the `serve_directory`
 convenience (Plan 182); `eggserve.server` keeps compatibility re-exports of
 those names without expanding its six-class `__all__`. The top-level package

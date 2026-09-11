@@ -22,6 +22,7 @@ use eggserve_core::primitives::http::ReadOnlyMethod;
 use eggserve_core::primitives::request_body::RequestBody;
 use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
 use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_core::primitives::request_context::RequestContext;
 use eggserve_core::primitives::request_head::RequestHead;
 use eggserve_core::primitives::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
@@ -563,6 +564,114 @@ impl PyRequestBody {
         })
     }
 
+    /// Blocking incremental chunk read (GIL released during wait).
+    ///
+    /// Plan 204 async substrate: returns `bytes` on data, `None` at EOF.
+    /// Unlike `read()` (which consumes via `read_all` semantics) and
+    /// `iter_chunks()` (which moves the body into a producer task), this
+    /// preserves the body for a subsequent `trailers()` call after terminal
+    /// state. Errors map to the stable `RequestBody*` hierarchy. Intended
+    /// for use via `asyncio.to_thread` in async handlers so the event loop
+    /// stays responsive; direct calls block the caller.
+    fn read_chunk<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        // Take-then-put so the std Mutex is never held across `block_on`.
+        let mut body = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            guard.take().ok_or_else(|| {
+                crate::RequestBodyConsumedError::new_err("body already consumed")
+            })?
+        };
+        let handle = self.handle.clone();
+        let result =
+            py.allow_threads(|| handle.block_on(async { body.next_chunk().await }));
+        match result {
+            Ok(Some(chunk)) => {
+                let received = body.bytes_received();
+                self.final_bytes_received
+                    .store(received, Ordering::Release);
+                let bytes = PyBytes::new(py, &chunk);
+                // Not terminal: return body for future reads/trailers.
+                if let Ok(mut guard) = self.inner.lock() {
+                    *guard = Some(body);
+                }
+                Ok(Some(bytes))
+            }
+            Ok(None) => {
+                let received = body.bytes_received();
+                self.final_bytes_received
+                    .store(received, Ordering::Release);
+                self.final_complete.store(true, Ordering::Release);
+                // Terminal: keep body for `trailers()` (which needs `&mut`).
+                if let Ok(mut guard) = self.inner.lock() {
+                    *guard = Some(body);
+                }
+                Ok(None)
+            }
+            Err(e) => {
+                let received = body.bytes_received();
+                self.final_bytes_received
+                    .store(received, Ordering::Release);
+                // Preserve the failed body for `trailers()` probing (which
+                // will surface `InvalidTrailers`/terminal state); drop on
+                // lock failure.
+                if let Ok(mut guard) = self.inner.lock() {
+                    *guard = Some(body);
+                }
+                let raw: RawBodyError = e.into();
+                Err(raw_body_error_to_pyerr(raw))
+            }
+        }
+    }
+
+    /// Blocking terminal-trailer fetch (GIL released during wait).
+    ///
+    /// Returns `None` when no trailers were present, or a list of
+    /// `(name, value)` text pairs when the peer sent terminal trailers.
+    /// Opaque (non-UTF-8) trailer octets are omitted (text-only facade);
+    /// the canonical Rust validator remains the authority (denylist +
+    /// count/byte limits). Raises `RequestBodyError` on `InvalidTrailers`
+    /// and `RequestBodyConsumedError` when called before terminal state
+    /// (`TrailersNotReady`). Use after `read_chunk()` returns `None` (or
+    /// after `read()`/`iter_chunks()` exhaustion where the body was
+    /// preserved). Intended for `asyncio.to_thread` in async handlers.
+    fn trailers(&self, py: Python<'_>) -> PyResult<Option<Vec<(String, String)>>> {
+        let mut body = {
+            let mut guard = self
+                .inner
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
+            guard.take().ok_or_else(|| {
+                crate::RequestBodyConsumedError::new_err("body already consumed")
+            })?
+        };
+        let handle = self.handle.clone();
+        let result = py.allow_threads(|| handle.block_on(async { body.trailers().await }));
+        // Always return the body (trailers() takes `&mut`, body stays owned).
+        if let Ok(mut guard) = self.inner.lock() {
+            *guard = Some(body);
+        }
+        match result {
+            Ok(None) => Ok(None),
+            Ok(Some(trailers)) => {
+                let mut out = Vec::new();
+                for field in trailers.iter() {
+                    // Text-only: skip opaque values rather than coercing.
+                    if let Ok(text) = field.value.to_str() {
+                        out.push((field.name.to_string(), text.to_owned()));
+                    }
+                }
+                Ok(Some(out))
+            }
+            Err(e) => {
+                let raw: RawBodyError = e.into();
+                Err(raw_body_error_to_pyerr(raw))
+            }
+        }
+    }
+
     fn __repr__(&self) -> String {
         match self.inner.lock() {
             Ok(guard) => match guard.as_ref() {
@@ -663,6 +772,39 @@ pub struct PyRequest {
     /// Header family source kind (`forwarded`/`legacy_forwarded`), if accepted.
     #[pyo3(get)]
     forwarded_provenance: Option<String>,
+    // Plan 204 async substrate (additive, sync facade behavior unchanged):
+    // byte-fidelity views + transport-authenticated metadata + capability
+    // handles. Stored at construction from the canonical head/context so
+    // async handlers observe the same values without re-parsing.
+    raw_target_bytes: Vec<u8>,
+    path_bytes: Vec<u8>,
+    query_bytes: Option<Vec<u8>>,
+    header_items_bytes: Vec<(Vec<u8>, Vec<u8>)>,
+    authority: Option<String>,
+    tls_protocol_version: Option<String>,
+    tls_server_name: Option<String>,
+    tls_alpn: Option<String>,
+    client_authenticated: bool,
+    peer_certificates_present: bool,
+    proxy_source: Option<String>,
+    proxy_destination: Option<String>,
+    // Tokio handle for blocking lifecycle waits (GIL released during wait).
+    handle: Option<tokio::runtime::Handle>,
+    // Cloned lifecycle/interim for disconnect observation + bounded 1xx.
+    // `RequestLifecycle`/`InterimSender` are Arc-backed small handles.
+    lifecycle: Option<eggserve_core::primitives::request_lifecycle::RequestLifecycle>,
+    interim: Option<eggserve_core::primitives::interim::InterimSender>,
+    // One-shot tunnel slot shared with the runtime context (taking via one
+    // clone removes for all; second take returns None). `None` when the
+    // request is not a validated upgrade/CONNECT/Extended CONNECT.
+    tunnel_slot:
+        Option<Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>>,
+    // Handshake slot populated by `accept_tunnel` (one-shot). After the
+    // Python handler returns, the service layer takes this instead of the
+    // converted `Response` so the runtime-owned `TunnelAcceptance` (with
+    // transport upgrade + duplex handler) survives the Python boundary.
+    tunnel_handshake:
+        Arc<std::sync::Mutex<Option<eggserve_core::primitives::canonical::Response>>>,
 }
 
 #[pymethods]
@@ -679,6 +821,538 @@ impl PyRequest {
 
     fn __repr__(&self) -> String {
         format!("<Request {} {}>", self.method, self.path)
+    }
+
+    // -- Plan 204 byte-fidelity views (additive; text facade above unchanged) --
+
+    #[getter]
+    fn raw_target_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.raw_target_bytes)
+    }
+
+    #[getter]
+    fn path_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
+        PyBytes::new(py, &self.path_bytes)
+    }
+
+    #[getter]
+    fn query_bytes<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
+        self.query_bytes
+            .as_ref()
+            .map(|q| PyBytes::new(py, q))
+    }
+
+    #[getter]
+    fn header_items_bytes(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
+        self.header_items_bytes.clone()
+    }
+
+    #[getter]
+    fn authority(&self) -> Option<String> {
+        self.authority.clone()
+    }
+
+    #[getter]
+    fn tls_protocol_version(&self) -> Option<String> {
+        self.tls_protocol_version.clone()
+    }
+
+    #[getter]
+    fn tls_server_name(&self) -> Option<String> {
+        self.tls_server_name.clone()
+    }
+
+    #[getter]
+    fn tls_alpn(&self) -> Option<String> {
+        self.tls_alpn.clone()
+    }
+
+    #[getter]
+    fn client_authenticated(&self) -> bool {
+        self.client_authenticated
+    }
+
+    #[getter]
+    fn peer_certificates_present(&self) -> bool {
+        self.peer_certificates_present
+    }
+
+    #[getter]
+    fn proxy_source(&self) -> Option<String> {
+        self.proxy_source.clone()
+    }
+
+    #[getter]
+    fn proxy_destination(&self) -> Option<String> {
+        self.proxy_destination.clone()
+    }
+
+    // -- Plan 204 lifecycle observer (transport-neutral, bounded) --
+
+    fn is_disconnected(&self) -> bool {
+        self.lifecycle
+            .as_ref()
+            .is_some_and(|lc| lc.is_cancelled())
+    }
+
+    fn cancellation_reason(&self) -> Option<String> {
+        self.lifecycle.as_ref().and_then(|lc| {
+            lc.cancellation_reason().map(|r| match r {
+                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::PeerDisconnected => {
+                    "peer_disconnected".to_string()
+                }
+                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::ServerShutdown => {
+                    "server_shutdown".to_string()
+                }
+                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::ConnectionTimeout => {
+                    "connection_timeout".to_string()
+                }
+                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::TransportFailure => {
+                    "transport_failure".to_string()
+                }
+                // `RequestCancellationReason` is `#[non_exhaustive]`; future
+                // variants map to a stable unknown category (no leak).
+                _ => "unknown".to_string(),
+            })
+        })
+    }
+
+    #[pyo3(signature = (timeout_secs=None))]
+    fn wait_disconnected(&self, py: Python<'_>, timeout_secs: Option<f64>) -> PyResult<bool> {
+        let lifecycle = self.lifecycle.clone().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no lifecycle attached to request")
+        })?;
+        let handle = self.handle.clone().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no runtime handle for lifecycle wait")
+        })?;
+        let timeout = timeout_secs.map(Duration::from_secs_f64);
+        Ok(py.allow_threads(|| {
+            handle.block_on(async {
+                match timeout {
+                    Some(d) => tokio::time::timeout(d, lifecycle.cancelled()).await.is_ok(),
+                    None => {
+                        lifecycle.cancelled().await;
+                        true
+                    }
+                }
+            })
+        }))
+    }
+
+    // -- Plan 204 bounded interim (1xx) sender (native enforcement) --
+
+    #[pyo3(signature = (status, headers=None))]
+    fn send_interim(
+        &self,
+        status: u16,
+        headers: Option<Vec<(String, String)>>,
+    ) -> PyResult<String> {
+        use eggserve_core::primitives::canonical::StatusCode;
+        use eggserve_core::primitives::header_block::HeaderBlock;
+
+        let sender = self.interim.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no interim sender attached to request")
+        })?;
+        let code = StatusCode::new(status).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("invalid interim status: {e}"))
+        })?;
+        let mut block = HeaderBlock::new();
+        for (name, value) in headers.unwrap_or_default() {
+            block.push_str(name, value).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid interim header: {e}"))
+            })?;
+        }
+        // Native enforcement: 1xx-only (no 101), no body/trailers, no
+        // post-commit, bounded count/bytes, HTTP/1.0 suppressed, single 100.
+        // Python cannot bypass ordering/bounds; failures are sanitized.
+        sender
+            .send(code, block)
+            .map(|d| {
+                if d.is_sent() {
+                    "sent".to_string()
+                } else {
+                    "suppressed".to_string()
+                }
+            })
+            .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))
+    }
+
+    // -- Plan 204 one-shot tunnel take (presence only; accept is separate) --
+
+    fn has_tunnel(&self) -> bool {
+        if let Some(slot) = self.tunnel_slot.as_ref() {
+            slot.lock().ok().is_some_and(|g| g.is_some())
+        } else {
+            false
+        }
+    }
+
+    fn tunnel_request(&self) -> Option<PyTunnelRequest> {
+        let slot = self.tunnel_slot.as_ref()?;
+        let guard = slot.lock().ok()?;
+        let cap = guard.as_ref()?;
+        let req = cap.request();
+        Some(PyTunnelRequest {
+            kind: req.kind().to_string(),
+            protocol: req.protocol().map(|p| p.as_str().to_owned()),
+            authority: req.authority().map(|a| a.as_str().to_owned()),
+        })
+    }
+
+    fn take_tunnel(&self) -> PyResult<Option<PyTunnelCapability>> {
+        let slot = self.tunnel_slot.as_ref().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no tunnel slot attached to request")
+        })?;
+        // Clone the Arc so the taken capability + handshake slot stay shared
+        // with the service-layer post-return check (which owns a clone via
+        // `tunnel_handshake`). Taking here drains the Python-owned slot
+        // one-shot; second take returns None (no duplication).
+        let taken = slot
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("tunnel lock poisoned"))?
+            .take();
+        Ok(taken.map(|cap| {
+            let request = cap.request().clone();
+            PyTunnelCapability {
+                inner: Arc::new(std::sync::Mutex::new(Some(cap))),
+                request,
+                lifecycle: self.lifecycle.clone(),
+                handle: self.handle.clone(),
+                handshake_slot: Arc::clone(&self.tunnel_handshake),
+            }
+        }))
+    }
+}
+
+#[pyclass(frozen, name = "TunnelRequest")]
+#[derive(Debug, Clone)]
+pub struct PyTunnelRequest {
+    #[pyo3(get)]
+    kind: String,
+    #[pyo3(get)]
+    protocol: Option<String>,
+    #[pyo3(get)]
+    authority: Option<String>,
+}
+
+#[pymethods]
+impl PyTunnelRequest {
+    fn __repr__(&self) -> String {
+        format!(
+            "<TunnelRequest kind={} protocol={:?} authority={:?}>",
+            self.kind, self.protocol, self.authority
+        )
+    }
+}
+
+/// Bound for each tunnel direction (Python <-> runtime shuttle).
+///
+/// Matches the response-stream bridge philosophy (16 chunks): the runtime
+/// handler task blocks on a full channel (GIL released), so a slow Python
+/// consumer applies backpressure without unbounded buffering. Chunk payloads
+/// are bounded by the caller (tunnel `send` rejects oversized frames at
+/// 64 KiB); 16 × 64 KiB = 1 MiB max per direction in flight.
+pub(crate) const TUNNEL_CHANNEL_BOUND: usize = 16;
+/// Maximum single tunnel frame accepted from Python (prevents one huge
+/// `send` from exhausting memory; runtime `TunnelIo` duplex is 32 KiB, so
+/// larger Python frames are chunked by the shuttle, not buffered whole).
+pub(crate) const TUNNEL_MAX_FRAME_BYTES: usize = 64 * 1024;
+
+#[pyclass(frozen, name = "TunnelCapability")]
+pub struct PyTunnelCapability {
+    inner: Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>,
+    request: eggserve_core::primitives::tunnel::TunnelRequest,
+    lifecycle: Option<eggserve_core::primitives::request_lifecycle::RequestLifecycle>,
+    handle: Option<tokio::runtime::Handle>,
+    handshake_slot: Arc<std::sync::Mutex<Option<CanonicalResponse>>>,
+}
+
+impl std::fmt::Debug for PyTunnelCapability {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyTunnelCapability")
+            .field("request", &self.request)
+            .finish_non_exhaustive()
+    }
+}
+
+#[pymethods]
+impl PyTunnelCapability {
+    #[getter]
+    fn kind(&self) -> String {
+        self.request.kind().to_string()
+    }
+
+    #[getter]
+    fn protocol(&self) -> Option<String> {
+        self.request.protocol().map(|p| p.as_str().to_owned())
+    }
+
+    #[getter]
+    fn authority(&self) -> Option<String> {
+        self.request.authority().map(|a| a.as_str().to_owned())
+    }
+
+    /// Accept the tunnel with validated handshake headers.
+    ///
+    /// One-shot: second call fails (already accepted/taken). Validates via
+    /// the canonical `TunnelCapability::accept` (framing rejected,
+    /// hop-by-hop stripped, bounded 32 fields / 8 KiB; H1 `101` vs
+    /// `CONNECT`/`Extended` `200` selected by the runtime; runtime owns
+    /// transition/framing bytes, no raw socket). Returns `(handshake,
+    /// tunnel)`: `handshake` is the `Response` the handler must return as
+    /// its final service result (denial stays ordinary HTTP by returning a
+    /// normal `Response` without calling `accept`); `tunnel` is the bounded
+    /// single-owner duplex for the downstream codec (no WebSocket framing
+    /// in EggServe). Python never receives Hyper/h2/h3/Quinn objects.
+    #[pyo3(signature = (headers=None))]
+    fn accept(
+        &self,
+        py: Python<'_>,
+        headers: Option<Vec<(String, String)>>,
+    ) -> PyResult<(PyResponse, PyTunnel)> {
+        use eggserve_core::primitives::header_block::HeaderBlock;
+
+        let mut slot = self
+            .inner
+            .lock()
+            .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("tunnel lock poisoned"))?;
+        let capability = slot.take().ok_or_else(|| {
+            pyo3::exceptions::PyValueError::new_err("tunnel already accepted or taken")
+        })?;
+        drop(slot);
+
+        let mut block = HeaderBlock::new();
+        for (name, value) in headers.unwrap_or_default() {
+            block.push_str(name, value).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid tunnel header: {e}"))
+            })?;
+        }
+
+        let lifecycle = self.lifecycle.clone().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no lifecycle for tunnel")
+        })?;
+        let shuttle_lifecycle = lifecycle.clone();
+        // Bounded duplex shuttle: runtime `TunnelIo` <-> Python channels.
+        // `to_python`: runtime reads from transport, Python `recv`s.
+        // `to_runtime`: Python `send`s, runtime writes to transport.
+        let (to_python_tx, to_python_rx) =
+            mpsc::channel::<Result<Vec<u8>, String>>(TUNNEL_CHANNEL_BOUND);
+        let (to_runtime_tx, mut to_runtime_rx) =
+            mpsc::channel::<Vec<u8>>(TUNNEL_CHANNEL_BOUND);
+        let to_python_rx = Arc::new(std::sync::Mutex::new(Some(to_python_rx)));
+        let to_runtime_tx = Arc::new(std::sync::Mutex::new(Some(to_runtime_tx)));
+
+        let tunnel = PyTunnel {
+            to_python_rx: Arc::clone(&to_python_rx),
+            to_runtime_tx: Arc::clone(&to_runtime_tx),
+            lifecycle: Some(lifecycle.clone()),
+            handle: self.handle.clone(),
+            closed: Arc::new(AtomicBool::new(false)),
+        };
+
+        // Downstream handler owns `TunnelIo` + lifecycle, no raw transport.
+        // Shuttle loop: transport -> Python channel, Python channel ->
+        // transport, with lifecycle cancellation waking idle waits. No
+        // payload bytes logged; failures are sanitized (truncation/close).
+        let handler = move |mut io: eggserve_core::primitives::tunnel::TunnelIo,
+                            lc: eggserve_core::primitives::request_lifecycle::RequestLifecycle| async move {
+            let mut buf = vec![0u8; 32 * 1024];
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = lc.cancelled() => break,
+                    _ = shuttle_lifecycle.cancelled() => break,
+                    read = tokio::io::AsyncReadExt::read(&mut io, &mut buf) => {
+                        match read {
+                            Ok(0) => break,
+                            Ok(n) => {
+                                let chunk = buf[..n].to_vec();
+                                if to_python_tx.send(Ok(chunk)).await.is_err() {
+                                    break;
+                                }
+                            }
+                            Err(_) => {
+                                let _ = to_python_tx.send(Err("transport read failed".to_string())).await;
+                                break;
+                            }
+                        }
+                    }
+                    chunk = to_runtime_rx.recv() => {
+                        match chunk {
+                            Some(data) => {
+                                if tokio::io::AsyncWriteExt::write_all(&mut io, &data).await.is_err() {
+                                    break;
+                                }
+                            }
+                            None => break,
+                        }
+                    }
+                }
+            }
+            // Best-effort shutdown; Python `recv` observes EOF via channel close.
+            let _ = tokio::io::AsyncWriteExt::shutdown(&mut io).await;
+        };
+
+        let handshake = capability.accept(block, handler).map_err(|e| {
+            pyo3::exceptions::PyValueError::new_err(format!("tunnel accept failed: {e}"))
+        })?;
+        // Publish the runtime-owned handshake (with `TunnelAcceptance`) for
+        // the service-layer post-return check. The Python-visible handshake
+        // copy carries the same status/headers for the handler to return;
+        // the stored canonical response (with acceptance) wins after return.
+        let status = handshake.status().as_u16();
+        let mut headers_map = HashMap::new();
+        let mut extra: Vec<(String, String)> = Vec::new();
+        for field in handshake.head().headers().iter() {
+            // `HeaderValue::to_str` is fallible (opaque); handshake headers
+            // are app-supplied text validated above, so lossy fallback never
+            // triggers for accepted handshakes (defensive: skip opaque).
+            if let Ok(text) = field.value.to_str() {
+                extra.push((field.name.to_string(), text.to_owned()));
+            }
+        }
+        // `headers` dict is first-wins for compatibility; ordered extras
+        // preserve duplicates for the canonical conversion below.
+        for (n, v) in &extra {
+            headers_map.entry(n.to_ascii_lowercase()).or_insert_with(|| v.clone());
+        }
+        {
+            let mut slot = self.handshake_slot.lock().map_err(|_| {
+                pyo3::exceptions::PyRuntimeError::new_err("handshake lock poisoned")
+            })?;
+            *slot = Some(handshake);
+        }
+        let py_handshake = PyResponse {
+            status,
+            headers: headers_map,
+            body: std::sync::Mutex::new(PyResponseBody::Empty),
+            extra_headers: extra,
+        };
+        let _ = py;
+        Ok((py_handshake, tunnel))
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<TunnelCapability kind={}>", self.request.kind())
+    }
+}
+
+#[pyclass(frozen, name = "Tunnel")]
+pub struct PyTunnel {
+    to_python_rx:
+        Arc<std::sync::Mutex<Option<mpsc::Receiver<Result<Vec<u8>, String>>>>>,
+    to_runtime_tx: Arc<std::sync::Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
+    lifecycle: Option<eggserve_core::primitives::request_lifecycle::RequestLifecycle>,
+    handle: Option<tokio::runtime::Handle>,
+    closed: Arc<AtomicBool>,
+}
+
+impl std::fmt::Debug for PyTunnel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PyTunnel").finish_non_exhaustive()
+    }
+}
+
+#[pymethods]
+impl PyTunnel {
+    fn is_closed(&self) -> bool {
+        self.closed.load(Ordering::Acquire)
+            || self
+                .lifecycle
+                .as_ref()
+                .is_some_and(|lc| lc.is_cancelled())
+    }
+
+    /// Blocking receive (GIL released during wait).
+    ///
+    /// Returns `bytes` on data, `None` on orderly EOF/close/cancel. Transport
+    /// failures raise `ConnectionError` with sanitized text (no payload).
+    /// Intended for use via `asyncio.to_thread` in async handlers so the
+    /// event loop stays responsive; direct calls block the caller.
+    fn recv<'py>(&self, py: Python<'py>) -> PyResult<Option<Bound<'py, PyBytes>>> {
+        let handle = self.handle.clone().ok_or_else(|| {
+            pyo3::exceptions::PyRuntimeError::new_err("no runtime handle for tunnel recv")
+        })?;
+        // Take the receiver out for one blocking wait, then put back unless
+        // terminal. `std` Mutex guard cannot be held across `block_on`.
+        let mut rx = {
+            let mut guard = self
+                .to_python_rx
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("tunnel lock poisoned"))?;
+            guard.take().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("tunnel already closed")
+            })?
+        };
+        let result = py.allow_threads(|| handle.block_on(rx.recv()));
+        match result {
+            Some(Ok(chunk)) => {
+                // Not terminal: return receiver for future recvs.
+                if let Ok(mut guard) = self.to_python_rx.lock() {
+                    *guard = Some(rx);
+                }
+                Ok(Some(PyBytes::new(py, &chunk)))
+            }
+            Some(Err(msg)) => {
+                self.closed.store(true, Ordering::Release);
+                Err(pyo3::exceptions::PyConnectionError::new_err(msg))
+            }
+            None => {
+                self.closed.store(true, Ordering::Release);
+                Ok(None)
+            }
+        }
+    }
+
+    /// Blocking send (GIL released during backpressure wait).
+    ///
+    /// Bounded: blocks when 16 chunks are in flight (GIL released), so slow
+    /// transport applies backpressure without unbounded buffering.
+    /// Disconnect/cancel raises `ConnectionError`. Use via
+    /// `asyncio.to_thread` in async handlers.
+    fn send(&self, py: Python<'_>, data: Vec<u8>) -> PyResult<()> {
+        if data.len() > TUNNEL_MAX_FRAME_BYTES {
+            return Err(pyo3::exceptions::PyValueError::new_err(format!(
+                "tunnel frame {} exceeds {} bytes",
+                data.len(),
+                TUNNEL_MAX_FRAME_BYTES
+            )));
+        }
+        if self.is_closed() {
+            return Err(pyo3::exceptions::PyConnectionError::new_err(
+                "tunnel is closed",
+            ));
+        }
+        let tx = {
+            let guard = self
+                .to_runtime_tx
+                .lock()
+                .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("tunnel lock poisoned"))?;
+            guard.clone().ok_or_else(|| {
+                pyo3::exceptions::PyRuntimeError::new_err("tunnel already closed")
+            })?
+        };
+        py.allow_threads(|| tx.blocking_send(data)).map_err(|_| {
+            self.closed.store(true, Ordering::Release);
+            pyo3::exceptions::PyConnectionError::new_err("tunnel closed during send")
+        })
+    }
+
+    fn close(&self) {
+        self.closed.store(true, Ordering::Release);
+        // Dropping the sender signals EOF to the shuttle (which then shuts
+        // down the transport side). Receiver drop signals the shuttle to
+        // stop forwarding transport bytes.
+        if let Ok(mut guard) = self.to_runtime_tx.lock() {
+            guard.take();
+        }
+        if let Ok(mut guard) = self.to_python_rx.lock() {
+            guard.take();
+        }
+    }
+
+    fn __repr__(&self) -> String {
+        format!("<Tunnel closed={}>", self.is_closed())
     }
 }
 
@@ -710,6 +1384,11 @@ pub(crate) enum PyResponseBody {
         iterable: Py<PyAny>,
         content_length: Option<u64>,
     },
+    StreamWithTrailers {
+        iterable: Py<PyAny>,
+        content_length: Option<u64>,
+        trailers: Vec<(String, String)>,
+    },
     Consumed,
 }
 
@@ -724,6 +1403,15 @@ impl std::fmt::Debug for PyResponseBody {
             } => f
                 .debug_struct("Stream")
                 .field("content_length", content_length)
+                .finish_non_exhaustive(),
+            Self::StreamWithTrailers {
+                content_length,
+                trailers,
+                ..
+            } => f
+                .debug_struct("StreamWithTrailers")
+                .field("content_length", content_length)
+                .field("trailers", &trailers.len())
                 .finish_non_exhaustive(),
             Self::Consumed => write!(f, "Consumed"),
         }
@@ -868,7 +1556,7 @@ impl PyResponse {
         let source = match &*body {
             PyResponseBody::Empty => BodySource::Empty,
             PyResponseBody::Bytes(data) => BodySource::Bytes(data.clone()),
-            PyResponseBody::Stream { .. } => {
+            PyResponseBody::Stream { .. } | PyResponseBody::StreamWithTrailers { .. } => {
                 return Err(pyo3::exceptions::PyValueError::new_err(
                     "streamed response body is one-shot and cannot be cloned",
                 ))
@@ -915,6 +1603,66 @@ impl PyResponse {
         };
         Ok(ServerBodySource {
             inner: std::sync::Mutex::new(Some(source)),
+        })
+    }
+
+    /// Incrementally produced response with one terminal trailer block.
+    ///
+    /// Plan 204 async substrate (additive; existing `stream` unchanged):
+    /// same bounded 16-chunk bridge as `stream`, plus `trailers` — an
+    /// ordered list of `(name, value)` text pairs validated via the single
+    /// canonical `Trailers` validator (denylist + count/byte limits, default
+    /// limits) before commitment. No data after trailers; `HEAD` and
+    /// body-forbidden statuses never advance the iterator and never emit
+    /// trailers (suppressed, matching `ResponseStream::with_trailers`
+    /// semantics); known length counts data only. Opaque (non-UTF-8)
+    /// trailer octets remain Rust-only. `Transfer-Encoding` still rejected.
+    /// Async producers remain rejected here (sync iterable only); async
+    /// handlers bridge async iterables to this via the `AsyncServer` shim
+    /// (bounded 16-queue, backpressure, trailers on close).
+    #[staticmethod]
+    #[pyo3(signature = (status, iterable, headers=None, content_length=None, trailers=None))]
+    fn stream_with_trailers(
+        py: Python<'_>,
+        status: u16,
+        iterable: Py<PyAny>,
+        headers: Option<HashMap<String, String>>,
+        content_length: Option<u64>,
+        trailers: Option<Vec<(String, String)>>,
+    ) -> PyResult<Self> {
+        validate_response_status(status)?;
+        if PyIterator::from_object(iterable.bind(py)).is_err() {
+            return Err(pyo3::exceptions::PyTypeError::new_err(
+                "response iterable must be a synchronous iterable of bytes-like chunks",
+            ));
+        }
+        let trailers = trailers.unwrap_or_default();
+        // Validate eagerly via the canonical Trailers validator so
+        // misconfiguration fails before commitment (no wire bytes).
+        {
+            use eggserve_core::primitives::header_block::HeaderBlock;
+            use eggserve_core::primitives::trailers::{TrailerLimits, Trailers};
+            let mut block = HeaderBlock::new();
+            for (name, value) in &trailers {
+                block.push_str(name, value).map_err(|e| {
+                    pyo3::exceptions::PyValueError::new_err(format!(
+                        "invalid response trailer: {e}"
+                    ))
+                })?;
+            }
+            Trailers::with_limits(block, &TrailerLimits::default()).map_err(|e| {
+                pyo3::exceptions::PyValueError::new_err(format!("invalid trailers: {e}"))
+            })?;
+        }
+        Ok(Self {
+            status,
+            headers: headers.unwrap_or_default(),
+            body: std::sync::Mutex::new(PyResponseBody::StreamWithTrailers {
+                iterable,
+                content_length,
+                trailers,
+            }),
+            extra_headers: Vec::new(),
         })
     }
 
@@ -1566,10 +2314,11 @@ impl PythonCallbackService {
         head: RequestHead,
         body: RequestBody,
         body_policy: RequestBodyPolicy,
-        connection: eggserve_core::primitives::connection_info::ConnectionInfo,
+        context: RequestContext,
     ) -> PyRequest {
         use eggserve_core::primitives::connection_info::Scheme;
 
+        let connection = context.connection().clone();
         let method_str = head.method().as_str().to_string();
         let target = head.target().path().to_string();
         let query = head.target().query().unwrap_or("").to_string();
@@ -1634,6 +2383,80 @@ impl PythonCallbackService {
             }
         };
 
+        // Plan 204 byte-fidelity views (additive; text facade above unchanged).
+        let raw_target_bytes = head.target().raw_bytes().to_vec();
+        let path_bytes = head.target().path_bytes().to_vec();
+        let query_bytes = head.target().query_bytes().map(|q| q.to_vec());
+        let header_items_bytes: Vec<(Vec<u8>, Vec<u8>)> = head
+            .headers()
+            .iter()
+            .map(|f| {
+                (
+                    f.name.as_str().as_bytes().to_vec(),
+                    f.value.as_bytes().to_vec(),
+                )
+            })
+            .collect();
+        let authority = head.authority().map(|a| a.as_str().to_owned());
+        let tls_protocol_version = connection
+            .tls
+            .as_ref()
+            .and_then(|t| t.protocol_version.clone());
+        let tls_server_name = connection.tls.as_ref().and_then(|t| t.server_name.clone());
+        let tls_alpn = connection.tls.as_ref().and_then(|t| t.alpn.clone());
+        let client_authenticated = connection
+            .tls
+            .as_ref()
+            .is_some_and(|t| t.client_authenticated);
+        let peer_certificates_present = connection
+            .tls
+            .as_ref()
+            .is_some_and(|t| t.peer_certificates_present);
+        let proxy_source = connection.proxy_source.map(|a| a.to_string());
+        let proxy_destination = connection.proxy_destination.map(|a| a.to_string());
+        // Clone capability handles (Arc-backed, cheap; tunnel slot shared so
+        // taking via one clone removes for all — one-shot, no duplication).
+        let lifecycle = Some(context.lifecycle_clone());
+        let interim = context.interim().cloned();
+        // Re-create the shared tunnel slot view: `RequestContext` owns
+        // `Arc<Mutex<Option<TunnelCapability>>>` privately; expose one-shot
+        // takes via a new slot that mirrors presence. Presence is checked
+        // via `tunnel_request()` (metadata clone, no ownership); the actual
+        // capability is taken via `context.take_tunnel()` on demand in
+        // `take_tunnel()` below (which locks the context's slot). To keep
+        // `PyRequest` Sync with a plain Mutex slot, store a fresh slot that
+        // is populated lazily? Simpler: store `None` here and resolve
+        // presence via a cloned context? `RequestContext` is Clone + Sync
+        // (Arc-backed) so store it directly for tunnel takes.
+        //
+        // To avoid storing the full context (which holds a non-Sync
+        // `TunnelCapability` inside its Mutex slot), store only the
+        // tunnel-request metadata presence + a shared take handle created
+        // here. The runtime context's slot is not directly reachable after
+        // `into_parts_with_context` moves it; instead `build_py_request`
+        // receives the owned context, so take the capability slot ownership
+        // by wrapping the context itself in an Arc<Mutex<Option<...>>>?
+        //
+        // Pragmatic additive path: store the tunnel-request metadata for
+        // routing decisions and resolve the live capability via a shared
+        // `Arc<Mutex<Option<TunnelCapability>>>` created from
+        // `context.take_tunnel()` eagerly (taking now, holding for Python).
+        // If no capability, slot holds None (ordinary HTTP). `take_tunnel()`
+        // then takes from this Python-owned slot (one-shot). This preserves
+        // one-shot semantics (runtime slot already drained once here) and
+        // keeps `PyRequest` Sync (Mutex<Option<TunnelCapability>> is Sync
+        // when the capability is Send).
+        let tunnel_request = context.tunnel_request();
+        let tunnel_slot: Option<
+            Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>,
+        > = if tunnel_request.is_some() {
+            let taken = context.take_tunnel();
+            Some(Arc::new(std::sync::Mutex::new(taken)))
+        } else {
+            None
+        };
+        let handle = tokio::runtime::Handle::try_current().ok();
+
         PyRequest {
             method: method_str,
             path: target,
@@ -1665,6 +2488,23 @@ impl PythonCallbackService {
             forwarded_provenance: connection
                 .forwarded_provenance
                 .map(|kind| kind.as_str().to_owned()),
+            raw_target_bytes,
+            path_bytes,
+            query_bytes,
+            header_items_bytes,
+            authority,
+            tls_protocol_version,
+            tls_server_name,
+            tls_alpn,
+            client_authenticated,
+            peer_certificates_present,
+            proxy_source,
+            proxy_destination,
+            handle,
+            lifecycle,
+            interim,
+            tunnel_slot,
+            tunnel_handshake: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 }
@@ -1889,6 +2729,82 @@ fn extract_python_response_body<'py>(
                     Ok(ResponseBody::Stream(stream))
                 }
             }
+            PyResponseBody::StreamWithTrailers {
+                iterable,
+                content_length,
+                trailers,
+            } => {
+                // Same suppression as `Stream`, plus trailer suppression for
+                // HEAD/body-forbidden (never emit trailers without polling).
+                let suppress_forbidden = !status.permits_payload_body();
+                if is_head || suppress_forbidden {
+                    drop(iterable);
+                    drop(trailers);
+                    if status == CanonicalStatusCode::NOT_MODIFIED {
+                        if let Some(length) = content_length.or(representation_length) {
+                            Ok(ResponseBody::EmptyWithLength(length))
+                        } else {
+                            let empty =
+                                ResponseStream::new(futures_util::stream::empty::<
+                                    Result<Bytes, ResponseStreamError>,
+                                >());
+                            Ok(ResponseBody::Stream(empty))
+                        }
+                    } else if is_head {
+                        if let Some(length) = content_length.or(representation_length) {
+                            Ok(ResponseBody::EmptyWithLength(length))
+                        } else {
+                            let empty =
+                                ResponseStream::new(futures_util::stream::empty::<
+                                    Result<Bytes, ResponseStreamError>,
+                                >());
+                            Ok(ResponseBody::Stream(empty))
+                        }
+                    } else {
+                        Ok(ResponseBody::Empty)
+                    }
+                } else {
+                    // Build the canonical trailer block (validated at
+                    // construction, re-validated here defensively; failures
+                    // are internal (500) with no detail leak).
+                    use eggserve_core::primitives::header_block::HeaderBlock;
+                    use eggserve_core::primitives::trailers::{TrailerLimits, Trailers};
+                    let mut block = HeaderBlock::new();
+                    for (name, value) in &trailers {
+                        block.push_str(name, value).map_err(|_| {
+                            ServiceError::internal(
+                                "Python handler response trailer validation failed",
+                            )
+                        })?;
+                    }
+                    let trailers = Trailers::with_limits(block, &TrailerLimits::default())
+                        .map_err(|_| {
+                            ServiceError::internal(
+                                "Python handler response trailer validation failed",
+                            )
+                        })?;
+                    let (sender, receiver) =
+                        mpsc::channel::<Result<Bytes, ResponseStreamError>>(
+                            PYTHON_STREAM_CHANNEL_BOUND,
+                        );
+                    spawn_python_stream_producer(iterable, sender);
+                    let adapter = PythonReceiverStream {
+                        rx: std::sync::Mutex::new(receiver),
+                    };
+                    let stream = match content_length {
+                        Some(len) => ResponseStream::with_known_length_and_trailers(
+                            adapter,
+                            len,
+                            futures_util::future::ready(Ok(Some(trailers))),
+                        ),
+                        None => ResponseStream::with_trailers(
+                            adapter,
+                            futures_util::future::ready(Ok(Some(trailers))),
+                        ),
+                    };
+                    Ok(ResponseBody::Stream(stream))
+                }
+            }
         };
     }
 
@@ -1961,15 +2877,34 @@ impl Service for PythonCallbackService {
                 .await
                 .map_err(|_| ServiceError::internal("callback semaphore closed"))?;
 
-            let (head, body, connection) = request.into_parts();
-            let py_request = Self::build_py_request(head, body, body_policy, connection);
+            // Plan 204: use the full context so async-capable handlers observe
+            // lifecycle/interim/tunnel ownership. Sync behavior for existing
+            // getters is unchanged (additive fields only).
+            let (head, body, context) = request.into_parts_with_context();
+            let py_request = Self::build_py_request(head, body, body_policy, context);
+            // Share the handshake slot so `accept_tunnel` (which runs on the
+            // blocking handler thread) can publish the runtime-owned
+            // handshake `Response` (with `TunnelAcceptance`) for use here.
+            let handshake_slot = py_request.tunnel_handshake.clone();
 
-            tokio::task::spawn_blocking(move || {
+            let outcome = tokio::task::spawn_blocking(move || {
                 let _callback_permit = callback_permit;
                 Self::call_python_callback(&handler, py_request)
             })
             .await
-                .map_err(|e| ServiceError::internal(format!("callback task failed: {e}")))?
+                .map_err(|e| ServiceError::internal(format!("callback task failed: {e}")))?;
+
+            // Plan 204 tunnel handoff: if the handler accepted a tunnel, the
+            // stored handshake (with transport upgrade + duplex handler)
+            // wins over the converted `Response`. This preserves the
+            // runtime-owned acceptance across the Python boundary without
+            // exposing raw sockets. Denial stays ordinary HTTP.
+            if let Ok(mut slot) = handshake_slot.lock() {
+                if let Some(handshake) = slot.take() {
+                    return Ok(handshake);
+                }
+            }
+            outcome
         })
     }
 }

@@ -92,6 +92,25 @@ python examples/python_lowlevel_service.py
 Its `create_server()` function accepts an `(host, port)` tuple with port
 `0` for ephemeral-port use. See the [Python API reference](../docs/python-api.md).
 
+### Async low-level service: `python_async_server.py` (experimental, H1-only)
+
+Demonstrates the async `eggserve.lowlevel.AsyncServer` substrate for
+downstream bounded application servers: buffered echo plus bounded streamed
+responses over the shared native runtime without the `http.server` facade.
+Handlers are `async def`, request/response streaming is incremental and
+bounded (16-chunk bridges, no hidden `read_all`), disconnects wake blocked
+operations, and app-task admission (`max_async_tasks`) is separate from
+pre-response admission. Trailers, interim 1xx, and generic tunnels are
+available on the async request/response objects; WebSocket framing stays
+downstream (see the ASGI test fixture). It binds loopback and blocks until
+Ctrl+C.
+
+```sh
+python examples/python_async_server.py
+```
+
+Its `create_server(port)` function accepts port `0` for ephemeral-port use.
+
 ## Python convenience and low-level APIs
 
 ### Subprocess lifecycle: `python_subprocess.py`
