@@ -313,8 +313,30 @@ pub struct RuntimeConfig {
     pub response_policy: crate::server::response_policy::ResponsePolicy,
     /// TLS server configuration. If `Some`, connections are upgraded to TLS.
     /// Only available with the `tls` feature. Default: `None`.
+    ///
+    /// Plan 203: when `tls_reload_handle` is also `Some`, the reload handle
+    /// snapshot wins for new handshakes (atomic reload); `tls_config` is the
+    /// fallback/initial value. Single-identity compatibility callers keep
+    /// using this field alone.
     #[cfg(feature = "tls")]
     pub tls_config: Option<Arc<rustls::ServerConfig>>,
+    /// Atomic reload handle for TLS identity/trust state (Plan 203 Track F).
+    ///
+    /// When `Some`, new handshakes read the current snapshot atomically;
+    /// established connections keep their session. Replace via
+    /// [`crate::server::ServerHandle::replace_tls_config`] or
+    /// [`crate::tls::TlsReloadHandle::replace`]. Failed builds never touch
+    /// live state. Only available with the `tls` feature. Default: `None`.
+    #[cfg(feature = "tls")]
+    pub tls_reload_handle: Option<crate::tls::TlsReloadHandle>,
+    /// Expose the verified peer DER chain in `TlsInfo` (Plan 203 Track D).
+    ///
+    /// Default `false` (opt-in, size-bounded to 8 certs × 64 KiB). When
+    /// disabled, `peer_certificates_present`/`client_authenticated`/ALPN/SNI
+    /// are still populated but `peer_certificate_chain` stays `None`.
+    /// Only available with the `tls` feature.
+    #[cfg(feature = "tls")]
+    pub tls_expose_peer_chain: bool,
     /// Maximum allowed request body size in bytes. This is the hard ceiling
     /// that no service can exceed. Default: 0 (bodies rejected).
     pub max_request_body_bytes: u64,
@@ -409,6 +431,10 @@ impl Default for RuntimeConfig {
             response_policy: crate::server::response_policy::ResponsePolicy::default(),
             #[cfg(feature = "tls")]
             tls_config: None,
+            #[cfg(feature = "tls")]
+            tls_reload_handle: None,
+            #[cfg(feature = "tls")]
+            tls_expose_peer_chain: false,
             max_request_body_bytes: rl::DEFAULT_MAX_REQUEST_BODY_BYTES,
             max_buf_size: rl::DEFAULT_MAX_BUF_SIZE,
             max_headers: rl::DEFAULT_MAX_HEADERS,
@@ -457,6 +483,10 @@ impl RuntimeConfig {
             error_policy: None,
             #[cfg(feature = "tls")]
             tls_config: None,
+            #[cfg(feature = "tls")]
+            tls_reload_handle: None,
+            #[cfg(feature = "tls")]
+            tls_expose_peer_chain: None,
             max_request_body_bytes: None,
             max_buf_size: None,
             max_headers: None,
@@ -552,6 +582,10 @@ impl RuntimeConfig {
             response_policy,
             #[cfg(feature = "tls")]
             tls_config: None,
+            #[cfg(feature = "tls")]
+            tls_reload_handle: None,
+            #[cfg(feature = "tls")]
+            tls_expose_peer_chain: false,
             max_request_body_bytes: shared.max_request_body_bytes,
             max_buf_size: shared.max_buf_size,
             max_headers: shared.max_headers,
@@ -592,6 +626,10 @@ pub struct RuntimeConfigBuilder {
     error_policy: Option<crate::policy::ErrorRepresentationPolicy>,
     #[cfg(feature = "tls")]
     tls_config: Option<Arc<rustls::ServerConfig>>,
+    #[cfg(feature = "tls")]
+    tls_reload_handle: Option<crate::tls::TlsReloadHandle>,
+    #[cfg(feature = "tls")]
+    tls_expose_peer_chain: Option<bool>,
     max_request_body_bytes: Option<u64>,
     max_buf_size: Option<usize>,
     max_headers: Option<usize>,
@@ -739,6 +777,28 @@ impl RuntimeConfigBuilder {
     #[cfg(feature = "tls")]
     pub fn tls_config(mut self, config: Arc<rustls::ServerConfig>) -> Self {
         self.tls_config = Some(config);
+        self
+    }
+
+    /// Set the atomic reload handle for TLS identity/trust (Plan 203 Track F).
+    ///
+    /// When `Some`, new handshakes read the current snapshot; `tls_config`
+    /// is the fallback. Share the same handle with `ServerHandle` for live
+    /// reload (see `TlsReloadHandle::replace`).
+    #[cfg(feature = "tls")]
+    pub fn tls_reload_handle(mut self, handle: crate::tls::TlsReloadHandle) -> Self {
+        self.tls_reload_handle = Some(handle);
+        self
+    }
+
+    /// Opt into bounded peer DER chain exposure in `TlsInfo` (Plan 203 D).
+    ///
+    /// Default `false`. When enabled, verified chains up to 8 × 64 KiB are
+    /// cloned into `TlsInfo::peer_certificate_chain`; otherwise only
+    /// presence/authenticated flags are populated.
+    #[cfg(feature = "tls")]
+    pub fn tls_expose_peer_chain(mut self, expose: bool) -> Self {
+        self.tls_expose_peer_chain = Some(expose);
         self
     }
 
@@ -1012,6 +1072,10 @@ impl RuntimeConfigBuilder {
             response_policy,
             #[cfg(feature = "tls")]
             tls_config: self.tls_config,
+            #[cfg(feature = "tls")]
+            tls_reload_handle: self.tls_reload_handle,
+            #[cfg(feature = "tls")]
+            tls_expose_peer_chain: self.tls_expose_peer_chain.unwrap_or(false),
             max_request_body_bytes: shared.max_request_body_bytes,
             max_buf_size: shared.max_buf_size,
             max_headers: shared.max_headers,

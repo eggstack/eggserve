@@ -81,12 +81,14 @@ The reverse-proxy profile is the preferred public deployment. eggserve binds to 
 Native TLS is functional for small deployments or internal tools where reverse
 proxy complexity is not warranted. The default `tls` build is H1-only; a Rust
 build with `http2,tls` can negotiate H2 via ALPN, but remains experimental and
-is not an edge platform — no ACME, virtual hosting, or multi-certificate
-routing. Linux wire qualification passes; broad client/platform qualification
+is not an edge platform — no ACME/PKI automation, but Plan 203 SNI
+multi-identity, WebPKI mTLS, verified metadata, and atomic reload are available
+in the Rust substrate (CLI stays single-identity). Linux wire qualification passes; broad client/platform qualification
 and a safe public per-stream reset hook remain open. See README.md for the
 full specification. The opt-in `http3` build is similarly Rust-only and
 experimental; deploy it only where the operator accepts the Plan 188
-qualification boundary and the absence of general H3 support claims.
+qualification boundary and the absence of general H3 support claims (H3 keeps a
+separate QUIC identity; TCP reload does not atomically rotate H3).
 
 ## Per-profile resource defaults (Plan 164)
 

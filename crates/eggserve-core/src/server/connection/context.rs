@@ -430,6 +430,7 @@ mod tests {
             TlsInfo {
                 protocol_version: Some("TLSv1.3".into()),
                 server_name: Some("example.test".into()),
+                ..Default::default()
             },
         );
         assert_eq!(context.scheme, Scheme::Https);

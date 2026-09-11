@@ -916,6 +916,7 @@ fn h3_ignores_proxy_policy_by_construction() {
         eggserve_core::primitives::connection_info::TlsInfo {
             protocol_version: Some("TLSv1.3".into()),
             server_name: None,
+            ..Default::default()
         },
     );
     let info = context.connection_info();

@@ -466,8 +466,9 @@ eggserve defines production readiness through explicit profiles rather than one 
 Production profile status is maintained by the project maintainers and documented in README.md. No profile has achieved hardened status in this release contract version. This release contract only defines hardened status criteria.
 
 - Reverse-proxy origin (Caddy, nginx, Traefik) is the preferred public deployment.
-- Native TLS is limited and does not imply ACME, virtual hosting, public edge
-  HTTP/2 policy, or edge parity; the opt-in native Rust H2 path remains
+- Native TLS is limited and does not imply ACME/PKI automation, public edge
+  HTTP/2 policy, or edge parity; Rust SNI/mTLS/reload substrate (Plan 203) does
+  not change CLI single-identity scope. The opt-in native Rust H2 path remains
   experimental after Plans 186, 190, and 191.
 - Windows hardening is an active roadmap item, not a permanent non-goal.
 - Public plaintext HTTP without TLS termination is an unsupported production configuration.

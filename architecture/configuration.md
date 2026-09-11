@@ -179,11 +179,13 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `static_metadata.emit_etag` / `emit_last_modified` | `StaticPolicy` | true / true | bool | N/A (Rust-only) | N/A | Static `ETag`/`Last-Modified`; `minimal_fingerprint()` suppresses both |
 | `stream_chunk_size` | `Limits` / `RuntimeConfig` | 8192 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size |
 
-### TLS (feature-gated)
+### TLS (feature-gated, Plan 203)
 
 | Canonical name | Owner | Default | Valid range | CLI flag | Python param | Enforcing path |
 |---|---|---|---|---|---|---|
-| `tls_config` | `RuntimeConfig` | None | Option\<Arc\<ServerConfig\>\> | `--tls-cert` + `--tls-key` | N/A | TLS handshake via rustls |
+| `tls_config` | `RuntimeConfig` | None | Option\<Arc\<ServerConfig\>\> | `--tls-cert` + `--tls-key` | N/A | TLS handshake via rustls (fallback when no reload handle) |
+| `tls_reload_handle` | `RuntimeConfig` | None | Option\<TlsReloadHandle\> | N/A (Rust-only) | N/A | Atomic snapshot for new handshakes; wins over `tls_config` |
+| `tls_expose_peer_chain` | `RuntimeConfig` | false | bool | N/A (Rust-only) | N/A | Opt-in bounded DER chain in `TlsInfo` (8 × 64 KiB) |
 
 ## Naming drift (cross-boundary)
 

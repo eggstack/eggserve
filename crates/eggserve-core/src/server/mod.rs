@@ -578,7 +578,10 @@ impl ServerBuilder {
         // TCP TLS identity. TCP+Unix with TLS is allowed (TCP uses TLS,
         // Unix stays plaintext; see start_with_service).
         #[cfg(all(unix, feature = "tls"))]
-        if self.unix_source.is_some() && self.tcp_source.is_none() && config.tls_config.is_some() {
+        if self.unix_source.is_some()
+            && self.tcp_source.is_none()
+            && (config.tls_config.is_some() || config.tls_reload_handle.is_some())
+        {
             return Err(ServerError::Config(
                 "TLS requires a TCP listener; Unix-domain sockets are plaintext and H3 is unavailable over them".into(),
             ));
@@ -765,7 +768,9 @@ impl Server {
         // server with TLS would silently ignore it, so fail closed. TCP+Unix
         // with TLS serves TCP via TLS and Unix as plaintext (documented).
         #[cfg(all(unix, feature = "tls"))]
-        if tcp_listener.is_none() && runtime_config.tls_config.is_some() {
+        if tcp_listener.is_none()
+            && (runtime_config.tls_config.is_some() || runtime_config.tls_reload_handle.is_some())
+        {
             return Err(ServerError::Config(
                 "TLS requires a TCP listener; Unix-domain sockets are plaintext and H3 is unavailable over them".into(),
             ));
@@ -844,6 +849,8 @@ impl Server {
             None
         };
 
+        #[cfg(feature = "tls")]
+        let tls_reload_for_handle = runtime_config.tls_reload_handle.clone();
         let config = Arc::new(runtime_config);
         let runtime_state = Arc::new(RuntimeState::with_ops(&config, ops.clone())?);
         let connection_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_connections));
@@ -919,13 +926,19 @@ impl Server {
             }
         });
 
-        Ok(ServerHandle::new_with_endpoints(
+        #[cfg(feature = "tls")]
+        let handle = crate::server::handle::ServerHandle::new_with_endpoints_and_tls(
             endpoints,
             shutdown_tx_clone,
             join,
             lifecycle,
             ops,
-        ))
+            tls_reload_for_handle,
+        );
+        #[cfg(not(feature = "tls"))]
+        let handle =
+            ServerHandle::new_with_endpoints(endpoints, shutdown_tx_clone, join, lifecycle, ops);
+        Ok(handle)
     }
 }
 
@@ -1402,18 +1415,20 @@ fn handle_tcp_accept<S: Service>(
 
             #[cfg(feature = "tls")]
             {
-                if let Some(tls_config) = &config.tls_config {
-                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
+                if let Some(tls_config) = current_tls_config(&config) {
+                    let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
                     #[cfg(feature = "http2")]
                     let h2_enabled = config.http2.enabled;
                     #[cfg(not(feature = "http2"))]
                     let h2_enabled = false;
+                    let expose_chain = config.tls_expose_peer_chain;
                     let prefixed = connection::driver::PrefixedIo::new(proxy_leftover, tcp_stream);
                     match accept_tls(
                         prefixed,
                         &tls_acceptor,
                         config.tls_handshake_timeout,
                         h2_enabled,
+                        expose_chain,
                         conn_id,
                         &conn_ops,
                     )
@@ -1481,17 +1496,19 @@ fn handle_tcp_accept<S: Service>(
 
         #[cfg(feature = "tls")]
         {
-            if let Some(tls_config) = &config.tls_config {
-                let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config.clone());
+            if let Some(tls_config) = current_tls_config(&config) {
+                let tls_acceptor = tokio_rustls::TlsAcceptor::from(tls_config);
                 #[cfg(feature = "http2")]
                 let h2_enabled = config.http2.enabled;
                 #[cfg(not(feature = "http2"))]
                 let h2_enabled = false;
+                let expose_chain = config.tls_expose_peer_chain;
                 match accept_tls(
                     stream,
                     &tls_acceptor,
                     config.tls_handshake_timeout,
                     h2_enabled,
+                    expose_chain,
                     conn_id,
                     &conn_ops,
                 )
@@ -1642,11 +1659,28 @@ fn handle_unix_accept<S: Service>(
     });
 }
 
+/// Current TLS snapshot for new handshakes (Plan 203 Track F).
+///
+/// When a reload handle is configured it wins atomically; otherwise the
+/// legacy single-identity `tls_config` is used. `None` means plaintext.
+#[cfg(feature = "tls")]
+fn current_tls_config(config: &RuntimeConfig) -> Option<std::sync::Arc<rustls::ServerConfig>> {
+    if let Some(handle) = &config.tls_reload_handle {
+        return Some(handle.current());
+    }
+    config.tls_config.clone()
+}
+
 /// Accept a TLS connection with timeout.
 ///
 /// Returns the TLS stream and TLS session metadata on success, or `None` if
 /// the handshake failed or timed out. Emits `TlsHandshakeFailure` or
 /// `TlsHandshakeTimeout` events on failure.
+///
+/// Ordering (Plan 203 Track E): accept permit → optional PROXY preamble
+/// (Plan 202) → TLS handshake deadline → ALPN protocol selection → HTTP.
+/// Handshake errors use fixed sanitized categories and never echo rustls
+/// internals to clients; the connection is closed and permits released.
 ///
 /// Generic over the transport so Plan 202 PROXY-preamble replay
 /// (`PrefixedIo<TcpStream>`) shares the same handshake path as plain
@@ -1657,6 +1691,7 @@ async fn accept_tls<S>(
     tls_acceptor: &tokio_rustls::TlsAcceptor,
     timeout: std::time::Duration,
     h2_enabled: bool,
+    expose_peer_chain: bool,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
 ) -> Option<(
@@ -1711,7 +1746,7 @@ where
                     connection::driver::WireProtocol::Http1
                 }
             };
-            let tls_info = extract_tls_info(&tls_stream);
+            let tls_info = extract_tls_info(&tls_stream, expose_peer_chain);
             Some((tls_stream, tls_info, protocol))
         }
         Ok(Err(_)) => {
@@ -1739,10 +1774,17 @@ where
     }
 }
 
-/// Extract TLS session metadata from a completed TLS stream.
+/// Extract verified TLS session metadata from a completed TLS stream.
+///
+/// Only verified data is exposed: SNI as supplied/accepted (bounded), ALPN,
+/// and client-auth state derived from the verified peer chain. Raw DER chain
+/// exposure is opt-in and bounded (8 × 64 KiB); oversized chains suppress to
+/// `None`. Never logs key material (callers must only emit sanitized
+/// categories).
 #[cfg(feature = "tls")]
 fn extract_tls_info<S>(
     tls_stream: &tokio_rustls::server::TlsStream<S>,
+    expose_peer_chain: bool,
 ) -> crate::primitives::connection_info::TlsInfo
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
@@ -1751,10 +1793,48 @@ where
 
     let (_io, conn) = tls_stream.get_ref();
     let protocol_version = conn.protocol_version().map(|v| format!("{v:?}"));
-    let server_name = conn.server_name().map(|n| n.to_owned());
+    let server_name = conn.server_name().and_then(|n| {
+        // Bound before observability/application use (Plan 203 Track B).
+        if n.len() > TlsInfo::MAX_SERVER_NAME_LEN {
+            None
+        } else {
+            Some(n.to_owned())
+        }
+    });
+    let alpn = conn
+        .alpn_protocol()
+        .map(|p| String::from_utf8_lossy(p).into_owned());
+    let peer_certs = conn.peer_certificates();
+    let peer_certificates_present = peer_certs.is_some_and(|c| !c.is_empty());
+    // Present implies verified (rustls/WebPKI already enforced Required, and
+    // Optional only sets present when verification succeeded; handshake would
+    // have failed otherwise).
+    let client_authenticated = peer_certificates_present;
+    let peer_certificate_chain = if expose_peer_chain && peer_certificates_present {
+        peer_certs.and_then(|chain| {
+            if chain.len() > TlsInfo::MAX_PEER_CERTIFICATES {
+                return None;
+            }
+            let mut out = Vec::with_capacity(chain.len());
+            for cert in chain {
+                let bytes = cert.as_ref();
+                if bytes.len() > TlsInfo::MAX_PEER_CERT_BYTES {
+                    return None;
+                }
+                out.push(bytes.to_vec());
+            }
+            Some(out)
+        })
+    } else {
+        None
+    };
     TlsInfo {
         protocol_version,
         server_name,
+        alpn,
+        client_authenticated,
+        peer_certificates_present,
+        peer_certificate_chain,
     }
 }
 

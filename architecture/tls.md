@@ -148,6 +148,26 @@ HTTP/1 header timeout still applies while protocol selection is pending.
 
 See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 
+## Production identity (Plan 203)
+
+`eggserve-core::tls` owns `TlsServerConfigBuilder` / `TlsServerConfig`
+(multi-identity SNI via a custom `ResolvesServerCert`: exact priority, then
+single-level `*.suffix`, then optional default; no IO in `resolve`), WebPKI
+client auth (`Disabled` / `Optional` / `Required` + bounded roots/CRLs), and
+`TlsReloadHandle` (atomic `Arc<RwLock<Arc<ServerConfig>>>` snapshot for new
+handshakes). Construction validates DNS syntax, key/cert pairing
+(`keys_match`), and trust/CRLs before readiness; SNI is bounded (253) before
+observability; key bytes never enter logs. `RuntimeConfig.tls_reload_handle`
+wins over legacy `tls_config` when both are set; `tls_expose_peer_chain`
+(default `false`) gates the bounded DER chain (8 × 64 KiB) in the extended
+`TlsInfo` (`protocol_version` / `server_name` / `alpn` / `client_authenticated`
+/ `peer_certificates_present` / `peer_certificate_chain`). Accept order is
+`TCP → PROXY → TLS deadline → ALPN → HTTP`; ALPN derives from
+`http2.enabled`; `max_early_data_size = 0` and `NeverProducesTickets` are
+explicit. H3 keeps a separate TLS 1.3/`h3` QUIC config; TCP reload does not
+atomically rotate H3 (endpoint replacement/drain required). Qualification:
+`crates/eggserve-core/tests/tls_identity.rs`.
+
 ## Limitations
 
 1. **Experimental H2 scope** — Plans 186, 190, and 191 keep H2 experimental. The
@@ -165,12 +185,13 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
    and retained the experimental tier. See
    [the Plan 192 readiness record](../release/plan-192-http3-dependency-readiness.md)
    and [the Plan 193 promotion record](../release/plan-193-http3-supported-tier-qualification.md).
-3. **No OCSP stapling** — Not implemented
-4. **No certificate management** — No ACME, no automatic renewal
-5. **No custom trust stores** — Uses Mozilla's root bundle only
-5. **No TLS session tickets** — Not configured by default
+3. **No OCSP stapling** — Not implemented (and no implied revocation without CRLs)
+4. **No certificate management** — No ACME, renewal, discovery, secret storage, KMS, or watcher
+5. **No Mozilla root bundle dependency for serving** — Server identities and mTLS trust are operator-supplied; no implicit system roots
+5. **No stateful session tickets / no 0-RTT** — Explicit `max_early_data_size = 0`, `NeverProducesTickets` default
 6. **TCP TLS protocol mode** — Direct TCP TLS uses rustls defaults (TLS 1.2 +
    1.3); the separate QUIC/H3 configuration is TLS 1.3-only.
+7. **CLI single-identity** — Multi-identity/SNI/mTLS/reload are Rust `TlsServerConfig` APIs; CLI and Python `HTTPSServer` stay single-identity compatible.
 
 ## Platform Support
 

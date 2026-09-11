@@ -12,14 +12,39 @@ use crate::primitives::proxy::ProxySourceKind;
 
 /// TLS metadata for a connection.
 ///
-/// Contains information about the TLS session, if any. Bounded to
-/// avoid exposing implementation-specific internals.
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// Contains verified information about the TLS session, if any. Bounded to
+/// avoid exposing implementation-specific internals (no cipher/provider
+/// enums, no private-key material).
+///
+/// Plan 203: `alpn` carries the negotiated application protocol (`h2`,
+/// `http/1.1`, `h3`) when known; `client_authenticated` and
+/// `peer_certificates_present` report the verified client-certificate state
+/// (present implies verified through the configured WebPKI trust policy);
+/// `peer_certificate_chain` is the opt-in bounded DER chain (see
+/// `RuntimeConfig::tls_expose_peer_chain`; `None` unless explicitly enabled).
+/// Caller-asserted metadata via [`crate::server::connection::ConnectionContext`]
+/// must be distinguished from EggServe-terminated sessions where provenance
+/// matters (see `docs/downstream-app-server.md`).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct TlsInfo {
     /// The negotiated TLS protocol version (e.g., "TLSv1.3"), if available.
     pub protocol_version: Option<String>,
     /// The Server Name Indication (SNI) value, if available.
+    ///
+    /// Validated/bounded (max 253 chars, ASCII DNS) before use; never carries
+    /// key material.
     pub server_name: Option<String>,
+    /// Negotiated ALPN identifier (`h2`, `http/1.1`, `h3`), if known.
+    pub alpn: Option<String>,
+    /// `true` when a client certificate was presented and verified against
+    /// the configured trust policy.
+    pub client_authenticated: bool,
+    /// `true` when a verified peer certificate chain is present.
+    pub peer_certificates_present: bool,
+    /// Opt-in bounded DER chain (leaf first). `None` unless
+    /// `tls_expose_peer_chain` is enabled. Bounded to at most 8 certificates;
+    /// oversized chains are suppressed to `None` rather than truncated.
+    pub peer_certificate_chain: Option<Vec<Vec<u8>>>,
 }
 
 /// Paired socket endpoints for a TCP/TLS connection.
@@ -296,14 +321,49 @@ impl fmt::Display for Scheme {
     }
 }
 
+impl TlsInfo {
+    /// Maximum SNI length tracked for observability (DNS limit).
+    pub const MAX_SERVER_NAME_LEN: usize = 253;
+    /// Maximum peer certificates exposed via `peer_certificate_chain`.
+    pub const MAX_PEER_CERTIFICATES: usize = 8;
+    /// Maximum bytes per peer certificate exposed via `peer_certificate_chain`.
+    pub const MAX_PEER_CERT_BYTES: usize = 64 * 1024;
+
+    /// Sanitized SNI for observability: bounded ASCII, no key material.
+    pub fn sanitized_server_name(&self) -> Option<String> {
+        self.server_name.as_ref().map(|n| {
+            let filtered: String = n
+                .chars()
+                .filter(|c| (0x20..=0x7E).contains(&(*c as u32)))
+                .collect();
+            if filtered.len() > Self::MAX_SERVER_NAME_LEN {
+                filtered[..Self::MAX_SERVER_NAME_LEN].to_owned()
+            } else {
+                filtered
+            }
+        })
+    }
+
+    /// Whether this session carries a verified client identity.
+    pub fn is_client_authenticated(&self) -> bool {
+        self.client_authenticated
+    }
+}
+
 impl fmt::Display for TlsInfo {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "TLS")?;
         if let Some(ref v) = self.protocol_version {
             write!(f, " {v}")?;
         }
-        if let Some(ref n) = self.server_name {
+        if let Some(ref n) = self.sanitized_server_name() {
             write!(f, " SNI={n}")?;
+        }
+        if let Some(ref a) = self.alpn {
+            write!(f, " ALPN={a}")?;
+        }
+        if self.client_authenticated {
+            write!(f, " client-auth")?;
         }
         Ok(())
     }
@@ -330,6 +390,7 @@ mod tests {
         let info = TlsInfo {
             protocol_version: Some("TLSv1.3".to_string()),
             server_name: Some("example.com".to_string()),
+            ..Default::default()
         };
         let display = format!("{info}");
         assert!(display.contains("TLSv1.3"));
@@ -341,8 +402,26 @@ mod tests {
         let info = TlsInfo {
             protocol_version: None,
             server_name: None,
+            ..Default::default()
         };
         assert_eq!(format!("{info}"), "TLS");
+    }
+
+    #[test]
+    fn tls_info_plan203_metadata() {
+        let info = TlsInfo {
+            protocol_version: Some("TLSv1.3".to_string()),
+            server_name: Some("example.com".to_string()),
+            alpn: Some("h2".to_string()),
+            client_authenticated: true,
+            peer_certificates_present: true,
+            peer_certificate_chain: None,
+        };
+        let display = format!("{info}");
+        assert!(display.contains("h2"));
+        assert!(display.contains("client-auth"));
+        assert!(info.is_client_authenticated());
+        assert_eq!(info.sanitized_server_name().as_deref(), Some("example.com"));
     }
 
     #[test]
@@ -371,6 +450,7 @@ mod tests {
             Some(TlsInfo {
                 protocol_version: Some("TLSv1.3".to_string()),
                 server_name: Some("example.com".to_string()),
+                ..Default::default()
             }),
         );
         assert_eq!(info.scheme, Scheme::Https);

@@ -57,6 +57,7 @@ shutdown; the process harness uses only Python's standard library.
 | `app_server_consumer.rs` | — (+`tls` for parity case) | Plan 175: external-consumer qualification using only `primitives` + `server` — bounded full-duplex bridge (no `read_all`, no Hyper), metadata fidelity (duplicates, opaque bytes, target byte views, socket/TLS truthfulness), D1–D5 lifecycle, handler/body timeout split, downstream admission split, TCP/TLS/caller-owned parity, non-gating perf sanity |
 | `body_properties.rs` | — | BodySource properties and invariants |
 | `tls_service_parity.rs` | `tls` | TLS + non-TLS behavioral parity |
+| `tls_identity.rs` | `tls` (+`http2` for ALPN parity) | Plan 203: SNI exact/wildcard/default/no-match, invalid pairing pre-ready, Required/Optional/Disabled mTLS (untrusted/expired), reload atomicity/race, timeout recovery, PROXY→TLS ordering, ALPN parity, log hygiene, metadata provenance |
 | `server_integration.rs` | — | Server lifecycle, Service trait, StaticService |
 | `lifecycle_integration.rs` | — | Lifecycle state machine: Created→Running→Draining→Stopped |
 | `public_api_consumers.rs` | — | Validates public API surface (incl. byte-preserving header/target APIs; Plan 197 adds `Request`/`RequestBody`/`RequestContext`/lifecycle import + Send/Sync checks) |

@@ -95,7 +95,7 @@ The following are explicitly out of scope:
 - **Kernel or filesystem compromise** — if the kernel or filesystem layer is compromised, path confinement and file-open guarantees are moot
 - **Privileged local attacker** — a local attacker with root or equivalent privileges can bypass all process-level controls
 - **Malicious operator root directory** — an operator who intentionally places sensitive files in the serving root and then serves it is responsible for the outcome
-- **TLS certificate lifecycle automation** — ACME, renewal, and multi-certificate routing are out of scope
+- **TLS certificate lifecycle automation** — ACME, renewal, discovery, secret storage/KMS, and filesystem watching are out of scope (Plan 203 provides SNI/mTLS/reload substrate, not PKI automation)
 
 ## Production profiles
 
@@ -128,11 +128,12 @@ Promotion to `supported-hardened` requires all gates to pass.
 
 - Linux or macOS;
 - eggserve terminates TLS using rustls;
-- one certificate chain and one key configuration;
-- restart-required certificate rotation;
+- CLI single-identity (one chain + key, restart rotation); Rust `TlsServerConfig`
+  supports SNI multi-identity, WebPKI mTLS, and atomic reload (Plan 203);
 - HTTP/1.1 by default; the experimental Rust `http2,tls` build may negotiate
-  bounded H2 via ALPN, while the Python facade remains H1-only;
-- no ACME, virtual hosting, OCSP stapling, client certificates, or multi-certificate routing.
+  bounded H2 via ALPN, while the Python facade remains H1-only single-identity;
+- no ACME/PKI automation, OCSP stapling (no implied revocation without CRLs),
+  filesystem watcher, or Python verification callback.
 
 Native TLS is limited and does not imply ACME, virtual hosting, HTTP/3, or edge
 parity. The default `tls` build is H1-only; native Rust H2 is feature-gated
@@ -220,7 +221,7 @@ The origin communicates with the edge over HTTP/1.1 on loopback. The edge termin
 
 ### Unix direct-HTTPS profile
 
-eggserve terminates TLS directly. Certificate management is manual — the operator must provide certificate and key files and rotate them through a restart. There is no ACME, no SNI-based routing, and no OCSP stapling. The default server is HTTP/1.1; experimental `http2,tls` and `http3` Rust builds add bounded H2 and QUIC/H3 paths, respectively, but neither is a general edge-platform declaration. The H3 path uses a separate TLS 1.3 identity, disables application 0-RTT, and remains experimental after Plans 188, 190, 192, 193, 194, and 195 because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete and Plan 192 blocks on upstream `h3#338`/`h3#262` (Plans 193/194/195 retain the tier). This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
+eggserve terminates TLS directly. Certificate management is manual — operators supply PEM material and decide when to reload (CLI via restart; Rust via atomic `TlsReloadHandle`, no watcher). There is no ACME/PKI automation and no OCSP stapling (no revocation implied without CRLs); SNI multi-identity and WebPKI mTLS are Rust `TlsServerConfig` substrate (Plan 203), not CLI flags. The default server is HTTP/1.1; experimental `http2,tls` and `http3` Rust builds add bounded H2 and QUIC/H3 paths, respectively, but neither is a general edge-platform declaration. The H3 path uses a separate TLS 1.3 identity, disables application 0-RTT, requires endpoint replacement for rotation, and remains experimental after Plans 188, 190, 192, 193, 194, and 195 because independent-client, adversarial-wire, and cross-platform runtime evidence is incomplete and Plan 192 blocks on upstream `h3#338`/`h3#262` (Plans 193/194/195 retain the tier). This profile is suitable for small deployments or internal tools where the complexity of a reverse proxy is not warranted.
 
 ### Windows profiles
 

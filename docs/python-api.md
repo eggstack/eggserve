@@ -78,7 +78,9 @@ with HTTPSServer(("127.0.0.1", 8443), SimpleHTTPRequestHandler,
 file. `password` is unsupported for encrypted keys. `alpn_protocols` defaults
 to `['http/1.1']` and any other protocol is rejected. TLS is rustls-based: no
 CPython `SSLContext`, raw wrapped socket, SNI multi-certificate selection,
-client certificates, ACME, or certificate reload is provided.
+client certificates, ACME, or certificate reload is provided in Python.
+Advanced SNI/mTLS/reload lives in the Rust `TlsServerConfig` substrate
+(Plan 203) for downstream embedding first.
 
 ## Convenience and advanced namespaces
 

@@ -2,7 +2,13 @@
 
 ## Status
 
-**PLANNED.** Prerequisites: Plan 197 connection context; Plan 201 listener ownership should be compatible. Builds on existing rustls/TLS support and H2/H3 ALPN work.
+**IMPLEMENTED / CLOSED.**
+
+Prerequisites: Plan 197 connection context; Plan 201 listener ownership (settled); Plan 202 PROXY→TLS ordering (settled). Builds on existing rustls/TLS support and H2/H3 ALPN work.
+
+## Closure record
+
+Implemented 2026-09-11: EggServe-owned `TlsServerConfigBuilder`/`TlsServerConfig` (exact + single-level `*.suffix` SNI via maintained `ResolvesServerCert`, optional default, 64/253 bounds, `keys_match` pre-ready, no IO in resolve, never log keys) with WebPKI mTLS (`Disabled`/`Optional`/`Required`, 256 roots/16 CRLs/1 MiB, no implied revocation, no Python callback); extended `TlsInfo` (`alpn`/`client_authenticated`/`peer_certificates_present`/opt-in 8×64 KiB chain via `tls_expose_peer_chain`); accept order `TCP → PROXY → TLS deadline → ALPN → HTTP` with sanitized errors and permit recovery; `TlsReloadHandle` + `ServerHandle::replace_tls_config` atomic for new handshakes (failed builds non-destructive, no watcher, established keep session); `max_early_data_size=0` + `NeverProducesTickets` explicit; H3 separate TLS 1.3/`h3` identity with endpoint-replacement rotation documented; CLI/Python `HTTPSServer` single-identity compatible. Qualification: `crates/eggserve-core/tests/tls_identity.rs` (17 tests with `http2,tls`: SNI, mTLS, reload, race, timeout, PROXY ordering, ALPN parity, log hygiene, provenance) plus existing TLS suites. Docs: `docs/tls.md`, `architecture/tls.md`, `threat-model.md`, `deployment.md`, `release-contract.md`, `python-api.md`, `configuration.md`, `testing-and-conformance.md`, `eggserve-bin.md`, README, AGENTS.md, skill.
 
 ## Purpose
 

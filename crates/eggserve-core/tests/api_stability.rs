@@ -131,6 +131,7 @@ fn stable_connection_info_accessible() {
     let tls_info = TlsInfo {
         protocol_version: Some("TLSv1.3".to_string()),
         server_name: Some("example.com".to_string()),
+        ..Default::default()
     };
     let display = format!("{tls_info}");
     assert!(display.contains("TLSv1.3"));

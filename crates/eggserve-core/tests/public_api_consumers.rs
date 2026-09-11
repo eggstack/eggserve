@@ -306,6 +306,7 @@ fn connection_info_with_tls() {
         Some(TlsInfo {
             protocol_version: Some("TLSv1.3".to_string()),
             server_name: Some("example.com".to_string()),
+            ..Default::default()
         }),
     );
     assert_eq!(info.scheme, Scheme::Https);

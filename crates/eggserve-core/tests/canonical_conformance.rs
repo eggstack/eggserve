@@ -975,6 +975,7 @@ fn connection_info_construction() {
             Some(TlsInfo {
                 protocol_version: Some("TLSv1.3".into()),
                 server_name: Some("example.com".into()),
+                ..Default::default()
             })
         } else {
             None

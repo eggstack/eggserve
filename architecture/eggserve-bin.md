@@ -46,11 +46,13 @@ launches `python -m eggserve` as a subprocess.
 
 ## Accept Loop Architecture
 
-The accept loop lives entirely in `eggserve-core::server::accept_loop_generic()`.
+The accept loop lives in `eggserve-core::server` (`accept_loop_multi`, Plan 201).
 Both TLS and non-TLS paths use `Server::builder()` → `Server::start()`.
-When `RuntimeConfig.tls_config` is set, the accept loop performs a per-connection
-TLS handshake via `tokio_rustls::TlsAcceptor` before dispatching to the HTTP
-connection handler.
+When `RuntimeConfig.tls_config` or `tls_reload_handle` is set (Plan 203 reload
+handle wins atomically), the accept loop performs a per-connection TLS handshake
+via `tokio_rustls::TlsAcceptor` (order `TCP → PROXY → TLS deadline → ALPN → HTTP`)
+before dispatching to the HTTP connection handler. CLI remains single-identity;
+Rust `TlsServerConfig` provides SNI/mTLS/reload.
 
 ### Unified accept loop (core server)
 

@@ -50,6 +50,8 @@ pub struct ServerHandle {
     join: Option<tokio::task::JoinHandle<ShutdownResult>>,
     lifecycle: std::sync::Arc<Lifecycle>,
     ops: crate::ops::OpsContext,
+    #[cfg(feature = "tls")]
+    tls_reload: Option<crate::tls::TlsReloadHandle>,
 }
 
 impl std::fmt::Debug for ServerHandle {
@@ -99,7 +101,66 @@ impl ServerHandle {
             join: Some(join),
             lifecycle,
             ops,
+            #[cfg(feature = "tls")]
+            tls_reload: None,
         }
+    }
+
+    #[cfg(feature = "tls")]
+    pub(crate) fn new_with_endpoints_and_tls(
+        endpoints: Vec<crate::server::listener::BoundEndpoint>,
+        shutdown_tx: broadcast::Sender<()>,
+        join: tokio::task::JoinHandle<ShutdownResult>,
+        lifecycle: std::sync::Arc<Lifecycle>,
+        ops: crate::ops::OpsContext,
+        tls_reload: Option<crate::tls::TlsReloadHandle>,
+    ) -> Self {
+        Self {
+            endpoints,
+            shutdown_tx,
+            join: Some(join),
+            lifecycle,
+            ops,
+            tls_reload,
+        }
+    }
+
+    /// Atomically replace TLS identity/trust for new handshakes (Plan 203 F).
+    ///
+    /// All-or-nothing: build the replacement first (validation happens in
+    /// `TlsServerConfigBuilder::build`); this swap never fails and never
+    /// touches established sessions. Returns an error when the server has no
+    /// reload handle (plaintext or legacy `tls_config`-only servers).
+    #[cfg(feature = "tls")]
+    pub fn replace_tls_config(
+        &self,
+        next: std::sync::Arc<rustls::ServerConfig>,
+    ) -> Result<(), crate::server::errors::ServerError> {
+        self.tls_reload
+            .as_ref()
+            .map(|h| {
+                h.replace(next);
+            })
+            .ok_or_else(|| {
+                crate::server::errors::ServerError::Config(
+                    "TLS reload not configured for this server".into(),
+                )
+            })
+    }
+
+    /// Replace from a validated [`crate::tls::TlsServerConfig`].
+    #[cfg(feature = "tls")]
+    pub fn replace_tls_server_config(
+        &self,
+        next: &crate::tls::TlsServerConfig,
+    ) -> Result<(), crate::server::errors::ServerError> {
+        self.replace_tls_config(next.into_server_config())
+    }
+
+    /// Current TLS snapshot for observability/tests, if TLS is configured.
+    #[cfg(feature = "tls")]
+    pub fn tls_reload_handle(&self) -> Option<crate::tls::TlsReloadHandle> {
+        self.tls_reload.clone()
     }
 
     /// All successfully adopted listener endpoints (Plan 201 Track G).

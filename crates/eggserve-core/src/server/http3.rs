@@ -718,6 +718,8 @@ async fn handle_request<S, C>(
             TlsInfo {
                 protocol_version: Some("TLSv1.3".into()),
                 server_name: None,
+                alpn: Some("h3".into()),
+                ..Default::default()
             },
         )
         .connection_info(),
@@ -894,6 +896,8 @@ async fn handle_h3_connect<S, C>(
         TlsInfo {
             protocol_version: Some("TLSv1.3".into()),
             server_name: None,
+            alpn: Some("h3".into()),
+            ..Default::default()
         },
     )
     .connection_info();

@@ -313,7 +313,17 @@ the experimental `server` module a stable 1.0 API.
   un-fingerprintability; see [deployment](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md).
 - The CLI accepts hostnames in `--bind`, repeatable safe `-H/--header` static
   metadata, and `--content-type`; TLS accepts a combined cert/key PEM when
-  `--tls-key` is omitted.
+  `--tls-key` is omitted. Rust production TLS (Plan 203) adds SNI
+  multi-identity (exact + single-level `*.suffix` + optional default, no IO in
+  selection), WebPKI mTLS (`Disabled`/`Optional`/`Required` + bounded roots/CRLs,
+  no revocation implied without CRLs), verified `TlsInfo` (SNI/ALPN/client-auth
+  + opt-in bounded DER chain), bounded handshake/admission (`TCP → PROXY → TLS
+  → HTTP`, sanitized errors), atomic reload for new handshakes
+  (`TlsReloadHandle`/`ServerHandle::replace_tls_config`, established keep
+  session, no watcher), and conservative session/0-RTT defaults
+  (`max_early_data_size = 0`); CLI/Python `HTTPSServer` stay single-identity
+  compatible and H3 keeps a separate QUIC identity requiring endpoint
+  replacement (see `docs/tls.md`).
 - Raw socket ownership, `translate_path()`, arbitrary `SSLContext` handling,
   async Python handlers, unbounded response generators, ASGI/WSGI, and
   CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
