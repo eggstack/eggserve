@@ -23,9 +23,10 @@ For H2 Reject policy, DATA presence is taken from Hyper's protocol body state,
 not from `Content-Length`; the response timeout observes application-body poll
 progress rather than guaranteed stream-level wire progress.
 The H3 transport boundary is documented in
-[`architecture/http3.md`](../architecture/http3.md). Plans 188, 190, 192, 193, and 194 close H3 as
+[`architecture/http3.md`](../architecture/http3.md). Plans 188, 190, 192, 193, 194, and 195 close H3 as
 experimental: deterministic bounded checks pass (including per-stream producer
-no-progress timeout with stream reset under Plan 194), but independent-client,
+no-progress timeout with stream reset under Plan 194, correctively qualified
+under Plan 195), but independent-client,
 adversarial-wire, and cross-platform runtime evidence remains incomplete and
 Plan 192 remains `BLOCKED` on upstream `h3#338`/`h3#262`. See
 the [`qualification record`](../release/plan-190-multiprotocol-corrective-qualification.md), the

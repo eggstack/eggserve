@@ -5,6 +5,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bytes::{Buf, Bytes};
+use eggserve_core::ops::OpsContext;
 use eggserve_core::primitives::canonical::{
     Response, ResponseBody, ResponseStream, ResponseStreamError, StatusCode,
 };
@@ -1037,4 +1038,200 @@ async fn h3_empty_chunks_do_not_refresh_producer_deadline() {
     let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
     handle.shutdown();
     handle.wait().await.unwrap();
+}
+
+/// Plan 195 Track J: a producer no-progress timeout is observable as exactly
+/// one `WriteStallTimeout` — never as `ResponseStreamCompleted` or a producer
+/// error — and releases its service/file permits.
+#[tokio::test]
+async fn h3_stalled_producer_timeout_observes_write_stall_and_releases_permits() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let ops = OpsContext::default();
+    let service = service_fn(|_request: Request| async move {
+        let pending = futures_util::stream::pending::<Result<Bytes, ResponseStreamError>>();
+        Ok(Response::builder()
+            .status(StatusCode::OK)
+            .body(ResponseBody::Stream(ResponseStream::new(pending)))
+            .unwrap())
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        .response_write_timeout(Duration::from_millis(100))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .ops_context(ops.clone())
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/stalled")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), request.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    let outcome = tokio::time::timeout(Duration::from_secs(2), request.recv_data()).await;
+    let outcome =
+        outcome.expect("stalled H3 producer must terminate via producer timeout, not hang");
+    match outcome {
+        Ok(None) => {}
+        Err(_) => {}
+        Ok(Some(_)) => panic!("stalled H3 producer must not yield bytes"),
+    }
+
+    // The post-commit failure path observes one write-stall timeout. It must
+    // not look like a normal stream completion or an explicit producer error.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    let snap = loop {
+        let snap = ops.snapshot();
+        if snap.write_stall_timeouts == 1 {
+            break snap;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "producer timeout must observe exactly one write-stall timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    };
+    assert_eq!(snap.streaming_completed, 0);
+    assert_eq!(snap.stream_producer_errors, 0);
+    assert_eq!(snap.active_service_requests, 0);
+    assert_eq!(snap.active_file_streams, 0);
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
+    handle.shutdown();
+    handle.wait().await.unwrap();
+    let snap = ops.snapshot();
+    assert_eq!(snap.active_connections, 0);
+    assert_eq!(snap.active_service_requests, 0);
+    assert_eq!(snap.active_file_streams, 0);
+    assert_eq!(snap.write_stall_timeouts, 1);
+}
+
+/// Plan 195 Track I: graceful shutdown started while a producer is parked
+/// stays authoritative — the drain deadline bounds the wait, no request task
+/// survives it, lifecycle cancellation is first-reason-wins, and the parked
+/// producer timeout never fires afterwards.
+#[tokio::test]
+async fn h3_stalled_producer_shutdown_race_drains_without_surviving_tasks() {
+    let _ = rustls::crypto::ring::default_provider().install_default();
+    let identity_dir = TempDir::new().unwrap();
+    let (cert_path, key_path, certificate) = write_identity(&identity_dir);
+    let ops = OpsContext::default();
+    let (lifecycle_tx, lifecycle_rx) = tokio::sync::oneshot::channel();
+    let lifecycle_tx = Arc::new(std::sync::Mutex::new(Some(lifecycle_tx)));
+    let service = service_fn(move |request: Request| {
+        let lifecycle = request.lifecycle_clone();
+        let lifecycle_tx = lifecycle_tx.clone();
+        async move {
+            if let Some(sender) = lifecycle_tx.lock().unwrap().take() {
+                let _ = sender.send(lifecycle.clone());
+            }
+            let pending = futures_util::stream::pending::<Result<Bytes, ResponseStreamError>>();
+            Ok(Response::builder()
+                .status(StatusCode::OK)
+                .body(ResponseBody::Stream(ResponseStream::new(pending)))
+                .unwrap())
+        }
+    });
+    let config = RuntimeConfig::builder()
+        .bind("127.0.0.1:0".parse::<SocketAddr>().unwrap())
+        // Producer budget far beyond the graceful deadline so shutdown wins
+        // the race deterministically; either ordering would be acceptable.
+        .response_write_timeout(Duration::from_secs(10))
+        .graceful_shutdown_timeout(Duration::from_millis(100))
+        .http3(Http3Config {
+            enabled: true,
+            ..Http3Config::default()
+        })
+        .build()
+        .unwrap();
+    let server = Server::builder()
+        .runtime(config)
+        .http3_identity(&cert_path, &key_path)
+        .ops_context(ops.clone())
+        .build()
+        .unwrap();
+    let handle = server.start_with_service(service).await.unwrap();
+    let (endpoint, _connection, mut driver, mut sender) =
+        connect_h3(handle.local_addr(), certificate).await;
+    let driver_task =
+        tokio::spawn(async move { future::poll_fn(|cx| driver.poll_close(cx)).await });
+
+    // Response HEADERS commit, so the producer is parked post-commit.
+    let mut request = sender
+        .send_request(
+            hyper::Request::builder()
+                .uri("https://localhost/stalled")
+                .body(())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    request.finish().await.unwrap();
+    let response = tokio::time::timeout(Duration::from_secs(2), request.recv_response())
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(response.status(), hyper::StatusCode::OK);
+    let lifecycle = tokio::time::timeout(Duration::from_secs(1), lifecycle_rx)
+        .await
+        .unwrap()
+        .unwrap();
+
+    handle.shutdown();
+    let result = tokio::time::timeout(Duration::from_secs(5), handle.wait())
+        .await
+        .expect("shutdown must drain the parked producer task via the graceful deadline");
+    let result = result.unwrap();
+    assert!(
+        matches!(
+            result,
+            eggserve_core::server::ShutdownResult::Timeout
+                | eggserve_core::server::ShutdownResult::Forced
+        ),
+        "parked producer must exceed the short graceful deadline, got {result}"
+    );
+    tokio::time::timeout(Duration::from_secs(1), lifecycle.cancelled())
+        .await
+        .expect("shutdown must cancel the parked request lifecycle");
+    assert_eq!(
+        lifecycle.cancellation_reason(),
+        Some(eggserve_core::primitives::RequestCancellationReason::ServerShutdown)
+    );
+
+    // The producer timeout never fired, and nothing leaked or double-released.
+    let snap = ops.snapshot();
+    assert_eq!(snap.write_stall_timeouts, 0);
+    assert_eq!(snap.active_connections, 0);
+    assert_eq!(snap.active_service_requests, 0);
+    assert_eq!(snap.active_file_streams, 0);
+
+    drop(sender);
+    endpoint.close(VarInt::from_u32(0), b"test complete");
+    let _ = tokio::time::timeout(Duration::from_secs(1), driver_task).await;
 }

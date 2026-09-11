@@ -1,8 +1,8 @@
 # HTTP/3 and QUIC transport boundary
 
 EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
-an experimental transport adapter after Plans 188, 190, 192, 193, and 194
-closure, not a change to the
+an experimental transport adapter after Plans 188, 190, 192, 193, 194, and
+195 closure, not a change to the
 Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
 dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
@@ -118,16 +118,18 @@ write-stall timeouts, and shared
 counters. Runtime-generated H3 errors use the same canonical status/reason/body
 constructor as H1/H2, including HEAD, `Allow`, empty privacy policy, and
 unassigned-status behavior. It does not log QUIC connection IDs, tokens, TLS
- secrets, packets, or raw request values. Plans 188, 190, 192, 193, and 194
-keep H3
+ secrets, packets, or raw request values. Plans 188, 190, 192, 193, 194, and
+195 keep H3
 experimental because the available qualification host had no direct H3 client,
 second independent client, adversarial network environment, or non-Linux H3
 runtime. The in-process H3 qualification now directly covers DATA without
 `Content-Length`, zero-length declarations followed by DATA, bodyless
 dispatch, bounded presence-probe timeouts, sibling survival, detached
-lifecycle wake-up after peer close, early-error stream scoping,
-complete-response survival across an immediate peer close, and stalled
-response-producer timeout with sibling survival (Plan 194).
+ lifecycle wake-up after peer close, early-error stream scoping,
+complete-response survival across an immediate peer close, stalled
+response-producer timeout with sibling survival (Plan 194), and the Plan 195
+shutdown-race drain plus write-stall observability/permit-release
+regressions (H3 suite now 16 tests).
 
 Deterministic local coverage lives in the `http3` feature tests:
 
@@ -150,9 +152,13 @@ missing independent-client evidence. The complete decision and evidence
 the post-Plan-189 corrective evidence is in
 [`release/plan-190-multiprotocol-corrective-qualification.md`](../release/plan-190-multiprotocol-corrective-qualification.md),
 the dependency-readiness gate is in
-[`release/plan-192-http3-dependency-readiness.md`](../release/plan-192-http3-dependency-readiness.md),
-and the promotion-attempt outcome is in
-[`release/plan-193-http3-supported-tier-qualification.md`](../release/plan-193-http3-supported-tier-qualification.md).
+ [`release/plan-192-http3-dependency-readiness.md`](../release/plan-192-http3-dependency-readiness.md),
+ and the promotion-attempt outcome is in
+[`release/plan-193-http3-supported-tier-qualification.md`](../release/plan-193-http3-supported-tier-qualification.md),
+the producer-timeout correction is in
+[`release/plan-194-http3-producer-timeout-correction.md`](../release/plan-194-http3-producer-timeout-correction.md),
+and the corrective timeout/history qualification is in
+[`release/plan-195-http3-response-timeout-corrective-qualification.md`](../release/plan-195-http3-response-timeout-corrective-qualification.md).
 
 ## Standards boundary
 
@@ -205,8 +211,14 @@ the durable contract points are:
 - **Plan 194 correction**: Plan 194 bounds the H3 `ResponseStream` producer
   poll with a `response_write_timeout` absolute no-progress deadline (only
   non-empty production followed by successful send re-arms it; empty chunks
-  preserve the deadline; silence resets only the affected stream and observes
-  `WriteStallTimeout`), correcting the Plan 192 Track F disposition that
-  claimed existing bounds already covered the stall. H3 stays experimental;
-  Plans 192/193 blockers stand. See
-  [`release/plan-194-http3-producer-timeout-correction.md`](../release/plan-194-http3-producer-timeout-correction.md).
+   preserve the deadline; silence resets only the affected stream and observes
+   `WriteStallTimeout`), correcting the Plan 192 Track F disposition that
+   claimed existing bounds already covered the stall. H3 stays experimental;
+   Plans 192/193 blockers stand. See
+   [`release/plan-194-http3-producer-timeout-correction.md`](../release/plan-194-http3-producer-timeout-correction.md).
+- **Plan 195 corrective qualification**: Plan 195 qualifies the Plan 194 bound
+  without source change (stalled, progress-then-stall, slow-progress, and
+  empty-chunk evidence plus new shutdown-race drain and write-stall
+  observability/permit-release regressions; H3 suite 14 → 16). Tier and
+  blockers unchanged. See
+  [`release/plan-195-http3-response-timeout-corrective-qualification.md`](../release/plan-195-http3-response-timeout-corrective-qualification.md).

@@ -60,7 +60,7 @@ The following dependency categories are approved for initial development:
 - H3 dependencies are optional and feature-gated behind `http3` (which also
   enables `tls`). The adapter keeps Quinn/h3 types internal, pins the selected
   versions in `Cargo.lock`, and is covered by the same `cargo audit`/`cargo deny`
-  gates as the default graph. Plans 188, 190, 192, 193, and 194 close with H3
+  gates as the default graph. Plans 188, 190, 192, 193, 194, and 195 close with H3
   experimental because
   independent-client and adversarial QUIC evidence was unavailable on the
   qualification host; the manual script remains the release path. Plan 192
@@ -70,7 +70,8 @@ The following dependency categories are approved for initial development:
   so H3 stays experimental until a later readiness update (see
   `release/plan-192-http3-dependency-readiness.md`). Plan 193 retains the
   tier on the unchanged candidate; Plan 194 adds the per-stream
-  producer-timeout correction without changing the tier. No fork or vendored H3
+  producer-timeout correction without changing the tier, and Plan 195
+  correctively qualifies that bound without changing the tier. No fork or vendored H3
   patch is permitted to force a supported label.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a

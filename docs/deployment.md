@@ -53,7 +53,7 @@ features. EggServe's native Rust `http2` feature is experimental after Plans
 corrective qualification record](../release/plan-190-multiprotocol-corrective-qualification.md)
 and the [Plan 191 promotion record](../release/plan-191-http2-supported-tier-qualification.md)
 for the evidence boundary. The native Rust `http3` feature is also
-experimental after Plans 188, 190, 192, 193, and 194 closure and requires a separate TLS 1.3
+experimental after Plans 188, 190, 192, 193, 194, and 195 closure and requires a separate TLS 1.3
 QUIC identity; it binds
 same-port UDP beside TCP. Independent-client, adversarial-wire, and
 cross-platform H3 evidence remains a release qualification gap, and Plan 192

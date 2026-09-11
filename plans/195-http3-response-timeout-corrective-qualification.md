@@ -2,7 +2,19 @@
 
 ## Status
 
-**PLANNED — evidence/closure pass after Plan 194.**
+**CLOSED — corrective qualification passed 2026-09-11; H3 remains experimental.**
+
+Outcome: the Plan 194 absolute producer no-progress deadline verified
+end-to-end (stalled/progress-then-stall/slow-progress/empty-chunk/sibling
+evidence, 100/150/200/300 ms budgets, real Tokio time), plus two new
+Track I/J regression tests (H3 suite 14 → 16: shutdown-race drain and
+`WriteStallTimeout` observability with permit-release assertions),
+Plan 193 preflight-blocked trace confirmed consistent across all live
+docs, timeout wording confirmed producer/send-accurate, H1/H2
+non-regression green, full deterministic/MSRV/supply-chain matrix green.
+No promotion granted; Plans 192/193 blockers stand. See
+`release/plan-195-http3-response-timeout-corrective-qualification.md`.
+The corrective line stops here per the stop condition below.
 
 Prerequisite: Plan 194 is implemented on the candidate commit and its targeted H3 tests are green. If Plan 194 is incomplete, stop; do not close this plan by inspection.
 
