@@ -16,6 +16,10 @@
 use std::fmt;
 
 /// Errors from server startup and lifecycle operations.
+///
+/// Non-exhaustive (Plan 197 Track F): future lifecycle/transport categories
+/// may be added without a major version bump. Match with a wildcard arm.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum ServerError {
     /// Failed to bind the TCP listener.

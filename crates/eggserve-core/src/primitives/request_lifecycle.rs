@@ -63,6 +63,12 @@ impl BodyLifecycleState {
 }
 
 /// Best-effort, transport-neutral cancellation reason (Track D1).
+///
+/// Reasons are coarse and best-effort; downstream code must rely only on
+/// "no longer usable", not on precise TCP-reset vs EOF vs TLS-close
+/// distinction. Non-exhaustive: future transport/tunnel cancellation
+/// categories may be added (Plans 198–199); match with a wildcard arm.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RequestCancellationReason {
     /// Peer transport loss (TCP reset/EOF, TLS close, client disconnect).

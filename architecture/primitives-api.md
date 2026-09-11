@@ -24,10 +24,11 @@ The `primitives` module is the intended public boundary for embedding consumers.
 | `body.rs` | `primitives/body.rs` | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming |
 | `response_stream.rs` | `primitives/response_stream.rs` | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `canonical.rs` | `primitives/canonical.rs` | `StatusCode`, `ResponseHead`, `ResponseBody` (incl. `Stream`), `BodyLength`, `ResponseStream`/`ResponseStreamError`, `Response`, `normalize_response`, `to_hyper_response` — canonical response types plus the explicit outbound transport adapter |
-| `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + connection info) |
+| `request.rs` | `primitives/request.rs` | `Request` — canonical request envelope (head + body + `RequestContext`) |
 | `request_body.rs` | `primitives/request_body.rs` | `RequestBody`, `BodyState` — transport-independent, one-shot request body |
 | `request_body_policy.rs` | `primitives/request_body_policy.rs` | `RequestBodyPolicy` — reject, buffer, or stream request bodies |
-| `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 12-variant error type for body consumption failures |
+| `request_body_error.rs` | `primitives/request_body_error.rs` | `RequestBodyError` — 12-variant `#[non_exhaustive]` error type for body consumption failures |
+| `request_context.rs` | `primitives/request_context.rs` | `RequestContext` — typed context/capability container (Plan 197): `connection()` + `lifecycle()` today; interim/tunnel capabilities attach here |
 | `incomplete_body_policy.rs` | `primitives/incomplete_body_policy.rs` | `IncompleteBodyPolicy` — policy for handling unconsumed request bodies |
 | `authority.rs` | `primitives/authority.rs` | `Authority` — validated effective host authority independent of Host/`:authority` spelling |
 
@@ -351,8 +352,9 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 - `RequestBody` — transport-independent, one-shot body (shares Plan 174 lifecycle)
 - `BodyState` — Unread, Streaming, Complete, Error
-- `RequestLifecycle` — cloneable disconnect/cancel observer (`cancelled()`, `is_cancelled()`, `cancellation_reason()`); `RequestCancellationReason` (PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure)
-- `Request` exposes `lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` (additive; `into_parts` arity preserved)
+- `RequestLifecycle` — cloneable disconnect/cancel observer (`cancelled()`, `is_cancelled()`, `cancellation_reason()`); `RequestCancellationReason` (`#[non_exhaustive]`: PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure; match with wildcard)
+- `Request` exposes `lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` (additive; `into_parts` arity preserved) plus `context()`, `new_with_context()`, `into_parts_with_context()` (Plan 197 forward-compatible path)
+- `RequestContext` — single attachment point for transport-authenticated metadata + future opaque capabilities; cheap clone never clones the one-shot body; no generic type map, no raw transport handles
 - Public methods: `empty`, `from_bytes`, `declared_length`, `bytes_received`, `is_complete`, `state`, `max_bytes`, `read_all`, `next_chunk`, `lifecycle`
 - Internal methods (`pub(crate)`): `from_incoming()`, `shared()`, `was_fully_consumed()`
 - Implements `Stream<Item = Result<Bytes, RequestBodyError>>`
@@ -362,7 +364,7 @@ assert!(err.to_string().contains("transfer-encoding"));
 
 ### Error taxonomy
 
-- `RequestBodyError` — 12 variants covering policy, limit, timeout, disconnect, consumption state
+- `RequestBodyError` — 12 variants (`#[non_exhaustive]`, match with wildcard) covering policy, limit, timeout, disconnect, consumption state
 - Classification helpers: `is_policy_rejection`, `is_limit_exceeded`, `is_timeout`, `is_disconnect`, `is_consumption_state`
 - HTTP status code mapping: `to_status_code()`
 

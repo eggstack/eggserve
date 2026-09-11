@@ -170,6 +170,21 @@ Demonstrates transport-independent streaming bodies without Hyper:
 the runtime). Framing stays runtime-owned; `HEAD`/body-forbidden paths never
 poll the producer.
 
+### Application service: `application_service.rs`
+
+```sh
+cargo run -p eggserve-core --example application_service
+```
+
+Minimal native application-service contract (Plan 197) without any static
+filesystem dependency: `GET /health` (bytes), `POST /echo` (buffered
+request into bytes response), `POST /pipe` (streamed request into streamed
+response over a bounded channel), and `GET /poll` (lifecycle long-poll that
+wakes on disconnect/shutdown). Demonstrates `RequestContext` as the single
+metadata/capability attachment point, the `Response`-only final return (no
+`ServiceOutcome`), and the commitment/cancellation contract documented in
+`docs/downstream-app-server.md`.
+
 ### Caller-owned stream: `caller_owned_stream.rs`
 
 ```sh

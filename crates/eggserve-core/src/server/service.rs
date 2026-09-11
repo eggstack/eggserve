@@ -34,6 +34,15 @@ use crate::primitives::request_body_policy::RequestBodyPolicy;
 /// internal details. Services should use [`ServiceError::internal`] for
 /// unexpected failures and [`ServiceError::rejected`] for intentional rejections
 /// that should produce a specific status code.
+///
+/// This is a struct with a private kind (Plan 197 Track F): callers
+/// distinguish rejection / internal / panic / timeout via
+/// [`ServiceError::message`], [`ServiceError::is_panic`], and
+/// [`ServiceError::is_timeout`], plus the transport's status/body mapping.
+/// Future categories can be added without breaking construction; matching on
+/// the kind is intentionally impossible. Client-facing bodies stay sanitized
+/// (fixed `<status> <reason>` or empty); committed-stream failures never
+/// synthesize a second HTTP error after commitment.
 #[derive(Debug)]
 pub struct ServiceError {
     kind: ServiceErrorKind,
@@ -212,8 +221,14 @@ impl From<RequestBodyError> for ServiceError {
 /// A transport-independent service that handles HTTP requests.
 ///
 /// Services are invoked by the runtime after request parsing and validation.
-/// They receive a canonical [`Request`] (head, body, and connection metadata)
-/// and must return a canonical [`Response`].
+/// They receive a canonical [`Request`] (head, body, and typed
+/// [`RequestContext`](crate::primitives::RequestContext)) and must return a
+/// canonical [`Response`]. Plan 197 deliberately keeps this shape:
+/// no `ServiceOutcome` exists — trailers belong to the message-body
+/// abstraction (Plan 198), interim responses use a request-scoped
+/// capability (Plan 198), and any accepted-tunnel outcome is deferred to
+/// Plan 199 only if pairing a continuation with a final response cannot be
+/// made type-safe otherwise.
 ///
 /// # Contract
 ///
@@ -225,10 +240,27 @@ impl From<RequestBodyError> for ServiceError {
 ///   connection.
 /// - The response goes through runtime normalization (hop-by-hop stripping,
 ///   content-length computation) before transport.
+/// - Commitment: the final response head commits once the service returns
+///   `Ok(Response)` and the runtime normalizes it. There is never a second
+///   HTTP error response after commitment; producer/body failures after
+///   commitment close the transport (H1) or reset the stream (H3) with
+///   sanitized diagnostics only. See `docs/downstream-app-server.md` for the
+///   normative 7-stage commitment/cancellation contract.
+/// - Cancellation: peer disconnect, forced close, hard timeouts, shutdown
+///   past drain, and body/transport failure cancel the request's
+///   [`RequestLifecycle`](crate::primitives::request_lifecycle::RequestLifecycle);
+///   normal `Service::call` return, body EOF, or normal response completion
+///   on keep-alive never cancel by themselves.
 ///
 /// # Thread safety
 ///
-/// Services must be `Send + Sync` to be shared across connection tasks.
+/// Services must be `Send + Sync` to be shared across connection tasks
+/// (Plan 197 Track E). Server-wide service admission
+/// (`max_in_flight_requests`, held across `Service::call`) and downstream
+/// application-task admission are separate concepts; downstream tasks own a
+/// separate bounded budget. There is no `poll_ready` on the native trait —
+/// Tower readiness belongs in the Plan 200 adapters; native admission stays
+/// runtime-owned and deterministic.
 pub trait Service: Send + Sync + 'static {
     /// Returns the service's preferred request body policy.
     ///

@@ -13,8 +13,11 @@ failed body causes the response and connection to close.
 
 The `server` module provides a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper. Its canonical `Service`, response, and caller-owned connection APIs are Hyper-free; `to_hyper_response()` and `RequestHead::try_from_hyper()` are the two explicit conversion adapters at the transport boundary. It includes a lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed), readiness signaling, graceful and forced shutdown with configurable drain deadlines, and connection/task tracking.
 
-The runnable public-API demonstrations are [`static_server.rs`](../crates/eggserve-core/examples/static_server.rs)
-and [`custom_service.rs`](../crates/eggserve-core/examples/custom_service.rs).
+The runnable public-API demonstrations are [`static_server.rs`](../crates/eggserve-core/examples/static_server.rs),
+[`custom_service.rs`](../crates/eggserve-core/examples/custom_service.rs),
+and [`application_service.rs`](../crates/eggserve-core/examples/application_service.rs)
+(Plan 197: buffered echo, bounded streamed pipe, lifecycle long-poll, no
+static filesystem).
 Both wait for `ready()`, use loopback defaults, and call synchronous
 `shutdown()` followed by consuming `wait()` after Ctrl+C. The examples are
 intentionally not routers or application frameworks.
@@ -89,10 +92,59 @@ pub trait Service: Send + Sync + 'static {
 ```
 
 - `request_body_policy()` declares the service's body policy per request head; default is `Reject` (safe static default). The runtime enforces the hard `max_request_body_bytes` ceiling — services may lower it, never raise it
-- Receives canonical `Request` envelope (RequestHead + RequestBody + ConnectionInfo)
-- Returns canonical `Response` or `ServiceError`
-- Must be `Send + Sync` for sharing across connections
+- Receives canonical `Request` envelope (RequestHead + RequestBody + `RequestContext`)
+- Returns canonical `Response` or `ServiceError` — Plan 197 Track C keeps this shape deliberately (no `ServiceOutcome`; trailers → message body in Plan 198, interim → request-scoped capability in Plan 198, tunnel → Plan 199 only if needed)
+- Must be `Send + Sync` for sharing across connections; no `poll_ready` — Tower readiness belongs in Plan 200 adapters, native admission stays runtime-owned and deterministic (Plan 197 Track E)
 - Panics caught at tokio task boundary
+
+### RequestContext (Plan 197 Track B)
+
+`eggserve_core::primitives::RequestContext` is the single deliberate
+attachment point for transport-authenticated metadata and future opaque
+capabilities. It owns `ConnectionInfo` + `RequestLifecycle` today;
+interim-response senders (Plan 198) and tunnel capabilities (Plan 199)
+attach there when their plans land. Cloning is cheap (`ConnectionInfo`
+value + `Arc`-backed lifecycle) and never clones the one-shot
+`RequestBody`. There is no generic type map: downstream state belongs in
+the service wrapper, Tower/framework maps belong in Plan 200 adapters. No
+raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
+`ConnectionInfo`/`TlsInfo` come from the observed transport only;
+`Forwarded`/`X-Forwarded-*` stay ordinary untrusted headers.
+
+`Request` exposes `context()` / `new_with_context()` /
+`into_parts_with_context()` for the forward-compatible path;
+`connection()` / `lifecycle()` / `into_parts()` /
+`into_parts_with_lifecycle()` forward to the context and preserve the
+Plan 175 common path.
+
+### Commitment and cancellation contract (Plan 197 Track D, normative)
+
+Seven ordered stages (not started → interim reserved → final head
+committed → body streaming → terminal trailers reserved → complete /
+cancelled / failed → tunnel-transition deferred); later stages never
+revisit earlier ones. The final head commits once the service returns
+`Ok(Response)` and the runtime normalizes it. There is never a second
+HTTP error after commitment: producer/body failures after commitment
+close (H1) or reset the stream (H3) with sanitized diagnostics only.
+Peer/shutdown/timeout/transport failure cancels the `RequestLifecycle`
+(first reason wins; `#[non_exhaustive]` — match with a wildcard);
+normal return, body EOF, or normal keep-alive completion never cancel by
+themselves. Delegated `Active` bodies defer reuse until `Complete`;
+`Abandoned`/`Failed` forces safe close; in-memory bodies never force
+close. Full stage/race table lives in
+`docs/downstream-app-server.md`.
+
+### Error taxonomy at the boundary (Plan 197 Track F)
+
+Client-facing errors stay sanitized (fixed `<status> <reason>` or empty).
+Callers distinguish rejection (`200..=599` preserved, `1xx`/out-of-range
+→ 500), internal, panic (`is_panic`), timeout (`is_timeout`, 504),
+cancellation (lifecycle), and committed-stream failure (close/reset, no
+second error). `ServiceError` is a struct with a private kind so future
+categories do not break construction. `RequestBodyError`, `ServerError`,
+`RequestCancellationReason`, and `ConnectionOutcome` are
+`#[non_exhaustive]` — match with a wildcard arm. H2/H3 reset codes are not
+exposed to ordinary applications.
 
 ### StaticService
 
@@ -123,8 +175,9 @@ cap, deadlines, kill/abort with reaping on timeout/disconnect/shutdown/drop).
 ### Upgrade handoff (Plan 176 deferred — no upgrade capability)
 
 Plan 176 closed as deferred: no generic HTTP upgrade handoff is exposed.
-`Request` carries head/body/connection/lifecycle only (no `UpgradeRequest`),
-`Service` returns `Response` only (no `ServiceOutcome`/`UpgradeResponse`),
+`Request` carries head/body/context only (no `UpgradeRequest`),
+`Service` returns `Response` only (no `ServiceOutcome`/`UpgradeResponse`
+— Plan 197 Track C deliberately keeps this shape),
 and there is no `UpgradedIo` wrapper. A `101 Switching Protocols` handshake
 cannot be produced through the normal `Response` path: normalization strips
 hop-by-hop handshake headers (`upgrade`/`connection`) and 1xx statuses are
@@ -134,7 +187,10 @@ public escape hatch; downstream
 code must not bypass the canonical boundary via `OnUpgrade`/`Upgraded`
 types. Upgraded-protocol servers (WebSocket-class) are therefore not
 currently buildable on EggServe; reopen Plan 176 only with a concrete
-upgrade consumer and current-Hyper Phase 0 evidence.
+upgrade consumer and current-Hyper Phase 0 evidence. Plan 199 owns the
+tunnel/Extended CONNECT design and attaches any accepted-tunnel outcome to
+`RequestContext` only if pairing a continuation with a final response
+cannot be made type-safe otherwise.
 
 ### ServerHandle
 
@@ -520,8 +576,7 @@ The runtime manages request body lifecycle through the `Request` envelope:
 pub struct Request {
     head: RequestHead,      // immutable request metadata
     body: RequestBody,       // one-shot, bounded body stream (shares lifecycle)
-    connection: ConnectionInfo, // transport metadata
-    lifecycle: RequestLifecycle, // cloneable disconnect/cancel observer
+    context: RequestContext, // Plan 197: connection + lifecycle + future opaque capabilities
 }
 ```
 
@@ -535,6 +590,10 @@ pub trait Service: Send + Sync + 'static {
     fn call(&self, request: Request) -> Pin<Box<dyn Future<Output = Result<Response, ServiceError>> + Send + '_>>;
 }
 ```
+
+Plan 197 keeps `call(Request) -> Response`: no `ServiceOutcome`, no
+`poll_ready`. See the Service Trait section above for the normative
+commitment/cancellation/admission contract.
 
 ### One-shot consumption
 

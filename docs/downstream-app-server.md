@@ -44,9 +44,30 @@ downstream responsibility.
 
 - `Service: Send + Sync + 'static` receives a canonical `Request` by value
   and returns a canonical `Response`. No Hyper type appears in the trait.
+  Plan 197 keeps this shape deliberately: no `ServiceOutcome` exists.
+  Trailers belong to the message-body abstraction (Plan 198), interim
+  responses use a request-scoped capability (Plan 198), and any
+  accepted-tunnel outcome is deferred to Plan 199 only if pairing a
+  continuation with a final response cannot be made type-safe otherwise.
+  Ordinary services convert via `Ok(Response)`; `service_fn` stays simple.
 - `Request` bundles `RequestHead` (method, target, version, headers),
-  `RequestBody` (one-shot, bounded), `ConnectionInfo`, and a cloneable
-  `RequestLifecycle` observer. Clone the lifecycle before moving the body.
+  `RequestBody` (one-shot, bounded), and a typed `RequestContext`
+  (Plan 197 Track B). `Request::connection()` / `lifecycle()` forward to
+  the context for the Plan 175 common path; new code should prefer
+  `Request::context()`, `into_parts_with_context()`, and
+  `Request::new_with_context()` when threading metadata + cancellation
+  together. Cloning the context never clones the one-shot body.
+- `RequestContext` is the single deliberate attachment point for
+  transport-authenticated metadata and future opaque capabilities. It owns
+  `ConnectionInfo` + `RequestLifecycle` today; interim-response senders
+  (Plan 198) and tunnel capabilities (Plan 199) attach there when their
+  plans land. There is no generic type map: downstream application state
+  belongs in the service wrapper, and Tower/framework extension maps belong
+  in the Plan 200 adapters. No raw socket, Hyper, H2/H3, rustls-session, or
+  executor handle is exposed here.
+- `ConnectionInfo` / `TlsInfo` come from the observed transport or the
+  explicit caller-owned `ConnectionContext`. `Forwarded` / `X-Forwarded-*`
+  stay ordinary untrusted headers and never populate the context.
 - `RequestBodyPolicy::Stream { max_bytes }` selects deferred ownership.
   The runtime enforces the hard `max_request_body_bytes` ceiling; services
   may only lower it.
@@ -140,19 +161,80 @@ HTTP/1 connection can handle another request when policy permits.
 ## Disconnect and cancellation semantics
 
 `RequestLifecycle` (`Request::lifecycle()`, `lifecycle_clone()`,
-`into_parts_with_lifecycle()`) is the transport-neutral observer. It fires
+`into_parts_with_lifecycle()`, `Request::context().lifecycle()`) is the
+transport-neutral observer. It fires
 on peer disconnect, forced close, hard timeouts, shutdown past drain, and
 body/transport failure — never merely on `Service::call` return, body EOF,
 or normal response completion on keep-alive.
 
 - Reasons are coarse and best-effort: `PeerDisconnected`,
   `ServerShutdown`, `ConnectionTimeout`, `TransportFailure`. The first
-  reason wins. Downstream code must rely only on "no longer usable".
+  reason wins. The enum is `#[non_exhaustive]` (Plan 197 Track F):
+  downstream code must match with a wildcard and rely only on "no longer
+  usable".
 - A response producer may observe disconnect (stream poll/write failure or
   drop) before a waiter observes `cancelled()`; treat either path as
   cancellation. There is no second HTTP error response after commitment.
 - A long-polling task that is not polling body/response IO must wait on
   `cancelled()` rather than probing a raw socket.
+
+## Commitment contract (Plan 197 Track D, normative)
+
+A request passes through these stages in order; later stages never revisit
+earlier ones:
+
+1. **not started** — admission (`max_in_flight_requests`, 503 on
+   exhaustion), body-policy selection, pre-service ceilings (414 target,
+   431 header). No service code has run.
+2. **interim metadata emitted** — reserved for Plan 198. Services must not
+   emit interim responses via `Response` today; 1xx statuses cannot be
+   final responses and `ServiceError::rejected(1xx)` collapses to 500.
+3. **final response head committed** — the service returned
+   `Ok(Response)` and the runtime normalized it (hop-by-hop stripping,
+   framing, Plan 165 privacy). This is the single commitment point.
+4. **body streaming** — the runtime polls the `ResponseStream` producer
+   with backpressure; `response_write_timeout` (no-progress) and the hard
+   connection lifetime bound it. Empty chunks are skipped, not progress.
+5. **terminal metadata/trailers emitted** — reserved for Plan 198. No
+   trailer API exists yet; trailers will belong to the message-body
+   abstraction, not to a new outcome enum.
+6. **complete / cancelled / failed** — normal completion releases permits
+   and may keep the connection reusable; cancellation (peer/shutdown/
+   timeout/transport) drops producers promptly; failure after commitment
+   closes (H1) or resets the stream (H3) with sanitized diagnostics only.
+7. **transitioned into a non-HTTP tunnel where applicable** — deferred
+   (Plan 176 deferred, Plan 199 owns the design). No tunnel outcome exists
+   today; 101 handshakes cannot survive normalization.
+
+What happens on races:
+
+- service errors/panics **before** final commitment → sanitized runtime
+  error response (`Minimal` fixed body or `Empty`; `HEAD`/body-forbidden
+  empty; no detail leak);
+- interim attempt **after** final commitment → impossible today (no
+  interim sender); Plan 198 senders must fail closed after commitment;
+- response producer errors **after** commitment → transport close/reset,
+  never a second HTTP error; `ResponseStreamError` display stays generic;
+- request body still delegated (`Active`) after response-start → reuse
+  waits for body `Complete`; `Abandoned`/`Failed` forces safe close;
+  in-memory bodies never force close;
+- peer disconnect/reset at any stage → lifecycle cancels (first reason
+  wins); send-side failure may precede `cancelled()` — treat either as
+  cancellation;
+- shutdown/timeout racing service completion → `ServerShutdown` /
+  `ConnectionTimeout` cancels the lifecycle; permits return on drop;
+  graceful drain waits up to `graceful_shutdown_timeout`, then aborts.
+
+There is never an attempt to synthesize a second HTTP error response
+after final commitment.
+
+## Concurrency and readiness (Plan 197 Track E, normative)
+
+Native `Service` stays `Send + Sync + 'static` and is shared across
+connection tasks. There is no `poll_ready` on the native trait: Tower
+readiness belongs in the Plan 200 adapters. Native admission stays
+runtime-owned and deterministic (`max_in_flight_requests` held across
+`Service::call`, 503 on exhaustion, permit released at response-start).
 
 ## Timeout split
 
@@ -166,6 +248,23 @@ or normal response completion on keep-alive.
   ceiling). Do not reinterpret `handler_timeout` as a total
   application-coroutine deadline. Full semantics are in
   [timeout-reference.md](timeout-reference.md).
+
+## Error taxonomy at the boundary (Plan 197 Track F, normative)
+
+- Client-facing errors stay sanitized: fixed `<status> <reason>` or empty
+  bodies, `HEAD`/body-forbidden empty, no application detail reflected.
+- Service/library callers distinguish rejection (`ServiceError::rejected`
+  preserves `200..=599`, `1xx`/out-of-range → 500), internal failure
+  (`ServiceError::internal`), panic (`is_panic`), timeout (`is_timeout`,
+  504), cancellation (`RequestLifecycle`, first reason wins), and
+  committed-stream failure (transport close/reset, never a second HTTP
+  error) where useful. `ServiceError` is a struct with a private kind so
+  future categories do not break construction.
+- `RequestBodyError`, `ServerError`, `RequestCancellationReason`, and
+  `ConnectionOutcome` are `#[non_exhaustive]`: match with a wildcard arm.
+  Transport-specific H2/H3 reset codes are not exposed to ordinary
+  applications; any future tunnel API exposes a small generic
+  close/cancellation reason without leaking implementation enums.
 
 ## Service admission vs downstream application admission
 
@@ -218,11 +317,19 @@ EggServe does not implement ASGI/WSGI/framework/process semantics:
 application protocol adaptation, event loops, routing, middleware, worker
 supervision, lifespan state machines, HTTP/2/3, trailers, or WebSocket
 framing. Plan 176 closed as deferred: no generic HTTP upgrade handoff is
-exposed (`Request` has no upgrade capability, `Service` returns `Response`
-only, 101 handshakes cannot survive normalization), so upgraded protocols
+exposed (`Request` / `RequestContext` have no upgrade/tunnel capability,
+`Service` returns `Response` only — Plan 197 Track C keeps this shape —
+101 handshakes cannot survive normalization), so upgraded protocols
 are not currently buildable on the canonical boundary and raw Hyper
-`OnUpgrade`/`Upgraded` bypass is unsupported. Python
+`OnUpgrade`/`Upgraded` bypass is unsupported. No Tower `Service`,
+`poll_ready`, routing, middleware, or worker semantics enter the native
+contract (Plan 197 Track E); those belong in downstream adapters
+(Plan 200). Python
 FFI/asyncio architecture belongs in the downstream project's repository.
 Downstream gateways build on the canonical `Service` boundary instead
 (see [extension-contract.md](extension-contract.md) and
 [non-goals.md](non-goals.md)).
+
+The minimal native application-service demonstration is
+`crates/eggserve-core/examples/application_service.rs` (buffered echo,
+bounded streamed pipe, lifecycle long-poll, no static filesystem).

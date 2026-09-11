@@ -59,8 +59,9 @@ shutdown; the process harness uses only Python's standard library.
 | `tls_service_parity.rs` | `tls` | TLS + non-TLS behavioral parity |
 | `server_integration.rs` | — | Server lifecycle, Service trait, StaticService |
 | `lifecycle_integration.rs` | — | Lifecycle state machine: Created→Running→Draining→Stopped |
-| `public_api_consumers.rs` | — | Validates public API surface (incl. byte-preserving header/target APIs) |
-| `api_stability.rs` | — | API stability snapshot checks (incl. Plan 173 octet contract) |
+| `public_api_consumers.rs` | — | Validates public API surface (incl. byte-preserving header/target APIs; Plan 197 adds `Request`/`RequestBody`/`RequestContext`/lifecycle import + Send/Sync checks) |
+| `api_stability.rs` | — | API stability snapshot checks (incl. Plan 173 octet contract; Plan 197 adds `RequestContext` access + `#[non_exhaustive]` wildcard tolerance) |
+| `application_service_contract.rs` | — | Plan 197: Hyper-free stabilized-contract fixture — `RequestContext` attachment, buffered/streamed/lifecycle, commitment/admission, `#[non_exhaustive]` tolerance |
 | `no_hyper_in_public_api.rs` | — | Ensures canonical application-facing types remain Hyper-free while enumerating the intentional inbound/outbound conversion adapters |
 | `octet_fidelity.rs` | — | Plan 173: header octet preservation (inbound/outbound via duplex parser path, duplicates, `OWS`, policy), request-target byte fidelity corpus |
 | `production_path.rs` (bin) | — | Binary production path validation |

@@ -144,6 +144,7 @@ handle.wait().await?;
 The executable, mechanically checked examples are [the static server](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/static_server.rs),
 [the custom service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/custom_service.rs),
 [the streaming service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/streaming_service.rs),
+[the application service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/application_service.rs),
 [the caller-owned stream](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/caller_owned_stream.rs),
 and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/primitives.rs).
 They use public EggServe modules only, include readiness plus graceful
@@ -241,9 +242,16 @@ shared `RuntimeState` admission. See the [Rust architecture overview](https://gi
 Downstream application servers build on the same canonical `Service`
 boundary. The currently qualified path is HTTP-only: its builder-facing HTTP-half contract (bounded full-duplex
 bridging, deferred body ownership, lifecycle cancellation, timeout and
-admission splits, byte metadata) is documented in
+admission splits, byte metadata, plus the Plan 197 stabilized `RequestContext`
+single attachment point, `Response`-only final return, 7-stage
+commitment/cancellation contract, `Send + Sync` sharing with no `poll_ready`,
+and `#[non_exhaustive]` error tolerance) is documented in
 [downstream-app-server.md](https://github.com/eggstack/eggserve/blob/main/docs/downstream-app-server.md)
-and qualified externally by `crates/eggserve-core/tests/app_server_consumer.rs`.
+and qualified externally by `crates/eggserve-core/tests/app_server_consumer.rs`
+plus the Hyper-free `crates/eggserve-core/tests/application_service_contract.rs`.
+The minimal native demonstration is
+`crates/eggserve-core/examples/application_service.rs` (buffered echo,
+bounded streamed pipe, lifecycle long-poll, no static filesystem).
 EggServe itself remains a static server and library, not an application
 framework or ASGI/WSGI runtime. Qualification of this substrate does not make
 the experimental `server` module a stable 1.0 API.
@@ -281,7 +289,7 @@ the experimental `server` module a stable 1.0 API.
   CGI (`CGIHTTPRequestHandler`/`--cgi`, removed Python 3.15 surface) / FastCGI
   gateways are intentionally unavailable. Generic HTTP upgrade handoffs
   (WebSocket-class; Plan 176 deferred, no concrete consumer) are also
-  unavailable: `Request` carries head/body/connection/lifecycle only,
+  unavailable: `Request` carries head/body/context only (`RequestContext`: connection + lifecycle),
   `Service` returns `Response` only, and 101 handshakes cannot survive
   normalization. Downstream gateways build on the
   canonical `Service` boundary instead.

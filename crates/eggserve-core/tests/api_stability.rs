@@ -679,3 +679,86 @@ fn python_bindings_internal_extraction_methods_absent_by_default() {
     // python-bindings-internal and must NOT be callable in default builds.
     let _phantom = std::marker::PhantomData::<ResolvedFile>;
 }
+
+// ── Plan 197 application-service contract stabilization ─────────────────────
+
+#[test]
+fn experimental_request_context_accessible() {
+    use eggserve_core::primitives::connection_info::{ConnectionInfo, Scheme};
+    use eggserve_core::primitives::request::Request;
+    use eggserve_core::primitives::request_body::RequestBody;
+    use eggserve_core::primitives::request_context::RequestContext;
+    use eggserve_core::primitives::{HeaderBlock, HttpVersion, RequestHead};
+    use eggserve_core::primitives::{Method, RequestTarget};
+
+    let body = RequestBody::empty();
+    let ctx = RequestContext::new(
+        ConnectionInfo::without_socket_addrs(Scheme::Http, None),
+        body.lifecycle(),
+    );
+    assert_eq!(ctx.connection().scheme, Scheme::Http);
+    assert!(!ctx.lifecycle().is_cancelled());
+
+    // Cheap clone shares lifecycle, never the one-shot body.
+    let cloned = ctx.clone();
+    assert_eq!(cloned.connection(), ctx.connection());
+
+    // Request exposes the single attachment point without breaking the
+    // Plan 175 common path.
+    let req = Request::new(
+        RequestHead::new(
+            Method::get(),
+            RequestTarget::parse("/").unwrap(),
+            HttpVersion::Http11,
+            HeaderBlock::new(),
+        ),
+        RequestBody::empty(),
+        ConnectionInfo::without_socket_addrs(Scheme::Http, None),
+    );
+    assert_eq!(req.context().connection().scheme, Scheme::Http);
+    assert_eq!(req.connection().scheme, Scheme::Http);
+    let (_head, _body, ctx) = req.into_parts_with_context();
+    assert_eq!(ctx.connection().scheme, Scheme::Http);
+}
+
+#[test]
+#[allow(clippy::match_like_matches_macro)]
+fn experimental_error_taxonomy_tolerates_growth() {
+    use eggserve_core::primitives::request_body_error::RequestBodyError;
+    use eggserve_core::primitives::request_lifecycle::RequestCancellationReason;
+    use eggserve_core::server::connection::ConnectionOutcome;
+    use eggserve_core::server::ServerError;
+
+    // Wildcard arms prove `#[non_exhaustive]` tolerance for future variants.
+    fn body_kind(err: &RequestBodyError) -> bool {
+        match err {
+            RequestBodyError::ReadTimeout => true,
+            _ => false,
+        }
+    }
+    assert!(body_kind(&RequestBodyError::ReadTimeout));
+
+    fn cancel_kind(reason: &RequestCancellationReason) -> bool {
+        match reason {
+            RequestCancellationReason::ServerShutdown => true,
+            _ => false,
+        }
+    }
+    assert!(cancel_kind(&RequestCancellationReason::ServerShutdown));
+
+    fn outcome_kind(outcome: &ConnectionOutcome) -> bool {
+        match outcome {
+            ConnectionOutcome::Normal => true,
+            _ => false,
+        }
+    }
+    assert!(outcome_kind(&ConnectionOutcome::Normal));
+
+    fn server_kind(err: &ServerError) -> bool {
+        match err {
+            ServerError::NotStarted => true,
+            _ => false,
+        }
+    }
+    assert!(server_kind(&ServerError::NotStarted));
+}

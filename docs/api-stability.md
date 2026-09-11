@@ -93,10 +93,12 @@ functional.
 | `RequestBody::was_fully_consumed()` | Internal | `pub(crate)` — not public API |
 | `BodyState` | Experimental | Body consumption state machine |
 | `RequestLifecycle` | Experimental | Cloneable disconnect/cancel observer (Plan 174): `cancelled()`, `is_cancelled()`, `cancellation_reason()`, plus `is_body_complete()` / `is_body_active()` body-boundary observers |
-| `RequestCancellationReason` | Experimental | Best-effort cancel reason (4 variants: `PeerDisconnected`, `ServerShutdown`, `ConnectionTimeout`, `TransportFailure`; first wins) |
+| `RequestCancellationReason` | Experimental, `#[non_exhaustive]` | Best-effort cancel reason (4 variants: `PeerDisconnected`, `ServerShutdown`, `ConnectionTimeout`, `TransportFailure`; first wins; match with wildcard — Plan 197 Track F) |
 | `Request::lifecycle()`, `lifecycle_clone()`, `into_parts_with_lifecycle()` | Experimental | Additive lifecycle access; `into_parts` arity preserved |
+| `RequestContext` | Experimental | Typed request context / capability container (Plan 197 Track B): `connection()` + `lifecycle()` today; interim/tunnel capabilities attach here in Plans 198–199; cheap clone never clones the one-shot body; no generic type map, no raw transport handles |
+| `Request::context()`, `new_with_context()`, `into_parts_with_context()` | Experimental | Forward-compatible context access/construction; `connection()` / `lifecycle()` / `into_parts()` / `into_parts_with_lifecycle()` forward to the context and preserve the Plan 175 common path |
 | `RequestBody::lifecycle()` | Experimental | Cloneable observer sharing the body lifecycle allocation |
-| `RequestBodyError` | Experimental | Typed body error taxonomy |
+| `RequestBodyError` | Experimental, `#[non_exhaustive]` | Typed body error taxonomy (match with wildcard — Plan 197 Track F) |
 | `Request` | Experimental | Canonical request envelope |
 | `Service::call(Request)` | Experimental | Updated to accept Request envelope |
 | `RuntimeConfig::max_request_body_bytes` | Experimental | Hard body size ceiling |
@@ -122,17 +124,17 @@ documented separately in `docs/python-api.md`.
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, body ceiling, optional TLS |
 | `Http2Config` | experimental (`http2`) | Explicit bounded H2 stream/header/frame/flow-control/reset/keepalive limits; Rust only; Plans 186/190/191 keep H2 experimental (see the Plan 191 closure record) |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
-| `Service` trait | experimental | `call(Request) -> Result<Response, ServiceError>` (updated from `RequestHead`) |
+| `Service` trait | experimental | `call(Request) -> Result<Response, ServiceError>` (updated from `RequestHead`); `Send + Sync`, no `poll_ready`, no `ServiceOutcome` (Plan 197 Tracks C/E); commitment/cancellation normative in `docs/downstream-app-server.md` |
 | `service_fn` | experimental | Create a Service from a closure |
 | `StaticService` | experimental | Hardened static file service |
 | `StaticServiceBuilder` | experimental | Builder for StaticService |
-| `ServiceError` | experimental | Per-request errors: Internal, Rejected (`200..=599` preserved; `1xx`/out-of-range → 500; truthful central body, no detail leak), Panic, Timeout |
-| `ServerError` | experimental | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal |
+| `ServiceError` | experimental | Per-request errors: Internal, Rejected (`200..=599` preserved; `1xx`/out-of-range → 500; truthful central body, no detail leak), Panic, Timeout. Struct with private kind (Plan 197 Track F): inspect via `message()` / `is_panic()` / `is_timeout` |
+| `ServerError` | experimental, `#[non_exhaustive]` | Startup/lifecycle errors: Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal (match with wildcard — Plan 197 Track F) |
 | `LifecycleState` | experimental | Lifecycle state machine: Created, Starting, Running, Draining, Stopped, Failed |
 | `ShutdownResult` | experimental | Returned by shutdown operations, carries final LifecycleState |
 | `ConnectionContext` | experimental | Transport-neutral context for strict H1, feature-gated H1/H2, and H3 drivers: `for_tcp()`, `for_quic()`, `for_non_socket()` |
 | `ConnectionShutdown` | experimental | Level-triggered idempotent shutdown token; `cancelled()` observes pre-signaled shutdown; clone for select |
-| `ConnectionOutcome` | experimental | Connection result: `Normal`, `ClientError`, `HeaderTimeout`, `IdleTimeout`, `WriteTimeout`, `TotalTimeout`, `Shutdown`, or `Internal` |
+| `ConnectionOutcome` | experimental, `#[non_exhaustive]` | Connection result: `Normal`, `ClientError`, `HeaderTimeout`, `IdleTimeout`, `WriteTimeout`, `TotalTimeout`, `Shutdown`, or `Internal` (match with wildcard — Plan 197 Track F) |
 | `serve_http1_connection` | experimental | Transport-neutral HTTP/1 driver over any `AsyncRead + AsyncWrite` |
 | `serve_http1_connection_with_id` | experimental | Same as above with explicit connection ID for log correlation |
 | `serve_http_connection` | experimental (`http2`) | H1/H2 caller-owned driver; cleartext uses bounded prior-knowledge detection; see the Plan 190 corrective qualification record |

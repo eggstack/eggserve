@@ -210,6 +210,10 @@ impl ConnectionShutdown {
 /// Returned by [`serve_http1_connection`] for internal observability.
 /// Every exit releases all permits and producer tasks; no outcome leaks
 /// admission state.
+///
+/// Non-exhaustive (Plan 197 Track F): future transport/tunnel outcomes may
+/// be added as Plans 198–199 land. Match with a wildcard arm.
+#[non_exhaustive]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ConnectionOutcome {
     /// Clean EOF / keep-alive close with no error.

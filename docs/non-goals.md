@@ -30,7 +30,7 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
   compatibility decision says otherwise.
 - **No WebSocket or generic upgrade support (Plan 176 deferred)** — The runtime
   has no canonical upgrade capability, 101-handshake path, or upgraded-IO
-  handoff: `Request` carries head/body/connection/lifecycle only, `Service`
+  handoff: `Request` carries head/body/context only (`RequestContext`: connection + lifecycle), `Service`
   returns `Response` only, and normalization strips hop-by-hop handshake
   headers. The HTTP/1 driver deliberately uses Hyper's ordinary connection;
   it does not enable `.with_upgrades()`. Downstream WebSocket-class servers

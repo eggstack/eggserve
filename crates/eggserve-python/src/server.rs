@@ -162,6 +162,10 @@ impl From<RustBodyError> for RawBodyError {
             RustBodyError::AlreadyConsumed => Self::AlreadyConsumed,
             RustBodyError::MixedConsumptionMode => Self::MixedConsumptionMode,
             RustBodyError::Transport(msg) => Self::Transport(msg),
+            // Plan 197: `RequestBodyError` is `#[non_exhaustive]`; future
+            // categories map to a sanitized transport failure (500) without
+            // leaking variant detail.
+            _ => Self::Transport("request body failed".to_owned()),
         }
     }
 }

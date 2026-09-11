@@ -2,7 +2,13 @@
 
 ## Status
 
-**PLANNED.** Prerequisite: Plan 196 accepted. Builds on Plans 173–175 and 184–195.
+**IMPLEMENTED / CLOSED.**
+
+Prerequisite: Plan 196 accepted. Builds on Plans 173–175 and 184–195.
+
+## Closure record
+
+Implemented on `main`: `RequestContext` (`connection()` + `lifecycle()`, cheap clone, no type map, no raw handles) with `Request::context()` / `new_with_context()` / `into_parts_with_context()` preserving the Plan 175 path; `Service::call(Request) -> Response` deliberately retained (no `ServiceOutcome`; Track C decision); normative 7-stage commitment/cancellation contract with no second HTTP error after commitment; `Send + Sync` with no `poll_ready` and admission split preserved; `RequestBodyError` / `ServerError` / `RequestCancellationReason` / `ConnectionOutcome` marked `#[non_exhaustive]` (`ServiceError` stays a future-proof struct); `application_service.rs` example (buffered/streamed/lifecycle, no static FS) + `application_service_contract.rs` Hyper-free fixture; API snapshots extended (`api_stability`, `public_api_consumers`); docs updated (`downstream-app-server.md`, `runtime.md`, `primitives-api.md`, `public-api-boundary.md`, `api-stability.md`, `migration-guide.md`, `library-capability-matrix.md`, `testing-and-conformance.md`, `error-taxonomy.md`, `overview.md`, `non-goals.md`, `examples/README.md`, `README.md`, `AGENTS.md`, skill). Verification: `cargo fmt`, workspace clippy/tests, `http2,tls` + `http3,tls` matrices, Python crate check, and the Plan 197 verification set (see below) green locally before push.
 
 ## Purpose
 
@@ -185,15 +191,15 @@ Add compile fixtures for the intended native application-server API without impo
 
 ## Acceptance criteria
 
-- [ ] the native application-facing request/service/response/lifecycle ownership model is documented normatively;
-- [ ] advanced capability attachment has one deliberate API location rather than ad hoc top-level fields;
-- [ ] ordinary `Service` implementations remain simple and transport-neutral;
-- [ ] commitment/cancellation semantics are explicit enough for trailers, interim responses, and tunnels to build on without contradiction;
-- [ ] downstream admission remains distinct from EggServe service admission;
-- [ ] security-sensitive connection/TLS/proxy metadata cannot be forged via ordinary headers;
-- [ ] API snapshots/migration notes cover all intentional changes;
-- [ ] the Plan 175 external consumer remains possible using only public APIs;
-- [ ] no Tower, ASGI, WebSocket codec, routing, middleware, or worker semantics enter the native service contract.
+- [x] the native application-facing request/service/response/lifecycle ownership model is documented normatively;
+- [x] advanced capability attachment has one deliberate API location rather than ad hoc top-level fields;
+- [x] ordinary `Service` implementations remain simple and transport-neutral;
+- [x] commitment/cancellation semantics are explicit enough for trailers, interim responses, and tunnels to build on without contradiction;
+- [x] downstream admission remains distinct from EggServe service admission;
+- [x] security-sensitive connection/TLS/proxy metadata cannot be forged via ordinary headers;
+- [x] API snapshots/migration notes cover all intentional changes;
+- [x] the Plan 175 external consumer remains possible using only public APIs;
+- [x] no Tower, ASGI, WebSocket codec, routing, middleware, or worker semantics enter the native service contract.
 
 ## Handoff
 

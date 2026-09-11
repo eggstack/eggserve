@@ -92,7 +92,17 @@ only `primitives` + `server` plus ordinary downstream dependencies. The
 builder-facing rules live in [downstream-app-server.md](downstream-app-server.md).
 Plan 176 closed as deferred: no `UpgradeRequest`, `UpgradeResponse` /
 `ServiceOutcome`, or `UpgradedIo` types exist — `Request` carries
-head/body/connection/lifecycle only and `Service` returns `Response` only.
+head/body/context only and `Service` returns `Response` only. Plan 197
+stabilizes this deliberately: `RequestContext` (`connection` + `lifecycle`
+today; interim/tunnel capabilities attach there in Plans 198–199) is the
+single attachment point rather than ad hoc `Request` fields, and the
+7-stage commitment/cancellation contract plus `Send + Sync` (no
+`poll_ready`) sharing model are normative in
+[downstream-app-server.md](downstream-app-server.md) and
+`architecture/runtime.md`. The minimal native demonstration is
+`crates/eggserve-core/examples/application_service.rs`, and the
+Hyper-free contract fixture is
+`crates/eggserve-core/tests/application_service_contract.rs`.
 
 ## Invariants
 

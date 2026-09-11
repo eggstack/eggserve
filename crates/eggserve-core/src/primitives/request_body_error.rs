@@ -11,6 +11,11 @@ use std::fmt;
 /// Callers can distinguish policy rejections, limit violations, timeouts,
 /// disconnects, and consumption-state failures. Client-visible responses
 /// never include internal error details.
+///
+/// This enum is [`#[non_exhaustive]`](https://doc.rust-lang.org/reference/attributes/type_system.html):
+/// future body-failure categories may be added without a major version bump.
+/// Match with a wildcard arm.
+#[non_exhaustive]
 #[derive(Debug)]
 pub enum RequestBodyError {
     /// Body rejected by policy (e.g. static service rejects all bodies).

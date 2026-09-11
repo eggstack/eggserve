@@ -694,6 +694,14 @@ fn build_response_with_bytes_body_plan() {
 
 #[test]
 fn all_canonical_types_importable_without_hyper() {
+    use eggserve_core::primitives::request::Request;
+    use eggserve_core::primitives::request_body::RequestBody;
+    use eggserve_core::primitives::request_body_error::RequestBodyError;
+    use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
+    use eggserve_core::primitives::request_context::RequestContext;
+    use eggserve_core::primitives::request_lifecycle::{
+        RequestCancellationReason, RequestLifecycle,
+    };
     let _ = std::marker::PhantomData::<(
         Method,
         MethodError,
@@ -717,6 +725,13 @@ fn all_canonical_types_importable_without_hyper() {
         ResponseConstructionError,
         ReadOnlyMethod,
         RequestValidationError,
+        Request,
+        RequestBody,
+        RequestBodyPolicy,
+        RequestBodyError,
+        RequestLifecycle,
+        RequestCancellationReason,
+        RequestContext,
     )>;
 }
 
@@ -745,6 +760,14 @@ fn _assert_sync<T: Send + Sync>() {}
 
 #[test]
 fn canonical_types_are_send_and_sync() {
+    use eggserve_core::primitives::request::Request;
+    use eggserve_core::primitives::request_body::RequestBody;
+    use eggserve_core::primitives::request_body_error::RequestBodyError;
+    use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
+    use eggserve_core::primitives::request_context::RequestContext;
+    use eggserve_core::primitives::request_lifecycle::{
+        RequestCancellationReason, RequestLifecycle,
+    };
     _assert_send::<Method>();
     _assert_send::<MethodError>();
     _assert_send::<HttpVersion>();
@@ -769,6 +792,13 @@ fn canonical_types_are_send_and_sync() {
     _assert_send::<ResponseConstructionError>();
     _assert_send::<ReadOnlyMethod>();
     _assert_send::<RequestValidationError>();
+    _assert_send::<Request>();
+    _assert_send::<RequestBody>();
+    _assert_send::<RequestBodyPolicy>();
+    _assert_send::<RequestBodyError>();
+    _assert_send::<RequestLifecycle>();
+    _assert_send::<RequestCancellationReason>();
+    _assert_send::<RequestContext>();
 
     _assert_sync::<Method>();
     _assert_sync::<HttpVersion>();
@@ -784,6 +814,9 @@ fn canonical_types_are_send_and_sync() {
     _assert_sync::<TlsInfo>();
     _assert_sync::<StatusCode>();
     _assert_sync::<ReadOnlyMethod>();
+    _assert_sync::<RequestContext>();
+    _assert_sync::<RequestLifecycle>();
+    _assert_sync::<RequestCancellationReason>();
 }
 
 #[test]

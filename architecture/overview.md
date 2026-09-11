@@ -552,7 +552,8 @@ src/
 │   ├── request_target.rs     # RequestTarget
 │   ├── request_head.rs       # RequestHead
 │   ├── connection_info.rs    # ConnectionInfo, Scheme, TlsInfo
-│   ├── request.rs            # Request (head + body + connection)
+│   ├── request.rs            # Request (head + body + RequestContext)
+│   ├── request_context.rs    # RequestContext (Plan 197: connection + lifecycle)
 │   ├── request_body.rs       # RequestBody, BodyState
 │   ├── request_body_error.rs # RequestBodyError (12 variants)
 │   ├── request_body_policy.rs# RequestBodyPolicy (Reject/Buffer/Stream)

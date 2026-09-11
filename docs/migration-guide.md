@@ -309,7 +309,30 @@ Additive only; no source break for conventional handlers.
   downstream-owned. See [timeout-reference.md](timeout-reference.md) and
   [downstream-app-server.md](downstream-app-server.md).
 
+## Plan 197: application-service contract stabilization (experimental, additive)
+
+Additive only; the Plan 175 common path is preserved.
+
+- `Request` gains `context()` / `new_with_context()` /
+  `into_parts_with_context()` backed by the new `RequestContext`
+  (`connection()` + `lifecycle()` today; interim/tunnel capabilities attach
+  there in Plans 198-199). Existing `connection()` / `lifecycle()` /
+  `into_parts()` / `into_parts_with_lifecycle()` forward to the context and
+  keep working. `Request::new()` / `new_with_lifecycle()` signatures are
+  unchanged.
+- No `ServiceOutcome` was introduced: `Service::call(Request) ->
+  Result<Response, ServiceError>` stays the final return. If a future plan
+  adds an outcome, it will provide `From<Response>` so ordinary services
+  keep compiling.
+- `RequestBodyError`, `ServerError`, `RequestCancellationReason`, and
+  `ConnectionOutcome` are now `#[non_exhaustive]`. Add a wildcard arm
+  (`_ => ...`) to matches; in-crate exhaustive matches keep compiling, but
+  downstream exhaustive matches without a wildcard fail with a
+  non-exhaustive-pattern error. `ServiceError` stays a struct with a private
+  kind — no match migration needed.
+
 ## Plan 171: outbound response conversion boundary
+
 
 ### Release note for the next `0.2.0` minor transition
 

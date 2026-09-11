@@ -204,10 +204,11 @@ pub trait Service: Send + Sync + 'static {
 }
 ```
 
-- Receives canonical `Request` envelope (RequestHead + RequestBody + ConnectionInfo)
-- Returns canonical `Response` or `ServiceError`
-- Must be `Send + Sync` for sharing across connections
+- Receives canonical `Request` envelope (RequestHead + RequestBody + `RequestContext`)
+- Returns canonical `Response` or `ServiceError` — no `ServiceOutcome` (Plan 197 Track C keeps `Response`-only; trailers → message body in Plan 198, interim → request-scoped capability in Plan 198, tunnel → Plan 199 only if needed)
+- Must be `Send + Sync` for sharing across connections; no `poll_ready` (Plan 197 Track E; Tower readiness belongs in Plan 200 adapters)
 - Panics caught at tokio task boundary
+- Commitment/cancellation normative in `docs/downstream-app-server.md` + `architecture/runtime.md`: final head commits on `Ok(Response)` + normalization; never a second HTTP error after commitment
 
 `service_fn` creates a `Service` from an `Fn(Request) -> Future<Output = Result<Response, ServiceError>> + Send + Sync`. `service_fn_head` creates a service from a closure that only receives the request head (discarding the body); it uses `Reject` body policy. `service_fn_with_policy` creates a service with an explicit `RequestBodyPolicy`.
 
@@ -245,8 +246,8 @@ Control handle returned by `Server::start()`:
 
 ### Error Types
 
-- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal)
-- `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout)
+- `ServerError` — startup/lifecycle errors (Bind, Config, AlreadyStarted, NotStarted, Accept, TlsSetup, Transport, ShutdownTimeout, Startup, Terminal; `#[non_exhaustive]`, match with wildcard)
+- `ServiceError` — per-request errors (Internal, Rejected, Panic, Timeout; struct with private kind, inspect via `is_panic`/`is_timeout`)
 - `ShutdownResult` — returned by shutdown operations, carries final `LifecycleState` (variants: `Clean`, `Timeout`, `Forced`)
 
 ## Dependencies

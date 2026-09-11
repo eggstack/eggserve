@@ -72,6 +72,8 @@ its status using a constrained vocabulary.
 | Caller-owned connection driver (`serve_http1_connection`) | — | — | experimental | — | — | — | — |
 | Caller-owned H1/H2 prior-knowledge driver (`serve_http_connection`, `http2`) | — | — | experimental | — | — | — | — |
 | Downstream HTTP-only app-server bridge (bounded full-duplex, deferred body, `RequestLifecycle`, admission split; qualified by `app_server_consumer`) | — | stable (byte metadata, `ResponseStream`) | experimental (`Service`, lifecycle, driver) | — | — | — | — |
+| Typed request context (`RequestContext`: connection + lifecycle; single capability attachment point, no type map, no raw handles; Plan 197) | — | — | experimental | — | — | — | — |
+| Application-service contract fixture + example (`application_service_contract`, `application_service`; buffered/streamed/lifecycle, no static FS; Plan 197) | — | — | experimental | — | — | — | — |
 | Response privacy policy (Server/Date/denylist/errors, static validators) | — | stable (static validators) | experimental | stable (safe subset) | — | stable | stable |
 | Generic byte responses | — | stable | — | stable | — | — | stable |
 | Duplicate headers | — | stable | experimental | stable | — | stable | stable |

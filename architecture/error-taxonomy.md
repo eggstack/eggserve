@@ -12,7 +12,7 @@ eggserve uses five distinct error layers, each scoped to a specific subsystem. T
 | Per-request | `ServiceError` | Service handler failures | 4 (kinds) |
 | Body consumption | `RequestBodyError` | Request body reading | 12 |
 
-The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) are carried by a private kind enum; the public surface is the `ServiceError` struct plus its constructors.
+The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) are carried by a private kind enum; the public surface is the `ServiceError` struct plus its constructors. Plan 197 Track F: `ServerError`, `RequestBodyError`, `RequestCancellationReason`, and `ConnectionOutcome` are `#[non_exhaustive]` — match with a wildcard arm. Transport-specific H2/H3 reset codes are not exposed to ordinary applications.
 
 ---
 
@@ -71,6 +71,8 @@ Returned during request framing validation, before any path parsing or filesyste
 
 **Location:** `eggserve-core::server::errors`
 
+`#[non_exhaustive]` (Plan 197 Track F): match with a wildcard arm; future lifecycle/transport categories may be added.
+
 Errors from server startup, lifecycle management, and shutdown. These are returned to the caller (CLI, Python facade) before or during serving.
 
 | Variant | Meaning | Category |
@@ -97,6 +99,8 @@ Errors from server startup, lifecycle management, and shutdown. These are return
 ## `ServiceError` — Per-Request Errors
 
 **Location:** `eggserve-core::server::service`
+
+Struct with a private kind (Plan 197 Track F): future categories do not break construction; inspect via `is_panic()` / `is_timeout()`. Never synthesize a second HTTP error after final commitment.
 
 Errors from service handler invocation. The runtime converts these to HTTP responses without leaking internal details.
 
@@ -131,6 +135,8 @@ final.
 ## `RequestBodyError` — Body Consumption Errors
 
 **Location:** `eggserve-core::primitives::request_body_error`
+
+`#[non_exhaustive]` (Plan 197 Track F): match with a wildcard arm.
 
 Errors from request body reading. The runtime maps these to appropriate HTTP responses.
 
