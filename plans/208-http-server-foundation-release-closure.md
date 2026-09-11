@@ -2,7 +2,10 @@
 
 ## Status
 
-**PLANNED — terminal closure for Plan 196 program.** Prerequisites: Plans 197–207 implemented or explicitly closed/deferred with documented blockers.
+**CLOSED 2026-09-11 — terminal closure for the Plan 196 program.** Plans
+197–204, 206, and 207 are implemented; Plan 205 is explicitly deferred (see
+closure record); H2/H3 promotion gates from Plans 191–195 stand as blockers.
+Full evidence is in `release/plan-208-foundation-release-closure.md`.
 
 ## Purpose
 

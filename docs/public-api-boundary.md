@@ -102,11 +102,16 @@ The downstream application-server contract is qualified externally by
 `crates/eggserve-core/tests/app_server_consumer.rs` (Plan 175), which uses
 only `primitives` + `server` plus ordinary downstream dependencies. The
 builder-facing rules live in [downstream-app-server.md](downstream-app-server.md).
-Plan 176 closed as deferred: no `UpgradeRequest`, `UpgradeResponse` /
-`ServiceOutcome`, or `UpgradedIo` types exist — `Request` carries
-head/body/context only and `Service` returns `Response` only. Plan 197
+Plan 199 supersedes deferred Plan 176 with an experimental generic tunnel:
+one-shot `TunnelCapability` on `RequestContext` (`take_tunnel()`; H1
+`Upgrade`, `CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol`
+blocked by `h3` 0.0.8) plus `accept` returning the validated handshake
+`Response` (`101` H1 / `200` otherwise, runtime owns framing, no raw
+socket) and bounded single-owner `TunnelIo`; denial stays ordinary HTTP
+and WebSocket framing stays downstream. Plan 197
 stabilizes this deliberately: `RequestContext` (`connection` + `lifecycle`
-today; interim/tunnel capabilities attach there in Plans 198–199) is the
+plus the Plan 198 bounded `interim()` sender and the Plan 199 one-shot
+`tunnel()` capability) is the
 single attachment point rather than ad hoc `Request` fields, and the
 7-stage commitment/cancellation contract plus `Send + Sync` (no
 `poll_ready`) sharing model are normative in

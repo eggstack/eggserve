@@ -267,7 +267,13 @@ common TCP path. See the [Rust architecture overview](https://github.com/eggstac
 [runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 
 Downstream application servers build on the same canonical `Service`
-boundary. The currently qualified path is HTTP-only: its builder-facing HTTP-half contract (bounded full-duplex
+boundary. Plan 208 closes the Plan 196 program with evidence-driven tiers:
+HTTP/1.1 plus the canonical `primitives` value types are the supported
+contract; the `server` runtime, H2/H3 transports, trailers/interim/tunnel
+capabilities, `http`/`tower` adapters, listener/proxy/TLS-identity options,
+and the async Python substrate stay experimental; Plan 205 observability
+hooks are explicitly deferred (Plan 181 `OpsContext` remains the boundary).
+The currently qualified path is HTTP plus the generic tunnel handoff: its builder-facing HTTP-half contract (bounded full-duplex
 bridging, deferred body ownership, lifecycle cancellation, timeout and
 admission splits, byte metadata, plus the Plan 197 stabilized `RequestContext`
 single attachment point, `Response`-only final return, 7-stage

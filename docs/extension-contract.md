@@ -33,9 +33,16 @@ eggserve does not provide:
 - Reverse proxying
 - Compression
 - Plugin systems or extensible architectures
-- HTTP/2, HTTP/3, WebSocket, CONNECT, or generic upgrade-handoff semantics
-  (Plan 176 closed as deferred: no `UpgradeRequest`/`UpgradedIo`/upgrade
-  outcome in `primitives`/`server`; 101 cannot be emitted via `Response`)
+- WebSocket frame codecs, permessage-deflate, WebTransport, or server push
+  (Plan 199 provides the generic transport-backed tunnel handoff
+  `TunnelRequest`/`TunnelCapability`/`TunnelIo` on `RequestContext` — H1
+  `Upgrade`/`CONNECT`, H2/H3 Extended `CONNECT`, H3 generic `:protocol`
+  blocked by `h3` 0.0.8 — not a codec; `Service` still returns `Response`
+  only and `accept` forges the handshake; framing stays downstream)
+- HTTP/2 and HTTP/3 as default/enabled-by-default transports (both remain
+  opt-in experimental Rust features under Plans 183–195 and Plan 207;
+  HTTP/1.1 is the minimal/default baseline and the Python facade stays
+  HTTP/1.1-shaped)
 
 These are non-goals for this repository, not forbidden downstream uses. The
 public Rust substrate is qualified for separate projects to build the HTTP
@@ -259,7 +266,7 @@ eggserve does not provide ASGI/WSGI/CGI/FastCGI interfaces directly (see [non-go
 | WSGI bridge | Not provided (non-goal) | Same `Service` seam; synchronous response mapping only |
 | CGI executor (`CGIHTTPRequestHandler`/`--cgi` parity) | Not provided — Plan 167 closed as no-go (upstream 3.13 deprecation / 3.15 removal, no concrete consumer, subprocess-maintenance cost vs no-broad-dependencies) | Plain `Service`: bounded child concurrency, env/input sanitization, stdout/stderr caps, deadlines with kill/reap on timeout/disconnect/shutdown, generic 502/504 mapping, no shell/request injection |
 | FastCGI gateway | Not provided — Plan 167 closed as no-go (never `http.server`, no concrete consumer) | Plain `Service`: fragmented-record corpus handling, Responder request/response mapping, streaming STDIN/STDOUT backpressure, STDERR caps, backend timeout/disconnect/abort, no cross-request contamination, connection/resource recovery |
-| Generic HTTP upgrade handoff (WebSocket-class) | Not provided — Plan 176 closed as deferred (no concrete upgrade consumer; HTTP-only contract closed by Plans 172–175) | Not currently buildable on the canonical boundary; do not bypass via raw Hyper `OnUpgrade`/`Upgraded`. Reopen Plan 176 with a concrete consumer before designing the handoff |
+| Generic HTTP upgrade handoff (WebSocket-class) | Implemented as experimental generic tunnel (Plan 199, superseding deferred Plan 176): one-shot `TunnelCapability` on `RequestContext`, `accept` returns the validated handshake (`101` H1 / `200` otherwise, runtime owns framing, no raw socket) plus bounded single-owner `TunnelIo`; denial stays ordinary HTTP; WebSocket framing stays downstream (see `tunnel_upgrade.rs` echo + `tokio-tungstenite` fixture) | Build the codec downstream on `TunnelIo`; do not bypass via raw Hyper/h2/h3/Quinn types |
 | Custom subprocess/pipe backends | Not provided | Same bounds as CGI: the adapter enforces its own limits; core never inherits backend responsibilities |
 
 Core release claims never depend on an optional adapter's behavior or

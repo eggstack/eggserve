@@ -67,14 +67,19 @@ tests/
 ## Current downstream-substrate position
 
 Plans 161 and 172–175 explicitly extended the reusable Rust boundary after the
-original static-serving milestones. The qualified capability is an HTTP-only
-transport/runtime substrate: separate projects may build application servers
-against the public canonical primitives and experimental `server` APIs, with
-bounded downstream coordination and application-task admission owned there.
+original static-serving milestones. The qualified capability is a hardened
+HTTP transport/runtime substrate plus the experimental generic tunnel handoff:
+separate projects may build application servers against the public canonical
+primitives and experimental `server` APIs, with bounded downstream coordination
+and application-task admission owned there. Plan 199 implements the generic
+tunnel successor to deferred Plan 176 (one-shot `TunnelCapability` +
+bounded `TunnelIo`; denial stays ordinary HTTP; WebSocket framing stays
+downstream).
 This does not make EggServe an application server or promote experimental
-runtime types to the stable 1.0 API. WebSocket and other generic HTTP upgrade
-handoffs remain absent and deferred by Plan 176 until a concrete consumer
-exists.
+runtime types to the stable 1.0 API. Plan 205 (application observability
+hooks) is explicitly deferred by Plan 208: the Plan 181 per-runtime
+`OpsContext` remains the observability boundary, and no `RequestObserver` /
+request-ID / lifecycle-event / timing extension is promised.
 
 The core crate should have no Python awareness. The binary should be a thin consumer of the core crate. The Python package should initially be a very thin launcher for the Rust binary, not a premature extension API. Once the core is stable, expose a Python API as a narrow wrapper around typed Rust configuration.
 
