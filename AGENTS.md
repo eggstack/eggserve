@@ -53,6 +53,12 @@ subset); Plan 208 closes the Plan 196 program with H1 + canonical
 `primitives` supported and `server`/H2/H3/tunnel/trailer/adapter/listener/
 proxy/TLS-identity/async-Python remaining experimental (see
 `release/plan-208-foundation-release-closure.md`).
+Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
+client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
+crate. `eggserve_core::tls` remains a compatibility re-export; EggServe keeps
+only transport-facing Tokio TLS and HTTP/3 QUIC assembly. The neutral crate has
+no EggServe/Eggress/EggFetch/application or transport dependency (see
+`architecture/eggnet-tls.md` and `plans/212-neutral-tls-extraction.md`).
 The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
@@ -67,6 +73,7 @@ The user-facing Python compatibility contract lives in [docs/python-http-server-
 
 ```
 crates/
+├── eggnet-tls/          # neutral rustls identity/trust/client-auth/reload substrate
 ├── eggserve-primitives/ # dependency-free canonical application-facing values
 ├── eggserve-server/    # generic HTTP runtime and transport boundary
 ├── eggserve-static/    # filesystem/static specialization
@@ -92,7 +99,7 @@ Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211 dependency-layer gate
+python3 scripts/check-crate-topology.py                     # Plan 211/212 dependency-layer gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets
@@ -178,6 +185,12 @@ Routine CI is a small regression screen, not release certification. Platform qua
   plumbing for the Python wheel's extension-backed CLI, **not** a general
   embedding API. The exact graph is checked by
   `scripts/check-crate-topology.py`.
+- **Plan 212 neutral TLS** — `eggnet-tls` owns bounded PEM parsing, key/cert
+  pairing, SNI, explicit WebPKI client-auth modes, trust/CRL bounds, and atomic
+  reload snapshots. Its production graph contains only `rustls` and
+  `rustls-pki-types`; it must not gain Tokio, HTTP, QUIC, proxy, tracing,
+  EggServe, Eggress, or EggFetch dependencies. `eggserve_core::tls` re-exports
+  it for compatibility; keep HTTP/3-specific QUIC assembly in core.
 - `crates/eggserve-bin/src/main.rs` is a 2-line shim; real logic is in `lib.rs`/`args.rs`.
 
 ### Code shapes agents get wrong

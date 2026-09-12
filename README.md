@@ -126,6 +126,15 @@ depend directly on the smallest layer they need; the compatibility aggregate
 can also expose them through `eggserve_core::layers`. There is no additional
 `eggserve` facade crate.
 
+Plan 212 extracts the reusable server-side TLS security substrate into
+[`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).
+It has only rustls and rustls-pki-types as production dependencies and owns
+bounded PEM parsing, SNI identity selection, explicit WebPKI client-auth modes,
+trust/CRL limits, and atomic reload snapshots. EggServe re-exports that API at
+`eggserve_core::tls` for compatibility; Tokio stream wrapping and HTTP/3 QUIC
+assembly remain consumer-owned. See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
+and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/tls.md).
+
 Canonical response/request types, `Service`, and the caller-owned connection
 driver in the compatibility API do not require a direct Hyper dependency.
 `primitives::to_hyper_response()` is an explicit opt-in outbound transport

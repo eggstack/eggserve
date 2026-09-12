@@ -8,19 +8,21 @@ eggserve supports TLS via rustls, enabled through the `tls` feature flag. TLS is
 |---------|-------|---------|
 | `http2` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/2 server path, bounded H2 prior knowledge and protocol config; see [HTTP/2 qualification](http2.md) |
 | `http3` | `eggserve-core`, `eggserve-bin` | Experimental HTTP/3/QUIC server path; enables `tls`, h3 ALPN, and same-port UDP lifecycle; see [HTTP/3 boundary](http3.md) |
-| `tls` | `eggserve-core`, `eggserve-bin` | Server TLS via rustls/tokio-rustls |
+| `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin` | Neutral rustls identity/trust policy plus EggServe async TLS transport |
 
 ## Dependencies
 
 When `tls` is enabled in `eggserve-core`:
 
-- `rustls` — TLS implementation
-- `tokio-rustls` — Async TLS integration with tokio
-- `rustls-pki-types` — PEM certificate and private-key parsing
+- `eggnet-tls` — neutral bounded identity, SNI, WebPKI client-auth, trust/CRL,
+  and reload policy (runtime dependencies: `rustls` and `rustls-pki-types`)
+- `rustls` / `tokio-rustls` — EggServe's transport-facing TLS and HTTP/3 QUIC
+  assembly
 
 `eggserve-bin` enables `eggserve-core/tls` and re-exports the module
-(`bin/src/tls.rs` is `pub use eggserve_core::tls::*`). All loading
-logic lives in `eggserve-core::tls`.
+(`bin/src/tls.rs` is `pub use eggserve_core::tls::*`). The historical
+`eggserve_core::tls` module re-exports `eggnet_tls`; only HTTP/3-specific QUIC
+assembly remains in the compatibility module.
 
 The `http3` feature builds a separate Quinn rustls configuration from the
 PEM identity supplied through `ServerBuilder::http3_identity`. It restricts
@@ -150,7 +152,8 @@ See [docs/deployment.md](../docs/deployment.md) for deployment guidance.
 
 ## Production identity (Plan 203)
 
-`eggserve-core::tls` owns `TlsServerConfigBuilder` / `TlsServerConfig`
+`eggnet_tls::TlsServerConfigBuilder` / `TlsServerConfig` (re-exported by
+`eggserve-core::tls`)
 (multi-identity SNI via a custom `ResolvesServerCert`: exact priority, then
 single-level `*.suffix`, then optional default; no IO in `resolve`), WebPKI
 client auth (`Disabled` / `Optional` / `Required` + bounded roots/CRLs), and

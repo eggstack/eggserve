@@ -37,6 +37,14 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"
 
 [[package]]
+name = "eggnet-tls"
+version = "0.1.2"
+dependencies = [
+ "rustls",
+ "rustls-pki-types",
+]
+
+[[package]]
 name = "eggserve-bin"
 version = "0.1.2"
 dependencies = [
@@ -49,6 +57,7 @@ name = "eggserve-core"
 version = "0.1.2"
 dependencies = [
  "bytes",
+ "eggnet-tls",
  "eggserve-primitives",
  "eggserve-server",
  "eggserve-static",
@@ -61,7 +70,6 @@ dependencies = [
  "phf",
  "rustix",
  "rustls",
- "rustls-pki-types",
  "thiserror",
  "tokio",
  "tokio-rustls",

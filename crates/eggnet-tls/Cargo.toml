@@ -1,0 +1,29 @@
+[package]
+name = "eggnet-tls"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Neutral rustls server identity, client-auth, trust, and reload configuration"
+keywords = ["tls", "rustls", "mtls", "sni", "security"]
+categories = ["network-programming", "authentication"]
+rust-version.workspace = true
+readme = "../../README.md"
+include = ["src/**", "tests/**", "LICENSE"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+http2 = []
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+rustls-pki-types = { version = "1", features = ["std"] }
+
+[dev-dependencies]
+rcgen = "0.13"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-util"] }
+tokio-rustls = "0.26"

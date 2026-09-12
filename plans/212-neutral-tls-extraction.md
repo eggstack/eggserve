@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+**Complete — 2026-09-12.**
 
 ## Purpose
 
@@ -237,3 +237,30 @@ The plan is complete when:
 - optional mTLS semantics are explicitly regression-tested;
 - an Eggress adoption contract is documented;
 - EggFetch remains unaffected unless separately chosen as a consumer.
+
+## Implementation record
+
+The extraction is implemented as the workspace crate `eggnet-tls`. Its
+production dependency graph contains only `rustls` and `rustls-pki-types`.
+The crate owns the existing bounded PEM/key parsing, key/certificate pairing,
+SNI resolver, explicit disabled/optional/required WebPKI client-auth modes,
+trust-root/CRL limits, and atomic reload snapshots. It intentionally has no
+EggServe, Eggress, EggFetch, HTTP, proxy, tracing, Tokio, or QUIC dependency.
+
+`eggserve-core::tls` is now a compatibility re-export of `eggnet-tls`; the
+EggServe module retains only HTTP/3-specific QUIC configuration assembly and
+uses the neutral loader for certificate/key material. Existing CLI, Python,
+server, SNI, mTLS, CRL, and reload behavior remains on the historical public
+paths. Eggress and EggFetch were not modified.
+
+The topology gate rejects application/transport dependencies from
+`eggnet-tls`. Neutral-crate tests cover the requested identity, parsing-limit,
+SNI, client-auth, and reload cases; the existing EggServe TLS qualification
+suite remains in place for end-to-end transport behavior.
+
+## Validation record
+
+Local validation includes the neutral crate tests, EggServe TLS qualification,
+workspace feature checks, formatting, clippy, workspace tests, the excluded
+Python manifest check, topology/conformance/release metadata gates, and the
+repository's supply-chain checks before publication.

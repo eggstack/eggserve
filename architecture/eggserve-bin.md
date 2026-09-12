@@ -138,7 +138,8 @@ mechanism if a stuck process must be stopped.
 Behind the `tls` feature flag. Uses `rustls` + `tokio-rustls`.
 
 `bin/src/tls.rs` is a one-line re-export (`pub use eggserve_core::tls::*`).
-All loading logic lives in `eggserve-core::tls::load_tls_config()`:
+The compatibility module re-exports neutral `eggnet-tls` loading and identity
+logic; `eggserve-core` adds only its HTTP/3-specific QUIC assembly:
 
 - Loads PEM certificate chain and private key
 - Supports PKCS#1, PKCS#8, and SEC1 key formats
@@ -152,8 +153,8 @@ All loading logic lives in `eggserve-core::tls::load_tls_config()`:
 | `eggserve-core` | Request handling, config, policy, HTTP serving, TLS loading |
 | `tokio` | Async runtime |
 
-`rustls`, `tokio-rustls`, and `rustls-pki-types` are transitive through
-`eggserve-core` (optional, behind `tls` feature). `bin/Cargo.toml` lists
+`eggnet-tls`, `rustls`, `tokio-rustls`, and `rustls-pki-types` are transitive
+through `eggserve-core` (optional, behind `tls` feature). `bin/Cargo.toml` lists
 them only as dev-dependencies for integration tests.
 
 ## See Also

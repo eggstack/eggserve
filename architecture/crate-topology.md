@@ -1,9 +1,11 @@
 # Crate topology
 
-Plan 211 introduced three dependency layers while preserving the historical
+Plans 211 and 212 introduced dependency layers while preserving the historical
 `eggserve-core` 0.x source contract.
 
 ```text
+eggnet-tls             (neutral rustls identity/trust/reload substrate)
+
 eggserve-primitives   (canonical values; no dependencies)
           │
           ▼
@@ -15,7 +17,8 @@ eggserve-static       (filesystem and static specialization)
 eggserve-core         (0.1 compatibility aggregate; legacy rich APIs)
    ├── eggserve-primitives
    ├── eggserve-server
-   └── eggserve-static
+   ├── eggserve-static
+   └── eggnet-tls (optional `tls` feature)
 ```
 
 ## Ownership
@@ -39,10 +42,19 @@ the mature rich implementation and behavior. The `eggserve_core::layers`
 module exposes the new crates for migration experiments; new dependency-
 sensitive consumers should name the direct leaf crate they need.
 
+`eggnet-tls` is the neutral TLS security substrate. It depends only on
+`rustls` and `rustls-pki-types` at runtime and owns bounded PEM parsing, SNI
+identity selection, explicit WebPKI client authentication, trust/CRL bounds,
+and atomic reload snapshots. It must not acquire EggServe, Eggress, EggFetch,
+HTTP, proxy, tracing, Tokio, or QUIC dependencies. EggServe keeps only the
+HTTP/3-specific QUIC configuration assembly in its compatibility facade and
+re-exports the neutral API from `eggserve_core::tls`.
+
 ## Enforcement
 
 Run `python3 scripts/check-crate-topology.py` to inspect Cargo metadata. The
-check rejects forbidden direct dependencies in the primitives leaf, rejects
+check rejects forbidden direct dependencies in the primitives leaf and neutral
+TLS crate, rejects
 core/static edges from the generic server, and requires static to consume
 primitives plus server. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.

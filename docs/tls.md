@@ -1,6 +1,6 @@
 # TLS Support
 
-eggserve supports optional native TLS termination via [rustls](https://docs.rs/rustls). TLS is behind a feature flag and is **not** included in the default build.
+eggserve supports optional native TLS termination via [rustls](https://docs.rs/rustls). TLS is behind a feature flag and is **not** included in the default build. The reusable identity, trust, client-authentication, and reload substrate is the neutral [`eggnet-tls`](../architecture/eggnet-tls.md) crate; EggServe re-exports it through `eggserve_core::tls` while retaining only transport and HTTP/3-specific assembly.
 
 ## When to use native TLS
 
@@ -54,7 +54,8 @@ multi-identity/SNI and mTLS are Rust `TlsServerConfig` APIs (below), not CLI fla
 
 ## Rust production identity (Plan 203)
 
-`eggserve_core::tls::TlsServerConfigBuilder` builds an immutable, validated
+`eggnet_tls::TlsServerConfigBuilder` (re-exported as
+`eggserve_core::tls::TlsServerConfigBuilder`) builds an immutable, validated
 identity from in-memory PEM/DER or loaded paths, using maintained rustls
 mechanisms (`ResolvesServerCert` SNI resolution, WebPKI client verification).
 No ACME, secret storage, KMS signing, discovery, filesystem watcher, or Python

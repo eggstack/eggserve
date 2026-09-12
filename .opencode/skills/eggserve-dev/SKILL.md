@@ -32,9 +32,17 @@ bridge is qualified by Plan 175. Plan 199 implements generic tunnel/upgrade/Exte
 
 **Not** a general web server, framework, ASGI/WSGI runtime, or Granian replacement. Plan 205 (application observability hooks) is explicitly deferred by Plan 208 — no `RequestObserver`/request-ID/lifecycle-event extension; the Plan 181 per-runtime `OpsContext` remains the observability boundary. Plan 208 closes the Plan 196 program with H1 + canonical `primitives` supported and `server`/H2/H3/tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remaining experimental (see `release/plan-208-foundation-release-closure.md`).
 
+Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
+client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
+crate. `eggserve_core::tls` remains a compatibility re-export; EggServe retains
+only transport-facing Tokio TLS and HTTP/3 QUIC assembly. The neutral crate has
+no EggServe/Eggress/EggFetch/application or transport dependency (see
+`architecture/eggnet-tls.md`).
+
 ## Workspace layout
 
-Five workspace crates plus one excluded Python packaging crate:
+Six workspace crates plus one excluded Python packaging crate:
+- `crates/eggnet-tls/` — neutral rustls identity, trust, client-auth, and reload substrate
 - `crates/eggserve-primitives/` — dependency-free canonical application values
 - `crates/eggserve-server/` — generic HTTP runtime and transport boundary
 - `crates/eggserve-static/` — filesystem/static specialization
@@ -67,7 +75,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211 dependency-layer gate
+python3 scripts/check-crate-topology.py                     # Plan 211/212 dependency-layer gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets
@@ -131,6 +139,13 @@ crate keeps its own lockfile, so never replace the shared script with a root
 only `cargo audit` or `cargo deny check` invocation.
 
 ## Key conventions
+
+- **Plan 212 neutral TLS** — `eggnet-tls` owns bounded PEM parsing, key/cert
+  pairing, SNI, explicit WebPKI client-auth modes, trust/CRL bounds, and atomic
+  reload snapshots. Its production graph contains only `rustls` and
+  `rustls-pki-types`; it must not gain Tokio, HTTP, QUIC, proxy, tracing,
+  EggServe, Eggress, or EggFetch dependencies. `eggserve_core::tls` re-exports
+  it for compatibility; keep HTTP/3-specific QUIC assembly in core.
 
 - **Plan 211 topology** — `eggserve-primitives` has no dependencies,
   `eggserve-server` owns generic transport and cannot depend on core/static,

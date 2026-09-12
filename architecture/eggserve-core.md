@@ -11,6 +11,11 @@ The direct layers are [`eggserve-primitives`](crate-topology.md),
 [`eggserve-static`](crate-topology.md). The compatibility crate exposes them
 under `eggserve_core::layers` without changing the established module paths.
 
+TLS identity, trust, client-authentication, and reload policy is implemented by
+the neutral `eggnet-tls` crate and re-exported at `eggserve_core::tls` for
+compatibility. `eggserve-core` retains only its transport-facing rustls use and
+HTTP/3-specific QUIC assembly; see [eggnet-tls.md](eggnet-tls.md).
+
 External Rust consumers should start with `eggserve_core::primitives` for the
 semver-considered canonical HTTP/security facade. The `eggserve_core::server` module is an
 experimental, transport-owning HTTP runtime exposing `Server`,

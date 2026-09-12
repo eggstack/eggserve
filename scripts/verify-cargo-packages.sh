@@ -3,11 +3,11 @@ set -euo pipefail
 
 # The workspace packages have path dependencies. A normal crates.io publish
 # dry-run cannot resolve those dependencies until the lower layers have been
-# published. The Plan 211 path stages a temporary publish-shaped workspace in
+# published. The Plan 211/212 path stages a temporary publish-shaped workspace in
 # dependency order and validates the exact generated `.crate` contents through
 # a file-backed local registry. Nothing is uploaded to crates.io.
 #
-# Without the Plan 211 crates, the legacy core/bin path below stages core and
+# Without the layered crates, the legacy core/bin path below stages core and
 # builds the exact generated `.crate` contents for the binary equivalent.
 #
 # --mode core   Only verify eggserve-core
@@ -34,7 +34,7 @@ case "$MODE" in
   *) echo "Invalid mode: $MODE (expected: core, bin, or all)" >&2; exit 1 ;;
 esac
 
-# Plan 211 adds publishable path dependencies. Cargo's package preparation
+# Plans 211/212 add publishable path dependencies. Cargo's package preparation
 # resolves those dependencies against a registry, so the old core/bin-only
 # check cannot validate the graph until the new crates have been published.
 # Stage the complete ordered graph in a temporary local registry instead.
@@ -44,7 +44,7 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
   layered_index="$layered_tmp_dir/index"
   layered_stage="$layered_tmp_dir/stage"
   trap 'rm -rf "$layered_tmp_dir"' EXIT
-  mkdir -p "$layered_registry" "$layered_index/eg/gs" "$layered_stage/.cargo"
+  mkdir -p "$layered_registry" "$layered_index" "$layered_stage/.cargo"
   printf '{"dl":"file://%s/{crate}-{version}.crate"}\n' "$layered_registry" > "$layered_index/config.json"
   git -C "$layered_index" init -q
   git -C "$layered_index" config user.email release-validation@example.invalid
@@ -76,6 +76,7 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
         sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
         ;;
       eggserve-core)
+        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", optional = true, default-features = false }#eggnet-tls = { version = "0.1.2", registry = "local", optional = true, default-features = false }#' "$manifest"
         sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
         sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
         sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.1.2" }#eggserve-static = { version = "0.1.2", registry = "local" }#' "$manifest"
@@ -90,7 +91,7 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
     local package="$1"
     local crate_file="$2"
     local manifest="$3"
-    local checksum metadata entry
+    local checksum metadata entry index_path
     checksum="$(sha256sum "$crate_file" | awk '{print $1}')"
     metadata="$(cargo metadata --manifest-path "$manifest" --format-version 1 --no-deps)"
     entry="$(METADATA="$metadata" PACKAGE="$package" CHECKSUM="$checksum" LOCAL_INDEX="$layered_index" "$PYTHON" -c '
@@ -124,7 +125,14 @@ entry = {
 }
 print(json.dumps(entry, separators=(",", ":")))
 ')"
-    printf '%s\n' "$entry" > "$layered_index/eg/gs/$package"
+    case "${#package}" in
+      1) index_path="1/$package" ;;
+      2) index_path="2/$package" ;;
+      3) index_path="3/${package:0:1}/$package" ;;
+      *) index_path="${package:0:2}/${package:2:2}/$package" ;;
+    esac
+    mkdir -p "$layered_index/$(dirname "$index_path")"
+    printf '%s\n' "$entry" > "$layered_index/$index_path"
     git -C "$layered_index" add .
     git -C "$layered_index" commit -q -m "add $package to local registry"
   }
@@ -155,12 +163,14 @@ print(json.dumps(entry, separators=(",", ":")))
 
   case "$MODE" in
     core)
+      package_layered eggnet-tls Cargo.toml Cargo.lock README.md LICENSE src/lib.rs tests/neutral_tls.rs
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       ;;
     bin)
+      package_layered eggnet-tls Cargo.toml Cargo.lock README.md LICENSE src/lib.rs tests/neutral_tls.rs
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
@@ -168,6 +178,7 @@ print(json.dumps(entry, separators=(",", ":")))
       package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
       ;;
     all)
+      package_layered eggnet-tls Cargo.toml Cargo.lock README.md LICENSE src/lib.rs tests/neutral_tls.rs
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs

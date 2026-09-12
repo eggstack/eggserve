@@ -26,8 +26,8 @@ workspace = true
 
 [features]
 default = []
-http2 = ["hyper/http2", "hyper-util/http2"]
-tls = ["dep:rustls", "dep:tokio-rustls", "dep:rustls-pki-types"]
+http2 = ["hyper/http2", "hyper-util/http2", "eggnet-tls?/http2"]
+tls = ["dep:eggnet-tls", "dep:rustls", "dep:tokio-rustls"]
 http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn"]
 http-interop = ["dep:http"]
 tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
@@ -35,6 +35,7 @@ python-bindings-internal = []
 windows-adversarial-qualification = []
 
 [dependencies]
+eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", optional = true, default-features = false }
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
 eggserve-server = { path = "../eggserve-server", version = "0.1.2" }
 eggserve-static = { path = "../eggserve-static", version = "0.1.2" }
@@ -59,7 +60,6 @@ tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "i
 # TLS dependencies (feature-gated)
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
-rustls-pki-types = { version = "1", optional = true, features = ["std"] }
 
 # HTTP/3/QUIC transport (Plan 187). Kept out of the default and HTTP/1/H2
 # graphs; the adapter types remain internal to the experimental server.
@@ -79,6 +79,7 @@ serde_json = "1"
 tempfile = "3"
 rcgen = "0.13"
 tokio = { version = "1", features = ["rt-multi-thread"] }
+rustls-pki-types = "1"
 tokio-rustls = "0.26"
 # Plan 199 Track I: dev-only WebSocket interop fixture proving the generic
 # tunnel handoff is sufficient for a downstream codec. Production core has no

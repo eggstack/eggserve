@@ -3,12 +3,14 @@
 The release smoke fixture uses only Python's standard library, and the existing
 Hyper/Tokio transport remains the sole file-stream conversion boundary.
 
-Plan 211 adds a checked crate topology. `eggserve-primitives` is the canonical
+Plans 211 and 212 add a checked crate topology. `eggserve-primitives` is the canonical
 leaf and intentionally has no Cargo dependencies. `eggserve-server` owns
 Hyper/Tokio transport and depends on primitives, never on static serving or
 the compatibility aggregate. `eggserve-static` owns filesystem-specific
 behavior and depends on primitives plus server. `eggserve-core` remains a
-0.1 compatibility aggregate during migration. See
+0.1 compatibility aggregate during migration. `eggnet-tls` owns neutral
+rustls identity/trust/client-auth/reload policy and depends only on rustls and
+rustls-pki-types at runtime. See
 [`architecture/crate-topology.md`](../architecture/crate-topology.md).
 
 ## Rules
@@ -42,6 +44,7 @@ The following dependency categories are approved for initial development:
 | TLS | `rustls` (optional, feature-gated) | TLS termination |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
+| Neutral TLS substrate | `eggnet-tls` | Bounded server identity, SNI, WebPKI mTLS, trust/CRL parsing, and atomic reload; no application or transport dependencies |
 | HTTP/3 transport | `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
 | WebSocket interop fixture (dev-only) | `tokio-tungstenite` (dev-dependency, tests only) | Plan 199 Track I: proves generic tunnel handoff sufficient for downstream WS codec (handshake via EggServe, framing over `TunnelIo`); never enters production `eggserve-core`/`eggserve-bin` graphs |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
@@ -74,6 +77,10 @@ The following dependency categories are approved for initial development:
 - TLS dependencies are optional and feature-gated. Windows filesystem support
   is likewise target-gated; platform-only dependencies do not enter the
   default Unix graph.
+- `eggnet-tls` is an independently reusable workspace crate. Its production
+  graph contains only `rustls` and `rustls-pki-types`; Tokio, tokio-rustls,
+  HTTP, QUIC, proxy, tracing, filesystem watching, and application policy stay
+  in consuming projects.
 - H3 dependencies are optional and feature-gated behind `http3` (which also
   enables `tls`). The adapter keeps Quinn/h3 types internal, pins the selected
   versions in `Cargo.lock`, and is covered by the same `cargo audit`/`cargo deny`

@@ -58,7 +58,8 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Covers |
 |----------|--------|
-| [crate-topology.md](crate-topology.md) | Plan 211 Cargo ownership and dependency boundaries |
+| [crate-topology.md](crate-topology.md) | Plans 211/212 Cargo ownership and dependency boundaries |
+| [eggnet-tls.md](eggnet-tls.md) | Plan 212 neutral rustls identity, trust, client-auth, and reload substrate |
 | [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free canonical leaf |
 | [eggserve-server.md](eggserve-server.md) | Generic transport/runtime layer |
 | [eggserve-static.md](eggserve-static.md) | Filesystem/static specialization |
@@ -164,7 +165,7 @@ The exact direct edges are checked by
 
 | Feature | Crate | Purpose |
 |---------|-------|---------|
-| `tls` | `eggserve-core`, `eggserve-bin`, `eggserve-python` | Server TLS via rustls/tokio-rustls |
+| `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin`, `eggserve-python` | Neutral rustls identity/trust policy plus EggServe async TLS transport |
 | `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
 | `http3` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/h3 identity and same-port UDP; Python remains H1-only |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
@@ -183,6 +184,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Canonical primitives | `eggserve-primitives` | [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free request/response/policy domain values |
 | Generic server runtime | `eggserve-server` | [eggserve-server.md](eggserve-server.md) | Transport and service execution without static-serving dependencies |
 | Static specialization | `eggserve-static` | [eggserve-static.md](eggserve-static.md) | Filesystem policy, path resolution, and static responses |
+| Neutral TLS substrate | `eggnet-tls` | [eggnet-tls.md](eggnet-tls.md) | Bounded rustls identity, SNI, WebPKI mTLS, trust/CRLs, and atomic reload |
 | Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | All security-critical logic — path confinement, policy enforcement, HTTP serving, response construction |
 | CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, integration-only `run_cli()`, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
@@ -213,7 +215,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Structured logging | `eggserve-core::ops` | [structured-logging.md](structured-logging.md) | Event-based logging (schema v1), JSON Lines output, operational counters, sanitized fields |
 | Configuration model | cross-cutting | [configuration.md](configuration.md) | `RuntimeConfig`, `ServeConfig`, `Limits` — field inventory, ownership model, CLI/Python/Rust convergence |
 | Error taxonomy | cross-cutting | [error-taxonomy.md](error-taxonomy.md) | 5 error layers — `PathRejection`, `RequestValidationError`, `ServerError`, `ServiceError`, `RequestBodyError` |
-| TLS support | `eggserve-core::tls` | [tls.md](tls.md) | rustls-based TLS — PEM loading, PKCS#1/8/SEC1 key formats, feature-gated |
+| TLS support | `eggnet-tls` (re-exported by `eggserve-core::tls`) | [tls.md](tls.md), [eggnet-tls.md](eggnet-tls.md) | rustls identity/trust policy, PEM loading, SNI, mTLS, reload; transport remains in consumers |
 
 ### Testing and Quality
 
