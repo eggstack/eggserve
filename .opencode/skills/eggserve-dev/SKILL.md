@@ -35,17 +35,19 @@ bridge is qualified by Plan 175. Plan 199 implements generic tunnel/upgrade/Exte
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
 crate. `eggserve_core::tls` remains a compatibility re-export; EggServe retains
-only transport-facing Tokio TLS and HTTP/3 QUIC assembly. The neutral crate has
+only transport-facing Tokio TLS, while the opt-in H3 adapter consumes the
+isolated `eggserve-h3` boundary. The neutral crate has
 no EggServe/Eggress/EggFetch/application or transport dependency (see
 `architecture/eggnet-tls.md`).
 
 ## Workspace layout
 
-Six workspace crates plus one excluded Python packaging crate:
+Seven workspace crates plus one excluded Python packaging crate:
 - `crates/eggnet-tls/` — neutral rustls identity, trust, client-auth, and reload substrate
 - `crates/eggserve-primitives/` — dependency-free canonical application values
 - `crates/eggserve-server/` — generic HTTP runtime and transport boundary
 - `crates/eggserve-static/` — filesystem/static specialization
+- `crates/eggserve-h3/` — experimental H3/QUIC dependency boundary
 - `crates/eggserve-core/` — 0.1 compatibility aggregate preserving the mature API
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
@@ -145,7 +147,8 @@ only `cargo audit` or `cargo deny check` invocation.
   reload snapshots. Its production graph contains only `rustls` and
   `rustls-pki-types`; it must not gain Tokio, HTTP, QUIC, proxy, tracing,
   EggServe, Eggress, or EggFetch dependencies. `eggserve_core::tls` re-exports
-  it for compatibility; keep HTTP/3-specific QUIC assembly in core.
+  it for compatibility; keep HTTP/3-specific QUIC dependencies behind the
+  `eggserve-h3` boundary and the core `http3` feature.
 
 - **Plan 211 topology** — `eggserve-primitives` has no dependencies,
   `eggserve-server` owns generic transport and cannot depend on core/static,
@@ -178,6 +181,7 @@ only `cargo audit` or `cargo deny check` invocation.
 - **Transport-neutral driver** — `server::connection::serve_http1_connection` remains strict HTTP/1; feature-gated `serve_http_connection` adds bounded H1/H2 prior-knowledge selection over any `AsyncRead + AsyncWrite` stream. Both drive a canonical `Service` with explicit `ConnectionContext`, shared `Arc<RuntimeState>` (`RuntimeState::try_new(&config)` preferred, `new(&config)` validates + panics), and per-connection `ConnectionShutdown` returning `ConnectionOutcome`. Invalid hand-constructed `RuntimeConfig` is rejected at `ServerBuilder::build()`, `RuntimeConfig::validate()`, `RuntimeState::try_new()`, and the caller-owned entry (logs + `Internal`) before semaphore/Hyper use. `ConnectionShutdown` is level-triggered and idempotent (pre-signaled shutdown observed promptly, no polling). TCP/TLS `Server` selects H1/H2 through ALPN or the bounded prior-knowledge classifier; raw Hyper helpers are crate-private. No fabricated socket addresses, no Hyper types in the driver signature.
 - **RequestBody is one-shot** — `RequestBody` can only be consumed once. The `Service` trait's `call` method takes `Request` by value. Body policy defaults to `Reject`. Plan 174: Stream bodies share Active→Complete/Abandoned/Failed lifecycle (Drop-derived for network bodies; in-memory never forces close); service may return response-start with Active body delegated, reuse waits for Complete, Abandoned/Failed forces close (Hyper-pinned). `Request::lifecycle()`/`into_parts_with_lifecycle()` expose `RequestLifecycle` (`cancelled()`, `is_cancelled()`, `cancellation_reason()`; PeerDisconnected/ServerShutdown/ConnectionTimeout/TransportFailure, first wins, `#[non_exhaustive]` — match with wildcard). Plan 198: `RequestContext::interim()` is the bounded 1xx sender (only 1xx no 101, no body/trailers, no post-commit, HTTP/1.0 suppressed, single 100); `RequestBody::trailers()`/`read_all_with_trailers()` expose terminal trailers only after completion (separate bounds, `InvalidTrailers` on failure, H1 without valid framing cannot inject). Plan 197: `RequestContext` (`connection()` + `lifecycle()`) is the single attachment point for transport metadata + future opaque capabilities (no type map, no raw handles); prefer `Request::context()`/`new_with_context()`/`into_parts_with_context()` for new code — `connection()`/`lifecycle()`/`into_parts*` forward to the context and preserve the Plan 175 path. Stream `Service::call` stays collapsed as `min(body, handler)` for compat (disambiguated via lifecycle); remaining body timeout continues after return via watchdog. `max_in_flight_requests` bounds pre-response `Service::call` only; downstream app admission is separate.
 - **Downstream app-server consumer (Plan 175) + application-service contract (Plan 197)** — `crates/eggserve-core/tests/app_server_consumer.rs` is the external-consumer qualification: bounded full-duplex bridge (cap-2 channels, no `read_all`, no Hyper/private imports; fixture-local event names only), deferred ownership, lifecycle cancellation, handler/body timeout split, downstream admission split, TCP/TLS/caller-owned parity, non-gating perf sanity. `crates/eggserve-core/tests/application_service_contract.rs` is the Hyper-free stabilized-contract fixture (`RequestContext`, buffered/streamed/lifecycle, `#[non_exhaustive]` wildcards, runtime admission 503); `crates/eggserve-core/examples/application_service.rs` is the minimal native demo (no static FS). Builder-facing rules + normative 7-stage commitment/cancellation + `Send + Sync` (no `poll_ready`) + error-taxonomy rules live in `docs/downstream-app-server.md`; EggServe itself is not an app server/ASGI runtime. `Service::call` stays `Response`-only (no `ServiceOutcome`; Track C decision).
+- **HTTP/3 dependency isolation and qualification (Plan 213)** — `eggserve-h3` owns the direct Quinn/H3/H3-Quinn dependency set; the core compatibility adapter consumes it only behind `http3`. The no-feature graph must not contain H3/QUIC packages. `conformance/http3_qualification.toml` records deterministic, manual, and blocked evidence separately; upstream correctness risk and missing independent-client/adversarial evidence keep H3 experimental.
 - **Downstream substrate closure (Plans 172/177, program closure 208)** — Plans 172–175 close the qualified HTTP-only downstream-substrate line; Plan 199 implements the generic tunnel successor to deferred Plan 176. Plan 205 observability hooks are explicitly deferred (no new observer/event/timing API; Plan 181 `OpsContext` stays the boundary). Keep separate application-server work in its own project and preserve the Plan 175 public-API/bounded-coordination boundary.
 - **Ecosystem interop (Plan 200)** — optional `http-interop` (`primitives::interop`: loss-aware `http` conversions, `RequestBody: http_body::Body` with data+trailers, `response_from_http_body` framing-authoritative) and `tower` (`server::tower`: per-request clones driving `poll_ready`, adapter-local ready). Header cross-name order does not round-trip; opaque values use `from_bytes`; interim/tunnel never enter `Extensions`; middleware runs after parsing/validation, before normalization (see `docs/http-interop.md`). Never add Tower/`http` to default builds.
 - **Body policy** — The policy is evaluated for the actual method; GET/HEAD/DELETE/OPTIONS/extension bodies are not globally rejected. TRACE content remains rejected. `StaticService` declares `Reject`; bodyless unsupported static methods receive 405, while body-bearing requests may be rejected by policy first.

@@ -54,6 +54,8 @@ pub mod connection;
 pub mod errors;
 pub mod handle;
 #[cfg(feature = "http3")]
+use eggserve_h3::{h3_quinn, quinn};
+#[cfg(feature = "http3")]
 mod http3;
 pub mod lifecycle;
 pub mod listener;

@@ -1,13 +1,23 @@
 # HTTP/3 and QUIC transport boundary
 
-EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). It remains
+EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). Its
+coordinated Quinn/H3/H3-Quinn production dependency set is owned by the
+dedicated `eggserve-h3` package and it remains
 an experimental transport adapter after Plans 188, 190, 192, 193, 194, and
 195 closure, not a change to the
 Python compatibility surface or to the static service planner. The
-implementation uses `h3` with `h3-quinn` and Quinn over Tokio; those
-dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
+implementation uses `h3` with `h3-quinn` and Quinn over Tokio. The core
+compatibility facade depends on `eggserve-h3` only when `http3` is enabled, so
+those dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
 
-## Adapter ownership (Plan 206 Track C)
+The package currently serves as a deliberate dependency boundary and transport
+version record. The mature 0.1 adapter remains in `eggserve-core::server` for
+source compatibility; its raw transport imports resolve through `eggserve-h3`.
+Moving that adapter's source files is reserved for the semver cleanup because
+it requires widening a small set of experimental runtime seams without changing
+the canonical service contract.
+
+## Adapter ownership (Plan 206 Track C / Plan 213 boundary)
 
 The `server/http3/` directory is split into four submodules:
 
@@ -246,3 +256,9 @@ the durable contract points are:
   observability/permit-release regressions; H3 suite 14 → 16). Tier and
   blockers unchanged. See
   [`release/plan-195-http3-response-timeout-corrective-qualification.md`](../release/plan-195-http3-response-timeout-corrective-qualification.md).
+- **Plan 213 isolation qualification**: the direct H3/QUIC dependency set is
+  isolated in `eggserve-h3`, while the mature 0.1 adapter remains in core for
+  compatibility. The dedicated matrix records deterministic, manual, and
+  blocked evidence; the local baseline has no independent H3 client, so wire
+  evidence remains unavailable. See
+  [`release/plan-213-http3-quic-isolation-qualification.md`](../release/plan-213-http3-quic-isolation-qualification.md).

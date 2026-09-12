@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211/212 Cargo dependency topology.
+"""Enforce the Plan 211/212/213 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -23,10 +23,16 @@ def main() -> int:
     )
     packages = {package["name"]: package for package in metadata["packages"]}
 
-    required = {"eggnet-tls", "eggserve-primitives", "eggserve-server", "eggserve-static"}
+    required = {
+        "eggnet-tls",
+        "eggserve-primitives",
+        "eggserve-server",
+        "eggserve-static",
+        "eggserve-h3",
+    }
     missing = required - packages.keys()
     if missing:
-        print(f"missing Plan 211/212 packages: {', '.join(sorted(missing))}", file=sys.stderr)
+        print(f"missing Plan 211/212/213 packages: {', '.join(sorted(missing))}", file=sys.stderr)
         return 1
 
     def direct(name: str) -> set[str]:
@@ -34,6 +40,13 @@ def main() -> int:
             dependency["name"]
             for dependency in packages[name]["dependencies"]
             if dependency["source"] is None
+        }
+
+    def production(name: str) -> set[str]:
+        return {
+            dependency["name"]
+            for dependency in packages[name]["dependencies"]
+            if dependency["kind"] is None
         }
 
     primitives = direct("eggserve-primitives")
@@ -89,19 +102,53 @@ def main() -> int:
     if "eggserve-primitives" not in server:
         print("eggserve-server must depend on eggserve-primitives", file=sys.stderr)
         return 1
+    server_h3 = production("eggserve-server") & {"h3", "h3-quinn", "quinn"}
+    if server_h3:
+        print(
+            "eggserve-server must not directly depend on the H3/QUIC stack: "
+            f"{sorted(server_h3)}",
+            file=sys.stderr,
+        )
+        return 1
 
     static = direct("eggserve-static")
     if static != {"eggserve-primitives", "eggserve-server"}:
         print(f"unexpected eggserve-static direct dependencies: {sorted(static)}", file=sys.stderr)
         return 1
 
+    h3 = production("eggserve-h3")
+    expected_h3 = {"h3", "h3-quinn", "quinn"}
+    if not expected_h3.issubset(h3):
+        print(
+            "eggserve-h3 must own the coordinated H3/QUIC direct dependencies: "
+            f"missing {sorted(expected_h3 - h3)}",
+            file=sys.stderr,
+        )
+        return 1
+    if {"eggserve-server", "eggserve-static", "eggserve-primitives"} & h3:
+        print(
+            "eggserve-h3 must remain a transport dependency boundary, not a "
+            "server/static/primitives implementation dependency",
+            file=sys.stderr,
+        )
+        return 1
+
     if "eggnet-tls" not in direct("eggserve-core"):
         print("eggserve-core must consume the neutral eggnet-tls crate", file=sys.stderr)
         return 1
+    core = direct("eggserve-core")
+    core_h3 = {"h3", "h3-quinn", "quinn"} & core
+    if core_h3:
+        print(
+            "eggserve-core must not directly depend on the H3/QUIC stack: "
+            f"{sorted(core_h3)}",
+            file=sys.stderr,
+        )
+        return 1
 
     print(
-        "Plan 211/212 topology: primitives leaf; neutral TLS; "
-        "server transport-only; static specializes both"
+        "Plan 211/212/213 topology: primitives leaf; neutral TLS; "
+        "server transport-only; static specializes both; H3/QUIC isolated"
     )
     return 0
 

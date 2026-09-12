@@ -201,6 +201,7 @@ name = "eggserve-bin"
 version = "0.1.2"
 dependencies = [
  "eggserve-core",
+ "eggserve-h3",
  "rustls",
  "rustls-pki-types",
  "tempfile",
@@ -214,12 +215,11 @@ version = "0.1.2"
 dependencies = [
  "bytes",
  "eggnet-tls",
+ "eggserve-h3",
  "eggserve-primitives",
  "eggserve-server",
  "eggserve-static",
  "futures-util",
- "h3",
- "h3-quinn",
  "http",
  "http-body",
  "http-body-util",
@@ -229,7 +229,6 @@ dependencies = [
  "libc",
  "phf",
  "proptest",
- "quinn",
  "rcgen",
  "rustix",
  "rustls",
@@ -243,6 +242,15 @@ dependencies = [
  "tokio-tungstenite",
  "tower-layer",
  "tower-service",
+]
+
+[[package]]
+name = "eggserve-h3"
+version = "0.1.2"
+dependencies = [
+ "h3",
+ "h3-quinn",
+ "quinn",
 ]
 
 [[package]]

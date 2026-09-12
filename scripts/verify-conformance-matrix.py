@@ -50,6 +50,17 @@ APP_CATEGORIES = {
     "ci_release",
 }
 
+H3_REQUIRED = {
+    "protocol",
+    "adversarial",
+    "lifecycle",
+    "interoperability",
+    "configuration",
+    "dependencies",
+    "promotion",
+}
+H3_CLASSIFICATIONS = {"deterministic", "manual", "blocked"}
+
 
 def validate_app_server_conformance(root: Path) -> None:
     inventory_path = root / "conformance" / "app_server_conformance.toml"
@@ -97,6 +108,39 @@ def validate_app_server_conformance(root: Path) -> None:
     print(f"validated {len(scenarios)} app-server scenarios ({len(routine)} routine)")
 
 
+def validate_h3_qualification(root: Path) -> None:
+    matrix_path = root / "conformance" / "http3_qualification.toml"
+    with matrix_path.open("rb") as matrix_file:
+        document = tomllib.load(matrix_file)
+    metadata = document.get("metadata", {})
+    if metadata.get("plan") != 213 or metadata.get("status") != "experimental":
+        raise SystemExit("HTTP/3 qualification metadata must identify Plan 213 as experimental")
+    scenarios = document.get("scenario")
+    if not isinstance(scenarios, list) or not scenarios:
+        raise SystemExit("HTTP/3 qualification inventory has no [[scenario]] entries")
+    seen_ids: set[str] = set()
+    for index, entry in enumerate(scenarios, start=1):
+        required = {"id", "category", "classification", "routine", "evidence"}
+        missing = required - entry.keys()
+        if missing:
+            raise SystemExit(f"HTTP/3 scenario {index} is missing: {sorted(missing)}")
+        if entry["id"] in seen_ids:
+            raise SystemExit(f"duplicate HTTP/3 scenario id: {entry['id']}")
+        seen_ids.add(entry["id"])
+        if entry["classification"] not in H3_CLASSIFICATIONS:
+            raise SystemExit(f"HTTP/3 scenario {entry['id']} has invalid classification")
+        if not isinstance(entry["routine"], bool):
+            raise SystemExit(f"HTTP/3 scenario {entry['id']} needs a boolean routine flag")
+        if not isinstance(entry["evidence"], str) or not entry["evidence"].strip():
+            raise SystemExit(f"HTTP/3 scenario {entry['id']} needs evidence")
+    missing_categories = H3_REQUIRED - {entry["category"] for entry in scenarios}
+    if missing_categories:
+        raise SystemExit(f"HTTP/3 categories not exercised: {sorted(missing_categories)}")
+    if not any(entry["routine"] for entry in scenarios):
+        raise SystemExit("HTTP/3 qualification inventory has no routine scenarios")
+    print(f"validated {len(scenarios)} Plan 213 HTTP/3 scenarios")
+
+
 def main() -> None:
     root = Path(__file__).resolve().parents[1]
     matrix_path = root / "conformance" / "conformance_matrix.toml"
@@ -140,6 +184,7 @@ def main() -> None:
 
     print(f"validated {len(entries)} conformance matrix entries")
     validate_app_server_conformance(root)
+    validate_h3_qualification(root)
 
 
 if __name__ == "__main__":

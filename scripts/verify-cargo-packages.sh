@@ -80,9 +80,11 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
         sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
         sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
         sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.1.2" }#eggserve-static = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }#eggserve-h3 = { version = "0.1.2", registry = "local", optional = true }#' "$manifest"
         ;;
       eggserve-bin)
         sed -i 's#eggserve-core = { path = "../eggserve-core", version = "0.1.2" }#eggserve-core = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }#eggserve-h3 = { version = "0.1.2", registry = "local", optional = true }#' "$manifest"
         ;;
     esac
   }
@@ -167,6 +169,7 @@ print(json.dumps(entry, separators=(",", ":")))
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-h3 Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       ;;
     bin)
@@ -174,6 +177,7 @@ print(json.dumps(entry, separators=(",", ":")))
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-h3 Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
       ;;
@@ -182,6 +186,7 @@ print(json.dumps(entry, separators=(",", ":")))
       package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-h3 Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
       package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
       ;;

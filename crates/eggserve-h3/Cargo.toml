@@ -1,0 +1,28 @@
+[package]
+name = "eggserve-h3"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Experimental EggServe HTTP/3 and QUIC transport dependency boundary"
+keywords = ["http3", "quic", "h3", "eggserve"]
+categories = ["web-programming::http-server", "network-programming"]
+rust-version.workspace = true
+readme = "../../README.md"
+include = ["src/**", "tests/**", "LICENSE"]
+
+[lints]
+workspace = true
+
+[features]
+default = []
+
+[dependencies]
+# Keep this compatibility set together. These are intentionally direct here,
+# rather than in eggserve-core or eggserve-server, so disabling H3 removes the
+# QUIC stack from the ordinary server package graph.
+h3 = { version = "0.0.8", default-features = false }
+h3-quinn = { version = "0.0.10", default-features = false }
+quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+

@@ -7,6 +7,8 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
+use eggserve_h3::h3;
+
 use bytes::{Buf, Bytes};
 use futures_util::{stream, StreamExt};
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};

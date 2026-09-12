@@ -13,8 +13,10 @@ under `eggserve_core::layers` without changing the established module paths.
 
 TLS identity, trust, client-authentication, and reload policy is implemented by
 the neutral `eggnet-tls` crate and re-exported at `eggserve_core::tls` for
-compatibility. `eggserve-core` retains only its transport-facing rustls use and
-HTTP/3-specific QUIC assembly; see [eggnet-tls.md](eggnet-tls.md).
+compatibility. `eggserve-core` retains only its transport-facing rustls use;
+its opt-in HTTP/3 adapter consumes the direct QUIC dependencies through
+`eggserve-h3`; see [eggnet-tls.md](eggnet-tls.md) and
+[eggserve-h3.md](eggserve-h3.md).
 
 External Rust consumers should start with `eggserve_core::primitives` for the
 semver-considered canonical HTTP/security facade. The `eggserve_core::server` module is an

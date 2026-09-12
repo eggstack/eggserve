@@ -12,6 +12,9 @@ use std::path::Path;
 #[cfg(feature = "http3")]
 use std::sync::Arc;
 
+#[cfg(feature = "http3")]
+use eggserve_h3::quinn;
+
 /// Build the EggServe-specific QUIC server configuration from the neutral
 /// crate's validated certificate/key loader.
 #[cfg(feature = "http3")]

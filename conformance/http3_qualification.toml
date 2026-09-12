@@ -1,0 +1,132 @@
+# Plan 213 independent HTTP/3 and QUIC qualification inventory.
+#
+# `routine = true` entries are deterministic local checks. `manual` entries
+# require tooling or an environment not guaranteed by CI. `blocked` entries
+# are explicit promotion blockers and must not be reported as passes.
+
+[metadata]
+plan = 213
+status = "experimental"
+h3 = "0.0.8"
+h3_quinn = "0.0.10"
+quinn = "0.11.11"
+evidence = "architecture/http3.md and release/plan-213-http3-quic-isolation-qualification.md"
+
+[[scenario]]
+id = "h3-basic-request-response"
+category = "protocol"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-head-and-bodyless-dispatch"
+category = "protocol"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-request-body-and-limits"
+category = "protocol"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-response-trailers"
+category = "protocol"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/src/server/http3/response.rs"
+
+[[scenario]]
+id = "h3-malformed-and-service-errors"
+category = "protocol"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/src/server/http3/request.rs"
+
+[[scenario]]
+id = "h3-stream-error-sibling-isolation"
+category = "adversarial"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-buffered-data-around-connection-error"
+category = "adversarial"
+classification = "blocked"
+routine = false
+evidence = "hyperium/h3#338; no released fix in the frozen candidate"
+
+[[scenario]]
+id = "h3-request-stream-drop-reset"
+category = "adversarial"
+classification = "blocked"
+routine = false
+evidence = "hyperium/h3#262; public abort coverage remains incomplete"
+
+[[scenario]]
+id = "h3-partial-delivery-and-reset-churn"
+category = "adversarial"
+classification = "manual"
+routine = false
+evidence = "scripts/qualify-http3.sh; adversarial network tooling required"
+
+[[scenario]]
+id = "h3-peer-cancel-and-lifecycle-wakeup"
+category = "lifecycle"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-graceful-shutdown-and-goaway"
+category = "lifecycle"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-stream-reset-scope"
+category = "lifecycle"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/tests/http3_runtime.rs"
+
+[[scenario]]
+id = "h3-independent-client"
+category = "interoperability"
+classification = "manual"
+routine = false
+evidence = "scripts/qualify-http3.sh; direct HTTP/3 client required"
+
+[[scenario]]
+id = "h3-two-independent-client-families"
+category = "interoperability"
+classification = "manual"
+routine = false
+evidence = "scripts/qualify-http3.sh; second client implementation required"
+
+[[scenario]]
+id = "h3-tls-quic-boundary"
+category = "configuration"
+classification = "deterministic"
+routine = true
+evidence = "crates/eggserve-core/src/tls.rs and architecture/tls.md"
+
+[[scenario]]
+id = "h3-coordinated-dependency-set"
+category = "dependencies"
+classification = "deterministic"
+routine = true
+evidence = "scripts/check-crate-topology.py and crates/eggserve-h3/Cargo.toml"
+
+[[scenario]]
+id = "h3-hardened-promotion-gate"
+category = "promotion"
+classification = "blocked"
+routine = false
+evidence = "plans/213-http3-quic-isolation-qualification.md; experimental tier retained"

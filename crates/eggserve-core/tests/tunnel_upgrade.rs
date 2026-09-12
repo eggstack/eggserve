@@ -21,6 +21,8 @@ use eggserve_core::primitives::header_block::HeaderBlock;
 use eggserve_core::primitives::tunnel::TunnelIo;
 use eggserve_core::primitives::RequestLifecycle;
 use eggserve_core::server::{service_fn, Request, RuntimeConfig, Server};
+#[cfg(feature = "http3")]
+use eggserve_h3::{h3, h3_quinn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn echo_service() -> impl eggserve_core::server::Service {

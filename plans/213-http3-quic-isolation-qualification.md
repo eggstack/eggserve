@@ -2,13 +2,21 @@
 
 ## Status
 
-Planned.
+Implemented — 2026-09-12 (dependency isolation and qualification gate; HTTP/3
+remains experimental).
 
 ## Purpose
 
 Contain EggServe's experimental HTTP/3 and QUIC dependency surface behind a dedicated crate and establish explicit criteria for when HTTP/3 can be treated as hardened rather than experimental.
 
 This work is intentionally an isolation and qualification effort, not an attempt to build a common Eggstack QUIC framework.
+
+The 0.1 compatibility adapter remains physically under `eggserve-core` for
+this change so its established internal module paths and behavior are not
+silently changed. The direct production dependency boundary, feature graph,
+and qualification evidence are isolated now; moving the adapter source into
+`eggserve-h3` is a separate semver-scoped cleanup once the compatibility
+aggregate can absorb that ownership change.
 
 ## Background
 
@@ -233,7 +241,8 @@ Promotion should be a deliberate documentation/release decision, not an automati
 
 The plan is complete when:
 
-- Quinn/H3/H3-Quinn production code is isolated in `eggserve-h3`;
+- Quinn/H3/H3-Quinn direct production dependencies are isolated in
+  `eggserve-h3`; the compatibility adapter imports them through that boundary;
 - disabling HTTP/3 removes those runtime dependencies from the server package graph;
 - H3 uses the canonical EggServe service model;
 - a dedicated qualification matrix exists and passes;

@@ -12,6 +12,8 @@
 //! One shared service kernel + canonical normalization (no H3-specific
 //! semantics).
 
+use eggserve_h3::{h3, h3_quinn, quinn};
+
 pub(super) mod endpoint;
 pub(super) mod request;
 pub(super) mod response;

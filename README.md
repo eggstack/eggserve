@@ -208,7 +208,9 @@ under an absolute `response_write_timeout` no-progress deadline that only
 non-empty production plus successful send re-arms (Plan 194; empty chunks are
 not progress), each send call keeps its own bound, and a stall resets
 only the affected stream while siblings survive. The opt-in `http3` feature
-adds an experimental native QUIC/HTTP/3 endpoint
+is backed by the dedicated `eggserve-h3` package, which owns the coordinated
+Quinn/H3/H3-Quinn dependency set; the core facade consumes that package only
+behind the feature. It adds an experimental native QUIC/HTTP/3 endpoint
 beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
 `--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
@@ -234,6 +236,9 @@ and [qualification records](https://github.com/eggstack/eggserve/blob/main/relea
 [Plan 193 promotion record](https://github.com/eggstack/eggserve/blob/main/release/plan-193-http3-supported-tier-qualification.md), the
 [Plan 194 correction record](https://github.com/eggstack/eggserve/blob/main/release/plan-194-http3-producer-timeout-correction.md), and the
 [Plan 195 corrective qualification record](https://github.com/eggstack/eggserve/blob/main/release/plan-195-http3-response-timeout-corrective-qualification.md).
+Plan 213 records the dependency-isolation and qualification boundary in the
+[Plan 213 release record](https://github.com/eggstack/eggserve/blob/main/release/plan-213-http3-quic-isolation-qualification.md); it does not change the
+experimental support tier.
 Reject-body handling is protocol-aware: H2 uses Hyper's end-stream state and
 H3 performs one bounded receive probe when headers do not establish an empty
 request. H3 request lifecycles are registered for peer-loss, timeout, stream,

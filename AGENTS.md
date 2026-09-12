@@ -56,9 +56,17 @@ proxy/TLS-identity/async-Python remaining experimental (see
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
 crate. `eggserve_core::tls` remains a compatibility re-export; EggServe keeps
-only transport-facing Tokio TLS and HTTP/3 QUIC assembly. The neutral crate has
+only transport-facing Tokio TLS, while the opt-in H3 adapter consumes the
+isolated `eggserve-h3` boundary. The neutral crate has
 no EggServe/Eggress/EggFetch/application or transport dependency (see
 `architecture/eggnet-tls.md` and `plans/212-neutral-tls-extraction.md`).
+Plan 213 isolates the coordinated `h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn
+0.11.11 production dependency set in `eggserve-h3`. `eggserve-core` consumes
+that package only behind `http3`; default, H1, and H2 graphs do not compile
+the QUIC stack. H3 remains experimental because the promotion gate is still
+blocked by upstream correctness risk and missing independent-client/adversarial
+evidence (see `architecture/http3.md` and
+`conformance/http3_qualification.toml`).
 The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
@@ -77,6 +85,7 @@ crates/
 ├── eggserve-primitives/ # dependency-free canonical application-facing values
 ├── eggserve-server/    # generic HTTP runtime and transport boundary
 ├── eggserve-static/    # filesystem/static specialization
+├── eggserve-h3/        # experimental Quinn/H3/H3-Quinn dependency boundary
 ├── eggserve-core/      # 0.1 compatibility aggregate
 ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 └── eggserve-python/    # Python wheel packaging (maturin) — EXCLUDED from workspace
@@ -190,7 +199,8 @@ Routine CI is a small regression screen, not release certification. Platform qua
   reload snapshots. Its production graph contains only `rustls` and
   `rustls-pki-types`; it must not gain Tokio, HTTP, QUIC, proxy, tracing,
   EggServe, Eggress, or EggFetch dependencies. `eggserve_core::tls` re-exports
-  it for compatibility; keep HTTP/3-specific QUIC assembly in core.
+  it for compatibility; keep HTTP/3-specific QUIC dependencies behind the
+  `eggserve-h3` boundary and the core `http3` feature.
 - `crates/eggserve-bin/src/main.rs` is a 2-line shim; real logic is in `lib.rs`/`args.rs`.
 
 ### Code shapes agents get wrong
@@ -228,6 +238,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 - Transport-neutral driver: `server::connection::serve_http1_connection` remains strict HTTP/1, while feature-gated `serve_http_connection` accepts HTTP/1 or bounded HTTP/2 prior knowledge over any `AsyncRead + AsyncWrite` stream. Both drive a canonical `Service` with explicit `ConnectionContext` (no fabricated addresses, no Hyper types, scheme/TLS asserted by caller), shared `Arc<RuntimeState>` admission (constructed via `RuntimeState::try_new(&config)` preferred, `new(&config)` validates + panics), and per-connection `ConnectionShutdown` returning `ConnectionOutcome`. Invalid hand-constructed `RuntimeConfig` is rejected at `ServerBuilder::build()`, `RuntimeConfig::validate()`, `RuntimeState::try_new()`, and the caller-owned entry (logs + `Internal`) before semaphore/Hyper use. `ConnectionShutdown` is level-triggered and idempotent (pre-signaled shutdown observed promptly, no polling). TCP/TLS `Server` selects H1/H2 through ALPN or the bounded prior-knowledge classifier; raw Hyper helpers are crate-private.
 - **HTTP/3 boundary (Plans 187–190, 192–195)** — `RuntimeConfig::http3` owns explicit QUIC/H3 windows, stream/handshake/field-section/send-buffer/idle/retry limits. `ServerBuilder::http3_identity` supplies PEM paths without exposing Quinn/rustls types; the runtime creates a separate TLS 1.3 QUIC config and starts UDP atomically after TCP bind. H3 request streams map to the canonical `Request`/`Service`/`Response` path, including body limits, strict content length, per-stream reset, GOAWAY drain, and runtime-owned `Alt-Svc`. Plan 190 adds in-process DATA/bodyless/timeout/lifecycle qualification; Plan 192 adds early-error receive aborts plus early-error scoping and close-race regressions, and closes `BLOCKED` on the latest released stack (`h3` 0.0.8 / `h3-quinn` 0.0.10 / Quinn 0.11.11): upstream `hyperium/h3#338` has no released fix and the `#262` stream-drop remainder is unresolved. Plan 193 closed at preflight on 2026-09-10 without entering promotion qualification (unmet Plan 192 prerequisite; unchanged candidate; `#338`/`#262` still open; two-family, browser, adversarial, impairment, and platform evidence inventoried as unavailable). Plan 194 bounds the H3 `ResponseStream` producer poll with `response_write_timeout` no-progress semantics (absolute deadline, empty chunks are not progress, per-stream reset, `WriteStallTimeout` observed, siblings survive) and corrects the promotion-trace docs; tier unchanged. Plan 195 correctively qualifies that bound (H3 suite 14 → 16: shutdown-race drain plus write-stall observability/permit-release regressions) with no source change; tier unchanged. H3 remains experimental; a future promotion requires a new scoped plan. See `release/plan-193-http3-supported-tier-qualification.md`, `release/plan-194-http3-producer-timeout-correction.md`, and `release/plan-195-http3-response-timeout-corrective-qualification.md`.
 - **Downstream app-server consumer (Plan 175) + application-service contract (Plan 197)** — `crates/eggserve-core/tests/app_server_consumer.rs` is the external-consumer qualification: bounded full-duplex bridge (cap-2 channels, no `read_all`, no Hyper/private imports; fixture-local event names only), deferred ownership, lifecycle cancellation, handler/body timeout split, downstream admission split, TCP/TLS/caller-owned parity, non-gating perf sanity. `crates/eggserve-core/tests/application_service_contract.rs` is the Hyper-free stabilized-contract fixture (`RequestContext`, buffered/streamed/lifecycle, `#[non_exhaustive]` wildcards, runtime admission 503); `crates/eggserve-core/examples/application_service.rs` is the minimal native demo (no static FS). Builder-facing rules + normative 7-stage commitment/cancellation + `Send + Sync` (no `poll_ready`) + error-taxonomy rules live in `docs/downstream-app-server.md`; EggServe itself is not an app server/ASGI runtime. `Service::call` stays `Response`-only (no `ServiceOutcome`; Track C decision).
+- **HTTP/3 dependency isolation and qualification (Plan 213)** — `eggserve-h3` owns the direct Quinn/H3/H3-Quinn dependency set; the core compatibility adapter consumes it only behind `http3`. The no-feature graph must not contain H3/QUIC packages. `conformance/http3_qualification.toml` records deterministic, manual, and blocked evidence separately; upstream correctness risk and missing independent-client/adversarial evidence keep H3 experimental.
 - **Downstream substrate closure (Plans 172/177, program closure 208)** — Plans 172–175 close the qualified HTTP-only downstream-substrate line; Plan 199 implements the generic tunnel successor to deferred Plan 176 (see `tunnel_upgrade.rs`). Plan 205 observability hooks are explicitly deferred (no new observer/event/timing API; Plan 181 `OpsContext` stays the boundary). Keep separate application-server work in its own project and preserve the Plan 175 public-API/bounded-coordination boundary.
 - **Ecosystem interop (Plan 200)** — optional `http-interop` (`primitives::interop`: loss-aware `http` conversions, `RequestBody: http_body::Body` with data+trailers, `response_from_http_body` framing-authoritative) and `tower` (`server::tower`: `TowerToEggserve` per-request clones driving `poll_ready`, `EggserveToTower` adapter-local ready). Header cross-name order does not round-trip via `HeaderMap`; opaque values use `from_bytes`; interim/tunnel never enter `http::Extensions`; middleware runs after parsing/validation, before normalization (see `docs/http-interop.md`). Never add Tower/`http` to default builds.
 - **Response-planning edge semantics (Plan 168)** — inverted ranges (`start > end`) are invalid: the Range header is ignored (full 200), never 416 (RFC 9110 § 14.1.2); `evaluate_if_match("*", None)` is `false`; HEAD normalization retains known lengths via `ResponseBody::EmptyWithLength` (zero wire bytes); a literal `#` with no `?` is an ordinary path character.

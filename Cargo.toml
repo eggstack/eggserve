@@ -4,6 +4,7 @@ members = [
     "crates/eggserve-primitives",
     "crates/eggserve-server",
     "crates/eggserve-static",
+    "crates/eggserve-h3",
     "crates/eggserve-core",
     "crates/eggserve-bin",
 ]

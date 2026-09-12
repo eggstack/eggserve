@@ -28,7 +28,7 @@ workspace = true
 default = []
 http2 = ["hyper/http2", "hyper-util/http2", "eggnet-tls?/http2"]
 tls = ["dep:eggnet-tls", "dep:rustls", "dep:tokio-rustls"]
-http3 = ["tls", "dep:h3", "dep:h3-quinn", "dep:quinn"]
+http3 = ["tls", "dep:eggserve-h3"]
 http-interop = ["dep:http"]
 tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
 python-bindings-internal = []
@@ -39,6 +39,7 @@ eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", optional = true, defau
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
 eggserve-server = { path = "../eggserve-server", version = "0.1.2" }
 eggserve-static = { path = "../eggserve-static", version = "0.1.2" }
+eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }
 bytes = "1"
 futures-util = "0.3"
 http = { version = "1", optional = true }
@@ -60,12 +61,6 @@ tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "i
 # TLS dependencies (feature-gated)
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
-
-# HTTP/3/QUIC transport (Plan 187). Kept out of the default and HTTP/1/H2
-# graphs; the adapter types remain internal to the experimental server.
-h3 = { version = "0.0.8", optional = true, default-features = false }
-h3-quinn = { version = "0.0.10", optional = true, default-features = false }
-quinn = { version = "0.11.11", optional = true, default-features = false, features = ["runtime-tokio", "rustls-ring"] }
 
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1", features = ["fs", "net"] }

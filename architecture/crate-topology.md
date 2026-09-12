@@ -1,6 +1,6 @@
 # Crate topology
 
-Plans 211 and 212 introduced dependency layers while preserving the historical
+Plans 211–213 introduced dependency layers while preserving the historical
 `eggserve-core` 0.x source contract.
 
 ```text
@@ -14,11 +14,14 @@ eggserve-server       (generic HTTP runtime; Hyper/Tokio)
           ▼
 eggserve-static       (filesystem and static specialization)
 
+eggserve-h3           (experimental Quinn/H3/H3-Quinn dependency boundary)
+
 eggserve-core         (0.1 compatibility aggregate; legacy rich APIs)
    ├── eggserve-primitives
    ├── eggserve-server
    ├── eggserve-static
-   └── eggnet-tls (optional `tls` feature)
+   ├── eggnet-tls (optional `tls` feature)
+   └── eggserve-h3 (optional `http3` feature)
 ```
 
 ## Ownership
@@ -49,6 +52,15 @@ and atomic reload snapshots. It must not acquire EggServe, Eggress, EggFetch,
 HTTP, proxy, tracing, Tokio, or QUIC dependencies. EggServe keeps only the
 HTTP/3-specific QUIC configuration assembly in its compatibility facade and
 re-exports the neutral API from `eggserve_core::tls`.
+
+`eggserve-h3` owns the coordinated direct production dependencies on `h3`,
+`h3-quinn`, and Quinn. Its public surface is deliberately limited to the
+transport re-exports and version record needed by the experimental compatibility
+adapter; it does not depend on the generic server, static, or primitives
+crates. `eggserve-core` consumes it only behind `http3`, so the default and
+HTTP/1/H2 core graphs do not compile the QUIC stack. The mature 0.1 adapter
+remains in core while a future semver cleanup can move its source ownership
+without changing canonical service semantics.
 
 ## Enforcement
 

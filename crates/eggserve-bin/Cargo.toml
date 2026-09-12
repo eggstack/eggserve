@@ -26,10 +26,11 @@ path = "src/main.rs"
 default = []
 http2 = ["eggserve-core/http2"]
 tls = ["eggserve-core/tls"]
-http3 = ["eggserve-core/http3", "tls"]
+http3 = ["eggserve-core/http3", "dep:eggserve-h3", "tls"]
 
 [dependencies]
 eggserve-core = { path = "../eggserve-core", version = "0.1.2" }
+eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }
 tokio = { version = "1", features = ["macros", "net", "signal", "time", "sync"] }
 
 [dev-dependencies]

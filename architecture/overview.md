@@ -58,7 +58,9 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Covers |
 |----------|--------|
-| [crate-topology.md](crate-topology.md) | Plans 211/212 Cargo ownership and dependency boundaries |
+| [crate-topology.md](crate-topology.md) | Plans 211–213 Cargo ownership and dependency boundaries |
+| [eggserve-h3.md](eggserve-h3.md) | Plan 213 HTTP/3/QUIC package boundary and qualification inventory |
+| [http3.md](http3.md) | Plan 213 isolated HTTP/3/QUIC dependency boundary and qualification gate |
 | [eggnet-tls.md](eggnet-tls.md) | Plan 212 neutral rustls identity, trust, client-auth, and reload substrate |
 | [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free canonical leaf |
 | [eggserve-server.md](eggserve-server.md) | Generic transport/runtime layer |
@@ -118,6 +120,7 @@ eggserve/
 │   ├── eggserve-primitives/    # dependency-free canonical application values
 │   ├── eggserve-server/        # generic HTTP runtime and transport boundary
 │   ├── eggserve-static/        # filesystem/static specialization
+│   ├── eggserve-h3/            # experimental Quinn/H3/H3-Quinn boundary
 │   ├── eggserve-core/          # 0.1 compatibility aggregate
 │   ├── eggserve-bin/           # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
@@ -137,12 +140,13 @@ eggserve/
 
 ## Crate Architecture
 
-Five crates, with a strict dependency hierarchy and a compatibility aggregate:
+Seven workspace library crates, with a strict dependency hierarchy and a compatibility aggregate:
 
 ```
 eggserve-primitives    ← eggserve-server ← eggserve-static
 eggserve-core          ← eggserve-bin (compatibility path, workspace member)
 eggserve-core          ← eggserve-python (compatibility path, excluded)
+eggserve-core          → eggserve-h3 (optional `http3` dependency boundary)
 eggserve-core          → layers (transitional re-exports of the three crates)
 eggserve-bin           → standalone presentation layer
 eggserve-python        → standalone Python packaging
@@ -153,6 +157,8 @@ eggserve-python        → standalone Python packaging
   depend on static serving.
 - **`eggserve-static`** owns filesystem confinement and static specialization,
   consuming primitives and server.
+- **`eggserve-h3`** owns the direct experimental Quinn/H3/H3-Quinn dependency
+  set; it has no edge to the generic server, static, or primitives crates.
 - **`eggserve-core`** remains the 0.1 compatibility aggregate while direct
   consumers migrate; its existing rich modules are behavior-preserving.
 - **`eggserve-bin`** and **`eggserve-python`** remain presentation layers over
@@ -167,7 +173,7 @@ The exact direct edges are checked by
 |---------|-------|---------|
 | `tls` | `eggnet-tls`, `eggserve-core`, `eggserve-bin`, `eggserve-python` | Neutral rustls identity/trust policy plus EggServe async TLS transport |
 | `http2` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/2 runtime; Python remains H1-only |
-| `http3` | `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/h3 identity and same-port UDP; Python remains H1-only |
+| `http3` | `eggserve-h3`, `eggserve-core`, `eggserve-bin` | Experimental bounded HTTP/3/QUIC runtime; separate TLS 1.3/h3 identity and same-port UDP; Python remains H1-only |
 | `python-bindings-internal` | `eggserve-core` | Internal flag for Python binding constructors |
 | `windows-adversarial-qualification` | `eggserve-core` | Windows adversarial qualification |
 

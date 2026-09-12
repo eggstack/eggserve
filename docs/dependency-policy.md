@@ -3,14 +3,15 @@
 The release smoke fixture uses only Python's standard library, and the existing
 Hyper/Tokio transport remains the sole file-stream conversion boundary.
 
-Plans 211 and 212 add a checked crate topology. `eggserve-primitives` is the canonical
+Plans 211–213 add a checked crate topology. `eggserve-primitives` is the canonical
 leaf and intentionally has no Cargo dependencies. `eggserve-server` owns
 Hyper/Tokio transport and depends on primitives, never on static serving or
 the compatibility aggregate. `eggserve-static` owns filesystem-specific
 behavior and depends on primitives plus server. `eggserve-core` remains a
 0.1 compatibility aggregate during migration. `eggnet-tls` owns neutral
 rustls identity/trust/client-auth/reload policy and depends only on rustls and
-rustls-pki-types at runtime. See
+rustls-pki-types at runtime. `eggserve-h3` owns the direct Quinn/H3/H3-Quinn
+production dependency set and is optional from the core facade. See
 [`architecture/crate-topology.md`](../architecture/crate-topology.md).
 
 ## Rules
@@ -45,7 +46,7 @@ The following dependency categories are approved for initial development:
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
 | Neutral TLS substrate | `eggnet-tls` | Bounded server identity, SNI, WebPKI mTLS, trust/CRL parsing, and atomic reload; no application or transport dependencies |
-| HTTP/3 transport | `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
+| HTTP/3 transport | `eggserve-h3` → `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
 | WebSocket interop fixture (dev-only) | `tokio-tungstenite` (dev-dependency, tests only) | Plan 199 Track I: proves generic tunnel handoff sufficient for downstream WS codec (handshake via EggServe, framing over `TunnelIo`); never enters production `eggserve-core`/`eggserve-bin` graphs |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
 | Unix syscalls | `rustix` (Unix-only: `fs` + `net`) | Descriptor-relative filesystem confinement plus socket-activation fd validation (`SOCK_STREAM`/`SO_ACCEPTCONN`/family); no service-manager crate in default or minimal builds |
@@ -82,8 +83,10 @@ The following dependency categories are approved for initial development:
   HTTP, QUIC, proxy, tracing, filesystem watching, and application policy stay
   in consuming projects.
 - H3 dependencies are optional and feature-gated behind `http3` (which also
-  enables `tls`). The adapter keeps Quinn/h3 types internal, pins the selected
-  versions in `Cargo.lock`, and is covered by the same `cargo audit`/`cargo deny`
+  enables `tls`). `eggserve-h3` owns the direct declarations and pins the
+  selected coordinated versions in `Cargo.lock`; the core compatibility facade
+  consumes only that package. The boundary is covered by the same
+  `cargo audit`/`cargo deny`
   gates as the default graph. Plans 188, 190, 192, 193, 194, and 195 close with H3
   experimental because
   independent-client and adversarial QUIC evidence was unavailable on the
@@ -96,7 +99,9 @@ The following dependency categories are approved for initial development:
   tier on the unchanged candidate; Plan 194 adds the per-stream
   producer-timeout correction without changing the tier, and Plan 195
   correctively qualifies that bound without changing the tier. No fork or vendored H3
-  patch is permitted to force a supported label.
+  patch is permitted to force a supported label. Plan 213 records the package
+  boundary and qualification inventory in
+  `release/plan-213-http3-quic-isolation-qualification.md`.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a
   current-thread runtime, while Python enables a bounded multi-thread runtime

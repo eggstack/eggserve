@@ -10,6 +10,7 @@ use eggserve_core::primitives::canonical::{
     Response, ResponseBody, ResponseStream, ResponseStreamError, StatusCode,
 };
 use eggserve_core::server::{service_fn, Http3Config, Request, RuntimeConfig, Server};
+use eggserve_h3::{h3, h3_quinn};
 use futures_util::{future, StreamExt};
 use h3::client;
 use h3_quinn::quinn::crypto::rustls::QuicClientConfig;
