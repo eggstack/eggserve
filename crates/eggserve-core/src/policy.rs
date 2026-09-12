@@ -3,13 +3,6 @@
 //! All policy types default to the most restrictive setting. Callers must
 //! explicitly opt in to less restrictive behaviors.
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[allow(dead_code)]
-pub(crate) enum PolicyMode {
-    Strict,
-    Compat,
-}
-
 /// Controls whether directory listings are generated for directory requests
 /// that lack an `index.html`.
 ///

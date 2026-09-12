@@ -120,7 +120,7 @@ documented separately in `docs/python-api.md`.
 |------|------|-------|
 | `Server` | experimental | Main entry point; `Server::builder()` returns `ServerBuilder` |
 | `ServerBuilder` | experimental | Configured builder; `.runtime()`, `.serve_config()`, `.static_service()`, `.start()`, `.bind()`, `.from_listener()`, `.from_std_listener()`, `.from_unix_listener()`, `.from_std_unix_listener()`, `.from_systemd_index()`, `.from_systemd_name()`, `.http3_socket()` |
-| `ServerHandle` | experimental | Control handle: `local_addr()`, `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
+| `ServerHandle` | experimental | Control handle: `local_addr()` (panics on Unix-only servers; prefer `tcp_local_addr()`/`endpoints()` there), `shutdown()`, `wait()`, `ready()`, `force_shutdown()`, `state()` |
 | `RuntimeConfig` | experimental | Transport-level config: bind, limits, timeouts, body ceiling, optional TLS |
 | `Http2Config` | experimental (`http2`) | Explicit bounded H2 stream/header/frame/flow-control/reset/keepalive limits; Rust only; Plans 186/190/191 keep H2 experimental (see the Plan 191 closure record) |
 | `RuntimeConfigBuilder` | experimental | Builder for RuntimeConfig |
@@ -173,7 +173,6 @@ documented separately in `docs/python-api.md`.
 | `SymlinkPolicy` | stable | Enum: `Denied`, `Follow` |
 | `DotfilePolicy` | stable | Enum: `Denied`, `Serve` |
 | `StaticPolicy` | stable | All fields public |
-| `PolicyMode` | internal | pub(crate) |
 
 ### `primitives` Module — Path Types
 

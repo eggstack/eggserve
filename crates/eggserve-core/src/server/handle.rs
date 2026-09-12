@@ -39,7 +39,9 @@ use crate::server::lifecycle::Lifecycle;
 /// - Wait for readiness (via [`ServerHandle::ready`])
 /// - Trigger graceful shutdown (via [`ServerHandle::shutdown`])
 /// - Trigger forced shutdown (via [`ServerHandle::force_shutdown`])
-/// - Query the listening address (via [`ServerHandle::local_addr`])
+/// - Query the listening address (via [`ServerHandle::local_addr`]; prefer
+///   [`ServerHandle::tcp_local_addr`]/[`ServerHandle::endpoints`] for
+///   Unix-only servers where `local_addr()` panics)
 /// - Wait for completion (via [`ServerHandle::wait`])
 ///
 /// Dropping the handle triggers graceful shutdown — the server stops
@@ -187,6 +189,13 @@ impl ServerHandle {
     /// This preserves the common one-TCP-listener path. Unix-only servers
     /// have no TCP address: this panics with an actionable message directing
     /// to [`ServerHandle::endpoints`]/[`ServerHandle::tcp_local_addr`].
+    ///
+    /// # Panics
+    ///
+    /// Panics on Unix-only servers (no TCP endpoint). Prefer
+    /// [`ServerHandle::tcp_local_addr`] (returns `None` there) or
+    /// [`ServerHandle::endpoints`] for generic callers that must handle
+    /// both TCP and Unix-only servers without panicking.
     pub fn local_addr(&self) -> SocketAddr {
         self.tcp_local_addr()
             .expect("unix-only server has no TCP local address; use ServerHandle::endpoints()")

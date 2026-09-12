@@ -25,6 +25,12 @@ use super::response::finalize_runtime_response;
 /// (which enforces keep-alive-idle, write-progress, and total-lifetime
 /// deadlines).
 ///
+/// Lock-poisoning containment: the `state`/`response_poll_progress` mutexes
+/// are only locked without panicking; on poisoning the update is skipped
+/// (progress treated as no-progress, stall checks report "not stalled") and
+/// the outer connection/write timeouts remain the backstop. The I/O path
+/// never panics on a poisoned lock.
+///
 /// The driver sleeps until the next applicable deadline and recomputes on
 /// every state change: all transitions that create new (earlier) deadlines
 /// wake the driver via [`ConnectionActivity::notify`]. Transitions that only

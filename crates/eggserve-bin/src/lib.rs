@@ -331,12 +331,16 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                 .serve_config(serve_config);
             #[cfg(feature = "http3")]
             let server_builder = if args.http3 {
-                server_builder.http3_identity(
-                    args.tls_cert
-                        .as_ref()
-                        .expect("--http3 requires certificate"),
-                    args.tls_key.as_ref().expect("combined or explicit key"),
-                )
+                let (Some(cert), Some(key)) = (args.tls_cert.as_ref(), args.tls_key.as_ref())
+                else {
+                    Logger::global().emit(Event::new(
+                        Severity::Error,
+                        EventKind::ProcessStarting,
+                        "--http3 requires --tls-cert (and optionally --tls-key)",
+                    ));
+                    return 1;
+                };
+                server_builder.http3_identity(cert, key)
             } else {
                 server_builder
             };
