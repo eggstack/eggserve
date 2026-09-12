@@ -136,13 +136,11 @@ async fn tls_post_with_body() {
     let response = String::from_utf8_lossy(&response);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "TLS POST with body should succeed: {}",
-        response
+        "TLS POST with body should succeed: {response}"
     );
     assert!(
         response.contains("hello"),
-        "response should echo body: {}",
-        response
+        "response should echo body: {response}"
     );
     handle.shutdown();
 }
@@ -193,13 +191,11 @@ async fn tls_chunked_body() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "TLS chunked body should succeed: {}",
-        response
+        "TLS chunked body should succeed: {response}"
     );
     assert!(
         response.contains("hello world"),
-        "response should contain reassembled body: {}",
-        response
+        "response should contain reassembled body: {response}"
     );
     handle.shutdown();
 }
@@ -234,8 +230,7 @@ async fn tls_body_limit_exceeded() {
     let response = String::from_utf8_lossy(&response);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "TLS body limit exceeded should return 413: {}",
-        response
+        "TLS body limit exceeded should return 413: {response}"
     );
     handle.shutdown();
 }
@@ -270,8 +265,7 @@ async fn tls_body_timeout() {
     let response = String::from_utf8_lossy(&response);
     assert!(
         response.starts_with("HTTP/1.1 408") || response.is_empty(),
-        "TLS body timeout should return 408 or close: {}",
-        response
+        "TLS body timeout should return 408 or close: {response}"
     );
     handle.shutdown();
 }
@@ -298,8 +292,7 @@ async fn tls_get_with_body_rejected() {
     let response = String::from_utf8_lossy(&response);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "TLS GET with body should return 413: {}",
-        response
+        "TLS GET with body should return 413: {response}"
     );
     handle.shutdown();
 }
@@ -355,8 +348,7 @@ async fn tls_partial_body_close_policy() {
     let response = String::from_utf8_lossy(&response);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "TLS partial body with close policy should succeed: {}",
-        response
+        "TLS partial body with close policy should succeed: {response}"
     );
     handle.shutdown();
 }

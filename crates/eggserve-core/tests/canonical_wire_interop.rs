@@ -217,8 +217,7 @@ async fn test_conditional_304_wire() {
     let etag = get_etag(s.addr).await;
 
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     );
     let raw = send_raw(s.addr, req.as_bytes()).await;
 

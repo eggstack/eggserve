@@ -619,7 +619,7 @@ where
                         crate::ops::Event::new(
                             crate::ops::Severity::Debug,
                             crate::ops::EventKind::ParserRejection,
-                            format!("parser rejection: {}", e),
+                            format!("parser rejection: {e}"),
                         )
                         .connection_id(conn_id),
                     );

@@ -97,8 +97,7 @@ async fn handler_timeout_before_body_timeout() {
     );
     assert!(
         response.starts_with("HTTP/1.1 504") || response.starts_with("HTTP/1.1 500"),
-        "expected 504 or 500 on handler timeout, got: {}",
-        response
+        "expected 504 or 500 on handler timeout, got: {response}"
     );
     handle.shutdown();
 }
@@ -138,8 +137,7 @@ async fn body_timeout_before_handler_timeout() {
     // Body timeout should return 408 or connection close
     assert!(
         response.starts_with("HTTP/1.1 408") || response.is_empty(),
-        "expected 408 or connection close on body timeout, got: {}",
-        response
+        "expected 408 or connection close on body timeout, got: {response}"
     );
     handle.shutdown();
 }
@@ -187,8 +185,7 @@ async fn graceful_shutdown_waits_for_body_completion() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
 
     // Body should have been consumed
@@ -254,8 +251,7 @@ async fn forced_shutdown_during_body_ingestion() {
                 | Ok(eggserve_core::server::errors::ShutdownResult::Timeout)
                 | Err(_)
         ),
-        "forced shutdown should complete, got: {:?}",
-        result
+        "forced shutdown should complete, got: {result:?}"
     );
 }
 
@@ -298,8 +294,7 @@ async fn partial_body_read_then_shutdown() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
 
     // Server should still be responsive after partial consumption
@@ -313,8 +308,7 @@ async fn partial_body_read_then_shutdown() {
     let response2 = String::from_utf8_lossy(&buf2);
     assert!(
         response2.starts_with("HTTP/1.1 200"),
-        "server should be responsive after partial consumption, got: {}",
-        response2
+        "server should be responsive after partial consumption, got: {response2}"
     );
 
     handle.shutdown();
@@ -371,8 +365,7 @@ async fn repeated_requests_after_body_timeout() {
     let response2 = String::from_utf8_lossy(&buf2);
     assert!(
         response2.starts_with("HTTP/1.1 200"),
-        "second request should succeed, got: {}",
-        response2
+        "second request should succeed, got: {response2}"
     );
 
     // Third: normal request on new connection
@@ -387,8 +380,7 @@ async fn repeated_requests_after_body_timeout() {
     let response3 = String::from_utf8_lossy(&buf3);
     assert!(
         response3.starts_with("HTTP/1.1 200"),
-        "third request should succeed, got: {}",
-        response3
+        "third request should succeed, got: {response3}"
     );
 
     assert_eq!(

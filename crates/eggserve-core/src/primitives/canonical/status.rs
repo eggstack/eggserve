@@ -29,17 +29,16 @@ pub enum ResponseConstructionError {
 impl fmt::Display for ResponseConstructionError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::InvalidStatus(code) => write!(f, "invalid status code: {}", code),
-            Self::InvalidHeader(e) => write!(f, "invalid header: {}", e),
+            Self::InvalidStatus(code) => write!(f, "invalid status code: {code}"),
+            Self::InvalidHeader(e) => write!(f, "invalid header: {e}"),
             Self::ForbiddenFramingHeader(name) => {
-                write!(f, "forbidden framing header: {}", name)
+                write!(f, "forbidden framing header: {name}")
             }
             Self::BodyAlreadyConsumed => write!(f, "response body already consumed"),
             Self::ContentLengthMismatch { declared, actual } => {
                 write!(
                     f,
-                    "content-length mismatch: declared {}, actual {}",
-                    declared, actual
+                    "content-length mismatch: declared {declared}, actual {actual}"
                 )
             }
             Self::FileStreamLimit => write!(f, "file stream admission limit reached"),

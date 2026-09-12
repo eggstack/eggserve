@@ -1568,8 +1568,7 @@ async fn bridge_perf_sanity_no_pathological_overhead() {
     .await;
 
     eprintln!(
-        "plan175 perf sanity (20 req each): baseline={:?} one-chunk={:?} multi-chunk={:?}",
-        baseline, one_chunk, multi_chunk
+        "plan175 perf sanity (20 req each): baseline={baseline:?} one-chunk={one_chunk:?} multi-chunk={multi_chunk:?}"
     );
     // Generous non-gating sanity: each 20-request run completes quickly on
     // loopback and the bridge stays within an order of magnitude of baseline.

@@ -255,11 +255,7 @@ async fn fault_concurrent_requests_under_pressure() {
 
     // Create files
     for i in 0..10 {
-        fs::write(
-            root.join(format!("file_{}.txt", i)),
-            format!("content {}", i),
-        )
-        .unwrap();
+        fs::write(root.join(format!("file_{i}.txt")), format!("content {i}")).unwrap();
     }
 
     // Send many concurrent requests
@@ -289,11 +285,7 @@ async fn fault_shutdown_during_requests() {
 
     // Create files
     for i in 0..5 {
-        fs::write(
-            root.join(format!("file_{}.txt", i)),
-            format!("content {}", i),
-        )
-        .unwrap();
+        fs::write(root.join(format!("file_{i}.txt")), format!("content {i}")).unwrap();
     }
 
     // Start requests
@@ -328,7 +320,7 @@ async fn fault_large_file_streaming_stress() {
     // Create large files
     for i in 0..5 {
         let data = vec![b'x'; 1024 * 1024]; // 1MB each
-        fs::write(root.join(format!("large_{}.bin", i)), &data).unwrap();
+        fs::write(root.join(format!("large_{i}.bin")), &data).unwrap();
     }
 
     // Stream all concurrently
@@ -336,10 +328,7 @@ async fn fault_large_file_streaming_stress() {
     for i in 0..5 {
         let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
-            let resp = svc
-                .call(get_req(&format!("/large_{}.bin", i)))
-                .await
-                .unwrap();
+            let resp = svc.call(get_req(&format!("/large_{i}.bin"))).await.unwrap();
             assert_eq!(resp.status().as_u16(), 200);
             let _ = extract_body_bytes(&resp);
         }));
@@ -388,12 +377,12 @@ async fn fault_directory_listing_under_modification() {
     handles.push(tokio::spawn(async move {
         for i in 0..20 {
             fs::write(
-                root_clone.join(format!("dir/file_{}.txt", i)),
-                format!("content {}", i),
+                root_clone.join(format!("dir/file_{i}.txt")),
+                format!("content {i}"),
             )
             .unwrap();
             if i % 2 == 0 {
-                let _ = fs::remove_file(root_clone.join(format!("dir/file_{}.txt", i)));
+                let _ = fs::remove_file(root_clone.join(format!("dir/file_{i}.txt")));
             }
         }
     }));
@@ -570,7 +559,7 @@ async fn fault_concurrent_streaming_stress() {
     // Create many files
     for i in 0..20 {
         let data = vec![b'x'; 1024 * 64]; // 64KB each
-        fs::write(root.join(format!("file_{}.bin", i)), &data).unwrap();
+        fs::write(root.join(format!("file_{i}.bin")), &data).unwrap();
     }
 
     // Stream all concurrently
@@ -578,10 +567,7 @@ async fn fault_concurrent_streaming_stress() {
     for i in 0..20 {
         let svc = setup.svc.clone();
         handles.push(tokio::spawn(async move {
-            let resp = svc
-                .call(get_req(&format!("/file_{}.bin", i)))
-                .await
-                .unwrap();
+            let resp = svc.call(get_req(&format!("/file_{i}.bin"))).await.unwrap();
             assert_eq!(resp.status().as_u16(), 200);
             let _ = extract_body_bytes(&resp);
         }));
@@ -641,8 +627,8 @@ async fn fault_fd_exhaustion_recovery() {
     // Open many file descriptors to pressure the system
     let mut _open_files: Vec<fs::File> = Vec::new();
     for i in 0..128 {
-        let path = root.join(format!("pressure_{}.txt", i));
-        fs::write(&path, format!("data {}", i)).unwrap();
+        let path = root.join(format!("pressure_{i}.txt"));
+        fs::write(&path, format!("data {i}")).unwrap();
         match fs::File::open(&path) {
             Ok(f) => _open_files.push(f),
             Err(_) => break,
@@ -664,11 +650,7 @@ async fn fault_forced_shutdown_under_load() {
     let root = setup.root();
 
     for i in 0..10 {
-        fs::write(
-            root.join(format!("file_{}.txt", i)),
-            format!("content {}", i),
-        )
-        .unwrap();
+        fs::write(root.join(format!("file_{i}.txt")), format!("content {i}")).unwrap();
     }
 
     let mut handles = Vec::new();
@@ -700,8 +682,8 @@ async fn fault_rapid_create_delete_cycles() {
 
     let writer = tokio::spawn(async move {
         for i in 0..50 {
-            let path = root_clone.join(format!("temp_{}.txt", i));
-            fs::write(&path, format!("temp {}", i)).unwrap();
+            let path = root_clone.join(format!("temp_{i}.txt"));
+            fs::write(&path, format!("temp {i}")).unwrap();
             let _ = fs::remove_file(&path);
         }
     });

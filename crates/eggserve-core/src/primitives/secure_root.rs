@@ -23,7 +23,7 @@ impl fmt::Display for ResourceDeniedReason {
             Self::SymlinkDenied => write!(f, "symlink denied"),
             Self::DotfileDenied => write!(f, "dotfile denied"),
             Self::RootEscapeDenied => write!(f, "root escape denied"),
-            Self::PolicyDenied(inner) => write!(f, "{}", inner),
+            Self::PolicyDenied(inner) => write!(f, "{inner}"),
         }
     }
 }
@@ -449,9 +449,9 @@ impl fmt::Display for ResolveAndPlanError {
         match self {
             Self::NotFound => write!(f, "not found"),
             Self::IsDirectory => write!(f, "is a directory"),
-            Self::Denied(r) => write!(f, "{}", r),
-            Self::Body(e) => write!(f, "{}", e),
-            Self::Io(e) => write!(f, "filesystem resolution failed: {}", e),
+            Self::Denied(r) => write!(f, "{r}"),
+            Self::Body(e) => write!(f, "{e}"),
+            Self::Io(e) => write!(f, "filesystem resolution failed: {e}"),
         }
     }
 }
@@ -643,7 +643,7 @@ mod tests {
             ResolvedResource::Denied(reason) => {
                 assert!(matches!(reason, ResourceDeniedReason::DotfileDenied));
             }
-            other => panic!("expected Denied(DotfileDenied), got {:?}", other),
+            other => panic!("expected Denied(DotfileDenied), got {other:?}"),
         }
     }
 
@@ -680,7 +680,7 @@ mod tests {
             ResolvedResource::Denied(reason) => {
                 assert!(matches!(reason, ResourceDeniedReason::SymlinkDenied));
             }
-            other => panic!("expected Denied(SymlinkDenied), got {:?}", other),
+            other => panic!("expected Denied(SymlinkDenied), got {other:?}"),
         }
     }
 
@@ -720,7 +720,7 @@ mod tests {
             ResolvedResource::Denied(reason) => {
                 assert!(matches!(reason, ResourceDeniedReason::SymlinkDenied));
             }
-            other => panic!("expected Denied(SymlinkDenied), got {:?}", other),
+            other => panic!("expected Denied(SymlinkDenied), got {other:?}"),
         }
     }
 
@@ -750,7 +750,7 @@ mod tests {
             ResolvedResource::Denied(reason) => {
                 assert!(matches!(reason, ResourceDeniedReason::RootEscapeDenied));
             }
-            other => panic!("expected Denied(RootEscapeDenied), got {:?}", other),
+            other => panic!("expected Denied(RootEscapeDenied), got {other:?}"),
         }
     }
 
@@ -800,7 +800,7 @@ mod tests {
             ResolvedResource::Denied(reason) => {
                 assert!(matches!(reason, ResourceDeniedReason::DotfileDenied));
             }
-            other => panic!("expected Denied(DotfileDenied), got {:?}", other),
+            other => panic!("expected Denied(DotfileDenied), got {other:?}"),
         }
     }
 

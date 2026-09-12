@@ -16,5 +16,13 @@ workspace = true
 
 [features]
 default = []
+http-interop = []
 
 [dependencies]
+bytes = "1"
+futures-util = "0.3"
+
+[dev-dependencies]
+proptest = "1"
+tempfile = "3"
+tokio = { version = "1", features = ["rt", "rt-multi-thread", "time", "macros", "sync"] }

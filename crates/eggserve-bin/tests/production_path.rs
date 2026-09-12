@@ -91,17 +91,15 @@ async fn prod_get_returns_200_with_body() {
     )
     .await;
     let resp = String::from_utf8_lossy(&raw);
-    assert!(resp.starts_with("HTTP/1.1 200 OK"), "unexpected: {}", resp);
-    assert!(resp.contains("hello world"), "missing body: {}", resp);
+    assert!(resp.starts_with("HTTP/1.1 200 OK"), "unexpected: {resp}");
+    assert!(resp.contains("hello world"), "missing body: {resp}");
     assert!(
         resp.contains("x-content-type-options: nosniff"),
-        "missing nosniff: {}",
-        resp
+        "missing nosniff: {resp}"
     );
     assert!(
         resp.contains("accept-ranges: bytes"),
-        "missing accept-ranges: {}",
-        resp
+        "missing accept-ranges: {resp}"
     );
 }
 
@@ -114,17 +112,16 @@ async fn prod_head_returns_200_no_body() {
     )
     .await;
     let resp = String::from_utf8_lossy(&raw);
-    assert!(resp.starts_with("HTTP/1.1 200 OK"), "unexpected: {}", resp);
+    assert!(resp.starts_with("HTTP/1.1 200 OK"), "unexpected: {resp}");
     let body = if let Some(idx) = resp.find("\r\n\r\n") {
         &resp[idx + 4..]
     } else {
         ""
     };
-    assert!(body.is_empty(), "HEAD should suppress body: {}", resp);
+    assert!(body.is_empty(), "HEAD should suppress body: {resp}");
     assert!(
         resp.contains("content-length: 11"),
-        "missing content-length: {}",
-        resp
+        "missing content-length: {resp}"
     );
 }
 
@@ -143,25 +140,22 @@ async fn prod_range_returns_206() {
     let resp = String::from_utf8_lossy(&raw);
     assert!(
         resp.starts_with("HTTP/1.1 206 Partial Content"),
-        "unexpected: {}",
-        resp
+        "unexpected: {resp}"
     );
     assert!(
         resp.contains("content-range: bytes 0-4/11"),
-        "missing content-range: {}",
-        resp
+        "missing content-range: {resp}"
     );
     assert!(
         resp.contains("content-length: 5"),
-        "missing content-length: {}",
-        resp
+        "missing content-length: {resp}"
     );
     let body = if let Some(idx) = resp.find("\r\n\r\n") {
         &resp[idx + 4..]
     } else {
         ""
     };
-    assert_eq!(body, "hello", "range body mismatch: {}", resp);
+    assert_eq!(body, "hello", "range body mismatch: {resp}");
 }
 
 // ---------------------------------------------------------------------------
@@ -179,7 +173,7 @@ async fn prod_connection_close_terminates() {
     let mut buf = Vec::new();
     stream.read_to_end(&mut buf).await.unwrap();
     let resp = String::from_utf8_lossy(&buf);
-    assert!(resp.contains("200"), "expected 200: {}", resp);
+    assert!(resp.contains("200"), "expected 200: {resp}");
 }
 
 #[tokio::test]
@@ -191,7 +185,7 @@ async fn prod_connection_close_header_in_response() {
     )
     .await;
     let resp = String::from_utf8_lossy(&raw);
-    assert!(resp.contains("200"), "expected 200: {}", resp);
+    assert!(resp.contains("200"), "expected 200: {resp}");
 }
 
 // ---------------------------------------------------------------------------
@@ -208,8 +202,7 @@ async fn prod_garbage_request_closes_connection() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         resp.contains("400") || buf.is_empty(),
-        "expected 400 or connection close, got: {}",
-        resp
+        "expected 400 or connection close, got: {resp}"
     );
 }
 
@@ -230,8 +223,7 @@ async fn prod_premature_eof_does_not_leak_state() {
     .await;
     assert!(
         line.contains("200"),
-        "server should survive premature eof: {}",
-        line
+        "server should survive premature eof: {line}"
     );
 }
 
@@ -254,8 +246,7 @@ async fn prod_partial_header_times_out() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         buf.is_empty() || resp.contains("408") || !resp.starts_with("HTTP"),
-        "connection should be closed after header timeout, got: {}",
-        resp
+        "connection should be closed after header timeout, got: {resp}"
     );
 }
 
@@ -271,7 +262,7 @@ async fn prod_complete_header_within_timeout_succeeds() {
     )
     .await;
     let resp = String::from_utf8_lossy(&raw);
-    assert!(resp.contains("200"), "expected 200: {}", resp);
+    assert!(resp.contains("200"), "expected 200: {resp}");
 }
 
 // ---------------------------------------------------------------------------
@@ -315,8 +306,7 @@ async fn prod_connection_limit_enforced() {
         .count();
     assert!(
         succeeded <= 2,
-        "at most 2 connections should succeed, got {}",
-        succeeded
+        "at most 2 connections should succeed, got {succeeded}"
     );
 }
 
@@ -344,8 +334,7 @@ async fn prod_server_recovers_after_connections_close() {
     .await;
     assert!(
         line.contains("200"),
-        "server should recover after connection closes: {}",
-        line
+        "server should recover after connection closes: {line}"
     );
 }
 
@@ -363,11 +352,7 @@ async fn prod_graceful_shutdown_drains() {
     )
     .await;
     let resp = String::from_utf8_lossy(&raw);
-    assert!(
-        resp.contains("200"),
-        "expected 200 before shutdown: {}",
-        resp
-    );
+    assert!(resp.contains("200"), "expected 200 before shutdown: {resp}");
 
     s._handle.shutdown();
 
@@ -398,8 +383,7 @@ async fn prod_inflight_request_completes_before_shutdown() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         resp.contains("200"),
-        "inflight request should complete: {}",
-        resp
+        "inflight request should complete: {resp}"
     );
 }
 
@@ -416,7 +400,7 @@ async fn prod_server_survives_many_requests() {
             b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
         )
         .await;
-        assert!(line.contains("200"), "expected 200: {}", line);
+        assert!(line.contains("200"), "expected 200: {line}");
     }
 }
 
@@ -440,7 +424,7 @@ async fn prod_keepalive_allows_multiple_requests() {
     let _ = stream.read_buf(&mut buf).await;
 
     let resp1 = String::from_utf8_lossy(&buf);
-    assert!(resp1.contains("200"), "first request: {}", resp1);
+    assert!(resp1.contains("200"), "first request: {resp1}");
 
     stream
         .write_all(b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n")
@@ -450,7 +434,7 @@ async fn prod_keepalive_allows_multiple_requests() {
     let mut buf2 = Vec::new();
     let _ = stream.read_to_end(&mut buf2).await;
     let resp2 = String::from_utf8_lossy(&buf2);
-    assert!(resp2.contains("200"), "second request: {}", resp2);
+    assert!(resp2.contains("200"), "second request: {resp2}");
 }
 
 // ---------------------------------------------------------------------------
@@ -465,7 +449,7 @@ async fn prod_post_returns_405() {
         b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "expected 405: {}", line);
+    assert!(line.contains("405"), "expected 405: {line}");
 }
 
 #[tokio::test]
@@ -476,7 +460,7 @@ async fn prod_put_returns_405() {
         b"PUT /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "expected 405: {}", line);
+    assert!(line.contains("405"), "expected 405: {line}");
 }
 
 // ---------------------------------------------------------------------------
@@ -647,10 +631,10 @@ async fn parity_subdir_if_none_match_304() {
     let etag = header_value(&raw, "etag").expect("should have etag");
 
     let dir_resp = send_request(s.addr, &format!(
-        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n", etag
+        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     )).await;
     let file_resp = send_request(s.addr, &format!(
-        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n", etag
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     )).await;
 
     assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
@@ -672,10 +656,10 @@ async fn parity_subdir_if_modified_since_304() {
     let lm = header_value(&raw, "last-modified").expect("should have last-modified");
 
     let dir_resp = send_request(s.addr, &format!(
-        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: {}\r\nConnection: close\r\n\r\n", lm
+        "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: {lm}\r\nConnection: close\r\n\r\n"
     )).await;
     let file_resp = send_request(s.addr, &format!(
-        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: {}\r\nConnection: close\r\n\r\n", lm
+        "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: {lm}\r\nConnection: close\r\n\r\n"
     )).await;
 
     assert_eq!(extract_status(&dir_resp), extract_status(&file_resp));
@@ -767,10 +751,7 @@ async fn parity_keepalive_reuse() {
     let etag = header_value(&resp1, "etag").expect("should have etag");
     let resp2 = send_request_keepalive(
         &mut stream,
-        &format!(
-            "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\n\r\n",
-            etag
-        ),
+        &format!("GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\n\r\n"),
     )
     .await;
     assert!(extract_status(&resp2).contains("304"));
@@ -905,14 +886,12 @@ async fn parity_installed_binary_direct_and_index_semantics() {
         assert_eq!(
             extract_status(&dir_resp),
             extract_status(&file_resp),
-            "status mismatch for: {}",
-            dir_req
+            "status mismatch for: {dir_req}"
         );
         assert_eq!(
             body_after(&dir_resp),
             body_after(&file_resp),
-            "body mismatch for: {}",
-            dir_req
+            "body mismatch for: {dir_req}"
         );
     }
 
@@ -926,16 +905,14 @@ async fn parity_installed_binary_direct_and_index_semantics() {
     let dir_304 = send_request(
         s.addr,
         &format!(
-            "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-            etag
+            "GET /subdir/ HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
         ),
     )
     .await;
     let file_304 = send_request(
         s.addr,
         &format!(
-            "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-            etag
+            "GET /subdir/index.html HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
         ),
     )
     .await;
@@ -988,8 +965,7 @@ async fn prod_mid_body_disconnect_server_recovers() {
         let resp_head = String::from_utf8_lossy(&buf);
         assert!(
             resp_head.contains("200"),
-            "expected 200 before disconnect: {}",
-            resp_head
+            "expected 200 before disconnect: {resp_head}"
         );
         // Drop without reading body — simulates client detecting error/EOF
         drop(stream);
@@ -1006,8 +982,7 @@ async fn prod_mid_body_disconnect_server_recovers() {
     .await;
     assert!(
         line.contains("200"),
-        "server must recover after mid-body disconnect: {}",
-        line
+        "server must recover after mid-body disconnect: {line}"
     );
 }
 
@@ -1060,8 +1035,7 @@ async fn prod_mid_body_file_delete_no_panic() {
     .await;
     assert!(
         line.contains("200"),
-        "server must handle mid-body file deletion: {}",
-        line
+        "server must handle mid-body file deletion: {line}"
     );
 }
 
@@ -1095,7 +1069,7 @@ async fn prod_range_stream_disconnect_recovers() {
             }
         }
         let head = String::from_utf8_lossy(&buf);
-        assert!(head.contains("206"), "expected 206: {}", head);
+        assert!(head.contains("206"), "expected 206: {head}");
         drop(stream);
     }
 
@@ -1109,7 +1083,6 @@ async fn prod_range_stream_disconnect_recovers() {
     .await;
     assert!(
         line.contains("200"),
-        "server must recover after range stream disconnect: {}",
-        line
+        "server must recover after range stream disconnect: {line}"
     );
 }

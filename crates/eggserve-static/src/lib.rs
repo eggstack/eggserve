@@ -1,195 +1,247 @@
-//! Hardened static-file serving as an optional EggServe specialization.
+//! Hardened static-file serving built on the mature EggServe resolver.
 //!
-//! `eggserve-server` does not depend on this crate. Applications that need
-//! static files opt in by adding this crate and passing [`StaticService`] to
-//! the generic runtime. The resolver rejects traversal, dotfiles, and
-//! symlink components by default, and retains the configured root boundary.
+//! Resolution is descriptor/handle-relative under safe defaults. The service
+//! keeps the opened file capability through planning and response construction;
+//! it never checks a path and reopens it by pathname.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
-use eggserve_primitives::{Request, Response, ResponseBody, StatusCode};
+use eggserve_primitives::{
+    BodyPlan, BodySource, ReadOnlyMethod, Request, Response, ResponseBody,
+    ResponseConstructionError, StaticPolicy, StatusCode,
+};
 use eggserve_server::{Service, ServiceError, ServiceFuture};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum DirectoryListingPolicy {
-    #[default]
-    Disabled,
-    Enabled,
-}
+mod fs;
+mod mime;
+mod path;
+mod planner;
+mod secure_root;
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum SymlinkPolicy {
-    #[default]
-    Denied,
-    Follow,
-}
+pub use path::{DotfilePolicy as PathDotfilePolicy, PathPolicy, PathRejection};
+pub use planner::{
+    evaluate_conditional_headers, evaluate_if_match, evaluate_if_none_match, evaluate_if_range,
+    evaluate_range_header, generate_etag, plan_directory_listing, plan_file_response,
+    plan_file_response_with_preconditions, plan_file_response_with_preconditions_and_metadata,
+};
+pub use secure_root::{
+    resolve_and_plan, ResolveAndPlanError, ResolvedDirectory, ResolvedFile, ResolvedResource,
+    ResourceDeniedReason, SecureRoot,
+};
 
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub enum DotfilePolicy {
-    #[default]
-    Denied,
-    Serve,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-pub struct StaticPolicy {
-    pub directory_listing: DirectoryListingPolicy,
-    pub symlinks: SymlinkPolicy,
-    pub dotfiles: DotfilePolicy,
-}
-
-/// A validated root directory. The root is canonicalized once and every
-/// request is checked component-by-component before it is opened.
+/// Static service configuration.
 #[derive(Debug, Clone)]
-pub struct SecureRoot {
-    root: Arc<PathBuf>,
-}
-impl SecureRoot {
-    pub fn new(root: impl AsRef<Path>) -> Result<Self, std::io::Error> {
-        Ok(Self {
-            root: Arc::new(std::fs::canonicalize(root)?),
-        })
-    }
-    pub fn path(&self) -> &Path {
-        self.root.as_path()
-    }
-    fn resolve(&self, target: &str, policy: StaticPolicy) -> Result<PathBuf, ResolveError> {
-        let path = target.split('?').next().unwrap_or(target);
-        if !path.starts_with('/') {
-            return Err(ResolveError::InvalidTarget);
-        }
-        let mut resolved = self.root.as_ref().clone();
-        for component in path.split('/').filter(|part| !part.is_empty()) {
-            if component == "." || component == ".." || component.contains('\\') {
-                return Err(ResolveError::Traversal);
-            }
-            if component.starts_with('.') && policy.dotfiles == DotfilePolicy::Denied {
-                return Err(ResolveError::Denied);
-            }
-            resolved.push(component);
-            if policy.symlinks == SymlinkPolicy::Denied
-                && std::fs::symlink_metadata(&resolved)
-                    .map(|m| m.file_type().is_symlink())
-                    .unwrap_or(false)
-            {
-                return Err(ResolveError::Denied);
-            }
-        }
-        if policy.symlinks == SymlinkPolicy::Follow {
-            if let Ok(canonical) = std::fs::canonicalize(&resolved) {
-                if !canonical.starts_with(self.root.as_path()) {
-                    return Err(ResolveError::Denied);
-                }
-            }
-        }
-        Ok(resolved)
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ResolveError {
-    InvalidTarget,
-    Traversal,
-    Denied,
-}
-
-#[derive(Clone)]
-pub struct StaticService {
-    root: SecureRoot,
+pub struct StaticServiceBuilder {
+    root: std::path::PathBuf,
     policy: StaticPolicy,
     default_content_type: String,
 }
-impl StaticService {
-    pub fn new(root: impl AsRef<Path>) -> Result<Self, std::io::Error> {
-        Self::with_policy(root, StaticPolicy::default())
-    }
-    pub fn with_policy(
-        root: impl AsRef<Path>,
-        policy: StaticPolicy,
-    ) -> Result<Self, std::io::Error> {
-        Ok(Self {
-            root: SecureRoot::new(root)?,
-            policy,
-            default_content_type: "application/octet-stream".into(),
-        })
-    }
-    pub fn default_content_type(mut self, value: impl Into<String>) -> Self {
-        self.default_content_type = value.into();
+
+impl StaticServiceBuilder {
+    pub fn policy(mut self, policy: StaticPolicy) -> Self {
+        self.policy = policy;
         self
     }
+
+    pub fn default_content_type(mut self, content_type: impl Into<String>) -> Self {
+        self.default_content_type = content_type.into();
+        self
+    }
+
+    pub fn build(self) -> Result<StaticService, ServiceError> {
+        let root = SecureRoot::new(self.root, self.policy).map_err(|error| {
+            ServiceError::internal(format!("failed to initialize static root: {error}"))
+        })?;
+        Ok(StaticService {
+            root: Arc::new(root),
+            default_content_type: self.default_content_type,
+        })
+    }
+}
+
+/// Hardened static-file service implementing the direct server service trait.
+#[derive(Clone)]
+pub struct StaticService {
+    root: Arc<SecureRoot>,
+    #[allow(dead_code)]
+    default_content_type: String,
+}
+
+impl StaticService {
+    pub fn builder(root: impl AsRef<Path>) -> StaticServiceBuilder {
+        StaticServiceBuilder {
+            root: root.as_ref().to_path_buf(),
+            policy: StaticPolicy::safe_default(),
+            default_content_type: "application/octet-stream".to_owned(),
+        }
+    }
+
     pub fn root(&self) -> &SecureRoot {
         &self.root
     }
+
     async fn respond(&self, request: Request) -> Result<Response, ServiceError> {
-        if !request.head.method.permits_static_resolution() {
-            return Ok(Response::text(
-                StatusCode::METHOD_NOT_ALLOWED,
-                b"method not allowed\n".to_vec(),
-            ));
+        let head = request.head();
+        if !head.permits_static_resolution() {
+            return Err(ServiceError::rejected(405));
         }
-        let path = self
-            .root
-            .resolve(request.head.target.as_str(), self.policy)
-            .map_err(|_| ServiceError::Rejected(403))?;
-        let metadata = std::fs::metadata(&path).map_err(|_| ServiceError::Rejected(404))?;
-        let path = if metadata.is_dir() {
-            let index = path.join("index.html");
-            if !index.is_file() {
-                if self.policy.directory_listing == DirectoryListingPolicy::Enabled {
-                    return Ok(Response::text(
-                        StatusCode::OK,
-                        b"<html><body>directory listing disabled in topology fixture</body></html>"
-                            .to_vec(),
-                    ));
-                }
-                return Err(ServiceError::Rejected(403));
-            }
-            index
+        let method = if head.is_head() {
+            ReadOnlyMethod::Head
         } else {
-            path
+            ReadOnlyMethod::Get
         };
-        let body = std::fs::read(&path).map_err(|_| ServiceError::Rejected(404))?;
-        let mut response = Response::new(StatusCode::OK, ResponseBody::Bytes(body));
-        let content_type = mime_for_path(&path, &self.default_content_type);
-        response
-            .headers
-            .push_str("content-type", content_type.as_bytes())
-            .map_err(|_| ServiceError::internal("static content type is invalid"))?;
-        Ok(response)
+        let resource = self
+            .root
+            .resolve_uri(head.target().path())
+            .map_err(|_| ServiceError::rejected(400))?;
+
+        match resource {
+            ResolvedResource::File(file) => self.file_response(file, method, &request),
+            ResolvedResource::Directory(directory) => {
+                let index = directory.resolve_child("index.html", &self.root);
+                match index {
+                    ResolvedResource::File(file) => self.file_response(file, method, &request),
+                    ResolvedResource::Directory(_) => Err(ServiceError::rejected(403)),
+                    ResolvedResource::NotFound => self.directory_response(directory, method),
+                    ResolvedResource::Denied(_) | ResolvedResource::IoError(_) => {
+                        Err(ServiceError::rejected(403))
+                    }
+                }
+            }
+            ResolvedResource::NotFound => Err(ServiceError::rejected(404)),
+            ResolvedResource::Denied(_) => Err(ServiceError::rejected(403)),
+            ResolvedResource::IoError(_) => Err(ServiceError::rejected(404)),
+        }
+    }
+
+    fn file_response(
+        &self,
+        file: ResolvedFile,
+        method: ReadOnlyMethod,
+        request: &Request,
+    ) -> Result<Response, ServiceError> {
+        let header = |name: &str| {
+            request
+                .head()
+                .headers()
+                .get_first(name)
+                .and_then(|value| value.to_str().ok())
+        };
+        let detected_content_type = file.content_type();
+        let content_type = if detected_content_type == "application/octet-stream" {
+            self.default_content_type.as_str()
+        } else {
+            detected_content_type
+        };
+        let plan = file.plan_response_with_content_type(
+            method,
+            header("if-match"),
+            header("if-unmodified-since"),
+            header("if-none-match"),
+            header("if-modified-since"),
+            header("range"),
+            header("if-range"),
+            content_type,
+        );
+        let source = file
+            .into_body(&plan)
+            .map_err(|error| ServiceError::internal(error.to_string()))?;
+        response_from_plan(plan, source)
+    }
+
+    fn directory_response(
+        &self,
+        directory: ResolvedDirectory,
+        method: ReadOnlyMethod,
+    ) -> Result<Response, ServiceError> {
+        if self.root.policy().directory_listing
+            != eggserve_primitives::DirectoryListingPolicy::Enabled
+        {
+            return Err(ServiceError::rejected(403));
+        }
+        let entries = directory
+            .list(&self.root, 4096)
+            .map_err(|_| ServiceError::rejected(404))?;
+        let mut body =
+            String::from(r#"<!doctype html><meta charset="utf-8"><title>Index</title><ul>"#);
+        for (name, is_dir) in entries {
+            body.push_str("<li>");
+            if is_dir {
+                body.push_str("<strong>");
+            }
+            for ch in name.chars() {
+                match ch {
+                    '&' => body.push_str("&amp;"),
+                    '<' => body.push_str("&lt;"),
+                    '>' => body.push_str("&gt;"),
+                    '"' => body.push_str("&quot;"),
+                    _ => body.push(ch),
+                }
+            }
+            if is_dir {
+                body.push_str("</strong>/");
+            }
+            body.push_str("</li>");
+        }
+        body.push_str("</ul>");
+        let mut plan = plan_directory_listing(body.len(), matches!(method, ReadOnlyMethod::Head));
+        if matches!(method, ReadOnlyMethod::Get) {
+            plan.body = BodyPlan::FullBytes(body.into_bytes());
+        }
+        response_from_plan(plan, BodySource::Empty)
     }
 }
+
 impl Service for StaticService {
+    fn request_body_policy(
+        &self,
+        _head: &eggserve_primitives::RequestHead,
+    ) -> eggserve_primitives::RequestBodyPolicy {
+        eggserve_primitives::RequestBodyPolicy::Reject
+    }
+
     fn call(&self, request: Request) -> ServiceFuture<'_> {
         Box::pin(self.respond(request))
     }
 }
 
-fn mime_for_path<'a>(path: &Path, fallback: &'a str) -> &'a str {
-    match path
-        .extension()
-        .and_then(|e| e.to_str())
-        .map(|e| e.to_ascii_lowercase())
-        .as_deref()
-    {
-        Some("html") => "text/html; charset=utf-8",
-        Some("css") => "text/css; charset=utf-8",
-        Some("js") => "application/javascript; charset=utf-8",
-        Some("json") => "application/json; charset=utf-8",
-        Some("txt") => "text/plain; charset=utf-8",
-        Some("svg") => "image/svg+xml",
-        Some("png") => "image/png",
-        _ => fallback,
+fn response_from_plan(
+    plan: eggserve_primitives::StaticResponsePlan,
+    source: BodySource,
+) -> Result<Response, ServiceError> {
+    let status = StatusCode::new(plan.status.as_u16())
+        .map_err(|_| ServiceError::internal("static planner returned invalid status"))?;
+    let body = match plan.body {
+        BodyPlan::Empty => ResponseBody::Empty,
+        BodyPlan::FullBytes(bytes) => ResponseBody::Bytes(bytes),
+        BodyPlan::FileFull | BodyPlan::FileRange { .. } => ResponseBody::File(source),
+    };
+    let mut builder = Response::builder().status(status);
+    for field in plan.headers.iter() {
+        builder = builder
+            .header(field.name.clone(), field.value.clone())
+            .map_err(|error: ResponseConstructionError| {
+                ServiceError::internal(error.to_string())
+            })?;
     }
+    builder
+        .body(body)
+        .map_err(|error: ResponseConstructionError| ServiceError::internal(error.to_string()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
     #[test]
-    fn safe_policy_is_the_default() {
-        let policy = StaticPolicy::default();
-        assert_eq!(policy.symlinks, SymlinkPolicy::Denied);
-        assert_eq!(policy.dotfiles, DotfilePolicy::Denied);
+    fn safe_defaults_are_preserved() {
+        let policy = StaticPolicy::safe_default();
+        assert_eq!(
+            policy.directory_listing,
+            eggserve_primitives::DirectoryListingPolicy::Disabled
+        );
+        assert_eq!(policy.symlinks, eggserve_primitives::SymlinkPolicy::Denied);
+        assert_eq!(policy.dotfiles, eggserve_primitives::DotfilePolicy::Denied);
     }
 }

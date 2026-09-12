@@ -81,10 +81,7 @@ async fn response_headers(addr: std::net::SocketAddr, data: &[u8]) -> Vec<(Strin
 }
 
 async fn get_etag(addr: std::net::SocketAddr, path: &str) -> String {
-    let req = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        path
-    );
+    let req = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let headers = response_headers(addr, req.as_bytes()).await;
     headers
         .iter()
@@ -94,10 +91,7 @@ async fn get_etag(addr: std::net::SocketAddr, path: &str) -> String {
 }
 
 async fn get_last_modified(addr: std::net::SocketAddr, path: &str) -> Option<String> {
-    let req = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        path
-    );
+    let req = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let headers = response_headers(addr, req.as_bytes()).await;
     headers
         .iter()
@@ -151,13 +145,11 @@ async fn h2_same_size_replacement_changes_etag() {
     // At minimum, the ETag must remain a valid weak validator
     assert!(
         etag_after.starts_with("W/\""),
-        "ETag must use weak validator format, got: {}",
-        etag_after
+        "ETag must use weak validator format, got: {etag_after}"
     );
     assert!(
         etag_after.ends_with('"'),
-        "ETag must be properly quoted, got: {}",
-        etag_after
+        "ETag must be properly quoted, got: {etag_after}"
     );
 }
 
@@ -228,38 +220,32 @@ async fn h5_etag_format_valid_quoted_syntax() {
     // Must be W/"..." (weak validator)
     assert!(
         etag.starts_with("W/\""),
-        "ETag must start with W/\", got: {}",
-        etag
+        "ETag must start with W/\", got: {etag}"
     );
-    assert!(etag.ends_with('"'), "ETag must end with \", got: {}", etag);
+    assert!(etag.ends_with('"'), "ETag must end with \", got: {etag}");
     // Must not contain unescaped quotes inside
     let inner = &etag[3..etag.len() - 1]; // strip W/" and trailing "
     assert!(
         !inner.contains('"'),
-        "ETag inner value must not contain unescaped quotes: {}",
-        etag
+        "ETag inner value must not contain unescaped quotes: {etag}"
     );
     // Must not contain backslashes (obs-text)
     assert!(
         !inner.contains('\\'),
-        "ETag inner value must not contain backslashes: {}",
-        etag
+        "ETag inner value must not contain backslashes: {etag}"
     );
     // Must contain size-secs-nanos format
     let parts: Vec<&str> = inner.split('-').collect();
     assert_eq!(
         parts.len(),
         3,
-        "ETag must have 3 dash-separated parts (size-secs-nanos), got: {}",
-        etag
+        "ETag must have 3 dash-separated parts (size-secs-nanos), got: {etag}"
     );
     // Each part must be numeric
     for part in &parts {
         assert!(
             part.parse::<u64>().is_ok(),
-            "ETag part '{}' must be numeric in: {}",
-            part,
-            etag
+            "ETag part '{part}' must be numeric in: {etag}"
         );
     }
 }
@@ -275,19 +261,15 @@ async fn h6_etag_reveals_no_absolute_path() {
     let root_str = s._tmp.path().to_str().unwrap();
     assert!(
         !etag.contains(root_str),
-        "ETag must not contain absolute path '{}': {}",
-        root_str,
-        etag
+        "ETag must not contain absolute path '{root_str}': {etag}"
     );
     assert!(
         !etag.contains("/tmp"),
-        "ETag must not contain /tmp path: {}",
-        etag
+        "ETag must not contain /tmp path: {etag}"
     );
     assert!(
         !etag.contains("/home"),
-        "ETag must not contain /home path: {}",
-        etag
+        "ETag must not contain /home path: {etag}"
     );
 }
 
@@ -299,9 +281,7 @@ async fn h6_last_modified_reveals_no_absolute_path() {
         let root_str = s._tmp.path().to_str().unwrap();
         assert!(
             !lm.contains(root_str),
-            "Last-Modified must not contain absolute path '{}': {}",
-            root_str,
-            lm
+            "Last-Modified must not contain absolute path '{root_str}': {lm}"
         );
     }
 }
@@ -317,8 +297,7 @@ async fn h7_conditional_match_uses_emitted_etag() {
 
     // Use the exact ETag from a prior response in If-None-Match
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     );
     let raw = send_raw(s.addr, req.as_bytes()).await;
     let resp = String::from_utf8_lossy(&raw);
@@ -335,8 +314,7 @@ async fn h7_conditional_head_match_uses_emitted_etag() {
     let etag = get_etag(s.addr, "/hello.txt").await;
 
     let req = format!(
-        "HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     );
     let raw = send_raw(s.addr, req.as_bytes()).await;
     let resp = String::from_utf8_lossy(&raw);
@@ -362,8 +340,7 @@ async fn h7_if_range_rejects_emitted_weak_etag() {
 
     // The emitted metadata ETag is weak and cannot authorize If-Range.
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {etag}\r\nConnection: close\r\n\r\n"
     );
     let line = String::from_utf8_lossy(&send_raw(s.addr, req.as_bytes()).await)
         .lines()
@@ -372,8 +349,7 @@ async fn h7_if_range_rejects_emitted_weak_etag() {
         .to_string();
     assert!(
         line.contains("200"),
-        "If-Range with emitted weak ETag must return 200, got: {}",
-        line
+        "If-Range with emitted weak ETag must return 200, got: {line}"
     );
 
     // If-Range with non-matching ETag → 200
@@ -386,8 +362,7 @@ async fn h7_if_range_rejects_emitted_weak_etag() {
         .to_string();
     assert!(
         line2.contains("200"),
-        "If-Range with non-matching ETag must return 200, got: {}",
-        line2
+        "If-Range with non-matching ETag must return 200, got: {line2}"
     );
 }
 
@@ -407,8 +382,7 @@ async fn h8_validator_persistent_across_requests() {
     for (i, etag) in etags.iter().enumerate() {
         assert_eq!(
             first, etag,
-            "ETag must be stable across requests (request {}): expected {}, got {}",
-            i, first, etag
+            "ETag must be stable across requests (request {i}): expected {first}, got {etag}"
         );
     }
 }
@@ -423,14 +397,12 @@ async fn h9_empty_file_valid_etag() {
     let etag = get_etag(s.addr, "/empty.txt").await;
     assert!(
         etag.starts_with("W/\""),
-        "Empty file ETag must use weak format, got: {}",
-        etag
+        "Empty file ETag must use weak format, got: {etag}"
     );
     // Empty file ETag should have size=0
     assert!(
         etag.contains("W/\"0-"),
-        "Empty file ETag must have size 0, got: {}",
-        etag
+        "Empty file ETag must have size 0, got: {etag}"
     );
 }
 

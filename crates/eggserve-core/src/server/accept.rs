@@ -302,7 +302,7 @@ pub(super) async fn accept_loop_multi<S: Service>(
     ops.emit(crate::ops::Event::new(
         crate::ops::Severity::Info,
         crate::ops::EventKind::ShutdownComplete,
-        format!("shutdown complete: {:?} (aborted={})", result, abort_count),
+        format!("shutdown complete: {result:?} (aborted={abort_count})"),
     ));
 
     result
@@ -1033,7 +1033,7 @@ pub(super) async fn classify_accept_error(
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
 
     // Rate-limit repeated identical errors.
-    let current_kind = format!("{}", event_kind);
+    let current_kind = format!("{event_kind}");
     let is_same_kind = last_error_kind.as_deref() == Some(&current_kind);
     if is_same_kind {
         *error_repeat_count = error_repeat_count.saturating_add(1);
@@ -1050,17 +1050,14 @@ pub(super) async fn classify_accept_error(
     let should_emit = *error_repeat_count == 1 || (*error_repeat_count).is_multiple_of(10);
     if should_emit {
         let message = if *error_repeat_count > 1 {
-            format!(
-                "accept error ({} consecutive): {}",
-                error_repeat_count, err_str
-            )
+            format!("accept error ({error_repeat_count} consecutive): {err_str}")
         } else {
-            format!("accept error: {}", err_str)
+            format!("accept error: {err_str}")
         };
         ops.emit(
             Event::new(severity, event_kind, message).field(crate::ops::Field::Str(
                 "error_kind".into(),
-                format!("{:?}", kind),
+                format!("{kind:?}"),
             )),
         );
     }

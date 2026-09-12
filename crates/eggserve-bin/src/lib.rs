@@ -38,7 +38,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
             return 0;
         }
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             return 1;
         }
     };
@@ -47,7 +47,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
     let limits = match args.limits() {
         Ok(l) => l,
         Err(e) => {
-            eprintln!("error: {}", e);
+            eprintln!("error: {e}");
             return 1;
         }
     };
@@ -87,7 +87,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                 Logger::global().emit(Event::new(
                     Severity::Error,
                     EventKind::ProcessStarting,
-                    format!("error: {}", e),
+                    format!("error: {e}"),
                 ));
                 return 1;
             }
@@ -161,7 +161,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
             Logger::global().emit(Event::new(
                 Severity::Error,
                 EventKind::ProcessStarting,
-                format!("failed to build runtime: {}", e),
+                format!("failed to build runtime: {e}"),
             ));
             return 1;
         }
@@ -175,7 +175,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                 Logger::global().emit(Event::new(
                     Severity::Error,
                     EventKind::ProcessStarting,
-                    format!("error: {}", e),
+                    format!("error: {e}"),
                 ));
                 return 1;
             }
@@ -193,7 +193,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                     Logger::global().emit(Event::new(
                         Severity::Error,
                         EventKind::ProcessStarting,
-                        format!("failed to build server: {}", e),
+                        format!("failed to build server: {e}"),
                     ));
                     return 1;
                 }
@@ -248,7 +248,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                                 Event::new(
                                     Severity::Info,
                                     EventKind::ShutdownComplete,
-                                    format!("{}", result),
+                                    format!("{result}"),
                                 )
                                 .field(Field::Str("result".into(), result.to_string())),
                             );
@@ -257,7 +257,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                             Logger::global().emit(Event::new(
                                 Severity::Error,
                                 EventKind::ShutdownComplete,
-                                format!("shutdown error: {}", e),
+                                format!("shutdown error: {e}"),
                             ));
                             // A fatal runtime failure during drain is a
                             // dirty stop; signal it to supervisors.
@@ -280,7 +280,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                     Logger::global().emit(Event::new(
                         Severity::Error,
                         EventKind::ProcessStarting,
-                        format!("error: {}", e),
+                        format!("error: {e}"),
                     ));
                     1
                 }
@@ -296,7 +296,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                 Logger::global().emit(Event::new(
                     Severity::Error,
                     EventKind::ProcessStarting,
-                    format!("error: {}", e),
+                    format!("error: {e}"),
                 ));
                 return 1;
             }
@@ -350,7 +350,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                     Logger::global().emit(Event::new(
                         Severity::Error,
                         EventKind::ProcessStarting,
-                        format!("failed to build server: {}", e),
+                        format!("failed to build server: {e}"),
                     ));
                     return 1;
                 }
@@ -402,7 +402,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                                 Event::new(
                                     Severity::Info,
                                     EventKind::ShutdownComplete,
-                                    format!("{}", result),
+                                    format!("{result}"),
                                 )
                                 .field(Field::Str("result".into(), result.to_string())),
                             );
@@ -411,7 +411,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                             Logger::global().emit(Event::new(
                                 Severity::Error,
                                 EventKind::ShutdownComplete,
-                                format!("shutdown error: {}", e),
+                                format!("shutdown error: {e}"),
                             ));
                             // A fatal runtime failure during drain is a
                             // dirty stop; signal it to supervisors.
@@ -434,7 +434,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
                     Logger::global().emit(Event::new(
                         Severity::Error,
                         EventKind::ProcessStarting,
-                        format!("error: {}", e),
+                        format!("error: {e}"),
                     ));
                     1
                 }
@@ -488,10 +488,9 @@ mod tests {
         let response = String::from_utf8_lossy(&buf);
         assert!(
             response.starts_with("HTTP/1.1 200 OK"),
-            "unexpected response: {}",
-            response
+            "unexpected response: {response}"
         );
-        assert!(response.contains("hello"), "missing body: {}", response);
+        assert!(response.contains("hello"), "missing body: {response}");
     }
 
     #[tokio::test]
@@ -513,8 +512,7 @@ mod tests {
         let response = String::from_utf8_lossy(&buf);
         assert!(
             response.starts_with("HTTP/1.1 206 Partial Content"),
-            "unexpected response: {}",
-            response
+            "unexpected response: {response}"
         );
         assert!(response.contains("content-range: bytes 0-4/11"));
     }

@@ -1,21 +1,10 @@
-//! Dependency-light canonical HTTP contracts for EggServe consumers.
+//! Canonical, transport-independent EggServe application values.
 //!
-//! This crate deliberately contains no transport, async-runtime, TLS, QUIC,
-//! or filesystem dependency. It is the leaf layer for application-facing
-//! metadata and request/response values. The compatibility `eggserve-core`
-//! crate continues to expose its historical, richer `primitives` module for
-//! the 0.1 series.
+//! This crate is the single home of the mature request, response, header,
+//! lifecycle, proxy, and policy contracts. It deliberately has no transport,
+//! async-runtime, TLS, QUIC, or platform dependencies. Hyper conversion and
+//! filesystem resolution live in the server and static layers respectively.
 
-pub mod http;
-pub mod limits;
-pub mod policy;
-pub mod proxy;
-pub mod request;
-pub mod response;
+pub mod primitives;
 
-pub use http::{Header, HeaderBlock, HeaderError, HttpVersion, Method, MethodError};
-pub use limits::Limits;
-pub use policy::{ErrorPolicy, RequestPolicy};
-pub use proxy::{IpPrefix, ProxyProvenance, TrustedProxyConfig};
-pub use request::{Request, RequestBody, RequestHead, RequestTarget};
-pub use response::{BodyLength, Response, ResponseBody, ResponseError, StatusCode};
+pub use primitives::*;

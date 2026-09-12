@@ -108,7 +108,7 @@ async fn ws_a_valid_origin_form_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -121,8 +121,7 @@ async fn ws_a_root_path_returns_403_listing_disabled() {
     .await;
     assert!(
         line.contains("403"),
-        "Root with listing disabled must return 403, got: {}",
-        line
+        "Root with listing disabled must return 403, got: {line}"
     );
 }
 
@@ -150,7 +149,7 @@ async fn ws_a_absolute_form_rejected() {
         b"GET http://example.com/hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -165,7 +164,7 @@ async fn ws_a_authority_form_rejected() {
         b"CONNECT example.com:443 HTTP/1.1\r\nHost: example.com:443\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -176,7 +175,7 @@ async fn ws_a_asterisk_form_rejected() {
         b"OPTIONS * HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -187,7 +186,7 @@ async fn ws_a_lowercase_method_rejected() {
         b"get /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -198,7 +197,7 @@ async fn ws_a_method_with_space_rejected() {
         b"GE T /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -209,7 +208,7 @@ async fn ws_a_unknown_method_returns_405() {
         b"DELETE /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -220,7 +219,7 @@ async fn ws_a_http_1_0_rejected() {
         b"GET /hello.txt HTTP/1.0\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -231,7 +230,7 @@ async fn ws_a_http_2_rejected() {
         b"GET /hello.txt HTTP/2.0\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -242,7 +241,7 @@ async fn ws_a_nul_in_target_rejected() {
     raw.push(0x00);
     raw.extend_from_slice(b"llo.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let line = status_line(s.addr, &raw).await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -253,7 +252,7 @@ async fn ws_a_space_in_target_rejected() {
         b"GET /hello world.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -264,7 +263,7 @@ async fn ws_a_query_string_allowed() {
         b"GET /hello.txt?foo=bar HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -280,8 +279,7 @@ async fn ws_a_percent_encoded_slash_rejected() {
     // a separator that would alias `/hello.txt`.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Percent-encoded slash must be rejected, got: {}",
-        line
+        "Percent-encoded slash must be rejected, got: {line}"
     );
 }
 
@@ -297,8 +295,7 @@ async fn ws_a_percent_encoded_dotdot_traversal_rejected() {
     // rejects the traversal component. Normative: 400 or 403.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Percent-encoded dotdot traversal must be rejected, got: {}",
-        line
+        "Percent-encoded dotdot traversal must be rejected, got: {line}"
     );
 }
 
@@ -313,8 +310,7 @@ async fn ws_a_path_traversal_rejected() {
     // Path traversal is rejected by path confinement. Normative: 400 or 403.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Path traversal must be rejected, got: {}",
-        line
+        "Path traversal must be rejected, got: {line}"
     );
 }
 
@@ -330,8 +326,7 @@ async fn ws_a_double_encoded_traversal_rejected() {
     // rejects the traversal component. Normative: 400 or 403.
     assert!(
         line.contains("400") || line.contains("403"),
-        "Double-encoded traversal must be rejected, got: {}",
-        line
+        "Double-encoded traversal must be rejected, got: {line}"
     );
 }
 
@@ -347,8 +342,7 @@ async fn ws_a_semicolon_in_path() {
     // "hello.txt;jsessionid=abc" exists.
     assert!(
         line.contains("404"),
-        "Semicolon is literal, no such file, expected 404, got: {}",
-        line
+        "Semicolon is literal, no such file, expected 404, got: {line}"
     );
 }
 
@@ -356,7 +350,7 @@ async fn ws_a_semicolon_in_path() {
 async fn ws_a_garbage_input_rejected() {
     let s = start_server(None).await;
     let line = status_line(s.addr, b"GARBAGE DATA\r\n\r\n").await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 // ---------------------------------------------------------------------------
@@ -371,7 +365,7 @@ async fn ws_b_obsolete_folding_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n X-Folded: value\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -382,7 +376,7 @@ async fn ws_b_leading_space_in_header_name_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\n X-Bad: value\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -398,8 +392,7 @@ async fn ws_b_bare_lf_in_header_accepted_by_parser() {
     // This is documented parser-level behavior, not an eggserve policy choice.
     assert!(
         line.contains("200"),
-        "Bare LF accepted by hyper parser, expected 200, got: {}",
-        line
+        "Bare LF accepted by hyper parser, expected 200, got: {line}"
     );
 }
 
@@ -415,8 +408,7 @@ async fn ws_b_cr_lf_in_header_value_parsed_as_separator() {
     // The "Evil: true" becomes a separate header; the request is not rejected.
     assert!(
         line.contains("200"),
-        "CR+LF parsed as header separator by hyper, expected 200, got: {}",
-        line
+        "CR+LF parsed as header separator by hyper, expected 200, got: {line}"
     );
 }
 
@@ -428,7 +420,7 @@ async fn ws_b_duplicate_host_header_handled() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -439,21 +431,18 @@ async fn ws_b_content_length_with_spaces_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1 2\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
 async fn ws_b_oversized_target_rejected() {
     let s = start_server(None).await;
     let long_path = "/".to_owned() + &"a".repeat(8192);
-    let req = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        long_path
-    );
+    let req = format!("GET {long_path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let line = status_line(s.addr, req.as_bytes()).await;
     // Over the default 8192-byte request-target ceiling: 414 URI Too Long
     // from the EggServe-owned target bound (Plan 164), before service work.
-    assert!(line.contains("414"), "Expected 414, got: {}", line);
+    assert!(line.contains("414"), "Expected 414, got: {line}");
 }
 
 #[tokio::test]
@@ -463,12 +452,9 @@ async fn ws_b_target_at_ceiling_passes_target_check() {
     // through to normal handling (missing file → 404, not 414).
     let path = "/".to_owned() + &"a".repeat(8191);
     assert_eq!(path.len(), 8192);
-    let req = format!(
-        "GET {} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
-        path
-    );
+    let req = format!("GET {path} HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n");
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("404"), "Expected 404, got: {}", line);
+    assert!(line.contains("404"), "Expected 404, got: {line}");
 }
 
 #[tokio::test]
@@ -480,7 +466,7 @@ async fn ws_b_header_with_null_byte_rejected() {
     raw.extend_from_slice(b"X-Bad: val\x00ue\r\n");
     raw.extend_from_slice(b"Connection: close\r\n\r\n");
     let line = status_line(s.addr, &raw).await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -491,7 +477,7 @@ async fn ws_b_empty_header_value_allowed() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Empty:\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -502,7 +488,7 @@ async fn ws_b_multiple_content_length_conflicting_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nContent-Length: 10\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -513,7 +499,7 @@ async fn ws_b_content_length_with_comma_values_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1,2\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 // ---------------------------------------------------------------------------
@@ -530,8 +516,7 @@ async fn ws_c_transfer_encoding_chunked_rejected() {
     .await;
     assert!(
         line.contains("400") || line.contains("413"),
-        "Expected 400 or 413, got: {}",
-        line
+        "Expected 400 or 413, got: {line}"
     );
 }
 
@@ -545,8 +530,7 @@ async fn ws_c_transfer_encoding_gzip_rejected() {
     .await;
     assert!(
         line.contains("400") || line.contains("413"),
-        "Expected 400 or 413, got: {}",
-        line
+        "Expected 400 or 413, got: {line}"
     );
 }
 
@@ -560,8 +544,7 @@ async fn ws_c_te_and_content_length_rejected() {
     .await;
     assert!(
         line.contains("400") || line.contains("413"),
-        "Expected 400 or 413, got: {}",
-        line
+        "Expected 400 or 413, got: {line}"
     );
 }
 
@@ -573,7 +556,7 @@ async fn ws_c_body_on_get_with_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
     )
     .await;
-    assert!(line.contains("413"), "Expected 413, got: {}", line);
+    assert!(line.contains("413"), "Expected 413, got: {line}");
 }
 
 #[tokio::test]
@@ -584,7 +567,7 @@ async fn ws_c_body_on_head_rejected() {
         b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello",
     )
     .await;
-    assert!(line.contains("413"), "Expected 413, got: {}", line);
+    assert!(line.contains("413"), "Expected 413, got: {line}");
 }
 
 #[tokio::test]
@@ -595,7 +578,7 @@ async fn ws_c_zero_content_length_allowed() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -606,7 +589,7 @@ async fn ws_c_invalid_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: not-a-number\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -617,7 +600,7 @@ async fn ws_c_negative_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: -1\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -628,7 +611,7 @@ async fn ws_c_oversized_content_length_rejected() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 99999999999999999999\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("400"), "Expected 400, got: {}", line);
+    assert!(line.contains("400"), "Expected 400, got: {line}");
 }
 
 #[tokio::test]
@@ -689,7 +672,7 @@ async fn ws_d_post_returns_405() {
         b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -700,7 +683,7 @@ async fn ws_d_put_returns_405() {
         b"PUT /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -711,7 +694,7 @@ async fn ws_d_delete_returns_405() {
         b"DELETE /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -722,7 +705,7 @@ async fn ws_d_patch_returns_405() {
         b"PATCH /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("405"), "Expected 405, got: {}", line);
+    assert!(line.contains("405"), "Expected 405, got: {line}");
 }
 
 #[tokio::test]
@@ -806,11 +789,10 @@ async fn ws_e_if_none_match_matching_etag_returns_304() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("304"), "Expected 304, got: {}", line);
+    assert!(line.contains("304"), "Expected 304, got: {line}");
 }
 
 #[tokio::test]
@@ -821,7 +803,7 @@ async fn ws_e_if_none_match_wildcard_returns_304() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: *\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("304"), "Expected 304, got: {}", line);
+    assert!(line.contains("304"), "Expected 304, got: {line}");
 }
 
 #[tokio::test]
@@ -832,7 +814,7 @@ async fn ws_e_if_none_match_non_matching_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: W/\"999-999\"\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -843,7 +825,7 @@ async fn ws_e_if_modified_since_future_returns_304() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: Tue, 01 Jan 2030 00:00:00 GMT\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("304"), "Expected 304, got: {}", line);
+    assert!(line.contains("304"), "Expected 304, got: {line}");
 }
 
 #[tokio::test]
@@ -854,7 +836,7 @@ async fn ws_e_if_modified_since_past_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: Tue, 01 Jan 2000 00:00:00 GMT\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -865,7 +847,7 @@ async fn ws_e_if_modified_since_invalid_date_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-Modified-Since: not-a-date\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -873,11 +855,10 @@ async fn ws_e_if_none_match_takes_precedence_over_ims() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nIf-Modified-Since: Tue, 01 Jan 2000 00:00:00 GMT\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nIf-Modified-Since: Tue, 01 Jan 2000 00:00:00 GMT\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("304"), "Expected 304, got: {}", line);
+    assert!(line.contains("304"), "Expected 304, got: {line}");
 }
 
 #[tokio::test]
@@ -888,7 +869,7 @@ async fn ws_e_range_valid_returns_206() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("206"), "Expected 206, got: {}", line);
+    assert!(line.contains("206"), "Expected 206, got: {line}");
 }
 
 #[tokio::test]
@@ -918,7 +899,7 @@ async fn ws_e_range_suffix_returns_206() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=-5\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("206"), "Expected 206, got: {}", line);
+    assert!(line.contains("206"), "Expected 206, got: {line}");
 }
 
 #[tokio::test]
@@ -929,7 +910,7 @@ async fn ws_e_range_open_ended_returns_206() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=6-\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("206"), "Expected 206, got: {}", line);
+    assert!(line.contains("206"), "Expected 206, got: {line}");
 }
 
 #[tokio::test]
@@ -940,7 +921,7 @@ async fn ws_e_range_unsatisfiable_returns_416() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=100-200\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("416"), "Expected 416, got: {}", line);
+    assert!(line.contains("416"), "Expected 416, got: {line}");
 }
 
 #[tokio::test]
@@ -961,7 +942,7 @@ async fn ws_e_range_multiple_ranges_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4, 6-10\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -972,7 +953,7 @@ async fn ws_e_range_malformed_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=abc-def\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -980,7 +961,7 @@ async fn ws_e_head_with_range_returns_206_no_body() {
     let s = start_server(None).await;
     let data = b"HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nConnection: close\r\n\r\n";
     let line = status_line(s.addr, data).await;
-    assert!(line.contains("206"), "Expected 206, got: {}", line);
+    assert!(line.contains("206"), "Expected 206, got: {line}");
     let body = response_body(s.addr, data).await;
     assert!(body.is_empty(), "HEAD should suppress body");
 }
@@ -1007,11 +988,10 @@ async fn ws_e_if_range_weak_etag_returns_200() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {etag}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -1028,11 +1008,10 @@ async fn ws_e_if_range_matching_date_returns_206() {
         .map(|(_, value)| value)
         .expect("static response should include Last-Modified");
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
-        last_modified
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {last_modified}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("206"), "Expected 206, got: {}", line);
+    assert!(line.contains("206"), "Expected 206, got: {line}");
 }
 
 #[tokio::test]
@@ -1043,7 +1022,7 @@ async fn ws_e_if_range_non_matching_etag_returns_200() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: W/\"999-999\"\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -1061,11 +1040,10 @@ async fn ws_e_conditional_head_returns_304_no_body() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
     let req = format!(
-        "HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "HEAD /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
-    assert!(line.contains("304"), "Expected 304, got: {}", line);
+    assert!(line.contains("304"), "Expected 304, got: {line}");
 }
 
 #[tokio::test]
@@ -1076,7 +1054,7 @@ async fn ws_e_empty_file_range_416() {
         b"GET /empty.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-0\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("416"), "Expected 416, got: {}", line);
+    assert!(line.contains("416"), "Expected 416, got: {line}");
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,8 +1087,7 @@ async fn ws_f_malformed_request_then_valid_succeeds() {
     .await;
     assert!(
         line.contains("200"),
-        "Server should still work after malformed request: {}",
-        line
+        "Server should still work after malformed request: {line}"
     );
 }
 
@@ -1135,7 +1112,7 @@ async fn ws_f_single_request_connection_closes_after_close() {
         b"GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n",
     )
     .await;
-    assert!(line.contains("200"), "Expected 200, got: {}", line);
+    assert!(line.contains("200"), "Expected 200, got: {line}");
 }
 
 #[tokio::test]
@@ -1153,8 +1130,7 @@ async fn ws_f_partial_header_does_not_leak_state() {
     .await;
     assert!(
         line.contains("200"),
-        "Server should work after partial connection: {}",
-        line
+        "Server should work after partial connection: {line}"
     );
 }
 
@@ -1184,8 +1160,7 @@ async fn ws_e_head_unsatisfiable_range_returns_416_no_body() {
     let resp = String::from_utf8_lossy(&full);
     assert!(
         resp.contains("416"),
-        "HEAD unsatisfiable range should return 416, got: {}",
-        resp
+        "HEAD unsatisfiable range should return 416, got: {resp}"
     );
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
@@ -1206,7 +1181,7 @@ async fn ws_e_head_404_returns_no_body() {
     let data = b"HEAD /nonexistent.txt HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
-    assert!(resp.contains("404"), "Expected 404, got: {}", resp);
+    assert!(resp.contains("404"), "Expected 404, got: {resp}");
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
     assert!(
@@ -1222,7 +1197,7 @@ async fn ws_e_head_403_returns_no_body() {
     let data = b"HEAD /.env HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
-    assert!(resp.contains("403"), "Expected 403, got: {}", resp);
+    assert!(resp.contains("403"), "Expected 403, got: {resp}");
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
     assert!(
@@ -1238,11 +1213,10 @@ async fn ws_e_post_405_has_body() {
     let data = b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
-    assert!(resp.contains("405"), "Expected 405, got: {}", resp);
+    assert!(resp.contains("405"), "Expected 405, got: {resp}");
     assert!(
         resp.contains("allow: GET, HEAD"),
-        "405 must include Allow header: {}",
-        resp
+        "405 must include Allow header: {resp}"
     );
 }
 
@@ -1272,7 +1246,7 @@ async fn ws_f_keepalive_after_head_serves_subsequent_get() {
         }
     }
     let resp = String::from_utf8_lossy(&buf);
-    assert!(resp.contains("200"), "HEAD should return 200: {}", resp);
+    assert!(resp.contains("200"), "HEAD should return 200: {resp}");
 
     // Send GET on same connection
     stream
@@ -1284,8 +1258,7 @@ async fn ws_f_keepalive_after_head_serves_subsequent_get() {
     let resp2 = String::from_utf8_lossy(&buf2);
     assert!(
         resp2.contains("200"),
-        "GET after 304 should return 200: {}",
-        resp2
+        "GET after 304 should return 200: {resp2}"
     );
 }
 
@@ -1302,8 +1275,7 @@ async fn ws_d_head_malformed_cl_returns_no_body() {
     // Content-Length: -1 is malformed; hyper rejects at the parser level.
     assert!(
         resp.contains("400") || resp.is_empty(),
-        "Malformed Content-Length must return 400 or connection close, got: {}",
-        resp
+        "Malformed Content-Length must return 400 or connection close, got: {resp}"
     );
     if !resp.is_empty() {
         let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
@@ -1324,8 +1296,7 @@ async fn ws_d_head_405_unsupported_method_returns_no_body() {
     let resp = String::from_utf8_lossy(&full);
     assert!(
         resp.contains("200"),
-        "HEAD on supported resource should return 200, got: {}",
-        resp
+        "HEAD on supported resource should return 200, got: {resp}"
     );
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
@@ -1342,15 +1313,10 @@ async fn ws_d_head_post_405_has_allow_header() {
     let data = b"POST /hello.txt HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
     let full = send_raw(s.addr, data).await;
     let resp = String::from_utf8_lossy(&full);
-    assert!(
-        resp.contains("405"),
-        "POST should return 405, got: {}",
-        resp
-    );
+    assert!(resp.contains("405"), "POST should return 405, got: {resp}");
     assert!(
         resp.contains("allow: GET, HEAD"),
-        "405 must include Allow: GET, HEAD: {}",
-        resp
+        "405 must include Allow: GET, HEAD: {resp}"
     );
 }
 
@@ -1364,8 +1330,7 @@ async fn ws_d_head_te_cl_conflict_returns_no_body() {
     // The static service may also reject with 413 if the body policy fires first.
     assert!(
         resp.contains("400") || resp.contains("413") || resp.is_empty(),
-        "TE+CL conflict must return 400, 413, or connection close, got: {}",
-        resp
+        "TE+CL conflict must return 400, 413, or connection close, got: {resp}"
     );
     if !resp.is_empty() {
         let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
@@ -1386,17 +1351,15 @@ async fn ws_d_head_te_cl_conflict_returns_no_body() {
 async fn ws_e_weak_etag_non_matching_returns_200() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
-    let weak_etag = format!("W/{}", etag);
+    let weak_etag = format!("W/{etag}");
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        weak_etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {weak_etag}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
     // Server uses strong comparison: W/"..." != "..." so returns 200
     assert!(
         line.contains("200"),
-        "Weak ETag is not strong-equal to ETag, should return 200, got: {}",
-        line
+        "Weak ETag is not strong-equal to ETag, should return 200, got: {line}"
     );
 }
 
@@ -1406,14 +1369,12 @@ async fn ws_e_weak_etag_exact_match_returns_304() {
     let etag = get_etag(s.addr).await;
     // Send the exact weak ETag from the server (ETag format is W/"size-secs-nanos")
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: close\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
     assert!(
         line.contains("304"),
-        "Exact ETag match should return 304, got: {}",
-        line
+        "Exact ETag match should return 304, got: {line}"
     );
 }
 
@@ -1421,16 +1382,14 @@ async fn ws_e_weak_etag_exact_match_returns_304() {
 async fn ws_e_weak_etag_if_range_ignores_weak() {
     let s = start_server(None).await;
     let etag = get_etag(s.addr).await;
-    let weak_etag = format!("W/{}", etag);
+    let weak_etag = format!("W/{etag}");
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {}\r\nConnection: close\r\n\r\n",
-        weak_etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nRange: bytes=0-4\r\nIf-Range: {weak_etag}\r\nConnection: close\r\n\r\n"
     );
     let line = status_line(s.addr, req.as_bytes()).await;
     assert!(
         line.contains("200"),
-        "If-Range with weak ETag (not strong-equal) should return 200 (full), got: {}",
-        line
+        "If-Range with weak ETag (not strong-equal) should return 200 (full), got: {line}"
     );
 }
 
@@ -1442,8 +1401,7 @@ async fn ws_f_keepalive_after_304_serves_subsequent_get() {
 
     // Send conditional GET returning 304
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: keep-alive\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: keep-alive\r\n\r\n"
     );
     stream.write_all(req.as_bytes()).await.unwrap();
     let mut buf = Vec::new();
@@ -1459,8 +1417,7 @@ async fn ws_f_keepalive_after_304_serves_subsequent_get() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         resp.contains("304"),
-        "Conditional GET should return 304: {}",
-        resp
+        "Conditional GET should return 304: {resp}"
     );
 
     // Send GET on same connection
@@ -1473,8 +1430,7 @@ async fn ws_f_keepalive_after_304_serves_subsequent_get() {
     let resp2 = String::from_utf8_lossy(&buf2);
     assert!(
         resp2.contains("200"),
-        "GET after 304 should return 200: {}",
-        resp2
+        "GET after 304 should return 200: {resp2}"
     );
 }
 
@@ -1490,13 +1446,11 @@ async fn ws_e_head_http10_returns_content_length() {
     let resp = String::from_utf8_lossy(&full);
     assert!(
         resp.contains("200"),
-        "HTTP/1.0 HEAD should return 200: {}",
-        resp
+        "HTTP/1.0 HEAD should return 200: {resp}"
     );
     assert!(
         resp.contains("content-length: 11"),
-        "HTTP/1.0 HEAD should include content-length: {}",
-        resp
+        "HTTP/1.0 HEAD should include content-length: {resp}"
     );
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
@@ -1519,8 +1473,7 @@ async fn ws_e_head_directory_listing_returns_200_no_body() {
     let resp = String::from_utf8_lossy(&full);
     assert!(
         resp.contains("200"),
-        "HEAD directory listing should return 200, got: {}",
-        resp
+        "HEAD directory listing should return 200, got: {resp}"
     );
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
@@ -1543,8 +1496,7 @@ async fn ws_e_head_413_returns_content_length_no_body() {
     let resp = String::from_utf8_lossy(&full);
     assert!(
         resp.contains("413"),
-        "HEAD 413 should return 413, got: {}",
-        resp
+        "HEAD 413 should return 413, got: {resp}"
     );
     let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
     let body = &full[header_end..];
@@ -1569,8 +1521,7 @@ async fn ws_d_head_malformed_cl_no_body() {
     // backward-compat test naming. Normative: 400 or connection close.
     assert!(
         resp.contains("400") || resp.is_empty(),
-        "Malformed Content-Length must return 400 or connection close, got: {}",
-        resp
+        "Malformed Content-Length must return 400 or connection close, got: {resp}"
     );
     if !resp.is_empty() {
         let header_end = full.windows(4).position(|w| w == b"\r\n\r\n").unwrap() + 4;
@@ -1599,8 +1550,7 @@ async fn ws_f_keepalive_after_204_serves_subsequent_get() {
     // it, but 304 is sufficient to prove framing correctness.
     let etag = get_etag(s.addr).await;
     let req = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\nConnection: keep-alive\r\n\r\n",
-        etag
+        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\nConnection: keep-alive\r\n\r\n"
     );
     stream.write_all(req.as_bytes()).await.unwrap();
     let mut buf = Vec::new();
@@ -1614,7 +1564,7 @@ async fn ws_f_keepalive_after_204_serves_subsequent_get() {
         }
     }
     let resp = String::from_utf8_lossy(&buf);
-    assert!(resp.contains("304"), "Should return 304: {}", resp);
+    assert!(resp.contains("304"), "Should return 304: {resp}");
 
     // Send GET on same connection — should succeed
     stream
@@ -1626,7 +1576,6 @@ async fn ws_f_keepalive_after_204_serves_subsequent_get() {
     let resp2 = String::from_utf8_lossy(&buf2);
     assert!(
         resp2.contains("200"),
-        "GET after 304 should return 200: {}",
-        resp2
+        "GET after 304 should return 200: {resp2}"
     );
 }

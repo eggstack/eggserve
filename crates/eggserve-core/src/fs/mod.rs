@@ -1075,8 +1075,7 @@ mod tests {
                 result,
                 ResolvedResource::Denied(PathRejection::SymlinkDenied)
             ),
-            "after symlink swap: should be denied, got {:?}",
-            result
+            "after symlink swap: should be denied, got {result:?}"
         );
     }
 
@@ -1111,8 +1110,7 @@ mod tests {
                 result,
                 ResolvedResource::Denied(PathRejection::SymlinkDenied)
             ),
-            "after directory replaced with symlink: should be denied, got {:?}",
-            result
+            "after directory replaced with symlink: should be denied, got {result:?}"
         );
     }
 
@@ -1139,8 +1137,7 @@ mod tests {
         let result = guard.resolve(&path, &policy);
         assert!(
             matches!(result, ResolvedResource::NotFound),
-            "after unlink: should return NotFound, got {:?}",
-            result
+            "after unlink: should return NotFound, got {result:?}"
         );
     }
 
@@ -1172,8 +1169,7 @@ mod tests {
         let result = guard.resolve(&path, &policy);
         assert!(
             matches!(result, ResolvedResource::NotFound),
-            "after chmod 000: openat(O_RDONLY) fails with EACCES, resolution returns NotFound, got {:?}",
-            result
+            "after chmod 000: openat(O_RDONLY) fails with EACCES, resolution returns NotFound, got {result:?}"
         );
     }
 
@@ -1192,7 +1188,7 @@ mod tests {
         let result = guard.resolve(&path, &policy);
         let file = match result {
             ResolvedResource::File(f) => f,
-            other => panic!("expected File, got {:?}", other),
+            other => panic!("expected File, got {other:?}"),
         };
 
         fs::remove_file(tmp.path().join("dir").join("file.txt")).unwrap();
@@ -1236,8 +1232,7 @@ mod tests {
         let file_result = guard.resolve(&file_path, &policy);
         assert!(
             matches!(file_result, ResolvedResource::NotFound),
-            "after unlinking file: resolving dir/file.txt should return NotFound, got {:?}",
-            file_result
+            "after unlinking file: resolving dir/file.txt should return NotFound, got {file_result:?}"
         );
     }
 
@@ -1256,7 +1251,7 @@ mod tests {
         let dir_result = guard.resolve(&dir_path, &policy);
         let dir = match dir_result {
             ResolvedResource::Directory(d) => d,
-            other => panic!("expected Directory, got {:?}", other),
+            other => panic!("expected Directory, got {other:?}"),
         };
 
         let index_result = guard.resolve_child(&dir, "index.html", &policy);
@@ -1275,8 +1270,7 @@ mod tests {
                 index_result,
                 ResolvedResource::Denied(PathRejection::SymlinkDenied)
             ),
-            "after replacing index.html with symlink: resolve_child should deny it, got {:?}",
-            index_result
+            "after replacing index.html with symlink: resolve_child should deny it, got {index_result:?}"
         );
     }
 
@@ -1298,7 +1292,7 @@ mod tests {
         const S_IFMT: u32 = 0o170000;
         const S_IFREG: u32 = 0o100000;
         assert_ne!(
-            mode as u32 & S_IFMT,
+            mode & S_IFMT,
             S_IFREG,
             "FIFO must not pass the S_IFREG check (fs/unix.rs:101)"
         );

@@ -1,10 +1,10 @@
 # eggserve-core — Deep Dive
 
 `eggserve-core` is the 0.1 compatibility aggregate behind the existing
-EggServe surfaces. It contains the mature security-critical path confinement,
-policy enforcement, HTTP request handling, response construction, MIME
-detection, and runtime service boundary while downstream consumers migrate to
-the Plan 211 direct layers.
+EggServe surfaces. Plan 214 moves the canonical model and hardened static
+resolver into the direct layers; core remains the compatibility home for
+Python-facing adapters, advanced protocol runtime paths, and legacy
+configuration during the 0.1 transition.
 
 The direct layers are [`eggserve-primitives`](crate-topology.md),
 [`eggserve-server`](crate-topology.md), and
@@ -40,7 +40,12 @@ streams, `caller_owned_stream` drives the canonical pipeline over a
 caller-owned stream without a listener, and `primitives` performs response
 planning without opening a socket. They are compiled by `scripts/verify.sh full`.
 
-## Module Map
+## Compatibility module map
+
+The map below describes the compatibility surface that remains in core. The
+canonical values and hardened static implementation now live in the direct
+crates; core modules that mirror those names are retained only for 0.1 source
+compatibility and advanced protocol/Python integration.
 
 | Module | Visibility | Purpose |
 |--------|------------|---------|
@@ -49,11 +54,11 @@ planning without opening a socket. They are compiled by `scripts/verify.sh full`
 | `policy.rs` | **pub** | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
 | `limits.rs` | **pub** | `Limits` — connection count, file streams, header/target/body sizes, timeouts |
 
-| `path/` | pub(crate) | Path confinement pipeline |
-| `fs/` | pub(crate) | Filesystem confinement |
-| `response.rs` | pub(crate) | Response helpers (file streaming, directory listing HTML, error responses) |
-| `mime.rs` | pub(crate) | MIME type detection via `phf` map |
-| `primitives/` | **pub** | Public facade for embedding consumers |
+| `path/` | pub(crate) | Compatibility path-confinement glue; mature implementation is in `eggserve-static` |
+| `fs/` | pub(crate) | Compatibility filesystem glue; mature implementation is in `eggserve-static` |
+| `response.rs` | pub(crate) | Compatibility response helpers and advanced runtime integration |
+| `mime.rs` | pub(crate) | Compatibility MIME facade; direct static serving uses `eggserve-static` |
+| `primitives/` | **pub** | Compatibility facade for embedding consumers; direct canonical types live in `eggserve-primitives` |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical/` | **pub** | Facade (`canonical.rs`) re-exports preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules: `status.rs` — `StatusCode`/`ResponseConstructionError`; `headers.rs` — `ResponseHead` + hop-by-hop authority; `response_body.rs` — `BodyLength`/`ResponseBody`; `response.rs` — `Response`/`Builder`/`NormalizeRequest`/`normalize_*` (body field `pub(super)` for adapters, `runtime_error_with_policy` `pub(crate)`); `adapters.rs` — `to_hyper_response` + semaphore overloads (`pub(crate)`, opaque `Body`) |

@@ -49,7 +49,7 @@ impl ConfinedPath {
         let normalized_path = if normalized.is_empty() {
             "/".to_owned()
         } else {
-            format!("/{}", normalized)
+            format!("/{normalized}")
         };
 
         let parts = components::split_components(&normalized);

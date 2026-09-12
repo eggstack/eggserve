@@ -173,7 +173,7 @@ fn mixed_consumption_mode_returns_error() {
     assert!(result.is_err());
     match result.unwrap_err() {
         RequestBodyError::MixedConsumptionMode => {}
-        other => panic!("expected MixedConsumptionMode, got: {:?}", other),
+        other => panic!("expected MixedConsumptionMode, got: {other:?}"),
     }
 }
 

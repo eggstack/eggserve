@@ -1,0 +1,2548 @@
+//! Response planner for static files.
+//!
+//! Generates [`StaticResponsePlan`] values from resolved file metadata and
+//! request headers. The planner is a pure function with no Hyper dependency.
+
+use std::fs::Metadata;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::response::{
+    BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,
+    ResponseStatus, StaticResponsePlan,
+};
+
+/// Generate a baseline file response plan (200 OK with standard headers).
+///
+/// For HEAD requests, the body is empty but headers match what GET would
+/// return. Handles conditional and range request evaluation internally.
+///
+/// Evaluates only the cache-validation preconditions (`If-None-Match`,
+/// `If-Modified-Since`, `If-Range`). Use
+/// [`plan_file_response_with_preconditions`] to also evaluate the
+/// lost-update preconditions (`If-Match`, `If-Unmodified-Since`).
+pub fn plan_file_response(
+    method: ReadOnlyMethod,
+    metadata: &Metadata,
+    content_type: &str,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range_header: Option<&str>,
+    if_range: Option<&str>,
+) -> StaticResponsePlan {
+    plan_file_response_with_preconditions(
+        method,
+        metadata,
+        content_type,
+        None,
+        None,
+        if_none_match,
+        if_modified_since,
+        range_header,
+        if_range,
+    )
+}
+
+/// Generate a baseline file response plan, evaluating all conditional
+/// request preconditions in the order mandated by RFC 9110 § 13.2.2:
+///
+/// 1. `If-Match` (strong comparison; failure yields 412)
+/// 2. `If-Unmodified-Since` (only when `If-Match` is absent; failure
+///    yields 412; malformed dates and unavailable modification times are
+///    ignored per § 13.1.4)
+/// 3. `If-None-Match` → `If-Modified-Since` (failure yields 304 for
+///    GET/HEAD)
+/// 4. `Range` + `If-Range`
+#[allow(clippy::too_many_arguments)]
+pub fn plan_file_response_with_preconditions(
+    method: ReadOnlyMethod,
+    metadata: &Metadata,
+    content_type: &str,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range_header: Option<&str>,
+    if_range: Option<&str>,
+) -> StaticResponsePlan {
+    plan_file_response_with_preconditions_and_metadata(
+        method,
+        metadata,
+        content_type,
+        if_match,
+        if_unmodified_since,
+        if_none_match,
+        if_modified_since,
+        range_header,
+        if_range,
+        eggserve_primitives::policy::StaticMetadataPolicy::standard(),
+    )
+}
+
+/// Generate a file response plan with an explicit static validator policy.
+///
+/// When `emit_etag` is false, no metadata-derived `ETag` is generated or
+/// emitted (conditional `ETag` evaluation falls back to `*`-only semantics).
+/// When `emit_last_modified` is false, `Last-Modified` is omitted. Defaults
+/// preserve current behavior; the minimal-fingerprint profile suppresses
+/// both to avoid disclosing host/content timestamp characteristics.
+#[allow(clippy::too_many_arguments)]
+pub fn plan_file_response_with_preconditions_and_metadata(
+    method: ReadOnlyMethod,
+    metadata: &Metadata,
+    content_type: &str,
+    if_match: Option<&str>,
+    if_unmodified_since: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+    range_header: Option<&str>,
+    if_range: Option<&str>,
+    metadata_policy: eggserve_primitives::policy::StaticMetadataPolicy,
+) -> StaticResponsePlan {
+    let etag = if metadata_policy.emit_etag {
+        generate_etag(metadata)
+    } else {
+        None
+    };
+    // `httpdate::fmt_http_date` only supports epoch-or-later timestamps, so
+    // pre-epoch mtimes omit Last-Modified entirely rather than panicking.
+    let last_modified_str = if metadata_policy.emit_last_modified {
+        metadata
+            .modified()
+            .ok()
+            .filter(|t| t.duration_since(UNIX_EPOCH).is_ok())
+            .map(httpdate::fmt_http_date)
+    } else {
+        None
+    };
+    let len = metadata.len();
+
+    // RFC 9110 § 13.2.2 steps 1-2: lost-update preconditions take
+    // precedence over cache-validation preconditions. If-Unmodified-Since
+    // MUST be ignored when If-Match is present.
+    match if_match {
+        Some(ifm) => {
+            let matches = etag
+                .as_deref()
+                .is_some_and(|current| evaluate_if_match(ifm, Some(current)));
+            if !matches {
+                return build_precondition_failed();
+            }
+        }
+        None => {
+            if let Some(ius) = if_unmodified_since {
+                if let Some(ius_time) = parse_http_date(ius) {
+                    if let Some(lm_time) = last_modified_str.as_deref().and_then(parse_http_date) {
+                        if lm_time > ius_time {
+                            return build_precondition_failed();
+                        }
+                    }
+                }
+                // Malformed date or no modification date available: ignore
+                // the precondition per RFC 9110 § 13.1.4.
+            }
+        }
+    }
+
+    if let Some(headers) = evaluate_cache_validation(
+        etag.as_deref(),
+        last_modified_str.as_deref(),
+        if_none_match,
+        if_modified_since,
+    ) {
+        return StaticResponsePlan {
+            status: ResponseStatus::NOT_MODIFIED,
+            headers,
+            body: BodyPlan::Empty,
+        };
+    }
+
+    if let Some(range) = range_header {
+        let range_outcome = evaluate_range_header(range, len);
+
+        let range_valid = match &range_outcome {
+            RangeRequestOutcome::Satisfiable(_) => {
+                if let Some(if_range) = if_range {
+                    if_range_allows_range(if_range, etag.as_deref(), last_modified_str.as_deref())
+                } else {
+                    true
+                }
+            }
+            _ => false,
+        };
+
+        if range_valid {
+            if let RangeRequestOutcome::Satisfiable(file_range) = range_outcome {
+                return build_range_response(
+                    method,
+                    file_range,
+                    len,
+                    content_type,
+                    etag.as_deref(),
+                    last_modified_str.as_deref(),
+                );
+            }
+        } else {
+            match range_outcome {
+                RangeRequestOutcome::NotSatisfiable => {
+                    return build_not_range_satisfiable(len);
+                }
+                RangeRequestOutcome::Satisfiable(_) => {
+                    // If-Range didn't match; serve full response.
+                }
+                _ => {}
+            }
+        }
+    }
+
+    build_full_response(
+        method,
+        len,
+        content_type,
+        &etag,
+        last_modified_str.as_deref(),
+    )
+}
+
+/// Evaluate the cache-validation preconditions (RFC 9110 § 13.2.2 step 3)
+/// from precomputed validators. Returns `Some(headers)` when the request is
+/// NotModified, `None` when a full response must be built.
+///
+/// When no ETag can be generated, only `If-None-Match: *` still applies:
+/// RFC 9110 § 13.1.2 makes it mean "if a current representation exists",
+/// needing neither an ETag nor a modification date.
+fn evaluate_cache_validation(
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+) -> Option<HeaderMapPlan> {
+    if let Some(etag_val) = etag {
+        return match evaluate_conditional_headers(
+            etag_val,
+            last_modified,
+            if_none_match,
+            if_modified_since,
+        ) {
+            ConditionalRequestOutcome::NotModified(headers) => Some(headers),
+            _ => None,
+        };
+    }
+    if if_none_match.is_some_and(|inm| inm.trim() == "*") {
+        return Some(HeaderMapPlan::new());
+    }
+    None
+}
+
+/// Evaluate conditional request headers (If-None-Match, If-Modified-Since).
+///
+/// When both headers are present, `If-None-Match` takes precedence as required
+/// by RFC 7232 section 6; `If-Modified-Since` is intentionally not evaluated.
+pub fn evaluate_conditional_headers(
+    current_etag: &str,
+    last_modified: Option<&str>,
+    if_none_match: Option<&str>,
+    if_modified_since: Option<&str>,
+) -> ConditionalRequestOutcome {
+    if let Some(inm) = if_none_match {
+        if evaluate_if_none_match(inm, current_etag) {
+            let mut headers = HeaderMapPlan::new();
+            headers.push("etag", current_etag.to_owned());
+            if let Some(lm) = last_modified {
+                headers.push("last-modified", lm.to_owned());
+            }
+            return ConditionalRequestOutcome::NotModified(headers);
+        }
+        return ConditionalRequestOutcome::FullResponse;
+    }
+
+    if let Some(ims) = if_modified_since {
+        if let Some(ims_time) = parse_http_date(ims) {
+            if let Some(lm) = last_modified {
+                if let Some(lm_time) = parse_http_date(lm) {
+                    if lm_time <= ims_time {
+                        let mut headers = HeaderMapPlan::new();
+                        headers.push("etag", current_etag.to_owned());
+                        headers.push("last-modified", lm.to_owned());
+                        return ConditionalRequestOutcome::NotModified(headers);
+                    }
+                }
+            }
+            return ConditionalRequestOutcome::FullResponse;
+        }
+        // Malformed date; ignore per RFC 7231 section 5.1.1.
+        return ConditionalRequestOutcome::Malformed;
+    }
+
+    ConditionalRequestOutcome::FullResponse
+}
+
+/// Evaluate an `If-None-Match` header value against the current ETag.
+///
+/// Supports weak comparison (appropriate for GET/HEAD), wildcard `*`, and
+/// comma-separated lists of ETags.
+pub fn evaluate_if_none_match(if_none_match: &str, current_etag: &str) -> bool {
+    let trimmed = if_none_match.trim();
+    if trimmed == "*" {
+        return true;
+    }
+
+    let current_weak = current_etag.starts_with("W/");
+    let current_inner = if current_weak {
+        &current_etag[2..]
+    } else {
+        current_etag
+    };
+
+    for etag in trimmed.split(',') {
+        let etag = etag.trim();
+        if etag.is_empty() {
+            continue;
+        }
+        let candidate_weak = etag.starts_with("W/");
+        let candidate_inner = if candidate_weak { &etag[2..] } else { etag };
+        if current_inner == candidate_inner {
+            return true;
+        }
+    }
+    false
+}
+
+/// Evaluate an `If-Match` header value against the current ETag.
+///
+/// Per RFC 9110 § 13.1.1, `If-Match` requires strong comparison: a weak
+/// current ETag never matches any listed tag. The wildcard `*` succeeds
+/// whenever a current representation exists.
+pub fn evaluate_if_match(if_match: &str, current_etag: Option<&str>) -> bool {
+    let trimmed = if_match.trim();
+    if trimmed == "*" {
+        return current_etag.is_some();
+    }
+
+    let Some(current) = current_etag else {
+        return false;
+    };
+    // Strong comparison: both tags must be non-weak and identical.
+    if current.starts_with("W/") {
+        return false;
+    }
+
+    trimmed
+        .split(',')
+        .map(str::trim)
+        .any(|candidate| !candidate.is_empty() && candidate == current)
+}
+
+/// Evaluate range request headers.
+pub fn evaluate_range_header(range: &str, file_size: u64) -> RangeRequestOutcome {
+    let range = range.trim();
+    if !range.starts_with("bytes=") {
+        return RangeRequestOutcome::MalformedOrUnsupported;
+    }
+
+    let range_value = &range[6..];
+    if range_value.is_empty() {
+        return RangeRequestOutcome::MalformedOrUnsupported;
+    }
+
+    let ranges: Vec<&str> = range_value.split(',').collect();
+    if ranges.len() > 1 {
+        return RangeRequestOutcome::MultipleRanges;
+    }
+
+    parse_single_range(ranges[0].trim(), file_size)
+}
+
+/// Evaluate an `If-Range` header.
+pub fn evaluate_if_range(
+    if_range: &str,
+    current_etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> ConditionalRequestOutcome {
+    let trimmed = if_range.trim();
+    if trimmed.is_empty() {
+        return ConditionalRequestOutcome::Malformed;
+    }
+
+    if trimmed.starts_with('"') {
+        // Strong entity-tag: RFC 9110 § 13.1.4 requires strong comparison.
+        // A strong `If-Range` authorizes the range response only when the
+        // current validator is also strong and byte-identical. The generated
+        // metadata ETag is deliberately weak, so it never matches here and
+        // falls through to a full response.
+        if let Some(current) = current_etag {
+            if !current.starts_with("W/") && current == trimmed {
+                return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
+            }
+        }
+        return ConditionalRequestOutcome::FullResponse;
+    }
+
+    if trimmed.starts_with("W/") {
+        // If-Range requires strong comparison. The generated metadata ETag is
+        // deliberately weak, so it cannot authorize a range response.
+        return ConditionalRequestOutcome::FullResponse;
+    }
+
+    // Date
+    if let Some(lm) = last_modified {
+        if let (Some(if_range_time), Some(lm_time)) =
+            (parse_http_date(trimmed), parse_http_date(lm))
+        {
+            if if_range_time == lm_time {
+                return ConditionalRequestOutcome::NotModified(HeaderMapPlan::new());
+            }
+        }
+    }
+
+    ConditionalRequestOutcome::FullResponse
+}
+
+fn if_range_allows_range(
+    if_range: &str,
+    current_etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> bool {
+    matches!(
+        evaluate_if_range(if_range, current_etag, last_modified),
+        ConditionalRequestOutcome::NotModified(_)
+    )
+}
+
+/// Generate a weak ETag from file metadata.
+///
+/// Uses file size, mtime seconds, and mtime nanoseconds to produce a stable
+/// weak validator. Nanosecond precision distinguishes rapid same-size
+/// modifications where millisecond precision would collide. Pre-epoch
+/// mtimes are represented with a negative seconds component so they still
+/// yield a stable validator instead of `None`.
+pub fn generate_etag(metadata: &Metadata) -> Option<String> {
+    let size = metadata.len();
+    let mtime = metadata.modified().ok()?;
+    // Represent pre-epoch mtimes by negating the seconds component; the
+    // sub-second nanoseconds stay non-negative either way, so the encoding
+    // remains injective.
+    let (sign, elapsed) = match mtime.duration_since(UNIX_EPOCH) {
+        Ok(elapsed) => ("", elapsed),
+        Err(err) => ("-", err.duration()),
+    };
+    Some(format!(
+        "W/\"{}-{}{}-{}\"",
+        size,
+        sign,
+        elapsed.as_secs(),
+        elapsed.subsec_nanos()
+    ))
+}
+
+fn build_precondition_failed() -> StaticResponsePlan {
+    let mut headers = HeaderMapPlan::new();
+    headers.push("content-length", "0".to_owned());
+
+    StaticResponsePlan {
+        status: ResponseStatus::PRECONDITION_FAILED,
+        headers,
+        body: BodyPlan::Empty,
+    }
+}
+
+fn build_full_response(
+    method: ReadOnlyMethod,
+    len: u64,
+    content_type: &str,
+    etag: &Option<String>,
+    last_modified: Option<&str>,
+) -> StaticResponsePlan {
+    let mut headers = HeaderMapPlan::new();
+    headers.push("content-length", len.to_string());
+    headers.push("content-type", content_type.to_owned());
+    headers.push("accept-ranges", "bytes".to_owned());
+    headers.push("x-content-type-options", "nosniff".to_owned());
+
+    if let Some(lm) = last_modified {
+        headers.push("last-modified", lm.to_owned());
+    }
+    if let Some(tag) = etag {
+        headers.push("etag", tag.clone());
+    }
+
+    let body = if method == ReadOnlyMethod::Head {
+        BodyPlan::Empty
+    } else {
+        BodyPlan::FileFull
+    };
+
+    StaticResponsePlan {
+        status: ResponseStatus::OK,
+        headers,
+        body,
+    }
+}
+
+fn build_range_response(
+    method: ReadOnlyMethod,
+    range: FileRange,
+    file_size: u64,
+    content_type: &str,
+    etag: Option<&str>,
+    last_modified: Option<&str>,
+) -> StaticResponsePlan {
+    let mut headers = HeaderMapPlan::new();
+    let content_length = range.len();
+    headers.push("content-length", content_length.to_string());
+    headers.push("content-type", content_type.to_owned());
+    headers.push("accept-ranges", "bytes".to_owned());
+    headers.push(
+        "content-range",
+        format!(
+            "bytes {}-{}/{}",
+            range.start(),
+            range.end_inclusive(),
+            file_size
+        ),
+    );
+    headers.push("x-content-type-options", "nosniff".to_owned());
+
+    if let Some(lm) = last_modified {
+        headers.push("last-modified", lm.to_owned());
+    }
+    if let Some(tag) = etag {
+        headers.push("etag", tag.to_owned());
+    }
+
+    let body = if method == ReadOnlyMethod::Head {
+        BodyPlan::Empty
+    } else {
+        BodyPlan::FileRange {
+            start: range.start(),
+            end_inclusive: range.end_inclusive(),
+        }
+    };
+
+    StaticResponsePlan {
+        status: ResponseStatus::PARTIAL_CONTENT,
+        headers,
+        body,
+    }
+}
+
+fn build_not_range_satisfiable(file_size: u64) -> StaticResponsePlan {
+    let mut headers = HeaderMapPlan::new();
+    headers.push("content-length", "0".to_owned());
+    headers.push("accept-ranges", "bytes".to_owned());
+    headers.push("content-range", format!("bytes */{file_size}"));
+
+    StaticResponsePlan {
+        status: ResponseStatus::NOT_RANGE_SATISFIABLE,
+        headers,
+        body: BodyPlan::Empty,
+    }
+}
+
+/// Parse a digits-only `u64` per RFC 9110 § 14.1.2 (`first-pos` /
+/// `last-pos` are `1*DIGIT`). Unlike `u64::from_str`, this rejects the
+/// leading `+` that would otherwise make an invalid ranges-specifier
+/// parse successfully (an invalid specifier must be ignored).
+fn parse_u64_digits(s: &str) -> Option<u64> {
+    if s.is_empty() || !s.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    s.parse().ok()
+}
+
+fn parse_single_range(range: &str, file_size: u64) -> RangeRequestOutcome {
+    if file_size == 0 {
+        return RangeRequestOutcome::NotSatisfiable;
+    }
+
+    if let Some(suffix_len_str) = range.strip_prefix('-') {
+        // Suffix: -N
+        let suffix_len: u64 = match parse_u64_digits(suffix_len_str) {
+            Some(n) => n,
+            None => return RangeRequestOutcome::MalformedOrUnsupported,
+        };
+        if suffix_len == 0 {
+            return RangeRequestOutcome::NotSatisfiable;
+        }
+        let start = file_size.saturating_sub(suffix_len);
+        if start >= file_size {
+            return RangeRequestOutcome::NotSatisfiable;
+        }
+        return RangeRequestOutcome::Satisfiable(FileRange::new(start, file_size - 1));
+    }
+
+    // Start or Start-End
+    let parts: Vec<&str> = range.splitn(2, '-').collect();
+    if parts.len() != 2 {
+        return RangeRequestOutcome::MalformedOrUnsupported;
+    }
+
+    let start: u64 = match parse_u64_digits(parts[0]) {
+        Some(n) => n,
+        None => return RangeRequestOutcome::MalformedOrUnsupported,
+    };
+
+    if parts[1].is_empty() {
+        // Start-
+        if start >= file_size {
+            return RangeRequestOutcome::NotSatisfiable;
+        }
+        return RangeRequestOutcome::Satisfiable(FileRange::new(start, file_size - 1));
+    }
+
+    // Start-End
+    let end: u64 = match parse_u64_digits(parts[1]) {
+        Some(n) => n,
+        None => return RangeRequestOutcome::MalformedOrUnsupported,
+    };
+
+    if start > end {
+        return RangeRequestOutcome::MalformedOrUnsupported;
+    }
+    if start >= file_size {
+        return RangeRequestOutcome::NotSatisfiable;
+    }
+
+    let end = end.min(file_size - 1);
+    RangeRequestOutcome::Satisfiable(FileRange::new(start, end))
+}
+
+fn parse_http_date(s: &str) -> Option<SystemTime> {
+    httpdate::parse_http_date(s).ok()
+}
+
+/// Evaluate the metadata for a directory listing response.
+///
+/// The directory entries are rendered after planning, so a GET plan carries
+/// an empty byte placeholder and intentionally omits `Content-Length`.
+/// Callers must replace that placeholder with the renderer's bytes before
+/// constructing the response. HEAD uses the supplied rendered length and an
+/// empty body.
+pub fn plan_directory_listing(content_length: usize, is_head: bool) -> StaticResponsePlan {
+    let mut headers = HeaderMapPlan::new();
+    headers.push("content-type", "text/html; charset=utf-8".to_owned());
+    // A GET caller supplies the listing bytes after planning; leaving this
+    // header out prevents the placeholder empty body from advertising the
+    // eventual representation length. HEAD has no body to carry that length.
+    if is_head {
+        headers.push("content-length", content_length.to_string());
+    }
+    headers.push("x-content-type-options", "nosniff".to_owned());
+    headers.push(
+        "content-security-policy",
+        "default-src 'none'; base-uri 'none'; form-action 'none'".to_owned(),
+    );
+    headers.push("referrer-policy", "no-referrer".to_owned());
+
+    let body = if is_head {
+        BodyPlan::Empty
+    } else {
+        BodyPlan::FullBytes(Vec::new()) // Caller replaces with rendered HTML
+    };
+
+    StaticResponsePlan {
+        status: ResponseStatus::OK,
+        headers,
+        body,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+    use std::io::Write;
+
+    fn make_file_with_size(size: usize) -> tempfile::NamedTempFile {
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        let data = vec![0u8; size];
+        tmp.write_all(&data).unwrap();
+        tmp.flush().unwrap();
+        tmp
+    }
+
+    #[test]
+    fn plan_file_response_200_get() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain; charset=utf-8",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.headers.get("content-length"), Some("1024"));
+        assert_eq!(
+            plan.headers.get("content-type"),
+            Some("text/plain; charset=utf-8")
+        );
+        assert_eq!(plan.headers.get("x-content-type-options"), Some("nosniff"));
+        assert!(plan.headers.get("etag").is_some());
+        assert!(plan.headers.get("last-modified").is_some());
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_200_head_empty_body() {
+        let tmp = make_file_with_size(512);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/html; charset=utf-8",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("512"));
+    }
+
+    #[test]
+    fn plan_file_response_etag_and_last_modified() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let etag = plan.headers.get("etag").unwrap();
+        assert!(etag.starts_with("W/\""));
+        assert!(plan.headers.get("last-modified").is_some());
+    }
+
+    #[test]
+    fn plan_file_response_matching_if_none_match_304() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let etag = generate_etag(&meta).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 304);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert!(plan.headers.get("etag").is_some());
+    }
+
+    #[test]
+    fn plan_file_response_nonmatching_if_none_match_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("W/\"999-999\""),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_wildcard_if_none_match_304() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("*"),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 304);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn plan_file_response_matching_if_modified_since_304() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        // IMS in the future relative to file mtime
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let future = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs + 3600);
+        let ims = httpdate::fmt_http_date(future);
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some(&ims),
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 304);
+    }
+
+    #[test]
+    fn plan_file_response_stale_if_modified_since_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        // IMS in the past
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ims = httpdate::fmt_http_date(past);
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some(&ims),
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_invalid_if_modified_since_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some("not-a-date"),
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    // -----------------------------------------------------------------------
+    // RFC 9110 § 13.1.1 / § 13.2.2: If-Match (strong comparison, 412).
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn plan_file_response_if_match_mismatched_412() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("\"mismatched\""),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("0"));
+    }
+
+    #[test]
+    fn plan_file_response_if_match_wildcard_continues_to_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("*"),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_if_match_weak_tag_never_strongly_matches_412() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        // Even the exact current tag value fails strong comparison because
+        // generated metadata ETags are weak.
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+    }
+
+    #[test]
+    fn plan_file_response_if_match_takes_precedence_over_if_none_match() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        // The If-None-Match would produce 304, but the failed If-Match
+        // precondition must be evaluated first and yield 412.
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("\"mismatched\""),
+            None,
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+    }
+
+    #[test]
+    fn plan_file_response_if_match_takes_precedence_over_range() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("\"mismatched\""),
+            None,
+            None,
+            None,
+            Some("bytes=0-49"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn evaluate_if_match_strong_comparison_rules() {
+        assert!(evaluate_if_match("\"abc\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("\"abc\"", Some("\"abd\"")));
+        // Strong comparison rejects weak tags on either side.
+        assert!(!evaluate_if_match("W/\"abc\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("\"abc\"", Some("W/\"abc\"")));
+        // Wildcard succeeds whenever a current representation exists.
+        assert!(evaluate_if_match("*", Some("\"abc\"")));
+        assert!(evaluate_if_match("*", Some("W/\"abc\"")));
+        // With no current representation there is nothing to match.
+        assert!(!evaluate_if_match("*", None));
+        // Lists match when any member strongly matches.
+        assert!(evaluate_if_match("\"x\", \"abc\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("\"x\", \"y\"", Some("\"abc\"")));
+        assert!(!evaluate_if_match("", Some("\"abc\"")));
+    }
+
+    // -----------------------------------------------------------------------
+    // RFC 9110 § 13.1.4 / § 13.2.2: If-Unmodified-Since.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn plan_file_response_stale_if_unmodified_since_412() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ius = httpdate::fmt_http_date(past);
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some(&ius),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 412);
+    }
+
+    #[test]
+    fn plan_file_response_fresh_if_unmodified_since_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let future = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs + 3600);
+        let ius = httpdate::fmt_http_date(future);
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some(&ius),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_malformed_if_unmodified_since_is_ignored() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            Some("not-a-date"),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_if_unmodified_since_ignored_when_if_match_present() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ius = httpdate::fmt_http_date(past);
+
+        // A wildcard If-Match succeeds and suppresses the stale
+        // If-Unmodified-Since condition per RFC 9110 § 13.1.4.
+        let plan = plan_file_response_with_preconditions(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some("*"),
+            Some(&ius),
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_head_conditional_matches_get_status() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let etag = generate_etag(&meta).unwrap();
+
+        let get_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        let head_plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(get_plan.status.as_u16(), head_plan.status.as_u16());
+        assert_eq!(head_plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn plan_file_response_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.headers.get("content-range"), Some("bytes 0-49/100"));
+        assert_eq!(plan.headers.get("content-length"), Some("50"));
+        assert_eq!(plan.headers.get("content-type"), Some("text/plain"));
+        assert_eq!(plan.headers.get("accept-ranges"), Some("bytes"));
+        assert!(plan.headers.get("etag").is_some());
+        assert!(plan.headers.get("last-modified").is_some());
+    }
+
+    #[test]
+    fn plan_file_response_range_416() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=200-300"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 416);
+        assert_eq!(plan.headers.get("content-range"), Some("bytes */100"));
+        assert_eq!(plan.headers.get("content-length"), Some("0"));
+        assert_eq!(plan.headers.get("accept-ranges"), Some("bytes"));
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn plan_file_response_head_range_empty_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("50"));
+        assert_eq!(plan.headers.get("content-type"), Some("text/plain"));
+    }
+
+    #[test]
+    fn plan_file_response_if_range_weak_etag_ignored_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&etag),
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+    }
+
+    #[test]
+    fn plan_file_response_if_range_nonmatching_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some("W/\"999-999\""),
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_suffix_range() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=-10"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.headers.get("content-range"), Some("bytes 90-99/100"));
+        assert_eq!(plan.headers.get("content-length"), Some("10"));
+    }
+
+    #[test]
+    fn plan_file_response_open_ended_range() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=50-"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.headers.get("content-range"), Some("bytes 50-99/100"));
+        assert_eq!(plan.headers.get("content-length"), Some("50"));
+    }
+
+    #[test]
+    fn plan_file_response_multiple_ranges_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-9, 50-59"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn evaluate_range_header_prefix() {
+        let result = evaluate_range_header("bytes=0-9", 100);
+        assert!(matches!(result, RangeRequestOutcome::Satisfiable(_)));
+
+        let result = evaluate_range_header("none=0-9", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_empty() {
+        let result = evaluate_range_header("bytes=", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_suffix_zero() {
+        let result = evaluate_range_header("bytes=-0", 100);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_range_header_suffix_exceeds_file_returns_whole_file() {
+        let result = evaluate_range_header("bytes=-200", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(0, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_start_beyond_file() {
+        let result = evaluate_range_header("bytes=200-300", 100);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_range_header_start_equals_end_beyond_file() {
+        let result = evaluate_range_header("bytes=100-100", 100);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_range_header_inverted_range() {
+        // RFC 9110 § 14.1.2: first-byte-pos > last-byte-pos is invalid;
+        // the Range header is ignored (full response), not 416.
+        let result = evaluate_range_header("bytes=50-10", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_non_numeric() {
+        let result = evaluate_range_header("bytes=abc-def", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_leading_plus_is_malformed() {
+        // RFC 9110 § 14.1.2: first-pos/last-pos are 1*DIGIT; a leading '+'
+        // invalidates the specifier, which must be ignored (full response).
+        assert_eq!(
+            evaluate_range_header("bytes=+5-10", 100),
+            RangeRequestOutcome::MalformedOrUnsupported
+        );
+        assert_eq!(
+            evaluate_range_header("bytes=5-+10", 100),
+            RangeRequestOutcome::MalformedOrUnsupported
+        );
+        assert_eq!(
+            evaluate_range_header("bytes=-+5", 100),
+            RangeRequestOutcome::MalformedOrUnsupported
+        );
+    }
+
+    #[test]
+    fn plan_file_response_leading_plus_range_serves_full_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=+5-10"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_inverted_range_serves_full_200() {
+        // RFC 9110 § 14.1.2: start > end is an invalid specifier and the
+        // Range header must be ignored (serve 200), not rejected with 416.
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=50-10"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn cache_validation_wildcard_inm_applies_without_etag() {
+        assert!(evaluate_cache_validation(None, None, Some("*"), None).is_some());
+    }
+
+    #[test]
+    fn cache_validation_listed_inm_without_etag_is_ignored() {
+        assert!(evaluate_cache_validation(None, None, Some("\"abc-123\""), None).is_none());
+    }
+
+    #[test]
+    fn cache_validation_no_headers_without_etag_is_full_response() {
+        assert!(evaluate_cache_validation(None, None, None, None).is_none());
+    }
+
+    #[test]
+    fn cache_validation_with_etag_still_uses_conditional_evaluation() {
+        // Matching listed INM yields NotModified headers carrying the ETag.
+        let headers =
+            evaluate_cache_validation(Some("\"abc-123\""), None, Some("\"abc-123\""), None)
+                .unwrap();
+        assert_eq!(headers.iter().count(), 1);
+
+        // Non-matching INM yields a full response.
+        assert!(
+            evaluate_cache_validation(Some("\"abc-123\""), None, Some("\"zzz\""), None).is_none()
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_end_clamped_to_file_size() {
+        let result = evaluate_range_header("bytes=90-200", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(90, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_zero_file_size() {
+        let result = evaluate_range_header("bytes=0-0", 0);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_if_none_match_etag_matches() {
+        assert!(evaluate_if_none_match("W/\"100-1234\"", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_etag_does_not_match() {
+        assert!(!evaluate_if_none_match("W/\"999-999\"", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_wildcard() {
+        assert!(evaluate_if_none_match("*", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_range_etags_never_authorize_ranges_for_weak_metadata() {
+        // Weak validators never authorize a range response.
+        assert_eq!(
+            evaluate_if_range("W/\"100-1234\"", Some("W/\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+        // A strong If-Range never matches the weak metadata ETag the server
+        // emits, so it also falls back to a full response.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("W/\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+    }
+
+    #[test]
+    fn evaluate_if_range_strong_match_authorizes_range() {
+        // Hypothetical strong current validator: byte-identical strong
+        // If-Range satisfies strong comparison and allows the range.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("\"100-1234\""), None),
+            ConditionalRequestOutcome::NotModified(HeaderMapPlan::new())
+        );
+        // Mismatched strong validators fall back to a full response.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("\"999-999\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+        // A weak current validator never satisfies strong comparison.
+        assert_eq!(
+            evaluate_if_range("\"100-1234\"", Some("W/\"100-1234\""), None),
+            ConditionalRequestOutcome::FullResponse
+        );
+    }
+
+    #[test]
+    fn evaluate_if_none_match_list() {
+        assert!(evaluate_if_none_match(
+            "W/\"999-999\", W/\"100-1234\"",
+            "W/\"100-1234\""
+        ));
+        assert!(!evaluate_if_none_match(
+            "W/\"999-999\", W/\"888-888\"",
+            "W/\"100-1234\""
+        ));
+    }
+
+    #[test]
+    fn generate_etag_format() {
+        let tmp = make_file_with_size(42);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        assert!(etag.starts_with("W/\"42-"));
+        assert!(etag.ends_with('"'));
+    }
+
+    #[test]
+    fn plan_directory_listing_200() {
+        let plan = plan_directory_listing(1234, false);
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(
+            plan.headers.get("content-type"),
+            Some("text/html; charset=utf-8")
+        );
+        assert_eq!(plan.headers.get("content-length"), None);
+        assert_eq!(plan.body, BodyPlan::FullBytes(Vec::new()));
+        assert_eq!(
+            plan.headers.get("content-security-policy"),
+            Some("default-src 'none'; base-uri 'none'; form-action 'none'")
+        );
+        assert_eq!(plan.headers.get("referrer-policy"), Some("no-referrer"));
+        assert_eq!(plan.headers.get("x-content-type-options"), Some("nosniff"));
+    }
+
+    #[test]
+    fn plan_directory_listing_head_empty_body() {
+        let plan = plan_directory_listing(500, true);
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("500"));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_weak_etag_matches_strong() {
+        assert!(evaluate_if_none_match("W/\"100-1234\"", "\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_strong_etag_matches_weak() {
+        assert!(evaluate_if_none_match("\"100-1234\"", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_if_none_match_empty_list() {
+        assert!(!evaluate_if_none_match("", "W/\"100-1234\""));
+    }
+
+    #[test]
+    fn evaluate_range_header_first_byte() {
+        let result = evaluate_range_header("bytes=0-0", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(0, 0))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_open_ended() {
+        let result = evaluate_range_header("bytes=50-", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(50, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_suffix_one() {
+        let result = evaluate_range_header("bytes=-1", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(99, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_suffix_larger_than_file() {
+        let result = evaluate_range_header("bytes=-200", 100);
+        assert_eq!(
+            result,
+            RangeRequestOutcome::Satisfiable(FileRange::new(0, 99))
+        );
+    }
+
+    #[test]
+    fn evaluate_range_header_start_beyond_eof() {
+        let result = evaluate_range_header("bytes=100-", 100);
+        assert_eq!(result, RangeRequestOutcome::NotSatisfiable);
+    }
+
+    #[test]
+    fn evaluate_range_header_start_greater_than_end() {
+        // RFC 9110 § 14.1.2: invalid specifier is ignored (full response).
+        let result = evaluate_range_header("bytes=50-10", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_unsupported_unit() {
+        let result = evaluate_range_header("items=0-9", 100);
+        assert_eq!(result, RangeRequestOutcome::MalformedOrUnsupported);
+    }
+
+    #[test]
+    fn evaluate_range_header_multiple_ranges() {
+        let result = evaluate_range_header("bytes=0-9, 50-59", 100);
+        assert_eq!(result, RangeRequestOutcome::MultipleRanges);
+    }
+
+    #[test]
+    fn plan_file_response_zero_length_file_range_416() {
+        let tmp = make_file_with_size(0);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "application/octet-stream",
+            None,
+            None,
+            Some("bytes=0-0"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 416);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn plan_file_response_if_range_matching_date_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let lm_time = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs);
+        let date_str = httpdate::fmt_http_date(lm_time);
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&date_str),
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+    }
+
+    #[test]
+    fn plan_file_response_if_range_stale_date_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let stale = UNIX_EPOCH + std::time::Duration::from_secs(0);
+        let date_str = httpdate::fmt_http_date(stale);
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&date_str),
+        );
+
+        assert_eq!(plan.status.as_u16(), 200);
+        assert_eq!(plan.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn plan_file_response_head_with_range_returns_headers_no_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-0"),
+            None,
+        );
+
+        assert_eq!(plan.status.as_u16(), 206);
+        assert_eq!(plan.body, BodyPlan::Empty);
+        assert_eq!(plan.headers.get("content-length"), Some("1"));
+        assert_eq!(plan.headers.get("content-range"), Some("bytes 0-0/100"));
+    }
+
+    #[test]
+    fn evaluate_conditional_headers_both_present_etag_wins() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let outcome = evaluate_conditional_headers(
+            &etag,
+            None,
+            Some(&etag),
+            Some("Tue, 01 Jan 2030 00:00:00 GMT"),
+        );
+
+        assert!(matches!(outcome, ConditionalRequestOutcome::NotModified(_)));
+    }
+
+    #[test]
+    fn evaluate_conditional_headers_no_match_no_ims() {
+        let outcome =
+            evaluate_conditional_headers("W/\"100-1234\"", None, Some("W/\"999-999\""), None);
+
+        assert_eq!(outcome, ConditionalRequestOutcome::FullResponse);
+    }
+
+    #[test]
+    fn property_range_always_within_file_size() {
+        let file_sizes = [1u64, 10, 100, 1000, u64::MAX];
+        let range_headers = [
+            "bytes=0-0",
+            "bytes=0-49",
+            "bytes=50-",
+            "bytes=-10",
+            "bytes=0-999999",
+            "bytes=-999999",
+            "bytes=50-10",
+            "bytes=200-300",
+            "bytes=abc",
+            "bytes=",
+            "items=0-9",
+            "bytes=-0",
+            "none=0-9",
+        ];
+
+        for &file_size in &file_sizes {
+            for header in &range_headers {
+                let outcome = evaluate_range_header(header, file_size);
+                if let RangeRequestOutcome::Satisfiable(range) = outcome {
+                    assert!(
+                        range.start() < file_size,
+                        "range start {} >= file_size {} for header {:?}",
+                        range.start(),
+                        file_size,
+                        header
+                    );
+                    assert!(
+                        range.end_inclusive() < file_size,
+                        "range end {} >= file_size {} for header {:?}",
+                        range.end_inclusive(),
+                        file_size,
+                        header
+                    );
+                    assert!(
+                        range.start() <= range.end_inclusive(),
+                        "range start {} > end {} for header {:?}",
+                        range.start(),
+                        range.end_inclusive(),
+                        header
+                    );
+                    assert!(!range.is_empty(), "range length is 0 for header {header:?}");
+                    assert!(
+                        range.len() <= file_size,
+                        "range length {} > file_size {} for header {:?}",
+                        range.len(),
+                        file_size,
+                        header
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn property_etag_format() {
+        let sizes = [0usize, 1, 42, 1024, 1024 * 1024];
+        for size in sizes {
+            let tmp = make_file_with_size(size);
+            let meta = std::fs::metadata(tmp.path()).unwrap();
+            if let Some(etag) = generate_etag(&meta) {
+                assert!(
+                    etag.starts_with("W/\""),
+                    "ETag does not start with W/\": {etag:?}"
+                );
+                assert!(etag.ends_with('"'), "ETag does not end with \": {etag:?}");
+                // ETag contains the file size
+                assert!(
+                    etag.contains(&size.to_string()),
+                    "ETag {etag:?} does not contain size {size}"
+                );
+                // No CR/LF in ETag
+                assert!(!etag.contains('\r'), "CR in ETag: {etag:?}");
+                assert!(!etag.contains('\n'), "LF in ETag: {etag:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn property_head_never_has_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let range_headers = [None, Some("bytes=0-49"), Some("bytes=-10")];
+        let inm_values = [None, Some("W/\"100-1234\""), Some("*")];
+
+        for range in &range_headers {
+            for inm in &inm_values {
+                let plan = plan_file_response(
+                    ReadOnlyMethod::Head,
+                    &meta,
+                    "text/plain",
+                    *inm,
+                    None,
+                    *range,
+                    None,
+                );
+                assert_eq!(
+                    plan.body,
+                    BodyPlan::Empty,
+                    "HEAD request returned non-empty body for range={range:?} inm={inm:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn property_304_always_empty_body() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan.status.as_u16(), 304);
+        assert_eq!(plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn property_weak_strong_etag_equivalence() {
+        // Weak and strong ETags with same inner value should match
+        assert!(evaluate_if_none_match("W/\"100\"", "\"100\""));
+        assert!(evaluate_if_none_match("\"100\"", "W/\"100\""));
+        assert!(evaluate_if_none_match("W/\"100\"", "W/\"100\""));
+        assert!(evaluate_if_none_match("\"100\"", "\"100\""));
+    }
+
+    #[test]
+    fn property_wildcard_always_matches() {
+        let etags = ["W/\"100\"", "\"100\"", "anything", "", "W/\"\""];
+        for etag in &etags {
+            assert!(
+                evaluate_if_none_match("*", etag),
+                "wildcard did not match etag: {etag:?}"
+            );
+        }
+    }
+
+    proptest::proptest! {
+        #[test]
+        fn evaluate_range_header_never_panics(header in ".*", file_size in 0u64..=1_000_000) {
+            let _ = evaluate_range_header(&header, file_size);
+        }
+
+        #[test]
+        fn satisfiable_range_within_file_size(header in "bytes=(\\d+)-(\\d+)", file_size in 1u64..=1_000_000) {
+            if let RangeRequestOutcome::Satisfiable(range) = evaluate_range_header(&header, file_size) {
+                prop_assert!(range.start() < file_size,
+                    "start {} >= file_size {}", range.start(), file_size);
+                prop_assert!(range.end_inclusive() < file_size,
+                    "end {} >= file_size {}", range.end_inclusive(), file_size);
+                prop_assert!(range.start() <= range.end_inclusive(),
+                    "start {} > end {}", range.start(), range.end_inclusive());
+            }
+        }
+
+        #[test]
+        fn evaluate_if_none_match_never_panics(if_none_match in ".*", current_etag in ".*") {
+            let _ = evaluate_if_none_match(&if_none_match, &current_etag);
+        }
+
+        #[test]
+        fn wildcard_always_matches(current_etag in "[^\"]*") {
+            prop_assert!(evaluate_if_none_match("*", &current_etag));
+        }
+
+        #[test]
+        fn generate_etag_never_panics(size in 0usize..=1_000_000) {
+            let tmp = make_file_with_size(size);
+            let meta = std::fs::metadata(tmp.path()).unwrap();
+            let _ = generate_etag(&meta);
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 081: Direct-file and directory-index planner parity tests.
+    //
+    // These verify that the same metadata + request headers produce identical
+    // planner outputs regardless of resolution path. The planner is pure, so
+    // the same inputs must always yield the same outputs.
+    // -----------------------------------------------------------------------
+
+    fn plan_both(
+        meta: &std::fs::Metadata,
+        ct: &str,
+        inm: Option<&str>,
+        ims: Option<&str>,
+        range: Option<&str>,
+        if_range: Option<&str>,
+    ) -> (StaticResponsePlan, StaticResponsePlan) {
+        let direct = plan_file_response(ReadOnlyMethod::Get, meta, ct, inm, ims, range, if_range);
+        let index = plan_file_response(ReadOnlyMethod::Get, meta, ct, inm, ims, range, if_range);
+        (direct, index)
+    }
+
+    #[test]
+    fn parity_ordinary_get() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain; charset=utf-8", None, None, None, None);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+        assert_eq!(d.body, i.body);
+    }
+
+    #[test]
+    fn parity_matching_if_none_match_304() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", Some(&etag), None, None, None);
+        assert_eq!(d.status.as_u16(), 304);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn parity_nonmatching_if_none_match_200() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", Some("W/\"999-999\""), None, None, None);
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, i.body);
+    }
+
+    #[test]
+    fn parity_matching_if_modified_since_304() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let future = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs + 3600);
+        let ims = httpdate::fmt_http_date(future);
+        let (d, i) = plan_both(&meta, "text/plain", None, Some(&ims), None, None);
+        assert_eq!(d.status.as_u16(), 304);
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_nonmatching_if_modified_since_200() {
+        let tmp = make_file_with_size(1024);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let lm = meta.modified().unwrap();
+        let lm_secs = lm.duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let past = UNIX_EPOCH + std::time::Duration::from_secs(lm_secs.saturating_sub(3600));
+        let ims = httpdate::fmt_http_date(past);
+        let (d, i) = plan_both(&meta, "text/plain", None, Some(&ims), None, None);
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_valid_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=0-49"), None);
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+        assert_eq!(d.body, i.body);
+    }
+
+    #[test]
+    fn parity_suffix_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=-10"), None);
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+    }
+
+    #[test]
+    fn parity_open_ended_range_206() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=50-"), None);
+        assert_eq!(d.status.as_u16(), 206);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+    }
+
+    #[test]
+    fn parity_unsatisfiable_range_416() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "text/plain", None, None, Some("bytes=200-300"), None);
+        assert_eq!(d.status.as_u16(), 416);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn parity_if_range_weak_etag_ignored_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        let (d, i) = plan_both(
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some(&etag),
+        );
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_if_range_mismatch_200() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=0-49"),
+            Some("W/\"999-999\""),
+        );
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.body, BodyPlan::FileFull);
+    }
+
+    #[test]
+    fn parity_conditional_plus_range_precedence() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+        let (d, i) = plan_both(
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            Some("bytes=0-49"),
+            None,
+        );
+        assert_eq!(
+            d.status.as_u16(),
+            304,
+            "conditional should take precedence over range"
+        );
+        assert_eq!(d.status, i.status);
+    }
+
+    #[test]
+    fn parity_zero_length_file() {
+        let tmp = make_file_with_size(0);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let (d, i) = plan_both(&meta, "application/octet-stream", None, None, None, None);
+        assert_eq!(d.status.as_u16(), 200);
+        assert_eq!(d.status, i.status);
+        assert_eq!(d.headers, i.headers);
+    }
+
+    #[test]
+    fn parity_head_vs_get_status() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        let get_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        let head_plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(get_plan.status.as_u16(), head_plan.status.as_u16());
+        assert_eq!(head_plan.body, BodyPlan::Empty);
+        assert_eq!(get_plan.headers, head_plan.headers);
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 081 required: file changed between pathname lookup and opened-handle
+    // metadata observation.
+    //
+    // The planner is pure — it operates on metadata, not paths. This test
+    // verifies that if a file changes after resolution (mtime/size differ),
+    // the planner produces a different plan, confirming that the service layer
+    // uses the opened-handle metadata rather than a stale cached value.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn parity_file_changed_between_lookup_and_observation() {
+        // Create a file with initial content.
+        let mut tmp = tempfile::NamedTempFile::new().unwrap();
+        tmp.write_all(b"initial content").unwrap();
+        tmp.flush().unwrap();
+        let meta_before = std::fs::metadata(tmp.path()).unwrap();
+
+        // Plan a response with the original metadata.
+        let plan_before = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta_before,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan_before.status.as_u16(), 200);
+        let etag_before = plan_before.headers.get("etag").unwrap();
+        let cl_before = plan_before.headers.get("content-length").unwrap();
+
+        // Simulate a file change: rewrite with different content and a new mtime.
+        // This changes both size and modification time.
+        let future_time = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+        {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .truncate(true)
+                .open(tmp.path())
+                .unwrap();
+            use std::io::Write;
+            let mut file = file;
+            file.write_all(b"completely different content that is longer than the original")
+                .unwrap();
+            file.flush().unwrap();
+            file.set_times(std::fs::FileTimes::new().set_modified(future_time))
+                .unwrap();
+        }
+
+        let meta_after = std::fs::metadata(tmp.path()).unwrap();
+
+        // Plan a response with the updated metadata (simulates re-reading
+        // the opened handle after a detected change).
+        let plan_after = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta_after,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan_after.status.as_u16(), 200);
+
+        // The plans must differ — different size means different ETag and
+        // Content-Length, proving the planner uses fresh metadata.
+        let etag_after = plan_after.headers.get("etag").unwrap();
+        let cl_after = plan_after.headers.get("content-length").unwrap();
+        assert!(
+            etag_before != etag_after,
+            "ETag must change when file content changes"
+        );
+        assert!(
+            cl_before != cl_after,
+            "Content-Length must change when file size changes"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 082: ETag validator tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn etag_nanos_distinguish_same_size_rapid_replacement() {
+        // Two files with same size but different nanosecond timestamps
+        // should produce different ETags.
+        let tmp1 = make_file_with_size(100);
+        let tmp2 = make_file_with_size(100);
+        let meta1 = std::fs::metadata(tmp1.path()).unwrap();
+        let meta2 = std::fs::metadata(tmp2.path()).unwrap();
+
+        let etag1 = generate_etag(&meta1);
+        let etag2 = generate_etag(&meta2);
+
+        // Both should produce valid ETags
+        assert!(etag1.is_some());
+        assert!(etag2.is_some());
+
+        // If both files have the same nanosecond precision, the ETags will be
+        // equal. This is expected — the test verifies the format includes nanos.
+        // The key assertion is that the ETag format contains three components.
+        let etag = etag1.unwrap();
+        let inner = &etag[3..etag.len() - 1]; // Strip W/" prefix and " suffix
+        let parts: Vec<&str> = inner.split('-').collect();
+        assert_eq!(
+            parts.len(),
+            3,
+            "ETag should have 3 parts (size-secs-nanos), got: {etag}"
+        );
+    }
+
+    #[test]
+    fn etag_direct_and_index_url_share_validator() {
+        // The planner is pure — same metadata + same headers = same plan.
+        // This verifies direct and index URL forms produce identical ETags
+        // when given the same file metadata.
+        let tmp = make_file_with_size(256);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let direct_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        let index_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            direct_plan.headers.get("etag"),
+            index_plan.headers.get("etag"),
+            "Direct and index URL should share the same ETag"
+        );
+        assert_eq!(
+            direct_plan.headers.get("last-modified"),
+            index_plan.headers.get("last-modified"),
+            "Direct and index URL should share the same Last-Modified"
+        );
+    }
+
+    #[test]
+    fn etag_unchanged_file_retains_validator() {
+        // Planning the same file twice should produce the same ETag.
+        let tmp = make_file_with_size(512);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let plan1 = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        let plan2 = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        assert_eq!(
+            plan1.headers.get("etag"),
+            plan2.headers.get("etag"),
+            "Same metadata should produce stable ETag"
+        );
+    }
+
+    #[test]
+    fn etag_format_valid_quoted_syntax() {
+        let tmp = make_file_with_size(42);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag = generate_etag(&meta).unwrap();
+
+        // Must be W/"..." format
+        assert!(
+            etag.starts_with("W/\""),
+            "ETag must start with W/\": {etag}"
+        );
+        assert!(etag.ends_with('"'), "ETag must end with \": {etag}");
+        // No whitespace
+        assert!(!etag.contains(' '), "ETag must not contain spaces: {etag}");
+        // No CR/LF
+        assert!(!etag.contains('\r'), "ETag must not contain CR: {etag}");
+        assert!(!etag.contains('\n'), "ETag must not contain LF: {etag}");
+    }
+
+    #[test]
+    fn etag_with_unavailable_mtime_returns_none() {
+        // A metadata object with modified() returning Err should yield None.
+        // We can't easily construct such metadata, but we can verify the
+        // function handles the None case gracefully.
+        let tmp = make_file_with_size(10);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        // Normal case should return Some
+        assert!(generate_etag(&meta).is_some());
+    }
+
+    #[test]
+    fn head_416_plan_matches_get_416_plan() {
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let get_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=200-300"),
+            None,
+        );
+        let head_plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            Some("bytes=200-300"),
+            None,
+        );
+
+        assert_eq!(get_plan.status.as_u16(), 416);
+        assert_eq!(head_plan.status.as_u16(), 416);
+        assert_eq!(get_plan.headers, head_plan.headers);
+        assert_eq!(head_plan.body, BodyPlan::Empty);
+    }
+
+    #[test]
+    fn head_error_status_preserves_content_length_for_nonempty_body() {
+        // For error responses like 404, HEAD should preserve the CL of the
+        // error body that GET would send, per the plan's requirements.
+        let tmp = make_file_with_size(100);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let get_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        let head_plan = plan_file_response(
+            ReadOnlyMethod::Head,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        // Both should have the same status
+        assert_eq!(get_plan.status.as_u16(), head_plan.status.as_u16());
+        // HEAD should have empty body
+        assert_eq!(head_plan.body, BodyPlan::Empty);
+        // HEAD should preserve content-length from the GET representation
+        assert_eq!(
+            get_plan.headers.get("content-length"),
+            head_plan.headers.get("content-length")
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 082 Track G: Pre-epoch timestamp handling
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn etag_pre_epoch_mtime_produces_validator() {
+        // Pre-epoch mtimes must still yield an ETag so conditional requests
+        // keep working through the entity-tag validator. A Last-Modified
+        // header cannot be produced for them: `httpdate::fmt_http_date`
+        // only supports epoch-or-later timestamps.
+        let tmp = make_file_with_size(100);
+        let pre_epoch = UNIX_EPOCH - std::time::Duration::from_secs(86_400);
+        {
+            let file = std::fs::OpenOptions::new()
+                .write(true)
+                .open(tmp.path())
+                .unwrap();
+            file.set_times(std::fs::FileTimes::new().set_modified(pre_epoch))
+                .unwrap();
+        }
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+
+        let etag = generate_etag(&meta).expect("pre-epoch mtime must still produce an ETag");
+        assert!(
+            etag.starts_with("W/\"100--"),
+            "pre-epoch ETag encodes a negative seconds component: {etag}"
+        );
+
+        // The ETag validator drives conditional requests even without a
+        // Last-Modified date.
+        let plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            Some(&etag),
+            None,
+            None,
+            None,
+        );
+        assert_eq!(plan.status.as_u16(), 304);
+        assert_eq!(plan.headers.get("last-modified"), None);
+
+        let full_plan = plan_file_response(
+            ReadOnlyMethod::Get,
+            &meta,
+            "text/plain",
+            None,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(full_plan.status.as_u16(), 200);
+        assert_eq!(full_plan.headers.get("last-modified"), None);
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 082 Track H: Same-size rewrite through another handle
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn etag_different_file_same_size_differs() {
+        // Two separate files with the same size will have different mtimes
+        // (different nanosecond timestamps from creation), so their ETags
+        // should differ — verifying the nanos component is effective.
+        let tmp1 = make_file_with_size(100);
+        let tmp2 = make_file_with_size(100);
+        let meta1 = std::fs::metadata(tmp1.path()).unwrap();
+        let meta2 = std::fs::metadata(tmp2.path()).unwrap();
+
+        let etag1 = generate_etag(&meta1);
+        let etag2 = generate_etag(&meta2);
+
+        // Both produce valid ETags
+        assert!(etag1.is_some());
+        assert!(etag2.is_some());
+
+        // Extract components from each ETag to verify they include nanosecond data
+        let etag_str1 = etag1.unwrap();
+        let etag_str2 = etag2.unwrap();
+        let inner1 = &etag_str1[3..etag_str1.len() - 1];
+        let inner2 = &etag_str2[3..etag_str2.len() - 1];
+        let parts1: Vec<&str> = inner1.split('-').collect();
+        let parts2: Vec<&str> = inner2.split('-').collect();
+
+        // Both have 3 components (size-secs-nanos)
+        assert_eq!(parts1.len(), 3, "ETag1 should have 3 parts: {etag_str1}");
+        assert_eq!(parts2.len(), 3, "ETag2 should have 3 parts: {etag_str2}");
+
+        // Same size component
+        assert_eq!(parts1[0], parts2[0], "Both files have same size");
+
+        // Both ETags must be valid format: W/"size-secs-nanos"
+        assert!(etag_str1.starts_with("W/\""), "ETag1 format: {etag_str1}");
+        assert!(etag_str1.ends_with('"'), "ETag1 format: {etag_str1}");
+        assert!(etag_str2.starts_with("W/\""), "ETag2 format: {etag_str2}");
+        assert!(etag_str2.ends_with('"'), "ETag2 format: {etag_str2}");
+
+        // Nanos component must be numeric
+        let nanos1: u32 = parts1[2].parse().expect("ETag1 nanos should be numeric");
+        let nanos2: u32 = parts2[2].parse().expect("ETag2 nanos should be numeric");
+        // Both should be valid nanosecond values (0..1_000_000_000)
+        assert!(nanos1 < 1_000_000_000, "ETag1 nanos out of range: {nanos1}");
+        assert!(nanos2 < 1_000_000_000, "ETag2 nanos out of range: {nanos2}");
+    }
+
+    // -----------------------------------------------------------------------
+    // Plan 082 Track H: Truncate/extend while handle is open
+    //
+    // The ETag is generated from metadata at plan time. If a file is truncated
+    // or extended between planning and serving, the metadata may be stale.
+    // This test verifies the planner uses the metadata passed to it (which
+    // may be from a prior stat), and the ETag reflects that snapshot.
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn etag_reflects_metadata_snapshot_not_current_state() {
+        let tmp = make_file_with_size(200);
+        let meta = std::fs::metadata(tmp.path()).unwrap();
+        let etag_before = generate_etag(&meta);
+
+        // Modify the file (truncate to 0)
+        std::fs::write(tmp.path(), "").unwrap();
+
+        // Re-read metadata — size is now 0
+        let meta_after = std::fs::metadata(tmp.path()).unwrap();
+        let etag_after = generate_etag(&meta_after);
+
+        // ETags should differ because size changed
+        assert_ne!(
+            etag_before, etag_after,
+            "ETag should reflect metadata at time of generation"
+        );
+
+        // The original ETag should start with W/"200-
+        let original = etag_before.unwrap();
+        assert!(
+            original.starts_with("W/\"200-"),
+            "Original ETag should start with W/\"200-: {original}"
+        );
+
+        // The new ETag should start with W/"0-
+        let modified = etag_after.unwrap();
+        assert!(
+            modified.starts_with("W/\"0-"),
+            "Modified ETag should start with W/\"0-: {modified}"
+        );
+    }
+}

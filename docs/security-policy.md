@@ -26,7 +26,13 @@ eggserve ships with the following safe defaults. These are not configurable with
 | **Date owned by EggServe** | One system-clock `Date` by default; Hyper automatic `Date` disabled; caller provider or explicit suppression via `DatePolicy` |
 | **generic errors** | Fixed plain-text runtime errors, no version/path/exception text; `Empty` variant emits no bytes (application `Ok` never rewritten) |
 
-These defaults are enforced at the library level in `eggserve-core`. They are not advisory — the code rejects non-conforming requests before any filesystem access. Response privacy details (`ResponsePolicy`, denylist, static validators, minimal-fingerprint profile) live in [deployment](deployment.md) and `architecture/policy-system.md`; the profile minimizes gratuitous signals without claiming un-fingerprintability.
+These defaults are enforced at the library level in `eggserve-static` and its
+canonical `eggserve-primitives` policy types. They are not advisory — the code
+rejects non-conforming requests before any filesystem access. The historical
+`eggserve-core` path retains the same compatibility behavior. Response privacy
+details (`ResponsePolicy`, denylist, static validators, minimal-fingerprint
+profile) live in [deployment](deployment.md) and `architecture/policy-system.md`;
+the profile minimizes gratuitous signals without claiming un-fingerprintability.
 
 ## Path confinement implementation
 

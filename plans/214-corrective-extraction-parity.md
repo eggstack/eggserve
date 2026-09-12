@@ -2,13 +2,15 @@
 
 ## Status
 
-Planned.
+In progress — direct canonical/static parity landed; advanced runtime
+compatibility extraction remains.
 
 ## Purpose
 
 Correct the Plan 211 crate-boundary implementation so that the new workspace crates become the actual homes of EggServe's mature production behavior instead of parallel simplified implementations.
 
-The current topology is directionally correct, but the implementation leaves two overlapping architectures:
+The original topology was directionally correct, but the implementation left
+two overlapping architectures:
 
 - the mature canonical request/response/service/static-serving implementation remains inside `eggserve-core`;
 - `eggserve-primitives`, `eggserve-server`, and `eggserve-static` contain smaller independent implementations that do not yet provide parity with the mature core.
@@ -19,22 +21,26 @@ This plan closes that gap without reverting the Plan 211 topology, without weake
 
 Plan 211 successfully introduced these dependency boundaries:
 
-- `eggserve-primitives` as a dependency-free leaf;
+- `eggserve-primitives` as a transport-neutral canonical leaf;
 - `eggserve-server` as a generic Hyper/Tokio runtime;
 - `eggserve-static` as a static-serving specialization;
 - `eggserve-core` as a 0.1 compatibility aggregate;
 - `scripts/check-crate-topology.py` as a machine-enforced dependency gate.
 
-However, the implementation did not yet move the mature production implementation into those crates.
+The initial implementation did not yet move the mature production
+implementation into those crates; this plan records the corrective work.
 
 Examples of the resulting overlap include:
 
-- `eggserve-core::primitives` still owns the mature canonical request/body/lifecycle/context/proxy/planner implementation while `eggserve-primitives` defines a second, smaller canonical model;
-- `eggserve-core::server` still owns the mature generic service/runtime path while `eggserve-server` implements a separate simplified HTTP/1 runtime that eagerly buffers request bodies;
-- `eggserve-core` still owns the hardened descriptor/handle-relative filesystem confinement while `eggserve-static` contains a separate pathname-based implementation using `canonicalize`, `symlink_metadata`, `metadata`, and `read`;
-- documentation currently suggests using `eggserve-server` directly for generic application services even though the mature downstream application-server substrate remains in `eggserve-core::server`.
+- the canonical model was duplicated between core and the direct primitives crate;
+- the direct server was a separate simplified HTTP/1 runtime that eagerly buffered request bodies;
+- the direct static crate was a pathname-based implementation rather than the hardened resolver;
+- documentation recommended the direct server before its parity level was explicit.
 
-This is acceptable as an intermediate migration scaffold, but not as the final Plan 211 architecture.
+The direct canonical and static layers now own the mature implementations.
+The direct server owns the generic HTTP/1 streaming boundary; advanced H2/H3,
+tunnel, listener-adoption, proxy, and identity-TLS paths remain in the core
+compatibility runtime until their parity extraction is separately completed.
 
 The goal of Plan 214 is to converge to one implementation per architectural responsibility.
 

@@ -202,7 +202,7 @@ async fn stream_trait_limit_enforcement() {
 #[test]
 fn body_debug_format() {
     let body = RequestBody::empty();
-    let dbg = format!("{:?}", body);
+    let dbg = format!("{body:?}");
     assert!(dbg.contains("RequestBody"));
     assert!(dbg.contains("Unread"));
 }

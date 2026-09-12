@@ -82,7 +82,7 @@ The user-facing Python compatibility contract lives in [docs/python-http-server-
 ```
 crates/
 ├── eggnet-tls/          # neutral rustls identity/trust/client-auth/reload substrate
-├── eggserve-primitives/ # dependency-free canonical application-facing values
+├── eggserve-primitives/ # canonical application-facing values (transport-neutral)
 ├── eggserve-server/    # generic HTTP runtime and transport boundary
 ├── eggserve-static/    # filesystem/static specialization
 ├── eggserve-h3/        # experimental Quinn/H3/H3-Quinn dependency boundary
@@ -108,7 +108,7 @@ Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211/212 dependency-layer gate
+python3 scripts/check-crate-topology.py                     # Plan 214 ownership/topology gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets
@@ -186,14 +186,23 @@ Routine CI is a small regression screen, not release certification. Platform qua
 ### Crate boundaries
 
 - **eggserve-python is excluded from the workspace** — own `Cargo.lock`, built independently via maturin. `cargo test --workspace` does not cover it.
-- **Package roles**: `eggserve-primitives` is the dependency-free canonical
-  leaf; `eggserve-server` is the generic transport/runtime layer and never
-  depends on static serving; `eggserve-static` owns filesystem specialization.
-  `eggserve-core` remains the 0.1 compatibility aggregate and exposes the
-  direct crates under `eggserve_core::layers`. `eggserve-bin::run_cli` is
+- **Package roles**: `eggserve-primitives` owns the extracted canonical
+  request/response/body/lifecycle model with only transport-neutral
+  dependencies; `eggserve-server` owns the direct generic HTTP/1 runtime,
+  streaming request/response boundary, and never depends on static serving;
+  `eggserve-static` owns the extracted descriptor/handle-relative resolver,
+  planner, MIME behavior, and static service. `eggserve-core` remains the 0.1
+  compatibility aggregate for Python, H2/H3, tunnel, proxy, and advanced
+  configuration paths and exposes direct crates under
+  `eggserve_core::layers`. `eggserve-bin::run_cli` is
   plumbing for the Python wheel's extension-backed CLI, **not** a general
   embedding API. The exact graph is checked by
   `scripts/check-crate-topology.py`.
+- **Plan 214 extraction parity** — direct crates are the implementation homes
+  for the canonical model and hardened static filesystem path. Do not add a
+  simplified parallel runtime or pathname check-then-open fallback. The
+  direct server is currently HTTP/1-shaped; keep advanced H2/H3/tunnel/TLS
+  compatibility work in core until its own extraction has parity evidence.
 - **Plan 212 neutral TLS** — `eggnet-tls` owns bounded PEM parsing, key/cert
   pairing, SNI, explicit WebPKI client-auth modes, trust/CRL bounds, and atomic
   reload snapshots. Its production graph contains only `rustls` and

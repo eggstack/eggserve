@@ -22,11 +22,12 @@ tls = ["dep:rustls", "dep:tokio-rustls"]
 [dependencies]
 eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
 bytes = "1"
+futures-util = "0.3"
 http-body = "1"
 http-body-util = "0.1"
 hyper = { version = "1", features = ["http1", "server"] }
 hyper-util = { version = "0.1", features = ["tokio", "server", "http1"] }
-tokio = { version = "1", features = ["macros", "net", "time", "io-util", "sync"] }
+tokio = { version = "1", features = ["macros", "net", "time", "io-util", "fs", "sync"] }
 thiserror = "2"
 rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }

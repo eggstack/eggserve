@@ -135,8 +135,7 @@ impl Lifecycle {
                     Err(crate::server::errors::ServerError::AlreadyStarted)
                 } else {
                     Err(crate::server::errors::ServerError::Config(format!(
-                        "cannot start: server is in {} state",
-                        state
+                        "cannot start: server is in {state} state"
                     )))
                 }
             }
@@ -250,8 +249,7 @@ impl Lifecycle {
                     Ok(())
                 } else {
                     Err(crate::server::errors::ServerError::Config(format!(
-                        "cannot stop: server is in {} state",
-                        state
+                        "cannot stop: server is in {state} state"
                     )))
                 }
             }

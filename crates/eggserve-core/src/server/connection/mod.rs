@@ -490,8 +490,7 @@ mod tests {
         let response = String::from_utf8_lossy(&buf);
         assert!(
             response.starts_with("HTTP/1.1 200 OK"),
-            "unexpected response: {}",
-            response
+            "unexpected response: {response}"
         );
     }
 

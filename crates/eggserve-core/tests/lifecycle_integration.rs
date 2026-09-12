@@ -320,8 +320,7 @@ async fn graceful_shutdown_drains_inflight() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "inflight request should complete: {}",
-        response
+        "inflight request should complete: {response}"
     );
     assert!(response_received.load(Ordering::SeqCst));
 }
@@ -751,8 +750,7 @@ async fn connection_limit_saturation() {
 
     assert!(
         !resp3.starts_with("HTTP/1.1 200"),
-        "third connection should be rejected: {}",
-        resp3
+        "third connection should be rejected: {resp3}"
     );
 
     let mut buf1 = Vec::new();
@@ -1109,8 +1107,7 @@ async fn short_handler_timeout_returns_504() {
     let response = String::from_utf8_lossy(&resp);
     assert!(
         response.starts_with("HTTP/1.1 504"),
-        "short handler timeout should produce 504: {}",
-        response
+        "short handler timeout should produce 504: {response}"
     );
 
     handle.shutdown();
@@ -1361,7 +1358,7 @@ async fn config_validation_rejects_zero_timeouts() {
                 .build(),
             _ => unreachable!(),
         };
-        assert!(result.is_err(), "{} = zero should return error", name);
+        assert!(result.is_err(), "{name} = zero should return error");
     }
 }
 
@@ -1420,8 +1417,7 @@ async fn service_drop_count_on_normal_shutdown() {
     let count = DROP_COUNT.load(Ordering::SeqCst);
     assert_eq!(
         count, 1,
-        "service should be dropped exactly once, got {}",
-        count
+        "service should be dropped exactly once, got {count}"
     );
 }
 
@@ -1475,8 +1471,7 @@ async fn service_drop_count_on_forced_shutdown() {
     let count = DROP_COUNT.load(Ordering::SeqCst);
     assert_eq!(
         count, 1,
-        "service should be dropped exactly once on forced shutdown, got {}",
-        count
+        "service should be dropped exactly once on forced shutdown, got {count}"
     );
 }
 
@@ -1572,7 +1567,7 @@ async fn service_state_persists_across_keepalive() {
 
     // The request count should be 1.
     let count = REQUEST_COUNT.load(Ordering::SeqCst);
-    assert_eq!(count, 1, "first request should be counted, got {}", count);
+    assert_eq!(count, 1, "first request should be counted, got {count}");
 
     handle.shutdown();
     let _ = handle.wait().await;
@@ -1724,9 +1719,7 @@ async fn unix_fd_baseline_after_start_stop() {
     // test activity that may overlap the two measurements.
     assert!(
         after <= baseline + 16,
-        "FD count must not grow unbounded: baseline={}, after={}",
-        baseline,
-        after
+        "FD count must not grow unbounded: baseline={baseline}, after={after}"
     );
 }
 
@@ -1760,9 +1753,7 @@ async fn unix_fd_baseline_after_force_shutdown() {
     let after = count_open_fds();
     assert!(
         after <= baseline + 8,
-        "FD count must not grow after forced shutdown: baseline={}, after={}",
-        baseline,
-        after
+        "FD count must not grow after forced shutdown: baseline={baseline}, after={after}"
     );
 }
 
@@ -1798,9 +1789,7 @@ async fn unix_fd_stable_under_concurrent_requests() {
     let after = count_open_fds();
     assert!(
         after <= baseline + 16,
-        "FD count must not grow under concurrency: baseline={}, after={}",
-        baseline,
-        after
+        "FD count must not grow under concurrency: baseline={baseline}, after={after}"
     );
 
     handle.shutdown();
@@ -1855,10 +1844,7 @@ async fn unix_memory_bounded_after_repeated_requests() {
             // Allow up to 5MB growth (20MB is tokio stack overhead)
             assert!(
                 growth < 5120,
-                "Memory must not grow unbounded: initial={}kB, final={}kB, growth={}kB",
-                initial,
-                final_rss,
-                growth
+                "Memory must not grow unbounded: initial={initial}kB, final={final_rss}kB, growth={growth}kB"
             );
         }
     }

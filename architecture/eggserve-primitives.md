@@ -1,14 +1,14 @@
 # eggserve-primitives
 
-`eggserve-primitives` is the Plan 211 dependency-free canonical leaf. It
-contains application-facing HTTP method/version, validated headers, request
-targets, owned request/response values, generic limits and error policy, and
-trusted-proxy provenance values.
+`eggserve-primitives` is the Plan 214 canonical leaf. It contains the extracted
+application-facing HTTP method/version, validated headers, request targets,
+owned request/response values, one-shot body/lifecycle types, generic limits
+and error policy, and trusted-proxy provenance values.
 
-It intentionally has no Cargo dependencies. In particular, it does not pull
-Hyper, Hyper-util, Tokio, rustls, Quinn/H3, or filesystem/platform crates.
-Transport adapters and richer historical behavior remain in the
-`eggserve-core::primitives` compatibility module for the 0.1 line.
+Its only production dependencies are transport-neutral `bytes` and
+`futures-util`; it does not pull Hyper, Hyper-util, Tokio, rustls, Quinn/H3, or
+filesystem/platform crates. Hyper adapters remain compatibility/runtime glue;
+the canonical model itself is owned here.
 
 Use this crate when an application needs canonical values without selecting a
 server runtime or static-file implementation. Its direct dependency status is

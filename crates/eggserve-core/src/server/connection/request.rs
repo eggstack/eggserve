@@ -271,7 +271,7 @@ pub(crate) fn convert_request_head(
         "OPTIONS" => Method::options(),
         "TRACE" => Method::trace(),
         other => Method::new(other)
-            .map_err(|_| ServiceError::rejected(400, format!("invalid method: {}", other)))?,
+            .map_err(|_| ServiceError::rejected(400, format!("invalid method: {other}")))?,
     };
 
     let version = match req.version() {
@@ -281,7 +281,7 @@ pub(crate) fn convert_request_head(
         other => {
             return Err(ServiceError::rejected(
                 505,
-                format!("unsupported HTTP version: {:?}", other),
+                format!("unsupported HTTP version: {other:?}"),
             ))
         }
     };
@@ -394,10 +394,10 @@ pub(crate) fn convert_request_head(
         // the origin-form target. `/` parses infallibly; the real authority
         // is validated below from the URI authority (+ Host consistency).
         RequestTarget::parse("/")
-            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?
+            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {e}")))?
     } else {
         RequestTarget::parse(raw_target)
-            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {}", e)))?
+            .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {e}")))?
     };
 
     let mut headers = HeaderBlock::new();
@@ -425,14 +425,14 @@ pub(crate) fn convert_request_head(
             return Err(ServiceError::rejected(431, "request headers too large"));
         }
         let header_name = crate::primitives::header_block::HeaderName::new(name.as_str())
-            .map_err(|_| ServiceError::rejected(400, format!("invalid header name: {}", name)))?;
+            .map_err(|_| ServiceError::rejected(400, format!("invalid header name: {name}")))?;
         // Byte-preserving inbound conversion (Plan 173 Track C1): legal opaque
         // bytes reach the service unchanged. Aggregate limits above already
         // count bytes, not Unicode scalars.
         let header_value = crate::primitives::header_block::HeaderValue::from_bytes(
             value.as_bytes(),
         )
-        .map_err(|_| ServiceError::rejected(400, format!("invalid header value for {}", name)))?;
+        .map_err(|_| ServiceError::rejected(400, format!("invalid header value for {name}")))?;
         headers.push(header_name, header_value);
     }
 

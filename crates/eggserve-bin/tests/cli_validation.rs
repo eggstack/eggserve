@@ -25,8 +25,7 @@ fn zero_max_connections_exits_with_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("--max-connections"),
-        "stderr should mention --max-connections: {}",
-        stderr
+        "stderr should mention --max-connections: {stderr}"
     );
 }
 
@@ -41,8 +40,7 @@ fn zero_max_file_streams_exits_with_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("--max-file-streams"),
-        "stderr should mention --max-file-streams: {}",
-        stderr
+        "stderr should mention --max-file-streams: {stderr}"
     );
 }
 
@@ -57,8 +55,7 @@ fn zero_handler_timeout_exits_with_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("handler-timeout") || stderr.contains("handler_timeout"),
-        "stderr should mention handler timeout: {}",
-        stderr
+        "stderr should mention handler timeout: {stderr}"
     );
 }
 
@@ -73,8 +70,7 @@ fn zero_body_read_timeout_exits_with_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("body-read-timeout") || stderr.contains("body_read_timeout"),
-        "stderr should mention body read timeout: {}",
-        stderr
+        "stderr should mention body read timeout: {stderr}"
     );
 }
 
@@ -89,8 +85,7 @@ fn invalid_timeout_value_exits_with_error() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("invalid"),
-        "stderr should mention invalid: {}",
-        stderr
+        "stderr should mention invalid: {stderr}"
     );
 }
 
@@ -104,18 +99,15 @@ fn help_flag_shows_usage() {
     assert!(output.stderr.is_empty(), "help should be written to stdout");
     assert!(
         stdout.contains("--max-connections"),
-        "help should mention --max-connections: {}",
-        stdout
+        "help should mention --max-connections: {stdout}"
     );
     assert!(
         stdout.contains("--handler-timeout"),
-        "help should mention --handler-timeout: {}",
-        stdout
+        "help should mention --handler-timeout: {stdout}"
     );
     assert!(
         stdout.contains("--body-read-timeout"),
-        "help should mention --body-read-timeout: {}",
-        stdout
+        "help should mention --body-read-timeout: {stdout}"
     );
 }
 
@@ -145,8 +137,7 @@ fn version_flag_shows_version() {
     );
     assert!(
         combined.contains("eggserve"),
-        "output should mention eggserve: {}",
-        combined
+        "output should mention eggserve: {combined}"
     );
 }
 
@@ -176,8 +167,7 @@ fn bind_host_only_with_numeric_port_and_numeric_dir() {
     );
     assert!(
         !combined.contains("error"),
-        "expected clean arg parse, got: {}",
-        combined
+        "expected clean arg parse, got: {combined}"
     );
 }
 
@@ -200,8 +190,7 @@ fn positional_port_then_numeric_directory() {
     );
     assert!(
         !combined.contains("error"),
-        "expected clean arg parse, got: {}",
-        combined
+        "expected clean arg parse, got: {combined}"
     );
 }
 
@@ -228,8 +217,7 @@ fn bind_host_only_with_port_flag_and_numeric_dir() {
     );
     assert!(
         !combined.contains("error"),
-        "expected clean arg parse, got: {}",
-        combined
+        "expected clean arg parse, got: {combined}"
     );
 }
 
@@ -247,13 +235,11 @@ fn addr_and_port_conflict() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("--port"),
-        "stderr should mention --port: {}",
-        stderr
+        "stderr should mention --port: {stderr}"
     );
     assert!(
         stderr.contains("--addr"),
-        "stderr should mention --addr: {}",
-        stderr
+        "stderr should mention --addr: {stderr}"
     );
 }
 
@@ -335,20 +321,14 @@ fn ipv6_bracketed_bind_serves_end_to_end() {
     let addr = listening.expect("server did not report its listening address");
     assert!(
         addr.starts_with('['),
-        "expected bracketed IPv6 listen addr, got: {}",
-        addr
+        "expected bracketed IPv6 listen addr, got: {addr}"
     );
     let response = request_result
         .expect("request never ran")
         .expect("request failed");
     assert!(
         response.starts_with("HTTP/1.1 200 OK"),
-        "unexpected status line: {}",
-        response
+        "unexpected status line: {response}"
     );
-    assert!(
-        response.ends_with("hello ipv6"),
-        "missing body: {}",
-        response
-    );
+    assert!(response.ends_with("hello ipv6"), "missing body: {response}");
 }

@@ -1,10 +1,13 @@
 # Dependency Policy
 
-The release smoke fixture uses only Python's standard library, and the existing
-Hyper/Tokio transport remains the sole file-stream conversion boundary.
+The release smoke fixture uses only Python's standard library. The direct
+server crate is the HTTP/1 file-stream conversion boundary for the extracted
+layers; compatibility core retains the advanced protocol adapters and their
+transport-specific conversions.
 
-Plans 211–213 add a checked crate topology. `eggserve-primitives` is the canonical
-leaf and intentionally has no Cargo dependencies. `eggserve-server` owns
+Plans 211–214 add a checked crate topology. `eggserve-primitives` is the canonical
+leaf and intentionally has only the small `bytes`/`futures-util` dependencies
+needed for owned bytes and streams. `eggserve-server` owns
 Hyper/Tokio transport and depends on primitives, never on static serving or
 the compatibility aggregate. `eggserve-static` owns filesystem-specific
 behavior and depends on primitives plus server. `eggserve-core` remains a
@@ -55,9 +58,9 @@ The following dependency categories are approved for initial development:
 
 | Crate | Tokio features (production) | Notes |
 |-------|---------------------------|-------|
-| `eggserve-primitives` | none | Dependency-free canonical layer |
-| `eggserve-server` | `macros`, `net`, `time`, `io-util`, `sync` | Generic transport runtime; no static edge |
-| `eggserve-static` | none | Uses standard-library filesystem APIs through the server/primitives layers |
+| `eggserve-primitives` | none | No Tokio/Hyper/filesystem edge; transport-neutral canonical layer |
+| `eggserve-server` | `macros`, `net`, `time`, `io-util`, `fs`, `sync` | Generic transport runtime and async file-body bridge; no static edge |
+| `eggserve-static` | target-gated `rustix` on Unix | Descriptor-relative filesystem, MIME, and static service |
 | `eggserve-core` | `macros`, `net`, `time`, `fs`, `io-util`, `sync` | No `signal`, no `rt-multi-thread` in default |
 
 | `eggserve-bin` | `macros`, `net`, `signal`, `time`, `sync` | Signal handling for graceful shutdown |

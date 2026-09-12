@@ -72,13 +72,11 @@ async fn buffer_mode_post_with_body() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     assert!(
         response.contains("hello"),
-        "response should contain body: {}",
-        response
+        "response should contain body: {response}"
     );
     handle.shutdown();
 }
@@ -113,8 +111,7 @@ async fn reject_policy_gets_empty_body() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413, got: {}",
-        response
+        "expected 413, got: {response}"
     );
     handle.shutdown();
 }
@@ -147,8 +144,7 @@ async fn body_limit_exceeded_returns_413() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413, got: {}",
-        response
+        "expected 413, got: {response}"
     );
     handle.shutdown();
 }
@@ -180,8 +176,7 @@ async fn declared_length_too_large_returns_413() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413, got: {}",
-        response
+        "expected 413, got: {response}"
     );
     handle.shutdown();
 }
@@ -222,8 +217,7 @@ async fn empty_post_with_content_length_zero() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     handle.shutdown();
 }
@@ -260,8 +254,7 @@ async fn get_with_body_follows_service_policy() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     handle.shutdown();
 }
@@ -306,13 +299,11 @@ async fn stream_mode_chunked_body() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     assert!(
         response.contains("hello world"),
-        "response should contain body: {}",
-        response
+        "response should contain body: {response}"
     );
     handle.shutdown();
 }
@@ -346,8 +337,7 @@ async fn static_service_post_body_is_rejected_before_method_dispatch() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413 for POST body to static service, got: {}",
-        response
+        "expected 413 for POST body to static service, got: {response}"
     );
     handle.shutdown();
 }
@@ -380,8 +370,7 @@ async fn body_timeout_returns_408() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 408") || response.is_empty(),
-        "expected 408 or connection close, got: {}",
-        response
+        "expected 408 or connection close, got: {response}"
     );
     handle.shutdown();
 }

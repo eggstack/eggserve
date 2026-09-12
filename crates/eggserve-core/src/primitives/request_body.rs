@@ -1208,7 +1208,7 @@ mod tests {
     #[test]
     fn request_body_debug() {
         let body = RequestBody::empty();
-        let dbg = format!("{:?}", body);
+        let dbg = format!("{body:?}");
         assert!(dbg.contains("RequestBody"));
         assert!(dbg.contains("Unread"));
     }
@@ -1229,7 +1229,7 @@ mod tests {
                 assert_eq!(received, 2);
                 assert_eq!(expected, Some(10));
             }
-            other => panic!("expected PrematureEof, got: {:?}", other),
+            other => panic!("expected PrematureEof, got: {other:?}"),
         }
     }
 
@@ -1257,7 +1257,7 @@ mod tests {
             Ok(None) => {
                 panic!("expected PrematureEof, got Ok(None)");
             }
-            other => panic!("expected PrematureEof, got: {:?}", other),
+            other => panic!("expected PrematureEof, got: {other:?}"),
         }
     }
 

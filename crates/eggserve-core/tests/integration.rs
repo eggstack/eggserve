@@ -954,7 +954,7 @@ async fn concurrent_symlink_swap_stress() {
                 for i in 0..ITERS {
                     let swap_to_outside = i % 2 == 0;
 
-                    let link_tmp = link_path.with_file_name(format!("link.{}.{}.tmp", t, i));
+                    let link_tmp = link_path.with_file_name(format!("link.{t}.{i}.tmp"));
                     std::os::unix::fs::symlink(
                         if swap_to_outside {
                             &outside_secret
@@ -983,10 +983,7 @@ async fn concurrent_symlink_swap_stress() {
 
                     assert!(
                         status == 403 || status == 200,
-                        "unexpected status {} on iteration {} (swapped_to_outside={})",
-                        status,
-                        i,
-                        swap_to_outside,
+                        "unexpected status {status} on iteration {i} (swapped_to_outside={swap_to_outside})",
                     );
                 }
             })

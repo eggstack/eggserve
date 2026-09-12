@@ -44,7 +44,8 @@ no EggServe/Eggress/EggFetch/application or transport dependency (see
 
 Seven workspace crates plus one excluded Python packaging crate:
 - `crates/eggnet-tls/` — neutral rustls identity, trust, client-auth, and reload substrate
-- `crates/eggserve-primitives/` — dependency-free canonical application values
+- `crates/eggserve-primitives/` — canonical application values with small
+  transport-neutral dependencies
 - `crates/eggserve-server/` — generic HTTP runtime and transport boundary
 - `crates/eggserve-static/` — filesystem/static specialization
 - `crates/eggserve-h3/` — experimental H3/QUIC dependency boundary
@@ -77,7 +78,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211/212 dependency-layer gate
+python3 scripts/check-crate-topology.py                     # Plan 214 ownership/topology gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets
@@ -150,12 +151,17 @@ only `cargo audit` or `cargo deny check` invocation.
   it for compatibility; keep HTTP/3-specific QUIC dependencies behind the
   `eggserve-h3` boundary and the core `http3` feature.
 
-- **Plan 211 topology** — `eggserve-primitives` has no dependencies,
-  `eggserve-server` owns generic transport and cannot depend on core/static,
-  and `eggserve-static` consumes primitives plus server. `eggserve-core`
-  remains the 0.1 compatibility aggregate and exposes the direct crates under
-  `eggserve_core::layers`. Run `scripts/check-crate-topology.py` after graph
-  changes; see `architecture/crate-topology.md`.
+- **Plan 214 extraction parity** — `eggserve-primitives` owns the extracted
+  canonical request/response/body/lifecycle model with only small
+  transport-neutral dependencies; `eggserve-server` owns the direct generic
+  HTTP/1 runtime and streaming boundary and cannot depend on core/static; and
+  `eggserve-static` owns the extracted descriptor/handle-relative resolver,
+  planner, MIME behavior, and static service. `eggserve-core` remains the 0.1
+  compatibility aggregate for Python and advanced protocol paths and exposes
+  direct crates under `eggserve_core::layers`. Do not introduce simplified
+  parallel runtimes or pathname check-then-open fallbacks. Run
+  `scripts/check-crate-topology.py` after graph changes; see
+  `architecture/crate-topology.md`.
 - **Manual argument parsing** in `args.rs` — no clap dependency. The CLI grammar
   is `[OPTIONS] [PORT] [DIRECTORY]`; positional parsing owns those two logical
   slots, treats a directory after an occupied port slot verbatim (including a

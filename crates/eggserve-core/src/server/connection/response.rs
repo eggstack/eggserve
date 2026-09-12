@@ -271,14 +271,15 @@ pub(crate) fn finalize_canonical_response(
     {
         let headers = response.head_mut().headers_mut();
         headers.retain(|field| {
-            !policy
+            let stripped = policy
                 .stripped_response_headers
                 .iter()
-                .any(|name| name.eq_ignore_ascii_case(field.name.as_str()))
-                && !field.name.as_str().eq_ignore_ascii_case("server")
-                && !field.name.as_str().eq_ignore_ascii_case("date")
-                && !(future_last_modified
-                    && field.name.as_str().eq_ignore_ascii_case("last-modified"))
+                .any(|name| name.eq_ignore_ascii_case(field.name.as_str()));
+            let protected = field.name.as_str().eq_ignore_ascii_case("server")
+                || field.name.as_str().eq_ignore_ascii_case("date")
+                || (future_last_modified
+                    && field.name.as_str().eq_ignore_ascii_case("last-modified"));
+            !(stripped || protected)
         });
         if let Some(server) = &policy.server_identification {
             let _ = headers.push_str("server", server.clone());

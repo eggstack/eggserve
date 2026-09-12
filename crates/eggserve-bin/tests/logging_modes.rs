@@ -91,13 +91,11 @@ fn default_mode_emits_startup_event() {
     let combined = stderr.join("\n");
     assert!(
         combined.contains("process_starting"),
-        "default mode should emit process_starting: {}",
-        combined
+        "default mode should emit process_starting: {combined}"
     );
     assert!(
         combined.contains("listener_ready"),
-        "default mode should emit listener_ready: {}",
-        combined
+        "default mode should emit listener_ready: {combined}"
     );
 }
 
@@ -116,31 +114,26 @@ fn json_mode_emits_valid_json() {
         // Validate basic JSON structure: starts with '{', ends with '}'
         assert!(
             line.starts_with('{') && line.ends_with('}'),
-            "JSON mode should emit valid JSON (must start with '{{' and end with '}}'): {}",
-            line
+            "JSON mode should emit valid JSON (must start with '{{' and end with '}}'): {line}"
         );
         // Check for required fields
         assert!(
             line.contains("\"schema_version\""),
-            "JSON should contain schema_version: {}",
-            line
+            "JSON should contain schema_version: {line}"
         );
         assert!(
             line.contains("\"severity\""),
-            "JSON should contain severity: {}",
-            line
+            "JSON should contain severity: {line}"
         );
         assert!(
             line.contains("\"event\""),
-            "JSON should contain event: {}",
-            line
+            "JSON should contain event: {line}"
         );
     }
     let combined = stderr.join("\n");
     assert!(
         combined.contains("process_starting"),
-        "JSON mode should emit process_starting: {}",
-        combined
+        "JSON mode should emit process_starting: {combined}"
     );
 }
 
@@ -154,13 +147,11 @@ fn quiet_mode_omits_startup_message() {
     let combined = stderr.join("\n");
     assert!(
         !combined.contains("process_starting"),
-        "quiet mode should not emit process_starting: {}",
-        combined
+        "quiet mode should not emit process_starting: {combined}"
     );
     assert!(
         !combined.contains("listener_ready"),
-        "quiet mode should not emit listener_ready: {}",
-        combined
+        "quiet mode should not emit listener_ready: {combined}"
     );
 }
 
@@ -175,8 +166,7 @@ fn quiet_mode_still_emits_startup_error() {
     assert!(non_zero, "invalid config should exit non-zero");
     assert!(
         combined.contains("error") || combined.contains("must be"),
-        "quiet mode should still emit startup errors: {}",
-        combined
+        "quiet mode should still emit startup errors: {combined}"
     );
 }
 
@@ -189,8 +179,7 @@ fn none_mode_emits_no_routine_output() {
     let stderr = capture_stderr(&["--log-format", "none"], Duration::from_secs(2));
     assert!(
         stderr.is_empty(),
-        "none mode should emit no output: {:?}",
-        stderr
+        "none mode should emit no output: {stderr:?}"
     );
 }
 
@@ -208,8 +197,7 @@ fn none_mode_reports_invalid_invocation() {
     );
     assert!(
         combined.contains("error") || combined.contains("must be"),
-        "none mode should still report invalid CLI invocation: {}",
-        combined
+        "none mode should still report invalid CLI invocation: {combined}"
     );
 }
 
@@ -222,7 +210,6 @@ fn quiet_json_mode_suppresses_info_records() {
     let stderr = capture_stderr(&["--quiet", "--log-format", "json"], Duration::from_secs(2));
     assert!(
         stderr.is_empty(),
-        "quiet+json mode should not emit informational records: {:?}",
-        stderr
+        "quiet+json mode should not emit informational records: {stderr:?}"
     );
 }

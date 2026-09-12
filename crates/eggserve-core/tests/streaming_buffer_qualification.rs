@@ -305,7 +305,7 @@ async fn multiple_sequential_range_requests_same_connection() {
     // Simulate multiple sequential requests (as would happen on a keep-alive connection)
     for offset in (0..8192).step_by(100) {
         let end = (offset + 99).min(8191);
-        let range_header = format!("bytes={}-{}", offset, end);
+        let range_header = format!("bytes={offset}-{end}");
         let resp = svc
             .call(get_req_with_header("/data.bin", "range", &range_header))
             .await

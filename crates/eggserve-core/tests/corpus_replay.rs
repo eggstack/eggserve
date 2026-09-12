@@ -324,8 +324,8 @@ fn corpus_replay_header_block() {
 
         let mut block = HeaderBlock::new();
         for i in 0..count {
-            let name_str = format!("x-{}-{}", key_byte, i);
-            let value_str = format!("v-{}-{}", val_byte, i);
+            let name_str = format!("x-{key_byte}-{i}");
+            let value_str = format!("v-{val_byte}-{i}");
             if let (Ok(name), Ok(value)) =
                 (HeaderName::new(&name_str), HeaderValue::new(&value_str))
             {
@@ -333,7 +333,7 @@ fn corpus_replay_header_block() {
             }
         }
 
-        let lookup_name = format!("x-{}-0", lookup_byte);
+        let lookup_name = format!("x-{lookup_byte}-0");
         let first = block.get_first(&lookup_name);
         let all = block.get_all(&lookup_name);
         assert_eq!(block.contains(&lookup_name), !all.is_empty());

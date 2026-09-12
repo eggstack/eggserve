@@ -136,19 +136,19 @@ impl LogSink for StderrLogSink {
 
                 let mut line = format!("[{}] {}: {}", event.severity, event.event, event.message);
                 if let Some(cid) = event.connection_id {
-                    write!(&mut line, " conn={}", cid).expect("writing to String cannot fail");
+                    write!(&mut line, " conn={cid}").expect("writing to String cannot fail");
                 }
                 if let Some(seq) = event.request_seq {
-                    write!(&mut line, " seq={}", seq).expect("writing to String cannot fail");
+                    write!(&mut line, " seq={seq}").expect("writing to String cannot fail");
                 }
                 for f in &event.fields {
-                    write!(&mut line, " {}", f).expect("writing to String cannot fail");
+                    write!(&mut line, " {f}").expect("writing to String cannot fail");
                 }
-                eprintln!("{}", line);
+                eprintln!("{line}");
             }
             LogFormat::Json => {
                 let json = event_to_json(event);
-                eprintln!("{}", json);
+                eprintln!("{json}");
             }
         }
     }

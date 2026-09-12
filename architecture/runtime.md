@@ -11,12 +11,12 @@ failed body causes the response and connection to close.
 
 > **Status: Experimental.** The `server` module API is subject to change without notice.
 
-The historical `eggserve-core::server` module provides the mature reusable,
-transport-owning HTTP runtime. Plan 211 also provides `eggserve-server` as the
-generic dependency layer for new application-server consumers; it depends on
-`eggserve-primitives` and has no static-file edge. `eggserve-static` composes
-static behavior on top. Existing `eggserve-core::server` behavior and APIs
-remain unchanged during the 0.1 migration window.
+`eggserve-server` is the direct generic dependency layer for new
+application-server consumers. It depends on `eggserve-primitives`, preserves
+one-shot request-body and response-stream semantics, and has no static-file
+edge. `eggserve-static` composes hardened static behavior on top. The
+historical `eggserve-core::server` remains the compatibility runtime for
+advanced H2/H3, tunnel, listener, proxy, and TLS paths during extraction.
 
 The runnable public-API demonstrations are [`static_server.rs`](../crates/eggserve-core/examples/static_server.rs),
 [`custom_service.rs`](../crates/eggserve-core/examples/custom_service.rs),

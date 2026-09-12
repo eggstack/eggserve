@@ -1,0 +1,398 @@
+//! Path confinement: request-target parsing, validation, and policy enforcement.
+
+pub mod components;
+pub mod decode;
+pub mod platform;
+pub mod policy;
+pub mod rejected;
+
+pub use policy::{DotfilePolicy, PathPolicy};
+pub use rejected::PathRejection;
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConfinedPath {
+    decoded: String,
+    components: Vec<String>,
+    path_policy: PathPolicy,
+}
+
+impl ConfinedPath {
+    pub fn parse(raw: &str, policy: &PathPolicy) -> Result<Self, PathRejection> {
+        if raw.len() > 8192 {
+            return Err(PathRejection::TooLong);
+        }
+        // RequestTarget is the sole HTTP syntax classifier. NUL remains a
+        // path-layer rejection because it is also a filesystem-invalid byte.
+        if raw.as_bytes().contains(&0) {
+            return Err(PathRejection::NulByte);
+        }
+        let target = eggserve_primitives::request_target::RequestTarget::parse(raw.to_owned())
+            .map_err(|error| match error {
+                eggserve_primitives::request_target::RequestTargetError::Empty => {
+                    PathRejection::Empty
+                }
+                eggserve_primitives::request_target::RequestTargetError::ContainsWhitespace => {
+                    PathRejection::UnsupportedUriForm
+                }
+                _ => PathRejection::UnsupportedUriForm,
+            })?;
+        Self::from_path_component(target.path(), policy)
+    }
+
+    /// Build confinement state from a path component selected by the
+    /// canonical request-target parser. This handoff performs no HTTP
+    /// target-form classification.
+    pub fn from_path_component(path: &str, policy: &PathPolicy) -> Result<Self, PathRejection> {
+        let decoded = decode::percent_decode(path)?;
+
+        let normalized = components::normalize_path(&decoded);
+        let normalized_path = if normalized.is_empty() {
+            "/".to_owned()
+        } else {
+            format!("/{normalized}")
+        };
+
+        let parts = components::split_components(&normalized);
+
+        components::validate_components(&parts, policy)?;
+
+        Ok(Self {
+            decoded: normalized_path,
+            components: parts,
+            path_policy: policy.clone(),
+        })
+    }
+
+    #[allow(dead_code)]
+    pub fn as_str(&self) -> &str {
+        &self.decoded
+    }
+
+    pub fn components(&self) -> &[String] {
+        &self.components
+    }
+
+    pub fn path_policy(&self) -> &PathPolicy {
+        &self.path_policy
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn default_policy() -> PathPolicy {
+        PathPolicy::default()
+    }
+
+    #[test]
+    fn simple_path() {
+        let p = ConfinedPath::parse("/foo/bar", &default_policy()).unwrap();
+        assert_eq!(p.as_str(), "/foo/bar");
+        assert_eq!(p.components(), &["foo", "bar"]);
+    }
+
+    #[test]
+    fn root_path() {
+        let p = ConfinedPath::parse("/", &default_policy()).unwrap();
+        assert_eq!(p.as_str(), "/");
+        assert_eq!(p.components().len(), 0);
+    }
+
+    #[test]
+    fn path_with_query_stripped() {
+        let p = ConfinedPath::parse("/foo?bar=baz", &default_policy()).unwrap();
+        assert_eq!(p.as_str(), "/foo");
+        assert_eq!(p.components(), &["foo"]);
+    }
+
+    #[test]
+    fn reject_empty() {
+        assert_eq!(
+            ConfinedPath::parse("", &default_policy()).unwrap_err(),
+            PathRejection::Empty
+        );
+    }
+
+    #[test]
+    fn reject_absolute_form() {
+        assert_eq!(
+            ConfinedPath::parse("http://example.com/path", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+    }
+
+    #[test]
+    fn reject_asterisk_form() {
+        assert_eq!(
+            ConfinedPath::parse("*", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+    }
+
+    #[test]
+    fn reject_authority_form() {
+        assert_eq!(
+            ConfinedPath::parse("example.com:443", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+    }
+
+    #[test]
+    fn normalize_consecutive_slashes() {
+        let p = ConfinedPath::parse("/foo//bar", &default_policy()).unwrap();
+        assert_eq!(p.as_str(), "/foo/bar");
+        assert_eq!(p.components(), &["foo", "bar"]);
+    }
+
+    #[test]
+    fn reject_dot_component() {
+        assert_eq!(
+            ConfinedPath::parse("/foo/./bar", &default_policy()).unwrap_err(),
+            PathRejection::CurrentComponent
+        );
+    }
+
+    #[test]
+    fn reject_dotdot_component() {
+        assert_eq!(
+            ConfinedPath::parse("/../etc/passwd", &default_policy()).unwrap_err(),
+            PathRejection::ParentComponent
+        );
+    }
+
+    #[test]
+    fn reject_percent_encoded_dotdot() {
+        assert_eq!(
+            ConfinedPath::parse("/%2e%2e/etc/passwd", &default_policy()).unwrap_err(),
+            PathRejection::ParentComponent
+        );
+    }
+
+    #[test]
+    fn reject_uppercase_percent_encoded_dotdot() {
+        assert_eq!(
+            ConfinedPath::parse("/%2E%2E/etc/passwd", &default_policy()).unwrap_err(),
+            PathRejection::ParentComponent
+        );
+    }
+
+    #[test]
+    fn reject_double_encoded_dotdot() {
+        assert_eq!(
+            ConfinedPath::parse("/%252e%252e/etc/passwd", &default_policy()).unwrap_err(),
+            PathRejection::ParentComponent
+        );
+    }
+
+    #[test]
+    fn triple_encoded_dotdot_does_not_traverse() {
+        let path = ConfinedPath::parse("/%25252e%25252e/etc/passwd", &default_policy());
+        assert!(
+            path.is_ok(),
+            "the third decode is not part of this pipeline"
+        );
+        assert_eq!(path.unwrap().components()[0], "%252e%252e");
+    }
+
+    #[test]
+    fn reject_dotdot_in_path() {
+        assert_eq!(
+            ConfinedPath::parse("/foo/../../bar", &default_policy()).unwrap_err(),
+            PathRejection::ParentComponent
+        );
+    }
+
+    #[test]
+    fn reject_percent_encoded_dotdot_in_path() {
+        assert_eq!(
+            ConfinedPath::parse("/foo/%2e%2e/bar", &default_policy()).unwrap_err(),
+            PathRejection::ParentComponent
+        );
+    }
+
+    #[test]
+    fn reject_backslash() {
+        assert_eq!(
+            ConfinedPath::parse("/foo\\bar", &default_policy()).unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
+    fn reject_percent_encoded_backslash() {
+        assert_eq!(
+            ConfinedPath::parse("/%5cetc%5cpasswd", &default_policy()).unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
+    fn reject_percent_encoded_slash_does_not_alias() {
+        // `/foo%2fbar` must not alias `/foo/bar`: encoded delimiters are
+        // rejected instead of decoded before segmentation.
+        assert_eq!(
+            ConfinedPath::parse("/foo%2fbar", &default_policy()).unwrap_err(),
+            PathRejection::SeparatorAmbiguity
+        );
+    }
+
+    #[test]
+    fn reject_windows_drive_prefix() {
+        assert_eq!(
+            ConfinedPath::parse("/C:/Windows/System32", &default_policy()).unwrap_err(),
+            PathRejection::WindowsPrefixDenied
+        );
+    }
+
+    #[test]
+    fn reject_percent_encoded_windows_drive() {
+        assert_eq!(
+            ConfinedPath::parse("/c%3a/Windows/System32", &default_policy()).unwrap_err(),
+            PathRejection::WindowsPrefixDenied
+        );
+    }
+
+    #[test]
+    fn reject_dotfile() {
+        assert_eq!(
+            ConfinedPath::parse("/.env", &default_policy()).unwrap_err(),
+            PathRejection::DotfileDenied
+        );
+    }
+
+    #[test]
+    fn reject_dotfile_git_config() {
+        assert_eq!(
+            ConfinedPath::parse("/.git/config", &default_policy()).unwrap_err(),
+            PathRejection::DotfileDenied
+        );
+    }
+
+    #[test]
+    fn reject_dotfile_in_subdir() {
+        assert_eq!(
+            ConfinedPath::parse("/foo/.secret", &default_policy()).unwrap_err(),
+            PathRejection::DotfileDenied
+        );
+    }
+
+    #[test]
+    fn reject_windows_reserved_con() {
+        assert_eq!(
+            ConfinedPath::parse("/CON", &default_policy()).unwrap_err(),
+            PathRejection::WindowsReservedNameDenied
+        );
+    }
+
+    #[test]
+    fn reject_windows_reserved_aux() {
+        assert_eq!(
+            ConfinedPath::parse("/AUX.txt", &default_policy()).unwrap_err(),
+            PathRejection::WindowsReservedNameDenied
+        );
+    }
+
+    #[test]
+    fn reject_windows_reserved_com1() {
+        assert_eq!(
+            ConfinedPath::parse("/COM1", &default_policy()).unwrap_err(),
+            PathRejection::WindowsReservedNameDenied
+        );
+    }
+
+    #[test]
+    fn reject_windows_ads() {
+        assert_eq!(
+            ConfinedPath::parse("/file.txt:stream", &default_policy()).unwrap_err(),
+            PathRejection::WindowsAlternateStreamDenied
+        );
+    }
+
+    #[test]
+    fn reject_nul() {
+        assert_eq!(
+            ConfinedPath::parse("/%00", &default_policy()).unwrap_err(),
+            PathRejection::NulByte
+        );
+    }
+
+    #[test]
+    fn reject_percent_encoded_control() {
+        assert_eq!(
+            ConfinedPath::parse("/foo%0Abar", &default_policy()).unwrap_err(),
+            PathRejection::ControlCharacter
+        );
+    }
+
+    #[test]
+    fn reject_malformed_percent() {
+        assert_eq!(
+            ConfinedPath::parse("/%ZZ", &default_policy()).unwrap_err(),
+            PathRejection::MalformedPercentEncoding
+        );
+    }
+
+    #[test]
+    fn allow_dotfile_when_policy_permits() {
+        let policy = PathPolicy {
+            dotfiles: DotfilePolicy::Allow,
+            ..PathPolicy::default()
+        };
+        let p = ConfinedPath::parse("/.env", &policy).unwrap();
+        assert_eq!(p.as_str(), "/.env");
+    }
+
+    #[test]
+    fn allow_backslash_when_policy_permits() {
+        let policy = PathPolicy {
+            reject_backslash: false,
+            ..PathPolicy::default()
+        };
+        let p = ConfinedPath::parse("/foo\\bar", &policy).unwrap();
+        assert_eq!(p.as_str(), "/foo\\bar");
+    }
+
+    #[test]
+    fn reject_leading_network_path_forms() {
+        assert_eq!(
+            ConfinedPath::parse("//", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+        assert_eq!(
+            ConfinedPath::parse("///", &default_policy()).unwrap_err(),
+            PathRejection::UnsupportedUriForm
+        );
+    }
+
+    #[test]
+    fn path_policy_returns_parsed_policy() {
+        let policy = PathPolicy {
+            dotfiles: DotfilePolicy::Allow,
+            ..PathPolicy::default()
+        };
+        let p = ConfinedPath::parse("/.env", &policy).unwrap();
+        assert_eq!(p.path_policy(), &policy);
+    }
+
+    #[test]
+    fn path_policy_default_returns_default() {
+        let p = ConfinedPath::parse("/foo", &default_policy()).unwrap();
+        assert_eq!(p.path_policy(), &default_policy());
+    }
+
+    #[test]
+    fn reject_too_long() {
+        let long = format!("/{}", "a".repeat(8192));
+        assert_eq!(
+            ConfinedPath::parse(&long, &default_policy()).unwrap_err(),
+            PathRejection::TooLong
+        );
+    }
+
+    #[test]
+    fn allow_max_length() {
+        let max_len = format!("/{}", "a".repeat(8191));
+        assert!(ConfinedPath::parse(&max_len, &default_policy()).is_ok());
+    }
+}

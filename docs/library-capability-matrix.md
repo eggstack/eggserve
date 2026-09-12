@@ -24,8 +24,8 @@ its status using a constrained vocabulary.
 | Column | Description |
 |---|---|
 | **CLI** | `eggserve-bin` command-line interface (all flags from `args.rs`). |
-| **Rust stable** | `eggserve-core::primitives` module — the intended public Rust boundary. |
-| **Runtime experimental** | `eggserve-core::server` — transport-owning runtime: `Server`, `Service` trait, `StaticService`. |
+| **Rust canonical** | `eggserve-primitives` — direct canonical request/response/body/lifecycle boundary. |
+| **Runtime experimental** | `eggserve-server` — direct generic HTTP/1 runtime; `eggserve-static` adds confined static serving. |
 | **Python stable** | `eggserve.server` compatibility classes and `serve_directory`; advanced wrappers are under `eggserve.lowlevel`, subprocess helpers under `eggserve.subprocess`. |
 | **Python experimental** | No default Python client surface. The internal callback engine and native bridge types are not supported imports. |
 | **Built-in static service** | The static service used by CLI and Python Server (GET/HEAD only, body rejection, path confinement, conditional/range responses). |
@@ -132,10 +132,10 @@ behavior.
   extension-backed CLI entry point; it does not bundle a second standalone CLI
   binary.
 
-- **Runtime service boundary is experimental.** `eggserve-core::server` provides
-  a transport-owning runtime (`Server`, `Service` trait, `StaticService`) for
-  embedding. Its API is subject to change without notice. It is not covered by
-  the stable API contract.
+- **Runtime service boundary is experimental.** `eggserve-server` provides the
+  direct generic HTTP/1 runtime for embedding. `eggserve-core::server` remains
+  the compatibility path for advanced protocols and is not covered by the
+  stable API contract.
 - **Observability ownership (Plan 181).** Each runtime owns an `OpsContext`
   (sink, counters, correlation-ID source). Default construction clones the
   process-global default, so CLI/single-server behavior is unchanged;

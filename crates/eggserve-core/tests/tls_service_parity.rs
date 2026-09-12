@@ -129,8 +129,7 @@ async fn custom_service_fn_over_plaintext() {
     let response = String::from_utf8_lossy(&resp);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "plaintext: {}",
-        response
+        "plaintext: {response}"
     );
 
     handle.shutdown();
@@ -152,7 +151,7 @@ async fn custom_service_fn_over_tls() {
     let addr = handle.local_addr();
     let resp = raw_tls_request(addr, GET_REQUEST, &ctx).await;
     let response = String::from_utf8_lossy(&resp);
-    assert!(response.starts_with("HTTP/1.1 200"), "TLS: {}", response);
+    assert!(response.starts_with("HTTP/1.1 200"), "TLS: {response}");
 
     handle.shutdown();
     let _ = handle.wait().await;
@@ -183,10 +182,9 @@ async fn static_service_over_plaintext() {
     let response = String::from_utf8_lossy(&resp);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "plaintext static: {}",
-        response
+        "plaintext static: {response}"
     );
-    assert!(response.contains("hello world"), "body: {}", response);
+    assert!(response.contains("hello world"), "body: {response}");
 
     handle.shutdown();
     let _ = handle.wait().await;
@@ -216,10 +214,9 @@ async fn static_service_over_tls() {
     let response = String::from_utf8_lossy(&resp);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "TLS static: {}",
-        response
+        "TLS static: {response}"
     );
-    assert!(response.contains("hello world"), "body: {}", response);
+    assert!(response.contains("hello world"), "body: {response}");
 
     handle.shutdown();
     let _ = handle.wait().await;
@@ -269,8 +266,7 @@ async fn tls_handshake_failure_does_not_invoke_service() {
             let s = String::from_utf8_lossy(&buf);
             assert!(
                 !s.starts_with("HTTP/1.1 200"),
-                "service should not be invoked on TLS handshake failure: {}",
-                s
+                "service should not be invoked on TLS handshake failure: {s}"
             );
         }
         Ok(None) => {}
@@ -319,8 +315,7 @@ async fn tls_handshake_timeout_does_not_hang() {
     let elapsed = start.elapsed();
     assert!(
         elapsed < Duration::from_secs(4),
-        "TLS handshake timeout should not hang: {:?}",
-        elapsed
+        "TLS handshake timeout should not hang: {elapsed:?}"
     );
     assert!(result.is_ok(), "should complete within deadline");
 
@@ -371,8 +366,7 @@ async fn graceful_shutdown_works_during_tls_connections() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "inflight TLS request should complete: {}",
-        response
+        "inflight TLS request should complete: {response}"
     );
     assert!(response_received.load(std::sync::atomic::Ordering::SeqCst));
 }

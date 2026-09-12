@@ -1,18 +1,17 @@
 # Primitives API — Deep Dive
 
-The historical `eggserve-core::primitives` module remains the compatibility
-boundary for 0.1 consumers. Plan 211 adds the dependency-free
-`eggserve-primitives` crate for canonical application values; it has no
-transport, async-runtime, TLS, QUIC, or filesystem dependency. The generic
-runtime is `eggserve-server`, and static resolution is `eggserve-static`.
-The richer compatibility module still provides the existing path confinement,
-filesystem resolution, and response-planning APIs without a source break.
+The extracted `eggserve-primitives` crate is the canonical boundary for new
+consumers. It owns the mature request/response/body/lifecycle model and has no
+async-runtime, TLS, QUIC, or filesystem edge. The generic runtime is
+`eggserve-server`, and static resolution is `eggserve-static`. The historical
+`eggserve-core::primitives` path remains source-compatible for 0.1 consumers
+and retains compatibility-only transport adapters and legacy static exports.
 
 ## Module Location
 
-`eggserve-core::primitives/` — the 0.1 compatibility facade. New consumers
-should use the direct `eggserve-primitives` crate when they only need the
-canonical layer.
+`eggserve-primitives/src/primitives/` — the canonical implementation. New
+consumers should use `eggserve-primitives`; `eggserve-core::layers` exposes it
+without requiring a second type system.
 
 ## Module Map
 

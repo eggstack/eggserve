@@ -78,6 +78,10 @@ dependencies = [
 [[package]]
 name = "eggserve-primitives"
 version = "0.1.2"
+dependencies = [
+ "bytes",
+ "futures-util",
+]
 
 [[package]]
 name = "eggserve-python"
@@ -99,6 +103,7 @@ version = "0.1.2"
 dependencies = [
  "bytes",
  "eggserve-primitives",
+ "futures-util",
  "http-body",
  "http-body-util",
  "hyper",
@@ -113,6 +118,9 @@ version = "0.1.2"
 dependencies = [
  "eggserve-primitives",
  "eggserve-server",
+ "httpdate",
+ "phf",
+ "rustix",
 ]
 
 [[package]]

@@ -102,10 +102,7 @@ impl ResponseStreamError {
     #[allow(dead_code)]
     pub(crate) fn length_mismatch(declared: u64, emitted: u64) -> Self {
         Self {
-            detail: format!(
-                "known-length mismatch: declared {} emitted {}",
-                declared, emitted
-            ),
+            detail: format!("known-length mismatch: declared {declared} emitted {emitted}"),
         }
     }
 
@@ -315,7 +312,7 @@ mod tests {
             stream::once(async { Ok::<_, ResponseStreamError>(Bytes::from("secret")) }),
             6,
         );
-        let dbg = format!("{:?}", s);
+        let dbg = format!("{s:?}");
         assert!(dbg.contains("known_length"));
         assert!(!dbg.contains("secret"));
     }

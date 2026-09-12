@@ -186,9 +186,9 @@ fn resolve_bind_ip(bind_host: &str, bind_port: u16) -> Result<IpAddr, String> {
     }
     let addresses = (bind_host, bind_port)
         .to_socket_addrs()
-        .map_err(|e| format!("failed to resolve bind host '{}': {}", bind_host, e))?
+        .map_err(|e| format!("failed to resolve bind host '{bind_host}': {e}"))?
         .collect();
-    select_bind_ip(addresses).ok_or_else(|| format!("bind host '{}' did not resolve", bind_host))
+    select_bind_ip(addresses).ok_or_else(|| format!("bind host '{bind_host}' did not resolve"))
 }
 
 impl Args {
@@ -300,8 +300,7 @@ impl Args {
                         (host.to_string(), port)
                     } else {
                         return Err(format!(
-                            "invalid bind address '{}': expected HOST or HOST:PORT",
-                            addr
+                            "invalid bind address '{addr}': expected HOST or HOST:PORT"
                         ));
                     };
                     if port.is_some() && port_from_flag {
@@ -347,7 +346,7 @@ impl Args {
                     addr_seen = true;
                     let addr = require_value(&args, &mut i, "--addr")?;
                     let parsed: SocketAddr = addr.parse().map_err(|e| {
-                        let mut msg = format!("invalid address '{}': {}", addr, e);
+                        let mut msg = format!("invalid address '{addr}': {e}");
                         if addr.matches(':').count() > 1 && !addr.starts_with('[') {
                             msg.push_str(
                                 " (for IPv6 with a port, use the bracketed form: [::1]:8080)",
@@ -399,8 +398,7 @@ impl Args {
                         "none" => LogFormat::None,
                         other => {
                             return Err(format!(
-                                "invalid log format '{}': expected text, json, or none",
-                                other
+                                "invalid log format '{other}': expected text, json, or none"
                             ))
                         }
                     };
@@ -420,7 +418,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--max-connections")?;
                     let parsed: usize = val
                         .parse()
-                        .map_err(|e| format!("invalid max-connections '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid max-connections '{val}': {e}"))?;
                     if parsed == 0 {
                         return Err("--max-connections must be greater than 0".to_string());
                     }
@@ -434,7 +432,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--max-file-streams")?;
                     let parsed: usize = val
                         .parse()
-                        .map_err(|e| format!("invalid max-file-streams '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid max-file-streams '{val}': {e}"))?;
                     if parsed == 0 {
                         return Err("--max-file-streams must be greater than 0".to_string());
                     }
@@ -450,7 +448,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--max-in-flight-requests")?;
                     let parsed: usize = val
                         .parse()
-                        .map_err(|e| format!("invalid max-in-flight-requests '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid max-in-flight-requests '{val}': {e}"))?;
                     if parsed == 0 {
                         return Err("--max-in-flight-requests must be greater than 0".to_string());
                     }
@@ -464,7 +462,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--header-timeout")?;
                     let secs: u64 = val
                         .parse()
-                        .map_err(|e| format!("invalid header-timeout '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid header-timeout '{val}': {e}"))?;
                     header_read_timeout = Some(Duration::from_secs(secs));
                 }
                 "--connection-total-timeout" => {
@@ -475,9 +473,9 @@ impl Args {
                     }
                     connection_total_timeout_seen = true;
                     let val = require_value(&args, &mut i, "--connection-total-timeout")?;
-                    let secs: u64 = val.parse().map_err(|e| {
-                        format!("invalid connection-total-timeout '{}': {}", val, e)
-                    })?;
+                    let secs: u64 = val
+                        .parse()
+                        .map_err(|e| format!("invalid connection-total-timeout '{val}': {e}"))?;
                     connection_total_timeout = Some(Duration::from_secs(secs));
                 }
                 "--handler-timeout" => {
@@ -488,7 +486,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--handler-timeout")?;
                     let secs: u64 = val
                         .parse()
-                        .map_err(|e| format!("invalid handler-timeout '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid handler-timeout '{val}': {e}"))?;
                     handler_timeout = Some(Duration::from_secs(secs));
                 }
                 "--body-read-timeout" => {
@@ -499,7 +497,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--body-read-timeout")?;
                     let secs: u64 = val
                         .parse()
-                        .map_err(|e| format!("invalid body-read-timeout '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid body-read-timeout '{val}': {e}"))?;
                     body_read_timeout = Some(Duration::from_secs(secs));
                 }
                 "--keep-alive-idle-timeout" => {
@@ -512,7 +510,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--keep-alive-idle-timeout")?;
                     let secs: u64 = val
                         .parse()
-                        .map_err(|e| format!("invalid keep-alive-idle-timeout '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid keep-alive-idle-timeout '{val}': {e}"))?;
                     keep_alive_idle_timeout = Some(Duration::from_secs(secs));
                 }
                 "--max-requests-per-connection" => {
@@ -523,9 +521,9 @@ impl Args {
                     }
                     max_requests_per_connection_seen = true;
                     let val = require_value(&args, &mut i, "--max-requests-per-connection")?;
-                    let parsed: u64 = val.parse().map_err(|e| {
-                        format!("invalid max-requests-per-connection '{}': {}", val, e)
-                    })?;
+                    let parsed: u64 = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-requests-per-connection '{val}': {e}"))?;
                     // 0 means unlimited (the default); positive values bound
                     // completed requests per connection.
                     max_requests_per_connection =
@@ -541,7 +539,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--response-write-timeout")?;
                     let secs: u64 = val
                         .parse()
-                        .map_err(|e| format!("invalid response-write-timeout '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid response-write-timeout '{val}': {e}"))?;
                     response_write_timeout = Some(Duration::from_secs(secs));
                 }
                 "--max-buf-size" => {
@@ -552,7 +550,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--max-buf-size")?;
                     let parsed: usize = val
                         .parse()
-                        .map_err(|e| format!("invalid max-buf-size '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid max-buf-size '{val}': {e}"))?;
                     max_buf_size = Some(parsed);
                 }
                 "--max-headers" => {
@@ -563,7 +561,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--max-headers")?;
                     let parsed: usize = val
                         .parse()
-                        .map_err(|e| format!("invalid max-headers '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid max-headers '{val}': {e}"))?;
                     max_headers = Some(parsed);
                 }
                 "--max-header-bytes" => {
@@ -574,7 +572,7 @@ impl Args {
                     let val = require_value(&args, &mut i, "--max-header-bytes")?;
                     let parsed: usize = val
                         .parse()
-                        .map_err(|e| format!("invalid max-header-bytes '{}': {}", val, e))?;
+                        .map_err(|e| format!("invalid max-header-bytes '{val}': {e}"))?;
                     max_header_bytes = Some(parsed);
                 }
                 "--max-request-target-bytes" => {
@@ -585,9 +583,9 @@ impl Args {
                     }
                     max_request_target_bytes_seen = true;
                     let val = require_value(&args, &mut i, "--max-request-target-bytes")?;
-                    let parsed: usize = val.parse().map_err(|e| {
-                        format!("invalid max-request-target-bytes '{}': {}", val, e)
-                    })?;
+                    let parsed: usize = val
+                        .parse()
+                        .map_err(|e| format!("invalid max-request-target-bytes '{val}': {e}"))?;
                     max_request_target_bytes = Some(parsed);
                 }
                 "--content-type" => {
@@ -641,7 +639,7 @@ impl Args {
                     return Err("version".to_string());
                 }
                 arg if arg.starts_with('-') => {
-                    return Err(format!("unknown flag: {}", arg));
+                    return Err(format!("unknown flag: {arg}"));
                 }
                 arg => {
                     positional_args.push(arg.to_string());
@@ -696,8 +694,7 @@ impl Args {
 
         if !public && bind_ip.is_unspecified() {
             return Err(format!(
-                "binding to {} requires --public to acknowledge public exposure intent",
-                bind_ip
+                "binding to {bind_ip} requires --public to acknowledge public exposure intent"
             ));
         }
 

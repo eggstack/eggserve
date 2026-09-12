@@ -5,8 +5,9 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 ## Overview
 
 `eggserve-core` exposes a deliberate, narrow public boundary through the
-`primitives` module for 0.1 compatibility. Plan 211 adds direct layers for
-new consumers: `eggserve-primitives` owns dependency-free canonical values,
+`primitives` module for 0.1 compatibility. Plan 214 makes the direct layers
+the implementation homes for new consumers: `eggserve-primitives` owns
+canonical values,
 `eggserve-server` owns generic transport and `Service`, and
 `eggserve-static` owns filesystem specialization. The compatibility paths
 remain supported during migration; see
@@ -24,13 +25,13 @@ remain supported during migration; see
 | `server::service` | `pub` | Experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
 | `server::tower` | `pub` | Experimental (`tower` feature) | `TowerToEggserve` / `EggserveToTower` adapters; per-request clones, no shared mutex |
 
-## Plan 211 direct crates
+## Plan 214 direct crates
 
 | Crate | Use when | Dependency boundary |
 |-------|----------|---------------------|
-| `eggserve-primitives` | Only canonical application values are needed | No dependencies |
+| `eggserve-primitives` | Only canonical application values are needed | Transport-neutral `bytes`/`futures-util` only |
 | `eggserve-server` | A generic HTTP runtime and `Service` are needed | Primitives plus transport dependencies; no static/core edge |
-| `eggserve-static` | Confined static-file serving is needed | Primitives plus server |
+| `eggserve-static` | Confined static-file serving is needed | Primitives, server, and target-gated filesystem support |
 
 ## Internal modules (not public API)
 

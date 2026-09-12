@@ -1,0 +1,1410 @@
+//! Transport-independent, one-shot request body with terminal trailers.
+//!
+//! [`RequestBody`] wraps the transfer-decoded body stream from an HTTP
+//! request. It provides one-shot consumption (either fully buffered or
+//! chunk-by-chunk) with bounded limits, timeout awareness, and
+//! cancellation safety.
+//!
+//! # One-shot guarantee
+//!
+//! A `RequestBody` can only be consumed once. [`read_all`](RequestBody::read_all)
+//! consumes the entire body into memory. Streaming via [`Stream`](futures_util::Stream)
+//! reads chunks incrementally. Mixing consumption modes is detected and
+//! returns [`RequestBodyError::MixedConsumptionMode`].
+//!
+//! # Trailers (Plan 198 Track B)
+//!
+//! Terminal trailer metadata is distinct from initial headers and becomes
+//! available only after content completion:
+//!
+//! ```no_run
+//! # async fn example(mut body: eggserve_primitives::RequestBody) -> Result<(), eggserve_primitives::RequestBodyError> {
+//! while let Some(chunk) = body.next_chunk().await? {
+//!     let _ = chunk;
+//! }
+//! let trailers = body.trailers().await?;
+//! # Ok(())
+//! # }
+//! ```
+//!
+//! `read_all()` discards trailers by type (it returns bytes only); callers
+//! needing trailers must use [`read_all_with_trailers`](RequestBody::read_all_with_trailers).
+//! Body byte limits remain byte limits; trailer metadata has separate bounds
+//! ([`TrailerLimits`](super::trailers::TrailerLimits)). Malformed/oversized
+//! trailers fail the body with [`RequestBodyError::InvalidTrailers`] and mark
+//! the lifecycle failed. Dropping before trailers preserves abandoned-body
+//! safety. H1 requests without valid trailer framing cannot inject post-body
+//! bytes as trailers (adapters only populate from protocol trailer frames).
+//!
+//! # Transport independence
+//!
+//! No Hyper type appears in this struct or its public API. The body
+//! stream is internal to the type.
+
+use bytes::Bytes;
+use futures_util::Stream;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
+
+use super::header_block::HeaderBlock;
+use super::request_body_error::RequestBodyError;
+use super::request_lifecycle::{RequestLifecycle, RequestShared};
+use super::trailers::{TrailerLimits, Trailers};
+
+/// The consumption state of a request body.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BodyState {
+    /// Initial state: no data consumed yet.
+    Unread,
+    /// Streaming in progress: at least one chunk consumed via `Stream`.
+    Streaming,
+    /// Body fully consumed (either via `read_all` or stream completion).
+    Complete,
+    /// An error terminated consumption.
+    Error,
+}
+
+/// A transport-independent, one-shot request body.
+///
+/// Owns the transfer-decoded byte stream from an HTTP request. No Hyper
+/// type appears in the public API.
+///
+/// # Examples
+///
+/// ```no_run
+/// use eggserve_primitives::{RequestBody, RequestBodyError};
+/// use futures_util::StreamExt;
+///
+/// async fn handle(body: RequestBody) -> Result<Vec<u8>, RequestBodyError> {
+///     // Option 1: buffer everything
+///     let bytes = body.read_all().await?;
+///     Ok(bytes.to_vec())
+/// }
+///
+/// async fn handle_streaming(mut body: RequestBody) -> Result<(), RequestBodyError> {
+///     // Option 2: stream chunks
+///     while let Some(chunk) = body.next_chunk().await? {
+///         let _ = chunk;
+///     }
+///     Ok(())
+/// }
+/// ```
+pub struct RequestBody {
+    inner: Option<BodyInner>,
+    declared_length: Option<u64>,
+    bytes_received: u64,
+    state: BodyState,
+    max_bytes: u64,
+    /// Shared per-request ownership/cancellation state (Plan 174 Track A).
+    ///
+    /// Replaces the former `Arc<AtomicBool>` consumption flag with a lifecycle
+    /// object capable of distinguishing completion from abandonment and active
+    /// delegated ownership. Observers do not require holding the body itself.
+    shared: Arc<RequestShared>,
+    /// Canonical trailer limits (separate from body byte limits).
+    trailer_limits: TrailerLimits,
+    /// Validated terminal trailers, populated on content completion.
+    completed_trailers: Option<Trailers>,
+    /// Trailer validation failure, surfaced as `InvalidTrailers` on completion.
+    completed_trailer_error: Option<String>,
+    /// Wire trailer slot shared with the transport bridge.
+    ///
+    /// Adapters populate this only from protocol trailer frames (H1 chunked
+    /// trailers, H2 terminal HEADERS, H3 terminal field section). Post-body
+    /// header-like bytes without valid framing never reach here. `None` means
+    /// no trailer frame arrived yet; `Some(Ok)` holds raw validated-header
+    /// fields awaiting canonical trailer validation; `Some(Err)` holds a
+    /// sanitized failure message.
+    wire_slot: Arc<Mutex<Option<Result<HeaderBlock, String>>>>,
+}
+
+/// Shared wire-trailer slot type for transport bridges.
+pub(crate) type WireTrailerSlot = Arc<Mutex<Option<Result<HeaderBlock, String>>>>;
+
+/// Create a fresh empty wire-trailer slot.
+pub(crate) fn new_wire_slot() -> WireTrailerSlot {
+    Arc::new(Mutex::new(None))
+}
+
+/// Drain and validate wire trailers without borrowing a whole `RequestBody`.
+///
+/// Returns `Ok(None)` when no wire trailers arrived, `Ok(Some)` with the
+/// validated value, or `Err(message)` for slot failures/validation failures.
+/// Callers store the result and set error state; repeated-block detection
+/// (pre-set `completed_trailers` plus wire trailers) is left to the caller
+/// so this helper never holds two mutable field borrows at once.
+fn drain_and_validate_wire_slot(
+    wire_slot: &WireTrailerSlot,
+    limits: &TrailerLimits,
+) -> Result<Option<Trailers>, String> {
+    let wire = wire_slot.lock().ok().and_then(|mut g| g.take());
+    let Some(wire) = wire else {
+        return Ok(None);
+    };
+    let block = wire?;
+    match Trailers::with_limits(block, limits) {
+        Ok(trailers) => Ok(Some(trailers)),
+        Err(e) => Err(e.to_string()),
+    }
+}
+
+fn finalize_wire_slot(
+    wire_slot: &WireTrailerSlot,
+    limits: &TrailerLimits,
+    completed_trailers: &mut Option<Trailers>,
+    completed_error: &mut Option<String>,
+) -> Result<(), String> {
+    match drain_and_validate_wire_slot(wire_slot, limits) {
+        Ok(None) => Ok(()),
+        Ok(Some(trailers)) => {
+            if completed_trailers.is_some() {
+                let msg = "repeated trailer block".to_string();
+                *completed_error = Some(msg.clone());
+                return Err(msg);
+            }
+            *completed_trailers = Some(trailers);
+            Ok(())
+        }
+        Err(msg) => {
+            *completed_error = Some(msg.clone());
+            Err(msg)
+        }
+    }
+}
+
+/// Internal body stream, hidden from public API.
+#[allow(dead_code)]
+enum BodyInner {
+    /// A Hyper `Incoming` body (runtime-provided).
+    Incoming {
+        stream: Pin<Box<dyn Stream<Item = Result<Bytes, IncomingError>> + Send + 'static>>,
+    },
+    /// A pre-built test body (bytes).
+    Fixed { data: Bytes, offset: usize },
+    /// An empty body.
+    Empty,
+}
+
+/// Internal error type for body stream items.
+#[derive(Debug)]
+pub struct IncomingError(pub String);
+
+impl std::fmt::Display for IncomingError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "incoming body error: {}", self.0)
+    }
+}
+
+impl std::error::Error for IncomingError {}
+
+impl From<IncomingError> for RequestBodyError {
+    fn from(e: IncomingError) -> Self {
+        Self::Transport(e.0)
+    }
+}
+
+impl RequestBody {
+    /// Create an empty body with no declared length.
+    pub fn empty() -> Self {
+        Self {
+            inner: Some(BodyInner::Empty),
+            declared_length: None,
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes: u64::MAX,
+            shared: RequestShared::new_complete(),
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
+        }
+    }
+
+    /// Create a body from fixed bytes (test/experimental constructor).
+    ///
+    /// The `max_bytes` parameter sets the effective limit. Use `u64::MAX`
+    /// for unlimited.
+    ///
+    /// In-memory bodies never force connection close on drop: only
+    /// network-backed (`Incoming`) bodies participate in abandonment
+    /// tracking. An empty fixed body starts `Complete`; non-empty starts
+    /// `Active` until consumed.
+    pub fn from_bytes(data: impl Into<Bytes>, max_bytes: u64) -> Self {
+        let data = data.into();
+        let shared = RequestShared::new_active();
+        Self::from_bytes_with_shared(data, max_bytes, shared)
+    }
+
+    /// Create an in-memory body with terminal trailers (tests/adapters).
+    ///
+    /// `trailers` must already satisfy [`Trailers`] validation; byte limits
+    /// still apply to `data`, trailer bounds were checked at `Trailers`
+    /// construction. Trailers become available via [`RequestBody::trailers`]
+    /// only after content completion, identical to wire trailers.
+    pub fn from_bytes_with_trailers(
+        data: impl Into<Bytes>,
+        max_bytes: u64,
+        trailers: Trailers,
+    ) -> Self {
+        let mut body = Self::from_bytes(data, max_bytes);
+        body.completed_trailers = Some(trailers);
+        body
+    }
+
+    /// Create an in-memory body backed by an existing lifecycle allocation.
+    ///
+    /// Runtime adapters use this after bounded pre-buffering so the lifecycle
+    /// registered for the network receive remains the lifecycle exposed by the
+    /// canonical request.
+    pub(crate) fn from_bytes_with_shared(
+        data: impl Into<Bytes>,
+        max_bytes: u64,
+        shared: Arc<RequestShared>,
+    ) -> Self {
+        let data = data.into();
+        let len = data.len() as u64;
+        if data.is_empty() {
+            shared.mark_complete();
+        }
+        Self {
+            inner: Some(BodyInner::Fixed { data, offset: 0 }),
+            declared_length: Some(len),
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes,
+            shared,
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
+        }
+    }
+
+    /// Create a body from a Hyper `Incoming` stream.
+    ///
+    /// This is primarily used by the runtime to wrap Hyper incoming bodies.
+    /// External consumers (e.g. fuzz targets) may also use it to test
+    /// stream-based body ingestion.
+    #[allow(dead_code)]
+    pub fn from_incoming(
+        stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
+        declared_length: Option<u64>,
+        max_bytes: u64,
+    ) -> Self {
+        Self {
+            inner: Some(BodyInner::Incoming {
+                stream: Box::pin(stream),
+            }),
+            declared_length,
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes,
+            shared: RequestShared::new_active(),
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
+        }
+    }
+
+    /// Create a body sharing an existing lifecycle allocation.
+    ///
+    /// Used by the connection pipeline so `RequestBody` and
+    /// `RequestLifecycle` observe the same ownership/cancellation state.
+    #[allow(dead_code)]
+    pub(crate) fn from_incoming_with_shared(
+        stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
+        declared_length: Option<u64>,
+        max_bytes: u64,
+        shared: Arc<RequestShared>,
+    ) -> Self {
+        Self {
+            inner: Some(BodyInner::Incoming {
+                stream: Box::pin(stream),
+            }),
+            declared_length,
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes,
+            shared,
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot: new_wire_slot(),
+        }
+    }
+
+    /// Create a streaming body sharing a wire-trailer slot.
+    ///
+    /// The transport bridge populates `wire_slot` only from protocol trailer
+    /// frames. Validation happens once in [`RequestBody`] via the canonical
+    /// [`Trailers`] validator — adapters never maintain a second policy.
+    #[allow(dead_code)]
+    pub(crate) fn from_incoming_with_shared_and_wire_slot(
+        stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
+        declared_length: Option<u64>,
+        max_bytes: u64,
+        shared: Arc<RequestShared>,
+        wire_slot: WireTrailerSlot,
+    ) -> Self {
+        Self {
+            inner: Some(BodyInner::Incoming {
+                stream: Box::pin(stream),
+            }),
+            declared_length,
+            bytes_received: 0,
+            state: BodyState::Unread,
+            max_bytes,
+            shared,
+            trailer_limits: TrailerLimits::default(),
+            completed_trailers: None,
+            completed_trailer_error: None,
+            wire_slot,
+        }
+    }
+
+    /// Returns the wire-trailer slot shared with the transport bridge.
+    #[allow(dead_code)]
+    pub(crate) fn wire_slot(&self) -> WireTrailerSlot {
+        self.wire_slot.clone()
+    }
+
+    /// Set terminal trailers before content completion (tests/adapters).
+    ///
+    /// Services that ignore trailers pay no cost: this only stores a validated
+    /// value. Validation uses the canonical denylist + limits.
+    pub fn set_trailers(&mut self, trailers: Trailers) {
+        self.completed_trailers = Some(trailers);
+    }
+
+    /// Returns the declared body length from `Content-Length`, if present.
+    pub fn declared_length(&self) -> Option<u64> {
+        self.declared_length
+    }
+
+    /// Returns the number of bytes received so far.
+    pub fn bytes_received(&self) -> u64 {
+        self.bytes_received
+    }
+
+    /// Returns `true` if the body has been fully consumed.
+    pub fn is_complete(&self) -> bool {
+        self.state == BodyState::Complete
+    }
+
+    /// Returns the current consumption state.
+    pub fn state(&self) -> BodyState {
+        self.state
+    }
+
+    /// Returns the effective byte limit.
+    pub fn max_bytes(&self) -> u64 {
+        self.max_bytes
+    }
+
+    /// Returns a clone of the shared lifecycle allocation.
+    ///
+    /// The runtime retains this observer while the service owns/moves the
+    /// actual `RequestBody`. EOF marks `Complete` only after
+    /// declared-length/framing validation succeeds; transport/body error
+    /// marks `Failed`; dropping an incomplete network body marks
+    /// `Abandoned` unless ownership was transferred into an explicit
+    /// continuation holding the same body.
+    #[allow(dead_code)]
+    pub(crate) fn shared(&self) -> Arc<RequestShared> {
+        self.shared.clone()
+    }
+
+    /// Cloneable transport-neutral cancellation observer sharing this
+    /// body's lifecycle allocation.
+    pub fn lifecycle(&self) -> RequestLifecycle {
+        RequestLifecycle::from_shared(self.shared.clone())
+    }
+
+    /// Returns `true` if the body was fully consumed (stream ended and
+    /// all declared bytes received).
+    pub(crate) fn was_fully_consumed(&self) -> bool {
+        self.shared.is_body_complete()
+    }
+
+    /// Returns `true` while the body is still owned (unread/streaming),
+    /// including delegated ownership past `Service::call` return.
+    #[allow(dead_code)]
+    pub(crate) fn is_body_active(&self) -> bool {
+        self.shared.is_body_active()
+    }
+
+    /// Returns `true` once the body reached any terminal state
+    /// (Complete/Abandoned/Failed).
+    #[allow(dead_code)]
+    pub(crate) fn is_body_terminal(&self) -> bool {
+        self.shared.is_body_terminal()
+    }
+
+    /// Mark the body as fully consumed.
+    fn mark_consumed(&self) {
+        self.shared.mark_complete();
+    }
+
+    /// Mark the body as failed (transport/limit/framing error).
+    #[allow(dead_code)]
+    fn mark_failed(&self) {
+        self.shared.mark_failed();
+    }
+
+    /// Complete trailer handling after byte content validated.
+    ///
+    /// Drains the wire slot (populated only from protocol trailer frames),
+    /// validates via the single canonical [`Trailers`] validator, and stores
+    /// the result. Invalid/oversized trailers fail the body with
+    /// `InvalidTrailers` and mark the lifecycle failed. Must be called with
+    /// byte-length checks already passing, immediately before marking
+    /// `Complete`.
+    fn finalize_trailers(&mut self) -> Result<(), RequestBodyError> {
+        // In-memory pre-set trailers (tests) are already validated; wire
+        // trailers still need canonical validation before exposure.
+        match finalize_wire_slot(
+            &self.wire_slot,
+            &self.trailer_limits,
+            &mut self.completed_trailers,
+            &mut self.completed_trailer_error,
+        ) {
+            Ok(()) => Ok(()),
+            Err(msg) => {
+                self.state = BodyState::Error;
+                self.shared.mark_failed();
+                Err(RequestBodyError::InvalidTrailers(msg))
+            }
+        }
+    }
+
+    /// Terminal trailer metadata, available only after content completion.
+    ///
+    /// Returns `Ok(None)` when the body completed without trailers,
+    /// `Ok(Some)` with the validated terminal block, or
+    /// `InvalidTrailers` when trailers were malformed/oversized.
+    /// Calling before completion returns [`RequestBodyError::TrailersNotReady`].
+    /// Services that ignore trailers pay minimal overhead (one state check).
+    pub async fn trailers(&mut self) -> Result<Option<Trailers>, RequestBodyError> {
+        if let Some(msg) = self.completed_trailer_error.clone() {
+            return Err(RequestBodyError::InvalidTrailers(msg));
+        }
+        if self.state != BodyState::Complete {
+            return Err(RequestBodyError::TrailersNotReady);
+        }
+        Ok(self.completed_trailers.clone())
+    }
+
+    /// Synchronous snapshot of validated terminal trailers (Plan 200).
+    ///
+    /// Returns the completed trailer block when content has completed
+    /// successfully, `None` otherwise. Used by the `http_body::Body`
+    /// adapter to serve the terminal `Frame::trailers` without an extra
+    /// async round-trip; the async [`RequestBody::trailers`] remains the
+    /// normative accessor for services.
+    #[cfg(feature = "http-interop")]
+    pub(crate) fn completed_trailers_snapshot(&self) -> Option<Trailers> {
+        if self.state != BodyState::Complete {
+            return None;
+        }
+        if self.completed_trailer_error.is_some() {
+            return None;
+        }
+        self.completed_trailers.clone()
+    }
+
+    /// Take the completed trailer block for one-shot `http_body` emission.
+    ///
+    /// Returns the stored trailers once, leaving `None` so a second
+    /// `poll_frame` observes end-of-stream. Only meaningful after
+    /// completion; returns `None` otherwise.
+    #[cfg(feature = "http-interop")]
+    pub(crate) fn take_completed_trailers(&mut self) -> Option<Trailers> {
+        if self.state != BodyState::Complete {
+            return None;
+        }
+        if self.completed_trailer_error.is_some() {
+            return None;
+        }
+        self.completed_trailers.take()
+    }
+
+    /// Returns the stored trailer failure, if any (Plan 200).
+    #[cfg(feature = "http-interop")]
+    pub(crate) fn completed_trailer_failure(&self) -> Option<String> {
+        self.completed_trailer_error.clone()
+    }
+
+    /// Consume the body and its terminal trailers together.
+    ///
+    /// Defined alternative to [`read_all`](RequestBody::read_all) for callers
+    /// needing trailers: `read_all` returns bytes only and discards trailers
+    /// by type (documented, not silent — use this method when trailers matter).
+    /// Trailer bounds are separate from `max_bytes`; invalid trailers fail
+    /// with `InvalidTrailers` instead of returning bytes.
+    pub async fn read_all_with_trailers(
+        mut self,
+    ) -> Result<(Bytes, Option<Trailers>), RequestBodyError> {
+        // Reuse `read_all` byte logic via streaming to keep trailer
+        // finalization in one place: drain via `next_chunk` until EOF, then
+        // collect. Simpler than duplicating limit checks.
+        if self.state == BodyState::Complete || self.state == BodyState::Error {
+            return Err(RequestBodyError::AlreadyConsumed);
+        }
+        if self.state == BodyState::Streaming {
+            return Err(RequestBodyError::MixedConsumptionMode);
+        }
+        let mut buf = Vec::new();
+        // Take inner to drive manually (mirrors `read_all` without duplicating
+        // its match). We cannot call `self.read_all()` because it consumes
+        // `self` and would discard trailers; instead replicate the flow but
+        // retain `self` for trailer finalization.
+        let inner = self.inner.take().ok_or(RequestBodyError::AlreadyConsumed)?;
+        // Temporarily restore for chunk loop via direct handling:
+        self.inner = Some(inner);
+        // Switch to streaming internally to reuse `next_chunk` limit checks.
+        // `next_chunk` transitions Unread->Streaming on first call.
+        while let Some(chunk) = self.next_chunk().await? {
+            buf.extend_from_slice(&chunk);
+        }
+        // `next_chunk` EOF already ran `finalize_trailers`; surface any
+        // trailer failure stored there.
+        if let Some(msg) = self.completed_trailer_error.clone() {
+            return Err(RequestBodyError::InvalidTrailers(msg));
+        }
+        let trailers = self.completed_trailers.clone();
+        Ok((Bytes::from(buf), trailers))
+    }
+
+    /// Consume the entire body into a single `Bytes` value.
+    ///
+    /// This is the simplest way to consume a body. After this call,
+    /// the body is in the `Complete` state.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the body exceeds the limit, if the stream
+    /// fails, or if the body was already consumed.
+    pub async fn read_all(mut self) -> Result<Bytes, RequestBodyError> {
+        if self.state == BodyState::Complete || self.state == BodyState::Error {
+            return Err(RequestBodyError::AlreadyConsumed);
+        }
+        if self.state == BodyState::Streaming {
+            return Err(RequestBodyError::MixedConsumptionMode);
+        }
+
+        let inner = self.inner.take().ok_or(RequestBodyError::AlreadyConsumed)?;
+
+        match inner {
+            BodyInner::Empty => {
+                self.finalize_trailers()?;
+                self.state = BodyState::Complete;
+                self.mark_consumed();
+                Ok(Bytes::new())
+            }
+            BodyInner::Fixed { data, offset } => {
+                let remaining = &data[offset..];
+                let total = self
+                    .bytes_received
+                    .checked_add(remaining.len() as u64)
+                    .ok_or(RequestBodyError::LimitExceeded {
+                        limit: self.max_bytes,
+                        received: u64::MAX,
+                    })?;
+                if total > self.max_bytes {
+                    self.state = BodyState::Error;
+                    self.shared.mark_failed();
+                    return Err(RequestBodyError::LimitExceeded {
+                        limit: self.max_bytes,
+                        received: total,
+                    });
+                }
+                self.bytes_received = total;
+                self.finalize_trailers()?;
+                self.state = BodyState::Complete;
+                self.mark_consumed();
+                Ok(data.slice(offset..))
+            }
+            BodyInner::Incoming { mut stream } => {
+                let mut buf = Vec::new();
+                use futures_util::StreamExt;
+                while let Some(item) = stream.next().await {
+                    let chunk = match item {
+                        Ok(c) => c,
+                        Err(e) => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::Transport(e.0));
+                        }
+                    };
+                    let new_total = self.bytes_received.checked_add(chunk.len() as u64).ok_or(
+                        RequestBodyError::LimitExceeded {
+                            limit: self.max_bytes,
+                            received: u64::MAX,
+                        },
+                    )?;
+                    if new_total > self.max_bytes {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        return Err(RequestBodyError::LimitExceeded {
+                            limit: self.max_bytes,
+                            received: new_total,
+                        });
+                    }
+                    if let Some(declared) = self.declared_length {
+                        if new_total > declared {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::LengthMismatch {
+                                declared,
+                                actual: new_total,
+                            });
+                        }
+                    }
+                    self.bytes_received = new_total;
+                    buf.extend_from_slice(&chunk);
+                }
+                // Check for premature EOF: stream ended before declared length.
+                if let Some(declared) = self.declared_length {
+                    if self.bytes_received < declared {
+                        let received = self.bytes_received;
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        return Err(RequestBodyError::PrematureEof {
+                            received,
+                            expected: Some(declared),
+                        });
+                    }
+                }
+                self.finalize_trailers()?;
+                self.state = BodyState::Complete;
+                self.mark_consumed();
+                Ok(Bytes::from(buf))
+            }
+        }
+    }
+
+    /// Read the next chunk from the body.
+    ///
+    /// Returns `Ok(None)` when the body is fully consumed.
+    /// Returns `Ok(Some(chunk))` with the next chunk of bytes.
+    ///
+    /// After the first call to `next_chunk`, the body enters the
+    /// `Streaming` state. Subsequent calls to `read_all` will fail
+    /// with [`RequestBodyError::MixedConsumptionMode`].
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the body exceeds the limit, if the stream
+    /// fails, or if the body was already consumed.
+    pub async fn next_chunk(&mut self) -> Result<Option<Bytes>, RequestBodyError> {
+        if self.state == BodyState::Error {
+            return Err(RequestBodyError::AlreadyConsumed);
+        }
+        if self.state == BodyState::Complete {
+            return Ok(None);
+        }
+
+        // Transition to streaming on first chunk read.
+        if self.state == BodyState::Unread {
+            self.state = BodyState::Streaming;
+        }
+
+        let inner = self
+            .inner
+            .as_mut()
+            .ok_or(RequestBodyError::AlreadyConsumed)?;
+
+        match inner {
+            BodyInner::Empty => {
+                let slot = self.wire_slot.clone();
+                let limits = self.trailer_limits;
+                if let Err(msg) = finalize_wire_slot(
+                    &slot,
+                    &limits,
+                    &mut self.completed_trailers,
+                    &mut self.completed_trailer_error,
+                ) {
+                    self.state = BodyState::Error;
+                    self.shared.mark_failed();
+                    return Err(RequestBodyError::InvalidTrailers(msg));
+                }
+                self.state = BodyState::Complete;
+                self.mark_consumed();
+                Ok(None)
+            }
+            BodyInner::Fixed { data, offset } => {
+                if *offset >= data.len() {
+                    let slot = self.wire_slot.clone();
+                    let limits = self.trailer_limits;
+                    if let Err(msg) = finalize_wire_slot(
+                        &slot,
+                        &limits,
+                        &mut self.completed_trailers,
+                        &mut self.completed_trailer_error,
+                    ) {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        return Err(RequestBodyError::InvalidTrailers(msg));
+                    }
+                    self.state = BodyState::Complete;
+                    self.shared.mark_complete();
+                    return Ok(None);
+                }
+                let remaining = &data[*offset..];
+                let chunk_size = remaining.len().min(8192);
+                let new_total = self.bytes_received.checked_add(chunk_size as u64).ok_or(
+                    RequestBodyError::LimitExceeded {
+                        limit: self.max_bytes,
+                        received: u64::MAX,
+                    },
+                )?;
+                if new_total > self.max_bytes {
+                    self.state = BodyState::Error;
+                    self.shared.mark_failed();
+                    return Err(RequestBodyError::LimitExceeded {
+                        limit: self.max_bytes,
+                        received: new_total,
+                    });
+                }
+                let chunk = &data[*offset..*offset + chunk_size];
+                *offset += chunk_size;
+                self.bytes_received = new_total;
+                if *offset >= data.len() {
+                    self.state = BodyState::Complete;
+                    // Disjoint-field interior mutability: `shared` is a
+                    // separate field from `inner`, so this does not conflict
+                    // with the outstanding `&mut` borrow of `inner`/`chunk`.
+                    self.shared.mark_complete();
+                }
+                Ok(Some(Bytes::copy_from_slice(chunk)))
+            }
+            BodyInner::Incoming { stream } => {
+                use futures_util::StreamExt;
+                match stream.next().await {
+                    Some(Ok(chunk)) => {
+                        let new_total = self.bytes_received.checked_add(chunk.len() as u64).ok_or(
+                            RequestBodyError::LimitExceeded {
+                                limit: self.max_bytes,
+                                received: u64::MAX,
+                            },
+                        )?;
+                        if new_total > self.max_bytes {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::LimitExceeded {
+                                limit: self.max_bytes,
+                                received: new_total,
+                            });
+                        }
+                        if let Some(declared) = self.declared_length {
+                            if new_total > declared {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                return Err(RequestBodyError::LengthMismatch {
+                                    declared,
+                                    actual: new_total,
+                                });
+                            }
+                        }
+                        self.bytes_received = new_total;
+                        Ok(Some(chunk))
+                    }
+                    Some(Err(e)) => {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        Err(RequestBodyError::Transport(e.0))
+                    }
+                    None => {
+                        // Check for premature EOF.
+                        if let Some(declared) = self.declared_length {
+                            if self.bytes_received < declared {
+                                let received = self.bytes_received;
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                return Err(RequestBodyError::PrematureEof {
+                                    received,
+                                    expected: Some(declared),
+                                });
+                            }
+                        }
+                        let slot = self.wire_slot.clone();
+                        let limits = self.trailer_limits;
+                        if let Err(msg) = finalize_wire_slot(
+                            &slot,
+                            &limits,
+                            &mut self.completed_trailers,
+                            &mut self.completed_trailer_error,
+                        ) {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::InvalidTrailers(msg));
+                        }
+                        self.state = BodyState::Complete;
+                        self.shared.mark_complete();
+                        Ok(None)
+                    }
+                }
+            }
+        }
+    }
+}
+
+impl Drop for RequestBody {
+    fn drop(&mut self) {
+        // Ownership-derived abandonment (Track B1): moving `RequestBody`
+        // into a task naturally keeps it Active; dropping an incomplete
+        // network body marks Abandoned unless ownership was transferred
+        // into an explicit continuation holding the same body.
+        //
+        // Only network-backed (`Incoming`) bodies participate: in-memory
+        // (`Fixed`/`Empty`) copies never force connection close, and an
+        // already-terminal lifecycle is preserved.
+        if !self.shared.is_body_active() {
+            return;
+        }
+        let is_network = matches!(self.inner, Some(BodyInner::Incoming { .. }));
+        if is_network {
+            self.shared.mark_abandoned();
+        }
+    }
+}
+
+impl std::fmt::Debug for RequestBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RequestBody")
+            .field("declared_length", &self.declared_length)
+            .field("bytes_received", &self.bytes_received)
+            .field("state", &self.state)
+            .field("max_bytes", &self.max_bytes)
+            .field("consumed", &self.was_fully_consumed())
+            .finish()
+    }
+}
+
+impl Stream for RequestBody {
+    type Item = Result<Bytes, RequestBodyError>;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        // Cannot poll after completion or error.
+        if self.state == BodyState::Complete || self.state == BodyState::Error {
+            return Poll::Ready(None);
+        }
+
+        let max_bytes = self.max_bytes;
+        let bytes_received = self.bytes_received;
+
+        let inner = match self.inner.as_mut() {
+            Some(i) => i,
+            None => return Poll::Ready(None),
+        };
+
+        match inner {
+            BodyInner::Empty => {
+                let slot = self.wire_slot.clone();
+                let limits = self.trailer_limits;
+                match drain_and_validate_wire_slot(&slot, &limits) {
+                    Ok(None) => {}
+                    Ok(Some(t)) => {
+                        if self.completed_trailers.is_some() {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            self.completed_trailer_error =
+                                Some("repeated trailer block".to_string());
+                            return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(
+                                "repeated trailer block".to_string(),
+                            ))));
+                        }
+                        self.completed_trailers = Some(t);
+                    }
+                    Err(msg) => {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        self.completed_trailer_error = Some(msg.clone());
+                        return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(msg))));
+                    }
+                }
+                self.state = BodyState::Complete;
+                self.shared.mark_complete();
+                Poll::Ready(None)
+            }
+            BodyInner::Fixed { data, offset } => {
+                if *offset >= data.len() {
+                    let slot = self.wire_slot.clone();
+                    let limits = self.trailer_limits;
+                    match drain_and_validate_wire_slot(&slot, &limits) {
+                        Ok(None) => {}
+                        Ok(Some(t)) => {
+                            if self.completed_trailers.is_some() {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                self.completed_trailer_error =
+                                    Some("repeated trailer block".to_string());
+                                return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(
+                                    "repeated trailer block".to_string(),
+                                ))));
+                            }
+                            self.completed_trailers = Some(t);
+                        }
+                        Err(msg) => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            self.completed_trailer_error = Some(msg.clone());
+                            return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(msg))));
+                        }
+                    }
+                    self.state = BodyState::Complete;
+                    self.shared.mark_complete();
+                    Poll::Ready(None)
+                } else {
+                    let remaining = &data[*offset..];
+                    let chunk_size = remaining.len().min(8192);
+                    let new_total = match bytes_received.checked_add(chunk_size as u64) {
+                        Some(v) => v,
+                        None => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
+                                limit: max_bytes,
+                                received: u64::MAX,
+                            })));
+                        }
+                    };
+                    if new_total > max_bytes {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
+                            limit: max_bytes,
+                            received: new_total,
+                        })));
+                    }
+                    let data_len = data.len();
+                    let chunk = Bytes::copy_from_slice(&data[*offset..*offset + chunk_size]);
+                    let new_offset = *offset + chunk_size;
+                    *offset = new_offset;
+                    self.bytes_received = new_total;
+                    // Mirror `next_chunk` ordering: a single-chunk body must
+                    // visit Streaming before completing. `next_chunk` marks
+                    // Streaming at entry then overwrites with Complete; here
+                    // the borrow on `data` must end before mutating
+                    // `self.state`, so mark Streaming after the copy and
+                    // before the completeness check.
+                    if self.state == BodyState::Unread {
+                        self.state = BodyState::Streaming;
+                    }
+                    if new_offset >= data_len {
+                        self.state = BodyState::Complete;
+                        self.shared.mark_complete();
+                    }
+                    Poll::Ready(Some(Ok(chunk)))
+                }
+            }
+            BodyInner::Incoming { stream } => match stream.as_mut().poll_next(cx) {
+                Poll::Ready(Some(Ok(chunk))) => {
+                    let new_total = match bytes_received.checked_add(chunk.len() as u64) {
+                        Some(v) => v,
+                        None => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
+                                limit: max_bytes,
+                                received: u64::MAX,
+                            })));
+                        }
+                    };
+                    if new_total > max_bytes {
+                        self.state = BodyState::Error;
+                        self.shared.mark_failed();
+                        Poll::Ready(Some(Err(RequestBodyError::LimitExceeded {
+                            limit: max_bytes,
+                            received: new_total,
+                        })))
+                    } else if let Some(declared) = self.declared_length {
+                        if new_total > declared {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            Poll::Ready(Some(Err(RequestBodyError::LengthMismatch {
+                                declared,
+                                actual: new_total,
+                            })))
+                        } else {
+                            self.bytes_received = new_total;
+                            if self.state == BodyState::Unread {
+                                self.state = BodyState::Streaming;
+                            }
+                            Poll::Ready(Some(Ok(chunk)))
+                        }
+                    } else {
+                        self.bytes_received = new_total;
+                        if self.state == BodyState::Unread {
+                            self.state = BodyState::Streaming;
+                        }
+                        Poll::Ready(Some(Ok(chunk)))
+                    }
+                }
+                Poll::Ready(Some(Err(e))) => {
+                    self.state = BodyState::Error;
+                    self.shared.mark_failed();
+                    Poll::Ready(Some(Err(RequestBodyError::Transport(e.0))))
+                }
+                Poll::Ready(None) => {
+                    // Check for premature EOF.
+                    if let Some(declared) = self.declared_length {
+                        if self.bytes_received < declared {
+                            let received = self.bytes_received;
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Poll::Ready(Some(Err(RequestBodyError::PrematureEof {
+                                received,
+                                expected: Some(declared),
+                            })));
+                        }
+                    }
+                    let slot = self.wire_slot.clone();
+                    let limits = self.trailer_limits;
+                    match drain_and_validate_wire_slot(&slot, &limits) {
+                        Ok(None) => {}
+                        Ok(Some(t)) => {
+                            if self.completed_trailers.is_some() {
+                                self.state = BodyState::Error;
+                                self.shared.mark_failed();
+                                self.completed_trailer_error =
+                                    Some("repeated trailer block".to_string());
+                                return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(
+                                    "repeated trailer block".to_string(),
+                                ))));
+                            }
+                            self.completed_trailers = Some(t);
+                        }
+                        Err(msg) => {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            self.completed_trailer_error = Some(msg.clone());
+                            return Poll::Ready(Some(Err(RequestBodyError::InvalidTrailers(msg))));
+                        }
+                    }
+                    self.state = BodyState::Complete;
+                    self.shared.mark_complete();
+                    Poll::Ready(None)
+                }
+                Poll::Pending => Poll::Pending,
+            },
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use futures_util::StreamExt;
+    use proptest::prelude::*;
+
+    #[tokio::test]
+    async fn empty_body_read_all() {
+        let body = RequestBody::empty();
+        assert_eq!(body.declared_length(), None);
+        assert_eq!(body.bytes_received(), 0);
+        let data = body.read_all().await.unwrap();
+        assert!(data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fixed_body_read_all() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), u64::MAX);
+        assert_eq!(body.declared_length(), Some(5));
+        let data = body.read_all().await.unwrap();
+        assert_eq!(&data[..], b"hello");
+    }
+
+    #[tokio::test]
+    async fn fixed_body_streaming() {
+        let mut body = RequestBody::from_bytes(b"hello world".to_vec(), u64::MAX);
+        let mut chunks = Vec::new();
+        while let Some(chunk) = body.next_chunk().await.unwrap() {
+            chunks.push(chunk);
+        }
+        let total: Vec<u8> = chunks.iter().flat_map(|c| c.iter().copied()).collect();
+        assert_eq!(&total[..], b"hello world");
+    }
+
+    #[tokio::test]
+    async fn stream_trait_exact_limit_ends_cleanly() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), 5);
+        let chunks: Vec<_> = body.collect::<Vec<_>>().await;
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0].as_ref().unwrap().as_ref(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn fixed_body_next_chunk_sets_consumed_on_final_chunk() {
+        let mut body = RequestBody::from_bytes(b"hello".to_vec(), u64::MAX);
+
+        assert_eq!(
+            body.next_chunk().await.unwrap().as_deref(),
+            Some(b"hello".as_slice())
+        );
+        assert!(body.was_fully_consumed());
+        assert_eq!(body.next_chunk().await.unwrap(), None);
+    }
+
+    #[tokio::test]
+    async fn limit_exceeded_on_read_all() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), 3);
+        let err = body.read_all().await.unwrap_err();
+        assert!(err.is_limit_exceeded());
+    }
+
+    #[tokio::test]
+    async fn limit_exceeded_on_stream() {
+        let mut body = RequestBody::from_bytes(b"hello".to_vec(), 3);
+        let err = body.next_chunk().await.unwrap_err();
+        assert!(err.is_limit_exceeded());
+    }
+
+    #[tokio::test]
+    async fn already_consumed_after_read_all() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), u64::MAX);
+        let _data = body.read_all().await.unwrap();
+        // Can't reuse - but we moved self, so this test verifies the type system.
+    }
+
+    #[tokio::test]
+    async fn mixed_consumption_mode() {
+        // Use a body larger than the internal chunk size to ensure streaming state
+        let large_body = vec![0u8; 16384];
+        let mut body = RequestBody::from_bytes(large_body, u64::MAX);
+        let _chunk = body.next_chunk().await.unwrap();
+        // Can't call read_all because body is moved - verify via state.
+        assert_eq!(body.state(), BodyState::Streaming);
+    }
+
+    #[tokio::test]
+    async fn zero_length_body() {
+        let body = RequestBody::from_bytes(Vec::new(), u64::MAX);
+        assert_eq!(body.declared_length(), Some(0));
+        assert!(body.was_fully_consumed());
+        let data = body.read_all().await.unwrap();
+        assert!(data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn stream_trait_works() {
+        let body = RequestBody::from_bytes(b"abc".to_vec(), u64::MAX);
+        let mut stream = body;
+        let mut all = Vec::new();
+        while let Some(chunk) = stream.next().await.transpose().unwrap() {
+            all.extend_from_slice(&chunk);
+        }
+        assert_eq!(&all[..], b"abc");
+    }
+
+    #[test]
+    fn body_state_debug() {
+        assert_eq!(format!("{:?}", BodyState::Unread), "Unread");
+        assert_eq!(format!("{:?}", BodyState::Streaming), "Streaming");
+        assert_eq!(format!("{:?}", BodyState::Complete), "Complete");
+        assert_eq!(format!("{:?}", BodyState::Error), "Error");
+    }
+
+    #[test]
+    fn request_body_debug() {
+        let body = RequestBody::empty();
+        let dbg = format!("{body:?}");
+        assert!(dbg.contains("RequestBody"));
+        assert!(dbg.contains("Unread"));
+    }
+
+    #[tokio::test]
+    async fn premature_eof_returns_error() {
+        use futures_util::stream;
+        // Create a stream that provides fewer bytes than declared.
+        let short_data = b"hi";
+        let declared = 10u64;
+        let body_stream =
+            stream::once(async move { Ok::<_, IncomingError>(Bytes::copy_from_slice(short_data)) });
+        let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+        let result = body.read_all().await;
+        assert!(result.is_err());
+        match result.unwrap_err() {
+            RequestBodyError::PrematureEof { received, expected } => {
+                assert_eq!(received, 2);
+                assert_eq!(expected, Some(10));
+            }
+            other => panic!("expected PrematureEof, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn premature_eof_streaming_returns_error() {
+        use futures_util::stream;
+        // Stream that provides fewer bytes than declared.
+        let short_data = b"hi";
+        let declared = 10u64;
+        let body_stream =
+            stream::once(async move { Ok::<_, IncomingError>(Bytes::copy_from_slice(short_data)) });
+        let mut body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+        // Read the one available chunk.
+        let chunk = body.next_chunk().await.unwrap();
+        assert!(chunk.is_some());
+        // Next read: stream ended, premature EOF should be reported.
+        let result = body.next_chunk().await;
+        match result {
+            Err(RequestBodyError::PrematureEof { received, expected }) => {
+                assert_eq!(received, 2);
+                assert_eq!(expected, Some(10));
+                assert_eq!(body.state(), BodyState::Error);
+                assert!(!body.was_fully_consumed());
+            }
+            Ok(None) => {
+                panic!("expected PrematureEof, got Ok(None)");
+            }
+            other => panic!("expected PrematureEof, got: {other:?}"),
+        }
+    }
+
+    #[tokio::test]
+    async fn exact_declared_length_succeeds() {
+        use futures_util::stream;
+        let data = b"hello";
+        let declared = 5u64;
+        let body_stream =
+            stream::once(
+                async move { Ok::<_, IncomingError>(Bytes::copy_from_slice(data.as_slice())) },
+            );
+        let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+        let result = body.read_all().await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().as_ref(), b"hello");
+    }
+
+    #[tokio::test]
+    async fn over_declared_length_returns_mismatch_before_eof() {
+        use futures_util::stream;
+        let body_stream =
+            stream::once(async { Ok::<_, IncomingError>(Bytes::from_static(b"hello")) });
+        let body = RequestBody::from_incoming(body_stream, Some(3), u64::MAX);
+        assert!(matches!(
+            body.read_all().await,
+            Err(RequestBodyError::LengthMismatch {
+                declared: 3,
+                actual: 5
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn streaming_overrun_returns_mismatch_before_next_chunk() {
+        use futures_util::stream;
+        let body_stream =
+            stream::once(async { Ok::<_, IncomingError>(Bytes::from_static(b"hello")) });
+        let mut body = RequestBody::from_incoming(body_stream, Some(3), u64::MAX);
+        assert!(matches!(
+            body.next_chunk().await,
+            Err(RequestBodyError::LengthMismatch {
+                declared: 3,
+                actual: 5
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn checked_add_overflow_returns_error() {
+        let body = RequestBody::from_bytes(vec![0u8; 200], 100);
+        let result = body.read_all().await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().is_limit_exceeded());
+    }
+
+    #[test]
+    fn state_transitions_unread_to_complete_on_read() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let body = RequestBody::from_bytes(data, u64::MAX);
+            prop_assert_eq!(body.state(), BodyState::Unread);
+            let shared = body.shared();
+            let _ = rt.block_on(body.read_all());
+            prop_assert!(shared.is_body_complete());
+        });
+    }
+
+    #[test]
+    fn lifecycle_complete_after_read() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..500))| {
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let is_empty = data.is_empty();
+            let body = RequestBody::from_bytes(data, u64::MAX);
+            let shared = body.shared();
+            prop_assert_eq!(shared.is_body_complete(), is_empty);
+            let _ = rt.block_on(body.read_all());
+            prop_assert!(shared.is_body_complete());
+        });
+    }
+
+    #[tokio::test]
+    async fn dropping_incomplete_network_body_marks_abandoned() {
+        use futures_util::stream;
+        let body_stream =
+            stream::iter(vec![Ok::<_, IncomingError>(Bytes::from_static(b"partial"))]);
+        let body = RequestBody::from_incoming(body_stream, Some(100), u64::MAX);
+        let shared = body.shared();
+        assert!(shared.is_body_active());
+        drop(body);
+        assert_eq!(
+            shared.body_state(),
+            super::super::request_lifecycle::BodyLifecycleState::Abandoned
+        );
+    }
+
+    #[tokio::test]
+    async fn dropping_inmemory_body_does_not_mark_abandoned() {
+        let body = RequestBody::from_bytes(b"hello".to_vec(), u64::MAX);
+        let shared = body.shared();
+        assert!(shared.is_body_active());
+        drop(body);
+        // In-memory copies never force close.
+        assert!(shared.is_body_active());
+    }
+
+    #[test]
+    fn chunked_body_via_stream_succeeds() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..1000))| {
+            use futures_util::stream;
+
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let chunk_size = if data.is_empty() { 1 } else { (data[0] as usize % 64) + 1 };
+            let chunks: Vec<Result<Bytes, IncomingError>> = data.chunks(chunk_size)
+                .map(|c| Ok(Bytes::copy_from_slice(c)))
+                .collect();
+            let body_stream = stream::iter(chunks);
+            let body = RequestBody::from_incoming(body_stream, Some(data.len() as u64), u64::MAX);
+            let result = rt.block_on(body.read_all());
+            if let Ok(val) = result {
+                prop_assert_eq!(val.len(), data.len());
+            }
+        });
+    }
+
+    #[test]
+    fn premature_eof_detected() {
+        proptest::proptest!(|(data in prop::collection::vec(any::<u8>(), 0..100))| {
+            use futures_util::stream;
+
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            let declared = (data.len() as u64) + 100;
+            let data_owned = data.clone();
+            let body_stream = stream::once(async move {
+                Ok::<_, IncomingError>(Bytes::from(data_owned))
+            });
+            let body = RequestBody::from_incoming(body_stream, Some(declared), u64::MAX);
+            let result = rt.block_on(body.read_all());
+            if let Err(e) = result {
+                prop_assert!(
+                    matches!(e, RequestBodyError::PrematureEof { .. }),
+                    "expected PrematureEof, got: {:?}",
+                    e
+                );
+            }
+        });
+    }
+}

@@ -1,0 +1,404 @@
+//! Canonical HTTP request target.
+//!
+//! [`RequestTarget`] represents the request target from an HTTP request
+//! line, split into path and optional query components. It preserves the
+//! raw target for logging while providing validated access to components.
+
+use std::fmt;
+
+/// Errors from request target validation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RequestTargetError {
+    /// The target is empty.
+    Empty,
+    /// The target is not valid origin-form (does not start with `/`).
+    NotOriginForm,
+    /// The target contains whitespace.
+    ContainsWhitespace,
+    /// The target is an absolute URI (contains `://`).
+    AbsoluteUri,
+    /// The target is an authority-form URI (contains `@` without `/`).
+    AuthorityForm,
+    /// The target is an asterisk-form (`*`).
+    AsteriskForm,
+}
+
+impl fmt::Display for RequestTargetError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Empty => write!(f, "request target is empty"),
+            Self::NotOriginForm => write!(f, "request target must start with '/'"),
+            Self::ContainsWhitespace => write!(f, "request target contains whitespace"),
+            Self::AbsoluteUri => write!(f, "absolute URI not supported"),
+            Self::AuthorityForm => write!(f, "authority-form URI not supported"),
+            Self::AsteriskForm => write!(f, "asterisk-form URI not supported"),
+        }
+    }
+}
+
+impl std::error::Error for RequestTargetError {}
+
+/// A validated HTTP request target in origin form.
+///
+/// The raw target is preserved for logging or downstream parsing. The
+/// validated path and optional query are available through accessor
+/// methods.
+///
+/// # Security
+///
+/// This type does not perform percent decoding or path normalization.
+/// Those operations belong to the [`ConfinedPath`] validation pipeline
+/// and must not be duplicated here.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestTarget {
+    raw: String,
+    path: String,
+    query: Option<String>,
+}
+
+impl RequestTarget {
+    /// Parse and validate a request target.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RequestTargetError`] if the target is not valid origin-form.
+    pub fn parse(raw: impl Into<String>) -> Result<Self, RequestTargetError> {
+        let raw = raw.into();
+        if raw.is_empty() {
+            return Err(RequestTargetError::Empty);
+        }
+        if raw == "*" {
+            return Err(RequestTargetError::AsteriskForm);
+        }
+        if raw
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || byte.is_ascii_whitespace())
+        {
+            return Err(RequestTargetError::ContainsWhitespace);
+        }
+        if raw.starts_with('/') {
+            if raw.starts_with("//") {
+                return Err(RequestTargetError::AuthorityForm);
+            }
+            return Self::parse_origin_form(raw);
+        }
+        if raw.contains("://") {
+            return Err(RequestTargetError::AbsoluteUri);
+        }
+        if raw.contains('@') || raw.contains(':') {
+            return Err(RequestTargetError::AuthorityForm);
+        }
+        // Non-`/`-prefixed, no `://`, no `@`, no `:` — not origin-form
+        Err(RequestTargetError::NotOriginForm)
+    }
+
+    fn parse_origin_form(raw: String) -> Result<Self, RequestTargetError> {
+        debug_assert!(raw.starts_with('/'));
+        // Fragment (`#`) handling: origin-form has no fragment component
+        // (RFC 9110), so a literal `#` is kept as part of the path — same
+        // contract as `crate::path::parse_origin_form`. `/a?b#frag` strips
+        // to path `/a`; `/foo#bar` keeps the literal `#` in the path.
+        let (path, query) = match raw.find('?') {
+            Some(pos) => {
+                let path = raw[..pos].to_string();
+                let q = &raw[pos + 1..];
+                if q.is_empty() {
+                    (path, None)
+                } else {
+                    (path, Some(q.to_string()))
+                }
+            }
+            None => (raw.clone(), None),
+        };
+
+        Ok(Self { raw, path, query })
+    }
+
+    /// Returns the raw request target string.
+    pub fn raw(&self) -> &str {
+        &self.raw
+    }
+
+    /// Returns the path component (before the `?`).
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// Returns the query component (after the `?`), if present.
+    ///
+    /// An empty query (`/path?`) canonicalizes to `None`: `/path` and
+    /// `/path?` are deliberately equivalent. This matches the historical
+    /// contract and avoids a bare-`?` distinction most application semantics
+    /// do not require.
+    pub fn query(&self) -> Option<&str> {
+        self.query.as_deref()
+    }
+
+    /// Returns the full target including query, if present.
+    pub fn path_and_query(&self) -> &str {
+        &self.raw
+    }
+
+    /// Returns the raw target octets.
+    ///
+    /// Accepted origin-form targets are visible ASCII/percent-encoded data, so
+    /// the `String` storage round-trips losslessly and this is exactly the
+    /// accepted wire representation seen after Hyper parsing. If Hyper
+    /// normalizes an accepted target before EggServe sees it, this cannot
+    /// truthfully provide original raw-path bytes for those cases — a
+    /// downstream server should then omit optional `raw_path` rather than
+    /// fabricate it. No second parser is introduced to recover such bytes.
+    pub fn raw_bytes(&self) -> &[u8] {
+        self.raw.as_bytes()
+    }
+
+    /// Returns the path-component octets.
+    pub fn path_bytes(&self) -> &[u8] {
+        self.path.as_bytes()
+    }
+
+    /// Returns the query-component octets, if present.
+    pub fn query_bytes(&self) -> Option<&[u8]> {
+        self.query.as_deref().map(str::as_bytes)
+    }
+}
+
+impl fmt::Display for RequestTarget {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(&self.raw)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn root_path() {
+        let t = RequestTarget::parse("/").unwrap();
+        assert_eq!(t.raw(), "/");
+        assert_eq!(t.path(), "/");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn network_path_reference_is_rejected() {
+        assert_eq!(
+            RequestTarget::parse("//example.com/file").unwrap_err(),
+            RequestTargetError::AuthorityForm
+        );
+    }
+
+    #[test]
+    fn path_with_query() {
+        let t = RequestTarget::parse("/foo?bar=baz").unwrap();
+        assert_eq!(t.path(), "/foo");
+        assert_eq!(t.query(), Some("bar=baz"));
+    }
+
+    #[test]
+    fn path_with_empty_query() {
+        let t = RequestTarget::parse("/foo?").unwrap();
+        assert_eq!(t.path(), "/foo");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn path_with_multiple_query_params() {
+        let t = RequestTarget::parse("/a?b=1&c=2").unwrap();
+        assert_eq!(t.path(), "/a");
+        assert_eq!(t.query(), Some("b=1&c=2"));
+    }
+
+    #[test]
+    fn complex_path() {
+        let t = RequestTarget::parse("/foo/bar/file.txt?x=1&y=2").unwrap();
+        assert_eq!(t.path(), "/foo/bar/file.txt");
+        assert_eq!(t.query(), Some("x=1&y=2"));
+    }
+
+    #[test]
+    fn reject_empty() {
+        assert_eq!(
+            RequestTarget::parse("").unwrap_err(),
+            RequestTargetError::Empty
+        );
+    }
+
+    #[test]
+    fn reject_no_slash_prefix() {
+        assert_eq!(
+            RequestTarget::parse("foo").unwrap_err(),
+            RequestTargetError::NotOriginForm
+        );
+    }
+
+    #[test]
+    fn reject_absolute_uri() {
+        assert_eq!(
+            RequestTarget::parse("http://example.com/").unwrap_err(),
+            RequestTargetError::AbsoluteUri
+        );
+    }
+
+    #[test]
+    fn reject_authority_form() {
+        assert_eq!(
+            RequestTarget::parse("example.com:443").unwrap_err(),
+            RequestTargetError::AuthorityForm
+        );
+    }
+
+    #[test]
+    fn reject_asterisk_form() {
+        assert_eq!(
+            RequestTarget::parse("*").unwrap_err(),
+            RequestTargetError::AsteriskForm
+        );
+    }
+
+    #[test]
+    fn reject_whitespace() {
+        assert_eq!(
+            RequestTarget::parse("/foo bar").unwrap_err(),
+            RequestTargetError::ContainsWhitespace
+        );
+        assert_eq!(
+            RequestTarget::parse("/foo\tbar").unwrap_err(),
+            RequestTargetError::ContainsWhitespace
+        );
+    }
+
+    #[test]
+    fn reject_all_ascii_controls() {
+        assert_eq!(
+            RequestTarget::parse("/foo\x1fbar").unwrap_err(),
+            RequestTargetError::ContainsWhitespace
+        );
+    }
+
+    #[test]
+    fn only_ascii_whitespace_is_rejected() {
+        assert!(RequestTarget::parse("/foo\u{00a0}bar").is_ok());
+    }
+
+    #[test]
+    fn path_and_query_combined() {
+        let t = RequestTarget::parse("/foo?bar").unwrap();
+        assert_eq!(t.path_and_query(), "/foo?bar");
+    }
+
+    #[test]
+    fn display() {
+        let t = RequestTarget::parse("/foo?bar").unwrap();
+        assert_eq!(format!("{t}"), "/foo?bar");
+    }
+
+    #[test]
+    fn error_display() {
+        assert!(!RequestTargetError::Empty.to_string().is_empty());
+        assert!(!RequestTargetError::NotOriginForm.to_string().is_empty());
+        assert!(!RequestTargetError::AbsoluteUri.to_string().is_empty());
+        assert!(!RequestTargetError::AuthorityForm.to_string().is_empty());
+        assert!(!RequestTargetError::AsteriskForm.to_string().is_empty());
+        assert!(!RequestTargetError::ContainsWhitespace
+            .to_string()
+            .is_empty());
+    }
+
+    #[test]
+    fn error_is_error() {
+        let err: &dyn std::error::Error = &RequestTargetError::Empty;
+        assert!(!err.to_string().is_empty());
+    }
+
+    #[test]
+    fn percent_encoded_path() {
+        let t = RequestTarget::parse("/foo%20bar").unwrap();
+        assert_eq!(t.raw(), "/foo%20bar");
+        assert_eq!(t.path(), "/foo%20bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn fragment_without_query_is_literal_path() {
+        // Same contract as `crate::path::parse_origin_form`: with no `?`,
+        // `#` is an ordinary path character, not a fragment delimiter.
+        let t = RequestTarget::parse("/foo#bar").unwrap();
+        assert_eq!(t.path(), "/foo#bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn fragment_after_query_stays_in_query() {
+        let t = RequestTarget::parse("/a?b#frag").unwrap();
+        assert_eq!(t.path(), "/a");
+        assert_eq!(t.query(), Some("b#frag"));
+    }
+
+    #[test]
+    fn percent_encoded_slash() {
+        let t = RequestTarget::parse("/foo%2Fbar").unwrap();
+        assert_eq!(t.raw(), "/foo%2Fbar");
+        assert_eq!(t.path(), "/foo%2Fbar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn dot_segment_paths() {
+        let t = RequestTarget::parse("/./foo").unwrap();
+        assert_eq!(t.path(), "/./foo");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn dot_segment_parent() {
+        let t = RequestTarget::parse("/foo/../bar").unwrap();
+        assert_eq!(t.path(), "/foo/../bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn backslash_in_path() {
+        let t = RequestTarget::parse("/foo\\bar").unwrap();
+        assert_eq!(t.path(), "/foo\\bar");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn non_ascii_bytes() {
+        let t = RequestTarget::parse("/foo\u{00E9}\u{00FF}").unwrap();
+        assert_eq!(t.raw(), "/foo\u{00E9}\u{00FF}");
+        assert_eq!(t.path(), "/foo\u{00E9}\u{00FF}");
+        assert!(t.query().is_none());
+    }
+
+    #[test]
+    fn origin_form_only_enforced() {
+        assert_eq!(
+            RequestTarget::parse("foo").unwrap_err(),
+            RequestTargetError::NotOriginForm
+        );
+    }
+
+    #[test]
+    fn query_with_equals() {
+        let t = RequestTarget::parse("/path?key=val=ue").unwrap();
+        assert_eq!(t.path(), "/path");
+        assert_eq!(t.query(), Some("key=val=ue"));
+    }
+
+    #[test]
+    fn query_with_encoded_chars() {
+        let t = RequestTarget::parse("/path?key=hello%20world").unwrap();
+        assert_eq!(t.path(), "/path");
+        assert_eq!(t.query(), Some("key=hello%20world"));
+    }
+
+    #[test]
+    fn multiple_question_marks() {
+        let t = RequestTarget::parse("/path?a=1?b=2").unwrap();
+        assert_eq!(t.path(), "/path");
+        assert_eq!(t.query(), Some("a=1?b=2"));
+    }
+}

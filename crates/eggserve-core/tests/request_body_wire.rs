@@ -475,13 +475,11 @@ async fn fixed_length_body_wire() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200 OK"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     assert!(
         response.contains("POST:Hello, body"),
-        "response should echo method and body: {}",
-        response
+        "response should echo method and body: {response}"
     );
     handle.shutdown();
 }
@@ -517,13 +515,11 @@ async fn chunked_body_wire() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200 OK"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     assert!(
         response.contains("POST:hello world"),
-        "response should contain reassembled body: {}",
-        response
+        "response should contain reassembled body: {response}"
     );
     handle.shutdown();
 }
@@ -560,8 +556,7 @@ async fn malformed_chunking_returns_400() {
         response.starts_with("HTTP/1.1 400")
             || response.starts_with("HTTP/1.1 500")
             || response.is_empty(),
-        "expected 400/500 or connection close for malformed chunking, got: {}",
-        response
+        "expected 400/500 or connection close for malformed chunking, got: {response}"
     );
     handle.shutdown();
 }
@@ -598,8 +593,7 @@ async fn body_limit_exceeded_mid_stream_wire() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413") || response.is_empty(),
-        "expected 413 or connection close for body limit exceeded, got: {}",
-        response
+        "expected 413 or connection close for body limit exceeded, got: {response}"
     );
     handle.shutdown();
 }
@@ -656,8 +650,7 @@ async fn connection_close_after_rejected_body() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413 for declared length too large: {}",
-        response
+        "expected 413 for declared length too large: {response}"
     );
     handle.shutdown();
 }
@@ -689,8 +682,7 @@ async fn get_with_body_wire_follows_service_policy() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200 for GET with body, got: {}",
-        response
+        "expected 200 for GET with body, got: {response}"
     );
     handle.shutdown();
 }
@@ -749,8 +741,7 @@ async fn handler_error_before_body_consumption() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 500"),
-        "expected 500 for handler error, got: {}",
-        response
+        "expected 500 for handler error, got: {response}"
     );
     handle.shutdown();
 }
@@ -806,8 +797,7 @@ async fn body_read_timeout_before_service() {
     // Normative: body timeout returns 408 or closes the connection.
     assert!(
         response.starts_with("HTTP/1.1 408") || response.is_empty(),
-        "expected 408 or connection close for body timeout, got: {}",
-        response
+        "expected 408 or connection close for body timeout, got: {response}"
     );
     handle.shutdown();
 }
@@ -872,15 +862,13 @@ async fn leftover_bytes_not_parsed_as_next_request() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "first request should succeed: {}",
-        response
+        "first request should succeed: {response}"
     );
     // The connection should close — leftover body bytes are not parsed.
     // No second response should appear.
     assert!(
         !response.contains("HTTP/1.1") || response.matches("HTTP/1.1").count() == 1,
-        "should not have a second HTTP response from leftover bytes: {}",
-        response
+        "should not have a second HTTP response from leftover bytes: {response}"
     );
     handle.shutdown();
 }
@@ -913,13 +901,11 @@ async fn http10_post_with_body_wire() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.0 200") || response.starts_with("HTTP/1.1 200"),
-        "HTTP/1.0 POST should succeed: {}",
-        response
+        "HTTP/1.0 POST should succeed: {response}"
     );
     assert!(
         response.contains("POST:hello"),
-        "response should echo body: {}",
-        response
+        "response should echo body: {response}"
     );
     handle.shutdown();
 }
@@ -954,8 +940,7 @@ async fn http10_body_timeout_returns_408() {
         response.starts_with("HTTP/1.0 408")
             || response.starts_with("HTTP/1.1 408")
             || response.is_empty(),
-        "expected 408 or connection close for HTTP/1.0 body timeout, got: {}",
-        response
+        "expected 408 or connection close for HTTP/1.0 body timeout, got: {response}"
     );
     handle.shutdown();
 }
@@ -988,8 +973,7 @@ async fn http11_body_limit_exceeded_returns_413() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413 for HTTP/1.1 body limit exceeded: {}",
-        response
+        "expected 413 for HTTP/1.1 body limit exceeded: {response}"
     );
     handle.shutdown();
 }
@@ -1022,13 +1006,11 @@ async fn expect_100_continue_rejected_by_policy() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413 for Expect: 100-continue with reject policy, got: {}",
-        response
+        "expected 413 for Expect: 100-continue with reject policy, got: {response}"
     );
     assert!(
         !response.contains("100"),
-        "should not contain 100 Continue: {}",
-        response
+        "should not contain 100 Continue: {response}"
     );
     handle.shutdown();
 }
@@ -1061,8 +1043,7 @@ async fn duplicate_content_length_rejected_wire() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 400"),
-        "expected 400 for duplicate Content-Length, got: {}",
-        response
+        "expected 400 for duplicate Content-Length, got: {response}"
     );
     handle.shutdown();
 }
@@ -1097,8 +1078,7 @@ async fn rejected_positive_cl_with_bytes_sent() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413 for rejected body with bytes sent, got: {}",
-        response
+        "expected 413 for rejected body with bytes sent, got: {response}"
     );
     handle.shutdown();
 }
@@ -1131,8 +1111,7 @@ async fn body_limit_minus_one_accepted() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200 for body at limit-1 (4 bytes, limit 1024), got: {}",
-        response
+        "expected 200 for body at limit-1 (4 bytes, limit 1024), got: {response}"
     );
     handle.shutdown();
 }
@@ -1165,8 +1144,7 @@ async fn body_limit_exact_accepted() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200 for body at exact limit (5 bytes, limit 5), got: {}",
-        response
+        "expected 200 for body at exact limit (5 bytes, limit 5), got: {response}"
     );
     handle.shutdown();
 }
@@ -1199,8 +1177,7 @@ async fn body_limit_plus_one_rejected() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 413"),
-        "expected 413 for body at limit+1 (6 bytes, limit 5), got: {}",
-        response
+        "expected 413 for body at limit+1 (6 bytes, limit 5), got: {response}"
     );
     handle.shutdown();
 }

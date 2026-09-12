@@ -139,8 +139,7 @@ async fn race_file_to_symlink_replacement() {
             // Must not serve mixed content from two identities
             assert!(
                 body == b"original content" || body == b"secret content",
-                "unexpected content: {:?}",
-                body
+                "unexpected content: {body:?}"
             );
         }
         // 404 or error is acceptable (safe rejection)
@@ -197,8 +196,7 @@ async fn race_symlink_to_file_replacement() {
             let body = extract_body_bytes(&mut resp);
             assert!(
                 body == b"real content" || body == b"replaced content",
-                "unexpected content: {:?}",
-                body
+                "unexpected content: {body:?}"
             );
         }
     }
@@ -237,8 +235,7 @@ async fn race_directory_to_symlink_replacement() {
         let body = extract_body_bytes(&mut resp);
         assert!(
             body == b"dir content" || body == b"other content",
-            "unexpected content: {:?}",
-            body
+            "unexpected content: {body:?}"
         );
     }
 }
@@ -276,8 +273,7 @@ async fn race_parent_replacement() {
         let body = extract_body_bytes(&mut resp);
         assert!(
             body == b"nested content" || body == b"replaced content",
-            "unexpected content: {:?}",
-            body
+            "unexpected content: {body:?}"
         );
     }
 }
@@ -354,8 +350,8 @@ async fn race_listing_churn() {
     fs::create_dir_all(root.join("dir")).unwrap();
     for i in 0..10 {
         fs::write(
-            root.join(format!("dir/file_{}.txt", i)),
-            format!("content {}", i),
+            root.join(format!("dir/file_{i}.txt")),
+            format!("content {i}"),
         )
         .unwrap();
     }
@@ -380,11 +376,7 @@ async fn race_listing_churn() {
         if i % 2 == 0 {
             let _ = fs::remove_file(root.join(format!("dir/file_{}.txt", i / 2)));
         } else {
-            fs::write(
-                root.join(format!("dir/new_{}.txt", i)),
-                format!("new {}", i),
-            )
-            .unwrap();
+            fs::write(root.join(format!("dir/new_{i}.txt")), format!("new {i}")).unwrap();
         }
     }
 }
@@ -438,8 +430,7 @@ async fn race_file_replacement_during_streaming() {
     let body = extract_body_bytes(&mut resp);
     assert!(
         body == b"original" || body == b"replaced",
-        "unexpected mixed content: {:?}",
-        body
+        "unexpected mixed content: {body:?}"
     );
 }
 
@@ -515,9 +506,7 @@ async fn race_deletion_and_recreation() {
             // Must see consistent content that was previously written
             assert!(
                 valid_content.contains(&content),
-                "unexpected content: {:?}, valid: {:?}",
-                content,
-                valid_content
+                "unexpected content: {content:?}, valid: {valid_content:?}"
             );
         } else {
             // 404 is acceptable when file is deleted
@@ -530,7 +519,7 @@ async fn race_deletion_and_recreation() {
 
         // Delete and recreate
         let _ = fs::remove_file(root.join("file.txt"));
-        let new_content = format!("recreated {}", i);
+        let new_content = format!("recreated {i}");
         fs::write(root.join("file.txt"), &new_content).unwrap();
         valid_content.push(new_content);
     }
@@ -550,8 +539,8 @@ async fn race_concurrent_directory_listing() {
     fs::create_dir_all(root.join("dir")).unwrap();
     for i in 0..50 {
         fs::write(
-            root.join(format!("dir/file_{}.txt", i)),
-            format!("content {}", i),
+            root.join(format!("dir/file_{i}.txt")),
+            format!("content {i}"),
         )
         .unwrap();
     }
@@ -583,12 +572,8 @@ async fn race_concurrent_directory_listing() {
             }
 
             // Modify directory
-            let _ = fs::remove_file(root.join(format!("dir/file_{}.txt", i)));
-            fs::write(
-                root.join(format!("dir/new_{}.txt", i)),
-                format!("new {}", i),
-            )
-            .unwrap();
+            let _ = fs::remove_file(root.join(format!("dir/file_{i}.txt")));
+            fs::write(root.join(format!("dir/new_{i}.txt")), format!("new {i}")).unwrap();
         }));
     }
 
@@ -770,7 +755,7 @@ async fn concurrent_symlink_swap_stress() {
                 let swap_to_outside = (t + i) % 2 == 0;
 
                 // Create a temporary symlink then atomically rename over the target
-                let tmp_path = target_path.with_file_name(format!("target.{}.{}.tmp", t, i));
+                let tmp_path = target_path.with_file_name(format!("target.{t}.{i}.tmp"));
                 let _ = fs::remove_file(&tmp_path);
                 std::os::unix::fs::symlink(
                     if swap_to_outside {
@@ -875,7 +860,7 @@ async fn concurrent_directory_swap_stress() {
             for i in 0..ITERS {
                 let swap_to_outside = (t + i) % 2 == 0;
 
-                let tmp_path = dir_path.with_file_name(format!("linkdir.{}.{}.tmp", t, i));
+                let tmp_path = dir_path.with_file_name(format!("linkdir.{t}.{i}.tmp"));
                 let _ = fs::remove_file(&tmp_path);
                 std::os::unix::fs::symlink(
                     if swap_to_outside {

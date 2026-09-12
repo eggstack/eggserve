@@ -89,8 +89,7 @@ async fn panic_in_service_returns_500() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 500"),
-        "service panic should produce 500, got: {}",
-        response
+        "service panic should produce 500, got: {response}"
     );
 }
 
@@ -146,8 +145,7 @@ async fn slow_handler_returns_504() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 504"),
-        "expected 504, got: {}",
-        response
+        "expected 504, got: {response}"
     );
 }
 
@@ -253,13 +251,11 @@ async fn custom_service_bytes_through_pipeline() {
     let response = String::from_utf8_lossy(&buf);
     assert!(
         response.starts_with("HTTP/1.1 200"),
-        "expected 200, got: {}",
-        response
+        "expected 200, got: {response}"
     );
     assert!(
         response.contains("hello"),
-        "response body should contain 'hello': {}",
-        response
+        "response body should contain 'hello': {response}"
     );
 }
 
@@ -410,8 +406,7 @@ async fn connection_permits_released() {
     let response2 = String::from_utf8_lossy(&buf2);
     assert!(
         response2.starts_with("HTTP/1.1 200"),
-        "second connection after permit release should succeed: {}",
-        response2
+        "second connection after permit release should succeed: {response2}"
     );
 
     handle.shutdown();
@@ -604,8 +599,7 @@ async fn client_disconnect_releases_file_stream_permits() {
     let third_str = String::from_utf8_lossy(&third_response);
     assert!(
         third_str.starts_with("HTTP/1.1 200"),
-        "expected200 after disconnect release: {}",
-        third_str
+        "expected200 after disconnect release: {third_str}"
     );
 
     handle.shutdown();

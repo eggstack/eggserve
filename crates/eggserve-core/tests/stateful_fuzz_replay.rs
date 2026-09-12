@@ -125,8 +125,7 @@ async fn fuzz_partial_request_fragments() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         resp.contains("200") || buf.is_empty(),
-        "server should handle fragmented request: {}",
-        resp
+        "server should handle fragmented request: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -154,7 +153,7 @@ async fn fuzz_pipelined_requests() {
 
     // Should contain multiple 200 responses
     let count = resp.matches("200").count();
-    assert!(count >= 1, "should get at least one 200 response: {}", resp);
+    assert!(count >= 1, "should get at least one 200 response: {resp}");
 
     let _ = server.shutdown_tx.send(());
 }
@@ -203,8 +202,7 @@ async fn fuzz_half_close() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         resp.contains("200") || buf.is_empty(),
-        "server should handle half-close: {}",
-        resp
+        "server should handle half-close: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -338,8 +336,7 @@ async fn fuzz_malformed_chunked_encoding() {
     let resp = String::from_utf8_lossy(&raw);
     assert!(
         resp.contains("200") || resp.is_empty(),
-        "server should recover after malformed chunks: {}",
-        resp
+        "server should recover after malformed chunks: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -351,10 +348,8 @@ async fn fuzz_oversized_headers() {
 
     // Send request with oversized header
     let large_value = "A".repeat(16384);
-    let payload = format!(
-        "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Large: {}\r\n\r\n",
-        large_value
-    );
+    let payload =
+        format!("GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Large: {large_value}\r\n\r\n");
 
     let _ = send_raw(server.addr, payload.as_bytes()).await;
 
@@ -370,8 +365,7 @@ async fn fuzz_oversized_headers() {
     let resp = String::from_utf8_lossy(&raw);
     assert!(
         resp.contains("200") || resp.is_empty(),
-        "server should survive oversized headers: {}",
-        resp
+        "server should survive oversized headers: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -391,8 +385,7 @@ async fn fuzz_body_on_get() {
     // Should get 405 or 400, not 200
     assert!(
         !resp.contains("200 OK") || resp.is_empty(),
-        "GET with body should not return 200: {}",
-        resp
+        "GET with body should not return 200: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -415,8 +408,7 @@ async fn fuzz_range_requests() {
         // Should get 206 or 416, not crash
         assert!(
             resp.contains("206") || resp.contains("416") || resp.is_empty(),
-            "range request should return 206 or 416: {}",
-            resp
+            "range request should return 206 or 416: {resp}"
         );
     }
 
@@ -440,17 +432,14 @@ async fn fuzz_conditional_requests() {
         let etag = etag_line.split(':').nth(1).unwrap_or("").trim();
 
         // Send conditional request
-        let payload = format!(
-            "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {}\r\n\r\n",
-            etag
-        );
+        let payload =
+            format!("GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nIf-None-Match: {etag}\r\n\r\n");
         let raw = send_raw(server.addr, payload.as_bytes()).await;
         let resp = String::from_utf8_lossy(&raw);
         // Should get 304 Not Modified
         assert!(
             resp.contains("304") || resp.is_empty(),
-            "conditional request should return 304: {}",
-            resp
+            "conditional request should return 304: {resp}"
         );
     }
 
@@ -472,8 +461,7 @@ async fn fuzz_connection_reuse() {
         let resp = String::from_utf8_lossy(&raw);
         assert!(
             resp.contains("200") || resp.is_empty(),
-            "request should succeed: {}",
-            resp
+            "request should succeed: {resp}"
         );
     }
 
@@ -496,9 +484,7 @@ async fn fuzz_concurrent_connections() {
             let resp = String::from_utf8_lossy(&raw);
             assert!(
                 resp.contains("200") || resp.is_empty(),
-                "concurrent request {} failed: {}",
-                i,
-                resp
+                "concurrent request {i} failed: {resp}"
             );
         }));
     }
@@ -549,8 +535,7 @@ async fn fuzz_connection_limit_enforced() {
         .count();
     assert!(
         succeeded <= 2,
-        "at most 2 connections should succeed, got {}",
-        succeeded
+        "at most 2 connections should succeed, got {succeeded}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -584,8 +569,7 @@ async fn fuzz_server_survives_abuse_sequence() {
     let resp = String::from_utf8_lossy(&raw);
     assert!(
         resp.contains("200") || resp.is_empty(),
-        "server should survive abuse sequence: {}",
-        resp
+        "server should survive abuse sequence: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -607,8 +591,7 @@ async fn fuzz_header_injection() {
         let resp = String::from_utf8_lossy(&raw);
         assert!(
             !resp.contains("Evil-Header") && !resp.contains("X-Injected: true"),
-            "header injection should not leak: {}",
-            resp
+            "header injection should not leak: {resp}"
         );
     }
 
@@ -639,8 +622,7 @@ async fn fuzz_slowloris_headers() {
     let resp = String::from_utf8_lossy(&buf);
     assert!(
         resp.contains("200") || resp.contains("408") || buf.is_empty(),
-        "slowloris should be handled: {}",
-        resp
+        "slowloris should be handled: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());
@@ -656,8 +638,7 @@ async fn fuzz_shutdown_during_requests() {
         handles.push(tokio::spawn(async move {
             let mut stream = tokio::net::TcpStream::connect(addr).await.unwrap();
             let req = format!(
-                "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Req: {}\r\nConnection: close\r\n\r\n",
-                i
+                "GET /hello.txt HTTP/1.1\r\nHost: localhost\r\nX-Req: {i}\r\nConnection: close\r\n\r\n"
             );
             let _ = stream.write_all(req.as_bytes()).await;
             let mut buf = Vec::new();
@@ -693,8 +674,7 @@ async fn fuzz_http_request_smuggling() {
                 || resp.contains("405")
                 || resp.contains("413")
                 || resp.is_empty(),
-            "smuggling attempt should be safe: {}",
-            resp
+            "smuggling attempt should be safe: {resp}"
         );
     }
 
@@ -722,8 +702,7 @@ async fn fuzz_invalid_chunk_extensions() {
     let resp = String::from_utf8_lossy(&raw);
     assert!(
         resp.contains("200") || resp.is_empty(),
-        "server should handle chunk extensions: {}",
-        resp
+        "server should handle chunk extensions: {resp}"
     );
 
     let _ = server.shutdown_tx.send(());

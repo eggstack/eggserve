@@ -167,7 +167,7 @@ impl Limits {
             errors.push(LimitsError {
                 field: "max_listing_response_bytes",
                 value: self.max_listing_response_bytes.to_string(),
-                constraint: format!("<= {} (10 MiB)", MAX_LISTING_RESPONSE_BYTES),
+                constraint: format!("<= {MAX_LISTING_RESPONSE_BYTES} (10 MiB)"),
             });
         }
         // Zero silently renders every directory listing empty; entries above

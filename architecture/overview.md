@@ -17,11 +17,11 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 - **A hardened static file server** — serves files from a directory with security guarantees
 - **A CLI tool** — `eggserve` binary with `--directory`, `--bind`, `--port`, TLS, and policy flags
 - **A Python package** — `eggserve` wheel with `python -m eggserve` and `http.server`-compatible API
-- **A reusable Rust library** — `eggserve-core::primitives` is the public
-  security/HTTP facade and `eggserve-core::server` is the experimental
-  transport-owning runtime and `Service` boundary; Plan 175 qualifies its
-  HTTP-only downstream application-server bridge without promoting `server` to
-  the stable API
+- **A reusable Rust library** — `eggserve-primitives` is the direct canonical
+  security/HTTP model, `eggserve-server` is the direct experimental HTTP/1
+  transport/runtime boundary, and `eggserve-static` is the hardened static
+  specialization. `eggserve-core` preserves the 0.1 compatibility paths and
+  advanced protocol runtime.
 
 ## What eggserve Is Not
 
@@ -117,7 +117,7 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 eggserve/
 ├── Cargo.toml                  # workspace root (resolver = "2", edition 2021)
 ├── crates/
-│   ├── eggserve-primitives/    # dependency-free canonical application values
+│   ├── eggserve-primitives/    # canonical application values
 │   ├── eggserve-server/        # generic HTTP runtime and transport boundary
 │   ├── eggserve-static/        # filesystem/static specialization
 │   ├── eggserve-h3/            # experimental Quinn/H3/H3-Quinn boundary
@@ -152,7 +152,7 @@ eggserve-bin           → standalone presentation layer
 eggserve-python        → standalone Python packaging
 ```
 
-- **`eggserve-primitives`** is the dependency-free canonical leaf.
+- **`eggserve-primitives`** is the transport-neutral canonical leaf.
 - **`eggserve-server`** owns generic transport/runtime machinery and cannot
   depend on static serving.
 - **`eggserve-static`** owns filesystem confinement and static specialization,

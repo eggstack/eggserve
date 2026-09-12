@@ -219,7 +219,7 @@ fn sanitize_path_extracts_last_component() {
 #[test]
 fn sanitize_path_truncates_long_paths() {
     let long_name = "a".repeat(200);
-    let result = ops::sanitize_path(&format!("/prefix/{}", long_name));
+    let result = ops::sanitize_path(&format!("/prefix/{long_name}"));
     assert!(result.chars().count() <= 128);
     assert!(result.ends_with('…'));
 }
@@ -328,8 +328,7 @@ fn all_event_kinds_have_names() {
         assert!(!name.is_empty(), "event kind has no name");
         assert!(
             names.insert(name.clone()),
-            "duplicate event kind name: {}",
-            name
+            "duplicate event kind name: {name}"
         );
     }
 }
@@ -524,7 +523,7 @@ async fn classify_accept_error_for_test(
     };
 
     // Rate-limit repeated identical errors (mirrors production logic).
-    let current_kind = format!("{}", event_kind);
+    let current_kind = format!("{event_kind}");
     let is_same_kind = last_error_kind.as_deref() == Some(&current_kind);
     if is_same_kind {
         *error_repeat_count += 1;
@@ -536,15 +535,12 @@ async fn classify_accept_error_for_test(
     let should_emit = *error_repeat_count == 1 || (*error_repeat_count).is_multiple_of(10);
     if should_emit {
         let message = if *error_repeat_count > 1 {
-            format!(
-                "accept error ({} consecutive): {}",
-                error_repeat_count, err_str
-            )
+            format!("accept error ({error_repeat_count} consecutive): {err_str}")
         } else {
-            format!("accept error: {}", err_str)
+            format!("accept error: {err_str}")
         };
         Logger::global().emit(Event::new(severity, event_kind, message).field(
-            eggserve_core::ops::Field::Str("error_kind".into(), format!("{:?}", kind)),
+            eggserve_core::ops::Field::Str("error_kind".into(), format!("{kind:?}")),
         ));
     }
 
@@ -760,22 +756,22 @@ fn lifecycle_events_exist() {
 #[test]
 fn field_display() {
     let f = Field::Str("key".into(), "value".into());
-    assert_eq!(format!("{}", f), "\"key\": \"value\"");
+    assert_eq!(format!("{f}"), "\"key\": \"value\"");
 
     let f = Field::Bool("flag".into(), true);
-    assert_eq!(format!("{}", f), "\"flag\": true");
+    assert_eq!(format!("{f}"), "\"flag\": true");
 
     let f = Field::U64("count".into(), 42);
-    assert_eq!(format!("{}", f), "\"count\": 42");
+    assert_eq!(format!("{f}"), "\"count\": 42");
 
     let f = Field::I64("signed".into(), -1);
-    assert_eq!(format!("{}", f), "\"signed\": -1");
+    assert_eq!(format!("{f}"), "\"signed\": -1");
 }
 
 #[test]
 fn field_display_escapes_strings() {
     let f = Field::Str("key".into(), "value with \"quotes\" and \\backslash".into());
-    let display = format!("{}", f);
+    let display = format!("{f}");
     assert!(display.contains("\\\"quotes\\\""));
     assert!(display.contains("\\\\backslash"));
 }
@@ -832,13 +828,13 @@ impl LogSink for TextCaptureSink<'_> {
     fn emit(&self, event: &Event) {
         let mut line = format!("[{}] {}: {}", event.severity, event.event, event.message);
         if let Some(cid) = event.connection_id {
-            line.push_str(&format!(" conn={}", cid));
+            line.push_str(&format!(" conn={cid}"));
         }
         if let Some(seq) = event.request_seq {
-            line.push_str(&format!(" seq={}", seq));
+            line.push_str(&format!(" seq={seq}"));
         }
         for f in &event.fields {
-            line.push_str(&format!(" {}", f));
+            line.push_str(&format!(" {f}"));
         }
         line.push('\n');
         if let Ok(mut out) = self.output.lock() {
@@ -888,8 +884,7 @@ fn backoff_duration_is_bounded() {
     let max_backoff = *BACKOFF_MS.iter().max().unwrap();
     assert!(
         max_backoff <= 500,
-        "max backoff must be ≤500ms, got {}ms",
-        max_backoff
+        "max backoff must be ≤500ms, got {max_backoff}ms"
     );
     assert_eq!(BACKOFF_MS.len(), 8);
     // Verify monotonic increase
@@ -985,7 +980,7 @@ fn header_values_not_leaked_in_event_json() {
             EventKind::RequestCompleted,
             "request completed",
         )
-        .field(Field::Str("path".into(), format!("/foo/{}.txt", header)));
+        .field(Field::Str("path".into(), format!("/foo/{header}.txt")));
         let json = ops::event_to_json(&event);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         let msg = parsed["message"].as_str().unwrap();
@@ -1045,7 +1040,7 @@ fn library_core_has_no_print_macros_in_production_code() {
             let has_println = trimmed.contains("println!");
             let has_eprintln = trimmed.contains("eprintln!");
             assert!(
-                !(has_println && !has_eprintln),
+                !has_println || has_eprintln,
                 "{}:{}: found println! in production code: {}",
                 path.display(),
                 i + 1,

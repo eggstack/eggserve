@@ -446,7 +446,7 @@ fn tls_empty_cert_chain_rejected() {
 
     match result.unwrap_err() {
         eggserve_bin::tls::TlsError::NoCertificatesFound => {}
-        other => panic!("expected NoCertificatesFound, got: {:?}", other),
+        other => panic!("expected NoCertificatesFound, got: {other:?}"),
     }
 }
 
@@ -485,7 +485,7 @@ fn tls_no_private_key_rejected() {
 
     match result.unwrap_err() {
         eggserve_bin::tls::TlsError::NoPrivateKeyFound => {}
-        other => panic!("expected NoPrivateKeyFound, got: {:?}", other),
+        other => panic!("expected NoPrivateKeyFound, got: {other:?}"),
     }
 }
 

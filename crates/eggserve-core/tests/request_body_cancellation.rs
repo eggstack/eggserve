@@ -270,8 +270,7 @@ async fn handler_timeout_aborts_body_read() {
         response.starts_with("HTTP/1.1 408")
             || response.starts_with("HTTP/1.1 504")
             || response.is_empty(),
-        "expected timeout or connection close, got: {}",
-        response
+        "expected timeout or connection close, got: {response}"
     );
     handle.shutdown();
 }

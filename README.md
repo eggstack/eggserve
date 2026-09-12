@@ -116,15 +116,17 @@ for intentional deviations from the stdlib.
 ## Rust library
 
 The 0.x compatibility entry point remains `eggserve-core`, which preserves
-the historical `primitives` and experimental `server` paths. Plan 211 also
-provides direct dependency layers: `eggserve-primitives` is a dependency-free
-canonical leaf, `eggserve-server` is the generic transport/runtime layer, and
-`eggserve-static` is the optional filesystem specialization. The generic
-server does not pull static serving, and the primitives leaf does not pull
-Hyper, Tokio, TLS, or QUIC. New dependency-sensitive Rust consumers should
-depend directly on the smallest layer they need; the compatibility aggregate
-can also expose them through `eggserve_core::layers`. There is no additional
-`eggserve` facade crate.
+the historical `primitives` and experimental `server` paths. Plan 214 makes
+the direct dependency layers the implementation homes: `eggserve-primitives`
+owns the canonical request/response/body/lifecycle model, `eggserve-server`
+owns the generic H1 runtime and streaming boundary, and `eggserve-static`
+owns hardened descriptor/handle-relative static serving. The generic server
+does not pull static serving, and the primitives leaf does not pull Hyper,
+Tokio, TLS, QUIC, or filesystem code. New Rust consumers should depend
+directly on the smallest layer they need; the compatibility aggregate exposes
+the layers through `eggserve_core::layers`. Advanced H2/H3, tunnel, proxy,
+and Python compatibility paths remain in core while their extraction phases
+are completed. There is no additional `eggserve` facade crate.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
 [`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).
@@ -135,8 +137,8 @@ trust/CRL limits, and atomic reload snapshots. EggServe re-exports that API at
 assembly remain consumer-owned. See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
 and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/tls.md).
 
-Canonical response/request types, `Service`, and the caller-owned connection
-driver in the compatibility API do not require a direct Hyper dependency.
+Canonical response/request types and `Service` in the direct layers do not
+require consumers to name Hyper directly.
 `primitives::to_hyper_response()` is an explicit opt-in outbound transport
 adapter; its returned body type is opaque, so consumers should rely on the
 `http_body::Body` contract rather than naming `BoxBody`. This adapter change is
@@ -151,7 +153,7 @@ model to standard types: `http-interop` (`primitives::interop` — loss-aware
 [interop guide](https://github.com/eggstack/eggserve/blob/main/docs/http-interop.md).
 Native `Service` remains the maximum-fidelity path.
 
-For a generic application service without static concerns, use
+For a generic HTTP/1 application service without static concerns, use
 `eggserve-server` directly. Add `eggserve-static` only when a confined static
 service is needed. The ownership and machine-checked dependency rules are in
 [`architecture/crate-topology.md`](https://github.com/eggstack/eggserve/blob/main/architecture/crate-topology.md).

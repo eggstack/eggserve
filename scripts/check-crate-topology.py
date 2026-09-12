@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211/212/213 Cargo dependency topology.
+"""Enforce the Plan 211–214 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -10,6 +10,7 @@ serving, and static serving consumes the two lower layers.
 from __future__ import annotations
 
 import json
+from pathlib import Path
 import subprocess
 import sys
 
@@ -32,7 +33,7 @@ def main() -> int:
     }
     missing = required - packages.keys()
     if missing:
-        print(f"missing Plan 211/212/213 packages: {', '.join(sorted(missing))}", file=sys.stderr)
+        print(f"missing Plan 211–214 packages: {', '.join(sorted(missing))}", file=sys.stderr)
         return 1
 
     def direct(name: str) -> set[str]:
@@ -112,8 +113,33 @@ def main() -> int:
         return 1
 
     static = direct("eggserve-static")
-    if static != {"eggserve-primitives", "eggserve-server"}:
-        print(f"unexpected eggserve-static direct dependencies: {sorted(static)}", file=sys.stderr)
+    required_static = {"eggserve-primitives", "eggserve-server"}
+    allowed_static = required_static | {"httpdate", "phf", "rustix"}
+    if not required_static.issubset(static):
+        print(
+            "eggserve-static must consume the canonical primitives and server layers: "
+            f"missing {sorted(required_static - static)}",
+            file=sys.stderr,
+        )
+        return 1
+    unexpected_static = static - allowed_static
+    if unexpected_static:
+        print(f"unexpected eggserve-static direct dependencies: {sorted(unexpected_static)}", file=sys.stderr)
+        return 1
+
+    # Platform confinement dependencies are target-specific and do not appear
+    # in the no-deps package dependency set above. Keep the source check small:
+    # it prevents the old pathname-based fixture from silently returning as a
+    # second production implementation.
+    static_root = "crates/eggserve-static/src/secure_root.rs"
+    static_fs = "crates/eggserve-static/src/fs"
+    for path in (static_root, static_fs):
+        if not Path(path).exists():
+            print(f"eggserve-static is missing mature confinement source: {path}", file=sys.stderr)
+            return 1
+    scaffold = Path("crates/eggserve-static/src/lib.rs").read_text()
+    if "directory listing disabled in topology fixture" in scaffold:
+        print("eggserve-static still contains the Plan 211 scaffold", file=sys.stderr)
         return 1
 
     h3 = production("eggserve-h3")
@@ -147,7 +173,7 @@ def main() -> int:
         return 1
 
     print(
-        "Plan 211/212/213 topology: primitives leaf; neutral TLS; "
+        "Plan 211–214 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3/QUIC isolated"
     )
     return 0

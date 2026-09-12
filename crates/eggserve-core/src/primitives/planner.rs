@@ -530,7 +530,7 @@ fn build_not_range_satisfiable(file_size: u64) -> StaticResponsePlan {
     let mut headers = HeaderMapPlan::new();
     headers.push("content-length", "0".to_owned());
     headers.push("accept-ranges", "bytes".to_owned());
-    headers.push("content-range", format!("bytes */{}", file_size));
+    headers.push("content-range", format!("bytes */{file_size}"));
 
     StaticResponsePlan {
         status: ResponseStatus::NOT_RANGE_SATISFIABLE,
@@ -1764,11 +1764,7 @@ mod tests {
                         range.end_inclusive(),
                         header
                     );
-                    assert!(
-                        !range.is_empty(),
-                        "range length is 0 for header {:?}",
-                        header
-                    );
+                    assert!(!range.is_empty(), "range length is 0 for header {header:?}");
                     assert!(
                         range.len() <= file_size,
                         "range length {} > file_size {} for header {:?}",
@@ -1790,20 +1786,17 @@ mod tests {
             if let Some(etag) = generate_etag(&meta) {
                 assert!(
                     etag.starts_with("W/\""),
-                    "ETag does not start with W/\": {:?}",
-                    etag
+                    "ETag does not start with W/\": {etag:?}"
                 );
-                assert!(etag.ends_with('"'), "ETag does not end with \": {:?}", etag);
+                assert!(etag.ends_with('"'), "ETag does not end with \": {etag:?}");
                 // ETag contains the file size
                 assert!(
                     etag.contains(&size.to_string()),
-                    "ETag {:?} does not contain size {}",
-                    etag,
-                    size
+                    "ETag {etag:?} does not contain size {size}"
                 );
                 // No CR/LF in ETag
-                assert!(!etag.contains('\r'), "CR in ETag: {:?}", etag);
-                assert!(!etag.contains('\n'), "LF in ETag: {:?}", etag);
+                assert!(!etag.contains('\r'), "CR in ETag: {etag:?}");
+                assert!(!etag.contains('\n'), "LF in ETag: {etag:?}");
             }
         }
     }
@@ -1830,9 +1823,7 @@ mod tests {
                 assert_eq!(
                     plan.body,
                     BodyPlan::Empty,
-                    "HEAD request returned non-empty body for range={:?} inm={:?}",
-                    range,
-                    inm
+                    "HEAD request returned non-empty body for range={range:?} inm={inm:?}"
                 );
             }
         }
@@ -1872,8 +1863,7 @@ mod tests {
         for etag in &etags {
             assert!(
                 evaluate_if_none_match("*", etag),
-                "wildcard did not match etag: {:?}",
-                etag
+                "wildcard did not match etag: {etag:?}"
             );
         }
     }
@@ -2236,8 +2226,7 @@ mod tests {
         assert_eq!(
             parts.len(),
             3,
-            "ETag should have 3 parts (size-secs-nanos), got: {}",
-            etag
+            "ETag should have 3 parts (size-secs-nanos), got: {etag}"
         );
     }
 
@@ -2321,19 +2310,14 @@ mod tests {
         // Must be W/"..." format
         assert!(
             etag.starts_with("W/\""),
-            "ETag must start with W/\": {}",
-            etag
+            "ETag must start with W/\": {etag}"
         );
-        assert!(etag.ends_with('"'), "ETag must end with \": {}", etag);
+        assert!(etag.ends_with('"'), "ETag must end with \": {etag}");
         // No whitespace
-        assert!(
-            !etag.contains(' '),
-            "ETag must not contain spaces: {}",
-            etag
-        );
+        assert!(!etag.contains(' '), "ETag must not contain spaces: {etag}");
         // No CR/LF
-        assert!(!etag.contains('\r'), "ETag must not contain CR: {}", etag);
-        assert!(!etag.contains('\n'), "ETag must not contain LF: {}", etag);
+        assert!(!etag.contains('\r'), "ETag must not contain CR: {etag}");
+        assert!(!etag.contains('\n'), "ETag must not contain LF: {etag}");
     }
 
     #[test]
@@ -2499,32 +2483,24 @@ mod tests {
         let parts2: Vec<&str> = inner2.split('-').collect();
 
         // Both have 3 components (size-secs-nanos)
-        assert_eq!(parts1.len(), 3, "ETag1 should have 3 parts: {}", etag_str1);
-        assert_eq!(parts2.len(), 3, "ETag2 should have 3 parts: {}", etag_str2);
+        assert_eq!(parts1.len(), 3, "ETag1 should have 3 parts: {etag_str1}");
+        assert_eq!(parts2.len(), 3, "ETag2 should have 3 parts: {etag_str2}");
 
         // Same size component
         assert_eq!(parts1[0], parts2[0], "Both files have same size");
 
         // Both ETags must be valid format: W/"size-secs-nanos"
-        assert!(etag_str1.starts_with("W/\""), "ETag1 format: {}", etag_str1);
-        assert!(etag_str1.ends_with('"'), "ETag1 format: {}", etag_str1);
-        assert!(etag_str2.starts_with("W/\""), "ETag2 format: {}", etag_str2);
-        assert!(etag_str2.ends_with('"'), "ETag2 format: {}", etag_str2);
+        assert!(etag_str1.starts_with("W/\""), "ETag1 format: {etag_str1}");
+        assert!(etag_str1.ends_with('"'), "ETag1 format: {etag_str1}");
+        assert!(etag_str2.starts_with("W/\""), "ETag2 format: {etag_str2}");
+        assert!(etag_str2.ends_with('"'), "ETag2 format: {etag_str2}");
 
         // Nanos component must be numeric
         let nanos1: u32 = parts1[2].parse().expect("ETag1 nanos should be numeric");
         let nanos2: u32 = parts2[2].parse().expect("ETag2 nanos should be numeric");
         // Both should be valid nanosecond values (0..1_000_000_000)
-        assert!(
-            nanos1 < 1_000_000_000,
-            "ETag1 nanos out of range: {}",
-            nanos1
-        );
-        assert!(
-            nanos2 < 1_000_000_000,
-            "ETag2 nanos out of range: {}",
-            nanos2
-        );
+        assert!(nanos1 < 1_000_000_000, "ETag1 nanos out of range: {nanos1}");
+        assert!(nanos2 < 1_000_000_000, "ETag2 nanos out of range: {nanos2}");
     }
 
     // -----------------------------------------------------------------------
@@ -2559,16 +2535,14 @@ mod tests {
         let original = etag_before.unwrap();
         assert!(
             original.starts_with("W/\"200-"),
-            "Original ETag should start with W/\"200-: {}",
-            original
+            "Original ETag should start with W/\"200-: {original}"
         );
 
         // The new ETag should start with W/"0-
         let modified = etag_after.unwrap();
         assert!(
             modified.starts_with("W/\"0-"),
-            "Modified ETag should start with W/\"0-: {}",
-            modified
+            "Modified ETag should start with W/\"0-: {modified}"
         );
     }
 }

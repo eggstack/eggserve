@@ -47,16 +47,16 @@ pub enum ServerError {
 impl fmt::Display for ServerError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Bind(e) => write!(f, "failed to bind: {}", e),
-            Self::Config(msg) => write!(f, "configuration error: {}", msg),
+            Self::Bind(e) => write!(f, "failed to bind: {e}"),
+            Self::Config(msg) => write!(f, "configuration error: {msg}"),
             Self::AlreadyStarted => write!(f, "server already started"),
             Self::NotStarted => write!(f, "server not started"),
-            Self::Accept(e) => write!(f, "accept error: {}", e),
-            Self::TlsSetup(msg) => write!(f, "TLS setup error: {}", msg),
-            Self::Transport(msg) => write!(f, "transport error: {}", msg),
+            Self::Accept(e) => write!(f, "accept error: {e}"),
+            Self::TlsSetup(msg) => write!(f, "TLS setup error: {msg}"),
+            Self::Transport(msg) => write!(f, "transport error: {msg}"),
             Self::ShutdownTimeout => write!(f, "graceful shutdown timed out"),
-            Self::Startup(msg) => write!(f, "startup error: {}", msg),
-            Self::Terminal(msg) => write!(f, "terminal runtime error: {}", msg),
+            Self::Startup(msg) => write!(f, "startup error: {msg}"),
+            Self::Terminal(msg) => write!(f, "terminal runtime error: {msg}"),
         }
     }
 }

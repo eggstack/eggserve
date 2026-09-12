@@ -300,8 +300,7 @@ impl ServerHandle {
                     match join.await {
                         Ok(result) => Ok(result),
                         Err(e) => Err(ServerError::Accept(std::io::Error::other(format!(
-                            "server task panicked: {}",
-                            e
+                            "server task panicked: {e}"
                         )))),
                     }
                 } else {
@@ -339,8 +338,7 @@ impl ServerHandle {
             match join.await {
                 Ok(result) => Ok(result),
                 Err(e) => Err(ServerError::Accept(std::io::Error::other(format!(
-                    "server task panicked: {}",
-                    e
+                    "server task panicked: {e}"
                 )))),
             }
         } else {
@@ -489,7 +487,7 @@ mod tests {
     #[tokio::test]
     async fn handle_debug_format() {
         let handle = make_test_handle().await;
-        let debug = format!("{:?}", handle);
+        let debug = format!("{handle:?}");
         assert!(debug.contains("ServerHandle"));
         assert!(debug.contains("127.0.0.1:8000"));
     }

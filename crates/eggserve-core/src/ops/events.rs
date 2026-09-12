@@ -192,7 +192,7 @@ impl fmt::Display for EventKind {
             EventKind::BlockingWorkerSaturation => "blocking_worker_saturation",
             EventKind::LogSinkFailure => "log_sink_failure",
         };
-        write!(f, "{}", name)
+        write!(f, "{name}")
     }
 }
 
@@ -207,9 +207,9 @@ pub enum Field {
 impl fmt::Display for Field {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Field::Bool(k, v) => write!(f, "\"{}\": {}", k, v),
-            Field::I64(k, v) => write!(f, "\"{}\": {}", k, v),
-            Field::U64(k, v) => write!(f, "\"{}\": {}", k, v),
+            Field::Bool(k, v) => write!(f, "\"{k}\": {v}"),
+            Field::I64(k, v) => write!(f, "\"{k}\": {v}"),
+            Field::U64(k, v) => write!(f, "\"{k}\": {v}"),
             Field::Str(k, v) => write!(f, "\"{}\": \"{}\"", k, escape_json_string(v)),
         }
     }
@@ -273,10 +273,7 @@ fn rfc3339_now() -> String {
     // Civil date from days since 1970-01-01
     let (year, month, day) = days_to_civil(days_since_epoch);
 
-    format!(
-        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
-        year, month, day, hours, minutes, seconds, millis
-    )
+    format!("{year:04}-{month:02}-{day:02}T{hours:02}:{minutes:02}:{seconds:02}.{millis:03}Z")
 }
 
 fn days_to_civil(days: u64) -> (u64, u64, u64) {
@@ -369,12 +366,12 @@ pub fn event_to_json(event: &Event) -> String {
 
     if let Some(cid) = event.connection_id {
         out.push_str(",\"connection_id\":");
-        write!(&mut out, "{}", cid).unwrap();
+        write!(&mut out, "{cid}").unwrap();
     }
 
     if let Some(seq) = event.request_seq {
         out.push_str(",\"request_seq\":");
-        write!(&mut out, "{}", seq).unwrap();
+        write!(&mut out, "{seq}").unwrap();
     }
 
     if !event.fields.is_empty() {
@@ -395,13 +392,13 @@ pub fn event_to_json(event: &Event) -> String {
                     out.push('"');
                     escape_json_string_into(&mut out, k);
                     out.push_str("\":");
-                    write!(&mut out, "{}", v).unwrap();
+                    write!(&mut out, "{v}").unwrap();
                 }
                 Field::U64(k, v) => {
                     out.push('"');
                     escape_json_string_into(&mut out, k);
                     out.push_str("\":");
-                    write!(&mut out, "{}", v).unwrap();
+                    write!(&mut out, "{v}").unwrap();
                 }
                 Field::Str(k, v) => {
                     out.push('"');
@@ -472,7 +469,7 @@ mod tests {
     #[test]
     fn sanitize_path_truncates_long_paths() {
         let long_name: String = "a".repeat(200);
-        let result = sanitize_path(&format!("/prefix/{}", long_name));
+        let result = sanitize_path(&format!("/prefix/{long_name}"));
         assert!(result.chars().count() <= 128);
         assert!(result.ends_with('…'));
     }
