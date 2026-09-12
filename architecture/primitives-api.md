@@ -1,10 +1,18 @@
 # Primitives API — Deep Dive
 
-The `primitives` module is the intended public boundary for embedding consumers. It provides path validation, filesystem resolution, HTTP request validation, and response planning without requiring Hyper for canonical application-facing types. Two explicitly documented conversion adapters may mention Hyper: `RequestHead::try_from_hyper()` inbound and `to_hyper_response()` outbound. Optional ecosystem adapters live behind `http-interop` (`primitives::interop`, loss-aware `http`/`http-body` conversions; see `docs/http-interop.md`) and `tower` (`server::tower`) without entering default builds.
+The historical `eggserve-core::primitives` module remains the compatibility
+boundary for 0.1 consumers. Plan 211 adds the dependency-free
+`eggserve-primitives` crate for canonical application values; it has no
+transport, async-runtime, TLS, QUIC, or filesystem dependency. The generic
+runtime is `eggserve-server`, and static resolution is `eggserve-static`.
+The richer compatibility module still provides the existing path confinement,
+filesystem resolution, and response-planning APIs without a source break.
 
 ## Module Location
 
-`eggserve-core::primitives/` — the `pub` facade for external consumers.
+`eggserve-core::primitives/` — the 0.1 compatibility facade. New consumers
+should use the direct `eggserve-primitives` crate when they only need the
+canonical layer.
 
 ## Module Map
 

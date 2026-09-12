@@ -11,7 +11,12 @@ failed body causes the response and connection to close.
 
 > **Status: Experimental.** The `server` module API is subject to change without notice.
 
-The `server` module provides a reusable, transport-owning HTTP runtime that downstream Rust projects can embed without importing internal modules or depending directly on Hyper. Its canonical `Service`, response, and caller-owned connection APIs are Hyper-free; `to_hyper_response()` and `RequestHead::try_from_hyper()` are the two explicit conversion adapters at the transport boundary. It includes a lifecycle state machine (Created → Starting → Running → Draining → Stopped/Failed), readiness signaling, graceful and forced shutdown with configurable drain deadlines, and connection/task tracking.
+The historical `eggserve-core::server` module provides the mature reusable,
+transport-owning HTTP runtime. Plan 211 also provides `eggserve-server` as the
+generic dependency layer for new application-server consumers; it depends on
+`eggserve-primitives` and has no static-file edge. `eggserve-static` composes
+static behavior on top. Existing `eggserve-core::server` behavior and APIs
+remain unchanged during the 0.1 migration window.
 
 The runnable public-API demonstrations are [`static_server.rs`](../crates/eggserve-core/examples/static_server.rs),
 [`custom_service.rs`](../crates/eggserve-core/examples/custom_service.rs),

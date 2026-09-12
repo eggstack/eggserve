@@ -22,6 +22,6 @@ boundary, document its invariants, add targeted tests, and receive explicit
 security review.
 
 The policy is enforced by `[workspace.lints.rust] unsafe_code = "deny"` in
-`Cargo.toml`, inherited by the two workspace crates. The excluded Python crate
+`Cargo.toml`, inherited by all five workspace crates. The excluded Python crate
 declares the equivalent `unsafe_code = "deny"` lint locally because Cargo does
 not allow an excluded manifest to inherit workspace lints.

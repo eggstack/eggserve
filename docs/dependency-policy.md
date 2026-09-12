@@ -3,6 +3,14 @@
 The release smoke fixture uses only Python's standard library, and the existing
 Hyper/Tokio transport remains the sole file-stream conversion boundary.
 
+Plan 211 adds a checked crate topology. `eggserve-primitives` is the canonical
+leaf and intentionally has no Cargo dependencies. `eggserve-server` owns
+Hyper/Tokio transport and depends on primitives, never on static serving or
+the compatibility aggregate. `eggserve-static` owns filesystem-specific
+behavior and depends on primitives plus server. `eggserve-core` remains a
+0.1 compatibility aggregate during migration. See
+[`architecture/crate-topology.md`](../architecture/crate-topology.md).
+
 ## Rules
 
 Every dependency must have an explicit purpose. The following rules apply to all dependencies:
@@ -43,6 +51,9 @@ The following dependency categories are approved for initial development:
 
 | Crate | Tokio features (production) | Notes |
 |-------|---------------------------|-------|
+| `eggserve-primitives` | none | Dependency-free canonical layer |
+| `eggserve-server` | `macros`, `net`, `time`, `io-util`, `sync` | Generic transport runtime; no static edge |
+| `eggserve-static` | none | Uses standard-library filesystem APIs through the server/primitives layers |
 | `eggserve-core` | `macros`, `net`, `time`, `fs`, `io-util`, `sync` | No `signal`, no `rt-multi-thread` in default |
 
 | `eggserve-bin` | `macros`, `net`, `signal`, `time`, `sync` | Signal handling for graceful shutdown |
@@ -50,8 +61,10 @@ The following dependency categories are approved for initial development:
 
 ## Notes
 
-- The dependency graph is intentionally small: `eggserve-core` owns the HTTP,
-  runtime, filesystem, and MIME capabilities; the CLI and Python crates add
+- The dependency graph is intentionally layered: `eggserve-primitives` owns
+  canonical values, `eggserve-server` owns generic HTTP transport,
+  `eggserve-static` owns filesystem/MIME behavior, and `eggserve-core` keeps
+  the mature aggregate for 0.1 compatibility. The CLI and Python crates add
   only their frontend/runtime requirements.
 - `tokio`, `hyper`, `hyper-util`, `http-body`, `http-body-util`, and `bytes` provide the
   HTTP/1 transport and body pipeline. Manual CLI parsing avoids a broad CLI

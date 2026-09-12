@@ -49,3 +49,15 @@ pub(crate) mod runtime_limits;
 pub mod server;
 #[cfg(feature = "tls")]
 pub mod tls;
+
+/// Plan 211's dependency-layer entry points.
+///
+/// The historical `config`, `primitives`, and `server` modules remain in
+/// place for 0.1 source compatibility. New dependency-sensitive consumers
+/// should depend directly on the leaf crates; these re-exports make the
+/// transition discoverable without changing the old paths.
+pub mod layers {
+    pub use eggserve_primitives as primitives;
+    pub use eggserve_server as server;
+    pub use eggserve_static as static_files;
+}

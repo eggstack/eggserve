@@ -5,13 +5,12 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 ## Overview
 
 `eggserve-core` exposes a deliberate, narrow public boundary through the
-`primitives` module. It is the semver-considered facade for consumers that
-embed hardened path, policy, and canonical HTTP behavior. A downstream
-HTTP-only application server additionally uses the experimental `server`
-module for `Service` and transport ownership; qualification of that seam does
-not promote it to stable. Canonical application-facing request/response types,
-`Service`, and the caller-owned connection API do not require downstream code
-to import Hyper.
+`primitives` module for 0.1 compatibility. Plan 211 adds direct layers for
+new consumers: `eggserve-primitives` owns dependency-free canonical values,
+`eggserve-server` owns generic transport and `Service`, and
+`eggserve-static` owns filesystem specialization. The compatibility paths
+remain supported during migration; see
+[`architecture/crate-topology.md`](../architecture/crate-topology.md).
 
 ## Public modules
 
@@ -24,6 +23,14 @@ to import Hyper.
 | `policy` | `pub` | Stable-ish | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `StaticMetadataPolicy`, `ErrorRepresentationPolicy` |
 | `server::service` | `pub` | Experimental | Explicit-context `handle_request` adapter; use `server::Server` for new integrations |
 | `server::tower` | `pub` | Experimental (`tower` feature) | `TowerToEggserve` / `EggserveToTower` adapters; per-request clones, no shared mutex |
+
+## Plan 211 direct crates
+
+| Crate | Use when | Dependency boundary |
+|-------|----------|---------------------|
+| `eggserve-primitives` | Only canonical application values are needed | No dependencies |
+| `eggserve-server` | A generic HTTP runtime and `Service` are needed | Primitives plus transport dependencies; no static/core edge |
+| `eggserve-static` | Confined static-file serving is needed | Primitives plus server |
 
 ## Internal modules (not public API)
 

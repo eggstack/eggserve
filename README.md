@@ -115,11 +115,19 @@ for intentional deviations from the stdlib.
 
 ## Rust library
 
-`eggserve-core` is the intended Rust library crate for the 0.x line. It
-exposes `primitives` as the semver-considered public facade and `server` as an
-experimental transport-owning runtime; there is no additional `eggserve`
-facade crate. Canonical response/request types, `Service`, and the
-caller-owned connection driver do not require a direct Hyper dependency.
+The 0.x compatibility entry point remains `eggserve-core`, which preserves
+the historical `primitives` and experimental `server` paths. Plan 211 also
+provides direct dependency layers: `eggserve-primitives` is a dependency-free
+canonical leaf, `eggserve-server` is the generic transport/runtime layer, and
+`eggserve-static` is the optional filesystem specialization. The generic
+server does not pull static serving, and the primitives leaf does not pull
+Hyper, Tokio, TLS, or QUIC. New dependency-sensitive Rust consumers should
+depend directly on the smallest layer they need; the compatibility aggregate
+can also expose them through `eggserve_core::layers`. There is no additional
+`eggserve` facade crate.
+
+Canonical response/request types, `Service`, and the caller-owned connection
+driver in the compatibility API do not require a direct Hyper dependency.
 `primitives::to_hyper_response()` is an explicit opt-in outbound transport
 adapter; its returned body type is opaque, so consumers should rely on the
 `http_body::Body` contract rather than naming `BoxBody`. This adapter change is
@@ -133,6 +141,11 @@ model to standard types: `http-interop` (`primitives::interop` — loss-aware
 `TowerToEggserve` per-request clones plus `EggserveToTower`); see the
 [interop guide](https://github.com/eggstack/eggserve/blob/main/docs/http-interop.md).
 Native `Service` remains the maximum-fidelity path.
+
+For a generic application service without static concerns, use
+`eggserve-server` directly. Add `eggserve-static` only when a confined static
+service is needed. The ownership and machine-checked dependency rules are in
+[`architecture/crate-topology.md`](https://github.com/eggstack/eggserve/blob/main/architecture/crate-topology.md).
 
 The concise static-server flow is:
 

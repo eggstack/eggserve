@@ -1,9 +1,15 @@
 # eggserve-core — Deep Dive
 
-`eggserve-core` is the reusable Rust library behind every EggServe surface. It
-contains the security-critical path confinement, policy enforcement, HTTP
-request handling, response construction, MIME detection, and runtime service
-boundary.
+`eggserve-core` is the 0.1 compatibility aggregate behind the existing
+EggServe surfaces. It contains the mature security-critical path confinement,
+policy enforcement, HTTP request handling, response construction, MIME
+detection, and runtime service boundary while downstream consumers migrate to
+the Plan 211 direct layers.
+
+The direct layers are [`eggserve-primitives`](crate-topology.md),
+[`eggserve-server`](crate-topology.md), and
+[`eggserve-static`](crate-topology.md). The compatibility crate exposes them
+under `eggserve_core::layers` without changing the established module paths.
 
 External Rust consumers should start with `eggserve_core::primitives` for the
 semver-considered canonical HTTP/security facade. The `eggserve_core::server` module is an

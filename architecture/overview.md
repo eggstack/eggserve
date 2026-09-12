@@ -58,6 +58,10 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Covers |
 |----------|--------|
+| [crate-topology.md](crate-topology.md) | Plan 211 Cargo ownership and dependency boundaries |
+| [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free canonical leaf |
+| [eggserve-server.md](eggserve-server.md) | Generic transport/runtime layer |
+| [eggserve-static.md](eggserve-static.md) | Filesystem/static specialization |
 | [eggserve-core.md](eggserve-core.md) | Core library — module map, key types, server module, error types, dependencies |
 | [eggserve-bin.md](eggserve-bin.md) | CLI binary — `run()` entrypoint, accept loop, argument inventory, signal handling, TLS loading |
 | [eggserve-python.md](eggserve-python.md) | Python wheel — `eggserve.server` facade, `eggserve.lowlevel`, `eggserve.subprocess`, security boundary |
@@ -110,7 +114,10 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 eggserve/
 ├── Cargo.toml                  # workspace root (resolver = "2", edition 2021)
 ├── crates/
-│   ├── eggserve-core/          # library: security primitives, HTTP serving, response construction
+│   ├── eggserve-primitives/    # dependency-free canonical application values
+│   ├── eggserve-server/        # generic HTTP runtime and transport boundary
+│   ├── eggserve-static/        # filesystem/static specialization
+│   ├── eggserve-core/          # 0.1 compatibility aggregate
 │   ├── eggserve-bin/           # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
@@ -129,18 +136,29 @@ eggserve/
 
 ## Crate Architecture
 
-Three crates, strict dependency hierarchy:
+Five crates, with a strict dependency hierarchy and a compatibility aggregate:
 
 ```
-eggserve-core          ← eggserve-bin (path dep, workspace member)
-eggserve-core          ← eggserve-python (path dep, excluded from workspace)
-eggserve-bin           → standalone, owns process lifecycle
-eggserve-python        → standalone, owns Python packaging
+eggserve-primitives    ← eggserve-server ← eggserve-static
+eggserve-core          ← eggserve-bin (compatibility path, workspace member)
+eggserve-core          ← eggserve-python (compatibility path, excluded)
+eggserve-core          → layers (transitional re-exports of the three crates)
+eggserve-bin           → standalone presentation layer
+eggserve-python        → standalone Python packaging
 ```
 
-- **`eggserve-core`** has no workspace dependencies. All security-critical logic lives here.
-- **`eggserve-bin`** depends on `eggserve-core` via path. Owns CLI parsing and signal handling; drives the core server runtime (accept loop, connection management, and TLS live in `eggserve-core::server` / `eggserve-core::tls`).
-- **`eggserve-python`** depends on `eggserve-core` and `eggserve-bin` via path. Excluded from workspace; has its own `Cargo.lock`. Built via maturin. Includes an `eggserve` console script backed by the native extension.
+- **`eggserve-primitives`** is the dependency-free canonical leaf.
+- **`eggserve-server`** owns generic transport/runtime machinery and cannot
+  depend on static serving.
+- **`eggserve-static`** owns filesystem confinement and static specialization,
+  consuming primitives and server.
+- **`eggserve-core`** remains the 0.1 compatibility aggregate while direct
+  consumers migrate; its existing rich modules are behavior-preserving.
+- **`eggserve-bin`** and **`eggserve-python`** remain presentation layers over
+  the compatibility API during this transition.
+
+The exact direct edges are checked by
+`scripts/check-crate-topology.py`; see [crate-topology.md](crate-topology.md).
 
 ### Feature Flags
 
@@ -158,10 +176,13 @@ eggserve-python        → standalone, owns Python packaging
 
 Each component links to a deep-dive document. Use this as your starting point for understanding any subsystem.
 
-### Core Crates
+### Crates
 
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
+| Canonical primitives | `eggserve-primitives` | [eggserve-primitives.md](eggserve-primitives.md) | Dependency-free request/response/policy domain values |
+| Generic server runtime | `eggserve-server` | [eggserve-server.md](eggserve-server.md) | Transport and service execution without static-serving dependencies |
+| Static specialization | `eggserve-static` | [eggserve-static.md](eggserve-static.md) | Filesystem policy, path resolution, and static responses |
 | Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | All security-critical logic — path confinement, policy enforcement, HTTP serving, response construction |
 | CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, integration-only `run_cli()`, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |

@@ -1,5 +1,8 @@
 [workspace]
 members = [
+    "crates/eggserve-primitives",
+    "crates/eggserve-server",
+    "crates/eggserve-static",
     "crates/eggserve-core",
     "crates/eggserve-bin",
 ]

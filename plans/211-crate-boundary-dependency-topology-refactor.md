@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+**Complete — 2026-09-12.**
 
 ## Purpose
 
@@ -220,3 +220,34 @@ The plan is complete when EggServe has enforceable layers between:
 3. static-file specialization;
 
 and downstream server authors can consume the generic runtime without static-serving concerns or experimental HTTP/3 dependencies.
+
+## Implementation record
+
+The plan was implemented as a staged boundary refactor:
+
+- `eggserve-primitives` is a dependency-free workspace crate for canonical
+  request, response, policy, limits, and proxy-domain values.
+- `eggserve-server` is a generic Hyper/Tokio HTTP runtime that consumes the
+  primitives crate and has no dependency on `eggserve-core` or
+  `eggserve-static`.
+- `eggserve-static` owns the direct static-serving specialization and consumes
+  only the primitives and server layers.
+- `eggserve-core` remains the 0.1 compatibility aggregate while existing
+  production-grade H2/H3, TLS, filesystem-confinement, and Python-facing
+  implementations remain available through their established compatibility
+  paths. It exposes the new layers under `eggserve_core::layers` so migration
+  can proceed without a source break.
+- `scripts/check-crate-topology.py` and CI/`verify.sh` enforce the dependency
+  direction and leaf dependency restrictions.
+- README, agent guidance, dependency/public-API policy, and crate architecture
+  pages document the staged migration and its compatibility boundary.
+
+## Validation record
+
+The workspace and excluded Python manifest were checked with the stable and
+Rust 1.88 toolchains, including default, `http2,tls`, and `http3,tls` feature
+graphs. Workspace clippy (`-D warnings`), workspace tests, doctests, direct
+layer tests, conformance and release metadata checks, topology checks, and
+the excluded Python `--locked` check passed locally. The H3/TLS tests were
+rerun sequentially after reclaiming local Cargo build artifacts to avoid
+parallel-build disk exhaustion.

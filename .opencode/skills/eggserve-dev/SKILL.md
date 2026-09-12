@@ -1,6 +1,6 @@
 ---
 name: eggserve-dev
-description: Use when working on eggserve code, plans, docs, or architecture. Covers Rust workspace conventions, plan-driven development, CI validation, security policy, and the three-crate layout.
+description: Use when working on eggserve code, plans, docs, or architecture. Covers Rust workspace conventions, plan-driven development, CI validation, security policy, and the layered crate layout.
 ---
 
 # eggserve Development Skill
@@ -34,8 +34,11 @@ bridge is qualified by Plan 175. Plan 199 implements generic tunnel/upgrade/Exte
 
 ## Workspace layout
 
-Three crates:
-- `crates/eggserve-core/` — library: security primitives, path confinement, HTTP serving, response construction
+Five workspace crates plus one excluded Python packaging crate:
+- `crates/eggserve-primitives/` — dependency-free canonical application values
+- `crates/eggserve-server/` — generic HTTP runtime and transport boundary
+- `crates/eggserve-static/` — filesystem/static specialization
+- `crates/eggserve-core/` — 0.1 compatibility aggregate preserving the mature API
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
@@ -64,6 +67,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
+python3 scripts/check-crate-topology.py                     # Plan 211 dependency-layer gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets
@@ -128,6 +132,12 @@ only `cargo audit` or `cargo deny check` invocation.
 
 ## Key conventions
 
+- **Plan 211 topology** — `eggserve-primitives` has no dependencies,
+  `eggserve-server` owns generic transport and cannot depend on core/static,
+  and `eggserve-static` consumes primitives plus server. `eggserve-core`
+  remains the 0.1 compatibility aggregate and exposes the direct crates under
+  `eggserve_core::layers`. Run `scripts/check-crate-topology.py` after graph
+  changes; see `architecture/crate-topology.md`.
 - **Manual argument parsing** in `args.rs` — no clap dependency. The CLI grammar
   is `[OPTIONS] [PORT] [DIRECTORY]`; positional parsing owns those two logical
   slots, treats a directory after an occupied port slot verbatim (including a

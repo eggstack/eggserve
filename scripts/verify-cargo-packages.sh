@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# eggserve-bin depends on eggserve-core by path in the workspace. A normal
-# crates.io publish dry-run cannot resolve that dependency until core has been
-# published. This script stages a temporary publish-shaped workspace, then
-# builds the exact generated `.crate` contents against the exact packaged core
-# crate. A file-backed registry has no upload API, so `cargo publish --dry-run`
-# is only used for the core crate; this package-and-build check is the
-# documented bin equivalent. Nothing is uploaded to crates.io.
+# The workspace packages have path dependencies. A normal crates.io publish
+# dry-run cannot resolve those dependencies until the lower layers have been
+# published. The Plan 211 path stages a temporary publish-shaped workspace in
+# dependency order and validates the exact generated `.crate` contents through
+# a file-backed local registry. Nothing is uploaded to crates.io.
+#
+# Without the Plan 211 crates, the legacy core/bin path below stages core and
+# builds the exact generated `.crate` contents for the binary equivalent.
 #
 # --mode core   Only verify eggserve-core
 # --mode bin    Only verify eggserve-bin (packages core first, as bin depends on it)
@@ -32,6 +33,151 @@ case "$MODE" in
   core|bin|all) ;;
   *) echo "Invalid mode: $MODE (expected: core, bin, or all)" >&2; exit 1 ;;
 esac
+
+# Plan 211 adds publishable path dependencies. Cargo's package preparation
+# resolves those dependencies against a registry, so the old core/bin-only
+# check cannot validate the graph until the new crates have been published.
+# Stage the complete ordered graph in a temporary local registry instead.
+if [ -f crates/eggserve-primitives/Cargo.toml ]; then
+  layered_tmp_dir="$(mktemp -d)"
+  layered_registry="$layered_tmp_dir/registry"
+  layered_index="$layered_tmp_dir/index"
+  layered_stage="$layered_tmp_dir/stage"
+  trap 'rm -rf "$layered_tmp_dir"' EXIT
+  mkdir -p "$layered_registry" "$layered_index/eg/gs" "$layered_stage/.cargo"
+  printf '{"dl":"file://%s/{crate}-{version}.crate"}\n' "$layered_registry" > "$layered_index/config.json"
+  git -C "$layered_index" init -q
+  git -C "$layered_index" config user.email release-validation@example.invalid
+  git -C "$layered_index" config user.name release-validation
+  git -C "$layered_index" add .
+  git -C "$layered_index" commit -q -m 'initialize local registry for layered package validation'
+  export CARGO_REGISTRIES_LOCAL_INDEX="file://$layered_index"
+
+  write_layered_root() {
+    local package="$1"
+    rm -rf "$layered_stage"
+    mkdir -p "$layered_stage/crates/$package" "$layered_stage/.cargo"
+    cp Cargo.toml README.md LICENSE "$layered_stage/"
+    cp -R "crates/$package/." "$layered_stage/crates/$package/"
+    cp -R architecture docs examples "$layered_stage/"
+    printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "0.1.2"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.88"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n' "$package" > "$layered_stage/Cargo.toml"
+    printf '[registries.local]\nindex = "file://%s"\n' "$layered_index" > "$layered_stage/.cargo/config.toml"
+  }
+
+  rewrite_layered_dependencies() {
+    local package="$1"
+    local manifest="$layered_stage/crates/$package/Cargo.toml"
+    case "$package" in
+      eggserve-server)
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
+        ;;
+      eggserve-static)
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
+        ;;
+      eggserve-core)
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.1.2" }#eggserve-static = { version = "0.1.2", registry = "local" }#' "$manifest"
+        ;;
+      eggserve-bin)
+        sed -i 's#eggserve-core = { path = "../eggserve-core", version = "0.1.2" }#eggserve-core = { version = "0.1.2", registry = "local" }#' "$manifest"
+        ;;
+    esac
+  }
+
+  write_layered_index_entry() {
+    local package="$1"
+    local crate_file="$2"
+    local manifest="$3"
+    local checksum metadata entry
+    checksum="$(sha256sum "$crate_file" | awk '{print $1}')"
+    metadata="$(cargo metadata --manifest-path "$manifest" --format-version 1 --no-deps)"
+    entry="$(METADATA="$metadata" PACKAGE="$package" CHECKSUM="$checksum" LOCAL_INDEX="$layered_index" "$PYTHON" -c '
+import json
+import os
+
+metadata = json.loads(os.environ["METADATA"])
+package = next(item for item in metadata["packages"] if item["name"] == os.environ["PACKAGE"])
+local_index = "file://" + os.environ["LOCAL_INDEX"]
+dependencies = []
+for dependency in package["dependencies"]:
+    registry = dependency.get("registry")
+    dependencies.append({
+        "name": dependency["name"],
+        "req": dependency["req"],
+        "features": dependency["features"],
+        "optional": dependency["optional"],
+        "default_features": dependency["uses_default_features"],
+        "target": dependency.get("target"),
+        "kind": dependency.get("kind") or "normal",
+        "registry": None if registry == local_index else (registry or "https://github.com/rust-lang/crates.io-index"),
+    })
+entry = {
+    "name": package["name"],
+    "vers": package["version"],
+    "deps": dependencies,
+    "cksum": os.environ["CHECKSUM"],
+    "features": package["features"],
+    "yanked": False,
+    "links": None,
+}
+print(json.dumps(entry, separators=(",", ":")))
+')"
+    printf '%s\n' "$entry" > "$layered_index/eg/gs/$package"
+    git -C "$layered_index" add .
+    git -C "$layered_index" commit -q -m "add $package to local registry"
+  }
+
+  package_layered() {
+    local package="$1"
+    shift
+    local listing crate_file
+    write_layered_root "$package"
+    rewrite_layered_dependencies "$package"
+    (cd "$layered_stage" && cargo generate-lockfile)
+    listing="$(cd "$layered_stage" && cargo package -p "$package" --allow-dirty --locked --registry local --no-verify --list)"
+    for required in "$@"; do
+      if ! grep -Fqx "$required" <<<"$listing"; then
+        echo "$package package is missing $required" >&2
+        exit 1
+      fi
+    done
+    (cd "$layered_stage" && cargo package -p "$package" --allow-dirty --locked --registry local --no-verify)
+    crate_file="$layered_stage/target/package/$package-0.1.2.crate"
+    if [ ! -f "$crate_file" ]; then
+      echo "$package package was not produced" >&2
+      exit 1
+    fi
+    cp "$crate_file" "$layered_registry/"
+    write_layered_index_entry "$package" "$crate_file" "$layered_stage/crates/$package/Cargo.toml"
+  }
+
+  case "$MODE" in
+    core)
+      package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      ;;
+    bin)
+      package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
+      ;;
+    all)
+      package_layered eggserve-primitives Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-server Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-static Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-core Cargo.toml Cargo.lock README.md LICENSE src/lib.rs
+      package_layered eggserve-bin Cargo.toml Cargo.lock README.md LICENSE src/lib.rs src/main.rs
+      ;;
+  esac
+  echo "Layered crates passed local-registry package verification."
+  exit 0
+fi
 
 package_flags=(--locked)
 if [ "${ALLOW_DIRTY:-false}" = "true" ]; then

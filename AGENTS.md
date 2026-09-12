@@ -67,7 +67,10 @@ The user-facing Python compatibility contract lives in [docs/python-http-server-
 
 ```
 crates/
-├── eggserve-core/      # library: security policy, path confinement, HTTP serving, response construction
+├── eggserve-primitives/ # dependency-free canonical application-facing values
+├── eggserve-server/    # generic HTTP runtime and transport boundary
+├── eggserve-static/    # filesystem/static specialization
+├── eggserve-core/      # 0.1 compatibility aggregate
 ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
 └── eggserve-python/    # Python wheel packaging (maturin) — EXCLUDED from workspace
 architecture/           # deep-dive docs per subsystem (filenames match subsystems)
@@ -89,6 +92,7 @@ Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
+python3 scripts/check-crate-topology.py                     # Plan 211 dependency-layer gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets
@@ -166,7 +170,14 @@ Routine CI is a small regression screen, not release certification. Platform qua
 ### Crate boundaries
 
 - **eggserve-python is excluded from the workspace** — own `Cargo.lock`, built independently via maturin. `cargo test --workspace` does not cover it.
-- **Package roles**: `eggserve-core::primitives` is the semver-considered facade; `eggserve-core::server` is experimental (API may change). `eggserve-bin::run_cli` is plumbing for the Python wheel's extension-backed CLI, **not** a general embedding API — Rust embedders use `eggserve-core`. Canonical types, `Service`, and the caller-owned connection API are Hyper-free; `RequestHead::try_from_hyper()` and `primitives::to_hyper_response()` are the two intentional public conversion adapters.
+- **Package roles**: `eggserve-primitives` is the dependency-free canonical
+  leaf; `eggserve-server` is the generic transport/runtime layer and never
+  depends on static serving; `eggserve-static` owns filesystem specialization.
+  `eggserve-core` remains the 0.1 compatibility aggregate and exposes the
+  direct crates under `eggserve_core::layers`. `eggserve-bin::run_cli` is
+  plumbing for the Python wheel's extension-backed CLI, **not** a general
+  embedding API. The exact graph is checked by
+  `scripts/check-crate-topology.py`.
 - `crates/eggserve-bin/src/main.rs` is a 2-line shim; real logic is in `lib.rs`/`args.rs`.
 
 ### Code shapes agents get wrong
@@ -263,6 +274,10 @@ indexes every page below.
 | Subsystem | Page |
 |-----------|------|
 | Workspace structure, data flow, decisions | [overview.md](architecture/overview.md) |
+| Crate ownership and dependency topology | [crate-topology.md](architecture/crate-topology.md) |
+| Dependency-free canonical primitives | [eggserve-primitives.md](architecture/eggserve-primitives.md) |
+| Generic transport/runtime layer | [eggserve-server.md](architecture/eggserve-server.md) |
+| Static-serving specialization | [eggserve-static.md](architecture/eggserve-static.md) |
 | Core library module map | [eggserve-core.md](architecture/eggserve-core.md) |
 | CLI binary, accept loop, signals | [eggserve-bin.md](architecture/eggserve-bin.md) |
 | Python bindings, PyO3 0.29.2/maturin packaging | [eggserve-python.md](architecture/eggserve-python.md) |

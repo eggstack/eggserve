@@ -49,6 +49,9 @@ name = "eggserve-core"
 version = "0.1.2"
 dependencies = [
  "bytes",
+ "eggserve-primitives",
+ "eggserve-server",
+ "eggserve-static",
  "futures-util",
  "http-body",
  "http-body-util",
@@ -65,6 +68,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "eggserve-primitives"
+version = "0.1.2"
+
+[[package]]
 name = "eggserve-python"
 version = "0.1.2"
 dependencies = [
@@ -76,6 +83,28 @@ dependencies = [
  "rustls",
  "tokio",
  "tokio-rustls",
+]
+
+[[package]]
+name = "eggserve-server"
+version = "0.1.2"
+dependencies = [
+ "bytes",
+ "eggserve-primitives",
+ "http-body",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "eggserve-static"
+version = "0.1.2"
+dependencies = [
+ "eggserve-primitives",
+ "eggserve-server",
 ]
 
 [[package]]
