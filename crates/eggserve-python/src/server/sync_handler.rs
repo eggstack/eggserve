@@ -66,7 +66,7 @@ impl PythonCallbackService {
         handler: &Arc<std::sync::Mutex<Option<Py<PyAny>>>>,
         py_request: PyRequest,
     ) -> Result<CanonicalResponse, ServiceError> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let handler_gil = handler
                 .lock()
                 .map_err(|_| ServiceError::internal("handler lock poisoned"))?;
@@ -713,4 +713,3 @@ impl Service for PythonCallbackService {
 // ---------------------------------------------------------------------------
 // Python Server — delegates to Rust runtime
 // ---------------------------------------------------------------------------
-

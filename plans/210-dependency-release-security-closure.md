@@ -2,7 +2,7 @@
 
 ## Status
 
-Planned.
+Complete — 2026-09-12.
 
 ## Purpose
 
@@ -194,3 +194,19 @@ This plan is complete when:
 - unsafe-code policy is explicit;
 - security documentation reflects the current server/runtime scope;
 - all existing release and wheel workflows remain functional.
+
+## Completion record
+
+**Status: Complete (2026-09-12).** The excluded Python closure now upgrades to
+PyO3 0.29.2 and is audited/policy-checked by
+`scripts/check-supply-chain.sh` alongside the root lockfile. Release wheel
+jobs use exact Rust 1.98.1, while routine compatibility lanes retain floating
+stable. Workspace `unsafe_code = "deny"` is inherited by the two workspace
+crates and declared locally by the excluded Python crate, with only the
+documented Windows/systemd/test-fixture exceptions.
+`SECURITY.md`, the threat-model architecture index, dependency/toolchain/release
+docs, README, AGENTS.md, and the EggServe development skill now describe the
+current runtime scope and verification boundary. ARMv7 image pinning,
+attestations, and Sigstore provenance were evaluated and left out because the
+plan makes them optional and they would add release complexity without a
+demonstrated EggServe-specific security property.

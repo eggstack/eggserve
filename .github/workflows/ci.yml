@@ -83,10 +83,8 @@ jobs:
       - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
       - name: Install pinned supply-chain tools
         run: bash scripts/install-cargo-tools.sh
-      - name: Cargo audit
-        run: cargo audit
-      - name: Cargo deny
-        run: cargo deny check
+      - name: Audit every distributed dependency closure
+        run: bash scripts/check-supply-chain.sh
 
   python:
     name: python

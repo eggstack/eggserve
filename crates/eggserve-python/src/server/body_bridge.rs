@@ -94,7 +94,7 @@ pub(super) fn spawn_python_stream_producer(
     sender: mpsc::Sender<Result<Bytes, ResponseStreamError>>,
 ) {
     std::thread::spawn(move || {
-        let iterator = Python::with_gil(|py| {
+        let iterator = Python::attach(|py| {
             let bound = iterable.bind(py);
             PyIterator::from_object(&bound)
                 .map(|it| it.into_any().unbind())
@@ -130,7 +130,7 @@ pub(super) fn spawn_python_stream_producer(
                 ItemError(String),
                 NonBytes,
             }
-            let pulled = Python::with_gil(|py| {
+            let pulled = Python::attach(|py| {
                 let bound = iterator_obj.bind(py);
                 // `iterator_obj` is the single iterator created at thread
                 // start; advancing it via `__next__` preserves one-shot
@@ -202,7 +202,7 @@ pub(super) fn spawn_python_stream_producer(
 // Python RequestBody — wraps Rust RequestBody
 // ---------------------------------------------------------------------------
 
-#[pyclass(frozen, name = "RequestBody")]
+#[pyclass(frozen, from_py_object, name = "RequestBody")]
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub struct PyRequestBody {
@@ -252,7 +252,7 @@ impl PyRequestBody {
         };
 
         let handle = self.handle.clone();
-        let data = py.allow_threads(|| {
+        let data = py.detach(|| {
             handle.block_on(async {
                 let mut body = body;
                 let mut data = Vec::new();
@@ -400,7 +400,7 @@ impl PyRequestBody {
         };
         let handle = self.handle.clone();
         let result =
-            py.allow_threads(|| handle.block_on(async { body.next_chunk().await }));
+            py.detach(|| handle.block_on(async { body.next_chunk().await }));
         match result {
             Ok(Some(chunk)) => {
                 let received = body.bytes_received();
@@ -462,7 +462,7 @@ impl PyRequestBody {
             })?
         };
         let handle = self.handle.clone();
-        let result = py.allow_threads(|| handle.block_on(async { body.trailers().await }));
+        let result = py.detach(|| handle.block_on(async { body.trailers().await }));
         // Always return the body (trailers() takes `&mut`, body stays owned).
         if let Ok(mut guard) = self.inner.lock() {
             *guard = Some(body);
@@ -519,8 +519,8 @@ impl PyBodyChunkIterator {
         slf
     }
 
-    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<PyObject> {
-        let result = py.allow_threads(|| self.receiver.blocking_recv());
+    fn __next__<'py>(&mut self, py: Python<'py>) -> PyResult<Py<PyAny>> {
+        let result = py.detach(|| self.receiver.blocking_recv());
         match result {
             Some(Ok(data)) => {
                 Ok(PyBytes::new(py, &data).into_any().unbind())
@@ -538,4 +538,3 @@ impl PyBodyChunkIterator {
 // ---------------------------------------------------------------------------
 // Python Request — request envelope for handler callbacks
 // ---------------------------------------------------------------------------
-

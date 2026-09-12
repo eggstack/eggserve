@@ -37,7 +37,7 @@ bridge is qualified by Plan 175. Plan 199 implements generic tunnel/upgrade/Exte
 Three crates:
 - `crates/eggserve-core/` — library: security primitives, path confinement, HTTP serving, response construction
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
-- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
+- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
 `plans/` (historical design/implementation records plus the `ROADMAP.md` and
@@ -83,7 +83,7 @@ cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http3,tls
 
-# supply-chain job: install-cargo-tools.sh, cargo audit, cargo deny check
+# supply-chain job: install-cargo-tools.sh, check both lockfiles
 # python job: bash scripts/test-python-wheel.sh
 # preflight re-runs check-python-release-metadata.py, then
 # builds wheel with maturin, installs in venv, runs smoke + tests
@@ -113,18 +113,18 @@ bash scripts/qualify-http3.sh             # manual H3/QUIC qualification; direct
 
 ### Supply-chain and optional package checks
 
-Not run in routine CI. Run manually when preparing a release:
+The routine supply-chain job and release preflight check both distributed
+dependency closures. Run the same checks locally when preparing a release:
 
 ```sh
 bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation
-cargo audit                             # vulnerability check
-cargo deny check                        # license/policy check
+bash scripts/check-supply-chain.sh     # root + excluded Python audit/policy
 bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
 
-Routine CI runs `cargo audit` and `cargo deny check` in a dedicated
-supply-chain job after installing the pinned tools. The package dry-run remains
-manual release validation.
+The package dry-run remains manual release validation. The excluded Python
+crate keeps its own lockfile, so never replace the shared script with a root
+only `cargo audit` or `cargo deny check` invocation.
 
 ## Key conventions
 
@@ -173,7 +173,8 @@ manual release validation.
 - **Plan 164 admission/lifecycle fields** — `RuntimeConfig`/`Limits` own `max_buf_size` (65536, Hyper min 8192), `max_headers` (100, pinned explicitly; Hyper answers excess with 431), `max_header_bytes` (32 KiB, 431 pre-service), `max_request_target_bytes` (8192, 414 pre-service), `max_in_flight_requests` (64, 503 on exhaustion, held across `Service::call`), `keep_alive_idle_timeout` (60s, resets on activity), `max_requests_per_connection` (`Option<u64>`, `None` = unlimited; CLI `0` = unlimited), `response_write_timeout` (30s, no-progress via `ProgressIo` + `TrackedBody`). Idle/write timeouts are NOT cross-checked against `connection_total_timeout`. `ConnectionOutcome` adds `IdleTimeout` (clean) and `WriteTimeout`. Hyper is 1.11.1: lone TE+CL normalizes to TE-wins (200), only duplicate/conflicting CLs still fail; Hyper also applies `header_read_timeout` while keep-alive idle, so set idle shorter for distinct accounting or raise both for long-lived keep-alive. Per-profile defaults live in `docs/deployment.md`; full semantics in `docs/timeout-reference.md`.
 - **Plan 179 canonical runtime authority** — shared runtime defaults/validation live once in `eggserve-core::runtime_limits` (`SharedRuntimeValues` + `Violation`, crate-private). `Limits::validate()` delegates shared checks + static listing budgets; `RuntimeConfigBuilder::build()` validates the shared group + `ResponsePolicy`; `try_from_serve_config()` projects via `RuntimeConfig::from_shared_runtime`. Static listing/extra-header budgets stay service-owned; frontend-only controls stay in their surfaces. Services may lower `max_request_body_bytes` but never raise the hard ceiling.
 - **Logging modes** — `--log-format none` uses `NopLogSink` (no output). `--quiet` wraps the format-specific sink with `FilteredLogSink` (warn/error only). Direct argument-validation errors printed before logger initialization may remain on stderr.
-- **Release validation** — run `bash scripts/install-cargo-tools.sh` before `cargo audit`/`cargo deny check`.
+- **Release validation** — run `bash scripts/install-cargo-tools.sh` followed by `bash scripts/check-supply-chain.sh`; this covers both distributed lockfiles. Release builds use exact Rust 1.98.1 while compatibility lanes retain floating stable.
+- **Unsafe Rust policy** — workspace `unsafe_code = "deny"` is inherited by the workspace crates and the excluded Python manifest declares the same lint locally. Only the reviewed FFI/test boundaries in `docs/unsafe-code-policy.md` carry local exceptions.
 - **`server` module is experimental** — `eggserve-core::server` provides the runtime service boundary. Its API is subject to change without notice.
 - **Production profiles** — Production profiles are documented in README.md and `docs/deployment.md`. Every production claim must name a profile. Hardened profiles must not allow symlink following. Windows is functionally qualified, but remains trusted/local-content only because two open-descendant root-rename cases are rejected by NTFS path-rename semantics; see `docs/toolchain-support.md`.
 - **`ops` module** — `Logger` uses `OnceLock` for global initialization. `try_init()` is for Python bindings that may coexist with CLI initialization (and adopts the sink into the global `OpsContext` default). Do not call `Logger::init()` twice. Runtime code uses the explicit `OpsContext`, not the global.

@@ -61,6 +61,7 @@ The user-facing Python compatibility contract lives in [docs/python-http-server-
 - **No serving outside the configured root.** Path traversal and symlink escape denied at library level. On Unix with safe defaults, descriptor-relative: `statat(AT_SYMLINK_NOFOLLOW)` + `openat(O_NOFOLLOW)`. See [docs/threat-model.md](docs/threat-model.md).
 - **No broad dependencies.** Every dependency must have an explicit purpose. See [docs/dependency-policy.md](docs/dependency-policy.md).
 - **Plan-driven development.** Every change must be backed by a plan in `plans/`. No ad-hoc feature additions.
+- **Unsafe Rust is denied by default.** Workspace crates and the excluded Python manifest reject new unsafe code; only the reviewed Windows FFI, systemd descriptor-adoption, and test-fixture boundaries listed in [docs/unsafe-code-policy.md](docs/unsafe-code-policy.md) are allowed.
 
 ## Layout
 
@@ -107,7 +108,7 @@ cargo test -p eggserve-core --features http3,tls
 cargo clippy -p eggserve-bin --features http3,tls --lib --bins --tests -- -D warnings
 cargo test -p eggserve-bin --features http3,tls
 
-# supply-chain job: install-cargo-tools.sh, cargo audit, cargo deny check
+# supply-chain job: install-cargo-tools.sh, check both lockfiles
 # python job: bash scripts/test-python-wheel.sh
 # preflight re-runs check-python-release-metadata.py, then
 # builds wheel with maturin, installs in venv, runs smoke + tests
@@ -131,12 +132,15 @@ Gotcha: `verify.sh full` **dies** without Python 3.14 + maturin installed (it de
 
 ```sh
 bash scripts/install-cargo-tools.sh     # deterministic audit/deny installation (required first)
-cargo audit && cargo deny check
+bash scripts/check-supply-chain.sh     # root + excluded Python closure
 bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 ```
 
-Routine CI runs the first two commands in its dedicated supply-chain job;
-`verify-cargo-packages.sh` remains a release-preparation check.
+Routine CI runs `scripts/check-supply-chain.sh` in its dedicated supply-chain
+job after installing the pinned tools. The command audits and policy-checks
+both the root workspace lockfile and the excluded Python wheel lockfile using
+the shared `deny.toml`. The package dry-run remains a release-preparation
+check.
 
 ### Distribution builds
 
@@ -261,7 +265,7 @@ indexes every page below.
 | Workspace structure, data flow, decisions | [overview.md](architecture/overview.md) |
 | Core library module map | [eggserve-core.md](architecture/eggserve-core.md) |
 | CLI binary, accept loop, signals | [eggserve-bin.md](architecture/eggserve-bin.md) |
-| Python bindings, PyO3/maturin packaging | [eggserve-python.md](architecture/eggserve-python.md) |
+| Python bindings, PyO3 0.29.2/maturin packaging | [eggserve-python.md](architecture/eggserve-python.md) |
 | Path validation pipeline | [path-confinement.md](architecture/path-confinement.md) |
 | SecureRoot, symlink-aware resolution | [filesystem-confinement.md](architecture/filesystem-confinement.md) |
 | StaticPolicy / policy flags | [policy-system.md](architecture/policy-system.md) |
@@ -269,6 +273,7 @@ indexes every page below.
 | Conditional/range/ETag planning | [response-planning.md](architecture/response-planning.md) |
 | Server, Service trait, StaticService | [runtime.md](architecture/runtime.md) |
 | Trust boundaries, defensive layers | [security-model.md](architecture/security-model.md) |
+| Unsafe Rust policy and reviewed exceptions | [unsafe-code-policy.md](docs/unsafe-code-policy.md) |
 | Test layers, corpora, fuzzing | [testing-and-conformance.md](architecture/testing-and-conformance.md) |
 | HTTP/2 ownership, limits, and qualification boundary | [http2.md](architecture/http2.md) |
 | HTTP/3 ownership, limits, and qualification boundary | [http3.md](architecture/http3.md) |

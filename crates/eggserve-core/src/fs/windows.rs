@@ -1,5 +1,9 @@
 #![cfg(windows)]
 #![allow(dead_code)]
+// This module is the single Windows FFI boundary for handle-relative
+// confinement. Every unsafe block below has a local SAFETY comment and the
+// module-level exception keeps the workspace deny policy effective elsewhere.
+#![allow(unsafe_code)]
 
 //! Windows handle-relative filesystem confinement.
 //!

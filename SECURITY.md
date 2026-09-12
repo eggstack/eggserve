@@ -25,14 +25,44 @@ The full security policy, including safe defaults and threat model, is documente
 
 ## Scope
 
-eggserve is a static file server. Security issues in upstream dependencies (Rust, hyper, tokio, etc.) should be reported to the respective projects. Report to eggserve only if the vulnerability is in eggserve's own code or policy enforcement.
+EggServe is primarily a hardened static-file server, but its security boundary
+also includes the reusable HTTP runtime and Python facade. Report issues in
+the implementation or policy of these surfaces, including:
+
+- HTTP/1.1 and optional HTTP/2 parsing, request/response framing, admission,
+  lifecycle, timeout, and resource-limit behavior;
+- experimental HTTP/3/QUIC stream handling and its bounded integration with the
+  canonical service pipeline;
+- TLS identity selection, SNI, ALPN, optional/required client authentication,
+  operator-supplied trust stores and CRLs, certificate-chain exposure, and
+  atomic TLS configuration reload;
+- explicitly configured trusted forwarding and PROXY protocol metadata,
+  listener ownership/adoption, and connection admission;
+- tunnel/upgrade handoff, custom Rust `Service` implementations at the
+  EggServe boundary, and bounded Python handlers/callbacks; and
+- static-file path validation, descriptor/handle-relative confinement,
+  symlink/dotfile/listing policy, response normalization, and sanitized
+  operational output.
+
+An upstream defect in Hyper, Rustls, Quinn, H3, Tokio, PyO3, or another
+dependency is reportable to that project, but also report it to EggServe when
+it can affect an EggServe-supported or documented experimental configuration,
+when EggServe enables the vulnerable behavior, or when our version policy,
+feature gating, validation, or response to the advisory is inadequate. Do not
+assume that an upstream report alone establishes that EggServe is unaffected.
+Include the dependency version, enabled feature set, protocol/profile, and a
+minimal reproduction when safe to share.
 
 The release wheel targets the CPython 3.11 stable ABI (abi3) and supports
-GIL-enabled CPython 3.11+. Routine CI verifies the Linux wheel with
-CPython 3.14; macOS and Windows wheels are built and tested manually.
-Windows functionality is covered, but filesystem confinement is not hardened
-to the Unix descriptor-relative level; do not use Windows with untrusted
-mutable public content.
+GIL-enabled CPython 3.11+. Routine CI verifies the Linux wheel with CPython
+3.14; macOS and Windows wheels are built and tested in the release/platform
+workflows. Windows implements handle-relative confinement for the qualified
+classes, but remains trusted/local-content only: two open-descendant
+root-rename cases are skipped because NTFS rejects that external path
+operation. This is a qualification limitation, not an absence of confinement.
+
+EggServe denies application-owned Rust `unsafe_code` by default. The reviewed
+exceptions are documented in [docs/unsafe-code-policy.md](docs/unsafe-code-policy.md).
 
 ## Vulnerability triage
 
@@ -58,6 +88,12 @@ When `cargo audit` or GitHub advisory databases report a vulnerability:
 2. If exploitable, treat as a vulnerability per the triage process above.
 3. If not exploitable (unreachable code path, wrong feature gate, etc.), document the finding and rationale for accepting the risk.
 4. Update `deny.toml` or `audit.toml` only with documented justification.
+
+Every distributed Rust dependency closure is checked in routine CI and release
+preflight. The root workspace and the excluded Python wheel crate have
+separate lockfiles; `scripts/check-supply-chain.sh` audits both and applies the
+shared `deny.toml` policy to both manifests. A release build also uses the
+exact Rust 1.98.1 compiler rather than a floating stable patch version.
 
 ## Release revocation / yank procedure
 

@@ -6,6 +6,11 @@ primitives and subprocess lifecycle helpers are kept in separate namespaces.
 The wheel includes an `eggserve` console script backed by the native extension
 (no separate bundled binary).
 
+The extension currently uses PyO3 0.29.2. Because this crate is intentionally
+excluded from the Rust workspace, its `Cargo.lock` is maintained and audited
+separately from the workspace lockfile; the shared supply-chain check covers
+both closures.
+
 Custom-handler startup is runtime-only: it constructs a Python callback service
 and `RuntimeConfig` without a `ServeConfig`, responder root, or pinned
 filesystem state. Its compatibility `root` argument is inactive and is not
@@ -187,4 +192,6 @@ requirement; release wheels are built against the CPython 3.11 ABI baseline.
 Subprocess helpers are canonically owned by `eggserve.subprocess`
 (`eggserve.server` retains compatibility re-exports). Release version and
 `[profile.dist]` sync is guarded cheaply by
-`scripts/check-python-release-metadata.py` before wheel builds.
+`scripts/check-python-release-metadata.py` before wheel builds. The wheel
+dependency closure is audited and checked against the shared `deny.toml` by
+`scripts/check-supply-chain.sh` before release.

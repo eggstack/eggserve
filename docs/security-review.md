@@ -93,7 +93,9 @@ When directory listing is enabled:
 - All dependencies are from crates.io
 - No git dependencies
 - No unknown registries
-- `cargo audit` and `cargo deny` are run manually during release preparation (not in routine CI)
+- `cargo audit` and `cargo deny` run in routine CI for both the root workspace
+  and the excluded Python wheel dependency closure via
+  `scripts/check-supply-chain.sh`; the release preflight repeats that check.
 - `cargo-deny` configuration is present for license/advisory checking
 
 ## Known limitations

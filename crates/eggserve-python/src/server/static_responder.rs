@@ -47,7 +47,7 @@ use super::request_bridge::PyRequest;
 #[allow(unused_imports)]
 use super::response_bridge::{PyResponse, PyResponseBody};
 
-#[pyclass(frozen, name = "StaticResponder")]
+#[pyclass(frozen, from_py_object, name = "StaticResponder")]
 #[derive(Debug, Clone)]
 pub struct PyStaticResponder {
     pub(super) root: SecureRoot,
@@ -442,7 +442,7 @@ pub(super) fn directory_listing_bytes(entries: &[(String, bool)]) -> Vec<u8> {
     html.into_bytes()
 }
 
-#[pyclass(frozen, name = "StaticPolicyWrapper")]
+#[pyclass(frozen, from_py_object, name = "StaticPolicyWrapper")]
 #[derive(Debug, Clone)]
 pub struct PyStaticPolicyWrapper {
     pub(super) inner: StaticPolicy,
@@ -485,7 +485,7 @@ impl PyStaticPolicyWrapper {
     }
 }
 
-#[pyclass(frozen, name = "ServerSecureRoot")]
+#[pyclass(frozen, from_py_object, name = "ServerSecureRoot")]
 #[derive(Debug, Clone)]
 pub struct ServerSecureRoot {
     pub(crate) inner: SecureRoot,
@@ -589,7 +589,7 @@ impl ServerBodySource {
         })?;
         drop(inner);
         let data = py
-            .allow_threads(|| source.read_all())
+            .detach(|| source.read_all())
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Ok(PyBytes::new(py, &data))
     }
@@ -609,7 +609,7 @@ impl ServerBodySource {
         })?;
         drop(inner);
         let data = py
-            .allow_threads(|| source.read_range(start, end_inclusive))
+            .detach(|| source.read_range(start, end_inclusive))
             .map_err(|e| pyo3::exceptions::PyIOError::new_err(e.to_string()))?;
         Ok(PyBytes::new(py, &data))
     }
@@ -629,4 +629,3 @@ impl ServerBodySource {
 // ---------------------------------------------------------------------------
 // Python callback service adapter
 // ---------------------------------------------------------------------------
-

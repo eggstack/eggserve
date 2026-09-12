@@ -21,6 +21,9 @@ include = [
     "LICENSE",
 ]
 
+[lints]
+workspace = true
+
 [features]
 default = []
 http2 = ["hyper/http2", "hyper-util/http2"]

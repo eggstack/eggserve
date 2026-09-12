@@ -708,7 +708,7 @@ impl PyServer {
             .build()
             .map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
 
-        let (server_handle, rt) = py.allow_threads(|| -> PyResult<_> {
+        let (server_handle, rt) = py.detach(|| -> PyResult<_> {
             let rt = tokio::runtime::Builder::new_multi_thread()
                 .worker_threads(2)
                 .enable_all()
@@ -813,7 +813,7 @@ impl PyServer {
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             if let Some(rt) = runtime_guard.as_ref() {
                 let deadline = self.graceful_shutdown_timeout + Duration::from_secs(2);
-                py.allow_threads(|| {
+                py.detach(|| {
                     rt.block_on(async {
                         let _ = tokio::time::timeout(deadline, handle.wait()).await;
                     });
@@ -827,7 +827,7 @@ impl PyServer {
             .lock()
             .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
         if let Some(rt) = runtime_guard.take() {
-            py.allow_threads(|| {
+            py.detach(|| {
                 drop(rt);
             });
         }
@@ -878,7 +878,7 @@ impl PyServer {
                     STARTUP_TIMEOUT.as_secs()
                 )));
             }
-            py.allow_threads(|| std::thread::sleep(Duration::from_millis(10)));
+            py.detach(|| std::thread::sleep(Duration::from_millis(10)));
         }
     }
 
@@ -913,7 +913,7 @@ impl PyServer {
                 .lock()
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             let result = if let Some(rt) = runtime_guard.as_ref() {
-                py.allow_threads(|| {
+                py.detach(|| {
                     rt.block_on(async {
                         let result =
                             tokio::time::timeout(timeout, handle.force_shutdown(timeout)).await;
@@ -974,7 +974,7 @@ impl PyServer {
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             if let Some(rt) = runtime_guard.as_ref() {
                 let deadline = self.graceful_shutdown_timeout + Duration::from_secs(2);
-                py.allow_threads(|| {
+                py.detach(|| {
                     rt.block_on(async {
                         let _ = tokio::time::timeout(deadline, handle.wait()).await;
                     });
@@ -991,7 +991,7 @@ impl PyServer {
                 .lock()
                 .map_err(|_| pyo3::exceptions::PyRuntimeError::new_err("lock poisoned"))?;
             if let Some(rt) = runtime_guard.take() {
-                py.allow_threads(|| {
+                py.detach(|| {
                     drop(rt);
                 });
             }

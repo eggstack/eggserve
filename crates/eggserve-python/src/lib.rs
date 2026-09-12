@@ -265,7 +265,7 @@ impl PyBodySource {
     }
 
     fn read_all(&mut self, py: Python<'_>) -> PyResult<Vec<u8>> {
-        let result = py.allow_threads(|| self.inner.read_all());
+        let result = py.detach(|| self.inner.read_all());
         result.map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
     }
 
@@ -275,7 +275,7 @@ impl PyBodySource {
         start: u64,
         end_inclusive: u64,
     ) -> PyResult<Vec<u8>> {
-        let result = py.allow_threads(|| self.inner.read_range(start, end_inclusive));
+        let result = py.detach(|| self.inner.read_range(start, end_inclusive));
         result.map_err(|e| BodySourceError::new_err((e.to_string(), "body_source_error")))
     }
 
@@ -899,8 +899,8 @@ impl PyResolvedDirectory {
         self.components.clone()
     }
 
-    fn list(&self) -> PyResult<PyObject> {
-        Python::with_gil(|py| {
+    fn list(&self) -> PyResult<Py<PyAny>> {
+        Python::attach(|py| {
             let confined = confined_from_components(&self.components)?;
             let result = self.root.resolve(&confined);
             match result {
@@ -913,9 +913,9 @@ impl PyResolvedDirectory {
                         .map_err(io_err_to_pyerr)?;
                     let py_list = PyList::empty(py);
                     for entry in &entries {
-                        let name_obj: PyObject =
+                        let name_obj: Py<PyAny> =
                             entry.0.as_str().into_pyobject(py)?.into_any().unbind();
-                        let flag_obj: PyObject =
+                        let flag_obj: Py<PyAny> =
                             entry.1.into_pyobject(py)?.to_owned().into_any().unbind();
                         let tup = PyTuple::new(py, [name_obj, flag_obj])?;
                         py_list.append(tup)?;
@@ -931,7 +931,7 @@ impl PyResolvedDirectory {
     }
 
     fn resolve_child(&self, child: &str) -> PyResult<PyResolvedResource> {
-        Python::with_gil(|_py| {
+        Python::attach(|_py| {
             let confined = confined_from_components(&self.components)?;
             let result = self.root.resolve(&confined);
             match result {
@@ -986,7 +986,7 @@ fn validate_request_target_fn(target: &str) -> PyResult<()> {
 
 #[pyfunction]
 #[pyo3(name = "generate_etag")]
-fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<PyObject> {
+fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<Py<PyAny>> {
     match planner::generate_etag(&file.metadata) {
         Some(etag) => Ok(etag.into_pyobject(py)?.into_any().unbind()),
         None => Ok(py.None()),
@@ -1077,7 +1077,7 @@ impl PyResponsePlan {
     }
 
     #[getter]
-    fn headers(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn headers(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for h in self.inner.headers.iter() {
             let tup = pyo3::types::PyTuple::new(py, [h.name.as_str(), h.value.as_str()])?;
@@ -1122,7 +1122,7 @@ impl PyResponsePlan {
 // Method (canonical HTTP method)
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "Method", frozen)]
+#[pyclass(name = "Method", frozen, from_py_object)]
 #[derive(Debug, Clone)]
 struct PyMethod {
     inner: RustMethod,
@@ -1223,7 +1223,7 @@ impl PyMethod {
 // HttpVersion (canonical HTTP version)
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "HttpVersion", frozen)]
+#[pyclass(name = "HttpVersion", frozen, from_py_object)]
 #[derive(Debug, Clone, Copy)]
 struct PyHttpVersion {
     inner: RustHttpVersion,
@@ -1286,7 +1286,7 @@ impl PyHttpVersion {
 // HeaderBlock (duplicate-preserving headers)
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "HeaderBlock", frozen)]
+#[pyclass(name = "HeaderBlock", frozen, from_py_object)]
 #[derive(Debug, Clone)]
 struct PyHeaderBlock {
     inner: RustHeaderBlock,
@@ -1351,7 +1351,7 @@ impl PyHeaderBlock {
         self.inner.contains(name)
     }
 
-    fn iter(&self, py: Python<'_>) -> PyResult<PyObject> {
+    fn iter(&self, py: Python<'_>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         for field in self.inner.iter() {
             // Skip opaque values: this stdlib-shaped surface is text-only.
@@ -1368,7 +1368,7 @@ impl PyHeaderBlock {
         self.inner.len()
     }
 
-    fn __iter__<'py>(slf: Py<Self>, py: Python<'py>) -> PyResult<PyObject> {
+    fn __iter__<'py>(slf: Py<Self>, py: Python<'py>) -> PyResult<Py<PyAny>> {
         let list = pyo3::types::PyList::empty(py);
         let borrowed = slf.borrow(py);
         for field in borrowed.inner.iter() {
@@ -1390,7 +1390,7 @@ impl PyHeaderBlock {
 // ConnectionInfo (connection metadata)
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "ConnectionInfo", frozen)]
+#[pyclass(name = "ConnectionInfo", frozen, from_py_object)]
 #[derive(Debug, Clone)]
 struct PyConnectionInfo {
     local_addr: Option<String>,
@@ -1470,7 +1470,7 @@ impl PyConnectionInfo {
 // CanonicalRequest (canonical HTTP request head for Python)
 // ---------------------------------------------------------------------------
 
-#[pyclass(name = "CanonicalRequest", frozen)]
+#[pyclass(name = "CanonicalRequest", frozen, from_py_object)]
 #[derive(Debug, Clone)]
 struct PyCanonicalRequest {
     method: String,
@@ -1610,7 +1610,7 @@ fn parse_http_version_fn(value: &str) -> PyResult<PyHttpVersion> {
 #[pyo3(name = "_run_cli")]
 #[pyo3(signature = (argv,))]
 fn run_cli_fn(py: Python<'_>, argv: Vec<String>) -> i32 {
-    py.allow_threads(|| eggserve_bin::run_cli(argv))
+    py.detach(|| eggserve_bin::run_cli(argv))
 }
 
 #[pymodule]

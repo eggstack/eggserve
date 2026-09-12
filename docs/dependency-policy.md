@@ -30,7 +30,7 @@ The following dependency categories are approved for initial development:
 | Compile-time map | `phf` | Perfect hash function map for MIME type lookup |
 | CLI parsing | manual (no clap) | Manual argument parsing in `eggserve-bin` |
 | Error derive | `thiserror` | Derive macro for Error types |
-| Python bindings | `pyo3` (optional, eggserve-python only) | PyO3 bindings for Python wheel |
+| Python bindings | `pyo3` 0.29.2 (eggserve-python only) | PyO3 bindings for Python wheel; pinned above the current RustSec advisories affecting 0.24.x |
 | TLS | `rustls` (optional, feature-gated) | TLS termination |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
@@ -86,7 +86,10 @@ The following dependency categories are approved for initial development:
   part of the default graph.
 - No dependency is added without updating this document
 - `cargo audit` and `cargo deny` run in the routine CI supply-chain job using
-  the pinned versions from `scripts/install-cargo-tools.sh`
+  the pinned versions from `scripts/install-cargo-tools.sh`. Because
+  `eggserve-python` is excluded from the root workspace, CI invokes
+  `scripts/check-supply-chain.sh`, which checks both `Cargo.lock` files and
+  applies this same `deny.toml` to both manifests.
 
 ## Release validation tool versions
 
@@ -120,13 +123,13 @@ To run locally:
 bash scripts/install-cargo-tools.sh
 cargo audit --version
 cargo deny --version
-cargo audit
-cargo deny check
+bash scripts/check-supply-chain.sh
 ```
 
-Routine CI runs `cargo audit` and `cargo deny check` in a dedicated,
+Routine CI runs the shared root/Python audit and deny checks in a dedicated,
 self-contained supply-chain job. Maintainers can reproduce that job locally
-with `scripts/install-cargo-tools.sh` followed by both commands. The manually
-dispatched release workflow also retains its separate release checks.
+with `scripts/install-cargo-tools.sh` followed by
+`scripts/check-supply-chain.sh`. The release preflight repeats the same
+closure check before building wheels.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.

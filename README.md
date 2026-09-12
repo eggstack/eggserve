@@ -306,6 +306,9 @@ the experimental `server` module a stable 1.0 API.
 - Path traversal and symlink escape are denied at library level. Unix safe
   defaults use descriptor-relative resolution; Windows is qualified for the
   executed handle-relative classes but remains trusted/local-content only.
+- The workspace denies Rust `unsafe_code` by default. The only application
+  exceptions are the reviewed Windows filesystem and systemd listener FFI
+  boundaries plus isolated test fixtures; see the [unsafe Rust policy](https://github.com/eggstack/eggserve/blob/main/docs/unsafe-code-policy.md).
 - HTTP/1.1, optional Rust HTTP/2, ranges, conditional requests, canonical response normalization
   (including known/unknown-length streaming bodies with runtime-owned
   framing, terminal trailers, and bounded interim 1xx), and bounded resource admission are part of the implemented contract.
@@ -362,6 +365,7 @@ the experimental `server` module a stable 1.0 API.
 
 See the [security policy](https://github.com/eggstack/eggserve/blob/main/docs/security-policy.md),
 [threat model](https://github.com/eggstack/eggserve/blob/main/docs/threat-model.md),
+[unsafe Rust policy](https://github.com/eggstack/eggserve/blob/main/docs/unsafe-code-policy.md),
 [Python compatibility matrix](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md), and
 [non-goals](https://github.com/eggstack/eggserve/blob/main/docs/non-goals.md).
 
@@ -430,6 +434,8 @@ point; it does not bundle a second standalone CLI binary. See
 ./scripts/verify.sh fast    # format, clippy, and workspace tests
 ./scripts/verify.sh full    # fast + examples + TLS + installed Python wheel checks
 ./scripts/verify.sh deep    # expensive suites selected for release risk
+bash scripts/install-cargo-tools.sh
+bash scripts/check-supply-chain.sh  # audits root and excluded Python lockfiles
 bash scripts/qualify-http2.sh  # manual H2 wire/ALPN qualification
 bash scripts/qualify-http3.sh  # manual H3/QUIC qualification; external clients required for direct H3
 ```

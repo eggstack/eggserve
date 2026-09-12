@@ -47,7 +47,7 @@ use super::errors::{RawBodyError, raw_body_error_to_pyerr};
 #[allow(unused_imports)]
 use super::response_bridge::PyResponseBody;
 
-#[pyclass(frozen, name = "TunnelRequest")]
+#[pyclass(frozen, from_py_object, name = "TunnelRequest")]
 #[derive(Debug, Clone)]
 pub struct PyTunnelRequest {
     #[pyo3(get)]
@@ -307,7 +307,7 @@ impl PyTunnel {
                 pyo3::exceptions::PyRuntimeError::new_err("tunnel already closed")
             })?
         };
-        let result = py.allow_threads(|| handle.block_on(rx.recv()));
+        let result = py.detach(|| handle.block_on(rx.recv()));
         match result {
             Some(Ok(chunk)) => {
                 // Not terminal: return receiver for future recvs.
@@ -355,7 +355,7 @@ impl PyTunnel {
                 pyo3::exceptions::PyRuntimeError::new_err("tunnel already closed")
             })?
         };
-        py.allow_threads(|| tx.blocking_send(data)).map_err(|_| {
+        py.detach(|| tx.blocking_send(data)).map_err(|_| {
             self.closed.store(true, Ordering::Release);
             pyo3::exceptions::PyConnectionError::new_err("tunnel closed during send")
         })
@@ -378,4 +378,3 @@ impl PyTunnel {
         format!("<Tunnel closed={}>", self.is_closed())
     }
 }
-

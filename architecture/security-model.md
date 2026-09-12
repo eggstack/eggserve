@@ -196,6 +196,17 @@ An attacker can:
 | macOS (x86_64, aarch64) | Same descriptor-relative guarantees | None (fully hardened) |
 | Windows (x86_64) | Parser-level checks + handle-relative child resolution + directory enumeration + manual adversarial qualification suites | Functionally qualified for executed classes; two open-descendant root-rename cases are skipped by NTFS path-rename semantics, so not for untrusted mutable public content |
 
+## Unsafe-code boundary
+
+The workspace denies Rust `unsafe_code` by default. EggServe has two narrow,
+documented production exceptions: Windows handle-relative filesystem FFI in
+`fs/windows.rs` and systemd descriptor adoption in `server/listener.rs`.
+Unix FIFO creation in resolver tests and Windows qualification fixtures are
+test-only exceptions. Each production call is locally annotated with its
+pointer, buffer, and ownership invariants; PyO3 and other dependencies do not
+expand the application-owned unsafe surface. See the complete inventory in
+[the unsafe Rust policy](../docs/unsafe-code-policy.md).
+
 ## Consumer Trust Boundaries
 
 ### Rust Embedders

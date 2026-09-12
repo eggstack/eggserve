@@ -47,7 +47,7 @@ use super::body_bridge::{PyBodyChunkIterator, PyRequestBody};
 #[allow(unused_imports)]
 use super::tunnel_bridge::PyTunnelCapability;
 
-#[pyclass(frozen, name = "Request")]
+#[pyclass(frozen, from_py_object, name = "Request")]
 #[derive(Debug, Clone)]
 pub struct PyRequest {
     #[pyo3(get)]
@@ -248,7 +248,7 @@ impl PyRequest {
             pyo3::exceptions::PyRuntimeError::new_err("no runtime handle for lifecycle wait")
         })?;
         let timeout = timeout_secs.map(Duration::from_secs_f64);
-        Ok(py.allow_threads(|| {
+        Ok(py.detach(|| {
             handle.block_on(async {
                 match timeout {
                     Some(d) => tokio::time::timeout(d, lifecycle.cancelled()).await.is_ok(),
@@ -345,4 +345,3 @@ impl PyRequest {
         }))
     }
 }
-

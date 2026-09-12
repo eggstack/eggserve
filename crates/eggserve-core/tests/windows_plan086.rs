@@ -22,6 +22,7 @@
 
 #![cfg(all(windows, feature = "windows-adversarial-qualification"))]
 #![allow(
+    unsafe_code,
     dead_code,
     clippy::upper_case_acronyms,
     clippy::io_other_error,

@@ -11,6 +11,11 @@
 //! server lifetime. [`RootGuard`] borrows the pinned root for request-scoped
 //! traversal, never re-opening the root by pathname.
 
+// The only unsafe operations in this file are Unix FIFO creation calls in
+// resolver regression tests. Production confinement code uses rustix wrappers
+// in `fs::unix`; keep the test-only libc fixture explicitly scoped.
+#![cfg_attr(test, allow(unsafe_code))]
+
 use std::fs;
 use std::path::{Path, PathBuf};
 

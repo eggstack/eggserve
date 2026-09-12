@@ -18,6 +18,13 @@ keywords = ["http", "static-file-server", "security", "hardened", "http-server"]
 categories = ["web-programming::http-server"]
 rust-version = "1.88"
 
+[workspace.lints.rust]
+# EggServe owns a small amount of platform FFI for descriptor/handle-relative
+# confinement and systemd listener adoption. Those modules carry narrow,
+# documented `allow(unsafe_code)` exceptions; all other Rust code, including
+# future additions, is denied unsafe code by default.
+unsafe_code = "deny"
+
 [profile.dist]
 inherits = "release"
 opt-level = "z"

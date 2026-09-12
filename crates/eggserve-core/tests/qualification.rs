@@ -14,6 +14,8 @@
 //! - **Qualification** (`EGGSERVE_WINDOWS_QUALIFY=1`): All tests run.
 //!   Fixtures that still cannot be created produce a real test failure.
 
+#![allow(unsafe_code)]
+
 #[cfg(windows)]
 use std::fs;
 use std::path::Path;

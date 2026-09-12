@@ -53,13 +53,16 @@ receives only the already-built and already-qualified release artifact set.
    Python crate `[profile.dist]` exactly equal to the workspace profile;
    `scripts/check-python-release-metadata.py` is the cheap preflight for both.
 2. Verify the working tree is clean and routine CI is green.
-3. Run the release preflight locally or rely on the workflow preflight job.
-4. Manually dispatch the release workflow for the intended commit.
-5. Inspect the build matrix results and aggregate manifest.
-6. Approve the `pypi` environment only after all Tier 1 wheels are present.
-7. Confirm the publication job succeeds.
-8. Review post-publication binary-only smoke checks.
-9. Optionally create and push a repository tag.
+3. Run `bash scripts/install-cargo-tools.sh` followed by
+   `bash scripts/check-supply-chain.sh`; the workflow preflight repeats both
+   checks for the root and excluded Python lockfiles.
+4. Run the release preflight locally or rely on the workflow preflight job.
+5. Manually dispatch the release workflow for the intended commit.
+6. Inspect the build matrix results and aggregate manifest.
+7. Approve the `pypi` environment only after all Tier 1 wheels are present.
+8. Confirm the publication job succeeds.
+9. Review post-publication binary-only smoke checks.
+10. Optionally create and push a repository tag.
 
 ### Stable Rust API version selection
 
@@ -110,7 +113,8 @@ Release wheels are built for all 9 Tier 1 targets:
 | Windows x86_64 | `win_amd64` | native hosted runner |
 | Windows arm64 | `win_arm64` | native hosted runner or cross-build + qualify |
 
-Each wheel is built with `--profile dist --locked --compatibility pypi` and
+Each wheel is built with exact Rust **1.98.1** and
+`--profile dist --locked --compatibility pypi` and
 validated for platform/ABI/version correctness, wheel composition (no second
 standalone binary), and runtime smoke (import, CLI help, real fixture serving).
 On the representative manylinux x86_64 target, the same wheel is installed and
@@ -236,7 +240,9 @@ cargo build --profile dist --locked -p eggserve-bin --features tls  # TLS CLI
 ```
 
 The dist profile uses `opt-level = "z"`, fat LTO, single codegen unit,
-and symbol stripping. See `Cargo.toml` for the exact configuration.
+and symbol stripping. Release builds pin Rust 1.98.1; floating `stable` remains
+available in compatibility CI and platform qualification. See `Cargo.toml` and
+`.github/workflows/release.yml` for the exact configuration.
 
 ## Post-publication tag
 

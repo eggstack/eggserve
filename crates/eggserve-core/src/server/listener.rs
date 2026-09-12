@@ -37,6 +37,11 @@
 //! [`crate::server::ServerHandle::local_addr`] preserves the common
 //! one-TCP-listener path.
 
+// Systemd descriptor adoption is the only unsafe boundary here. The raw fd is
+// borrowed for validation, then owned exactly once after the socket checks;
+// all other listener paths remain safe Rust/Tokio APIs.
+#![allow(unsafe_code)]
+
 use std::net::SocketAddr;
 #[cfg(unix)]
 use std::path::PathBuf;

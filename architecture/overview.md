@@ -70,6 +70,7 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows), TOCTOU prevention |
 | [policy-system.md](policy-system.md) | `StaticPolicy` (+`StaticMetadataPolicy`, `ErrorRepresentationPolicy`), `ResponsePolicy`/`DatePolicy`/denylist, safe defaults, CLI/Python mapping |
 | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries, platform security |
+| [../docs/unsafe-code-policy.md](../docs/unsafe-code-policy.md) | Workspace deny-by-default policy and reviewed FFI/test exceptions |
 
 ### HTTP and Runtime
 
@@ -445,7 +446,8 @@ The `scripts/` directory provides a small, layered verification hierarchy:
 | `check-release-wheel-set.py` | Validate that a release directory contains the expected 9-platform wheel set |
 | `check-python-release-metadata.py` | Validate release metadata (versions, tags, artifact naming) |
 | `release_smoke.py` | Release artifact smoke tests |
-| `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` for manual security checks |
+| `install-cargo-tools.sh` | Deterministic installation of `cargo-audit` and `cargo-deny` |
+| `check-supply-chain.sh` | Audit and policy-check both distributed lockfiles |
 | `qualify-http2.sh` | Manual Linux H2 wire qualification: TLS ALPN, cleartext prior knowledge, static/range/conditional, parallel streams, and Upgrade absence |
 | `qualify-http3.sh` | Manual H3/QUIC qualification: optional direct independent-client semantics, same-port Alt-Svc, TCP fallback, and minimal-graph checks |
 
@@ -608,7 +610,7 @@ python/eggserve/
 Release is a manual workflow dispatch. CI is a regression screen, not release certification:
 
 1. Run `./scripts/verify.sh full` (examples, Rust + Python wheel)
-2. Run `bash scripts/install-cargo-tools.sh` then `cargo audit` + `cargo deny check`
+2. Run `bash scripts/install-cargo-tools.sh` then `bash scripts/check-supply-chain.sh`
 3. Manually dispatch the release workflow (builds, validates, and publishes via OIDC Trusted Publishing)
 4. Production PyPI upload requires the protected `pypi` GitHub Environment
 5. No push/tag/merge automatically publishes

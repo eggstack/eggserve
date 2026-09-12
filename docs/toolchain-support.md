@@ -18,6 +18,10 @@ retain this check or update the MSRV deliberately as part of the documented
 current RustSec advisory database. There is no backward-compatibility
 guarantee for compilers older than the MSRV.
 
+Release wheel builds use Rust **1.98.1** exactly. This is intentionally
+separate from the floating `stable` compatibility lanes, so a stable compiler
+patch update cannot silently change a release build.
+
 ### Supported Targets
 
 | Target | Status | Notes |
@@ -65,7 +69,9 @@ Wheels are built with **maturin** (latest stable, `>=1.0, <2.0`). The build back
 
 ### PyO3 Version
 
-The Python bindings use PyO3 **0.24** with the `extension-module` and `abi3-py311` features.
+The Python bindings use PyO3 **0.29.2** with the `extension-module` and
+`abi3-py311` features. The excluded Python crate has its own lockfile, which
+is audited and checked against the shared dependency policy in CI.
 
 ### Wheel Matrix
 
