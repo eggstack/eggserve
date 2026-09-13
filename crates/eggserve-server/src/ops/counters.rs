@@ -1,4 +1,4 @@
-//! Ops operational counters (Plan 206 Track H).
+//! Ops operational counters (Plan 215: moved from compatibility core).
 //!
 //! Owns [`OpsCounters`] and its bounded [`OpsSnapshot`]. Snapshots never
 //! reset on read and involve no exporter; they are the explicit per-runtime

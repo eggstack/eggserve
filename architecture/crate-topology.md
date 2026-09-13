@@ -1,9 +1,13 @@
 # Crate topology
 
-Plans 211–214 establish dependency layers while preserving the historical
+Plans 211–215 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
-and static implementations into their direct crates; protocol-specific
-compatibility glue remains in core during this transition.
+and static implementations into their direct crates; Plan 215 moves the
+mature generic H1 connection runtime into `eggserve-server` with a
+direct-vs-compatibility parity suite. Protocol-specific compatibility glue
+(tunnel acceptance, H2/H3, extended listener/proxy/TLS paths) remains in
+core during this transition, with topology-gate ownership rules marking the
+boundary (see `release/plan-215-direct-runtime-parity.md`).
 
 ```text
 eggnet-tls             (neutral rustls identity/trust/reload substrate)
@@ -34,11 +38,19 @@ and proxy provenance values. Its small `bytes`/`futures-util` dependencies are
 transport-neutral; it must not acquire Hyper, Hyper-util, Tokio, TLS, QUIC, or
 filesystem dependencies.
 
-`eggserve-server` owns the generic transport boundary and application
-`Service` contract. Its direct path preserves one-shot request bodies,
-response streams, opened-file streaming, normalization, and bounded request
-timeouts. It may depend on the primitives crate and transport dependencies,
-but never on `eggserve-core` or `eggserve-static`.
+`eggserve-server` owns the mature generic H1 connection runtime: per-runtime
+observability (`ops`), the `ServerError` taxonomy, response privacy policy,
+the shared runtime-limit authority, the service contract shape, connection
+vocabulary (`ConnectionContext`/`ConnectionShutdown`/`ConnectionOutcome`),
+H1 configuration/state, the H1 connection driver (request conversion, body
+policy, admission, panic containment, timeouts, normalization, Hyper
+conversion), and the listener/prebound TCP `Server`. Its direct path
+preserves one-shot request bodies, response streams, opened-file streaming,
+normalization, and bounded request timeouts. It may depend on the primitives
+crate and transport dependencies, but never on `eggserve-core` or
+`eggserve-static`. Tunnel acceptance, H2 selection, and H3 paths stay in
+core until Plans 216/217; the H1 tunnel branch in the direct driver is an
+inert documented seam.
 
 `eggserve-static` owns the extracted descriptor/handle-relative filesystem
 resolver, path policy, MIME selection, response planner, and static service.
@@ -74,7 +86,10 @@ Run `python3 scripts/check-crate-topology.py` to inspect Cargo metadata. The
 check rejects forbidden direct dependencies in the primitives leaf and neutral
 TLS crate, rejects
 core/static edges from the generic server, and requires static to consume
-primitives plus server. It is part of the Rust CI preflight and
+primitives plus server. The Plan 215 rules additionally assert direct
+ownership of the H1 runtime vocabulary (ops/errors/policy/authority/service/
+driver markers), compatibility re-export facades, service-contract shape
+parity, and no upward source references. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.
 
 The check also verifies that the mature static resolver is present and the old

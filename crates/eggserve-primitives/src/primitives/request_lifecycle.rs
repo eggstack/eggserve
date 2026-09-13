@@ -104,8 +104,11 @@ impl Future for Notified<'_> {
 /// Distinguishes completion from abandonment and active delegated ownership.
 /// The runtime retains an observer; the service owns/moves the actual
 /// [`RequestBody`](super::request_body::RequestBody).
+///
+/// Public runtime-adapter API (Plan 215): the direct connection driver in
+/// `eggserve-server` matches on these states for deferred-body handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum BodyLifecycleState {
+pub enum BodyLifecycleState {
     /// Body still owned (unread or streaming), possibly delegated to a
     /// downstream task past `Service::call` return.
     Active = 0,
@@ -163,8 +166,11 @@ impl std::fmt::Display for RequestCancellationReason {
 ///
 /// One allocation per streaming request. State observers do not require
 /// holding the `RequestBody` itself.
+///
+/// Public runtime-adapter API (Plan 215): shared between the canonical
+/// request body and the direct connection driver.
 #[derive(Debug)]
-pub(crate) struct RequestShared {
+pub struct RequestShared {
     body_state: AtomicU8,
     cancelled: AtomicBool,
     reason: Mutex<Option<RequestCancellationReason>>,
@@ -175,7 +181,7 @@ pub(crate) struct RequestShared {
 }
 
 impl RequestShared {
-    pub(crate) fn new_active() -> Arc<Self> {
+    pub fn new_active() -> Arc<Self> {
         Arc::new(Self {
             body_state: AtomicU8::new(BodyLifecycleState::Active as u8),
             cancelled: AtomicBool::new(false),
@@ -185,31 +191,31 @@ impl RequestShared {
         })
     }
 
-    pub(crate) fn new_complete() -> Arc<Self> {
+    pub fn new_complete() -> Arc<Self> {
         let shared = Self::new_active();
         shared.mark_complete();
         shared
     }
 
-    pub(crate) fn body_state(&self) -> BodyLifecycleState {
+    pub fn body_state(&self) -> BodyLifecycleState {
         BodyLifecycleState::from_u8(self.body_state.load(Ordering::Acquire))
     }
 
-    pub(crate) fn is_body_active(&self) -> bool {
+    pub fn is_body_active(&self) -> bool {
         self.body_state() == BodyLifecycleState::Active
     }
 
-    pub(crate) fn is_body_complete(&self) -> bool {
+    pub fn is_body_complete(&self) -> bool {
         self.body_state() == BodyLifecycleState::Complete
     }
 
-    pub(crate) fn is_body_terminal(&self) -> bool {
+    pub fn is_body_terminal(&self) -> bool {
         self.body_state() != BodyLifecycleState::Active
     }
 
     /// Mark body Complete after declared-length/framing validation succeeds.
     /// Only transitions from Active; idempotent otherwise.
-    pub(crate) fn mark_complete(&self) -> bool {
+    pub fn mark_complete(&self) -> bool {
         let res = self.body_state.compare_exchange(
             BodyLifecycleState::Active as u8,
             BodyLifecycleState::Complete as u8,
@@ -226,7 +232,7 @@ impl RequestShared {
 
     /// Mark body Abandoned when an incomplete network body is dropped.
     /// Only transitions from Active; preserves Complete/Failed.
-    pub(crate) fn mark_abandoned(&self) -> bool {
+    pub fn mark_abandoned(&self) -> bool {
         let res = self.body_state.compare_exchange(
             BodyLifecycleState::Active as u8,
             BodyLifecycleState::Abandoned as u8,
@@ -243,7 +249,7 @@ impl RequestShared {
 
     /// Mark body Failed on transport/body error. Also cancels lifecycle
     /// with TransportFailure if not already cancelled (first reason wins).
-    pub(crate) fn mark_failed(&self) -> bool {
+    pub fn mark_failed(&self) -> bool {
         let res = self.body_state.compare_exchange(
             BodyLifecycleState::Active as u8,
             BodyLifecycleState::Failed as u8,
@@ -262,7 +268,7 @@ impl RequestShared {
     /// Mark body Failed with an explicit cancellation reason (e.g. body-read
     /// timeout maps to ConnectionTimeout). First cancellation reason wins.
     #[allow(dead_code)]
-    pub(crate) fn mark_failed_with_reason(&self, reason: RequestCancellationReason) -> bool {
+    pub fn mark_failed_with_reason(&self, reason: RequestCancellationReason) -> bool {
         let res = self.body_state.compare_exchange(
             BodyLifecycleState::Active as u8,
             BodyLifecycleState::Failed as u8,
@@ -279,7 +285,7 @@ impl RequestShared {
     }
 
     /// Cancel lifecycle with a reason. Idempotent; first reason wins.
-    pub(crate) fn cancel(&self, reason: RequestCancellationReason) {
+    pub fn cancel(&self, reason: RequestCancellationReason) {
         if !self.cancelled.swap(true, Ordering::AcqRel) {
             if let Ok(mut guard) = self.reason.lock() {
                 *guard = Some(reason);
@@ -288,17 +294,20 @@ impl RequestShared {
         }
     }
 
-    pub(crate) fn is_cancelled(&self) -> bool {
+    pub fn is_cancelled(&self) -> bool {
         self.cancelled.load(Ordering::Acquire)
     }
 
-    pub(crate) fn cancellation_reason(&self) -> Option<RequestCancellationReason> {
+    pub fn cancellation_reason(&self) -> Option<RequestCancellationReason> {
         self.reason.lock().ok().and_then(|g| *g)
     }
 
     /// Wait until body reaches a terminal state.
+    ///
+    /// Public runtime-adapter API (Plan 215): the direct connection
+    /// driver's deferred-body supervision waits on this.
     #[allow(dead_code)]
-    pub(crate) async fn wait_body_terminal(&self) {
+    pub async fn wait_body_terminal(&self) {
         loop {
             if self.is_body_terminal() {
                 return;
@@ -337,7 +346,7 @@ pub struct RequestLifecycle {
 }
 
 impl RequestLifecycle {
-    pub(crate) fn from_shared(shared: Arc<RequestShared>) -> Self {
+    pub fn from_shared(shared: Arc<RequestShared>) -> Self {
         Self { shared }
     }
 
@@ -368,7 +377,7 @@ impl RequestLifecycle {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn shared(&self) -> &Arc<RequestShared> {
+    pub fn shared(&self) -> &Arc<RequestShared> {
         &self.shared
     }
 }

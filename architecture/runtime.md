@@ -14,7 +14,13 @@ failed body causes the response and connection to close.
 `eggserve-server` is the direct generic dependency layer for new
 application-server consumers. It depends on `eggserve-primitives`, preserves
 one-shot request-body and response-stream semantics, and has no static-file
-edge. `eggserve-static` composes hardened static behavior on top. The
+edge. Since Plan 215 it is the implementation home of the mature H1
+connection runtime (ops, error taxonomy, response policy, shared limit
+authority, service contract shape, connection vocabulary, H1 config/state,
+H1 driver, Hyper conversion boundary), proven wire-for-wire against the
+compatibility pipeline by `crates/eggserve-core/tests/direct_h1_parity.rs`
+(16 scenarios; tunnel excluded, Plan 216 input). `eggserve-static`
+composes hardened static behavior on top. The
 historical `eggserve-core::server` remains the compatibility runtime for
 advanced H2/H3, tunnel, listener, proxy, and TLS paths during extraction.
 

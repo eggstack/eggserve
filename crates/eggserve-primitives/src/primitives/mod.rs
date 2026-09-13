@@ -28,9 +28,9 @@ pub mod version;
 pub use authority::{Authority, AuthorityError};
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use canonical::{
-    is_hop_by_hop_header, normalize_metadata, normalize_response, BodyLength, NormalizeRequest,
-    Response, ResponseBody, ResponseBuilder, ResponseConstructionError, ResponseStream,
-    ResponseStreamError, StatusCode,
+    is_hop_by_hop_header, normalize_metadata, normalize_response, runtime_error_with_policy,
+    BodyLength, NormalizeRequest, Response, ResponseBody, ResponseBuilder,
+    ResponseConstructionError, ResponseStream, ResponseStreamError, StatusCode,
 };
 pub use connection_info::{ConnectionInfo, Scheme, SocketEndpoints, TlsInfo};
 pub use header_block::{
@@ -55,12 +55,14 @@ pub use proxy::{
     ProxyProtocolConfig, ProxySourceKind, TrustedProxyConfig, TrustedProxyConfigError,
 };
 pub use request::Request;
-pub use request_body::{BodyState, RequestBody};
+pub use request_body::{new_wire_slot, BodyState, RequestBody, WireTrailerSlot};
 pub use request_body_error::RequestBodyError;
 pub use request_body_policy::RequestBodyPolicy;
 pub use request_context::RequestContext;
 pub use request_head::RequestHead;
-pub use request_lifecycle::{RequestCancellationReason, RequestLifecycle};
+pub use request_lifecycle::{
+    BodyLifecycleState, RequestCancellationReason, RequestLifecycle, RequestShared,
+};
 pub use request_target::{RequestTarget, RequestTargetError};
 pub use response::{
     BodyPlan, ConditionalRequestOutcome, FileRange, HeaderMapPlan, RangeRequestOutcome,

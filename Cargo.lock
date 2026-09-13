@@ -273,10 +273,10 @@ dependencies = [
  "futures-util",
  "http-body",
  "http-body-util",
+ "httpdate",
  "hyper",
  "hyper-util",
  "rustls",
- "thiserror",
  "tokio",
  "tokio-rustls",
 ]

@@ -120,10 +120,13 @@ pub struct RequestBody {
 }
 
 /// Shared wire-trailer slot type for transport bridges.
-pub(crate) type WireTrailerSlot = Arc<Mutex<Option<Result<HeaderBlock, String>>>>;
+///
+/// Public runtime-adapter API (Plan 215): the direct connection driver in
+/// `eggserve-server` populates this from protocol trailer frames.
+pub type WireTrailerSlot = Arc<Mutex<Option<Result<HeaderBlock, String>>>>;
 
 /// Create a fresh empty wire-trailer slot.
-pub(crate) fn new_wire_slot() -> WireTrailerSlot {
+pub fn new_wire_slot() -> WireTrailerSlot {
     Arc::new(Mutex::new(None))
 }
 
@@ -257,7 +260,7 @@ impl RequestBody {
     /// Runtime adapters use this after bounded pre-buffering so the lifecycle
     /// registered for the network receive remains the lifecycle exposed by the
     /// canonical request.
-    pub(crate) fn from_bytes_with_shared(
+    pub fn from_bytes_with_shared(
         data: impl Into<Bytes>,
         max_bytes: u64,
         shared: Arc<RequestShared>,
@@ -313,7 +316,7 @@ impl RequestBody {
     /// Used by the connection pipeline so `RequestBody` and
     /// `RequestLifecycle` observe the same ownership/cancellation state.
     #[allow(dead_code)]
-    pub(crate) fn from_incoming_with_shared(
+    pub fn from_incoming_with_shared(
         stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
         declared_length: Option<u64>,
         max_bytes: u64,
@@ -341,7 +344,7 @@ impl RequestBody {
     /// frames. Validation happens once in [`RequestBody`] via the canonical
     /// [`Trailers`] validator — adapters never maintain a second policy.
     #[allow(dead_code)]
-    pub(crate) fn from_incoming_with_shared_and_wire_slot(
+    pub fn from_incoming_with_shared_and_wire_slot(
         stream: impl Stream<Item = Result<Bytes, IncomingError>> + Send + 'static,
         declared_length: Option<u64>,
         max_bytes: u64,
@@ -366,7 +369,7 @@ impl RequestBody {
 
     /// Returns the wire-trailer slot shared with the transport bridge.
     #[allow(dead_code)]
-    pub(crate) fn wire_slot(&self) -> WireTrailerSlot {
+    pub fn wire_slot(&self) -> WireTrailerSlot {
         self.wire_slot.clone()
     }
 
@@ -412,7 +415,7 @@ impl RequestBody {
     /// `Abandoned` unless ownership was transferred into an explicit
     /// continuation holding the same body.
     #[allow(dead_code)]
-    pub(crate) fn shared(&self) -> Arc<RequestShared> {
+    pub fn shared(&self) -> Arc<RequestShared> {
         self.shared.clone()
     }
 
@@ -424,21 +427,21 @@ impl RequestBody {
 
     /// Returns `true` if the body was fully consumed (stream ended and
     /// all declared bytes received).
-    pub(crate) fn was_fully_consumed(&self) -> bool {
+    pub fn was_fully_consumed(&self) -> bool {
         self.shared.is_body_complete()
     }
 
     /// Returns `true` while the body is still owned (unread/streaming),
     /// including delegated ownership past `Service::call` return.
     #[allow(dead_code)]
-    pub(crate) fn is_body_active(&self) -> bool {
+    pub fn is_body_active(&self) -> bool {
         self.shared.is_body_active()
     }
 
     /// Returns `true` once the body reached any terminal state
     /// (Complete/Abandoned/Failed).
     #[allow(dead_code)]
-    pub(crate) fn is_body_terminal(&self) -> bool {
+    pub fn is_body_terminal(&self) -> bool {
         self.shared.is_body_terminal()
     }
 
@@ -504,7 +507,7 @@ impl RequestBody {
     /// async round-trip; the async [`RequestBody::trailers`] remains the
     /// normative accessor for services.
     #[cfg(feature = "http-interop")]
-    pub(crate) fn completed_trailers_snapshot(&self) -> Option<Trailers> {
+    pub fn completed_trailers_snapshot(&self) -> Option<Trailers> {
         if self.state != BodyState::Complete {
             return None;
         }
@@ -520,7 +523,7 @@ impl RequestBody {
     /// `poll_frame` observes end-of-stream. Only meaningful after
     /// completion; returns `None` otherwise.
     #[cfg(feature = "http-interop")]
-    pub(crate) fn take_completed_trailers(&mut self) -> Option<Trailers> {
+    pub fn take_completed_trailers(&mut self) -> Option<Trailers> {
         if self.state != BodyState::Complete {
             return None;
         }
@@ -532,7 +535,7 @@ impl RequestBody {
 
     /// Returns the stored trailer failure, if any (Plan 200).
     #[cfg(feature = "http-interop")]
-    pub(crate) fn completed_trailer_failure(&self) -> Option<String> {
+    pub fn completed_trailer_failure(&self) -> Option<String> {
         self.completed_trailer_error.clone()
     }
 

@@ -119,14 +119,20 @@ The 0.x compatibility entry point remains `eggserve-core`, which preserves
 the historical `primitives` and experimental `server` paths. Plan 214 makes
 the direct dependency layers the implementation homes: `eggserve-primitives`
 owns the canonical request/response/body/lifecycle model, `eggserve-server`
-owns the generic H1 runtime and streaming boundary, and `eggserve-static`
-owns hardened descriptor/handle-relative static serving. The generic server
-does not pull static serving, and the primitives leaf does not pull Hyper,
-Tokio, TLS, QUIC, or filesystem code. New Rust consumers should depend
-directly on the smallest layer they need; the compatibility aggregate exposes
-the layers through `eggserve_core::layers`. Advanced H2/H3, tunnel, proxy,
-and Python compatibility paths remain in core while their extraction phases
-are completed. There is no additional `eggserve` facade crate.
+owns the mature generic H1 connection runtime (observability, error taxonomy,
+response policy, shared limit authority, service contract, connection
+vocabulary, H1 config/state, H1 connection driver, Hyper conversion
+boundary), and `eggserve-static` owns hardened descriptor/handle-relative
+static serving. The generic server does not pull static serving, and the
+primitives leaf does not pull Hyper, Tokio, TLS, QUIC, or filesystem code.
+New Rust consumers should depend directly on the smallest layer they need;
+the compatibility aggregate exposes the layers through
+`eggserve_core::layers`. Plan 215 adds a 16-scenario direct-vs-compatibility
+H1 parity suite (`crates/eggserve-core/tests/direct_h1_parity.rs`) and a
+topology gate owning the boundary. Advanced H2/H3, tunnel acceptance, and
+the extended listener/proxy/TLS-identity paths remain in core while their
+extraction phases (Plans 216/217) are completed. There is no additional
+`eggserve` facade crate.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
 [`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).
@@ -139,8 +145,12 @@ and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/t
 
 Canonical response/request types and `Service` in the direct layers do not
 require consumers to name Hyper directly.
-`primitives::to_hyper_response()` is an explicit opt-in outbound transport
-adapter; its returned body type is opaque, so consumers should rely on the
+`eggserve_server::adapters::to_hyper_response()` is the explicit opt-in
+outbound transport adapter owned by the direct runtime; the compatibility
+`primitives::to_hyper_response()` keeps its own implementation over
+compatibility types until Request-type unification (Plan 216), with behavior
+parity covered by the direct-vs-compatibility H1 suite. The returned body
+type is opaque in both cases, so consumers should rely on the
 `http_body::Body` contract rather than naming `BoxBody`. This adapter change is
 classified as the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented
 in the [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md).
@@ -184,6 +194,7 @@ The executable, mechanically checked examples are [the static server](https://gi
 [the streaming service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/streaming_service.rs),
 [the application service](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/application_service.rs),
 [the caller-owned stream](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/caller_owned_stream.rs),
+[the direct caller-owned embedding](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-server/examples/caller_owned.rs),
 and [the primitives demo](https://github.com/eggstack/eggserve/blob/main/crates/eggserve-core/examples/primitives.rs).
 They use public EggServe modules only, include readiness plus graceful
 shutdown, and are the recommended starting points for custom services.
@@ -252,7 +263,8 @@ response write no-progress timeouts are configured via CLI flags, `Limits`, or
 `RuntimeConfig` (see the [per-profile defaults](https://github.com/eggstack/eggserve/blob/main/docs/deployment.md)
 and [timeout reference](https://github.com/eggstack/eggserve/blob/main/docs/timeout-reference.md)).
 Shared runtime defaults and validation live once in the canonical
-`eggserve_core::runtime_limits` authority consumed by `Limits`,
+`eggserve_server::runtime_limits` authority (re-exported by
+`eggserve_core::runtime_limits`) consumed by `Limits`,
 `RuntimeConfig`, and the `ServeConfig` bridge; static listing/extra-header
 budgets stay service-owned, and hand-constructed `RuntimeConfig` values are
 rejected at `ServerBuilder`, `RuntimeState::try_new`, and the caller-owned
@@ -280,23 +292,30 @@ is experimental before 1.0. For caller-owned byte streams (for example an
 anonymity-network transport), `server::connection::serve_http1_connection`
 drives the same canonical pipeline over any `AsyncRead + AsyncWrite` stream
 with an explicit `ConnectionContext` (no fabricated socket addresses) and
-shared `RuntimeState` admission. For caller-owned listeners, the same runtime
+shared `RuntimeState` admission; the direct `eggserve-server` crate owns this
+driver (Plan 215) and the compatibility facade shares its H1 semantics,
+proven by the direct-vs-compatibility parity suite. For caller-owned listeners, the same runtime
 accepts prebound sockets without rebinding: `ServerBuilder::from_listener` /
 `from_std_listener` (Tokio / std TCP, socket options preserved except
-nonblocking), `from_unix_listener` / `from_std_unix_listener` (Unix-only,
+nonblocking) are available in both the direct and compatibility servers;
+`from_unix_listener` / `from_std_unix_listener` (Unix-only,
 EggServe never unlinks filesystem paths; Unix is plaintext and H3 is
 unavailable over it), `from_systemd_index` / `from_systemd_name`
 (validated `LISTEN_PID`/`LISTEN_FDS`/`LISTEN_FDNAMES`, `SOCK_STREAM` plus
 listening-state plus family checks, no silent fd 3, no supervision in core),
 and `http3_socket` (prebound UDP wrapped in Quinn at startup with same-port
-TCP+UDP validation). `ServerHandle::endpoints()` exposes the adopted
+TCP+UDP validation) remain compatibility-owned. `ServerHandle::endpoints()` exposes the adopted
 endpoints with stable `tcp-0`/`unix-0` IDs; `local_addr()` preserves the
 common TCP path. See the [Rust architecture overview](https://github.com/eggstack/eggserve/blob/main/architecture/eggserve-core.md),
 [primitives facade](https://github.com/eggstack/eggserve/blob/main/architecture/primitives-api.md), and
 [runtime contract](https://github.com/eggstack/eggserve/blob/main/architecture/runtime.md).
 
 Downstream application servers build on the same canonical `Service`
-boundary. Plan 208 closes the Plan 196 program with evidence-driven tiers:
+boundary. Plan 208 closes the Plan 196 program with evidence-driven tiers,
+and Plan 215 makes `eggserve-server` the implementation home of the mature
+H1 runtime with a direct-vs-compatibility parity suite and topology gate
+(tunnel acceptance and `Service` identity unification are explicit Plan 216
+input):
 HTTP/1.1 plus the canonical `primitives` value types are the supported
 contract; the `server` runtime, H2/H3 transports, trailers/interim/tunnel
 capabilities, `http`/`tower` adapters, listener/proxy/TLS-identity options,

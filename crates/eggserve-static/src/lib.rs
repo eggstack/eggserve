@@ -84,7 +84,7 @@ impl StaticService {
     async fn respond(&self, request: Request) -> Result<Response, ServiceError> {
         let head = request.head();
         if !head.permits_static_resolution() {
-            return Err(ServiceError::rejected(405));
+            return Err(ServiceError::rejected(405, "method not allowed"));
         }
         let method = if head.is_head() {
             ReadOnlyMethod::Head
@@ -94,7 +94,7 @@ impl StaticService {
         let resource = self
             .root
             .resolve_uri(head.target().path())
-            .map_err(|_| ServiceError::rejected(400))?;
+            .map_err(|_| ServiceError::rejected(400, "invalid request path"))?;
 
         match resource {
             ResolvedResource::File(file) => self.file_response(file, method, &request),
@@ -102,16 +102,16 @@ impl StaticService {
                 let index = directory.resolve_child("index.html", &self.root);
                 match index {
                     ResolvedResource::File(file) => self.file_response(file, method, &request),
-                    ResolvedResource::Directory(_) => Err(ServiceError::rejected(403)),
+                    ResolvedResource::Directory(_) => Err(ServiceError::rejected(403, "forbidden")),
                     ResolvedResource::NotFound => self.directory_response(directory, method),
                     ResolvedResource::Denied(_) | ResolvedResource::IoError(_) => {
-                        Err(ServiceError::rejected(403))
+                        Err(ServiceError::rejected(403, "forbidden"))
                     }
                 }
             }
-            ResolvedResource::NotFound => Err(ServiceError::rejected(404)),
-            ResolvedResource::Denied(_) => Err(ServiceError::rejected(403)),
-            ResolvedResource::IoError(_) => Err(ServiceError::rejected(404)),
+            ResolvedResource::NotFound => Err(ServiceError::rejected(404, "not found")),
+            ResolvedResource::Denied(_) => Err(ServiceError::rejected(403, "forbidden")),
+            ResolvedResource::IoError(_) => Err(ServiceError::rejected(404, "not found")),
         }
     }
 
@@ -158,11 +158,11 @@ impl StaticService {
         if self.root.policy().directory_listing
             != eggserve_primitives::DirectoryListingPolicy::Enabled
         {
-            return Err(ServiceError::rejected(403));
+            return Err(ServiceError::rejected(403, "directory listing disabled"));
         }
         let entries = directory
             .list(&self.root, 4096)
-            .map_err(|_| ServiceError::rejected(404))?;
+            .map_err(|_| ServiceError::rejected(404, "not found"))?;
         let mut body =
             String::from(r#"<!doctype html><meta charset="utf-8"><title>Index</title><ul>"#);
         for (name, is_dir) in entries {

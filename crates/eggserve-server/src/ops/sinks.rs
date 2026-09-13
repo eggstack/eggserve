@@ -1,4 +1,4 @@
-//! Ops sink implementations (Plan 206 Track H).
+//! Ops sink implementations (Plan 215: moved from compatibility core).
 //!
 //! Owns the [`LogSink`] trait and its implementations. Failure accounting
 //! stays context-local and non-recursive: contained child-sink panics

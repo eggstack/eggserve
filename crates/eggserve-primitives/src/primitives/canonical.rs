@@ -46,7 +46,8 @@ pub mod status;
 pub use super::response_stream::{ResponseStream, ResponseStreamError};
 pub use headers::{is_hop_by_hop_header, ResponseHead};
 pub use response::{
-    normalize_metadata, normalize_response, NormalizeRequest, Response, ResponseBuilder,
+    normalize_metadata, normalize_response, runtime_error_with_policy, NormalizeRequest, Response,
+    ResponseBuilder,
 };
 pub use response_body::{BodyLength, ResponseBody};
 pub use status::{ResponseConstructionError, StatusCode};

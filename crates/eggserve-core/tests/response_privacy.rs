@@ -750,7 +750,9 @@ fn minimal_profile_does_not_claim_unfingerprintable() {
     // signals", not claim to be "un-fingerprintable". A negation ("does not
     // make un-fingerprintable") is the required disclaimer and is allowed;
     // a positive claim ("is un-fingerprintable") is forbidden.
-    let doc = include_str!("../src/server/response_policy.rs");
+    // The profile language lives in the direct authority (Plan 215); the
+    // compatibility module is a re-export shim.
+    let doc = include_str!("../../eggserve-server/src/response_policy.rs");
     assert!(doc.contains("minimize") || doc.contains("minimizes") || doc.contains("minimizing"));
     let lower = doc.to_ascii_lowercase();
     assert!(

@@ -139,16 +139,46 @@ impl Default for Limits {
     }
 }
 
+impl From<&Limits> for eggserve_server::runtime_limits::SharedRuntimeValues {
+    /// Project a compatibility [`Limits`] into the shared kernel values.
+    ///
+    /// Static `Limits` has no tunnel budget (static never tunnels);
+    /// projection uses the canonical default.
+    fn from(limits: &Limits) -> Self {
+        Self {
+            max_connections: limits.max_connections,
+            max_file_streams: limits.max_file_streams,
+            max_request_body_bytes: limits.max_request_body_bytes,
+            header_read_timeout: limits.header_read_timeout,
+            tls_handshake_timeout: limits.tls_handshake_timeout,
+            connection_total_timeout: limits.connection_total_timeout,
+            handler_timeout: limits.handler_timeout,
+            body_read_timeout: limits.body_read_timeout,
+            graceful_shutdown_timeout: limits.graceful_shutdown_timeout,
+            stream_chunk_size: limits.stream_chunk_size,
+            max_buf_size: limits.max_buf_size,
+            max_headers: limits.max_headers,
+            max_header_bytes: limits.max_header_bytes,
+            max_request_target_bytes: limits.max_request_target_bytes,
+            max_in_flight_requests: limits.max_in_flight_requests,
+            keep_alive_idle_timeout: limits.keep_alive_idle_timeout,
+            max_requests_per_connection: limits.max_requests_per_connection,
+            response_write_timeout: limits.response_write_timeout,
+            max_active_tunnels: DEFAULT_MAX_ACTIVE_TUNNELS,
+        }
+    }
+}
+
 impl Limits {
     /// Validate all fields and return every constraint violation.
     ///
     /// Shared runtime/transport checks delegate to the canonical Plan 179
-    /// kernel ([`crate::runtime_limits`]); static-only budgets are appended
+    /// kernel ([`eggserve_server::runtime_limits`]); static-only budgets are appended
     /// here. Returns `Ok(())` if all fields satisfy their invariants.
     /// Returns `Err` with one [`LimitsError`] per violated field.
     pub fn validate(&self) -> Result<(), Vec<LimitsError>> {
         let mut errors: Vec<LimitsError> =
-            crate::runtime_limits::SharedRuntimeValues::from_limits(self)
+            eggserve_server::runtime_limits::SharedRuntimeValues::from(self)
                 .validate()
                 .into_iter()
                 .map(|v| LimitsError {

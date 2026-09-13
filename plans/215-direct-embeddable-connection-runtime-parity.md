@@ -2,7 +2,14 @@
 
 ## Status
 
-Proposed — follow-on to Plan 214.
+Implemented 2026-09-13 — see `release/plan-215-direct-runtime-parity.md`.
+The direct crate owns the mature H1 kernel (ops/errors/policy/authority,
+service contract shape, connection vocabulary, H1 config/state, H1
+connection driver, Hyper conversion boundary) with a 16-scenario
+direct-vs-compatibility parity suite. Criteria 5/9 hold except for the
+tunnel-entangled remainder (unified `Service` identity, tunnel-capable core
+pipeline/context/conversion), which is explicit Plan 216 input with seam
+comments and a topology gate enforcing the boundary.
 
 ## Purpose
 

@@ -383,6 +383,12 @@ pub(crate) fn adopt_systemd_listener_by_name(
 mod tests {
     use super::*;
 
+    /// Serializes the activation-env mutating tests below. They save, scrub,
+    /// and restore `LISTEN_PID`/`LISTEN_FDS`, which races when the harness
+    /// runs them on parallel threads; without this lock one test can observe
+    /// another's scrubbed or staged values and fail spuriously.
+    static ACTIVATION_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn bound_endpoint_display_tcp() {
         let ep = BoundEndpoint::Tcp {
@@ -411,6 +417,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn systemd_count_zero_without_env() {
+        let _env_guard = ACTIVATION_ENV_LOCK.lock().unwrap();
         // Save/restore to avoid cross-test interference.
         let pid = std::env::var("LISTEN_PID").ok();
         let fds = std::env::var("LISTEN_FDS").ok();
@@ -429,6 +436,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn systemd_adopt_rejects_without_activation() {
+        let _env_guard = ACTIVATION_ENV_LOCK.lock().unwrap();
         let pid = std::env::var("LISTEN_PID").ok();
         let fds = std::env::var("LISTEN_FDS").ok();
         std::env::remove_var("LISTEN_PID");
@@ -446,6 +454,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn systemd_adopt_rejects_out_of_range_index() {
+        let _env_guard = ACTIVATION_ENV_LOCK.lock().unwrap();
         let pid = std::env::var("LISTEN_PID").ok();
         let fds = std::env::var("LISTEN_FDS").ok();
         std::env::set_var("LISTEN_PID", std::process::id().to_string());

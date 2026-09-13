@@ -172,10 +172,130 @@ def main() -> int:
         )
         return 1
 
+    if check_plan215_parity() != 0:
+        return 1
+
     print(
-        "Plan 211–214 topology: primitives leaf; neutral TLS; "
-        "server transport-only; static specializes both; H3/QUIC isolated"
+        "Plan 211–215 topology: primitives leaf; neutral TLS; "
+        "server transport-only; static specializes both; H3/QUIC isolated; "
+        "direct H1 runtime owns ops/errors/policy/authority/service/driver"
     )
+    return 0
+
+
+def check_plan215_parity() -> int:
+    """Enforce Plan 215 direct-embeddable runtime ownership.
+
+    Structural (not line-count) rules: the mature H1 vocabulary lives in
+    `eggserve-server`, compatibility facades re-export it, and the direct
+    server never imports the compatibility core or static layer.
+    """
+    repo = Path(__file__).resolve().parent.parent
+    server_src = repo / "crates" / "eggserve-server" / "src"
+    core_src = repo / "crates" / "eggserve-core" / "src"
+
+    def read(path: Path) -> str:
+        return path.read_text()
+
+    # 1. Direct server source must never import the compatibility core or
+    #    the static layer (no upward dependency, including tests/examples).
+    #    Doc-comment cross-references are ignored; only code counts.
+    offenders = []
+    for path in list((server_src).rglob("*.rs")) + list(
+        (repo / "crates" / "eggserve-server" / "examples").glob("*.rs")
+    ):
+        code_lines = [
+            line
+            for line in read(path).splitlines()
+            if not line.lstrip().startswith(("///", "//!"))
+        ]
+        code = "\n".join(code_lines)
+        if "eggserve_core" in code or "eggserve-static" in code or "eggserve_static" in code:
+            offenders.append(str(path.relative_to(repo)))
+    if offenders:
+        print(
+            "eggserve-server must not reference eggserve-core/static: "
+            f"{sorted(offenders)}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 2. Single-definition authorities owned by the direct server crate.
+    owned = {
+        "ops/mod.rs": ["pub struct OpsContext", "pub struct Logger"],
+        "ops/events.rs": ["pub enum EventKind", "pub struct Event"],
+        "ops/counters.rs": ["pub struct OpsCounters"],
+        "errors.rs": ["pub enum ServerError", "pub enum ShutdownResult"],
+        "response_policy.rs": ["pub struct ResponsePolicy", "pub enum DatePolicy"],
+        "runtime_limits.rs": ["pub struct SharedRuntimeValues", "pub struct Violation"],
+        "service.rs": ["pub trait Service", "pub struct ServiceError", "pub fn service_fn"],
+        "connection/context.rs": [
+            "pub struct ConnectionContext",
+            "pub struct ConnectionShutdown",
+            "pub enum ConnectionOutcome",
+        ],
+        "config.rs": ["pub struct RuntimeConfig", "pub struct RuntimeConfigBuilder"],
+        "runtime.rs": ["pub struct RuntimeState"],
+        "connection/mod.rs": [
+            "pub async fn serve_http1_connection",
+            "pub async fn serve_http1_connection_with_id",
+        ],
+        "connection/driver.rs": ["async fn drive_connection", "fn hyper_builder"],
+        "connection/pipeline.rs": ["fn make_canonical_hyper_service", "async fn invoke_service"],
+        "adapters.rs": ["pub fn to_hyper_response"],
+    }
+    for rel, markers in owned.items():
+        text = read(server_src / rel)
+        for marker in markers:
+            if marker not in text:
+                print(
+                    f"eggserve-server/{rel} must own `{marker}` (Plan 215)",
+                    file=sys.stderr,
+                )
+                return 1
+
+    # 3. Compatibility facades for moved modules must re-export the direct
+    #    implementation rather than define a second one.
+    facades = {
+        "ops/mod.rs": "pub use eggserve_server::ops::*;",
+        "server/errors.rs": "pub use eggserve_server::errors::*;",
+        "server/response_policy.rs": "pub use eggserve_server::response_policy::*;",
+        "policy.rs": "pub use eggserve_primitives::policy::*;",
+        "runtime_limits.rs": "pub use eggserve_server::runtime_limits::*;",
+    }
+    for rel, marker in facades.items():
+        text = read(core_src / rel)
+        if marker not in text:
+            print(
+                f"eggserve-core/{rel} must re-export the direct authority "
+                f"(`{marker}`, Plan 215)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 4. Behavioral shape parity between the direct service contract and the
+    #    compatibility one. Full trait identity waits on Request-type
+    #    unification (tunnel slot, Plan 216); until then both definitions
+    #    must carry the mature categories so neither silently diverges.
+    shape_markers = [
+        "Panic",
+        "fn is_panic",
+        "fn is_timeout",
+        "fn message",
+        "service_fn_with_policy",
+        "service_fn_head",
+    ]
+    server_service = read(server_src / "service.rs")
+    core_service = read(core_src / "server" / "service.rs")
+    for marker in shape_markers:
+        if marker not in server_service or marker not in core_service:
+            print(
+                "service contract shape diverged: "
+                f"`{marker}` must appear in both server and core definitions (Plan 215)",
+                file=sys.stderr,
+            )
+            return 1
+
     return 0
 
 

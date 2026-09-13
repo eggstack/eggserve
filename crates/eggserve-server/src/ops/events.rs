@@ -1,4 +1,4 @@
-//! Ops event schema vocabulary (Plan 206 Track H).
+//! Ops event schema vocabulary (Plan 215: moved from compatibility core).
 //!
 //! Owns the single event/field schema authority: [`Severity`],
 //! [`EventKind`], [`Field`], [`Event`], sanitization/truncation helpers,

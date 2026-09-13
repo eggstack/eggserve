@@ -398,7 +398,7 @@ impl RuntimeConfigBuilder {
     /// resulting error identifies the invalid field/constraint. Returns an
     /// error if any shared value or the composed `ResponsePolicy` is invalid.
     pub fn build(self) -> Result<RuntimeConfig, crate::server::errors::ServerError> {
-        use crate::runtime_limits as rl;
+        use eggserve_server::runtime_limits as rl;
         let shared = rl::SharedRuntimeValues {
             max_connections: self.max_connections.unwrap_or(rl::DEFAULT_MAX_CONNECTIONS),
             max_file_streams: self
@@ -557,7 +557,7 @@ pub fn try_from_serve_config(
         error_policy: config.error_policy,
         ..Default::default()
     };
-    let shared = crate::runtime_limits::SharedRuntimeValues::from_limits(&config.limits);
+    let shared = eggserve_server::runtime_limits::SharedRuntimeValues::from(&config.limits);
     // `Limits::validate` already passed, so this projection is infallible;
     // route through the single shared helper rather than reproducing fields.
     Ok(RuntimeConfig::from_shared_runtime(

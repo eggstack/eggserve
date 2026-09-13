@@ -218,6 +218,21 @@ with an explicit non-socket `ConnectionContext` (no fabricated addresses)
 and one shared `RuntimeState` admission pool. Runs one request and exits;
 it binds no socket.
 
+### Direct caller-owned embedding: `caller_owned.rs` (Plan 215)
+
+```sh
+cargo run -p eggserve-server --example caller_owned
+```
+
+Demonstrates the downstream-neutral embedding boundary on the direct
+`eggserve-server` crate without application-framework behavior: the
+downstream accepts a loopback TCP connection itself, applies its own
+pre-HTTP admission (loopback-only) before handoff, constructs truthful
+`ConnectionContext` metadata from observed socket addresses, drives the
+surviving stream through the canonical H1 driver with one shared
+`RuntimeState`, requests graceful per-connection shutdown, and inspects the
+`ConnectionOutcome`. Runs one request and exits; binds loopback only.
+
 ### Custom response headers: `custom_headers.rs`
 
 ```sh

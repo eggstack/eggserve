@@ -411,8 +411,10 @@ pub fn normalize_metadata(
 /// fixed `"<status> <reason>\n"` representation; an unassigned status keeps
 /// its status and emits no body rather than claiming a different error. This
 /// is the sole runtime-error representation table for H1, H2, and H3.
-#[allow(dead_code)]
-pub(crate) fn runtime_error_with_policy(
+///
+/// Public runtime-adapter API (Plan 215): the direct connection driver in
+/// `eggserve-server` builds all runtime errors through this table.
+pub fn runtime_error_with_policy(
     status: StatusCode,
     is_head: bool,
     policy: crate::policy::ErrorRepresentationPolicy,

@@ -131,13 +131,18 @@ impl From<std::io::Error> for ResponseStreamError {
 }
 
 /// Terminal trailer future: polled once after bytes, yielding one block or none.
+///
+/// Public runtime-adapter API (Plan 215): the direct connection driver in
+/// `eggserve-server` splits streams through [`ResponseStream::into_parts`].
 #[allow(clippy::type_complexity)]
-pub(crate) type TrailerFuture =
+pub type TrailerFuture =
     Pin<Box<dyn Future<Output = Result<Option<Trailers>, ResponseStreamError>> + Send>>;
 
 /// Byte-stream half of a response stream.
+///
+/// Public runtime-adapter API (Plan 215): see [`TrailerFuture`].
 #[allow(clippy::type_complexity)]
-pub(crate) type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>>;
+pub type ByteStream = Pin<Box<dyn Stream<Item = Result<Bytes, ResponseStreamError>> + Send>>;
 
 /// A one-shot, transport-independent byte stream for responses.
 ///
@@ -255,8 +260,10 @@ impl ResponseStream {
     }
 
     /// Take both the byte stream and the trailer future.
-    #[allow(dead_code)]
-    pub(crate) fn into_parts(self) -> (ByteStream, Option<TrailerFuture>) {
+    ///
+    /// Public runtime-adapter API (Plan 215): the direct connection driver
+    /// in `eggserve-server` converts streams through this split.
+    pub fn into_parts(self) -> (ByteStream, Option<TrailerFuture>) {
         (self.inner, self.trailers)
     }
 }

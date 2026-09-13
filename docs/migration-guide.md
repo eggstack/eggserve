@@ -403,6 +403,32 @@ Migration: replace `RuntimeState::new(&config)` with
 `RuntimeState::try_new(&config)?` where the config is hand-built or
 untrusted. Valid default/builder configurations require no change.
 
+## Plan 215: direct embeddable H1 runtime (experimental, pre-1.0 moves)
+
+`eggserve-server` is now the implementation home of the mature H1 runtime.
+`eggserve_core::{ops, policy, runtime_limits}` and
+`eggserve_core::server::{errors, response_policy}` are compatibility
+re-exports of the direct modules; the shared limit authority moved from the
+crate-private `eggserve_core::runtime_limits` kernel to public
+`eggserve_server::runtime_limits` (messages unchanged). Direct primitives
+widen the runtime-adapter surface (`RequestShared`,
+`BodyLifecycleState`, `WireTrailerSlot`/`new_wire_slot`, body-sharing
+constructors/observers, `ResponseStream::into_parts`,
+`runtime_error_with_policy`).
+
+| Before | After | Change |
+|--------|-------|--------|
+| `eggserve_server::service_fn(f)` returns `F` | returns `ServiceFn<F>` | Both implement `Service`; `start_with_service(service_fn(..))` keeps compiling. New: `service_fn_head`, `service_fn_with_policy` |
+| `ServiceError::rejected(status)` | `ServiceError::rejected(status, message)` | Message-bearing rejection (matches compatibility shape); update static/custom services with a short reason |
+| `eggserve_server::{RuntimeConfig, ServerError, Server, ServerBuilder, ServerHandle}` (minimal) | mature shapes (`config::RuntimeConfig` H1 field set, 10-variant `errors::ServerError`, listener/prebound `Server` with `wait()`/`ops_snapshot()`) | Direct embedders adopt the new fields/builders; nothing in-repo outside the crate used the old shapes |
+| `primitives::to_hyper_response()` (compat) | `eggserve_server::adapters::to_hyper_response()` for direct use | Compat path keeps its own implementation until Plan 216; behavior parity covered by `direct_h1_parity` |
+
+Unified `Service` identity and tunnel-acceptance convergence are explicit
+Plan 216 input: the direct driver follows the ordinary HTTP path for
+upgrade/CONNECT intent (denial stays ordinary HTTP), and the
+tunnel-capable compatibility pipeline stays until then. See
+`release/plan-215-direct-runtime-parity.md`.
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

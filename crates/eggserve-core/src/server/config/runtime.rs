@@ -219,6 +219,33 @@ impl Default for RuntimeConfig {
     }
 }
 
+impl From<&RuntimeConfig> for eggserve_server::runtime_limits::SharedRuntimeValues {
+    /// Project a compatibility [`RuntimeConfig`] into the shared kernel values.
+    fn from(config: &RuntimeConfig) -> Self {
+        Self {
+            max_connections: config.max_connections,
+            max_file_streams: config.max_file_streams,
+            max_request_body_bytes: config.max_request_body_bytes,
+            header_read_timeout: config.header_read_timeout,
+            tls_handshake_timeout: config.tls_handshake_timeout,
+            connection_total_timeout: config.connection_total_timeout,
+            handler_timeout: config.handler_timeout,
+            body_read_timeout: config.body_read_timeout,
+            graceful_shutdown_timeout: config.graceful_shutdown_timeout,
+            stream_chunk_size: config.stream_chunk_size,
+            max_buf_size: config.max_buf_size,
+            max_headers: config.max_headers,
+            max_header_bytes: config.max_header_bytes,
+            max_request_target_bytes: config.max_request_target_bytes,
+            max_in_flight_requests: config.max_in_flight_requests,
+            keep_alive_idle_timeout: config.keep_alive_idle_timeout,
+            max_requests_per_connection: config.max_requests_per_connection,
+            response_write_timeout: config.response_write_timeout,
+            max_active_tunnels: config.max_active_tunnels,
+        }
+    }
+}
+
 impl RuntimeConfig {
     /// Project the legacy-compatible fields into the HTTP/1 protocol config.
     pub(crate) fn http1_config(&self) -> Http1Config {
@@ -294,7 +321,7 @@ impl RuntimeConfig {
     /// Services may lower request-body ceilings but cannot raise this runtime
     /// hard ceiling.
     pub fn validate(&self) -> Result<(), crate::server::errors::ServerError> {
-        let shared = crate::runtime_limits::SharedRuntimeValues::from_runtime_config(self);
+        let shared = eggserve_server::runtime_limits::SharedRuntimeValues::from(self);
         let violations = shared.validate();
         if !violations.is_empty() {
             let msg = violations
