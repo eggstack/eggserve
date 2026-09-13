@@ -16,10 +16,10 @@
 //! is a convenience runtime that owns listener acceptance above this driver
 //! and shares the same pipeline.
 //!
-//! H2 selection, H3, tunnel acceptance, and PROXY-preamble reading stay
-//! compatibility-owned (Plans 216/217/202); header-derived forwarding policy
-//! moves with the pipeline because it is transport-neutral request
-//! finalization over direct primitives types.
+//! H2 selection, H3, and PROXY-preamble reading stay compatibility-owned
+//! (Plans 217/213/202); tunnel acceptance is direct-owned (Plan 216);
+//! header-derived forwarding policy moves with the pipeline because it is
+//! transport-neutral request finalization over direct primitives types.
 //!
 //! # Module ownership
 //!
@@ -196,6 +196,7 @@ where
     let service = Arc::new(service);
     let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
     let service_semaphore = runtime_state.service_semaphore().clone();
+    let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
     let ops = runtime_state.ops().clone();
     let activity = Arc::new(ConnectionActivity::new(ops.clone()));
     let requests = Arc::new(ConnectionRequests::new());
@@ -204,6 +205,7 @@ where
         config.clone(),
         file_stream_semaphore,
         service_semaphore,
+        tunnel_semaphore,
         activity.clone(),
         requests.clone(),
         config.stream_chunk_size,

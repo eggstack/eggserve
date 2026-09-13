@@ -911,8 +911,7 @@ async fn handle_h3_connect<S, C>(
         return;
     };
     let tunnel_request = TunnelRequest::new(kind, protocol, Some(authority));
-    let capability = TunnelCapability::new(tunnel_request, None);
-    let tunnel_shared = capability.shared();
+    let (capability, tunnel_shared, tunnel_sidecar) = TunnelCapability::new(tunnel_request, None);
     // Empty body sharing the registered allocation (lifecycle continuity).
     let request_body = crate::primitives::request_body::RequestBody::from_incoming_with_shared(
         futures_util::stream::empty(),
@@ -985,7 +984,7 @@ async fn handle_h3_connect<S, C>(
         s.mark_committed();
     }
     tunnel_shared.mark_committed();
-    let mut canonical = match result {
+    let canonical = match result {
         Ok(r) => r,
         Err(error) => {
             let response = response::runtime_error_response(error.status_code(), false, &config);
@@ -1004,7 +1003,8 @@ async fn handle_h3_connect<S, C>(
             return;
         }
     };
-    if !canonical.is_tunnel() {
+    let acceptance = tunnel_sidecar.lock().ok().and_then(|mut slot| slot.take());
+    let Some(acceptance) = acceptance else {
         // Ordinary denial: normal response, recv aborted (no tunnel DATA).
         let _ = response::send_response_or_cancel(
             &mut send_stream,
@@ -1019,10 +1019,7 @@ async fn handle_h3_connect<S, C>(
         .await;
         recv_stream.stop_sending(h3::error::Code::H3_REQUEST_CANCELLED);
         return;
-    }
-    let acceptance = canonical
-        .take_tunnel_acceptance()
-        .expect("is_tunnel checked");
+    };
     // Tunnel admission (server-wide, 503 on exhaustion, no handler run).
     let tunnel_permit = match runtime_state.tunnel_semaphore().clone().try_acquire_owned() {
         Ok(p) => p,
@@ -1058,7 +1055,7 @@ async fn handle_h3_connect<S, C>(
     // Reuse canonical privacy (Server/Date/denylist) without inventing
     // `Content-Length`; hop-by-hop already stripped in `accept`.
     let mut handshake = canonical;
-    // `take_tunnel_acceptance` left head/body; ensure no body bytes.
+    // The staged acceptance left head/body untouched; ensure no body bytes.
     if let Some(body) = handshake.take_body() {
         drop(body);
     }
@@ -1103,11 +1100,10 @@ async fn handle_h3_connect<S, C>(
     );
     let _active_guard = tunnel::H3ActiveTunnelGuard { ops: ops.clone() };
     let (io_handler, io_bridge) = TunnelIo::pair();
-    let handler_lifecycle = lifecycle.clone();
     let bridge_lifecycle_a = lifecycle.clone();
     let bridge_lifecycle_b = lifecycle.clone();
     let handler_join = tokio::spawn(async move {
-        (acceptance.handler)(io_handler, handler_lifecycle).await;
+        (acceptance.handler)(io_handler).await;
     });
     // Stream-scoped duplex (siblings survive): two concurrent directions with
     // bounded chunks, lifecycle wakes idle, half-close propagates (recv EOF

@@ -175,10 +175,14 @@ def main() -> int:
     if check_plan215_parity() != 0:
         return 1
 
+    if check_plan216_tunnel() != 0:
+        return 1
+
     print(
-        "Plan 211–215 topology: primitives leaf; neutral TLS; "
+        "Plan 211–216 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3/QUIC isolated; "
-        "direct H1 runtime owns ops/errors/policy/authority/service/driver"
+        "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
+        "direct tunnel authority with neutral vocabulary"
     )
     return 0
 
@@ -295,6 +299,134 @@ def check_plan215_parity() -> int:
                 file=sys.stderr,
             )
             return 1
+
+    return 0
+
+
+def check_plan216_tunnel() -> int:
+    """Enforce Plan 216 direct generic tunnel/upgrade ownership.
+
+    Structural (not line-count) rules: neutral intent vocabulary lives in
+    `eggserve-primitives` (Hyper/Tokio-free), transport execution lives in
+    `eggserve-server`, and the compatibility core delegates (facade +
+    thin wrapper) instead of keeping a second H1 parser/state
+    machine/bridge. The test-only WebSocket codec stays dev-only.
+    """
+    import re
+    import tomllib
+
+    repo = Path(__file__).resolve().parent.parent
+
+    def read(path: Path) -> str:
+        return path.read_text()
+
+    def code_lines(text: str) -> str:
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("///", "//!"))
+        )
+
+    # 1. Primitives tunnel vocabulary must stay transport-neutral: no
+    #    Hyper/Tokio/H2/H3/QUIC imports in code (docs may name the boundary).
+    primitives_tunnel = read(
+        repo / "crates" / "eggserve-primitives" / "src" / "primitives" / "tunnel.rs"
+    )
+    code = code_lines(primitives_tunnel)
+    for forbidden in (
+        "hyper",
+        "hyper_util",
+        "tokio",
+        "rustls",
+        "quinn",
+        "windows-sys",
+    ):
+        if re.search(rf"(^|\W){re.escape(forbidden)}\s*::", code):
+            print(
+                f"eggserve-primitives tunnel leaks `{forbidden}` (Plan 216)",
+                file=sys.stderr,
+            )
+            return 1
+    # `h2`/`h3` are short: match path use only, not prose.
+    if re.search(r"use\s+h[23]\s*::", code) or re.search(r"\bh[23]\s*::", code):
+        print(
+            "eggserve-primitives tunnel leaks h2/h3 (Plan 216)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 2. Direct server owns the H1 tunnel transport machinery.
+    server_tunnel = read(repo / "crates" / "eggserve-server" / "src" / "tunnel.rs")
+    for marker in (
+        "pub struct TunnelCapability",
+        "pub struct TunnelIo",
+        "pub fn accept",
+        "pub async fn run_tunnel",
+        "fn classify_tunnel",
+        "fn admit_and_spawn",
+    ):
+        if marker not in server_tunnel:
+            print(
+                f"eggserve-server/src/tunnel.rs must own `{marker}` (Plan 216)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 3. No second H1 tunnel transport in the compatibility core.
+    if (repo / "crates" / "eggserve-core" / "src" / "server" / "connection" / "tunnel.rs").exists():
+        print(
+            "eggserve-core retains server/connection/tunnel.rs: H1 transport "
+            "must delegate to eggserve-server (Plan 216)",
+            file=sys.stderr,
+        )
+        return 1
+    core_tunnel = read(
+        repo / "crates" / "eggserve-core" / "src" / "primitives" / "tunnel.rs"
+    )
+    core_code = code_lines(core_tunnel)
+    for marker in (
+        "struct TunnelShared",
+        "struct TunnelAcceptance",
+        "struct TunnelIo",
+        "copy_bidirectional",
+        "tokio::io::duplex",
+    ):
+        if marker in core_code:
+            print(
+                f"eggserve-core primitives/tunnel.rs keeps a second `{marker}` "
+                "(Plan 216: delegate to the direct authority)",
+                file=sys.stderr,
+            )
+            return 1
+    for marker in (
+        "pub use eggserve_primitives::tunnel::",
+        "pub use eggserve_server::tunnel::",
+    ):
+        if marker not in core_tunnel:
+            print(
+                f"eggserve-core primitives/tunnel.rs must facade `{marker}` (Plan 216)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 4. Test-only WebSocket codec stays dev-only in every manifest.
+    for rel in (
+        "Cargo.toml",
+        "crates/eggserve-primitives/Cargo.toml",
+        "crates/eggserve-server/Cargo.toml",
+        "crates/eggserve-static/Cargo.toml",
+        "crates/eggserve-core/Cargo.toml",
+        "crates/eggserve-bin/Cargo.toml",
+        "crates/eggserve-python/Cargo.toml",
+    ):
+        data = tomllib.loads((repo / rel).read_text())
+        for section in ("dependencies",):
+            if "tokio-tungstenite" in data.get(section, {}):
+                print(
+                    f"{rel} has production tokio-tungstenite (Plan 216: dev-only)",
+                    file=sys.stderr,
+                )
+                return 1
 
     return 0
 

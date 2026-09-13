@@ -1,8 +1,8 @@
-//! Typed request context / capability container (Plans 197–199).
+//! Typed request context / capability container (Plans 197–199, 216).
 //!
 //! [`RequestContext`] is the single deliberate attachment point for
-//! transport-authenticated request metadata and optional one-shot
-//! capabilities. Ordinary services keep using [`Request`](super::request::Request)
+//! transport-authenticated request metadata and optional capabilities.
+//! Ordinary services keep using [`Request`](super::request::Request)
 //! by value; advanced capabilities attach here rather than as ad hoc
 //! top-level `Request` fields.
 //!
@@ -13,7 +13,7 @@
 //!   metadata, plus Plan 202 provenance-tagged effective fields when an
 //!   explicit trusted-proxy policy adopted them). Values come from the actual
 //!   transport or the explicit
-//!   caller-owned [`ConnectionContext`](crate::server::connection::ConnectionContext).
+//!   caller-owned connection context.
 //!   `Forwarded` / `X-Forwarded-*` headers are ordinary untrusted headers by
 //!   default and never populate trusted fields without explicit trust.
 //! - [`RequestLifecycle`](super::request_lifecycle::RequestLifecycle):
@@ -22,11 +22,20 @@
 //! - [`InterimSender`](super::interim::InterimSender): bounded request-scoped
 //!   interim (1xx) capability (Plan 198). `None` in hand-constructed contexts
 //!   that opt out; the runtime always attaches one.
-//! - [`TunnelCapability`](super::tunnel::TunnelCapability): one-shot,
-//!   transport-backed tunnel capability (Plan 199). `None` when the request
+//! - [`TunnelRequest`](super::tunnel::TunnelRequest): validated tunnel
+//!   *intent* (Plan 199 intent, Plan 216 placement). `None` when the request
 //!   is not a validated upgrade/`CONNECT`/Extended `CONNECT`; the runtime
-//!   attaches one only after header/pseudo-header validation. Takes via
-//!   [`RequestContext::take_tunnel`]; clones share the slot (no duplication).
+//!   records it only after header/pseudo-header validation. Intent is
+//!   cloneable routing metadata (`tunnel_request()` clones it).
+//!
+//! One-shot *acceptance* ownership deliberately does NOT live here. The
+//! transport-backed capability
+//! (`eggserve-server::tunnel::TunnelCapability`) is server-owned and reaches
+//! tunnel-aware services through the additive
+//! `Service::call_with_tunnel` parameter, never through this
+//! transport-neutral struct. That split keeps this crate free of Hyper,
+//! Tokio, H2/H3, and QUIC dependencies while giving downstream codecs a
+//! typed, one-shot, commitment-safe path without an `Any` map.
 //!
 //! # What does NOT live here
 //!
@@ -37,19 +46,24 @@
 //!   consumer with allocation/cost evidence.
 //! - No raw socket, Hyper, H2/H3, rustls-session, or executor handles are
 //!   exposed. Transport capabilities remain opaque and capability-based.
+//! - No one-shot transport capability slot: taking/accepting is owned by
+//!   `eggserve-server::tunnel`. Cloning a context clones the intent
+//!   (routing may inspect it on every clone); ownership never duplicates
+//!   because there is no ownership here to duplicate.
 //!
 //! # Cloning
 //!
 //! `RequestContext` is cheaply cloneable: [`ConnectionInfo`] is a small
-//! value, [`RequestLifecycle`] and [`InterimSender`] are `Arc`-backed.
+//! value, [`RequestLifecycle`] and [`InterimSender`] are `Arc`-backed, and
+//! [`TunnelRequest`] is a small validated value.
 //! Cloning never clones the one-shot [`RequestBody`](super::request_body::RequestBody);
 //! the body stays with the owning `Request` value. Cloning shares the same
-//! interim allocation (count/commitment visible on all clones) and the same
-//! tunnel slot (taking via one clone removes for all; ownership never duplicates).
+//! interim allocation (count/commitment visible on all clones).
 
 use crate::primitives::connection_info::ConnectionInfo;
 use crate::primitives::interim::InterimSender;
 use crate::primitives::request_lifecycle::RequestLifecycle;
+use crate::primitives::tunnel::TunnelRequest;
 use crate::primitives::version::HttpVersion;
 
 /// Stable place for transport-authenticated metadata and optional
@@ -64,6 +78,7 @@ pub struct RequestContext {
     connection: ConnectionInfo,
     lifecycle: RequestLifecycle,
     interim: Option<InterimSender>,
+    tunnel_request: Option<TunnelRequest>,
 }
 
 impl RequestContext {
@@ -76,11 +91,14 @@ impl RequestContext {
     ///
     /// No interim capability is attached; use [`RequestContext::with_interim`]
     /// or [`RequestContext::new_with_version`] when interim handling is needed.
+    /// No tunnel intent is attached; use
+    /// [`RequestContext::with_tunnel_request`] when the runtime validated one.
     pub fn new(connection: ConnectionInfo, lifecycle: RequestLifecycle) -> Self {
         Self {
             connection,
             lifecycle,
             interim: None,
+            tunnel_request: None,
         }
     }
 
@@ -98,12 +116,24 @@ impl RequestContext {
             connection,
             lifecycle,
             interim: Some(InterimSender::new(version)),
+            tunnel_request: None,
         }
     }
 
     /// Attach an explicit interim sender (tests/downstream with owned limits).
     pub fn with_interim(mut self, sender: InterimSender) -> Self {
         self.interim = Some(sender);
+        self
+    }
+
+    /// Attach validated tunnel intent (runtime only, after validation).
+    ///
+    /// Consuming builder for intent-bearing contexts (Plans 199/216).
+    /// Intent is cloneable routing metadata; one-shot acceptance ownership
+    /// stays in `eggserve-server::tunnel` and reaches services via
+    /// `Service::call_with_tunnel`, never via this struct.
+    pub fn with_tunnel_request(mut self, request: TunnelRequest) -> Self {
+        self.tunnel_request = Some(request);
         self
     }
 
@@ -141,6 +171,21 @@ impl RequestContext {
     /// count/bytes, HTTP/1.0 suppressed.
     pub fn interim(&self) -> Option<&InterimSender> {
         self.interim.as_ref()
+    }
+
+    /// Validated tunnel intent for this request, if the runtime classified
+    /// one (cloneable routing metadata).
+    ///
+    /// `None` on ordinary requests. Inspect `kind()`/`protocol()`/
+    /// `authority()` for routing; one-shot acceptance (if any) arrives via
+    /// `eggserve-server`'s `Service::call_with_tunnel`, never here.
+    pub fn tunnel_request(&self) -> Option<&TunnelRequest> {
+        self.tunnel_request.as_ref()
+    }
+
+    /// Clone the validated tunnel intent, if any (convenience for routing).
+    pub fn clone_tunnel_request(&self) -> Option<TunnelRequest> {
+        self.tunnel_request.clone()
     }
 }
 

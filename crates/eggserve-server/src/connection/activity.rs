@@ -234,13 +234,11 @@ impl ConnectionActivity {
         self.body_timeout_fired.swap(false, Ordering::AcqRel)
     }
 
-    /// Spawn a tunnel task tracked for shutdown accounting (Plan 199 seam,
-    /// inert until Plan 216).
+    /// Spawn a tunnel task tracked for shutdown accounting.
     ///
     /// The driver drains these before reporting completion, so accepted
     /// tunnels keep the owning connection alive and no detached task
     /// survives `ServerHandle::wait()`.
-    #[allow(dead_code)]
     pub(crate) async fn spawn_tunnel(
         self: &Arc<Self>,
         fut: impl std::future::Future<Output = ()> + Send + 'static,

@@ -1,10 +1,17 @@
 //! Transport-independent service abstraction (Plan 215: converged with the
-//! mature compatibility contract).
+//! mature compatibility contract; Plan 216: additive tunnel entry point).
 //!
 //! A [`Service`] receives a canonical [`Request`](eggserve_primitives::Request)
 //! and produces a canonical [`Response`](eggserve_primitives::Response). The
 //! runtime owns transport, parsing, normalization, and timeout enforcement.
 //! Services never see raw sockets or Hyper types.
+//!
+//! Tunnel-aware services implement [`Service::call_with_tunnel`] (or use
+//! [`service_fn_with_tunnel`]) to receive the server-owned one-shot
+//! [`TunnelCapability`](crate::tunnel::TunnelCapability) alongside the
+//! request. Ordinary services keep implementing [`Service::call`]: the
+//! default `call_with_tunnel` drops the capability and runs `call`, so
+//! denial stays ordinary HTTP and existing services are source-compatible.
 //!
 //! # Example
 //!
@@ -24,9 +31,10 @@
 //!
 //! `eggserve_core::server` re-exports this module's trait, error, and helpers
 //! during the 0.x line; this crate is the single implementation authority for
-//! the non-tunnel service contract. Hyper response conversion for
-//! compatibility paths lives outside this definition (in the runtime's
-//! response-finalization path), never as a second error implementation.
+//! the service contract (tunnel acceptance included). Hyper response
+//! conversion for compatibility paths lives outside this definition (in the
+//! runtime's response-finalization path), never as a second error
+//! implementation.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -98,14 +106,24 @@ impl ServiceError {
     }
 
     #[allow(dead_code)]
-    pub(crate) fn panic(message: impl Into<String>) -> Self {
+    #[doc(hidden)]
+    /// Handler-panic constructor (runtime-internal).
+    ///
+    /// Hidden: only runtimes containing a panicking service construct this;
+    /// services never construct errors from panics.
+    pub fn panic(message: impl Into<String>) -> Self {
         Self {
             kind: ServiceErrorKind::Panic,
             message: message.into(),
         }
     }
 
-    pub(crate) fn timeout(message: impl Into<String>) -> Self {
+    #[doc(hidden)]
+    /// Handler/body timeout constructor (runtime-internal).
+    ///
+    /// Hidden: only runtimes enforcing handler/body deadlines construct
+    /// this; services use `internal`/`rejected`.
+    pub fn timeout(message: impl Into<String>) -> Self {
         Self {
             kind: ServiceErrorKind::Timeout,
             message: message.into(),
@@ -200,6 +218,12 @@ impl From<RequestBodyError> for ServiceError {
 ///   past drain, and body/transport failure cancel the request's lifecycle;
 ///   normal `Service::call` return, body EOF, or normal response completion
 ///   on keep-alive never cancel by themselves.
+/// - Tunnel transitions: the runtime classifies validated H1 `Upgrade` /
+///   `CONNECT` intent, records cloneable intent on the request context
+///   (`RequestContext::tunnel_request`), and passes the one-shot
+///   `TunnelCapability` via [`Service::call_with_tunnel`]. Ignoring the
+///   capability is ordinary HTTP denial; accepting performs the handshake
+///   and transfers transport ownership exactly once.
 ///
 /// # Thread safety
 ///
@@ -227,7 +251,29 @@ pub trait Service: Send + Sync + 'static {
     /// Handle an HTTP request.
     ///
     /// Returns a future that resolves to a response or a service error.
+    /// Tunnel-unaware path: the runtime calls
+    /// [`call_with_tunnel`](Self::call_with_tunnel) with `None` (or drops
+    /// the capability for services that only implement this method).
     fn call(&self, request: Request) -> ServiceFuture<'_>;
+
+    /// Handle an HTTP request with an optional one-shot tunnel capability.
+    ///
+    /// The runtime always calls this entry point. `tunnel` is `Some` only
+    /// when the request carried validated H1 `Upgrade`/`CONNECT` intent,
+    /// carried no body, and the transport offered a handoff. The default
+    /// implementation drops the capability and runs [`call`](Self::call),
+    /// so ordinary services deny with ordinary HTTP and stay
+    /// source-compatible. Tunnel-aware services override this method,
+    /// inspect `capability.request()`, and either drop it (denial) or
+    /// consume it via `TunnelCapability::accept`.
+    fn call_with_tunnel(
+        &self,
+        request: Request,
+        tunnel: Option<crate::tunnel::TunnelCapability>,
+    ) -> ServiceFuture<'_> {
+        let _ = tunnel;
+        self.call(request)
+    }
 }
 
 impl<F, Fut> Service for F
@@ -293,6 +339,44 @@ where
     ServiceFn {
         f,
         body_policy: Some(policy),
+    }
+}
+
+/// Create a tunnel-aware service from a closure.
+///
+/// The closure receives the canonical [`Request`] plus the optional one-shot
+/// [`TunnelCapability`](crate::tunnel::TunnelCapability). `None` means an
+/// ordinary request (or a transition the runtime could not back with a
+/// transport handoff); dropping a `Some` capability denies with ordinary
+/// HTTP. Consuming it via `accept` performs the handshake.
+pub fn service_fn_with_tunnel<F, Fut>(f: F) -> TunnelServiceFn<F>
+where
+    F: Fn(Request, Option<crate::tunnel::TunnelCapability>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
+{
+    TunnelServiceFn { f }
+}
+
+/// A tunnel-aware service created via [`service_fn_with_tunnel`].
+pub struct TunnelServiceFn<F> {
+    f: F,
+}
+
+impl<F, Fut> Service for TunnelServiceFn<F>
+where
+    F: Fn(Request, Option<crate::tunnel::TunnelCapability>) -> Fut + Send + Sync + 'static,
+    Fut: Future<Output = Result<Response, ServiceError>> + Send + 'static,
+{
+    fn call(&self, request: Request) -> ServiceFuture<'_> {
+        Box::pin((self.f)(request, None))
+    }
+
+    fn call_with_tunnel(
+        &self,
+        request: Request,
+        tunnel: Option<crate::tunnel::TunnelCapability>,
+    ) -> ServiceFuture<'_> {
+        Box::pin((self.f)(request, tunnel))
     }
 }
 

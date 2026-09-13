@@ -848,7 +848,8 @@ async fn h1_upgrade_echo() {
                 .body(ResponseBody::Bytes(b"no-tunnel".to_vec()))
                 .unwrap());
         };
-        let handler = |mut io: TunnelIo, lifecycle: eggserve_core::primitives::RequestLifecycle| async move {
+        let handler = |mut io: TunnelIo| async move {
+            use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let mut buf = vec![0u8; 1024];
             // Single echo then close: deterministic, no soak.
             if let Ok(n) = io.read(&mut buf).await {
@@ -856,7 +857,6 @@ async fn h1_upgrade_echo() {
                     let _ = io.write_all(&buf[..n]).await;
                 }
             }
-            let _ = lifecycle;
         };
         match tunnel.accept(HeaderBlock::new(), handler) {
             Ok(response) => Ok(response),

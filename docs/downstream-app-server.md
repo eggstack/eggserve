@@ -64,8 +64,14 @@ downstream responsibility.
 - `RequestContext` is the single deliberate attachment point for
   transport-authenticated metadata and opaque capabilities. It owns
   `ConnectionInfo` + `RequestLifecycle` + bounded `InterimSender` (`interim()`)
-  + one-shot `TunnelCapability` (`take_tunnel()`; H1 `Upgrade`, `CONNECT`,
-  H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8). There is no generic type map: downstream application state
+  + validated tunnel *intent* (`tunnel_request()`; H1 `Upgrade`, `CONNECT`,
+  H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8).
+  One-shot tunnel *acceptance* is server-owned: compatibility services take
+  it via `take_tunnel()`, direct (`eggserve-server`) services receive it via
+  the additive `Service::call_with_tunnel` parameter (default drops it, so
+  ordinary services deny with ordinary HTTP unchanged). Handlers own only
+  `TunnelIo` (`FnOnce(TunnelIo)`; capture the lifecycle for cancellation).
+  There is no generic type map: downstream application state
   belongs in the service wrapper, and Tower/framework extension maps belong
   in the `http-interop`/`tower` adapters (Plan 200, implemented; see
   [http-interop.md](http-interop.md)). No raw socket, Hyper, H2/H3, rustls-session, or
@@ -212,11 +218,14 @@ earlier ones:
    (including trailer producer failure) closes (H1) or resets the stream
    (H2/H3, siblings survive) with sanitized diagnostics only.
 7. **transitioned into a non-HTTP tunnel where applicable** — via
-   `take_tunnel()` + `accept(headers, handler)` (Plan 199): validated H1
-   `101` / `200` for `CONNECT`/Extended (runtime owns framing, no raw
-   socket) plus bounded single-owner `TunnelIo`; denial stays ordinary HTTP;
-   ordinary `101` via `Response` still cannot survive normalization (only
-   `accept` forges the handshake token).
+   `take_tunnel()` (compatibility) or `Service::call_with_tunnel`
+   (direct) + `accept(headers, handler)` (Plan 199 semantics, Plan 216
+   ownership): validated H1 `101` / `200` for `CONNECT`/Extended (runtime
+   owns framing, no raw socket) plus bounded single-owner `TunnelIo`;
+   denial stays ordinary HTTP; handlers own only IO
+   (`FnOnce(TunnelIo)` — capture the lifecycle for cancellation);
+   ordinary `101` via `Response` still cannot forge a handoff (only
+   `accept` stages one, observed out-of-band by the pipeline).
 
 What happens on races:
 
@@ -226,7 +235,9 @@ What happens on races:
 - interim attempt **after** final commitment → `InterimError::AfterCommit`
   (fail closed, no wire bytes);
 - tunnel `accept` **after** final commitment → `TunnelError::AfterCommit`;
-  second `take_tunnel()` → `None` (double-accept impossible);
+  second `take_tunnel()` → `None` (double-accept impossible; direct
+  capabilities are consumed by `accept`, so a second accept is a
+  deterministic `AlreadyAccepted`/`AfterCommit`);
 - response/trailer producer errors **after** commitment → transport close/reset,
   never a second HTTP error; `ResponseStreamError` display stays generic;
 - request body still delegated (`Active`) after response-start → reuse

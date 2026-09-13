@@ -1,86 +1,64 @@
-//! Generic tunnel / upgrade capability (Plan 199).
+//! Transport-neutral tunnel intent vocabulary (Plan 216).
 //!
-//! EggServe provides a safe, generic duplex capability after a validated HTTP
-//! transition. It does **not** implement WebSocket framing, ping/pong,
-//! fragmentation, close codes, permessage-deflate, ASGI `websocket.*` events,
-//! SOCKS, CONNECT proxy policy, or arbitrary application tunneling policy.
+//! This module owns the dependency-free contract for generic HTTP
+//! transition intent: what the client asked for, whether it validated, and
+//! why it did not. It does **not** own transport execution.
 //!
-//! # What this module owns
+//! # What lives here (neutral, `std` + canonical header types only)
 //!
 //! - [`TunnelKind`]: `Http1Upgrade`, `Connect`, `ExtendedConnect`.
 //! - [`ProtocolName`]: validated, bounded `token` (RFC 9110 `token`, 1..=64).
 //! - [`TunnelRequest`]: validated tunnel intent (kind + protocol + authority).
 //!   Pseudo-headers never appear as ordinary headers; protocol bytes are
 //!   validated/bounded before allocation/service dispatch.
-//! - [`TunnelCapability`]: non-cloneable, one-shot, transport-backed
-//!   acceptance capability attached to [`RequestContext`](super::request_context::RequestContext).
-//!   Ordinary clones never duplicate ownership; double-accept is impossible
-//!   (second `take` returns `None`) or deterministic [`TunnelError`];
-//!   dropping/ignoring uses the normal HTTP denial path; the capability
-//!   becomes unusable after final response commitment.
-//! - [`TunnelIo`]: EggServe-owned duplex abstraction (`AsyncRead` +
-//!   `AsyncWrite`, `Unpin + Send`). Single-owner by default; splitting via
-//!   `tokio::io::split` is the explicit supported operation. Bounded
-//!   backpressure (32 KiB duplex buffer), H1 read-ahead preserved via Hyper's
-//!   `Upgraded` buffering, H2/H3 flow control respected via transport bridges,
-//!   lifecycle cancellation wakes idle tasks, no implicit buffering
-//!   proportional to attacker input.
+//! - [`TunnelError`]: stable acceptance/validation failure vocabulary that
+//!   needs no runtime types (sanitized, no payload bytes).
+//! - Bounds: [`MAX_TUNNEL_PROTOCOL_BYTES`], [`MAX_TUNNEL_HEADER_COUNT`],
+//!   [`MAX_TUNNEL_HEADER_BYTES`], [`TUNNEL_IO_BUFFER_BYTES`].
+//! - Validation: [`classify_h1_upgrade`], [`classify_extended_protocol`],
+//!   [`validate_handshake_headers`]. One validation authority shared by the
+//!   direct server and compatibility paths; there is no second parser.
 //!
-//! # What this module does NOT own
+//! # What lives in `eggserve-server::tunnel` (transport execution)
 //!
-//! - No WebSocket codec, no `WebSocket` enum variant as the only protocol.
-//!   The capability stays generic.
-//! - No raw socket/QUIC/Hyper/h2/h3/Quinn types in public signatures.
-//!   `hyper::upgrade::OnUpgrade` is held privately (crate-internal) for
-//!   H1/H2; H3 streams are adapted by the runtime without naming h3 types.
-//! - No `ServiceOutcome`: `Service::call` keeps returning [`Response`](super::canonical::Response).
-//!   [`TunnelCapability::accept`] consumes the capability and returns a
-//!   handshake [`Response`] carrying a crate-private acceptance token. Only
-//!   `accept` can create that token, so ordinary responses cannot forge a
-//!   tunnel handshake.
+//! - H1 `Upgrade`/`CONNECT` detection against live transport state
+//!   (`hyper::upgrade::OnUpgrade` acquisition, `.with_upgrades()` behavior).
+//! - One-shot [`TunnelCapability`](https://docs.rs/eggserve-server) acceptance
+//!   state machine and commitment safety.
+//! - Bounded duplex handoff
+//!   ([`TunnelIo`](https://docs.rs/eggserve-server)), H1 read-ahead
+//!   preservation, backpressure, lifecycle cancellation, admission, and
+//!   task cleanup.
 //!
-//! # Phase-zero audit (Track A, current deps)
+//! # What lives nowhere in EggServe
 //!
-//! - H1 (`hyper` 1.11.1): `OnUpgrade` + `.with_upgrades()` + `Upgraded`
-//!   (with `read_buf` for buffered post-handshake bytes). TLS and
-//!   caller-owned IO work because the driver wraps any
-//!   `AsyncRead + AsyncWrite` stream. Driver completion after handoff is
-//!   `Ok` (upgrade), and tunnel tasks hold the tunnel budget + lifecycle.
-//! - H2 (`hyper` 1.11.1 + `h2` via `hyper::server::conn::http2`):
-//!   `Builder::enable_connect_protocol()` advertises
-//!   `SETTINGS_ENABLE_CONNECT_PROTOCOL`; `CONNECT` requests carry
-//!   `OnUpgrade` in extensions + generic `:protocol` via
-//!   `hyper::ext::Protocol` (generic, e.g. `websocket`). Success is any
-//!   `2xx` (we emit `200`), followed by duplex stream data. Stream reset
-//!   stays stream-local; siblings survive.
-//! - H3 (`h3` 0.0.8 / `h3-quinn` 0.0.10 / `quinn` 0.11.11):
-//!   `server::builder().enable_extended_connect(true)` advertises support,
-//!   but `h3::ext::Protocol::from_str` only accepts `webtransport` and
-//!   `connect-udp`. Generic `:protocol` values (e.g. `websocket`) are
-//!   rejected as malformed before EggServe sees them. Documented as blocked:
-//!   H3 supports `CONNECT` (no `:protocol`, kind `Connect`) and the two
-//!   h3-crate protocols (kind `ExtendedConnect` with those names) as
-//!   stream-scoped tunnels; generic H3 websocket-style `:protocol` is
-//!   blocked by the dependency, not bypassed with raw wire code.
+//! No WebSocket codec, ping/pong, fragmentation, close codes,
+//! permessage-deflate, SOCKS, CONNECT routing/authorization policy, MASQUE,
+//! WebTransport application behavior, or generic proxy policy. The capability
+//! stays generic: EggServe validates the HTTP transition and hands the
+//! downstream codec a bounded duplex; the downstream owns framing/policy.
+//!
+//! # Dependency contract
+//!
+//! This module must never import `hyper`, `hyper_util`, `tokio`, `h2`,
+//! `h3`, `quinn`, `rustls`, or any filesystem/executor type. The
+//! `scripts/check-crate-topology.py` Plan 216 gate greps for those imports.
+//! Transport machinery belongs in `eggserve-server`; compatibility facades
+//! re-export these neutral values and delegate execution upward.
 
 use std::fmt;
-use std::future::Future;
-use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
 
 use crate::primitives::authority::Authority;
-use crate::primitives::canonical::{Response, ResponseBody, StatusCode};
 use crate::primitives::header_block::{HeaderBlock, HeaderError};
-use crate::primitives::request_lifecycle::RequestLifecycle;
 
 /// Maximum `ProtocolName` bytes (validated token, bounded before allocation).
 pub const MAX_TUNNEL_PROTOCOL_BYTES: usize = 64;
-/// Maximum handshake header fields accepted via [`TunnelCapability::accept`].
+/// Maximum handshake header fields accepted via capability `accept`.
 pub const MAX_TUNNEL_HEADER_COUNT: usize = 32;
 /// Maximum aggregate handshake header bytes (name+value) via `accept`.
 pub const MAX_TUNNEL_HEADER_BYTES: usize = 8 * 1024;
-/// Duplex bridge buffer bytes for [`TunnelIo::pair`] (bounded backpressure).
+/// Duplex bridge buffer bytes for the server-owned tunnel IO
+/// (bounded backpressure; the bound lives here so both layers agree).
 pub const TUNNEL_IO_BUFFER_BYTES: usize = 32 * 1024;
 
 /// Generic tunnel transition kind.
@@ -179,7 +157,10 @@ fn is_tchar(b: u8) -> bool {
 ///   the effective Host authority.
 /// - `CONNECT`: authority-form validated; `protocol` is `None`.
 /// - Extended `CONNECT`: `:protocol` validated + authority; H2 generic, H3
-///   limited to h3-crate values (see module docs).
+///   limited to h3-crate values.
+///
+/// Intent is cloneable routing metadata. One-shot acceptance ownership lives
+/// in `eggserve-server::tunnel::TunnelCapability`, not here.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TunnelRequest {
     kind: TunnelKind,
@@ -188,10 +169,14 @@ pub struct TunnelRequest {
 }
 
 impl TunnelRequest {
-    /// Create validated tunnel intent (crate-internal: only the runtime
-    /// creates this after header/pseudo-header validation + transport
-    /// capability presence; services cannot fabricate by constructing headers).
-    pub(crate) fn new(
+    /// Create validated tunnel intent.
+    ///
+    /// Runtime-only: only runtimes construct this after header/pseudo-header
+    /// validation + transport capability presence; services cannot fabricate
+    /// by constructing headers (they never observe `OnUpgrade`). Public for
+    /// the direct server runtime (`eggserve-server`); downstream services
+    /// must use the intent attached to their `RequestContext`.
+    pub fn new(
         kind: TunnelKind,
         protocol: Option<ProtocolName>,
         authority: Option<Authority>,
@@ -219,7 +204,7 @@ impl TunnelRequest {
     }
 }
 
-/// Tunnel capability/acceptance failures (sanitized, no payload bytes logged).
+/// Tunnel intent/acceptance failures (sanitized, no payload bytes logged).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TunnelError {
     /// No tunnel capability attached to this request/context.
@@ -268,211 +253,14 @@ impl From<HeaderError> for TunnelError {
     }
 }
 
-/// Shared one-shot state (commitment + acceptance), cloned between the
-/// runtime's pre-service snapshot and the service-owned capability.
-#[derive(Debug)]
-pub(crate) struct TunnelShared {
-    committed: AtomicBool,
-    accepted: AtomicBool,
-}
-
-impl TunnelShared {
-    pub(crate) fn new() -> Self {
-        Self {
-            committed: AtomicBool::new(false),
-            accepted: AtomicBool::new(false),
-        }
-    }
-
-    pub(crate) fn mark_committed(&self) {
-        self.committed.store(true, Ordering::Release);
-    }
-
-    pub(crate) fn is_committed(&self) -> bool {
-        self.committed.load(Ordering::Acquire)
-    }
-
-    /// Claim acceptance exactly once; `false` when already accepted.
-    pub(crate) fn try_accept(&self) -> bool {
-        self.accepted
-            .compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok()
-    }
-}
-
-/// Boxed tunnel handler: receives duplex IO + lifecycle, owns protocol codec.
-///
-/// `Send + 'static` so downstream tasks can own it; single-owner duplex.
-/// The runtime spawns it after the validated handshake; it must observe
-/// `lifecycle.cancelled()` for peer/reset/shutdown/timeout/close.
-type TunnelHandlerBox = Box<
-    dyn FnOnce(TunnelIo, RequestLifecycle) -> Pin<Box<dyn Future<Output = ()> + Send>>
-        + Send
-        + 'static,
->;
-
-/// Crate-private acceptance token carried by handshake [`Response`].
-///
-/// Only [`TunnelCapability::accept`] constructs this (via
-/// `Response::with_tunnel_acceptance`), so ordinary responses cannot forge a
-/// tunnel handshake. Holds the downstream handler + transport upgrade future
-/// (H1/H2) or `None` (H3/test, where streams are owned by the adapter).
-pub(crate) struct TunnelAcceptance {
-    pub(crate) handler: TunnelHandlerBox,
-    pub(crate) upgrade: Option<hyper::upgrade::OnUpgrade>,
-    pub(crate) kind: TunnelKind,
-}
-
-impl fmt::Debug for TunnelAcceptance {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TunnelAcceptance")
-            .field("kind", &self.kind)
-            .field("has_upgrade", &self.upgrade.is_some())
-            .finish()
-    }
-}
-
-/// One-shot, non-cloneable, transport-backed tunnel capability.
-///
-/// Obtained via `RequestContext::take_tunnel()` (or inspected via
-/// `tunnel_request()`). Consumed by [`accept`](Self::accept) to produce a
-/// handshake [`Response`]; dropping/ignoring uses the normal HTTP denial path.
-pub struct TunnelCapability {
-    request: TunnelRequest,
-    shared: Arc<TunnelShared>,
-    upgrade: Option<hyper::upgrade::OnUpgrade>,
-}
-
-impl fmt::Debug for TunnelCapability {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TunnelCapability")
-            .field("request", &self.request)
-            .field("has_upgrade", &self.upgrade.is_some())
-            .finish()
-    }
-}
-
-impl TunnelCapability {
-    /// Create a capability (crate-internal: runtime only, after validation).
-    pub(crate) fn new(request: TunnelRequest, upgrade: Option<hyper::upgrade::OnUpgrade>) -> Self {
-        Self {
-            request,
-            shared: Arc::new(TunnelShared::new()),
-            upgrade,
-        }
-    }
-
-    /// Returns validated tunnel intent.
-    pub fn request(&self) -> &TunnelRequest {
-        &self.request
-    }
-
-    /// Shared commitment/acceptance state (runtime pre-service snapshot).
-    pub(crate) fn shared(&self) -> Arc<TunnelShared> {
-        self.shared.clone()
-    }
-
-    /// Accept the tunnel: validate handshake headers, claim one-shot
-    /// ownership, and return a handshake [`Response`] carrying the handler.
-    ///
-    /// - H1 (`Http1Upgrade`): `101 Switching Protocols`; runtime adds
-    ///   `Upgrade: <protocol>` + `Connection: upgrade` (service must not
-    ///   supply framing; `Upgrade`/`Connection` in `headers` are stripped and
-    ///   replaced with validated values).
-    /// - `Connect` / `ExtendedConnect`: `200 OK`; hop-by-hop stripped, no
-    ///   `101` synthesized.
-    /// - `headers`: application handshake fields (e.g. `Sec-WebSocket-Accept`);
-    ///   framing (`content-length`, `transfer-encoding`) rejected; hop-by-hop
-    ///   stripped; bounded (32 fields / 8 KiB).
-    /// - `handler`: downstream codec (`FnOnce(TunnelIo, RequestLifecycle)`).
-    ///   The runtime, not the application, writes transition/framing bytes;
-    ///   the handler never sees the raw socket/QUIC connection.
-    pub fn accept<F, Fut>(self, headers: HeaderBlock, handler: F) -> Result<Response, TunnelError>
-    where
-        F: FnOnce(TunnelIo, RequestLifecycle) -> Fut + Send + 'static,
-        Fut: Future<Output = ()> + Send + 'static,
-    {
-        if self.shared.is_committed() {
-            return Err(TunnelError::AfterCommit);
-        }
-        if !self.shared.try_accept() {
-            return Err(TunnelError::AlreadyAccepted);
-        }
-        let mut headers = headers;
-        validate_handshake_headers(&mut headers)?;
-        let status = match self.request.kind {
-            TunnelKind::Http1Upgrade => StatusCode::SWITCHING_PROTOCOLS,
-            TunnelKind::Connect | TunnelKind::ExtendedConnect => StatusCode::OK,
-        };
-        // H1: runtime is the sole `Upgrade`/`Connection` authority. Strip any
-        // service-supplied values, then add validated ones. H2/H3: no 101,
-        // no hop-by-hop; they were already stripped.
-        if self.request.kind == TunnelKind::Http1Upgrade {
-            headers.retain(|f| {
-                !f.name.as_str().eq_ignore_ascii_case("upgrade")
-                    && !f.name.as_str().eq_ignore_ascii_case("connection")
-            });
-            if let Some(protocol) = self.request.protocol.as_ref() {
-                headers.push(
-                    crate::primitives::header_block::HeaderName::new("upgrade").map_err(|_| {
-                        TunnelError::InvalidHeader(
-                            crate::primitives::header_block::HeaderError::InvalidName,
-                        )
-                    })?,
-                    crate::primitives::header_block::HeaderValue::from_bytes(protocol.as_bytes())
-                        .map_err(|_| {
-                        TunnelError::InvalidHeader(
-                            crate::primitives::header_block::HeaderError::InvalidValue,
-                        )
-                    })?,
-                );
-                headers.push(
-                    crate::primitives::header_block::HeaderName::new("connection").map_err(
-                        |_| {
-                            TunnelError::InvalidHeader(
-                                crate::primitives::header_block::HeaderError::InvalidName,
-                            )
-                        },
-                    )?,
-                    crate::primitives::header_block::HeaderValue::from_bytes(b"upgrade").map_err(
-                        |_| {
-                            TunnelError::InvalidHeader(
-                                crate::primitives::header_block::HeaderError::InvalidValue,
-                            )
-                        },
-                    )?,
-                );
-            }
-        }
-        let boxed: TunnelHandlerBox =
-            Box::new(move |io, lifecycle| Box::pin(handler(io, lifecycle)));
-        let acceptance = TunnelAcceptance {
-            handler: boxed,
-            upgrade: self.upgrade,
-            kind: self.request.kind,
-        };
-        let mut response = Response::builder()
-            .status(status)
-            .body(ResponseBody::Empty)
-            .map_err(|_| TunnelError::ForbiddenHeader("invalid tunnel status".to_string()))?;
-        for field in headers.iter() {
-            response
-                .head_mut()
-                .headers_mut()
-                .push(field.name.clone(), field.value.clone());
-        }
-        response.with_tunnel_acceptance(acceptance);
-        Ok(response)
-    }
-}
-
-/// Validate handshake headers for `accept`.
+/// Validate handshake headers for capability `accept`.
 ///
 /// Framing (`content-length`, `transfer-encoding`) is forbidden (not stripped):
 /// attempting transfer coding via a handshake is an application bug. Hop-by-hop
 /// is stripped (runtime-owned); `Upgrade`/`Connection` are stripped here and
-/// re-added validated for H1 by `accept`. Bounded before service dispatch.
-fn validate_handshake_headers(headers: &mut HeaderBlock) -> Result<(), TunnelError> {
+/// re-added validated for H1 by the server-owned `accept`. Bounded before
+/// service dispatch. Shared by the direct server and compatibility paths.
+pub fn validate_handshake_headers(headers: &mut HeaderBlock) -> Result<(), TunnelError> {
     for name in ["content-length", "transfer-encoding"] {
         if headers.contains(name) {
             return Err(TunnelError::ForbiddenHeader(name.to_string()));
@@ -499,87 +287,8 @@ fn validate_handshake_headers(headers: &mut HeaderBlock) -> Result<(), TunnelErr
     Ok(())
 }
 
-/// EggServe-owned duplex abstraction for downstream protocol codecs.
-///
-/// Opaque wrapper around a bounded duplex pipe (32 KiB). Production instances
-/// always come from the runtime after a validated handshake (H1 read-ahead
-/// preserved via `Upgraded::read_buf`, H2/H3 flow control via transport
-/// bridges). `AsyncRead + AsyncWrite + Unpin + Send`; single-owner by default,
-/// explicit split via `tokio::io::split`. Bounded backpressure; lifecycle
-/// cancellation wakes idle tasks via the handler's `RequestLifecycle`; no
-/// payload bytes logged by default; no Hyper/h2/h3/Quinn types named.
-pub struct TunnelIo {
-    inner: tokio::io::DuplexStream,
-}
-
-impl fmt::Debug for TunnelIo {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("TunnelIo").finish()
-    }
-}
-
-impl TunnelIo {
-    /// Create an in-memory duplex pair (tests/fixtures only; production
-    /// instances come from the runtime). Bounded (`TUNNEL_IO_BUFFER_BYTES`).
-    pub fn pair() -> (Self, Self) {
-        let (a, b) = tokio::io::duplex(TUNNEL_IO_BUFFER_BYTES);
-        (Self { inner: a }, Self { inner: b })
-    }
-
-    /// Unwrap for runtime bridging (crate-internal).
-    pub(crate) fn into_duplex(self) -> tokio::io::DuplexStream {
-        self.inner
-    }
-}
-
-impl tokio::io::AsyncRead for TunnelIo {
-    fn poll_read(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &mut tokio::io::ReadBuf<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_read(cx, buf)
-    }
-}
-
-impl tokio::io::AsyncWrite for TunnelIo {
-    fn poll_write(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        buf: &[u8],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write(cx, buf)
-    }
-
-    fn poll_flush(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_flush(cx)
-    }
-
-    fn poll_shutdown(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-    ) -> std::task::Poll<std::io::Result<()>> {
-        Pin::new(&mut self.inner).poll_shutdown(cx)
-    }
-
-    fn poll_write_vectored(
-        mut self: Pin<&mut Self>,
-        cx: &mut std::task::Context<'_>,
-        bufs: &[std::io::IoSlice<'_>],
-    ) -> std::task::Poll<std::io::Result<usize>> {
-        Pin::new(&mut self.inner).poll_write_vectored(cx, bufs)
-    }
-
-    fn is_write_vectored(&self) -> bool {
-        self.inner.is_write_vectored()
-    }
-}
-
 // ---------------------------------------------------------------------------
-// Classification helpers (crate-internal, single validation core)
+// Classification helpers (single validation core, shared by all runtimes)
 // ---------------------------------------------------------------------------
 
 /// Classify an H1 upgrade request from canonical headers.
@@ -589,7 +298,7 @@ impl tokio::io::AsyncWrite for TunnelIo {
 /// one valid bounded protocol token across all fields. Duplicates/malformed
 /// yield `None` (no capability, ordinary HTTP path). HTTP/1.0 never yields a
 /// capability. Bodies must be absent (caller checks `has_body` first).
-pub(crate) fn classify_h1_upgrade(
+pub fn classify_h1_upgrade(
     headers: &HeaderBlock,
     version: crate::primitives::version::HttpVersion,
 ) -> Option<ProtocolName> {
@@ -646,11 +355,10 @@ pub(crate) fn classify_h1_upgrade(
 
 /// Validate an H2/H3 `:protocol` value into a bounded [`ProtocolName`].
 ///
-/// Returns `None` for absent (plain `CONNECT`) vs `Some(Err)` for present-but-invalid?
-/// For simplicity: `None` input yields `None` (plain CONNECT); `Some` input
-/// validated strictly, invalid yields `None` (no ExtendedConnect capability;
-/// caller falls back to ordinary path, never fabricates).
-pub(crate) fn classify_extended_protocol(protocol: Option<&str>) -> Option<ProtocolName> {
+/// `None` input yields `None` (plain CONNECT); `Some` input is validated
+/// strictly, invalid yields `None` (no ExtendedConnect capability; caller
+/// falls back to the ordinary path, never fabricates).
+pub fn classify_extended_protocol(protocol: Option<&str>) -> Option<ProtocolName> {
     let value = protocol?;
     let trimmed = value.trim_matches(|c| c == ' ' || c == '\t');
     if trimmed.is_empty() {
@@ -733,35 +441,24 @@ mod tests {
         assert!(classify_extended_protocol(Some("has space")).is_none());
     }
 
-    #[tokio::test]
-    async fn tunnel_io_pair_echoes() {
-        use tokio::io::{AsyncReadExt, AsyncWriteExt};
-        let (mut a, mut b) = TunnelIo::pair();
-        a.write_all(b"hello").await.unwrap();
-        let mut buf = [0u8; 5];
-        b.read_exact(&mut buf).await.unwrap();
-        assert_eq!(&buf, b"hello");
-    }
-
-    #[tokio::test]
-    async fn accept_after_commit_fails() {
-        use crate::primitives::request_lifecycle::RequestShared;
-        let req = TunnelRequest::new(TunnelKind::Http1Upgrade, None, None);
-        let cap = TunnelCapability::new(req, None);
-        cap.shared.mark_committed();
-        let err = cap
-            .accept(HeaderBlock::new(), |_io, _lc| async move {})
-            .unwrap_err();
-        assert_eq!(err, TunnelError::AfterCommit);
-        let _ = RequestShared::new_active();
-    }
-
     #[test]
     fn handshake_rejects_framing() {
         let mut h = headers(&[("content-length", "5")]);
         assert!(matches!(
             validate_handshake_headers(&mut h),
             Err(TunnelError::ForbiddenHeader(_))
+        ));
+    }
+
+    #[test]
+    fn handshake_bounds_count_and_bytes() {
+        let mut h = HeaderBlock::new();
+        for i in 0..33 {
+            h.push_str(format!("x-tunnel-{i}"), "v").unwrap();
+        }
+        assert!(matches!(
+            validate_handshake_headers(&mut h),
+            Err(TunnelError::TooManyHeaders { .. })
         ));
     }
 }

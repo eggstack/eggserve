@@ -194,23 +194,35 @@ framing/normalization and the Plan 165 privacy boundary, and enforces its own
 bounds (subprocess concurrency, env/PARAMS caps, stdout header scan, STDERR
 cap, deadlines, kill/abort with reaping on timeout/disconnect/shutdown/drop).
 
-### Tunnel handoff (Plan 199 — generic upgrade/Extended CONNECT)
+### Tunnel handoff (Plans 199 + 216 — generic upgrade/Extended CONNECT)
 
-Plan 199 implements generic tunnels, superseding deferred Plan 176.
-`RequestContext::take_tunnel()` yields a one-shot, transport-backed
-`TunnelCapability` (validated H1 `Upgrade`, `CONNECT`, H2/H3 Extended
-`CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8). `Service` still
-returns `Response` only (Plan 197 Track C kept; no `ServiceOutcome`):
-`accept(headers, handler)` consumes the capability and returns a handshake
-`Response` (`101` H1 / `200` otherwise, runtime owns framing, no raw socket)
-carrying a crate-private acceptance token plus bounded single-owner `TunnelIo`
+Plan 199 implements generic tunnels, superseding deferred Plan 176;
+Plan 216 moves authority to the direct crates without a new service model.
+Neutral intent vocabulary (`TunnelKind`/`ProtocolName`/`TunnelRequest`/
+`TunnelError`, classifiers, handshake validator) lives once in
+`eggserve-primitives::tunnel` (Hyper/Tokio-free); transport execution
+(`TunnelCapability`/`TunnelIo`/acceptance state/H1 detection/bounded
+bridging/shared `run_tunnel`) lives once in `eggserve-server::tunnel`.
+Compatibility `RequestContext::take_tunnel()` yields the thin compatibility
+capability (same method names; `accept` delegates and converts only the
+handshake response shape). Direct services receive the capability via the
+additive `Service::call_with_tunnel` parameter (default drops it, so
+ordinary services deny with ordinary HTTP unchanged); validated intent is
+visible cloneably via `RequestContext::tunnel_request()` on both stacks.
+`Service` still returns `Response` only (Plan 197 Track C kept; no
+`ServiceOutcome`): `accept(headers, handler)` consumes the capability and
+returns a handshake `Response` (`101` H1 / `200` otherwise, runtime owns
+framing, no raw socket); the staged transport acceptance is observed
+out-of-band by the pipeline (sidecar), never carried inside the value
+(`is_tunnel()` is always `false`). Handlers own only IO (`FnOnce(TunnelIo)`;
+capture the lifecycle for cancellation). Bounded single-owner `TunnelIo`
 (`AsyncRead + AsyncWrite`, 32 KiB, lifecycle-aware). Ordinary `101` via
-`Response` still cannot survive normalization (only `accept` forges the token).
-H1 runs with `.with_upgrades()` (read-ahead preserved), H2 with
-`enable_connect_protocol()`, H3 with `enable_extended_connect(true)`;
-unused capabilities drop (denial stays ordinary HTTP). Downstream WebSocket
-framing lives over `TunnelIo` (see `tunnel_upgrade.rs`); raw Hyper/h2/h3/Quinn
-bypass remains unsupported.
+`Response` cannot forge a handoff. H1 runs with `.with_upgrades()`
+(read-ahead preserved), H2 with `enable_connect_protocol()`, H3 with
+`enable_extended_connect(true)`; unused capabilities drop (denial stays
+ordinary HTTP). Downstream WebSocket framing lives over `TunnelIo` (see
+`tunnel_upgrade.rs` echo + `tokio-tungstenite` fixture); raw
+Hyper/h2/h3/Quinn bypass remains unsupported.
 
 ### ServerHandle
 

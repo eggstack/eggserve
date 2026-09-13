@@ -429,6 +429,58 @@ upgrade/CONNECT intent (denial stays ordinary HTTP), and the
 tunnel-capable compatibility pipeline stays until then. See
 `release/plan-215-direct-runtime-parity.md`.
 
+## Plan 216: direct generic tunnel/upgrade parity (experimental, pre-1.0 moves)
+
+Tunnel ownership moves toward the direct crates with no new service model:
+
+- Neutral intent vocabulary (`TunnelKind`, `ProtocolName`, `TunnelRequest`,
+  `TunnelError`, bounds, H1/`:protocol` classifiers, handshake validator)
+  is owned once by `eggserve-primitives::tunnel` (Hyper/Tokio-free).
+  `eggserve_core::primitives::{tunnel, header_block, authority}` re-export
+  the direct implementations, so existing import paths keep resolving with
+  identical APIs.
+- Transport execution (`TunnelCapability`, `TunnelIo`, acceptance state,
+  H1 detection, bounded bridging) is owned once by
+  `eggserve-server::tunnel`. Compatibility H1/H2 validate through the
+  shared neutral helpers and run the shared `run_tunnel` future — the
+  duplicate H1 parser/state machine/bridge is deleted
+  (`server/connection/tunnel.rs` is gone).
+- Compatibility `RequestContext::take_tunnel()` is preserved: it yields the
+  thin compatibility capability (same method names), whose `accept`
+  delegates to the direct authority and converts only the handshake
+  response shape. Ordinary services (no tunnel use) require no change.
+- Direct services use the additive `Service::call_with_tunnel`
+  (or `service_fn_with_tunnel`); the default drops the capability so
+  existing `Service::call` implementations deny with ordinary HTTP
+  unchanged. Validated intent is visible cloneably via
+  `RequestContext::tunnel_request()` on both stacks.
+
+| Before | After | Change |
+|--------|-------|--------|
+| Tunnel handler `\|io: TunnelIo, lifecycle: RequestLifecycle\|` | `\|io: TunnelIo\|` + captured lifecycle | Handlers own only IO; capture `req.lifecycle_clone()` (or the context lifecycle) in the closure when cancellation is needed. Applies to direct (`eggserve_server`), compatibility (`eggserve_core`), H3, and Python-bridge handlers |
+| `Response::is_tunnel()` (compat) | Always `false` | Handoff is observed out-of-band by the pipeline (sidecar), never inside the value. `with_tunnel_acceptance` / `take_tunnel_acceptance` are removed; ordinary responses cannot forge handshakes either way |
+| `eggserve_core::server::connection::tunnel` | Removed | H1/H2 run the shared `eggserve_server::tunnel::run_tunnel` future; H3 keeps its stream bridging under Plan 213 |
+
+Migration (tunnel handlers only; all other services keep compiling):
+
+```rust,no_run
+// Before:
+let handler = |mut io: TunnelIo, lifecycle: RequestLifecycle| async move {
+    tokio::select! {
+        _ = lifecycle.cancelled() => {}
+        // ... codec ...
+    }
+};
+// After:
+let lifecycle = req.lifecycle_clone();
+let handler = |mut io: TunnelIo| async move {
+    tokio::select! {
+        _ = lifecycle.cancelled() => {}
+        // ... codec ...
+    }
+};
+```
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

@@ -34,7 +34,7 @@ eggserve-core         (0.1 compatibility aggregate and protocol glue)
 
 `eggserve-primitives` is the leaf crate. It owns the extracted canonical
 request, response, header, method/version, lifecycle, generic policy, limits,
-and proxy provenance values. Its small `bytes`/`futures-util` dependencies are
+proxy provenance, and tunnel-intent values. Its small `bytes`/`futures-util` dependencies are
 transport-neutral; it must not acquire Hyper, Hyper-util, Tokio, TLS, QUIC, or
 filesystem dependencies.
 
@@ -44,13 +44,15 @@ the shared runtime-limit authority, the service contract shape, connection
 vocabulary (`ConnectionContext`/`ConnectionShutdown`/`ConnectionOutcome`),
 H1 configuration/state, the H1 connection driver (request conversion, body
 policy, admission, panic containment, timeouts, normalization, Hyper
-conversion), and the listener/prebound TCP `Server`. Its direct path
+conversion), the listener/prebound TCP `Server`, and — since Plan 216 — the
+generic tunnel/upgrade execution (`tunnel`: one-shot capability, bounded
+`TunnelIo`, H1 detection, shared `run_tunnel` future, additive
+`Service::call_with_tunnel`). Its direct path
 preserves one-shot request bodies, response streams, opened-file streaming,
 normalization, and bounded request timeouts. It may depend on the primitives
 crate and transport dependencies, but never on `eggserve-core` or
-`eggserve-static`. Tunnel acceptance, H2 selection, and H3 paths stay in
-core until Plans 216/217; the H1 tunnel branch in the direct driver is an
-inert documented seam.
+`eggserve-static`. H2 selection/service-shape convergence is Plan 217; H3
+paths stay in core under Plan 213.
 
 `eggserve-static` owns the extracted descriptor/handle-relative filesystem
 resolver, path policy, MIME selection, response planner, and static service.
@@ -59,7 +61,9 @@ in the generic server crate.
 
 `eggserve-core` remains an aggregate during the 0.1 compatibility window.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
-tunnels, and legacy configuration. The `eggserve_core::layers` module exposes
+and legacy configuration; tunnels delegate (neutral vocabulary + transport
+facades with a thin `take_tunnel` wrapper; `server/connection/tunnel.rs`
+deleted). The `eggserve_core::layers` module exposes
 the direct crates for migration; new consumers should name the direct leaf
 crate they need.
 
@@ -89,7 +93,10 @@ core/static edges from the generic server, and requires static to consume
 primitives plus server. The Plan 215 rules additionally assert direct
 ownership of the H1 runtime vocabulary (ops/errors/policy/authority/service/
 driver markers), compatibility re-export facades, service-contract shape
-parity, and no upward source references. It is part of the Rust CI preflight and
+parity, and no upward source references. The Plan 216 rules assert neutral
+tunnel vocabulary (no Hyper/Tokio/H2/H3/QUIC in primitives tunnel code),
+direct tunnel execution ownership, deletion of the compatibility H1 tunnel
+transport, core tunnel facades, and a dev-only WebSocket codec. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.
 
 The check also verifies that the mature static resolver is present and the old

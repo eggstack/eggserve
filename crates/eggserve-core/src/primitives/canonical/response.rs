@@ -34,7 +34,6 @@ pub struct Response {
     head: ResponseHead,
     pub(super) body: Option<ResponseBody>,
     normalized: bool,
-    tunnel: Option<crate::primitives::tunnel::TunnelAcceptance>,
 }
 
 impl Response {
@@ -53,12 +52,12 @@ impl Response {
 
     /// Returns a mutable reference to the response head.
     ///
-    /// This invalidates prior normalization and drops any tunnel acceptance:
-    /// mutating a handshake after [`crate::primitives::tunnel::TunnelCapability::accept`]
-    /// turns it into an ordinary response (safe denial, no upgrade).
+    /// This invalidates prior normalization. Tunnel handshakes are final:
+    /// mutating a handshake after `TunnelCapability::accept` is a service
+    /// bug (the staged transport acceptance stays while the handshake bytes
+    /// change) — treat accepted responses as final instead.
     pub fn head_mut(&mut self) -> &mut ResponseHead {
         self.normalized = false;
-        self.tunnel = None;
         &mut self.head
     }
 
@@ -77,41 +76,22 @@ impl Response {
         self.normalized
     }
 
-    /// Returns `true` when this response carries an accepted-tunnel handshake
-    /// (created only via `TunnelCapability::accept`).
+    /// Returns `false`: transport handoff is owned by the runtime pipeline
+    /// (Plan 216 sidecar), never carried inside the response value.
+    ///
+    /// Compatibility shim: accepted handshakes are ordinary `Response`
+    /// values (status + headers + empty body) whose transport acceptance
+    /// the pipeline observes out-of-band. Always returns `false`.
     pub fn is_tunnel(&self) -> bool {
-        self.tunnel.is_some()
-    }
-
-    /// Attach a tunnel acceptance (crate-internal: only `TunnelCapability::accept`
-    /// constructs the token, so ordinary responses cannot forge a handshake).
-    pub(crate) fn with_tunnel_acceptance(
-        &mut self,
-        acceptance: crate::primitives::tunnel::TunnelAcceptance,
-    ) {
-        self.tunnel = Some(acceptance);
-        // Handshake headers were validated/bounded in `accept`; mark so the
-        // ordinary idempotent normalizer does not strip the H1
-        // `Upgrade`/`Connection` handshake. The tunnel adapter still
-        // re-validates framing before sending (defense in depth).
-        self.normalized = true;
-    }
-
-    /// Take the tunnel acceptance for runtime handshake/spawning, leaving the
-    /// handshake head/body for wire conversion.
-    pub(crate) fn take_tunnel_acceptance(
-        &mut self,
-    ) -> Option<crate::primitives::tunnel::TunnelAcceptance> {
-        self.tunnel.take()
+        false
     }
 
     /// Take the body out of the response, leaving an empty body.
     ///
     /// Returns `None` if the body was already consumed. Invalidates prior
-    /// normalization and drops tunnel acceptance (same reason as `head_mut`).
+    /// normalization.
     pub fn take_body(&mut self) -> Option<ResponseBody> {
         self.normalized = false;
-        self.tunnel = None;
         self.body.take()
     }
 
@@ -146,7 +126,6 @@ impl fmt::Debug for Response {
             .field("head", &self.head)
             .field("body", &self.body)
             .field("normalized", &self.normalized)
-            .field("is_tunnel", &self.tunnel.is_some())
             .finish()
     }
 }
@@ -218,7 +197,6 @@ impl ResponseBuilder {
             head: ResponseHead::new(status, self.headers),
             body: Some(body),
             normalized: false,
-            tunnel: None,
         })
     }
 

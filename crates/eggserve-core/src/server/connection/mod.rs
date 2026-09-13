@@ -68,7 +68,6 @@ pub(crate) mod pipeline;
 pub(crate) mod request;
 pub(crate) mod response;
 pub(crate) mod transport;
-pub(crate) mod tunnel;
 
 pub use context::{ConnectionContext, ConnectionOutcome, ConnectionShutdown};
 

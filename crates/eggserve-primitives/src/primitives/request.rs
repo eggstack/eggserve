@@ -21,9 +21,12 @@ use crate::primitives::request_lifecycle::RequestLifecycle;
 ///
 /// `RequestContext` is the single deliberate attachment point for future
 /// transport capabilities (Plan 197 Track B): interim-response senders
-/// (Plan 198) and tunnel capabilities (Plan 199) attach there as opaque
-/// capabilities rather than as ad hoc top-level `Request` fields. Ordinary
-/// services keep destructuring head/body and reading
+/// (Plan 198) attach there as opaque capabilities, and validated tunnel
+/// *intent* (Plan 199 intent, Plan 216 placement) attaches as cloneable
+/// routing metadata. One-shot tunnel *acceptance* stays server-owned
+/// (`eggserve-server::tunnel::TunnelCapability`, via the additive
+/// `Service::call_with_tunnel` parameter), never as an ad hoc top-level
+/// `Request` field. Ordinary services keep destructuring head/body and reading
 /// [`Request::connection`] / [`Request::lifecycle`]; those accessors forward
 /// to the context and remain source-compatible with the Plan 175 consumer.
 ///

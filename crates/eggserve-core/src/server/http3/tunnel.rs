@@ -37,6 +37,8 @@ pub(super) fn kind_string(kind: crate::primitives::tunnel::TunnelKind) -> &'stat
         crate::primitives::tunnel::TunnelKind::Http1Upgrade => "http1-upgrade",
         crate::primitives::tunnel::TunnelKind::Connect => "connect",
         crate::primitives::tunnel::TunnelKind::ExtendedConnect => "extended-connect",
+        // Non-exhaustive future kinds: sanitized label, never a panic.
+        _ => "unknown",
     }
 }
 

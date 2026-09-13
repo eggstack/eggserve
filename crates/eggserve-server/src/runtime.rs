@@ -118,9 +118,9 @@ impl RuntimeState {
 
     /// Return the server-wide active-tunnel admission pool.
     ///
-    /// Reserved seam for Plan 216: held constant by the direct H1 driver,
-    /// which performs no tunnel acceptance. Exhaustion semantics for
-    /// accepted tunnels are defined by the compatibility path until then.
+    /// Bounds concurrent accepted tunnels (Plan 216 direct H1 authority).
+    /// Exhaustion fails new handshakes with 503 without affecting
+    /// ordinary HTTP.
     pub fn tunnel_semaphore(&self) -> &Arc<tokio::sync::Semaphore> {
         &self.tunnel_semaphore
     }

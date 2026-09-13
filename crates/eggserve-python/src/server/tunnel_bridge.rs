@@ -173,17 +173,18 @@ impl PyTunnelCapability {
             closed: Arc::new(AtomicBool::new(false)),
         };
 
-        // Downstream handler owns `TunnelIo` + lifecycle, no raw transport.
-        // Shuttle loop: transport -> Python channel, Python channel ->
-        // transport, with lifecycle cancellation waking idle waits. No
-        // payload bytes logged; failures are sanitized (truncation/close).
-        let handler = move |mut io: eggserve_core::primitives::tunnel::TunnelIo,
-                            lc: eggserve_core::primitives::request_lifecycle::RequestLifecycle| async move {
+        // Downstream handler owns `TunnelIo`, no raw transport. The request
+        // lifecycle is captured (not passed) so cancellation wakes idle
+        // waits. Shuttle loop: transport -> Python channel, Python channel
+        // -> transport. No payload bytes logged; failures are sanitized
+        // (truncation/close).
+        let handler_lifecycle = lifecycle.clone();
+        let handler = move |mut io: eggserve_core::primitives::tunnel::TunnelIo| async move {
             let mut buf = vec![0u8; 32 * 1024];
             loop {
                 tokio::select! {
                     biased;
-                    _ = lc.cancelled() => break,
+                    _ = handler_lifecycle.cancelled() => break,
                     _ = shuttle_lifecycle.cancelled() => break,
                     read = tokio::io::AsyncReadExt::read(&mut io, &mut buf) => {
                         match read {

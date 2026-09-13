@@ -50,7 +50,7 @@
 use crate::primitives::connection_info::ConnectionInfo;
 use crate::primitives::interim::InterimSender;
 use crate::primitives::request_lifecycle::RequestLifecycle;
-use crate::primitives::tunnel::{TunnelCapability, TunnelRequest, TunnelShared};
+use crate::primitives::tunnel::{TunnelCapability, TunnelRequest};
 use crate::primitives::version::HttpVersion;
 
 /// Stable place for transport-authenticated metadata and optional
@@ -187,11 +187,29 @@ impl RequestContext {
     /// The runtime snapshots this before `Service::call` and marks committed
     /// after the final outcome, so a background task holding a taken
     /// capability cannot accept after commitment.
-    pub(crate) fn tunnel_shared(&self) -> Option<std::sync::Arc<TunnelShared>> {
+    pub(crate) fn tunnel_shared(
+        &self,
+    ) -> Option<std::sync::Arc<crate::primitives::tunnel::TunnelShared>> {
         self.tunnel
             .lock()
             .ok()
             .and_then(|slot| slot.as_ref().map(|cap| cap.shared()))
+    }
+
+    /// Staged-acceptance sidecar for the attached tunnel, if any
+    /// (crate-internal).
+    ///
+    /// The runtime snapshots this before `Service::call` and takes the
+    /// staged acceptance after the final outcome; ordinary denial stages
+    /// nothing.
+    pub(crate) fn tunnel_sidecar(
+        &self,
+    ) -> Option<std::sync::Arc<std::sync::Mutex<Option<crate::primitives::tunnel::TunnelAcceptance>>>>
+    {
+        self.tunnel
+            .lock()
+            .ok()
+            .and_then(|slot| slot.as_ref().map(|cap| cap.sidecar()))
     }
 }
 

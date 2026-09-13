@@ -30,8 +30,10 @@ use eggserve_primitives::proxy::ProxySourceKind;
 /// effective layer on [`eggserve_primitives::connection_info::ConnectionInfo`]
 /// and never overwrite raw endpoints.
 ///
-/// Tunnel capability slots (Plan 199) stay compatibility-owned until Plan
-/// 216: this context carries the accepted PROXY layer only.
+/// Tunnel intent slots stay transport-neutral (`RequestContext::tunnel_request`
+/// carries validated intent); one-shot acceptance is server-owned
+/// (`crate::tunnel::TunnelCapability` via `Service::call_with_tunnel`).
+/// This context carries the accepted PROXY layer only.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ConnectionContext {
     /// Local socket address when the transport has one.

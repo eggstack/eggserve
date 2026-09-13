@@ -7,10 +7,13 @@
 //! computation is not duplicated in transport-specific wrappers.
 //!
 //! The H1 connection runs with `.with_upgrades()` so Hyper parses
-//! Upgrade/CONNECT framing identically to the compatibility path; upgrade
-//! intent without a tunnel acceptor follows the ordinary HTTP path (denial
-//! stays ordinary HTTP). Active tunnel acceptance is Plan 216's scope: the
-//! tunnel-drain seams below stay inert (empty join set) until then.
+//! Upgrade/CONNECT framing and buffers post-handshake bytes identically to
+//! the compatibility path. Validated upgrade intent becomes a one-shot
+//! server-owned capability (Plan 216); upgrade intent without a validated
+//! candidate, without a transport handoff, or declined by the service
+//! follows the ordinary HTTP path (denial stays ordinary HTTP). Accepted
+//! tunnels are tracked so the driver drains them before reporting
+//! completion and bounds them by the total lifetime/shutdown budgets.
 //!
 //! H2 prior-knowledge selection stays compatibility-owned (Plan 217); this
 //! driver serves strict HTTP/1.
@@ -274,8 +277,8 @@ where
             );
             requests.cancel_all(RequestCancellationReason::ConnectionTimeout, conn_id, &ops);
             graceful_close(conn.as_mut(), config, conn_id, &ops).await;
-            // Outer bound for tunnels (Plan 199 Track F, inert until Plan
-            // 216): abort remaining.
+            // Outer bound for accepted tunnels: abort remainders so no
+            // detached task survives the connection.
             let _ = activity.drain_tunnels(tokio::time::Instant::now()).await;
             return ConnectionOutcome::TotalTimeout;
         }
@@ -290,9 +293,9 @@ where
             return ConnectionOutcome::ClientError;
         }
         let (in_flight, outstanding, _completed, deferred, state) = activity.snapshot();
-        // Tunnels keep the connection busy (Plan 199, inert until Plan 216):
-        // the tracked set is empty on this driver, so H1 idleness is
-        // purely request/response/deferred state.
+        // Accepted tunnels keep the connection busy: the driver does not go
+        // idle (and does not start the keep-alive idle timer) while tracked
+        // tunnel tasks are live.
         let tunnels_active = activity.tunnel_count().await > 0;
         let idle = in_flight == 0 && outstanding == 0 && deferred == 0 && !tunnels_active;
         if idle && now.duration_since(state.last_activity) >= config.keep_alive_idle_timeout {
@@ -362,11 +365,10 @@ where
                     }
                     _ => {}
                 }
-                // Tunnels keep the task alive (Plan 199 Track F, inert until
-                // Plan 216): wait within the hard total lifetime, then abort
-                // remainders. Ordinary connections have an empty set
-                // (immediate). Shutdown during drain cancels lifecycles and
-                // uses the post-shutdown budget.
+                // Accepted tunnels keep the task alive: wait within the hard
+                // total lifetime, then abort remainders. Ordinary connections
+                // have an empty set (immediate). Shutdown during drain
+                // cancels lifecycles and uses the post-shutdown budget.
                 if activity.tunnel_count().await > 0 {
                     let total_tokio = total_deadline
                         .map(tokio::time::Instant::from_std)

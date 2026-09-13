@@ -19,7 +19,6 @@ use std::sync::Arc;
 
 use eggserve_core::primitives::header_block::HeaderBlock;
 use eggserve_core::primitives::tunnel::TunnelIo;
-use eggserve_core::primitives::RequestLifecycle;
 use eggserve_core::server::{service_fn, Request, RuntimeConfig, Server};
 #[cfg(feature = "http3")]
 use eggserve_h3::{h3, h3_quinn};
@@ -46,7 +45,8 @@ fn echo_service() -> impl eggserve_core::server::Service {
                 | eggserve_core::primitives::tunnel::TunnelKind::ExtendedConnect
         ));
         let headers = HeaderBlock::new();
-        let handler = |mut io: TunnelIo, lifecycle: RequestLifecycle| async move {
+        let lifecycle = req.lifecycle_clone();
+        let handler = |mut io: TunnelIo| async move {
             use tokio::io::{AsyncReadExt, AsyncWriteExt};
             let mut buf = vec![0u8; 8192];
             loop {
@@ -255,7 +255,7 @@ async fn h1_after_commit_accept_fails() {
             tokio::spawn(async move {
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
                 let err = tunnel
-                    .accept(HeaderBlock::new(), |_io, _lc| async move {})
+                    .accept(HeaderBlock::new(), |_io| async move {})
                     .unwrap_err();
                 assert_eq!(
                     err,
@@ -708,7 +708,8 @@ async fn ws_interop_proves_generic_handoff_sufficient() {
         let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
         let mut headers = HeaderBlock::new();
         headers.push_str("sec-websocket-accept", &accept).unwrap();
-        let handler = |io: TunnelIo, lifecycle: RequestLifecycle| async move {
+        let lifecycle = req.lifecycle_clone();
+        let handler = |io: TunnelIo| async move {
             use tokio_tungstenite::tungstenite::protocol::Role;
             let mut ws =
                 tokio_tungstenite::WebSocketStream::from_raw_socket(io, Role::Server, None).await;

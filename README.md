@@ -129,9 +129,14 @@ New Rust consumers should depend directly on the smallest layer they need;
 the compatibility aggregate exposes the layers through
 `eggserve_core::layers`. Plan 215 adds a 16-scenario direct-vs-compatibility
 H1 parity suite (`crates/eggserve-core/tests/direct_h1_parity.rs`) and a
-topology gate owning the boundary. Advanced H2/H3, tunnel acceptance, and
+topology gate owning the boundary. Plan 216 moves tunnel authority to the
+direct crates (neutral intent vocabulary in `eggserve-primitives::tunnel`,
+transport execution in `eggserve-server::tunnel`, compatibility H1/H2
+delegating through shared helpers and the shared future); H2
+service-shape convergence is Plan 217, H3 stays experimental under
+Plan 213. Advanced H2/H3 and
 the extended listener/proxy/TLS-identity paths remain in core while their
-extraction phases (Plans 216/217) are completed. There is no additional
+extraction phases (Plan 217) are completed. There is no additional
 `eggserve` facade crate.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
@@ -394,14 +399,17 @@ the experimental `server` module a stable 1.0 API.
   gateways are intentionally unavailable. Sync `Response.stream` still rejects
   async producers (use `AsyncServer`/`AsyncResponse.stream` for asyncio).
   Generic tunnel handoff (Plan 199,
-  superseding deferred Plan 176) **is** available: validated H1 `Upgrade`,
+  superseding deferred Plan 176; Plan 216 moves authority to the direct
+  crates) **is** available: validated H1 `Upgrade`,
   `CONNECT`, and H2/H3 Extended `CONNECT` (H3 generic `:protocol` blocked by
   `h3` 0.0.8, see tunnel docs) yield a one-shot, transport-backed
   `TunnelCapability` on `RequestContext` (`take_tunnel()`, double-take `None`,
-  `AfterCommit` after final commitment). `accept(headers, handler)` returns a
+  `AfterCommit` after final commitment; direct services use additive
+  `Service::call_with_tunnel`). `accept(headers, handler)` returns a
   handshake `Response` (`101` for H1, `200` otherwise; runtime owns
   transition/framing bytes, no raw socket) and a bounded, single-owner
-  `TunnelIo` (`AsyncRead + AsyncWrite`, 32 KiB backpressure, lifecycle-aware,
+  `TunnelIo` (`AsyncRead + AsyncWrite`, 32 KiB backpressure; handlers own
+  only IO — capture the lifecycle for cancellation;
   no payload logged) for the downstream codec. The Python async substrate
   exposes the same one-shot capability (`take_tunnel` / `accept` returning a
   handshake plus bounded `Tunnel` with 16-chunk backpressure; H1 in Python,

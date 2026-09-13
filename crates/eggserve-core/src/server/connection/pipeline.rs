@@ -229,6 +229,16 @@ fn classify_tunnel(
         return None;
     }
     let upgrade = on_upgrade?;
+    // The strict token/protocol validators are owned by `eggserve-primitives`
+    // (single authority shared with the direct runtime); only the version
+    // discriminant crosses (a 4-arm match — future versions yield no
+    // capability, fail closed).
+    let direct_version = match head.version() {
+        HttpVersion::Http10 => eggserve_primitives::version::HttpVersion::Http10,
+        HttpVersion::Http11 => eggserve_primitives::version::HttpVersion::Http11,
+        HttpVersion::Http2 => eggserve_primitives::version::HttpVersion::Http2,
+        HttpVersion::Http3 => eggserve_primitives::version::HttpVersion::Http3,
+    };
     let method_is_connect = head.method().as_str() == "CONNECT";
     match head.version() {
         HttpVersion::Http11 => {
@@ -237,7 +247,7 @@ fn classify_tunnel(
                 let req = TunnelRequest::new(TunnelKind::Connect, None, Some(authority));
                 Some((req, upgrade))
             } else {
-                let protocol = classify_h1_upgrade(head.headers(), head.version())?;
+                let protocol = classify_h1_upgrade(head.headers(), direct_version)?;
                 let req = TunnelRequest::new(
                     TunnelKind::Http1Upgrade,
                     Some(protocol),
@@ -262,6 +272,37 @@ fn classify_tunnel(
             }
         }
         HttpVersion::Http10 | HttpVersion::Http3 => None,
+    }
+}
+
+/// Convert an accepted tunnel handshake without ordinary normalization.
+///
+/// `TunnelCapability::accept` already produced a valid handshake (101 for H1
+/// Upgrade with runtime-owned `Upgrade`/`Connection`, 200 for
+/// CONNECT/Extended CONNECT, bounded application headers, empty body). The
+/// ordinary normalizer would strip the runtime-owned handshake as
+/// hop-by-hop, so it is bypassed here by construction. Privacy
+/// finalization still applies in `InFlightGuard::finish`. Conversion
+/// failure (unreachable for validated handshakes) falls back without
+/// leaking detail.
+fn convert_handshake_without_normalization(
+    canonical: crate::primitives::canonical::Response,
+    file_stream_semaphore: &Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
+    ops: &crate::ops::OpsContext,
+) -> hyper::Response<BoxBodyInner> {
+    match crate::primitives::canonical::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
+        canonical,
+        file_stream_semaphore,
+        stream_chunk_size,
+        Some(ops),
+    ) {
+        Ok(r) => r,
+        Err(crate::primitives::canonical::ResponseConstructionError::FileStreamLimit) => {
+            crate::response::service_unavailable_with_policy(error_policy)
+        }
+        Err(_) => crate::response::internal_error_with_policy(error_policy),
     }
 }
 
@@ -314,6 +355,7 @@ where
     let trailer_allowed = h1_trailers_allowed(request.head());
     let interim = request.context().interim().cloned();
     let tunnel_shared = request.context().tunnel_shared();
+    let tunnel_sidecar = request.context().tunnel_sidecar();
     let tunnel_lifecycle = request.lifecycle_clone();
     let result = tokio::time::timeout(timeout, contain_service_panic(service.call(request))).await;
     // Final commitment: no interim/tunnel after this point regardless of outcome.
@@ -336,24 +378,52 @@ where
                 );
                 canonical.strip_response_trailers();
             }
-            // Tunnel acceptance: admit via server-wide budget and spawn the
-            // tracked duplex task before sending the validated handshake.
-            // Ordinary denial (no `is_tunnel`) uses the normal path.
-            if canonical.is_tunnel() {
-                let acceptance = canonical.take_tunnel_acceptance();
+            // Tunnel acceptance (Plan 216 direct authority): when the service
+            // consumed the capability, the sidecar holds exactly one staged
+            // server-owned acceptance. Admit via the server-wide budget and
+            // spawn the tracked duplex task (shared `run_tunnel` future —
+            // no second bridge) before sending the validated handshake.
+            // Ordinary denial (nothing staged) uses the normal path.
+            if let Some(sidecar) = tunnel_sidecar {
+                let acceptance = sidecar.lock().ok().and_then(|mut slot| slot.take());
                 if let Some(acceptance) = acceptance {
-                    let admitted = super::tunnel::admit_and_spawn_h1_h2(
-                        activity,
-                        tunnel_semaphore,
+                    let kind = acceptance.kind;
+                    let permit = match tunnel_semaphore.clone().try_acquire_owned() {
+                        Ok(p) => p,
+                        Err(_) => {
+                            ops.counters()
+                                .tunnels_rejected
+                                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                            ops.emit(
+                                crate::ops::Event::new(
+                                    crate::ops::Severity::Warn,
+                                    crate::ops::EventKind::TunnelRejected,
+                                    "tunnel saturated: active tunnel limit",
+                                )
+                                .connection_id(conn_id),
+                            );
+                            return crate::response::service_unavailable_with_policy(error_policy);
+                        }
+                    };
+                    let cancel_lifecycle = tunnel_lifecycle.clone();
+                    let cancel = async move { cancel_lifecycle.cancelled().await };
+                    activity
+                        .spawn_tunnel(eggserve_server::tunnel::run_tunnel(
+                            permit,
+                            ops.clone(),
+                            conn_id,
+                            cancel,
+                            acceptance,
+                            kind,
+                        ))
+                        .await;
+                    return convert_handshake_without_normalization(
+                        canonical,
+                        file_stream_semaphore,
+                        stream_chunk_size,
+                        error_policy,
                         ops,
-                        conn_id,
-                        tunnel_lifecycle,
-                        acceptance,
-                    )
-                    .await;
-                    if !admitted {
-                        return crate::response::service_unavailable_with_policy(error_policy);
-                    }
+                    );
                 }
             }
             normalize_then_convert(
@@ -802,11 +872,14 @@ where
             // frames (H1 chunked trailers, H2 terminal HEADERS); H1 without
             // valid framing cannot inject.
             //
-            // Tunnel classification (Plan 199 Track B): validated upgrade /
-            // CONNECT / Extended CONNECT intent becomes a one-shot
-            // transport-backed capability. `has_body` true => no capability
-            // (smuggled body never crosses the transition). `OnUpgrade`
-            // presence required (H1/H2); H3 handled in its adapter.
+            // Tunnel classification (Plan 216 direct authority): validated
+            // upgrade / CONNECT / Extended CONNECT intent becomes a one-shot
+            // transport-backed capability (thin compatibility wrapper over
+            // the server-owned state machine; validation via the shared
+            // neutral helpers, transport via the shared `run_tunnel`
+            // future). `has_body` true => no capability (smuggled body
+            // never crosses the transition). `OnUpgrade` presence required
+            // (H1/H2); H3 handled in its adapter.
             let mut tunnel_capability: Option<crate::primitives::tunnel::TunnelCapability> =
                 classify_tunnel(&head, has_body, on_upgrade, h2_protocol_raw).map(
                     |(tunnel_request, upgrade)| {
@@ -814,6 +887,7 @@ where
                             tunnel_request,
                             Some(upgrade),
                         )
+                        .0
                     },
                 );
             let request_body = match &effective_policy {

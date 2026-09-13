@@ -42,6 +42,8 @@ pub mod runtime;
 pub mod runtime_limits;
 /// Transport-independent service abstraction (single authority).
 pub mod service;
+/// Generic tunnel / upgrade execution (direct H1 authority, Plan 216).
+pub mod tunnel;
 
 pub use config::{RuntimeConfig, RuntimeConfigBuilder};
 pub use connection::{
@@ -51,8 +53,8 @@ pub use connection::{
 pub use errors::{ServerError, ShutdownResult};
 pub use runtime::RuntimeState;
 pub use service::{
-    service_fn, service_fn_head, service_fn_with_policy, Service, ServiceError, ServiceFn,
-    ServiceFuture,
+    service_fn, service_fn_head, service_fn_with_policy, service_fn_with_tunnel, Service,
+    ServiceError, ServiceFn, ServiceFuture, TunnelServiceFn,
 };
 
 /// Canonical request type for service implementations (mirrors the
@@ -160,6 +162,14 @@ impl<S: Service> Service for SharedService<S> {
 
     fn call(&self, request: Request) -> ServiceFuture<'_> {
         self.0.call(request)
+    }
+
+    fn call_with_tunnel(
+        &self,
+        request: Request,
+        tunnel: Option<crate::tunnel::TunnelCapability>,
+    ) -> ServiceFuture<'_> {
+        self.0.call_with_tunnel(request, tunnel)
     }
 }
 

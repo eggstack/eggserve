@@ -193,14 +193,62 @@ fn h1_trailers_allowed(head: &eggserve_primitives::request_head::RequestHead) ->
     }
 }
 
+/// Convert an accepted tunnel handshake without ordinary normalization.
+///
+/// `TunnelCapability::accept` already produced a valid handshake (101 for H1
+/// Upgrade with runtime-owned `Upgrade`/`Connection`, 200 for CONNECT,
+/// bounded application headers, empty body). The ordinary normalizer would
+/// strip the runtime-owned handshake as hop-by-hop, so it is bypassed here
+/// by construction. Privacy finalization still applies in
+/// `InFlightGuard::finish` (denylist, `Server` subordination, sole `Date`
+/// authority). Conversion failure (unreachable for validated handshakes)
+/// falls back to a generic 500 without leaking detail.
+fn convert_handshake_without_normalization(
+    canonical: eggserve_primitives::canonical::Response,
+    file_stream_semaphore: &Arc<tokio::sync::Semaphore>,
+    stream_chunk_size: usize,
+    error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
+    ops: &crate::ops::OpsContext,
+) -> hyper::Response<BoxBodyInner> {
+    match crate::adapters::to_hyper_response_with_file_stream_semaphore_and_chunk_size(
+        canonical,
+        file_stream_semaphore,
+        stream_chunk_size,
+        Some(ops),
+    ) {
+        Ok(r) => r,
+        Err(eggserve_primitives::canonical::ResponseConstructionError::FileStreamLimit) => {
+            crate::response::service_unavailable_with_policy(error_policy)
+        }
+        Err(_) => crate::response::internal_error_with_policy(error_policy),
+    }
+}
+
+/// One-shot tunnel invocation state for a single request.
+///
+/// Created by the pipeline when H1 classification yields a transport-backed
+/// candidate; moved into [`invoke_service`] alongside the request. The
+/// capability reaches the service via `Service::call_with_tunnel`; the
+/// shared/sidecar/lifecycle stay pipeline-owned for commitment and
+/// admission after the service returns.
+pub(crate) struct TunnelInvocation {
+    pub(crate) capability: crate::tunnel::TunnelCapability,
+    pub(crate) shared: Arc<crate::tunnel::TunnelShared>,
+    pub(crate) sidecar: Arc<std::sync::Mutex<Option<crate::tunnel::TunnelAcceptance>>>,
+    pub(crate) lifecycle: eggserve_primitives::request_lifecycle::RequestLifecycle,
+}
+
 /// Execute the protocol-neutral service kernel after a body policy has
 /// prepared a canonical request. Body acquisition stays outside this helper;
 /// admission, panic containment, timeout, error conversion, normalization, and
 /// response conversion are deliberately shared by Reject, Buffer, and Stream.
 ///
 /// Interim commitment is owned here: the request's interim sender (if any) is
-/// cloned before `Service::call` consumes the request and marked committed
+/// cloned before the service consumes the request and marked committed
 /// once the final outcome is known, so no interim can follow final commitment.
+/// Tunnel commitment is owned here too: the invocation's shared state is
+/// marked committed once the final outcome is known, so a background task
+/// holding a taken capability cannot accept after commitment.
 /// H1 trailer policy is also owned here: responses carrying trailers are
 /// suppressed when the request version/TE forbids them (HTTP/1.0 never,
 /// H1.1 only with `TE: trailers`; H2/H3 always allow protocol-native terminal
@@ -219,30 +267,44 @@ async fn invoke_service<S>(
     error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy,
     conn_id: u64,
     ops: &crate::ops::OpsContext,
+    activity: &Arc<ConnectionActivity>,
+    tunnel_semaphore: &Arc<tokio::sync::Semaphore>,
+    tunnel: Option<TunnelInvocation>,
 ) -> hyper::Response<BoxBodyInner>
 where
     S: Service + 'static,
 {
     if let Some(unavailable) = guard.admit(service_semaphore, conn_id, error_policy) {
         // Admission rejection commits implicitly: no service ran, but mark
-        // the interim sender committed so late sends cannot follow 503.
+        // interim + tunnel committed so late sends/accepts cannot follow 503.
         if let Some(interim) = request.context().interim() {
             interim.mark_committed();
+        }
+        if let Some(ref invocation) = tunnel {
+            invocation.shared.mark_committed();
         }
         return unavailable;
     }
 
-    // Capture trailer policy + interim commitment before the request moves
-    // into the service.
+    // Capture trailer policy + interim + tunnel commitment/lifecycle before the
+    // request moves into the service.
     let trailer_allowed = h1_trailers_allowed(request.head());
     let interim = request.context().interim().cloned();
-    let result = tokio::time::timeout(timeout, contain_service_panic(service.call(request))).await;
-    // Final commitment: no interim after this point regardless of outcome.
-    // Tunnel acceptance is Plan 216's scope; this driver never attaches a
-    // tunnel capability, so upgrade/CONNECT intent follows the ordinary
-    // HTTP path (denial stays ordinary HTTP).
+    let tunnel_shared = tunnel.as_ref().map(|inv| inv.shared.clone());
+    let tunnel_sidecar = tunnel.as_ref().map(|inv| inv.sidecar.clone());
+    let tunnel_lifecycle = tunnel.as_ref().map(|inv| inv.lifecycle.clone());
+    let capability = tunnel.map(|inv| inv.capability);
+    let result = tokio::time::timeout(
+        timeout,
+        contain_service_panic(service.call_with_tunnel(request, capability)),
+    )
+    .await;
+    // Final commitment: no interim/tunnel after this point regardless of outcome.
     if let Some(ref sender) = interim {
         sender.mark_committed();
+    }
+    if let Some(ref shared) = tunnel_shared {
+        shared.mark_committed();
     }
     match result {
         Ok(Ok(mut canonical)) => {
@@ -257,10 +319,47 @@ where
                 );
                 canonical.strip_response_trailers();
             }
-            // Tunnel seam (Plan 216): the direct response type carries no
-            // transport acceptance token (`is_tunnel()` is always false), so
-            // every response takes the normal path. Upgrade/CONNECT intent
-            // without an acceptor follows the ordinary HTTP path.
+            // Tunnel acceptance: when the service consumed the capability,
+            // the sidecar holds exactly one staged acceptance. Admit via the
+            // server-wide budget and spawn the tracked duplex task before
+            // sending the validated handshake. Ordinary denial (no staged
+            // acceptance) uses the normal path.
+            if let Some(sidecar) = tunnel_sidecar {
+                let acceptance = sidecar.lock().ok().and_then(|mut slot| slot.take());
+                if let Some(acceptance) = acceptance {
+                    match tunnel_lifecycle {
+                        Some(lifecycle) => {
+                            let admitted = crate::tunnel::admit_and_spawn(
+                                activity,
+                                tunnel_semaphore,
+                                ops,
+                                conn_id,
+                                lifecycle,
+                                acceptance,
+                            )
+                            .await;
+                            if !admitted {
+                                return crate::response::service_unavailable_with_policy(
+                                    error_policy,
+                                );
+                            }
+                            return convert_handshake_without_normalization(
+                                canonical,
+                                file_stream_semaphore,
+                                stream_chunk_size,
+                                error_policy,
+                                ops,
+                            );
+                        }
+                        None => {
+                            // Impossible by construction (acceptance implies an
+                            // invocation carried a lifecycle). Drop the staged
+                            // acceptance fail-safe and use the normal path;
+                            // the handler never runs and `OnUpgrade` fails safe.
+                        }
+                    }
+                }
+            }
             normalize_then_convert(
                 canonical,
                 is_head,
@@ -318,6 +417,60 @@ where
             }
         }
     }
+}
+
+/// Build the canonical request plus an optional one-shot tunnel invocation.
+///
+/// When `candidate` is `Some` (validated H1 intent + transport handoff), the
+/// intent is recorded cloneably on the request context for routing, and a
+/// server-owned capability (with shared commitment state + pipeline sidecar)
+/// is returned for `Service::call_with_tunnel`. Otherwise an ordinary
+/// request with no capability is returned. The body lifecycle always shares
+/// the body's allocation so completion/cancellation observations converge.
+fn build_request_with_tunnel(
+    head: eggserve_primitives::request_head::RequestHead,
+    body: eggserve_primitives::request_body::RequestBody,
+    connection: eggserve_primitives::connection_info::ConnectionInfo,
+    candidate: Option<(
+        eggserve_primitives::tunnel::TunnelRequest,
+        hyper::upgrade::OnUpgrade,
+    )>,
+) -> (
+    eggserve_primitives::request::Request,
+    Option<TunnelInvocation>,
+) {
+    let Some((intent, upgrade)) = candidate else {
+        return (
+            eggserve_primitives::request::Request::new(head, body, connection),
+            None,
+        );
+    };
+    let version = head.version();
+    let lifecycle = body.lifecycle();
+    let ctx = eggserve_primitives::request_context::RequestContext::new_with_version(
+        connection,
+        lifecycle.clone(),
+        version,
+    )
+    .with_tunnel_request(intent.clone());
+    let request = eggserve_primitives::request::Request::new_with_context(head, body, ctx);
+    let shared = Arc::new(crate::tunnel::TunnelShared::new());
+    let sidecar = Arc::new(std::sync::Mutex::new(None));
+    let capability = crate::tunnel::TunnelCapability::new(
+        intent,
+        Some(upgrade),
+        shared.clone(),
+        sidecar.clone(),
+    );
+    (
+        request,
+        Some(TunnelInvocation {
+            capability,
+            shared,
+            sidecar,
+            lifecycle,
+        }),
+    )
 }
 
 /// Concrete wrapper type for the canonical Hyper service returned by
@@ -385,6 +538,7 @@ pub(crate) fn make_canonical_hyper_service<S>(
     config: Arc<RuntimeConfig>,
     file_stream_semaphore: Arc<tokio::sync::Semaphore>,
     service_semaphore: Arc<tokio::sync::Semaphore>,
+    tunnel_semaphore: Arc<tokio::sync::Semaphore>,
     activity: Arc<ConnectionActivity>,
     requests: Arc<ConnectionRequests>,
     stream_chunk_size: usize,
@@ -415,6 +569,7 @@ where
         let context = context.clone();
         let file_stream_semaphore = file_stream_semaphore.clone();
         let service_semaphore = service_semaphore.clone();
+        let tunnel_semaphore = tunnel_semaphore.clone();
         let activity = activity.clone();
         let requests = requests.clone();
         let config = config.clone();
@@ -493,11 +648,14 @@ where
 
             // Extract body from Hyper request.
             //
-            // Upgrade/CONNECT intent (Plan 199) without a tunnel acceptor
-            // follows the ordinary HTTP path on this driver (Plan 216 owns
-            // acceptance): extensions stay untouched and denial stays
-            // ordinary HTTP.
-            let (parts, body) = req.into_parts();
+            // Transport-backed upgrade capability (Plan 216): `OnUpgrade`
+            // (includes buffered H1 read-ahead) is removed here so the
+            // canonical pipeline owns it; ordinary denial drops it safely
+            // (pending sender fails safe). Without a validated candidate
+            // below, intent follows the ordinary HTTP path.
+            let (mut parts, body) = req.into_parts();
+            let on_upgrade: Option<hyper::upgrade::OnUpgrade> =
+                parts.extensions.remove::<hyper::upgrade::OnUpgrade>();
 
             // Validate body framing (TE+CL conflict, duplicate CL) for all methods.
             {
@@ -683,6 +841,14 @@ where
             // Trailers ride a wire slot populated only from protocol trailer
             // frames (H1 chunked trailers); H1 without valid framing cannot
             // inject.
+            //
+            // Tunnel classification (Plan 216): validated H1 Upgrade /
+            // CONNECT intent becomes intent metadata plus a one-shot
+            // transport-backed capability. `has_body` true => no capability
+            // (smuggled body never crosses the transition). `OnUpgrade`
+            // presence required; H2 Extended CONNECT stays
+            // compatibility-owned until Plan 217.
+            let mut tunnel_candidate = crate::tunnel::classify_tunnel(&head, has_body, on_upgrade);
             let request_body = match &effective_policy {
                 RequestBodyPolicy::Reject => {
                     eggserve_primitives::request_body::RequestBody::empty()
@@ -712,8 +878,12 @@ where
                 RequestBodyPolicy::Reject => {
                     let connection = connection_template.clone();
                     requests.register(&request_body.shared());
-                    let request =
-                        eggserve_primitives::request::Request::new(head, request_body, connection);
+                    let (request, tunnel) = build_request_with_tunnel(
+                        head,
+                        request_body,
+                        connection,
+                        tunnel_candidate.take(),
+                    );
                     let response = invoke_service(
                         &mut guard,
                         service.as_ref(),
@@ -727,6 +897,9 @@ where
                         config.response_policy.error_policy,
                         conn_id,
                         &ops,
+                        &activity,
+                        &tunnel_semaphore,
+                        tunnel,
                     )
                     .await;
                     Ok::<_, Infallible>(finish_response(
@@ -800,8 +973,12 @@ where
                     };
                     let connection = connection_template.clone();
                     requests.register(&request_body.shared());
-                    let request =
-                        eggserve_primitives::request::Request::new(head, request_body, connection);
+                    let (request, tunnel) = build_request_with_tunnel(
+                        head,
+                        request_body,
+                        connection,
+                        tunnel_candidate.take(),
+                    );
                     let response = invoke_service(
                         &mut guard,
                         service.as_ref(),
@@ -815,6 +992,9 @@ where
                         config.response_policy.error_policy,
                         conn_id,
                         &ops,
+                        &activity,
+                        &tunnel_semaphore,
+                        tunnel,
                     )
                     .await;
                     Ok::<_, Infallible>(finish_response(
@@ -844,8 +1024,12 @@ where
                     // the service owns/moves the actual body (Track A/B1).
                     let body_shared = request_body.shared();
                     requests.register(&body_shared);
-                    let request =
-                        eggserve_primitives::request::Request::new(head, request_body, connection);
+                    let (request, tunnel) = build_request_with_tunnel(
+                        head,
+                        request_body,
+                        connection,
+                        tunnel_candidate.take(),
+                    );
 
                     let response = invoke_service(
                         &mut guard,
@@ -860,6 +1044,9 @@ where
                         config.response_policy.error_policy,
                         conn_id,
                         &ops,
+                        &activity,
+                        &tunnel_semaphore,
+                        tunnel,
                     )
                     .await;
 

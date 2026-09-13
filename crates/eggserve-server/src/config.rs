@@ -91,9 +91,9 @@ pub struct RuntimeConfig {
     pub max_requests_per_connection: Option<u64>,
     /// Response write no-progress timeout. Default: 30s.
     pub response_write_timeout: Duration,
-    /// Maximum concurrent active tunnels. Reserved seam for Plan 216:
-    /// admission is accounted but the direct H1 driver performs no tunnel
-    /// acceptance. Default: 64.
+    /// Maximum concurrent active tunnels (Plan 216 direct H1 authority).
+    /// Long-lived tunnels hold a permit until close; exhaustion fails new
+    /// handshakes with 503 without affecting ordinary HTTP. Default: 64.
     pub max_active_tunnels: usize,
     /// Trusted proxy policy. Defaults trust nothing. Header-derived
     /// forwarding populates provenance-tagged effective fields without
@@ -380,7 +380,7 @@ impl RuntimeConfigBuilder {
         self
     }
 
-    /// Set the maximum concurrent active tunnels (reserved Plan 216 seam).
+    /// Set the maximum concurrent active tunnels (Plan 216 direct authority).
     pub fn max_active_tunnels(mut self, max: usize) -> Self {
         self.max_active_tunnels = Some(max);
         self
