@@ -90,7 +90,8 @@ pub use listener::{clear_systemd_activation_env, systemd_activation_count};
 pub use response_policy::{validate_stripped_header_name, DatePolicy, ResponsePolicy};
 pub use runtime::RuntimeState;
 pub use service::{
-    service_fn, service_fn_head, service_fn_with_policy, Service, ServiceError, ServiceFn,
+    service_fn, service_fn_head, service_fn_with_policy, service_fn_with_tunnel, Service,
+    ServiceError, ServiceFn, ServiceFuture, TunnelServiceFn,
 };
 pub use static_service::{StaticService, StaticServiceBuilder};
 #[cfg(feature = "tower")]

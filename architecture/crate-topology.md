@@ -1,12 +1,15 @@
 # Crate topology
 
-Plans 211–215 establish dependency layers while preserving the historical
+Plans 211–217 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
 and static implementations into their direct crates; Plan 215 moves the
 mature generic H1 connection runtime into `eggserve-server` with a
-direct-vs-compatibility parity suite. Protocol-specific compatibility glue
-(tunnel acceptance, H2/H3, extended listener/proxy/TLS paths) remains in
-core during this transition, with topology-gate ownership rules marking the
+direct-vs-compatibility parity suite; Plan 216 moves tunnel authority to the
+direct crates; Plan 217 finishes service/request convergence with a single
+`Service` contract and canonical request types plus a downstream fixture.
+Protocol-specific compatibility glue
+(H2/H3 wire mechanics, extended listener/proxy/TLS paths) remains in
+core as explicit transport glue, with topology-gate ownership rules marking the
 boundary (see `release/plan-215-direct-runtime-parity.md`).
 
 ```text
@@ -40,18 +43,19 @@ filesystem dependencies.
 
 `eggserve-server` owns the mature generic H1 connection runtime: per-runtime
 observability (`ops`), the `ServerError` taxonomy, response privacy policy,
-the shared runtime-limit authority, the service contract shape, connection
+the shared runtime-limit authority, the single service contract (`Service`
+with additive `call_with_tunnel`), connection
 vocabulary (`ConnectionContext`/`ConnectionShutdown`/`ConnectionOutcome`),
 H1 configuration/state, the H1 connection driver (request conversion, body
 policy, admission, panic containment, timeouts, normalization, Hyper
-conversion), the listener/prebound TCP `Server`, and — since Plan 216 — the
+conversion), the listener/prebound TCP `Server`, and the
 generic tunnel/upgrade execution (`tunnel`: one-shot capability, bounded
-`TunnelIo`, H1 detection, shared `run_tunnel` future, additive
-`Service::call_with_tunnel`). Its direct path
+`TunnelIo`, H1 detection, shared `run_tunnel` future). Its direct path
 preserves one-shot request bodies, response streams, opened-file streaming,
 normalization, and bounded request timeouts. It may depend on the primitives
 crate and transport dependencies, but never on `eggserve-core` or
-`eggserve-static`. H2 selection/service-shape convergence is Plan 217; H3
+`eggserve-static`. H2 dispatches through the same canonical contract as
+explicit transport glue; H3
 paths stay in core under Plan 213.
 
 `eggserve-static` owns the extracted descriptor/handle-relative filesystem
@@ -61,11 +65,14 @@ in the generic server crate.
 
 `eggserve-core` remains an aggregate during the 0.1 compatibility window.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
-and legacy configuration; tunnels delegate (neutral vocabulary + transport
-facades with a thin `take_tunnel` wrapper; `server/connection/tunnel.rs`
-deleted). The `eggserve_core::layers` module exposes
+and legacy configuration; request/service/tunnel/canonical types are facades
+over the direct authorities (no second envelope, taxonomy, normalization, or
+state machine), H2 dispatches through the single contract as transport glue,
+and `server/connection/tunnel.rs` stays deleted. The `eggserve_core::layers` module exposes
 the direct crates for migration; new consumers should name the direct leaf
-crate they need.
+crate they need. The downstream fixture
+(`crates/eggserve-core/tests/direct_service_convergence.rs`) proves one
+direct `Service` drives direct H1 and compatibility H2.
 
 `eggnet-tls` is the neutral TLS security substrate. It depends only on
 `rustls` and `rustls-pki-types` at runtime and owns bounded PEM parsing, SNI
@@ -92,11 +99,15 @@ TLS crate, rejects
 core/static edges from the generic server, and requires static to consume
 primitives plus server. The Plan 215 rules additionally assert direct
 ownership of the H1 runtime vocabulary (ops/errors/policy/authority/service/
-driver markers), compatibility re-export facades, service-contract shape
-parity, and no upward source references. The Plan 216 rules assert neutral
+driver markers), compatibility re-export facades, single-contract shape, and
+no upward source references. The Plan 216 rules assert neutral
 tunnel vocabulary (no Hyper/Tokio/H2/H3/QUIC in primitives tunnel code),
 direct tunnel execution ownership, deletion of the compatibility H1 tunnel
-transport, core tunnel facades, and a dev-only WebSocket codec. It is part of the Rust CI preflight and
+transport, core tunnel facades, and a dev-only WebSocket codec. The Plan 217
+rules assert canonical request/service facades, Hyper/TLS/QUIC-free
+primitives, single `Service` re-export, H1/H2 `call_with_tunnel` dispatch
+with the shared `run_tunnel` future, and the downstream convergence fixture.
+It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.
 
 The check also verifies that the mature static resolver is present and the old

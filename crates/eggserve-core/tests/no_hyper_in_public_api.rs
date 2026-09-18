@@ -1,10 +1,12 @@
 //! Compile-time fixture: the canonical application-facing API is Hyper-free.
 //!
 //! This test verifies that downstream code can use the canonical request
-//! types without importing or depending on Hyper. The only exception is
-//! an explicitly identified conversion adapter: `RequestHead::try_from_hyper`
-//! is the inbound adapter, while `primitives::to_hyper_response()` is the
-//! outbound low-level transport adapter. The latter intentionally returns an
+//! types without importing or depending on Hyper. Hyper conversion lives in
+//! the server transport boundary (`eggserve-server` connection pipeline and
+//! `adapters::to_hyper_response`), never in the canonical value types:
+//! `RequestHead` is built via `new`/`new_with_authority`, while
+//! `primitives::to_hyper_response()` is the explicit outbound low-level
+//! transport adapter. The latter intentionally returns an
 //! opaque `http_body::Body` implementation rather than exposing its erased
 //! body type.
 //!
@@ -75,13 +77,16 @@ fn request_head_construct_without_hyper() {
 }
 
 #[test]
-fn request_head_from_hyper_is_fallible() {
-    let hyper_req = hyper::Request::builder()
-        .method("GET")
-        .uri("/test?q=1")
-        .body(())
-        .unwrap();
-    let head = RequestHead::try_from_hyper(&hyper_req).unwrap();
+fn request_head_constructs_without_hyper_adapter() {
+    // Plan 217: the inbound Hyper adapter lives in the server transport
+    // boundary, not on the canonical value type. Heads are built from
+    // validated components.
+    let head = RequestHead::new(
+        Method::get(),
+        RequestTarget::parse("/test?q=1").unwrap(),
+        HttpVersion::Http11,
+        HeaderBlock::new(),
+    );
     assert_eq!(head.method().as_str(), "GET");
     assert_eq!(head.target().path(), "/test");
     assert_eq!(head.target().query(), Some("q=1"));

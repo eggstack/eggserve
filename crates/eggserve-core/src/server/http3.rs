@@ -395,7 +395,8 @@ async fn handle_request<S, C>(
     {
         Ok(head) => head,
         Err(error) => {
-            let response = response::runtime_error_response(error.status_code(), is_head, &config);
+            let response =
+                response::runtime_error_response(error.status_code().as_u16(), is_head, &config);
             if !response::send_response_or_cancel(
                 &mut send_stream,
                 response,
@@ -450,7 +451,7 @@ async fn handle_request<S, C>(
         Err(error) => {
             let _ = response::send_response_or_cancel(
                 &mut send_stream,
-                response::runtime_error_response(error.status_code(), is_head, &config),
+                response::runtime_error_response(error.status_code().as_u16(), is_head, &config),
                 &config,
                 is_head,
                 runtime_state.file_stream_semaphore(),
@@ -783,7 +784,9 @@ async fn handle_request<S, C>(
         request::invoke_service(service, request, permit, &config, runtime_state.ops()).await;
     let response = match result {
         Ok(response) => response,
-        Err(error) => response::runtime_error_response(error.status_code(), is_head, &config),
+        Err(error) => {
+            response::runtime_error_response(error.status_code().as_u16(), is_head, &config)
+        }
     };
     let _ = response::send_response_or_cancel(
         &mut send_stream,
@@ -830,8 +833,8 @@ async fn handle_h3_connect<S, C>(
     C::SendStream: Send + 'static,
     C::RecvStream: Send + 'static,
 {
+    use crate::primitives::tunnel::TunnelIo;
     use crate::primitives::tunnel::{classify_extended_protocol, TunnelKind, TunnelRequest};
-    use crate::primitives::tunnel::{TunnelCapability, TunnelIo};
 
     let ops = runtime_state.ops().clone();
     // Bodies never cross the transition (Track H).
@@ -855,7 +858,7 @@ async fn handle_h3_connect<S, C>(
         Err(error) => {
             let _ = response::send_response_or_cancel(
                 &mut send_stream,
-                response::runtime_error_response(error.status_code(), false, &config),
+                response::runtime_error_response(error.status_code().as_u16(), false, &config),
                 &config,
                 false,
                 runtime_state.file_stream_semaphore(),
@@ -911,7 +914,16 @@ async fn handle_h3_connect<S, C>(
         return;
     };
     let tunnel_request = TunnelRequest::new(kind, protocol, Some(authority));
-    let (capability, tunnel_shared, tunnel_sidecar) = TunnelCapability::new(tunnel_request, None);
+    // Plan 217: server-owned one-shot capability (intent rides the context,
+    // acceptance rides `Service::call_with_tunnel`; no second state machine).
+    let tunnel_shared = std::sync::Arc::new(eggserve_server::tunnel::TunnelShared::new());
+    let tunnel_sidecar = std::sync::Arc::new(std::sync::Mutex::new(None));
+    let server_capability = eggserve_server::tunnel::TunnelCapability::new(
+        tunnel_request.clone(),
+        None,
+        tunnel_shared.clone(),
+        tunnel_sidecar.clone(),
+    );
     // Empty body sharing the registered allocation (lifecycle continuity).
     let request_body = crate::primitives::request_body::RequestBody::from_incoming_with_shared(
         futures_util::stream::empty(),
@@ -940,7 +952,7 @@ async fn handle_h3_connect<S, C>(
         request_body.lifecycle(),
         version,
     )
-    .with_tunnel(capability);
+    .with_tunnel_request(tunnel_request);
     let request_for_service =
         crate::primitives::request::Request::new_with_context(head, request_body, ctx);
     let interim = request_for_service.context().interim().cloned();
@@ -973,13 +985,20 @@ async fn handle_h3_connect<S, C>(
         }
     };
     let _permit = permit;
-    let result = crate::server::connection::response::invoke_canonical_service(
-        service.as_ref(),
-        request_for_service,
+    // Plan 217: single service contract — H3 dispatches through
+    // `Service::call_with_tunnel` with the server-owned capability.
+    let result = tokio::time::timeout(
         config.handler_timeout,
-        &ops,
+        crate::server::connection::response::contain_service_panic(
+            service.call_with_tunnel(request_for_service, Some(server_capability)),
+        ),
     )
-    .await;
+    .await
+    .unwrap_or_else(|_| {
+        Err(crate::server::service::ServiceError::timeout(
+            "handler timed out",
+        ))
+    });
     if let Some(s) = interim.as_ref() {
         s.mark_committed();
     }
@@ -987,7 +1006,8 @@ async fn handle_h3_connect<S, C>(
     let canonical = match result {
         Ok(r) => r,
         Err(error) => {
-            let response = response::runtime_error_response(error.status_code(), false, &config);
+            let response =
+                response::runtime_error_response(error.status_code().as_u16(), false, &config);
             let _ = response::send_response_or_cancel(
                 &mut send_stream,
                 response,
@@ -1227,7 +1247,7 @@ mod tests {
                 crate::ops::OpsContext::global(),
             )
             .unwrap_err();
-            assert_eq!(error.status_code(), 400);
+            assert_eq!(error.status_code().as_u16(), 400);
         }
     }
 
@@ -1251,7 +1271,8 @@ mod tests {
         assert_eq!(
             request::declared_content_length(&request)
                 .unwrap_err()
-                .status_code(),
+                .status_code()
+                .as_u16(),
             400
         );
     }

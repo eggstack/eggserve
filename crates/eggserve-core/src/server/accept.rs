@@ -1141,4 +1141,19 @@ impl<S: Service> Service for ArcService<S> {
     > {
         self.0.call(request)
     }
+
+    fn call_with_tunnel(
+        &self,
+        request: crate::primitives::request::Request,
+        tunnel: Option<eggserve_server::tunnel::TunnelCapability>,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<
+                    Output = Result<crate::primitives::canonical::Response, ServiceError>,
+                > + Send
+                + '_,
+        >,
+    > {
+        self.0.call_with_tunnel(request, tunnel)
+    }
 }

@@ -84,7 +84,7 @@ polling is supported.
 
 The two intentional public Hyper conversion adapters are:
 
-- `RequestHead::try_from_hyper()` — fallible inbound conversion from a Hyper
+- ~~`RequestHead::try_from_hyper()`~~ — removed in 0.2 (Plan 217); inbound conversion lives in the server transport pipeline. Formerly fallible inbound conversion from a Hyper
   request into canonical request metadata;
 - `primitives::to_hyper_response()` — outbound conversion of a canonical
   response at the low-level transport boundary.
@@ -111,7 +111,7 @@ The downstream application-server contract is qualified externally by
 only `primitives` + `server` plus ordinary downstream dependencies. The
 builder-facing rules live in [downstream-app-server.md](downstream-app-server.md).
 Plan 199 supersedes deferred Plan 176 with an experimental generic tunnel:
-one-shot `TunnelCapability` on `RequestContext` (`take_tunnel()`; H1
+one-shot `TunnelCapability` via `Service::call_with_tunnel` (0.1 `take_tunnel()` removed in 0.2); H1
 `Upgrade`, `CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol`
 blocked by `h3` 0.0.8) plus `accept` returning the validated handshake
 `Response` (`101` H1 / `200` otherwise, runtime owns framing, no raw

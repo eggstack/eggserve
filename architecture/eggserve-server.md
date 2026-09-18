@@ -32,7 +32,7 @@ reserved seam. The `http2`/`tls` Cargo features remain as inert opt-in edges
 `eggserve-core::server` remains the 0.1 compatibility surface for those
 advanced paths, with facades (`ops`, `errors`, `response_policy`, `policy`,
 `runtime_limits`) over every moved module. Unified `Service` identity and
-tunnel-acceptance convergence are explicit Plan 216 input. The direct crate
+tunnel-acceptance convergence landed in Plan 216 and single-contract convergence in Plan 217 (downstream fixture). The direct crate The direct crate
 is the preferred generic H1 substrate and is not a promotion of H2/H3 or
 tunnel functionality.
 

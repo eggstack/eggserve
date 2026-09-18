@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–214 Cargo dependency topology.
+"""Enforce the Plan 211–217 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -178,11 +178,15 @@ def main() -> int:
     if check_plan216_tunnel() != 0:
         return 1
 
+    if check_plan217_convergence() != 0:
+        return 1
+
     print(
-        "Plan 211–216 topology: primitives leaf; neutral TLS; "
+        "Plan 211–217 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3/QUIC isolated; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
-        "direct tunnel authority with neutral vocabulary"
+        "direct tunnel authority with neutral vocabulary; "
+        "direct service/request convergence with single Service contract"
     )
     return 0
 
@@ -277,28 +281,50 @@ def check_plan215_parity() -> int:
             )
             return 1
 
-    # 4. Behavioral shape parity between the direct service contract and the
-    #    compatibility one. Full trait identity waits on Request-type
-    #    unification (tunnel slot, Plan 216); until then both definitions
-    #    must carry the mature categories so neither silently diverges.
-    shape_markers = [
-        "Panic",
-        "fn is_panic",
-        "fn is_timeout",
-        "fn message",
-        "service_fn_with_policy",
-        "service_fn_head",
-    ]
+    # 4. Single service contract (Plan 217 supersedes Plan 215 shape parity).
+    #    Before convergence both definitions carried the mature categories;
+    #    after convergence the compatibility file is a re-export and the
+    #    shape lives once in the direct crate.
     server_service = read(server_src / "service.rs")
     core_service = read(core_src / "server" / "service.rs")
-    for marker in shape_markers:
-        if marker not in server_service or marker not in core_service:
-            print(
-                "service contract shape diverged: "
-                f"`{marker}` must appear in both server and core definitions (Plan 215)",
-                file=sys.stderr,
-            )
-            return 1
+    if "pub use eggserve_server::service::*;" in core_service:
+        # Converged: shape owned once by the direct crate.
+        shape_markers = [
+            "Panic",
+            "fn is_panic",
+            "fn is_timeout",
+            "fn message",
+            "service_fn_with_policy",
+            "service_fn_head",
+            "call_with_tunnel",
+            "service_fn_with_tunnel",
+        ]
+        for marker in shape_markers:
+            if marker not in server_service:
+                print(
+                    "service contract shape diverged: "
+                    f"`{marker}` must appear in the direct definition (Plan 217)",
+                    file=sys.stderr,
+                )
+                return 1
+    else:
+        # Pre-convergence parity (retained for revert safety).
+        shape_markers = [
+            "Panic",
+            "fn is_panic",
+            "fn is_timeout",
+            "fn message",
+            "service_fn_with_policy",
+            "service_fn_head",
+        ]
+        for marker in shape_markers:
+            if marker not in server_service or marker not in core_service:
+                print(
+                    "service contract shape diverged: "
+                    f"`{marker}` must appear in both server and core definitions (Plan 215)",
+                    file=sys.stderr,
+                )
+                return 1
 
     return 0
 
@@ -427,6 +453,246 @@ def check_plan216_tunnel() -> int:
                     file=sys.stderr,
                 )
                 return 1
+
+    return 0
+
+
+def check_plan217_convergence() -> int:
+    """Enforce Plan 217 direct service/request type convergence.
+
+    Structural (not line-count) rules: canonical request/service types are
+    owned by the direct crates, compatibility files are facades, primitives
+    stay Hyper/Tokio-free, and H1/H2 pipelines invoke the single
+    `eggserve-server::Service` contract (tunnel via `call_with_tunnel`,
+    shared `run_tunnel` future, no second bridge).
+    """
+    import re
+
+    repo = Path(__file__).resolve().parent.parent
+
+    def read(path: Path) -> str:
+        return path.read_text()
+
+    def code_lines(text: str) -> str:
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("///", "//!"))
+        )
+
+    # 1. Primitives must stay transport-neutral: no Hyper/rustls/QUIC
+    #    imports in code (docs may name the boundary) across all primitive
+    #    modules, not just tunnel. Tokio is allowed only for the
+    #    `Semaphore::MAX_PERMITS` constant in shared limit validation
+    #    (pre-existing; no runtime use).
+    primitives_dir = repo / "crates" / "eggserve-primitives" / "src" / "primitives"
+    for path in list(primitives_dir.rglob("*.rs")):
+        full = read(path)
+        # Tests legitimately use Tokio (dev-dependency); only production code
+        # must stay neutral. Strip the `#[cfg(test)]` module before checking.
+        code = code_lines(full.split("#[cfg(test)]")[0])
+        for forbidden in (
+            "hyper",
+            "hyper_util",
+            "rustls",
+            "quinn",
+            "windows-sys",
+        ):
+            if re.search(rf"(^|\W){re.escape(forbidden)}\s*::", code):
+                print(
+                    f"eggserve-primitives {path.relative_to(repo)} leaks "
+                    f"`{forbidden}` (Plan 217: Hyper/TLS/QUIC-free)",
+                    file=sys.stderr,
+                )
+                return 1
+        # Tokio: allow only the shared-limit MAX_PERMITS constant.
+        if re.search(r"(^|\W)tokio\s*::", code) and (
+            "tokio::sync::Semaphore::MAX_PERMITS" not in code
+        ):
+            print(
+                f"eggserve-primitives {path.relative_to(repo)} leaks "
+                "`tokio` (Plan 217: Tokio-free except MAX_PERMITS)",
+                file=sys.stderr,
+            )
+            return 1
+        if re.search(r"use\s+h[23]\s*::", code) or re.search(r"\bh[23]\s*::", code):
+            print(
+                f"eggserve-primitives {path.relative_to(repo)} leaks h2/h3 (Plan 217)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 2. Compatibility primitive files must be facades (re-export the direct
+    #    authority) rather than second definitions. Exact ownership checks,
+    #    not line counts.
+    core_primitives = repo / "crates" / "eggserve-core" / "src" / "primitives"
+    facade_expectations = {
+        # Trivial value objects (byte-identical → pure re-export).
+        "method.rs": ("pub use eggserve_primitives::method::*;", []),
+        "request_target.rs": ("pub use eggserve_primitives::request_target::*;", []),
+        "trailers.rs": ("pub use eggserve_primitives::trailers::*;", []),
+        "proxy.rs": ("pub use eggserve_primitives::proxy::*;", []),
+        "connection_info.rs": ("pub use eggserve_primitives::connection_info::*;", []),
+        "body.rs": ("pub use eggserve_primitives::body::*;", []),
+        "http.rs": ("pub use eggserve_primitives::http::*;", []),
+        "incomplete_body_policy.rs": (
+            "pub use eggserve_primitives::incomplete_body_policy::*;",
+            [],
+        ),
+        "interim.rs": ("pub use eggserve_primitives::interim::*;", []),
+        "request_body_error.rs": (
+            "pub use eggserve_primitives::request_body_error::*;",
+            [],
+        ),
+        "request_body_policy.rs": (
+            "pub use eggserve_primitives::request_body_policy::*;",
+            [],
+        ),
+        # Nominal duplicates with visibility/doc-only differences.
+        "request.rs": ("pub use eggserve_primitives::request::*;", ["pub struct Request"]),
+        "request_body.rs": (
+            "pub use eggserve_primitives::request_body::*;",
+            ["pub struct RequestBody"],
+        ),
+        "request_lifecycle.rs": (
+            "pub use eggserve_primitives::request_lifecycle::*;",
+            ["pub struct RequestLifecycle", "pub(crate) struct RequestShared"],
+        ),
+        "request_context.rs": (
+            "pub use eggserve_primitives::request_context::*;",
+            ["pub struct RequestContext", "take_tunnel", "with_tunnel("],
+        ),
+        "request_head.rs": (
+            "pub use eggserve_primitives::request_head::*;",
+            ["pub struct RequestHead", "try_from_hyper"],
+        ),
+        "version.rs": (
+            "pub use eggserve_primitives::version::*;",
+            ["pub enum HttpVersion", "hyper::http::Version"],
+        ),
+        "response.rs": ("pub use eggserve_primitives::response::*;", ["pub struct FileRange"]),
+        "response_stream.rs": (
+            "pub use eggserve_primitives::response_stream::*;",
+            ["pub struct ResponseStream"],
+        ),
+        "canonical.rs": (
+            "pub use eggserve_primitives::canonical::*;",
+            ["pub mod adapters;", "pub mod headers;", "pub mod response;"],
+        ),
+        "tunnel.rs": (
+            "pub use eggserve_primitives::tunnel::",
+            ["pub struct TunnelCapability", "copy_bidirectional"],
+        ),
+    }
+    for rel, (marker, forbidden_markers) in facade_expectations.items():
+        text = read(core_primitives / rel)
+        code = code_lines(text)
+        if marker not in text:
+            print(
+                f"eggserve-core/primitives/{rel} must facade `{marker}` (Plan 217)",
+                file=sys.stderr,
+            )
+            return 1
+        for forbidden in forbidden_markers:
+            if forbidden in code:
+                print(
+                    f"eggserve-core/primitives/{rel} keeps a second `{forbidden}` "
+                    "(Plan 217: delegate to the direct authority)",
+                    file=sys.stderr,
+                )
+                return 1
+    # Tunnel facade must also re-export the server-owned execution types.
+    core_tunnel = read(core_primitives / "tunnel.rs")
+    if "pub use eggserve_server::tunnel::" not in core_tunnel:
+        print(
+            "eggserve-core primitives/tunnel.rs must facade "
+            "`pub use eggserve_server::tunnel::` (Plan 217)",
+            file=sys.stderr,
+        )
+        return 1
+    # Canonical facade must delegate Hyper conversion to the server adapter.
+    core_canonical = read(core_primitives / "canonical.rs")
+    if "pub use eggserve_server::adapters::" not in core_canonical:
+        print(
+            "eggserve-core primitives/canonical.rs must delegate Hyper conversion "
+            "to `eggserve_server::adapters` (Plan 217: single conversion authority)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 3. Single service contract: core service must re-export the direct
+    #    authority, not define a second trait/error taxonomy.
+    core_service = read(
+        repo / "crates" / "eggserve-core" / "src" / "server" / "service.rs"
+    )
+    if "pub use eggserve_server::service::*;" not in core_service:
+        print(
+            "eggserve-core/server/service.rs must re-export "
+            "`eggserve_server::service` (Plan 217: single Service contract)",
+            file=sys.stderr,
+        )
+        return 1
+    for second in ("pub trait Service", "pub struct ServiceError", "enum ServiceErrorKind"):
+        if second in code_lines(core_service):
+            print(
+                f"eggserve-core service keeps a second `{second}` "
+                "(Plan 217: single contract)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 4. H1/H2 pipelines must invoke the single contract via
+    #    `call_with_tunnel` and share the `run_tunnel` future (no second
+    #    bridge). H2 Extended CONNECT stays as explicit transport glue.
+    pipeline = read(
+        repo / "crates" / "eggserve-core" / "src" / "server" / "connection" / "pipeline.rs"
+    )
+    for marker in (
+        "call_with_tunnel",
+        "eggserve_server::tunnel::run_tunnel",
+        "struct TunnelInvocation",
+        "with_tunnel_request",
+    ):
+        if marker not in pipeline:
+            print(
+                f"eggserve-core pipeline must use `{marker}` "
+                "(Plan 217: H2 dispatches through the canonical contract)",
+                file=sys.stderr,
+            )
+            return 1
+    for second in ("tokio::io::duplex", "copy_bidirectional"):
+        if second in code_lines(pipeline):
+            print(
+                f"eggserve-core pipeline keeps a second tunnel bridge `{second}` "
+                "(Plan 217: shared run_tunnel only)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 5. Downstream fixture proving one `eggserve-server::Service` drives
+    #    both direct H1 and compatibility H2 paths.
+    fixture = repo / "crates" / "eggserve-core" / "tests" / "direct_service_convergence.rs"
+    if not fixture.exists():
+        print(
+            "missing Plan 217 downstream fixture "
+            "crates/eggserve-core/tests/direct_service_convergence.rs",
+            file=sys.stderr,
+        )
+        return 1
+    fixture_text = read(fixture)
+    for marker in (
+        "eggserve_server::Service",
+        "service_fn",
+        "serve_http1_connection",
+        "serve_http_connection",
+    ):
+        if marker not in fixture_text:
+            print(
+                f"Plan 217 fixture must exercise `{marker}` "
+                "(direct Service through H1 + H2)",
+                file=sys.stderr,
+            )
+            return 1
 
     return 0
 

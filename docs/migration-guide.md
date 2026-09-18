@@ -264,7 +264,7 @@ Validation matches `http::HeaderValue::from_bytes` (`HTAB`, `SP`–`~`,
 obs-text `0x80`–`0xFF`; rejects `CR`/`LF`/`NUL`/`DEL`/`CTL`s). Leading/trailing
 `SP`/`HTAB` are still stripped as a deliberate `OWS` invariant (RFC 9110
 field-line parsing), for both text and byte constructors. Inbound conversion
-(`RequestHead::try_from_hyper`, connection pipeline) and outbound conversion
+(server transport pipeline) and outbound conversion
 (`to_hyper_response`) preserve exact octets; protocol headers (`Content-Length`,
 `Connection` tokens, conditionals/range) perform checked `to_str()` at the
 point of interpretation. `Display` for `HeaderValue`/`HeaderBlock` is lossy
@@ -281,8 +281,7 @@ Python facades enforce the text subset.
 
 **Migration**: replace `as_str()` on `HeaderValue` with `to_str()?` (or
 `as_bytes()` for forwarding). Add `HeaderValueTextError` to imports where the
-error type is named. No `Hyper` types enter the canonical API; the two
-adapters remain `RequestHead::try_from_hyper()` and `to_hyper_response()`.
+error type is named. No `Hyper` types enter the canonical API; the remaining adapter is `to_hyper_response()` (inbound `RequestHead::try_from_hyper()` removed in 0.2, Plan 217).
 
 ## Plan 174: deferred request-body ownership and request lifecycle
 
@@ -421,13 +420,13 @@ constructors/observers, `ResponseStream::into_parts`,
 | `eggserve_server::service_fn(f)` returns `F` | returns `ServiceFn<F>` | Both implement `Service`; `start_with_service(service_fn(..))` keeps compiling. New: `service_fn_head`, `service_fn_with_policy` |
 | `ServiceError::rejected(status)` | `ServiceError::rejected(status, message)` | Message-bearing rejection (matches compatibility shape); update static/custom services with a short reason |
 | `eggserve_server::{RuntimeConfig, ServerError, Server, ServerBuilder, ServerHandle}` (minimal) | mature shapes (`config::RuntimeConfig` H1 field set, 10-variant `errors::ServerError`, listener/prebound `Server` with `wait()`/`ops_snapshot()`) | Direct embedders adopt the new fields/builders; nothing in-repo outside the crate used the old shapes |
-| `primitives::to_hyper_response()` (compat) | `eggserve_server::adapters::to_hyper_response()` for direct use | Compat path keeps its own implementation until Plan 216; behavior parity covered by `direct_h1_parity` |
+| `primitives::to_hyper_response()` (compat) | `eggserve_server::adapters::to_hyper_response()` for direct use | Compat path delegates to the single authority over identical types (Plan 217); behavior parity covered by `direct_h1_parity` plus `direct_service_convergence` |
 
-Unified `Service` identity and tunnel-acceptance convergence are explicit
-Plan 216 input: the direct driver follows the ordinary HTTP path for
-upgrade/CONNECT intent (denial stays ordinary HTTP), and the
-tunnel-capable compatibility pipeline stays until then. See
-`release/plan-215-direct-runtime-parity.md`.
+Plan 217 finishes service/request convergence (see
+`crates/eggserve-core/tests/direct_service_convergence.rs`): the direct
+driver follows the ordinary HTTP path for upgrade/CONNECT intent (denial
+stays ordinary HTTP), and compatibility H1/H2 dispatch through the same
+canonical `Service` contract. See `release/plan-215-direct-runtime-parity.md`.
 
 ## Plan 216: direct generic tunnel/upgrade parity (experimental, pre-1.0 moves)
 
@@ -445,15 +444,65 @@ Tunnel ownership moves toward the direct crates with no new service model:
   shared neutral helpers and run the shared `run_tunnel` future — the
   duplicate H1 parser/state machine/bridge is deleted
   (`server/connection/tunnel.rs` is gone).
-- Compatibility `RequestContext::take_tunnel()` is preserved: it yields the
-  thin compatibility capability (same method names), whose `accept`
-  delegates to the direct authority and converts only the handshake
-  response shape. Ordinary services (no tunnel use) require no change.
+- Compatibility `RequestContext::take_tunnel()` was preserved through Plan
+  216: it yielded the thin compatibility capability (same method names), whose
+  `accept` delegated to the direct authority and converted only the handshake
+  response shape. Ordinary services (no tunnel use) required no change.
 - Direct services use the additive `Service::call_with_tunnel`
   (or `service_fn_with_tunnel`); the default drops the capability so
   existing `Service::call` implementations deny with ordinary HTTP
   unchanged. Validated intent is visible cloneably via
   `RequestContext::tunnel_request()` on both stacks.
+
+## Plan 217: direct service/request convergence (experimental, pre-1.0 moves)
+
+Canonical request/service types converge on the direct crates; `eggserve-core`
+keeps facades plus H2 transport glue (no second envelope, taxonomy,
+normalization, or state machine):
+
+- `eggserve_primitives::Request`, `RequestContext`, body/lifecycle, response,
+  authority, header, and tunnel vocabulary are the canonical types. Core
+  `primitives::{method, request_target, trailers, proxy, connection_info,
+  body, http, incomplete_body_policy, interim, request_body_error,
+  request_body_policy, request, request_body, request_lifecycle,
+  request_context, request_head, version, response, response_stream,
+  canonical, tunnel}` are facades (`pub use eggserve_primitives::...`).
+- `eggserve_server::Service` is the single contract for direct H1 and
+  compatibility H2. Core `server::service` re-exports it
+  (`service_fn`, `service_fn_head`, `service_fn_with_policy`,
+  `service_fn_with_tunnel`, `ServiceFn`, `TunnelServiceFn`, `ServiceFuture`
+  included); H2 dispatches via `call_with_tunnel` with the shared
+  `run_tunnel` future.
+- Compatibility `primitives::to_hyper_response()` delegates to
+  `eggserve_server::adapters::to_hyper_response()` over identical types.
+- Removed in the 0.2 line (use the replacement):
+  - `RequestContext::with_tunnel` / `take_tunnel` / `tunnel_shared` /
+    `tunnel_sidecar` → `RequestContext::with_tunnel_request` (intent) +
+    `Service::call_with_tunnel` (acceptance). Tunnel-aware services migrate
+    from `service_fn(|req| { req.context().take_tunnel() })` to
+    `service_fn_with_tunnel(|req, tunnel| { ... })`.
+  - `RequestHead::try_from_hyper` → server transport pipeline (canonical
+    types stay Hyper-free; build heads via `new`/`new_with_authority`).
+  - `HttpVersion: TryFrom<hyper::Version>` → server pipeline version mapping.
+
+Migration (tunnel services only; all other services keep compiling):
+
+```rust,no_run
+// Before (0.1):
+let svc = service_fn(|req: Request| async move {
+    let Some(tunnel) = req.context().take_tunnel() else {
+        return Ok(ordinary_response());
+    };
+    tunnel.accept(headers, handler)
+});
+// After (0.2):
+let svc = service_fn_with_tunnel(|req: Request, tunnel| async move {
+    let Some(tunnel) = tunnel else {
+        return Ok(ordinary_response());
+    };
+    tunnel.accept(headers, handler)
+});
+```
 
 | Before | After | Change |
 |--------|-------|--------|

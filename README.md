@@ -132,11 +132,18 @@ H1 parity suite (`crates/eggserve-core/tests/direct_h1_parity.rs`) and a
 topology gate owning the boundary. Plan 216 moves tunnel authority to the
 direct crates (neutral intent vocabulary in `eggserve-primitives::tunnel`,
 transport execution in `eggserve-server::tunnel`, compatibility H1/H2
-delegating through shared helpers and the shared future); H2
-service-shape convergence is Plan 217, H3 stays experimental under
-Plan 213. Advanced H2/H3 and
+delegating through shared helpers and the shared future). Plan 217 finishes
+service/request convergence: `eggserve-primitives::Request`/`RequestContext`
+(plus body/lifecycle, response, authority, header, and tunnel vocabulary)
+are the canonical types used by the direct server, `eggserve-server::Service`
+is the single service contract for direct H1 and compatibility H2 (tunnel
+via additive `call_with_tunnel`, H2 as explicit transport glue), and
+`eggserve-core` keeps those paths as facades plus a downstream fixture
+(`crates/eggserve-core/tests/direct_service_convergence.rs`) proving one
+direct `Service` drives both. H3 stays experimental under
+Plan 213. Advanced H3 and
 the extended listener/proxy/TLS-identity paths remain in core while their
-extraction phases (Plan 217) are completed. There is no additional
+extraction phases are completed. There is no additional
 `eggserve` facade crate.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
@@ -152,9 +159,10 @@ Canonical response/request types and `Service` in the direct layers do not
 require consumers to name Hyper directly.
 `eggserve_server::adapters::to_hyper_response()` is the explicit opt-in
 outbound transport adapter owned by the direct runtime; the compatibility
-`primitives::to_hyper_response()` keeps its own implementation over
-compatibility types until Request-type unification (Plan 216), with behavior
-parity covered by the direct-vs-compatibility H1 suite. The returned body
+`primitives::to_hyper_response()` delegates to that single authority over the
+same canonical types (Plan 217 identity, no second framing implementation),
+with behavior parity covered by the direct-vs-compatibility H1 suite plus the
+direct-service convergence fixture. The returned body
 type is opaque in both cases, so consumers should rely on the
 `http_body::Body` contract rather than naming `BoxBody`. This adapter change is
 classified as the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented

@@ -67,7 +67,7 @@ downstream responsibility.
   + validated tunnel *intent* (`tunnel_request()`; H1 `Upgrade`, `CONNECT`,
   H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8).
   One-shot tunnel *acceptance* is server-owned: compatibility services take
-  it via `take_tunnel()`, direct (`eggserve-server`) services receive it via
+  it via `Service::call_with_tunnel` on both stacks (0.1 compat `take_tunnel()` removed in 0.2); direct (`eggserve-server`) and compatibility services receive it via
   the additive `Service::call_with_tunnel` parameter (default drops it, so
   ordinary services deny with ordinary HTTP unchanged). Handlers own only
   `TunnelIo` (`FnOnce(TunnelIo)`; capture the lifecycle for cancellation).
@@ -218,7 +218,7 @@ earlier ones:
    (including trailer producer failure) closes (H1) or resets the stream
    (H2/H3, siblings survive) with sanitized diagnostics only.
 7. **transitioned into a non-HTTP tunnel where applicable** — via
-   `take_tunnel()` (compatibility) or `Service::call_with_tunnel`
+   `Service::call_with_tunnel` (single contract, Plan 217)
    (direct) + `accept(headers, handler)` (Plan 199 semantics, Plan 216
    ownership): validated H1 `101` / `200` for `CONNECT`/Extended (runtime
    owns framing, no raw socket) plus bounded single-owner `TunnelIo`;
@@ -235,7 +235,7 @@ What happens on races:
 - interim attempt **after** final commitment → `InterimError::AfterCommit`
   (fail closed, no wire bytes);
 - tunnel `accept` **after** final commitment → `TunnelError::AfterCommit`;
-  second `take_tunnel()` → `None` (double-accept impossible; direct
+  second acceptance → `AlreadyAccepted` (double-accept impossible; direct
   capabilities are consumed by `accept`, so a second accept is a
   deterministic `AlreadyAccepted`/`AfterCommit`);
 - response/trailer producer errors **after** commitment → transport close/reset,
@@ -344,7 +344,7 @@ deferred body consumption still active.
 EggServe does not implement ASGI/WSGI/framework/process semantics:
 application protocol adaptation, event loops, routing, middleware, worker
 supervision, lifespan state machines, or WebSocket framing. Plan 199
-implements generic tunnels (`take_tunnel()`/`accept`/`TunnelIo`; H1 `101` /
+implements generic tunnels (`Service::call_with_tunnel`/`accept`/`TunnelIo`; H1 `101` /
 `200` otherwise; denial ordinary HTTP); WebSocket framing itself stays
 downstream (see `tunnel_upgrade.rs`). Raw Hyper/h2/h3/Quinn bypass remains
 unsupported. No Tower `Service`,

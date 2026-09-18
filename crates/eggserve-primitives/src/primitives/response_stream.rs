@@ -255,7 +255,10 @@ impl ResponseStream {
     }
 
     /// Take the terminal trailer future, if attached.
-    pub(crate) fn take_trailer_future(&mut self) -> Option<TrailerFuture> {
+    ///
+    /// Public runtime-adapter API (Plan 217): the compatibility H3 adapter
+    /// splits streams through this take.
+    pub fn take_trailer_future(&mut self) -> Option<TrailerFuture> {
         self.trailers.take()
     }
 

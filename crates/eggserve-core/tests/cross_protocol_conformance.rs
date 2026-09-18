@@ -40,7 +40,7 @@ use eggserve_core::server::connection::{
     serve_http1_connection, ConnectionContext, ConnectionShutdown,
 };
 use eggserve_core::server::{
-    service_fn, service_fn_with_policy, RuntimeConfig, RuntimeState, Server,
+    service_fn, service_fn_with_policy, service_fn_with_tunnel, RuntimeConfig, RuntimeState, Server,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -819,8 +819,9 @@ async fn admission_saturation_recovers() {
 
 #[tokio::test]
 async fn tunnel_denial_stays_http() {
-    let service = service_fn(|req: Request| async move {
-        assert!(req.context().take_tunnel().is_none());
+    let service = service_fn_with_tunnel(|req: Request, tunnel| async move {
+        assert!(tunnel.is_none());
+        assert!(req.context().tunnel_request().is_none());
         Ok(Response::builder()
             .status(StatusCode::OK)
             .body(ResponseBody::Bytes(b"no-tunnel".to_vec()))
@@ -841,8 +842,8 @@ async fn tunnel_denial_stays_http() {
 #[tokio::test]
 async fn h1_upgrade_echo() {
     use eggserve_core::primitives::tunnel::TunnelIo;
-    let service = service_fn(|req: Request| async move {
-        let Some(tunnel) = req.context().take_tunnel() else {
+    let service = service_fn_with_tunnel(|_req: Request, tunnel| async move {
+        let Some(tunnel) = tunnel else {
             return Ok(Response::builder()
                 .status(StatusCode::OK)
                 .body(ResponseBody::Bytes(b"no-tunnel".to_vec()))

@@ -63,7 +63,7 @@ the [`qualification record`](../release/plan-190-multiprotocol-corrective-qualif
 - Multipart range responses.
 - Manual chunked construction (`Transfer-Encoding` stays runtime-owned;
   services use `ResponseStream::new` and let the runtime frame).
-- Upgrade semantics except via Plan 199 generic tunnel (`take_tunnel()`/`accept`/`TunnelIo`; H1 `101` / `200` otherwise; denial ordinary HTTP).
+- Upgrade semantics except via Plan 199 generic tunnel (`Service::call_with_tunnel`/`accept`/`TunnelIo`; H1 `101` / `200` otherwise; denial ordinary HTTP).
 - Absolute-form proxy requests.
 - Authority-form CONNECT except as Plan 199 `Connect` tunnel (validated, bounded; denial 405/400 for static).
 - Asterisk-form OPTIONS requests.
@@ -140,7 +140,7 @@ never enter `http::Extensions`.
 
 Validated H1 `Upgrade`, `CONNECT`, and H2/H3 Extended `CONNECT` yield a
 one-shot, transport-backed `TunnelCapability` on `RequestContext`
-(`take_tunnel()`; second take `None`; `AfterCommit` after final commitment).
+(`Service::call_with_tunnel`; double-accept `AlreadyAccepted`; `AfterCommit` after final commitment).
 `TunnelRequest` carries `TunnelKind` (`Http1Upgrade`/`Connect`/
 `ExtendedConnect`), optional bounded `ProtocolName` (`token`, 1–64, generic —
 no hard-coded `WebSocket` variant), and optional `Authority`.
@@ -246,7 +246,7 @@ interpretation (`from_bytes`/`from_static_bytes`/`as_bytes()`; fallible
 `to_str()`). Validation matches `http::HeaderValue::from_bytes` (`HTAB`,
 `SP`–`~`, obs-text `0x80`–`0xFF`; rejects `CR`/`LF`/`NUL`/`DEL`/`CTL`s).
 Leading/trailing `SP`/`HTAB` are stripped as a deliberate `OWS` invariant for
-both text and byte constructors. Inbound (`RequestHead::try_from_hyper`,
+both text and byte constructors. Inbound (server transport pipeline,
 connection pipeline) and outbound (`to_hyper_response`) conversions preserve
 exact octets; `Content-Length`, `Connection` tokens, and conditional/range
 headers perform checked `to_str()` at interpretation. `Display` is lossy

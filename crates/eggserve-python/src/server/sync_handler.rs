@@ -116,6 +116,7 @@ impl PythonCallbackService {
         body: RequestBody,
         body_policy: RequestBodyPolicy,
         context: RequestContext,
+        tunnel: Option<eggserve_core::primitives::tunnel::TunnelCapability>,
     ) -> PyRequest {
         use eggserve_core::primitives::connection_info::Scheme;
 
@@ -215,47 +216,18 @@ impl PythonCallbackService {
             .is_some_and(|t| t.peer_certificates_present);
         let proxy_source = connection.proxy_source.map(|a| a.to_string());
         let proxy_destination = connection.proxy_destination.map(|a| a.to_string());
-        // Clone capability handles (Arc-backed, cheap; tunnel slot shared so
-        // taking via one clone removes for all — one-shot, no duplication).
+        // Clone lifecycle/interim handles (Arc-backed, cheap).
         let lifecycle = Some(context.lifecycle_clone());
         let interim = context.interim().cloned();
-        // Re-create the shared tunnel slot view: `RequestContext` owns
-        // `Arc<Mutex<Option<TunnelCapability>>>` privately; expose one-shot
-        // takes via a new slot that mirrors presence. Presence is checked
-        // via `tunnel_request()` (metadata clone, no ownership); the actual
-        // capability is taken via `context.take_tunnel()` on demand in
-        // `take_tunnel()` below (which locks the context's slot). To keep
-        // `PyRequest` Sync with a plain Mutex slot, store a fresh slot that
-        // is populated lazily? Simpler: store `None` here and resolve
-        // presence via a cloned context? `RequestContext` is Clone + Sync
-        // (Arc-backed) so store it directly for tunnel takes.
-        //
-        // To avoid storing the full context (which holds a non-Sync
-        // `TunnelCapability` inside its Mutex slot), store only the
-        // tunnel-request metadata presence + a shared take handle created
-        // here. The runtime context's slot is not directly reachable after
-        // `into_parts_with_context` moves it; instead `build_py_request`
-        // receives the owned context, so take the capability slot ownership
-        // by wrapping the context itself in an Arc<Mutex<Option<...>>>?
-        //
-        // Pragmatic additive path: store the tunnel-request metadata for
-        // routing decisions and resolve the live capability via a shared
-        // `Arc<Mutex<Option<TunnelCapability>>>` created from
-        // `context.take_tunnel()` eagerly (taking now, holding for Python).
-        // If no capability, slot holds None (ordinary HTTP). `take_tunnel()`
-        // then takes from this Python-owned slot (one-shot). This preserves
-        // one-shot semantics (runtime slot already drained once here) and
-        // keeps `PyRequest` Sync (Mutex<Option<TunnelCapability>> is Sync
-        // when the capability is Send).
-        let tunnel_request = context.tunnel_request();
+        // Plan 217: single service contract — capability arrives via
+        // `Service::call_with_tunnel`, intent stays on the context for
+        // routing (inspectable via the capability's `request()` when present).
+        // Store the live capability (if any) in a Python-owned
+        // one-shot slot; `take_tunnel()` takes from here. This preserves
+        // one-shot semantics and keeps `PyRequest` Sync.
         let tunnel_slot: Option<
             Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>,
-        > = if tunnel_request.is_some() {
-            let taken = context.take_tunnel();
-            Some(Arc::new(std::sync::Mutex::new(taken)))
-        } else {
-            None
-        };
+        > = tunnel.map(|taken| Arc::new(std::sync::Mutex::new(Some(taken))));
         let handle = tokio::runtime::Handle::try_current().ok();
 
         PyRequest {
@@ -668,6 +640,16 @@ impl Service for PythonCallbackService {
     ) -> Pin<
         Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
     > {
+        self.call_with_tunnel(request, None)
+    }
+
+    fn call_with_tunnel(
+        &self,
+        request: eggserve_core::primitives::request::Request,
+        tunnel: Option<eggserve_core::primitives::tunnel::TunnelCapability>,
+    ) -> Pin<
+        Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
+    > {
         let handler = self.handler.clone();
         let callback_semaphore = self.callback_semaphore.clone();
         let body_policy = self.body_policy;
@@ -681,8 +663,10 @@ impl Service for PythonCallbackService {
             // Plan 204: use the full context so async-capable handlers observe
             // lifecycle/interim/tunnel ownership. Sync behavior for existing
             // getters is unchanged (additive fields only).
+            // Plan 217: capability arrives via the service parameter, not via
+            // a context slot.
             let (head, body, context) = request.into_parts_with_context();
-            let py_request = Self::build_py_request(head, body, body_policy, context);
+            let py_request = Self::build_py_request(head, body, body_policy, context, tunnel);
             // Share the handshake slot so `accept_tunnel` (which runs on the
             // blocking handler thread) can publish the runtime-owned
             // handshake `Response` (with `TunnelAcceptance`) for use here.

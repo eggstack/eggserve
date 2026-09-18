@@ -140,6 +140,25 @@ pub(crate) fn body_error_to_response(
     crate::response::runtime_error_with_policy(status, is_head, error_policy)
 }
 
+/// Convert a [`ServiceError`] into an HTTP response with an explicit policy.
+///
+/// Status selection lives on the error; representation is owned by
+/// [`crate::response::runtime_error_with_policy`] so wire status and body
+/// can never disagree. Internal and panic errors map to 500, timeouts to
+/// 504, rejections to their status. No internal details are reflected.
+/// (Plan 217: single error taxonomy owned by `eggserve-server`; this is the
+/// compatibility transport adapter, not a second taxonomy.)
+pub(crate) fn service_error_to_response(
+    err: &ServiceError,
+    is_head: bool,
+    error_policy: crate::policy::ErrorRepresentationPolicy,
+) -> hyper::Response<BoxBodyInner> {
+    let code = err.status_code().as_u16();
+    let status =
+        hyper::StatusCode::from_u16(code).unwrap_or(hyper::StatusCode::INTERNAL_SERVER_ERROR);
+    crate::response::runtime_error_with_policy(status, is_head, error_policy)
+}
+
 /// Return the protocol-neutral lifecycle consequence of a body failure.
 pub(crate) fn body_error_disposition(
     err: &crate::primitives::request_body_error::RequestBodyError,

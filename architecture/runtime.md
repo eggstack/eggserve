@@ -19,7 +19,7 @@ connection runtime (ops, error taxonomy, response policy, shared limit
 authority, service contract shape, connection vocabulary, H1 config/state,
 H1 driver, Hyper conversion boundary), proven wire-for-wire against the
 compatibility pipeline by `crates/eggserve-core/tests/direct_h1_parity.rs`
-(16 scenarios; tunnel excluded, Plan 216 input). `eggserve-static`
+(16 scenarios; tunnel excluded, Plan 216 input) plus the Plan 217 direct-service convergence fixture. `eggserve-static`
 composes hardened static behavior on top. The
 historical `eggserve-core::server` remains the compatibility runtime for
 advanced H2/H3, tunnel, listener, proxy, and TLS paths during extraction.
@@ -203,7 +203,7 @@ Neutral intent vocabulary (`TunnelKind`/`ProtocolName`/`TunnelRequest`/
 `eggserve-primitives::tunnel` (Hyper/Tokio-free); transport execution
 (`TunnelCapability`/`TunnelIo`/acceptance state/H1 detection/bounded
 bridging/shared `run_tunnel`) lives once in `eggserve-server::tunnel`.
-Compatibility `RequestContext::take_tunnel()` yields the thin compatibility
+Plan 217 removes the 0.1 compatibility `RequestContext::take_tunnel()` slot; services use `Service::call_with_tunnel`. The removed wrapper yielded the thin compatibility
 capability (same method names; `accept` delegates and converts only the
 handshake response shape). Direct services receive the capability via the
 additive `Service::call_with_tunnel` parameter (default drops it, so

@@ -19,14 +19,18 @@ use std::sync::Arc;
 
 use eggserve_core::primitives::header_block::HeaderBlock;
 use eggserve_core::primitives::tunnel::TunnelIo;
-use eggserve_core::server::{service_fn, Request, RuntimeConfig, Server};
+use eggserve_core::server::{service_fn_with_tunnel, Request, RuntimeConfig, Server};
 #[cfg(feature = "http3")]
 use eggserve_h3::{h3, h3_quinn};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 fn echo_service() -> impl eggserve_core::server::Service {
-    service_fn(|req: Request| async move {
-        let Some(tunnel) = req.context().take_tunnel() else {
+    // Plan 217: single service contract — tunnel arrives via
+    // `call_with_tunnel`, intent stays inspectable on the context.
+    service_fn_with_tunnel(|req: Request, tunnel| async move {
+        // Intent is cloneable routing metadata on the context.
+        let _intent = req.context().tunnel_request().cloned();
+        let Some(tunnel) = tunnel else {
             // Denial: ordinary HTTP (no tunnel).
             return Ok(eggserve_core::primitives::canonical::Response::builder()
                 .status(eggserve_core::primitives::canonical::StatusCode::OK)
@@ -35,8 +39,8 @@ fn echo_service() -> impl eggserve_core::server::Service {
                 ))
                 .unwrap());
         };
-        // Double-take impossible (second returns None).
-        assert!(req.context().take_tunnel().is_none());
+        // One-shot by construction: the capability moved in via the service
+        // parameter, never via a context slot, so double-take is impossible.
         let kind = tunnel.request().kind();
         assert!(matches!(
             kind,
@@ -241,10 +245,10 @@ async fn h1_after_commit_accept_fails() {
     use std::sync::atomic::{AtomicBool, Ordering};
     let saw_after_commit = Arc::new(AtomicBool::new(false));
     let flag = saw_after_commit.clone();
-    let service = service_fn(move |req: Request| {
+    let service = service_fn_with_tunnel(move |_req: Request, tunnel| {
         let flag = flag.clone();
         async move {
-            let Some(tunnel) = req.context().take_tunnel() else {
+            let Some(tunnel) = tunnel else {
                 return Ok(eggserve_core::primitives::canonical::Response::builder()
                     .status(eggserve_core::primitives::canonical::StatusCode::BAD_REQUEST)
                     .body(eggserve_core::primitives::canonical::ResponseBody::Empty)
@@ -678,8 +682,8 @@ async fn ws_interop_proves_generic_handoff_sufficient() {
     // Downstream WS codec lives entirely in this fixture (no WS in core):
     // handshake via EggServe tunnel (101 + Accept), framing via
     // `tokio-tungstenite` over `TunnelIo`.
-    let service = service_fn(|req: Request| async move {
-        let Some(tunnel) = req.context().take_tunnel() else {
+    let service = service_fn_with_tunnel(|req: Request, tunnel| async move {
+        let Some(tunnel) = tunnel else {
             return Ok(eggserve_core::primitives::canonical::Response::builder()
                 .status(StatusCode::BAD_REQUEST)
                 .body(ResponseBody::Empty)
