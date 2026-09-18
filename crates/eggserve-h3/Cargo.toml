@@ -25,4 +25,23 @@ default = []
 h3 = { version = "0.0.8", default-features = false }
 h3-quinn = { version = "0.0.10", default-features = false }
 quinn = { version = "0.11.11", default-features = false, features = ["runtime-tokio", "rustls-ring"] }
+# Plan 220: the H3 adapter owns endpoint/connection/request/response/tunnel
+# mechanics over the canonical primitives/server layers. Downward-only:
+# primitives <- server <- h3; server never depends upward on H3.
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
+eggserve-server = { path = "../eggserve-server", version = "0.1.2" }
+eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", default-features = false }
+# Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
+# resolving below the patched 0.23.45 line. QUIC TLS assembly is H3-owned
+# (TLS 1.3, h3 ALPN, no 0-RTT); reusable identity parsing stays in eggnet-tls.
+rustls = { version = "0.23.45", default-features = false, features = ["std", "ring"] }
+bytes = "1"
+futures-util = "0.3"
+hyper = { version = "1", features = ["http1", "server"] }
+tokio = { version = "1", features = ["macros", "net", "time", "io-util", "sync", "rt"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread"] }
+tempfile = "3"
+rcgen = "0.13"
 

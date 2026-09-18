@@ -54,8 +54,6 @@ pub mod connection;
 pub mod errors;
 pub mod handle;
 #[cfg(feature = "http3")]
-use eggserve_h3::{h3_quinn, quinn};
-#[cfg(feature = "http3")]
 mod http3;
 pub mod lifecycle;
 pub mod listener;
@@ -666,25 +664,16 @@ impl Server {
                 crate::tls::load_quic_server_config(cert_path, key_path, &runtime_config.http3)
                     .map_err(|e| ServerError::Config(e.to_string()))?;
             if let Some(socket) = http3_socket {
-                socket.set_nonblocking(true).map_err(ServerError::Bind)?;
-                let udp_addr = socket.local_addr().map_err(ServerError::Bind)?;
-                if udp_addr.port() != tcp_bind.port() {
-                    return Err(ServerError::Config(format!(
-                        "prebound H3 UDP port {} does not match TCP port {}; same-port TCP+UDP required",
-                        udp_addr.port(),
-                        tcp_bind.port()
-                    )));
-                }
-                let endpoint = quinn::Endpoint::new(
-                    quinn::EndpointConfig::default(),
-                    Some(quic_config),
-                    socket,
-                    std::sync::Arc::new(quinn::TokioRuntime),
-                )
-                .map_err(ServerError::Bind)?;
+                eggserve_h3::validate_same_port_udp(tcp_bind, &socket)
+                    .map_err(ServerError::Config)?;
+                let endpoint = eggserve_h3::endpoint_from_socket(quic_config, socket)
+                    .map_err(ServerError::Bind)?;
                 Some(endpoint)
             } else {
-                Some(h3_quinn::Endpoint::server(quic_config, tcp_bind).map_err(ServerError::Bind)?)
+                Some(
+                    eggserve_h3::server_endpoint(quic_config, tcp_bind)
+                        .map_err(ServerError::Bind)?,
+                )
             }
         } else {
             // H3 disabled but a prebound UDP socket was supplied: fail

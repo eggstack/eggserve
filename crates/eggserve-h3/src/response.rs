@@ -8,37 +8,40 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
-use eggserve_h3::h3;
+use crate::h3;
 
 use bytes::{Buf, Bytes};
 use futures_util::{stream, StreamExt};
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 
-use crate::primitives::canonical::{normalize_response, NormalizeRequest, Response, ResponseBody};
-use crate::primitives::connection_info::TlsInfo;
-use crate::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
-use crate::primitives::method::Method;
-use crate::primitives::request::Request;
-use crate::primitives::request_body::IncomingError;
-use crate::primitives::request_head::RequestHead;
-use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
-use crate::primitives::request_target::RequestTarget;
-use crate::primitives::version::HttpVersion;
-use crate::server::config::RuntimeConfig;
-use crate::server::connection::lifecycle::{cancel_shared_with_observability, ConnectionRequests};
-use crate::server::connection::ConnectionContext;
-use crate::server::errors::ShutdownResult;
-use crate::server::service::{Service, ServiceError};
-use crate::server::RuntimeState;
+use crate::config::Http3Config;
+use eggserve_primitives::canonical::{
+    normalize_response, NormalizeRequest, Response, ResponseBody,
+};
+use eggserve_primitives::connection_info::TlsInfo;
+use eggserve_primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+use eggserve_primitives::method::Method;
+use eggserve_primitives::request::Request;
+use eggserve_primitives::request_body::IncomingError;
+use eggserve_primitives::request_head::RequestHead;
+use eggserve_primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
+use eggserve_primitives::request_target::RequestTarget;
+use eggserve_primitives::version::HttpVersion;
+use eggserve_server::config::RuntimeConfig;
+use eggserve_server::connection::ConnectionContext;
+use eggserve_server::connection::{cancel_shared_with_observability, ConnectionRequests};
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::runtime::RuntimeState;
+use eggserve_server::service::{Service, ServiceError};
 
-pub(super) type H3Bytes = Bytes;
+pub(crate) type H3Bytes = Bytes;
 
-pub(super) fn spawn_body_timeout_watchdog(
+pub(crate) fn spawn_body_timeout_watchdog(
     shared: Arc<RequestShared>,
     cancel: tokio::sync::watch::Sender<bool>,
     deadline: tokio::time::Instant,
     conn_id: u64,
-    ops: crate::ops::OpsContext,
+    ops: eggserve_server::ops::OpsContext,
 ) {
     tokio::spawn(async move {
         tokio::select! {
@@ -48,9 +51,9 @@ pub(super) fn spawn_body_timeout_watchdog(
                     let _ = cancel.send(true);
                     ops.counters().body_read_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     ops.counters().deferred_body_timeouts.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-                    ops.emit(crate::ops::Event::new(
-                        crate::ops::Severity::Warn,
-                        crate::ops::EventKind::DeferredBodyTimeout,
+                    ops.emit(eggserve_server::ops::Event::new(
+                        eggserve_server::ops::Severity::Warn,
+                        eggserve_server::ops::EventKind::DeferredBodyTimeout,
                         "HTTP/3 request body timeout",
                     ).connection_id(conn_id));
                 }
@@ -59,24 +62,25 @@ pub(super) fn spawn_body_timeout_watchdog(
     });
 }
 
-pub(super) fn runtime_error_response(
+pub(crate) fn runtime_error_response(
     status: u16,
     is_head: bool,
     config: &RuntimeConfig,
 ) -> Response {
-    let status = crate::primitives::canonical::StatusCode::new(status)
-        .unwrap_or(crate::primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
-    crate::primitives::canonical::runtime_error_with_policy(
+    let status = eggserve_primitives::canonical::StatusCode::new(status)
+        .unwrap_or(eggserve_primitives::canonical::StatusCode::INTERNAL_SERVER_ERROR);
+    eggserve_primitives::canonical::runtime_error_with_policy(
         status,
         is_head,
         config.response_policy.error_policy,
     )
 }
 
-pub(super) async fn send_canonical_response<S>(
+pub(crate) async fn send_canonical_response<S>(
     stream: &mut h3::server::RequestStream<S, H3Bytes>,
     mut response: Response,
     config: &RuntimeConfig,
+    h3_config: &Http3Config,
     is_head: bool,
     file_stream_semaphore: &Arc<Semaphore>,
 ) -> Result<(), String>
@@ -87,7 +91,8 @@ where
         Ok(response) => response,
         Err(_) => runtime_error_response(500, is_head, config),
     };
-    response = crate::server::connection::response::finalize_canonical_response(response, config);
+    response = eggserve_server::connection::finalize_canonical_response(response, config);
+    response = crate::adapter::apply_alt_svc(response, config, h3_config);
     let status =
         hyper::StatusCode::from_u16(response.status().as_u16()).map_err(|e| e.to_string())?;
     let mut headers = hyper::HeaderMap::new();
@@ -130,7 +135,13 @@ where
     match &mut body {
         ResponseBody::Empty | ResponseBody::EmptyWithLength(_) => {}
         ResponseBody::Bytes(bytes) => {
-            send_bytes(stream, Bytes::from(std::mem::take(bytes)), config).await?;
+            send_bytes(
+                stream,
+                Bytes::from(std::mem::take(bytes)),
+                config,
+                h3_config,
+            )
+            .await?;
         }
         ResponseBody::File(source) => {
             let mut offset = 0u64;
@@ -140,7 +151,7 @@ where
                 let start = offset;
                 let end = offset + chunk as u64 - 1;
                 let body_source =
-                    std::mem::replace(source, crate::primitives::body::BodySource::Empty);
+                    std::mem::replace(source, eggserve_primitives::body::BodySource::Empty);
                 let (body_source, bytes) = tokio::task::spawn_blocking(move || {
                     let mut body_source = body_source;
                     let bytes = body_source
@@ -154,7 +165,7 @@ where
                 if bytes.is_empty() {
                     break;
                 }
-                send_bytes(stream, Bytes::from(bytes), config).await?;
+                send_bytes(stream, Bytes::from(bytes), config, h3_config).await?;
                 offset += chunk as u64;
             }
         }
@@ -163,7 +174,7 @@ where
             let mut emitted = 0u64;
             let mut response_stream = Box::pin(std::mem::replace(
                 response_stream,
-                crate::primitives::response_stream::ResponseStream::empty(),
+                eggserve_primitives::response_stream::ResponseStream::empty(),
             ));
             // Plan 194: producer no-progress budget. Armed once response
             // HEADERS have been sent; only meaningful (non-empty) production
@@ -180,7 +191,7 @@ where
                     continue;
                 }
                 emitted = emitted.saturating_add(chunk.len() as u64);
-                send_bytes(stream, chunk, config).await?;
+                send_bytes(stream, chunk, config, h3_config).await?;
                 producer_deadline = tokio::time::Instant::now() + config.response_write_timeout;
             }
             if let Some(declared) = declared {
@@ -233,20 +244,30 @@ where
 /// becomes unusable. QUIC stream failures are deliberately not promoted to a
 /// connection-wide cancellation here; sibling request streams remain live.
 #[allow(clippy::too_many_arguments)]
-pub(super) async fn send_response_or_cancel<S>(
+pub(crate) async fn send_response_or_cancel<S>(
     stream: &mut h3::server::RequestStream<S, H3Bytes>,
     response: Response,
     config: &RuntimeConfig,
+    h3_config: &Http3Config,
     is_head: bool,
     file_stream_semaphore: &Arc<Semaphore>,
     shared: &Arc<RequestShared>,
     conn_id: u64,
-    ops: &crate::ops::OpsContext,
+    ops: &eggserve_server::ops::OpsContext,
 ) -> bool
 where
     S: h3::quic::SendStream<H3Bytes>,
 {
-    match send_canonical_response(stream, response, config, is_head, file_stream_semaphore).await {
+    match send_canonical_response(
+        stream,
+        response,
+        config,
+        h3_config,
+        is_head,
+        file_stream_semaphore,
+    )
+    .await
+    {
         Ok(()) => true,
         Err(error) => {
             // Plan 194: producer/send no-progress timeouts are observable as
@@ -259,9 +280,9 @@ where
                     .write_stall_timeouts
                     .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 ops.emit(
-                    crate::ops::Event::new(
-                        crate::ops::Severity::Warn,
-                        crate::ops::EventKind::WriteStallTimeout,
+                    eggserve_server::ops::Event::new(
+                        eggserve_server::ops::Severity::Warn,
+                        eggserve_server::ops::EventKind::WriteStallTimeout,
                         "H3 response write stall timeout",
                     )
                     .connection_id(conn_id),
@@ -279,16 +300,16 @@ where
     }
 }
 
-pub(super) async fn send_bytes<S>(
+pub(crate) async fn send_bytes<S>(
     stream: &mut h3::server::RequestStream<S, H3Bytes>,
     bytes: Bytes,
     config: &RuntimeConfig,
+    h3_config: &Http3Config,
 ) -> Result<(), String>
 where
     S: h3::quic::SendStream<H3Bytes>,
 {
-    let chunk_size = config
-        .http3
+    let chunk_size = h3_config
         .max_send_buf_size
         .min(config.stream_chunk_size)
         .max(1);

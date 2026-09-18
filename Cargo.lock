@@ -248,9 +248,19 @@ dependencies = [
 name = "eggserve-h3"
 version = "0.1.2"
 dependencies = [
+ "bytes",
+ "eggnet-tls",
+ "eggserve-primitives",
+ "eggserve-server",
+ "futures-util",
  "h3",
  "h3-quinn",
+ "hyper",
  "quinn",
+ "rcgen",
+ "rustls",
+ "tempfile",
+ "tokio",
 ]
 
 [[package]]

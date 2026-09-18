@@ -16,7 +16,11 @@ use crate::service::ServiceError;
 use eggserve_primitives::request_body_policy::RequestBodyPolicy;
 
 /// Select the effective body policy from service preference and runtime ceiling.
-pub(crate) fn select_body_policy(
+///
+/// Shared by the H1 pipeline and the experimental H3 adapter (Plan 220):
+/// the service preference is capped by the runtime hard ceiling, with a
+/// zero effective budget collapsing to `Reject`.
+pub fn select_body_policy(
     service_policy: RequestBodyPolicy,
     max_body_bytes: u64,
 ) -> RequestBodyPolicy {

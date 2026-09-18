@@ -12,24 +12,26 @@ use bytes::{Buf, Bytes};
 use futures_util::{stream, StreamExt};
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 
-use crate::primitives::canonical::{normalize_response, NormalizeRequest, Response, ResponseBody};
-use crate::primitives::connection_info::TlsInfo;
-use crate::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
-use crate::primitives::method::Method;
-use crate::primitives::request::Request;
-use crate::primitives::request_body::IncomingError;
-use crate::primitives::request_head::RequestHead;
-use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
-use crate::primitives::request_target::RequestTarget;
-use crate::primitives::version::HttpVersion;
-use crate::server::config::RuntimeConfig;
-use crate::server::connection::lifecycle::{cancel_shared_with_observability, ConnectionRequests};
-use crate::server::connection::ConnectionContext;
-use crate::server::errors::ShutdownResult;
-use crate::server::service::{Service, ServiceError};
-use crate::server::RuntimeState;
+use eggserve_primitives::canonical::{
+    normalize_response, NormalizeRequest, Response, ResponseBody,
+};
+use eggserve_primitives::connection_info::TlsInfo;
+use eggserve_primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+use eggserve_primitives::method::Method;
+use eggserve_primitives::request::Request;
+use eggserve_primitives::request_body::IncomingError;
+use eggserve_primitives::request_head::RequestHead;
+use eggserve_primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
+use eggserve_primitives::request_target::RequestTarget;
+use eggserve_primitives::version::HttpVersion;
+use eggserve_server::config::RuntimeConfig;
+use eggserve_server::connection::ConnectionContext;
+use eggserve_server::connection::{cancel_shared_with_observability, ConnectionRequests};
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::runtime::RuntimeState;
+use eggserve_server::service::{Service, ServiceError};
 
-pub(super) fn h3_trailers_to_block(map: &hyper::HeaderMap) -> Result<HeaderBlock, String> {
+pub(crate) fn h3_trailers_to_block(map: &hyper::HeaderMap) -> Result<HeaderBlock, String> {
     // Canonical header validation only; trailer denylist/limits enforced once
     // in `RequestBody` via `validate_trailers` (no second H3 policy).
     let mut block = HeaderBlock::new();
@@ -43,7 +45,7 @@ pub(super) fn h3_trailers_to_block(map: &hyper::HeaderMap) -> Result<HeaderBlock
     Ok(block)
 }
 
-pub(super) fn declared_content_length(
+pub(crate) fn declared_content_length(
     request: &hyper::Request<()>,
 ) -> Result<Option<u64>, ServiceError> {
     let values = request
@@ -69,11 +71,11 @@ pub(super) fn declared_content_length(
         .transpose()
 }
 
-pub(super) fn convert_request_head(
+pub(crate) fn convert_request_head(
     request: &hyper::Request<()>,
     config: &RuntimeConfig,
     _conn_id: u64,
-    ops: &crate::ops::OpsContext,
+    ops: &eggserve_server::ops::OpsContext,
 ) -> Result<RequestHead, ServiceError> {
     let method = Method::new(request.method().as_str())
         .map_err(|_| ServiceError::rejected(400, "invalid method"))?;
@@ -130,7 +132,7 @@ pub(super) fn convert_request_head(
     }
     let authority = uri
         .authority()
-        .map(|value| crate::primitives::authority::Authority::parse(value.as_str()))
+        .map(|value| eggserve_primitives::authority::Authority::parse(value.as_str()))
         .transpose()
         .map_err(|_| ServiceError::rejected(400, "invalid authority"))?;
     Ok(RequestHead::new_with_authority(
@@ -142,14 +144,14 @@ pub(super) fn convert_request_head(
     ))
 }
 
-pub(super) async fn invoke_service<S: Service>(
+pub(crate) async fn invoke_service<S: Service>(
     service: Arc<S>,
     request: Request,
     _permit: OwnedSemaphorePermit,
     config: &RuntimeConfig,
-    ops: &crate::ops::OpsContext,
+    ops: &eggserve_server::ops::OpsContext,
 ) -> Result<Response, ServiceError> {
-    crate::server::connection::response::invoke_canonical_service(
+    eggserve_server::connection::invoke_canonical_service(
         service.as_ref(),
         request,
         config.handler_timeout,

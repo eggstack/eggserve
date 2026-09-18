@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–219 Cargo dependency topology.
+"""Enforce the Plan 211–220 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
 canonical primitives are a leaf, the generic server does not pull static
-serving, static serving consumes the two lower layers, and static
+serving, static serving consumes the two lower layers, static
 path/filesystem confinement lives once in `eggserve-static` with
-`eggserve-core` keeping compatibility facades only.
+`eggserve-core` keeping compatibility facades only, and the H3/QUIC adapter
+lives once in `eggserve-h3` with downward-only primitives/server deps.
 """
 
 from __future__ import annotations
@@ -153,10 +154,21 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
-    if {"eggserve-server", "eggserve-static", "eggserve-primitives"} & h3:
+    # Plan 220: H3 is the actual transport adapter, allowed downward on
+    # primitives/server (canonical types + shared kernel). It must not depend
+    # upward on core/static/bin or become a second static implementation.
+    allowed_h3_downward = {"eggserve-primitives", "eggserve-server", "eggnet-tls"}
+    if not allowed_h3_downward.issubset(h3):
         print(
-            "eggserve-h3 must remain a transport dependency boundary, not a "
-            "server/static/primitives implementation dependency",
+            "eggserve-h3 must consume the canonical primitives/server layers: "
+            f"missing {sorted(allowed_h3_downward - h3)}",
+            file=sys.stderr,
+        )
+        return 1
+    if {"eggserve-core", "eggserve-static", "eggserve-bin", "eggserve-python"} & h3:
+        print(
+            "eggserve-h3 must not depend upward on core/static/bin/python "
+            f"(downward-only): {sorted({'eggserve-core', 'eggserve-static', 'eggserve-bin', 'eggserve-python'} & h3)}",
             file=sys.stderr,
         )
         return 1
@@ -186,13 +198,17 @@ def main() -> int:
     if check_plan219_confinement() != 0:
         return 1
 
+    if check_plan220_h3_extraction() != 0:
+        return 1
+
     print(
-        "Plan 211–219 topology: primitives leaf; neutral TLS; "
-        "server transport-only; static specializes both; H3/QUIC isolated; "
+        "Plan 211–220 topology: primitives leaf; neutral TLS; "
+        "server transport-only; static specializes both; H3 adapter owned; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
         "direct tunnel authority with neutral vocabulary; "
         "direct service/request convergence with single Service contract; "
-        "single static/path/filesystem authority with core facades"
+        "single static/path/filesystem authority with core facades; "
+        "single H3/QUIC adapter with core facades"
     )
     return 0
 
@@ -869,6 +885,188 @@ def check_plan219_confinement() -> int:
             print(
                 f"Plan 219 fixture must exercise `{marker}` "
                 "(core facade against the static authority)",
+                file=sys.stderr,
+            )
+            return 1
+
+    return 0
+
+
+def check_plan220_h3_extraction() -> int:
+    """Enforce Plan 220 H3 adapter extraction.
+
+    Structural (not line-count) rules: `eggserve-h3` owns endpoint/request/
+    response/tunnel/QUIC/config mechanics over canonical primitives/server
+    types; `eggserve-core` keeps a thin facade (no second state machine,
+    no direct Quinn/H3 use, config + QUIC assembly delegated).
+    """
+    repo = Path(__file__).resolve().parent.parent
+
+    def read(path: Path) -> str:
+        return path.read_text()
+
+    def code_lines(text: str) -> str:
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("///", "//!"))
+        )
+
+    h3_src = repo / "crates" / "eggserve-h3" / "src"
+    core_src = repo / "crates" / "eggserve-core" / "src"
+
+    # 1. No second H3 state machine in the compatibility core.
+    if (core_src / "server" / "http3").exists():
+        print(
+            "eggserve-core retains server/http3/: H3 mechanics must live once "
+            "in eggserve-h3 (Plan 220)",
+            file=sys.stderr,
+        )
+        return 1
+    for rel in ("server/http3.rs", "server/http3", "server/http3/endpoint.rs"):
+        # http3.rs facade must exist; the directory must not.
+        pass
+    facade = read(core_src / "server" / "http3.rs")
+    if "eggserve_h3::accept_loop" not in facade:
+        print(
+            "eggserve-core/server/http3.rs must delegate to "
+            "`eggserve_h3::accept_loop` (Plan 220: thin facade)",
+            file=sys.stderr,
+        )
+        return 1
+    for second in (
+        "h3::server::builder",
+        "RequestStream",
+        "copy_bidirectional",
+        "quinn::Connection",
+        "h3_quinn::Endpoint::server",
+        "quinn::Endpoint::new",
+    ):
+        if second in code_lines(facade):
+            print(
+                f"eggserve-core H3 facade keeps a second `{second}` "
+                "(Plan 220: delegate to the H3 authority)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 2. H3 crate owns the adapter surface.
+    lib_rs = read(h3_src / "lib.rs")
+    for marker in (
+        "pub mod adapter",
+        "pub mod config",
+        "pub mod endpoint",
+        "pub mod quic",
+        "pub mod request",
+        "pub mod response",
+        "pub mod tunnel",
+        "pub use adapter::",
+        "pub use config::Http3Config",
+    ):
+        if marker not in lib_rs:
+            print(
+                f"eggserve-h3/src/lib.rs must expose `{marker}` (Plan 220)",
+                file=sys.stderr,
+            )
+            return 1
+    adapter = read(h3_src / "adapter.rs")
+    for marker in (
+        "pub async fn accept_loop",
+        "Http3Config",
+        "apply_alt_svc",
+        "serve_connection",
+        "handle_request",
+        "handle_h3_connect",
+    ):
+        if marker not in adapter:
+            print(
+                f"eggserve-h3/src/adapter.rs must own `{marker}` (Plan 220)",
+                file=sys.stderr,
+            )
+            return 1
+    for mod_name, markers in {
+        "endpoint.rs": ["ActiveConnectionGuard", "h3_connection_close_reason"],
+        "request.rs": ["convert_request_head", "declared_content_length", "h3_trailers_to_block"],
+        "response.rs": ["send_canonical_response", "send_response_or_cancel", "spawn_body_timeout_watchdog"],
+        "tunnel.rs": ["kind_string", "H3ActiveTunnelGuard", "send_h3_tunnel_handshake"],
+        "config.rs": ["pub struct Http3Config", "pub fn validate"],
+        "quic.rs": ["load_quic_server_config", "server_endpoint", "endpoint_from_socket"],
+    }.items():
+        text = read(h3_src / mod_name)
+        for marker in markers:
+            if marker not in text:
+                print(
+                    f"eggserve-h3/src/{mod_name} must own `{marker}` (Plan 220)",
+                    file=sys.stderr,
+                )
+                return 1
+
+    # 3. Config authority lives once in H3; core is a facade.
+    core_h3_config = read(core_src / "server" / "config" / "http3.rs")
+    if "pub use eggserve_h3::Http3Config" not in core_h3_config:
+        print(
+            "eggserve-core/server/config/http3.rs must facade "
+            "`pub use eggserve_h3::Http3Config` (Plan 220)",
+            file=sys.stderr,
+        )
+        return 1
+    if "pub struct Http3Config" in code_lines(core_h3_config):
+        print(
+            "eggserve-core keeps a second `pub struct Http3Config` "
+            "(Plan 220: delegate to the H3 authority)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 4. QUIC assembly lives once in H3; core TLS delegates.
+    core_tls = read(core_src / "tls.rs")
+    if "eggserve_h3::load_quic_server_config" not in core_tls:
+        print(
+            "eggserve-core/src/tls.rs must delegate QUIC assembly to "
+            "`eggserve_h3::load_quic_server_config` (Plan 220)",
+            file=sys.stderr,
+        )
+        return 1
+    for second in ("TransportConfig", "with_single_cert", "QuicServerConfig"):
+        if second in code_lines(core_tls):
+            print(
+                f"eggserve-core tls keeps a second QUIC `{second}` "
+                "(Plan 220: H3-owned assembly only)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 5. Server startup uses H3-owned endpoint helpers, not direct Quinn.
+    server_mod = read(core_src / "server" / "mod.rs")
+    for marker in (
+        "eggserve_h3::server_endpoint",
+        "eggserve_h3::endpoint_from_socket",
+        "eggserve_h3::validate_same_port_udp",
+    ):
+        if marker not in server_mod:
+            print(
+                f"eggserve-core/server/mod.rs must use `{marker}` "
+                "(Plan 220: H3-owned endpoint assembly)",
+                file=sys.stderr,
+            )
+            return 1
+    for second in ("quinn::Endpoint::new", "h3_quinn::Endpoint::server"):
+        if second in code_lines(server_mod):
+            print(
+                f"eggserve-core server keeps direct QUIC `{second}` "
+                "(Plan 220: H3-owned assembly only)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 6. Shared kernel stays single: core must not keep H3-only canonical
+    #    helpers that now live in server/H3.
+    core_resp = read(core_src / "server" / "connection" / "response.rs")
+    for second in ("pub(crate) async fn invoke_canonical_service", "pub(crate) fn finalize_canonical_response"):
+        if second in code_lines(core_resp):
+            print(
+                f"eggserve-core connection/response keeps `{second}` "
+                "(Plan 220: shared kernel in server, Alt-Svc in H3)",
                 file=sys.stderr,
             )
             return 1

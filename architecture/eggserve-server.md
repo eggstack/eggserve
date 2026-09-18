@@ -23,11 +23,14 @@ shutdown relay, `wait()`/`ops_snapshot()`). It depends on
 It has no dependency on `eggserve-core` or `eggserve-static`, so a downstream
 application server can select the runtime without inheriting static-file
 confinement or MIME implementation code. The crate is strict HTTP/1: H2
-selection, H3 paths, tunnel acceptance, PROXY-preamble reading, and extended
-TLS identity stay compatibility-owned (Plans 216/217/202/203); the H1 tunnel
-branch is an inert documented seam, and the tunnel admission semaphore is a
-reserved seam. The `http2`/`tls` Cargo features remain as inert opt-in edges
-(the H1 graph never requires them).
+selection, PROXY-preamble reading, and extended TLS identity stay
+compatibility-owned (Plans 217/202/203); tunnel acceptance is direct-owned
+(Plan 216); H3 mechanics live once in `eggserve-h3` (Plan 220) over a small
+shared kernel exposed here (`connection::select_body_policy`,
+`contain_service_panic`, `invoke_canonical_service`,
+`finalize_canonical_response`, lifecycle registry; H3 `Alt-Svc` stays
+H3-owned, no Quinn types here). The `http2`/`tls` Cargo features remain as
+inert opt-in edges (the H1 graph never requires them).
 
 `eggserve-core::server` remains the 0.1 compatibility surface for those
 advanced paths, with facades (`ops`, `errors`, `response_policy`, `policy`,

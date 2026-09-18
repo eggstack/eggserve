@@ -86,24 +86,29 @@ impl LifecycleDisposition {
 /// Each canonical request registers a [`Weak`](std::sync::Weak) observer.
 /// On abnormal connection termination the driver cancels all still-live
 /// lifecycles with a best-effort reason so idle downstream waiters wake
-/// without polling body/response IO. Completed requests prune lazily on
-/// next registration; multiplexed H2/H3 connections may retain several
+/// without polling body/response IO. Completed requests prune lazily on next
+/// registration; multiplexed H2/H3 connections may retain several
 /// weak observers concurrently, while dead entries are removed on each
 /// registration.
+///
+/// Shared with the experimental H3 adapter (Plan 220): H3 connections
+/// register each request stream here so peer/shutdown cancellation wakes
+/// idle streams without affecting siblings.
 #[derive(Debug, Default)]
-pub(crate) struct ConnectionRequests {
+pub struct ConnectionRequests {
     inner: std::sync::Mutex<Vec<std::sync::Weak<RequestShared>>>,
 }
 
 impl ConnectionRequests {
-    pub(crate) fn new() -> Self {
+    /// Create an empty registry.
+    pub fn new() -> Self {
         Self {
             inner: std::sync::Mutex::new(Vec::new()),
         }
     }
 
     /// Register a new lifecycle observer, pruning dead entries.
-    pub(crate) fn register(&self, shared: &Arc<RequestShared>) {
+    pub fn register(&self, shared: &Arc<RequestShared>) {
         let weak = Arc::downgrade(shared);
         if let Ok(mut guard) = self.inner.lock() {
             guard.retain(|w| w.upgrade().is_some());
@@ -114,7 +119,7 @@ impl ConnectionRequests {
     /// Cancel all still-live lifecycles with observability.
     ///
     /// Already-cancelled lifecycles are skipped (first reason wins).
-    pub(crate) fn cancel_all(
+    pub fn cancel_all(
         &self,
         reason: RequestCancellationReason,
         conn_id: u64,
@@ -135,7 +140,10 @@ impl ConnectionRequests {
 ///
 /// Idempotent: already-cancelled lifecycles are skipped so the first reason
 /// wins under cancellation races.
-pub(crate) fn cancel_shared_with_observability(
+///
+/// Shared with the experimental H3 adapter (Plan 220) for stream-local
+/// failure handling; siblings survive.
+pub fn cancel_shared_with_observability(
     shared: &Arc<RequestShared>,
     reason: RequestCancellationReason,
     conn_id: u64,

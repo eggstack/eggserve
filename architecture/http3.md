@@ -1,36 +1,41 @@
 # HTTP/3 and QUIC transport boundary
 
 EggServe's native HTTP/3 path is an opt-in Rust feature (`http3`). Its
-coordinated Quinn/H3/H3-Quinn production dependency set is owned by the
-dedicated `eggserve-h3` package and it remains
-an experimental transport adapter after Plans 188, 190, 192, 193, 194, and
-195 closure, not a change to the
+coordinated Quinn/H3/H3-Quinn production dependency set **and** the actual
+transport adapter are owned by the dedicated `eggserve-h3` package (Plan 220)
+and it remains
+an experimental transport adapter after Plans 188, 190, 192, 193, 194, 195,
+and 220 closure, not a change to the
 Python compatibility surface or to the static service planner. The
 implementation uses `h3` with `h3-quinn` and Quinn over Tokio. The core
-compatibility facade depends on `eggserve-h3` only when `http3` is enabled, so
+compatibility facade delegates to `eggserve-h3` only when `http3` is enabled, so
 those dependencies are absent from the default, HTTP/1, and HTTP/2 graphs.
 
-The package currently serves as a deliberate dependency boundary and transport
-version record. The mature 0.1 adapter remains in `eggserve-core::server` for
-source compatibility; its raw transport imports resolve through `eggserve-h3`.
-Moving that adapter's source files is reserved for the semver cleanup because
-it requires widening a small set of experimental runtime seams without changing
-the canonical service contract.
+The package is the single implementation authority for H3/QUIC mechanics.
+The compatibility `server::http3::accept_loop` is a thin facade projecting
+core config/state into the narrow H3 adapter API; `Http3Config` and QUIC
+assembly live once in `eggserve-h3` with compatibility re-exports only.
 
-## Adapter ownership (Plan 206 Track C / Plan 213 boundary)
+## Adapter ownership (Plan 220 / Plan 206 Track C / Plan 213 boundary)
 
-The `server/http3/` directory is split into four submodules:
+`eggserve-h3` owns the adapter source; the compatibility facade owns only
+projection:
 
-| Module | Owns |
+| Module (`eggserve-h3`) | Owns |
 |--------|------|
+| `config.rs` | `Http3Config` authority (fields/defaults/validation) |
+| `quic.rs` | QUIC TLS assembly + endpoint construction + same-port validation |
 | `endpoint.rs` | `ActiveConnectionGuard`, close-reason classification |
 | `request.rs` | H3→canonical request conversion, declared-length checks, trailers, `invoke_service` |
 | `response.rs` | `runtime_error` construction, `response_write_timeout` watchdog, `send_*` trio (data, trailers, known-length) |
 | `tunnel.rs` | `kind_string`, `H3ActiveTunnelGuard`, `send_h3_tunnel_handshake` |
+| `adapter.rs` | `accept_loop` + connection/request dispatch + `apply_alt_svc` |
 
-The facade `server/http3.rs` owns `accept_loop` and tests, qualifying calls as
-`endpoint::`/`request::`/`response::`/`tunnel::`. One shared kernel, no
-H3-specific semantics.
+The shared service kernel stays single: generic body-policy, panic
+containment, canonical invocation, and canonical privacy finalization live
+in `eggserve-server::connection` (exposed for H3); H3 `Alt-Svc`
+advertisement lives in the adapter after generic finalization. No
+H3-specific service semantics.
 
 ## Ownership
 

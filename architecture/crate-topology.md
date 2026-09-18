@@ -1,6 +1,6 @@
 # Crate topology
 
-Plans 211–219 establish dependency layers while preserving the historical
+Plans 211–220 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
 and static implementations into their direct crates; Plan 215 moves the
 mature generic H1 connection runtime into `eggserve-server` with a
@@ -8,9 +8,11 @@ direct-vs-compatibility parity suite; Plan 216 moves tunnel authority to the
 direct crates; Plan 217 finishes service/request convergence with a single
 `Service` contract and canonical request types plus a downstream fixture;
 Plan 219 collapses the remaining static/path/filesystem duplication onto
-`eggserve-static`, leaving `eggserve-core` with compatibility facades only.
+`eggserve-static`, leaving `eggserve-core` with compatibility facades only;
+Plan 220 moves the H3/QUIC transport adapter into `eggserve-h3`, leaving
+`eggserve-core` with a thin facade only.
 Protocol-specific compatibility glue
-(H2/H3 wire mechanics, extended listener/proxy/TLS paths) remains in
+(H2 wire mechanics, extended listener/proxy/TLS paths) remains in
 core as explicit transport glue, with topology-gate ownership rules marking the
 boundary (see `release/plan-215-direct-runtime-parity.md`).
 
@@ -52,13 +54,16 @@ H1 configuration/state, the H1 connection driver (request conversion, body
 policy, admission, panic containment, timeouts, normalization, Hyper
 conversion), the listener/prebound TCP `Server`, and the
 generic tunnel/upgrade execution (`tunnel`: one-shot capability, bounded
-`TunnelIo`, H1 detection, shared `run_tunnel` future). Its direct path
+`TunnelIo`, H1 detection, shared `run_tunnel` future). It also exposes the
+small shared kernel the H3 adapter needs (`select_body_policy`,
+`contain_service_panic`, `invoke_canonical_service`,
+`finalize_canonical_response`, lifecycle registry) without gaining QUIC
+types. Its direct path
 preserves one-shot request bodies, response streams, opened-file streaming,
 normalization, and bounded request timeouts. It may depend on the primitives
 crate and transport dependencies, but never on `eggserve-core` or
 `eggserve-static`. H2 dispatches through the same canonical contract as
-explicit transport glue; H3
-paths stay in core under Plan 213.
+explicit transport glue; H3 mechanics live once in `eggserve-h3` (Plan 220).
 
 `eggserve-static` is the sole implementation owner of static path parsing
 (`path`: `ConfinedPath`/`PathPolicy`/`PathRejection`/decode/platform),
@@ -97,14 +102,17 @@ HTTP, proxy, tracing, Tokio, or QUIC dependencies. EggServe keeps only the
 HTTP/3-specific QUIC configuration assembly in its compatibility facade and
 re-exports the neutral API from `eggserve_core::tls`.
 
-`eggserve-h3` owns the coordinated direct production dependencies on `h3`,
-`h3-quinn`, and Quinn. Its public surface is deliberately limited to the
-transport re-exports and version record needed by the experimental compatibility
-adapter; it does not depend on the generic server, static, or primitives
-crates. `eggserve-core` consumes it only behind `http3`, so the default and
-HTTP/1/H2 core graphs do not compile the QUIC stack. The mature 0.1 adapter
-remains in core while a future semver cleanup can move its source ownership
-without changing canonical service semantics.
+`eggserve-h3` owns the experimental H3/QUIC transport adapter and the
+coordinated direct production dependencies on `h3`, `h3-quinn`, and Quinn.
+It depends downward on `eggserve-primitives`, `eggserve-server`, and
+`eggnet-tls` (canonical types, shared kernel, identity parsing); those
+crates never depend upward. Its narrow public surface is the adapter entry
+(`accept_loop`), H3-owned config (`Http3Config`), QUIC endpoint helpers,
+and the version record; Quinn/H3 transport types stay crate-internal or
+doc-hidden. `eggserve-core` consumes it only behind `http3`, so the default and
+HTTP/1/H2 core graphs do not compile the QUIC stack. The compatibility
+`server::http3` path is a thin facade projecting core config/state into the
+adapter with no second state machine.
 
 ## Enforcement
 
@@ -127,7 +135,11 @@ The Plan 219 rules assert the single static/path/filesystem authority:
 secure-root/planner modules as `eggserve_static` re-exports, the static
 authority exposing `ConfinedPath`/`SecureRoot`/planner/`resolve_and_plan`
 surface, no `rustix::fs` use (or `fs` feature) in core, and the authority
-conformance fixture. It is part of the Rust CI preflight and
+conformance fixture. The Plan 220 rules assert the single H3/QUIC adapter
+authority: `server/http3/` absent from core, core `http3.rs` delegating to
+`eggserve_h3::accept_loop`, `Http3Config` and QUIC assembly owned once in
+`eggserve-h3` with core facades, H3 endpoint assembly via H3-owned helpers,
+no second canonical helpers in core, and downward-only H3 deps. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.
 
 The check also verifies that the mature static resolver is present and the old

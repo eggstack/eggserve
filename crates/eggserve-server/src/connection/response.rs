@@ -53,7 +53,9 @@ pub(crate) fn normalize_then_convert(
 ///
 /// On panic, the payload is converted into [`ServiceError::panic`] so the
 /// connection produces a 500 response instead of being dropped.
-pub(crate) async fn contain_service_panic<F>(
+///
+/// Shared by the H1 pipeline and the experimental H3 adapter (Plan 220).
+pub async fn contain_service_panic<F>(
     future: F,
 ) -> Result<eggserve_primitives::canonical::Response, ServiceError>
 where
@@ -70,6 +72,90 @@ where
             Err(ServiceError::panic(message))
         }
     }
+}
+
+/// Invoke a canonical service with handler-timeout and panic containment.
+///
+/// Single shared kernel for direct H1 and the experimental H3 adapter
+/// (Plan 220): `handler_timeout` bounds `Service::call`, panics become
+/// `ServiceError::panic`, and a timeout while the request body is still
+/// active observes `BodyReadTimeout` (otherwise `ServiceTimeout`).
+/// H3/QUIC transport policy (Alt-Svc, QUIC windows) stays H3-owned.
+pub async fn invoke_canonical_service<S>(
+    service: &S,
+    request: eggserve_primitives::request::Request,
+    timeout: std::time::Duration,
+    ops: &crate::ops::OpsContext,
+) -> Result<eggserve_primitives::canonical::Response, ServiceError>
+where
+    S: crate::service::Service,
+{
+    let lifecycle = request.lifecycle_clone();
+    match tokio::time::timeout(timeout, contain_service_panic(service.call(request))).await {
+        Ok(result) => result,
+        Err(_) if lifecycle.is_body_active() => {
+            ops.counters()
+                .body_read_timeouts
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            ops.emit(crate::ops::Event::new(
+                crate::ops::Severity::Warn,
+                crate::ops::EventKind::BodyReadTimeout,
+                "body read timeout",
+            ));
+            Err(ServiceError::timeout("body read timeout"))
+        }
+        Err(_) => {
+            ops.emit(crate::ops::Event::new(
+                crate::ops::Severity::Warn,
+                crate::ops::EventKind::ServiceTimeout,
+                "handler timed out",
+            ));
+            Err(ServiceError::timeout("handler timed out"))
+        }
+    }
+}
+
+/// Apply the final-boundary response privacy policy to a canonical response.
+///
+/// Generic authority shared by H1 and the experimental H3 adapter
+/// (Plan 220): strips denylisted application headers, subordinates `Server`,
+/// applies sole `Date` authority, and drops future `Last-Modified`.
+/// H3 `Alt-Svc` advertisement stays H3-owned (applied by `eggserve-h3`
+/// after this call) so `RuntimeConfig` never gains QUIC types.
+pub fn finalize_canonical_response(
+    mut response: eggserve_primitives::canonical::Response,
+    config: &RuntimeConfig,
+) -> eggserve_primitives::canonical::Response {
+    let policy = &config.response_policy;
+    let now = policy.date_policy.now();
+    let last_modified = response
+        .headers()
+        .get_first("last-modified")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| httpdate::parse_http_date(value).ok());
+    let future_last_modified = now.zip(last_modified).is_some_and(|(now, last)| last > now);
+
+    {
+        let headers = response.head_mut().headers_mut();
+        headers.retain(|field| {
+            let stripped = policy
+                .stripped_response_headers
+                .iter()
+                .any(|name| name.eq_ignore_ascii_case(field.name.as_str()));
+            let protected = field.name.as_str().eq_ignore_ascii_case("server")
+                || field.name.as_str().eq_ignore_ascii_case("date")
+                || (future_last_modified
+                    && field.name.as_str().eq_ignore_ascii_case("last-modified"));
+            !(stripped || protected)
+        });
+        if let Some(server) = &policy.server_identification {
+            let _ = headers.push_str("server", server.clone());
+        }
+        if let Some(now) = now {
+            let _ = headers.push_str("date", httpdate::fmt_http_date(now));
+        }
+    }
+    response
 }
 
 /// Convert a RequestBodyError to an HTTP response.

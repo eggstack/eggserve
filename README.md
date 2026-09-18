@@ -146,10 +146,13 @@ implementation authority (path parsing, secure-root resolution, filesystem
 confinement, MIME selection, response planning); `eggserve-core` keeps
 `primitives::{SecureRoot, ConfinedPath, ...}` working as facades with no
 second resolver, proven by the authority conformance fixture
-(`crates/eggserve-core/tests/static_authority_conformance.rs`). H3 stays experimental under
-Plan 213. Advanced H3 and
-the extended listener/proxy/TLS-identity paths remain in core while their
-extraction phases are completed. There is no additional
+(`crates/eggserve-core/tests/static_authority_conformance.rs`). Plan 220 moves
+the H3/QUIC transport adapter into `eggserve-h3` as the sole implementation
+authority (endpoint, request, response, tunnel, QUIC assembly, `Http3Config`);
+`eggserve-core` keeps `server::http3` working as a thin facade with no second
+state machine. H3 stays experimental under Plans 213 and 220. Advanced
+listener/proxy/TLS-identity paths remain in core while their extraction phases
+are completed. There is no additional
 `eggserve` facade crate.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
@@ -157,8 +160,9 @@ Plan 212 extracts the reusable server-side TLS security substrate into
 It has only rustls and rustls-pki-types as production dependencies and owns
 bounded PEM parsing, SNI identity selection, explicit WebPKI client-auth modes,
 trust/CRL limits, and atomic reload snapshots. EggServe re-exports that API at
-`eggserve_core::tls` for compatibility; Tokio stream wrapping and HTTP/3 QUIC
-assembly remain consumer-owned. See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
+`eggserve_core::tls` for compatibility; Tokio stream wrapping stays
+consumer-owned and HTTP/3 QUIC assembly lives once in `eggserve-h3` (Plan 220).
+See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
 and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/tls.md).
 
 Canonical response/request types and `Service` in the direct layers do not
@@ -240,14 +244,14 @@ under an absolute `response_write_timeout` no-progress deadline that only
 non-empty production plus successful send re-arms (Plan 194; empty chunks are
 not progress), each send call keeps its own bound, and a stall resets
 only the affected stream while siblings survive. The opt-in `http3` feature
-is backed by the dedicated `eggserve-h3` package, which owns the coordinated
-Quinn/H3/H3-Quinn dependency set; the core facade consumes that package only
-behind the feature. It adds an experimental native QUIC/HTTP/3 endpoint
+is backed by the dedicated `eggserve-h3` package, which owns the H3/QUIC
+transport adapter plus the coordinated Quinn/H3/H3-Quinn dependency set;
+the core facade delegates to that package only behind the feature. It adds an experimental native QUIC/HTTP/3 endpoint
 beside that TCP listener. It requires `tls`, a certificate/key identity passed
 to `ServerBuilder::http3_identity`, and binds UDP to the resolved TCP port;
 `--http3` enables the CLI endpoint and its runtime-owned `Alt-Svc` response
 advertisement. QUIC uses TLS 1.3 with `h3` ALPN and rejects application 0-RTT.
-HTTP/3 remains Rust-only and experimental after Plans 188, 190, 192, 193, 194, and 195 closure:
+HTTP/3 remains Rust-only and experimental after Plans 188, 190, 192, 193, 194, 195, and 220 closure:
 deterministic bounded implementation checks and in-process corrective
 regressions pass, but independent-client, adversarial-wire, and cross-platform
 runtime evidence is incomplete, and the Plan 192 dependency-readiness gate
@@ -257,10 +261,11 @@ Quinn 0.11.11): upstream `hyperium/h3#338` has no released fix and the
 without entering promotion qualification (unmet Plan 192 prerequisite) after
 re-checking both issues and inventorying the missing evidence; Plan 194
 bounds the H3 response-producer wait without changing
-the tier, and Plan 195 correctively qualifies that bound (stalled,
+the tier, Plan 195 correctively qualifies that bound (stalled,
 progress-then-stall, slow-progress, empty-chunk, and sibling evidence plus
 shutdown-race and write-stall observability regressions) without changing
-the tier. See the
+the tier, and Plan 220 moves the adapter into `eggserve-h3` with no behavior
+or tier change. See the
 [HTTP/3 architecture boundary](https://github.com/eggstack/eggserve/blob/main/architecture/http3.md)
 and [qualification records](https://github.com/eggstack/eggserve/blob/main/release/plan-188-http3-qualification.md) plus the
 [Plan 190 corrective record](https://github.com/eggstack/eggserve/blob/main/release/plan-190-multiprotocol-corrective-qualification.md), the

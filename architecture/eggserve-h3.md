@@ -1,7 +1,8 @@
-# `eggserve-h3` transport boundary
+# `eggserve-h3` transport adapter
 
-`eggserve-h3` is the dedicated Cargo boundary for EggServe's experimental
-HTTP/3 and QUIC stack. It owns the coordinated direct production dependencies:
+`eggserve-h3` is the implementation home of EggServe's experimental
+HTTP/3 and QUIC transport adapter plus the coordinated direct production
+dependencies:
 
 | Package | Version |
 |---|---:|
@@ -9,26 +10,34 @@ HTTP/3 and QUIC stack. It owns the coordinated direct production dependencies:
 | `h3-quinn` | 0.0.10 |
 | `quinn` | 0.11.11 |
 
-The package intentionally has no dependency on `eggserve-primitives`,
-`eggserve-server`, or `eggserve-static`. The 0.1 `eggserve-core` compatibility
-facade consumes it only through the opt-in `http3` feature. As a result,
-default, HTTP/1, and HTTP/2 package graphs do not compile the QUIC stack.
-
-The current compatibility adapter remains in `eggserve-core::server::http3`
-so the mature 0.1 API and its existing qualification suite stay unchanged.
-Its raw H3/QUIC imports resolve through this package. A future semver cleanup
-may move the adapter source into this crate after the small set of experimental
-runtime seams it uses can be made public without duplicating canonical service
-semantics.
+Plan 220 moves the adapter implementation here from the compatibility core.
+The crate owns endpoint lifecycle, request conversion, response
+streaming/trailers, Extended CONNECT tunnel bridging, shutdown/drain, QUIC
+close classification, H3-only transport configuration (`Http3Config`), and
+QUIC TLS/endpoint assembly. Canonical service semantics stay in
+`eggserve-primitives` / `eggserve-server`; this crate depends downward on
+those layers (`primitives <- server <- h3`) and never upward on
+core/static. The compatibility core consumes the adapter behind its
+optional `http3` feature as a thin facade, so default, HTTP/1, and HTTP/2
+graphs do not compile the QUIC stack.
 
 ## Boundary rules
 
 - H3/QUIC versions are updated as one reviewed compatibility set.
-- No H3 dependency is added to the canonical primitives or generic server
-  packages.
+- Downward-only: `eggserve-h3` may depend on `eggserve-primitives`,
+  `eggserve-server`, and `eggnet-tls`; those crates never depend upward on H3.
+  No dependency on `eggserve-core`/`eggserve-static` (no cycle, no second
+  static implementation).
+- Narrow adapter API expressed in canonical `Service`, server `RuntimeConfig`,
+  `OpsContext`, semaphores, and `ShutdownResult` plus H3-owned `Http3Config`;
+  Quinn/H3 transport types stay crate-internal or doc-hidden.
+- Generic runtime limits stay in `eggserve-server::runtime_limits`;
+  H3-only transport policy stays here; `eggserve-server::RuntimeConfig`
+  never gains Quinn types. QUIC TLS assembly stays here; reusable identity
+  parsing stays in `eggnet-tls`.
 - Canonical request, response, policy, timeout, and lifecycle behavior remains
-  owned by EggServe's shared runtime; this package does not define application
-  semantics.
+  owned by the shared runtime; this package adds no second service semantics
+  (generic finalization via `server::connection`, H3 `Alt-Svc` here).
 - H3 stays opt-in and experimental. The package does not imply support for
   WebTransport or generic WebSocket-over-H3 when the selected `h3` release
   rejects that protocol before EggServe receives the request.

@@ -7,43 +7,46 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
-use eggserve_h3::h3;
+use crate::h3;
 
 use bytes::{Buf, Bytes};
 use futures_util::{stream, StreamExt};
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 
-use crate::primitives::canonical::{normalize_response, NormalizeRequest, Response, ResponseBody};
-use crate::primitives::connection_info::TlsInfo;
-use crate::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
-use crate::primitives::method::Method;
-use crate::primitives::request::Request;
-use crate::primitives::request_body::IncomingError;
-use crate::primitives::request_head::RequestHead;
-use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
-use crate::primitives::request_target::RequestTarget;
-use crate::primitives::version::HttpVersion;
-use crate::server::config::RuntimeConfig;
-use crate::server::connection::lifecycle::{cancel_shared_with_observability, ConnectionRequests};
-use crate::server::connection::ConnectionContext;
-use crate::server::errors::ShutdownResult;
-use crate::server::service::{Service, ServiceError};
-use crate::server::RuntimeState;
+use crate::config::Http3Config;
+use eggserve_primitives::canonical::{
+    normalize_response, NormalizeRequest, Response, ResponseBody,
+};
+use eggserve_primitives::connection_info::TlsInfo;
+use eggserve_primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+use eggserve_primitives::method::Method;
+use eggserve_primitives::request::Request;
+use eggserve_primitives::request_body::IncomingError;
+use eggserve_primitives::request_head::RequestHead;
+use eggserve_primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
+use eggserve_primitives::request_target::RequestTarget;
+use eggserve_primitives::version::HttpVersion;
+use eggserve_server::config::RuntimeConfig;
+use eggserve_server::connection::ConnectionContext;
+use eggserve_server::connection::{cancel_shared_with_observability, ConnectionRequests};
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::runtime::RuntimeState;
+use eggserve_server::service::{Service, ServiceError};
 
-pub(super) type H3Bytes = Bytes;
+pub(crate) type H3Bytes = Bytes;
 
-pub(super) fn kind_string(kind: crate::primitives::tunnel::TunnelKind) -> &'static str {
+pub(crate) fn kind_string(kind: eggserve_primitives::tunnel::TunnelKind) -> &'static str {
     match kind {
-        crate::primitives::tunnel::TunnelKind::Http1Upgrade => "http1-upgrade",
-        crate::primitives::tunnel::TunnelKind::Connect => "connect",
-        crate::primitives::tunnel::TunnelKind::ExtendedConnect => "extended-connect",
+        eggserve_primitives::tunnel::TunnelKind::Http1Upgrade => "http1-upgrade",
+        eggserve_primitives::tunnel::TunnelKind::Connect => "connect",
+        eggserve_primitives::tunnel::TunnelKind::ExtendedConnect => "extended-connect",
         // Non-exhaustive future kinds: sanitized label, never a panic.
         _ => "unknown",
     }
 }
 
-pub(super) struct H3ActiveTunnelGuard {
-    pub(super) ops: crate::ops::OpsContext,
+pub(crate) struct H3ActiveTunnelGuard {
+    pub(crate) ops: eggserve_server::ops::OpsContext,
 }
 
 impl Drop for H3ActiveTunnelGuard {
@@ -60,10 +63,11 @@ impl Drop for H3ActiveTunnelGuard {
 /// Applies canonical privacy (Server/Date/denylist) like ordinary responses
 /// but never invents `Content-Length`/`Transfer-Encoding` and never finishes
 /// the stream (duplex continues). Hop-by-hop already stripped in `accept`.
-pub(super) async fn send_h3_tunnel_handshake<S>(
+pub(crate) async fn send_h3_tunnel_handshake<S>(
     stream: &mut h3::server::RequestStream<S, H3Bytes>,
     response: Response,
     config: &RuntimeConfig,
+    h3_config: &Http3Config,
 ) -> Result<(), String>
 where
     S: h3::quic::SendStream<H3Bytes>,
@@ -80,7 +84,7 @@ where
                 .name
                 .as_str()
                 .eq_ignore_ascii_case("transfer-encoding")
-            || crate::primitives::canonical::is_hop_by_hop_header(field.name.as_str())
+            || eggserve_primitives::canonical::is_hop_by_hop_header(field.name.as_str())
         {
             continue;
         }
@@ -97,7 +101,8 @@ where
             .headers_mut()
             .push(field.name.clone(), field.value.clone());
     }
-    let tmp = crate::server::connection::response::finalize_canonical_response(tmp, config);
+    let tmp = eggserve_server::connection::finalize_canonical_response(tmp, config);
+    let tmp = crate::adapter::apply_alt_svc(tmp, config, h3_config);
     let status = hyper::StatusCode::from_u16(tmp.status().as_u16()).map_err(|e| e.to_string())?;
     // Ensure 200 (not 101) for H3 Extended/CONNECT; reject 101 defensively.
     if status == hyper::StatusCode::SWITCHING_PROTOCOLS {

@@ -7,31 +7,33 @@
 #![allow(unused_imports)]
 use std::sync::Arc;
 
-use eggserve_h3::quinn;
+use crate::quinn;
 
 use bytes::{Buf, Bytes};
 use futures_util::{stream, StreamExt};
 use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
 
-use crate::primitives::canonical::{normalize_response, NormalizeRequest, Response, ResponseBody};
-use crate::primitives::connection_info::TlsInfo;
-use crate::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
-use crate::primitives::method::Method;
-use crate::primitives::request::Request;
-use crate::primitives::request_body::IncomingError;
-use crate::primitives::request_head::RequestHead;
-use crate::primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
-use crate::primitives::request_target::RequestTarget;
-use crate::primitives::version::HttpVersion;
-use crate::server::config::RuntimeConfig;
-use crate::server::connection::lifecycle::{cancel_shared_with_observability, ConnectionRequests};
-use crate::server::connection::ConnectionContext;
-use crate::server::errors::ShutdownResult;
-use crate::server::service::{Service, ServiceError};
-use crate::server::RuntimeState;
+use eggserve_primitives::canonical::{
+    normalize_response, NormalizeRequest, Response, ResponseBody,
+};
+use eggserve_primitives::connection_info::TlsInfo;
+use eggserve_primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
+use eggserve_primitives::method::Method;
+use eggserve_primitives::request::Request;
+use eggserve_primitives::request_body::IncomingError;
+use eggserve_primitives::request_head::RequestHead;
+use eggserve_primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
+use eggserve_primitives::request_target::RequestTarget;
+use eggserve_primitives::version::HttpVersion;
+use eggserve_server::config::RuntimeConfig;
+use eggserve_server::connection::ConnectionContext;
+use eggserve_server::connection::{cancel_shared_with_observability, ConnectionRequests};
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::runtime::RuntimeState;
+use eggserve_server::service::{Service, ServiceError};
 
-pub(super) struct ActiveConnectionGuard {
-    pub(super) ops: crate::ops::OpsContext,
+pub(crate) struct ActiveConnectionGuard {
+    pub(crate) ops: eggserve_server::ops::OpsContext,
 }
 
 impl Drop for ActiveConnectionGuard {
@@ -43,7 +45,7 @@ impl Drop for ActiveConnectionGuard {
     }
 }
 
-pub(super) fn h3_connection_close_reason(
+pub(crate) fn h3_connection_close_reason(
     error: &quinn::ConnectionError,
 ) -> RequestCancellationReason {
     match error {

@@ -9,8 +9,6 @@
 
 use crate::response::BoxBodyInner;
 use crate::server::config::RuntimeConfig;
-#[cfg(feature = "http3")]
-use crate::server::service::Service;
 use crate::server::service::ServiceError;
 
 use super::lifecycle::LifecycleDisposition;
@@ -70,47 +68,6 @@ where
                 .or_else(|| payload.downcast_ref::<String>().cloned())
                 .unwrap_or_else(|| "service panicked".to_string());
             Err(ServiceError::panic(message))
-        }
-    }
-}
-
-/// Invoke a service through the transport-neutral timeout and panic boundary.
-///
-/// Transport adapters own admission and response encoding, but they must not
-/// grow independent service-call semantics. In particular, a streaming body
-/// timeout is distinguished from a handler timeout using the request's shared
-/// lifecycle state.
-#[cfg(feature = "http3")]
-pub(crate) async fn invoke_canonical_service<S>(
-    service: &S,
-    request: crate::primitives::request::Request,
-    timeout: std::time::Duration,
-    ops: &crate::ops::OpsContext,
-) -> Result<crate::primitives::canonical::Response, ServiceError>
-where
-    S: Service,
-{
-    let lifecycle = request.lifecycle_clone();
-    match tokio::time::timeout(timeout, contain_service_panic(service.call(request))).await {
-        Ok(result) => result,
-        Err(_) if lifecycle.is_body_active() => {
-            ops.counters()
-                .body_read_timeouts
-                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            ops.emit(crate::ops::Event::new(
-                crate::ops::Severity::Warn,
-                crate::ops::EventKind::BodyReadTimeout,
-                "body read timeout",
-            ));
-            Err(ServiceError::timeout("body read timeout"))
-        }
-        Err(_) => {
-            ops.emit(crate::ops::Event::new(
-                crate::ops::Severity::Warn,
-                crate::ops::EventKind::ServiceTimeout,
-                "handler timed out",
-            ));
-            Err(ServiceError::timeout("handler timed out"))
         }
     }
 }
@@ -264,61 +221,6 @@ pub(crate) fn finalize_runtime_response(
         if let (Some(date_time), Some(lm_time)) = (date_ok, lm_ok) {
             if lm_time > date_time {
                 response.headers_mut().remove(hyper::header::LAST_MODIFIED);
-            }
-        }
-    }
-    response
-}
-
-/// Apply the same final privacy policy to a canonical response before a
-/// non-Hyper transport encodes it. This is the shared boundary for HTTP/3;
-/// the existing Hyper adapter retains its framing-specific implementation.
-#[cfg(feature = "http3")]
-pub(crate) fn finalize_canonical_response(
-    mut response: crate::primitives::canonical::Response,
-    config: &RuntimeConfig,
-) -> crate::primitives::canonical::Response {
-    let policy = &config.response_policy;
-    let now = policy.date_policy.now();
-    let last_modified = response
-        .headers()
-        .get_first("last-modified")
-        .and_then(|value| value.to_str().ok())
-        .and_then(|value| httpdate::parse_http_date(value).ok());
-    let future_last_modified = now.zip(last_modified).is_some_and(|(now, last)| last > now);
-
-    {
-        let headers = response.head_mut().headers_mut();
-        headers.retain(|field| {
-            let stripped = policy
-                .stripped_response_headers
-                .iter()
-                .any(|name| name.eq_ignore_ascii_case(field.name.as_str()));
-            let protected = field.name.as_str().eq_ignore_ascii_case("server")
-                || field.name.as_str().eq_ignore_ascii_case("date")
-                || (future_last_modified
-                    && field.name.as_str().eq_ignore_ascii_case("last-modified"));
-            !(stripped || protected)
-        });
-        if let Some(server) = &policy.server_identification {
-            let _ = headers.push_str("server", server.clone());
-        }
-        if let Some(now) = now {
-            let _ = headers.push_str("date", httpdate::fmt_http_date(now));
-        }
-        #[cfg(feature = "http3")]
-        if config.http3.enabled {
-            headers.retain(|field| !field.name.as_str().eq_ignore_ascii_case("alt-svc"));
-            if config.http3.advertise_alt_svc
-                && !policy
-                    .stripped_response_headers
-                    .iter()
-                    .any(|name| name.eq_ignore_ascii_case("alt-svc"))
-            {
-                let _ = headers.push_str(
-                    "alt-svc",
-                    format!("h3=\":{}\"; ma=86400", config.bind.port()),
-                );
             }
         }
     }

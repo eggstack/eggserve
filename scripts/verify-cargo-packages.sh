@@ -75,6 +75,11 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
         sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
         sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
         ;;
+      eggserve-h3)
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", default-features = false }#eggnet-tls = { version = "0.1.2", registry = "local", default-features = false }#' "$manifest"
+        ;;
       eggserve-core)
         sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", optional = true, default-features = false }#eggnet-tls = { version = "0.1.2", registry = "local", optional = true, default-features = false }#' "$manifest"
         sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"

@@ -65,6 +65,17 @@ pub(crate) mod transport;
 
 pub use context::{ConnectionContext, ConnectionOutcome, ConnectionShutdown};
 
+/// Experimental H3 adapter support (Plan 220).
+///
+/// Re-exports the small shared kernel the `eggserve-h3` transport adapter
+/// needs without widening the H1 driver surface: body-policy selection,
+/// panic containment, canonical service invocation, canonical privacy
+/// finalization (generic; H3 `Alt-Svc` stays H3-owned), and the
+/// request-lifecycle registry. All items remain experimental with `server`.
+pub use lifecycle::{cancel_shared_with_observability, ConnectionRequests};
+pub use request::select_body_policy;
+pub use response::{contain_service_panic, finalize_canonical_response, invoke_canonical_service};
+
 use std::sync::Arc;
 
 use hyper_util::rt::TokioIo;
@@ -75,7 +86,6 @@ use crate::service::Service;
 
 use self::activity::ConnectionActivity;
 use self::driver::serve_hyper_with_token;
-use self::lifecycle::ConnectionRequests;
 use self::pipeline::make_canonical_hyper_service;
 
 /// Serve one HTTP/1 connection over any suitable bidirectional async byte
