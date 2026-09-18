@@ -148,7 +148,14 @@ bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 
 The package dry-run remains manual release validation. The excluded Python
 crate keeps its own lockfile, so never replace the shared script with a root
-only `cargo audit` or `cargo deny check` invocation.
+only `cargo audit` or `cargo deny check` invocation. A scheduled daily
+workflow (`.github/workflows/advisory-scan.yml`, Plan 218) re-runs the same
+gates without a push/PR. Both lockfiles are distributed security boundaries;
+direct `rustls` constraints carry a `0.23.45` caret floor (RUSTSEC-2026-0285)
+in every constraining manifest including the excluded Python crate — never
+roll it back. `deny.toml` denies wildcard requirements and bans
+`native-tls`/`openssl-sys` for the rustls/ring-only stack (see
+`docs/dependency-policy.md`).
 
 ## Key conventions
 

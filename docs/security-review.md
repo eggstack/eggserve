@@ -95,8 +95,12 @@ When directory listing is enabled:
 - No unknown registries
 - `cargo audit` and `cargo deny` run in routine CI for both the root workspace
   and the excluded Python wheel dependency closure via
-  `scripts/check-supply-chain.sh`; the release preflight repeats that check.
-- `cargo-deny` configuration is present for license/advisory checking
+  `scripts/check-supply-chain.sh`; the release preflight repeats that check,
+  and a scheduled daily workflow (`.github/workflows/advisory-scan.yml`)
+  re-runs the same gates without requiring a push or pull request.
+- `cargo-deny` configuration is present for license/advisory checking;
+  wildcard version requirements are denied and `native-tls`/`openssl-sys`
+  are banned to hold the rustls/ring-only TLS stack (Plan 218)
 
 ## Known limitations
 

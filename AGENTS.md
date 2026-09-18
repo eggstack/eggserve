@@ -183,7 +183,13 @@ bash scripts/verify-cargo-packages.sh --mode all  # package dry-run gates
 Routine CI runs `scripts/check-supply-chain.sh` in its dedicated supply-chain
 job after installing the pinned tools. The command audits and policy-checks
 both the root workspace lockfile and the excluded Python wheel lockfile using
-the shared `deny.toml`. The package dry-run remains a release-preparation
+the shared `deny.toml` (Plan 218: wildcards denied, `native-tls`/`openssl-sys`
+banned for the rustls/ring-only stack, multiple-version warnings retained).
+A scheduled daily workflow (`.github/workflows/advisory-scan.yml`) re-runs the
+same gates without a push/PR. Both lockfiles are distributed security
+boundaries; direct `rustls` constraints carry a `0.23.45` caret floor
+(RUSTSEC-2026-0285) in every constraining manifest including the excluded
+Python crate — never roll it back (see `docs/dependency-policy.md`). The package dry-run remains a release-preparation
 check.
 
 ### Distribution builds

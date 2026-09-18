@@ -92,7 +92,9 @@ When `cargo audit` or GitHub advisory databases report a vulnerability:
 Every distributed Rust dependency closure is checked in routine CI and release
 preflight. The root workspace and the excluded Python wheel crate have
 separate lockfiles; `scripts/check-supply-chain.sh` audits both and applies the
-shared `deny.toml` policy to both manifests. A release build also uses the
+shared `deny.toml` policy to both manifests. A scheduled daily workflow
+(`.github/workflows/advisory-scan.yml`) re-runs the same gates without
+requiring a push or pull request. A release build also uses the
 exact Rust 1.98.1 compiler rather than a floating stable patch version.
 
 ## Release revocation / yank procedure

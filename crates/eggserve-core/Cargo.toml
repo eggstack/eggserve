@@ -59,7 +59,9 @@ thiserror = "2"
 tokio = { version = "1", features = ["macros", "net", "signal", "time", "fs", "io-util", "sync"] }
 
 # TLS dependencies (feature-gated)
-rustls = { version = "0.23", optional = true, default-features = false, features = ["std", "ring"] }
+# Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
+# resolving below the patched 0.23.45 line.
+rustls = { version = "0.23.45", optional = true, default-features = false, features = ["std", "ring"] }
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
 
 [target.'cfg(unix)'.dependencies]

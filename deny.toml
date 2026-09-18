@@ -20,7 +20,18 @@ allow = [
 
 [bans]
 multiple-versions = "warn"
-wildcards = "allow"
+# Plan 218: wildcard version requirements denied; path deps carry explicit
+# versions so both closures pass. Multiple-version warnings retained.
+wildcards = "deny"
+# Plan 218: rustls/ring-only TLS stack. Native TLS / OpenSSL must not enter
+# any closure. The alternate rustls crypto provider (aws-lc-rs/sys) is NOT
+# banned here by design: dev-only rcgen cert generation pulls it into the
+# cargo-deny unified graph via feature unification even though production
+# `cargo tree -e no-dev` graphs are ring-only (see docs/dependency-policy.md).
+deny = [
+    { crate = "native-tls", reason = "Plan 218: rustls/ring-only TLS stack; native TLS would pull platform TLS/OpenSSL" },
+    { crate = "openssl-sys", reason = "Plan 218: rustls/ring-only TLS stack; no OpenSSL in any closure" },
+]
 
 [sources]
 unknown-registry = "deny"

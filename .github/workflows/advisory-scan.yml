@@ -1,0 +1,37 @@
+name: Advisory scan
+
+# Plan 218: scheduled RustSec advisory detection independent of pushes/PRs.
+# Runs the same pinned audit/deny gates as the CI supply-chain job over both
+# distributed lockfiles. No build, test, release, or publish steps; no secrets.
+
+on:
+  schedule:
+    # Daily 06:00 UTC.
+    - cron: "0 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: advisory-scan-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  audit:
+    name: audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@23869a5bd66c73db3c0ac40331f3206eb23791dc # v2.9.1
+      - name: Install pinned supply-chain tools
+        run: bash scripts/install-cargo-tools.sh
+      - name: Audit every distributed dependency closure
+        run: bash scripts/check-supply-chain.sh

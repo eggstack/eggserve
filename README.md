@@ -504,7 +504,9 @@ bash scripts/qualify-http2.sh  # manual H2 wire/ALPN qualification
 bash scripts/qualify-http3.sh  # manual H3/QUIC qualification; external clients required for direct H3
 ```
 
-The routine CI workflow has separate Rust and Python jobs. Platform
+The routine CI workflow has separate Rust and Python jobs. A scheduled daily
+workflow re-runs the supply-chain audit/deny gates over both lockfiles without
+requiring a push or pull request. Platform
 qualification and release certification are manual workflows; see
 [the release process](https://github.com/eggstack/eggserve/blob/main/docs/release-process.md).
 

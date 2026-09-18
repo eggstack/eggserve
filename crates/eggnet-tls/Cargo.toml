@@ -20,7 +20,9 @@ default = []
 http2 = []
 
 [dependencies]
-rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
+# Security floor (Plan 218, RUSTSEC-2026-0285): caret floor keeps Cargo from
+# resolving below the patched 0.23.45 line.
+rustls = { version = "0.23.45", default-features = false, features = ["std", "ring"] }
 rustls-pki-types = { version = "1", features = ["std"] }
 
 [dev-dependencies]

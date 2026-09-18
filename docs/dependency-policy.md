@@ -45,7 +45,7 @@ The following dependency categories are approved for initial development:
 | CLI parsing | manual (no clap) | Manual argument parsing in `eggserve-bin` |
 | Error derive | `thiserror` | Derive macro for Error types |
 | Python bindings | `pyo3` 0.29.2 (eggserve-python only) | PyO3 bindings for Python wheel; pinned above the current RustSec advisories affecting 0.24.x |
-| TLS | `rustls` (optional, feature-gated) | TLS termination |
+| TLS | `rustls` 0.23.45+ (optional, feature-gated) | TLS termination; floor is security-sensitive (Plan 218, RUSTSEC-2026-0285) |
 | TLS | `tokio-rustls` (optional, feature-gated) | Async TLS stream wrapping |
 | TLS | `rustls-pki-types` (optional, feature-gated) | PEM certificate and key parsing |
 | Neutral TLS substrate | `eggnet-tls` | Bounded server identity, SNI, WebPKI mTLS, trust/CRL parsing, and atomic reload; no application or transport dependencies |
@@ -102,9 +102,11 @@ The following dependency categories are approved for initial development:
   tier on the unchanged candidate; Plan 194 adds the per-stream
   producer-timeout correction without changing the tier, and Plan 195
   correctively qualifies that bound without changing the tier. No fork or vendored H3
-  patch is permitted to force a supported label. Plan 213 records the package
-  boundary and qualification inventory in
-  `release/plan-213-http3-quic-isolation-qualification.md`.
+   patch is permitted to force a supported label. Plan 213 records the package
+   boundary and qualification inventory in
+   `release/plan-213-http3-quic-isolation-qualification.md`. Plan 218 raises
+   the rustls floor inside this coordinated set to 0.23.45 (RUSTSEC-2026-0285)
+   without changing the H3 tier or the remaining pinned versions.
 - Tokio features are owned narrowly: the core library does not enable signal
   handling or a multi-thread runtime; the CLI owns signals and uses a
   current-thread runtime, while Python enables a bounded multi-thread runtime
@@ -118,6 +120,38 @@ The following dependency categories are approved for initial development:
   `eggserve-python` is excluded from the root workspace, CI invokes
   `scripts/check-supply-chain.sh`, which checks both `Cargo.lock` files and
   applies this same `deny.toml` to both manifests.
+
+## Security-sensitive version floors (Plan 218)
+
+Advisory response can require minimum versions newer than the broad semver
+declarations elsewhere in this document. When that happens, the floor is set
+explicitly in every manifest that directly constrains the affected crate so a
+future lock regeneration cannot legitimately resolve below the patched line:
+
+- **Both lockfiles are distributed security boundaries.** The root workspace
+  `Cargo.lock` and the excluded Python wheel `crates/eggserve-python/Cargo.lock`
+  ship in distributed artifacts and are audited and policy-checked together by
+  `scripts/check-supply-chain.sh`. A floor must land in both closures; the
+  Python manifest carries its own `rustls` constraint for exactly this reason.
+- **rustls-family floors are security-sensitive.** RUSTSEC-2026-0285 requires
+  `rustls >= 0.23.45`; every direct `rustls` constraint in the workspace
+  (`eggnet-tls`, `eggserve-server`, `eggserve-core`, `eggserve-bin` dev-deps)
+  and the excluded Python manifest therefore declares a `0.23.45` caret floor.
+  Do not roll a rustls floor back: if a regression appears in a patched
+  release, move forward to a later patched release or disable the affected
+  optional feature while investigating.
+- **H3 keeps a coordinated version set.** `eggserve-h3` owns `h3` / `h3-quinn` /
+  `quinn` plus the rustls floor above; the set moves together and the H3 tier
+  stays experimental regardless of patch bumps (see the H3 note above).
+- **The TLS stack stays rustls/ring-only.** `native-tls` and `openssl-sys` are
+  banned in `deny.toml` and must not enter any closure. The alternate rustls
+  crypto provider (`aws-lc-rs`/`aws-lc-sys`) is intentionally *not* banned
+  there: dev-only `rcgen` test-cert generation pulls it into cargo-deny's
+  feature-unified graph even though every production (`-e no-dev`) graph is
+  ring-only. Production ring-only is verified with
+  `cargo tree -e no-dev -p eggserve-bin --features tls` (zero `aws-lc`,
+  `openssl`, `native-tls` matches) rather than with a deny rule that cannot
+  distinguish dev unification from production linkage.
 
 ## Release validation tool versions
 
@@ -143,7 +177,9 @@ bash scripts/install-cargo-tools.sh
 
 - **Advisories** — known vulnerabilities in dependencies
 - **Licenses** — only permissive licenses allowed (MIT, Apache-2.0, BSD, ISC, Unicode-DFS-2016, Zlib)
-- **Bans** — multiple versions of the same crate produce warnings
+- **Bans** — multiple versions of the same crate produce warnings (retained,
+  not forced to single-version); wildcard version requirements are denied;
+  `native-tls` and `openssl-sys` are banned outright (Plan 218, rustls/ring-only)
 - **Sources** — only crates.io registry allowed; no git dependencies
 
 To run locally:
@@ -158,6 +194,10 @@ Routine CI runs the shared root/Python audit and deny checks in a dedicated,
 self-contained supply-chain job. Maintainers can reproduce that job locally
 with `scripts/install-cargo-tools.sh` followed by
 `scripts/check-supply-chain.sh`. The release preflight repeats the same
-closure check before building wheels.
+closure check before building wheels. A scheduled daily workflow
+(`.github/workflows/advisory-scan.yml`, Plan 218) re-runs the same gates
+without requiring a push or pull request so newly published RustSec advisories
+are detected promptly; it performs no builds, tests, or releases and holds no
+credentials.
 
 The `audit.toml` at the workspace root configures `cargo audit` defaults. The `deny.toml` configures `cargo deny`.
