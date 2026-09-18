@@ -83,6 +83,22 @@ request-ID / lifecycle-event / timing extension is promised.
 
 The core crate should have no Python awareness. The binary should be a thin consumer of the core crate. The Python package should initially be a very thin launcher for the Rust binary, not a premature extension API. Once the core is stable, expose a Python API as a narrow wrapper around typed Rust configuration.
 
+## Dependency/security authority convergence — Plans 217–225
+
+Plans 217–225 are the post-216 ownership and dependency-hardening program. They do not broaden EggServe's product scope or promote protocol support tiers.
+
+- **217 — direct service/request convergence:** finish the type/service-shape convergence left open by Plan 216, including compatibility H2 dispatch through the canonical direct service contract.
+- **218 — supply-chain security remediation:** raise the rustls security floor, refresh both distributed lockfiles, and add scheduled advisory scanning independent of pushes/PRs.
+- **219 — static/confinement authority collapse:** remove the duplicate path/filesystem/static implementation from `eggserve-core`; `eggserve-static` becomes the single static/confinement authority.
+- **220 — HTTP/3 adapter extraction:** make `eggserve-h3` own the actual H3/QUIC adapter instead of only the coordinated dependency set; H3 remains experimental.
+- **221 — first-party frontend migration:** move the Rust binary and Python extension onto the canonical leaf crates and reduce duplicated Python runtime validation.
+- **222 — cross-repo server TLS consolidation:** use neutral `eggnet-tls` for common eggserve/eggress server TLS identity/trust/client-auth behavior; keep eggfetch client policy local.
+- **223 — cross-repo HTTP CONNECT consolidation:** share only the neutral outbound H1 CONNECT wire primitive between eggfetch/eggress; eggserve does not acquire an eggfetch/eggress dependency.
+- **224 — capability-filesystem crate evaluation:** post-219 GO/NO-GO gate for isolating platform capability/FFI code; no crate is created without demonstrated benefit.
+- **225 — compatibility-core facade closure:** final proof that `eggserve-core` is a compatibility facade/adapter layer, not a security/protocol implementation authority.
+
+The sequencing/index is `plans/217-225-dependency-security-architecture-program.md`. Plan 218 is immediate and parallel-safe; 217/219 establish canonical ownership; 220/221 consume that ownership; 222–224 are cross-repo/evaluation follow-ons; 225 is the closure gate.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
