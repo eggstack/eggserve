@@ -28,6 +28,10 @@ pub const MAX_SNI_LEN: usize = 253;
 pub const MAX_TRUST_ROOTS: usize = 256;
 /// Maximum CRLs for client authentication.
 pub const MAX_CRLS: usize = 16;
+/// Maximum ALPN protocols advertised by one server configuration.
+pub const MAX_ALPN_PROTOCOLS: usize = 16;
+/// Maximum bytes per ALPN protocol identifier (TLS wire limit).
+pub const MAX_ALPN_PROTOCOL_LEN: usize = 255;
 /// Maximum certificates per server identity chain.
 pub const MAX_IDENTITY_CHAIN: usize = 8;
 /// Maximum PEM bytes accepted for trust-root/CRL parsing (1 MiB).
@@ -52,6 +56,7 @@ pub enum TlsError {
     InvalidCrl(String),
     TooManyCrls,
     TrustRootsRequired,
+    InvalidAlpn(String),
 }
 
 impl fmt::Display for TlsError {
@@ -84,6 +89,7 @@ impl fmt::Display for TlsError {
             Self::TrustRootsRequired => {
                 write!(f, "client authentication requires at least one trust root")
             }
+            Self::InvalidAlpn(msg) => write!(f, "invalid ALPN protocols: {msg}"),
         }
     }
 }
@@ -124,8 +130,40 @@ pub fn load_tls_config_with_http2(
     key_path: &Path,
     http2: bool,
 ) -> Result<Arc<ServerConfig>, TlsError> {
+    load_tls_config_with_alpn(cert_path, key_path, http_alpn_protocols(http2))
+}
+
+/// Load a rustls server configuration with an explicit ALPN advertisement.
+///
+/// This is the neutral hook for non-HTTP transports (Plan 222): the caller
+/// supplies its own protocol identifiers (e.g. proxy-negotiated ALPN) instead
+/// of the HTTP `h2`/`http/1.1` convenience. An empty list advertises no ALPN.
+/// Entries are bounded ([`MAX_ALPN_PROTOCOLS`] × [`MAX_ALPN_PROTOCOL_LEN`]).
+pub fn load_tls_config_with_alpn(
+    cert_path: &Path,
+    key_path: &Path,
+    alpn: Vec<Vec<u8>>,
+) -> Result<Arc<ServerConfig>, TlsError> {
+    validate_alpn(&alpn)?;
     let (certs, key) = load_identity(cert_path, key_path)?;
-    build_single_cert_config(certs, key, http2)
+    build_single_cert_config(certs, key, alpn)
+}
+
+/// Validate an explicit ALPN advertisement list (neutral hook, Plan 222).
+fn validate_alpn(alpn: &[Vec<u8>]) -> Result<(), TlsError> {
+    if alpn.len() > MAX_ALPN_PROTOCOLS {
+        return Err(TlsError::InvalidAlpn(format!(
+            "too many ALPN protocols (max {MAX_ALPN_PROTOCOLS})"
+        )));
+    }
+    for protocol in alpn {
+        if protocol.is_empty() || protocol.len() > MAX_ALPN_PROTOCOL_LEN {
+            return Err(TlsError::InvalidAlpn(format!(
+                "ALPN protocol length must be 1..={MAX_ALPN_PROTOCOL_LEN}"
+            )));
+        }
+    }
+    Ok(())
 }
 
 /// Parse one identity from PEM bytes (caller-supplied in-memory material).
@@ -206,7 +244,7 @@ pub fn parse_crls_pem(pem: &[u8]) -> Result<Vec<CertificateRevocationListDer<'st
 fn build_single_cert_config(
     certs: Vec<CertificateDer<'static>>,
     key: PrivateKeyDer<'static>,
-    http2: bool,
+    alpn: Vec<Vec<u8>>,
 ) -> Result<Arc<ServerConfig>, TlsError> {
     if certs.len() > MAX_IDENTITY_CHAIN {
         return Err(TlsError::InvalidKey(format!(
@@ -217,7 +255,7 @@ fn build_single_cert_config(
         .with_no_client_auth()
         .with_single_cert(certs, key)
         .map_err(|e| TlsError::InvalidKey(e.to_string()))?;
-    config.alpn_protocols = advertised_alpn(http2);
+    config.alpn_protocols = alpn;
     // Conservative defaults: no 0-RTT, rustls default ticket policy (stateless
     // disabled / NeverProducesTickets). Set explicitly so upgrades cannot
     // silently enable early data.
@@ -473,6 +511,7 @@ pub struct TlsServerConfigBuilder {
     roots: Vec<CertificateDer<'static>>,
     crls: Vec<CertificateRevocationListDer<'static>>,
     http2: bool,
+    alpn: Option<Vec<Vec<u8>>>,
 }
 
 impl TlsServerConfigBuilder {
@@ -486,9 +525,24 @@ impl TlsServerConfigBuilder {
 
     /// Advertise H2 before HTTP/1.1 when `true` (default follows the crate
     /// `http2` feature). Coherent with `RuntimeConfig::http2.enabled`.
+    /// Clears any explicit [`Self::alpn_protocols`] override (last call wins).
     pub fn http2(mut self, enabled: bool) -> Self {
         self.http2 = enabled;
+        self.alpn = None;
         self
+    }
+
+    /// Advertise an explicit ALPN list instead of the HTTP convenience.
+    ///
+    /// Neutral hook for non-HTTP transports (Plan 222): proxy or custom
+    /// transports supply their own protocol identifiers. An empty list
+    /// advertises no ALPN. Entries are bounded ([`MAX_ALPN_PROTOCOLS`] ×
+    /// [`MAX_ALPN_PROTOCOL_LEN`]); out-of-range input fails here, never at
+    /// the first handshake. Overrides [`Self::http2`] (last call wins).
+    pub fn alpn_protocols(mut self, protocols: Vec<Vec<u8>>) -> Result<Self, TlsError> {
+        validate_alpn(&protocols)?;
+        self.alpn = Some(protocols);
+        Ok(self)
     }
 
     /// Add one SNI identity (exact DNS or `*.suffix` wildcard).
@@ -656,7 +710,7 @@ impl TlsServerConfigBuilder {
         let mut config = ServerConfig::builder()
             .with_client_cert_verifier(verifier)
             .with_cert_resolver(resolver);
-        let alpn = advertised_alpn(self.http2);
+        let alpn = self.alpn.unwrap_or_else(|| http_alpn_protocols(self.http2));
         config.alpn_protocols = alpn.clone();
         config.max_early_data_size = 0;
         identity_names.sort();
@@ -758,7 +812,12 @@ impl TlsReloadHandle {
     }
 }
 
-fn advertised_alpn(http2: bool) -> Vec<Vec<u8>> {
+/// HTTP ALPN advertisement for the [`TlsServerConfigBuilder::http2`]
+/// convenience: `h2` before `http/1.1` when enabled, else `http/1.1` only.
+///
+/// Non-HTTP transports must not reuse this helper; they supply their own
+/// identifiers via [`TlsServerConfigBuilder::alpn_protocols`] (Plan 222).
+pub fn http_alpn_protocols(http2: bool) -> Vec<Vec<u8>> {
     if http2 {
         vec![b"h2".to_vec(), b"http/1.1".to_vec()]
     } else {
@@ -768,15 +827,15 @@ fn advertised_alpn(http2: bool) -> Vec<Vec<u8>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{advertised_alpn, normalize_sni_name};
+    use super::{http_alpn_protocols, normalize_sni_name};
 
     #[test]
     fn h2_alpn_is_preferred_only_when_enabled() {
         assert_eq!(
-            advertised_alpn(true),
+            http_alpn_protocols(true),
             vec![b"h2".to_vec(), b"http/1.1".to_vec()]
         );
-        assert_eq!(advertised_alpn(false), vec![b"http/1.1".to_vec()]);
+        assert_eq!(http_alpn_protocols(false), vec![b"http/1.1".to_vec()]);
     }
 
     #[test]

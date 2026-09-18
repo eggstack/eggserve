@@ -172,7 +172,13 @@ bounded PEM parsing, SNI identity selection, explicit WebPKI client-auth modes,
 trust/CRL limits, and atomic reload snapshots. EggServe re-exports that API at
 `eggserve_core::tls` for compatibility; Tokio stream wrapping stays
 consumer-owned and HTTP/3 QUIC assembly lives once in `eggserve-h3` (Plan 220).
-See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
+Plan 222 completes the eggserve side of the cross-repo consolidation: a neutral
+`alpn_protocols` hook (with `TlsError::InvalidAlpn` bounds) lets non-HTTP
+transports advertise their own identifiers instead of the HTTP `http2`
+convenience, while the eggress server migration (including its optional-mTLS
+correction), the eggfetch no-dependency evaluation, sibling rustls-floor bumps,
+and the crates.io publication path are recorded as follow-ups in the neutral
+TLS architecture. See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
 and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/tls.md).
 
 Canonical response/request types and `Service` in the direct layers do not

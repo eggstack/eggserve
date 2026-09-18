@@ -140,6 +140,13 @@ future lock regeneration cannot legitimately resolve below the patched line:
   Do not roll a rustls floor back: if a regression appears in a patched
   release, move forward to a later patched release or disable the affected
   optional feature while investigating.
+- **Sibling repositories still declare bare rustls floors (Plan 222
+  follow-up).** Eggress (`rustls = "0.23"`) and eggfetch-core
+  (`rustls = "0.23"` optional) currently resolve 0.23.45 in their lockfiles
+  but do not enforce the patched floor, so a fresh resolve could pick a
+  pre-patch rustls. Raising those floors is a change in each repository, not
+  here; coordinate rustls/rustls-webpki/tokio-rustls updates rather than
+  letting them drift (see `architecture/eggnet-tls.md`).
 - **H3 keeps a coordinated version set.** `eggserve-h3` owns `h3` / `h3-quinn` /
   `quinn` plus the rustls floor above; the set moves together and the H3 tier
   stays experimental regardless of patch bumps (see the H3 note above).

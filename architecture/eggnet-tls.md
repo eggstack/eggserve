@@ -16,14 +16,18 @@ The crate owns:
   default identity;
 - explicit `ClientAuthMode::{Disabled, Optional, Required}` using rustls's
   WebPKI verifier;
-- trust-root, CRL, identity-chain, identity-count, and SNI bounds;
+- trust-root, CRL, identity-chain, identity-count, SNI, and ALPN bounds;
 - immutable `TlsServerConfig` snapshots and `TlsReloadHandle` replacement for
-  new handshakes.
+  new handshakes;
+- product-neutral ALPN construction: `http2(bool)` / `http_alpn_protocols`
+  are the HTTP-only convenience, while `alpn_protocols(..)` /
+  `load_tls_config_with_alpn(..)` let non-HTTP transports advertise their
+  own identifiers (empty means no ALPN; last call wins).
 
 The crate deliberately does not own filesystem watchers, certificate issuance,
-transport stream adapters, listener lifecycle, HTTP ALPN policy beyond the
-small `http2` feature-controlled advertisement, QUIC configuration, logging,
-or application policy.
+transport stream adapters, listener lifecycle, QUIC configuration, logging,
+or application policy. HTTP/3 QUIC assembly lives once in `eggserve-h3`;
+Tokio stream wrapping stays consumer-owned.
 
 ## Public API
 
@@ -60,16 +64,59 @@ existing 0.1 import path. Its accept loop remains responsible for
 configuration from `eggnet-tls::load_identity`. `TlsReloadHandle` changes the
 configuration seen by new TCP handshakes; established sessions are unchanged.
 
-Eggress can later wrap `eggnet-tls` in its transport types while retaining
-proxy-specific stream boxing and tracing. Its optional mTLS path must retain a
-regression test for anonymous clients and for validation of presented client
-certificates. EggFetch is not a current consumer; adopting the crate requires
-an explicit MSRV decision in that repository.
+## Cross-repository status (Plan 222)
+
+Plan 222 uses this crate as the shared server-side TLS substrate. The
+eggserve-side work is complete; the eggress/eggfetch work lives in those
+repositories (eggserve never depends on either as a product).
+
+- **Eggress (migration follow-up, in the eggress repository).** The
+  `eggress-transport-tls` server builder duplicates certificate/root parsing
+  and server client-auth construction already owned here, and its optional
+  client-auth path is semantically wrong: the non-required branch builds a
+  plain `WebPkiClientVerifier` without `allow_unauthenticated()`
+  (`crates/eggress-transport-tls/src/server.rs`), so "optional" currently
+  requires a client certificate. The migration keeps egress-specific
+  transport accept/connect, proxy policy, logging, client-side TLS (its
+  semantics differ: system roots, insecure switches, hostname policy), and
+  protocol-specific ALPN choices, while replacing the duplicated server
+  PEM/root/verifier construction with `eggnet-tls` — using the neutral
+  `alpn_protocols` hook for non-HTTP transports rather than the HTTP
+  `http2` convenience. Before migrating, eggress must add the Plan 222
+  integration test: optional + no cert succeeds, optional + valid cert
+  succeeds/authenticated, optional + invalid cert fails, required + no cert
+  fails, required + valid cert succeeds. This crate already models
+  `Optional` with `allow_unauthenticated()` and covers all five cases in
+  `crates/eggnet-tls/tests/neutral_tls.rs`.
+- **Eggfetch (evaluation: no dependency).** Eggfetch is primarily a TLS
+  *client*; its `TlsConfig`, trust-store selection, native-vs-WebPKI
+  fallback, insecure switches, hostname verification, protocol-version
+  policy, SNI enablement, connection-policy identity, and pool/route
+  interaction stay locally owned per Plan 222. The neutral parsing helpers
+  (`parse_identity_pem`, `parse_trust_roots_pem`, key/cert pairing) remain
+  available if eggfetch later finds a genuine reduction, but no dependency
+  is forced: client policy must not be absorbed into the shared crate.
+- **Version floors.** All three repositories resolve rustls 0.23.45 today,
+  but only eggserve manifests enforce the Plan 218 `0.23.45` caret floor
+  (RUSTSEC-2026-0285), including the excluded Python manifest. Eggress
+  (`rustls = "0.23"`, tokio-rustls 0.26) and eggfetch-core
+  (`rustls = "0.23"` optional, hyper-rustls 0.27, tokio-rustls 0.26) still
+  declare bare floors, so a fresh resolve there could pick a pre-patch
+  rustls. Raising those floors is a follow-up in each repository; coordinate
+  rustls/rustls-webpki/tokio-rustls updates rather than letting them drift.
+- **Publishing.** `eggnet-tls` remains physically in the eggserve workspace
+  and is published as its own versioned crates.io package (the release
+  package gate already stages it for layered publication). Cross-repo use is
+  a normal versioned dependency, never a git dependency. A move to a
+  neutral repository is deferred until a second publisher actually needs
+  it; no universal transport/TLS mega-crate is created.
 
 ## Validation
 
 `crates/eggnet-tls/tests/neutral_tls.rs` covers valid identities, malformed PEM,
 identity and trust bounds, SNI rejection rules, reload snapshot replacement,
+neutral ALPN construction/validation/negotiation (custom protocols, empty
+advertisement, bound rejection, last-wins precedence, end-to-end handshake),
 and disabled/optional/required client authentication, including anonymous,
 valid-certificate, and invalid-certificate handshakes. The topology gate also
 rejects workspace or transport dependencies from the neutral crate.

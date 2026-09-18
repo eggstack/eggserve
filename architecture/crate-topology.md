@@ -119,7 +119,8 @@ all other bridge modules are core-free in code.
 `eggnet-tls` is the neutral TLS security substrate. It depends only on
 `rustls` and `rustls-pki-types` at runtime and owns bounded PEM parsing, SNI
 identity selection, explicit WebPKI client authentication, trust/CRL bounds,
-and atomic reload snapshots. It must not acquire EggServe, Eggress, EggFetch,
+neutral ALPN hooks (`alpn_protocols` for non-HTTP transports alongside the
+HTTP-only `http2` convenience), and atomic reload snapshots. It must not acquire EggServe, Eggress, EggFetch,
 HTTP, proxy, tracing, Tokio, or QUIC dependencies. EggServe keeps only the
 HTTP/3-specific QUIC configuration assembly in its compatibility facade and
 re-exports the neutral API from `eggserve_core::tls`.

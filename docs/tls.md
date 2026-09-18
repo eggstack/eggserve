@@ -88,6 +88,21 @@ SNI rules:
 - Selection performs no blocking filesystem/network IO; SNI is bounded before
   observability use; key/cert bytes are never logged.
 
+Neutral ALPN hook (Plan 222):
+
+- `TlsServerConfigBuilder::http2(bool)` / `http_alpn_protocols(..)` are the
+  HTTP-only convenience (`h2` before `http/1.1`, else `http/1.1` only).
+- Non-HTTP transports use `alpn_protocols(..)` (builder) or
+  `load_tls_config_with_alpn(..)` (PEM files) to advertise their own
+  protocol identifiers; an empty list advertises no ALPN. Entries are
+  bounded (16 protocols × 255 bytes, `TlsError::InvalidAlpn` on violation)
+  and validated before identity loading, never at the first handshake.
+  Explicit ALPN overrides `http2` with last-call-wins precedence.
+- Protocol-specific ALPN choices stay consumer-owned: EggServe's H2/H3
+  selection and any downstream proxy transports keep their own lists on top
+  of this hook. See the [neutral TLS architecture](../architecture/eggnet-tls.md)
+  for the eggress/eggfetch cross-repository contract.
+
 Client authentication:
 
 - `Disabled` (default, backwards compatible), `Optional(trust roots)`, or

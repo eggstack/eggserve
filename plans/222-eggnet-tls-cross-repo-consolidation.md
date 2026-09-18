@@ -126,3 +126,56 @@ Keep the old egress builder behind a temporary internal compatibility layer unti
 - Eggfetch client policy remains locally owned.
 - Rustls-family floors are aligned.
 - No new cyclic or product-to-product dependency is introduced.
+
+## Status
+
+**Eggserve-side complete — 2026-09-18.** The neutral substrate contract
+(items 1, 4 in part, and 5) is implemented and documented in this
+repository. Eggress migration (item 2), the eggfetch helper decision
+(item 3), and the sibling rustls-floor bumps (item 4) are follow-ups owned
+by those repositories; per Plan 212 they were deliberately not modified in
+the eggserve commit.
+
+## Implementation record (eggserve)
+
+- Neutral ALPN hook: `TlsServerConfigBuilder::alpn_protocols(..)` and
+  `load_tls_config_with_alpn(..)` advertise caller-supplied protocol
+  identifiers (empty means no ALPN) with `MAX_ALPN_PROTOCOLS` ×
+  `MAX_ALPN_PROTOCOL_LEN` (16×255) bounds surfaced as the new
+  `TlsError::InvalidAlpn` variant, validated before identity loading.
+  The HTTP `http2(bool)` convenience now delegates to the public
+  `http_alpn_protocols(..)` helper, is documented HTTP-only, and follows
+  last-call-wins precedence against the explicit hook. Non-HTTP transports
+  must never reuse the HTTP helper.
+- Tests: `crates/eggnet-tls/tests/neutral_tls.rs` gains custom-ALPN
+  construction/advertisement, empty-ALPN acceptance, bound rejection,
+  last-wins precedence in both directions, fail-before-identity file-loader
+  ordering, and an end-to-end custom-ALPN handshake asserting the
+  negotiated protocol on both ends. The existing five-case optional/required
+  mTLS suite (the regression suite Plan 222 requires of eggress) continues
+  to pass unchanged.
+- No new dependencies: the production graph remains `rustls` +
+  `rustls-pki-types` only; the topology gate is unmodified and passes.
+- Eggserve rustls floors stay at the `0.23.45` caret floor in every
+  constraining manifest including the excluded Python crate.
+- Cross-repo contract documented in `architecture/eggnet-tls.md`: the
+  eggress optional-mTLS defect (non-required branch missing
+  `allow_unauthenticated()`, with file/line reference and the five-case
+  test prescription), the eggress adapter sketch (keep transport/proxy/
+  logging/client-TLS/ALPN-choices local; replace duplicated server
+  PEM/root/verifier construction), the eggfetch no-dependency evaluation,
+  the sibling floor table, and the publishing decision (remain in the
+  eggserve workspace; versioned crates.io package; never git dependencies).
+- User-facing updates: `docs/tls.md` (neutral ALPN hook), `README.md`
+  (Plan 222 status), `AGENTS.md` and the `eggserve-dev` skill (Plan 222
+  bullet), `architecture/crate-topology.md` (ALPN ownership),
+  `docs/dependency-policy.md` (sibling floor follow-up).
+
+## Validation record
+
+Local validation: `cargo fmt`, topology/conformance/release-metadata gates,
+workspace checks (default, `http2,tls`, `http3,tls`), clippy with
+`-D warnings`, workspace tests, the excluded Python manifest check, and the
+`tls`/`http2,tls`/`http3,tls` feature test lanes per routine CI. The eggress
+TLS suite, the new eggress optional-mTLS regression suite, and the sibling
+floor bumps run in their own repositories when those follow-ups land.

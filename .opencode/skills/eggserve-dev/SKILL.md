@@ -179,6 +179,18 @@ roll it back. `deny.toml` denies wildcard requirements and bans
   it for compatibility; keep HTTP/3-specific QUIC dependencies behind the
   `eggserve-h3` boundary and the core `http3` feature.
 
+- **Plan 222 cross-repo TLS consolidation (eggserve side)** — `eggnet-tls` adds
+  the neutral ALPN hook (`alpn_protocols` / `load_tls_config_with_alpn`,
+  16×255 bounds via `TlsError::InvalidAlpn`, last-wins against the HTTP-only
+  `http2` convenience) so non-HTTP transports never reuse `http_alpn_protocols`.
+  Never roll back the `0.23.45` rustls caret floor (RUSTSEC-2026-0285) in any
+  constraining manifest including the excluded Python crate; sibling eggress/
+  eggfetch floors are still bare `0.23` (locks at .45) and are follow-ups in
+  those repos. Eggress server migration (its optional-mTLS branch is missing
+  `allow_unauthenticated()`) and the eggfetch no-dependency evaluation live in
+  those repos; `eggnet-tls` stays published from this workspace as a versioned
+  crates.io package, never a git dependency (see `architecture/eggnet-tls.md`).
+
 - **Plan 214 extraction parity** — `eggserve-primitives` owns the extracted
   canonical request/response/body/lifecycle model with only small
   transport-neutral dependencies; `eggserve-server` owns the mature direct

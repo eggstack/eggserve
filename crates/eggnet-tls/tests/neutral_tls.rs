@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 use eggnet_tls::{
-    parse_crls_pem, parse_identity_pem, parse_trust_roots_pem, ClientAuthMode, TlsError,
-    TlsReloadHandle, TlsServerConfig, MAX_IDENTITY_CHAIN, MAX_TRUST_PEM_BYTES, MAX_TRUST_ROOTS,
+    http_alpn_protocols, load_tls_config_with_alpn, parse_crls_pem, parse_identity_pem,
+    parse_trust_roots_pem, ClientAuthMode, TlsError, TlsReloadHandle, TlsServerConfig,
+    MAX_ALPN_PROTOCOLS, MAX_ALPN_PROTOCOL_LEN, MAX_IDENTITY_CHAIN, MAX_TRUST_PEM_BYTES,
+    MAX_TRUST_ROOTS,
 };
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer, ServerName};
 use rustls_pki_types::pem::PemObject;
@@ -195,4 +197,153 @@ async fn client_auth_modes_have_the_documented_semantics() {
     assert!(handshake(&server, &required, Some(&bad_client))
         .await
         .is_err());
+}
+
+/// The neutral ALPN hook (Plan 222) lets non-HTTP transports advertise their
+/// own protocols; the `http2` convenience stays HTTP-only.
+#[test]
+fn alpn_hook_is_neutral_and_validated() {
+    let server = identity("server.test");
+
+    // HTTP convenience keeps its documented shape.
+    assert_eq!(
+        http_alpn_protocols(true),
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    );
+    assert_eq!(http_alpn_protocols(false), vec![b"http/1.1".to_vec()]);
+
+    // Explicit protocols override the HTTP default; empty means no ALPN.
+    let custom = vec![b"eggress-tunnel".to_vec()];
+    let tls = TlsServerConfig::builder()
+        .single_identity(server.certs.clone(), server.key.clone_key())
+        .expect("identity")
+        .alpn_protocols(custom.clone())
+        .expect("custom ALPN")
+        .build()
+        .expect("custom config");
+    assert_eq!(tls.alpn_protocols(), custom.as_slice());
+    let none = TlsServerConfig::builder()
+        .single_identity(server.certs.clone(), server.key.clone_key())
+        .expect("identity")
+        .alpn_protocols(Vec::new())
+        .expect("empty ALPN")
+        .build()
+        .expect("empty config");
+    assert!(none.alpn_protocols().is_empty());
+
+    // Bounds fail before readiness.
+    assert!(matches!(
+        TlsServerConfig::builder()
+            .single_identity(server.certs.clone(), server.key.clone_key())
+            .expect("identity")
+            .alpn_protocols(vec![vec![b'x'; MAX_ALPN_PROTOCOL_LEN + 1]]),
+        Err(TlsError::InvalidAlpn(_))
+    ));
+    assert!(matches!(
+        TlsServerConfig::builder()
+            .single_identity(server.certs.clone(), server.key.clone_key())
+            .expect("identity")
+            .alpn_protocols(vec![Vec::new()]),
+        Err(TlsError::InvalidAlpn(_))
+    ));
+    assert!(matches!(
+        TlsServerConfig::builder()
+            .single_identity(server.certs.clone(), server.key.clone_key())
+            .expect("identity")
+            .alpn_protocols(vec![b"p".to_vec(); MAX_ALPN_PROTOCOLS + 1]),
+        Err(TlsError::InvalidAlpn(_))
+    ));
+
+    // Last call wins between the HTTP convenience and the neutral hook.
+    let http_wins = TlsServerConfig::builder()
+        .single_identity(server.certs.clone(), server.key.clone_key())
+        .expect("identity")
+        .alpn_protocols(custom.clone())
+        .expect("custom ALPN")
+        .http2(true)
+        .build()
+        .expect("http-wins config");
+    assert_eq!(
+        http_wins.alpn_protocols(),
+        vec![b"h2".to_vec(), b"http/1.1".to_vec()]
+    );
+    let custom_wins = TlsServerConfig::builder()
+        .single_identity(server.certs, server.key.clone_key())
+        .expect("identity")
+        .http2(true)
+        .alpn_protocols(custom.clone())
+        .expect("custom ALPN")
+        .build()
+        .expect("custom-wins config");
+    assert_eq!(custom_wins.alpn_protocols(), custom.as_slice());
+}
+
+/// The file loader with explicit ALPN validates protocols before touching
+/// identity material, so non-HTTP transports fail fast on bad ALPN.
+#[test]
+fn file_loader_with_alpn_validates_before_identity() {
+    use std::path::Path;
+    // Invalid ALPN is rejected even when the paths do not exist.
+    assert!(matches!(
+        load_tls_config_with_alpn(
+            Path::new("/nonexistent/cert.pem"),
+            Path::new("/nonexistent/key.pem"),
+            vec![Vec::new()],
+        ),
+        Err(TlsError::InvalidAlpn(_))
+    ));
+    // Missing files still report missing files (not ALPN) for valid ALPN.
+    assert!(matches!(
+        load_tls_config_with_alpn(
+            Path::new("/nonexistent/cert.pem"),
+            Path::new("/nonexistent/key.pem"),
+            vec![b"eggress-tunnel".to_vec()],
+        ),
+        Err(TlsError::CertFileNotFound(_))
+    ));
+}
+
+/// A non-HTTP ALPN negotiates end to end over the neutral configuration.
+#[tokio::test]
+async fn custom_alpn_negotiates_end_to_end() {
+    let server = identity("server.test");
+    let tls = TlsServerConfig::builder()
+        .single_identity(server.certs.clone(), server.key.clone_key())
+        .expect("identity")
+        .alpn_protocols(vec![b"eggress-tunnel".to_vec()])
+        .expect("custom ALPN")
+        .build()
+        .expect("custom config");
+
+    let mut roots = rustls::RootCertStore::empty();
+    roots
+        .add(CertificateDer::from(server.cert_der.clone()))
+        .expect("server root");
+    let mut client = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+    client.alpn_protocols = vec![b"eggress-tunnel".to_vec()];
+    let client = Arc::new(client);
+
+    let (server_io, client_io) = tokio::io::duplex(16 * 1024);
+    let acceptor = tokio_rustls::TlsAcceptor::from(tls.server_config().clone());
+    let connector = tokio_rustls::TlsConnector::from(client);
+    let server_task = tokio::spawn(async move { acceptor.accept(server_io).await });
+    let domain = ServerName::try_from("server.test".to_owned()).expect("server name");
+    let client_conn = connector
+        .connect(domain, client_io)
+        .await
+        .expect("client handshake");
+    let server_conn = server_task
+        .await
+        .expect("server task")
+        .expect("server handshake");
+    assert_eq!(
+        client_conn.get_ref().1.alpn_protocol(),
+        Some(b"eggress-tunnel".as_slice())
+    );
+    assert_eq!(
+        server_conn.get_ref().1.alpn_protocol(),
+        Some(b"eggress-tunnel".as_slice())
+    );
 }
