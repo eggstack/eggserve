@@ -1,17 +1,19 @@
 use pyo3::prelude::*;
 use pyo3::types::{PyList, PyTuple};
 
-use eggserve_core::policy::{
+use eggserve_primitives::policy::{
     DirectoryListingPolicy, DotfilePolicy, StaticPolicy as RustStaticPolicy, SymlinkPolicy,
 };
-use eggserve_core::primitives::body::{BodyKind as RustBodyKind, BodySource as RustBodySource};
-use eggserve_core::primitives::header_block::HeaderBlock as RustHeaderBlock;
-use eggserve_core::primitives::http::{self, ReadOnlyMethod};
-use eggserve_core::primitives::method::Method as RustMethod;
-use eggserve_core::primitives::planner;
-use eggserve_core::primitives::response::BodyPlan;
-use eggserve_core::primitives::version::HttpVersion as RustHttpVersion;
-use eggserve_core::primitives::{
+use eggserve_primitives::body::{BodyKind as RustBodyKind, BodySource as RustBodySource};
+use eggserve_primitives::header_block::HeaderBlock as RustHeaderBlock;
+use eggserve_primitives::http::{self, ReadOnlyMethod};
+use eggserve_primitives::method::Method as RustMethod;
+// Plan 221: response planning lives once in `eggserve-static` (Plan 219).
+use eggserve_primitives::response::BodyPlan;
+use eggserve_primitives::version::HttpVersion as RustHttpVersion;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219). `StaticPolicy` et al. stay primitives-owned (see above).
+use eggserve_static::{
     ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
     ResolvedResource as RustResolvedResource, ResourceDeniedReason, SecureRoot as RustSecureRoot,
 };
@@ -384,7 +386,7 @@ impl PyStaticPolicy {
                 // emit both validators. Advanced privacy is Rust-only so the
                 // facade does not silently diverge from `http.server` semantics.
                 static_metadata:
-                    eggserve_core::policy::StaticMetadataPolicy::standard(),
+                    eggserve_primitives::policy::StaticMetadataPolicy::standard(),
             },
         }
     }
@@ -794,7 +796,7 @@ impl PyResolvedFile {
             }
         }
 
-        let plan = planner::plan_file_response_with_preconditions(
+        let plan = eggserve_static::plan_file_response_with_preconditions(
             ro,
             &self.metadata,
             &self.content_type,
@@ -837,7 +839,7 @@ impl PyResolvedFile {
             }
         }
 
-        let plan = planner::plan_file_response_with_preconditions(
+        let plan = eggserve_static::plan_file_response_with_preconditions(
             ro,
             &self.metadata,
             &self.content_type,
@@ -870,7 +872,7 @@ impl PyResolvedFile {
         })?;
         drop(file_guard);
 
-        let resolved_file = eggserve_core::primitives::ResolvedFile::from_parts(
+        let resolved_file = eggserve_static::ResolvedFile::from_parts(
             file,
             self.metadata.clone(),
             self.components.clone(),
@@ -987,7 +989,7 @@ fn validate_request_target_fn(target: &str) -> PyResult<()> {
 #[pyfunction]
 #[pyo3(name = "generate_etag")]
 fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<Py<PyAny>> {
-    match planner::generate_etag(&file.metadata) {
+    match eggserve_static::generate_etag(&file.metadata) {
         Some(etag) => Ok(etag.into_pyobject(py)?.into_any().unbind()),
         None => Ok(py.None()),
     }
@@ -1005,8 +1007,8 @@ fn generate_etag_fn(py: Python<'_>, file: &PyResolvedFile) -> PyResult<Py<PyAny>
 #[pyo3(name = "validate_trailers")]
 #[pyo3(signature = (fields,))]
 fn validate_trailers_fn(fields: Vec<(String, String)>) -> PyResult<()> {
-    use eggserve_core::primitives::header_block::HeaderBlock;
-    use eggserve_core::primitives::trailers::{TrailerLimits, Trailers};
+    use eggserve_primitives::header_block::HeaderBlock;
+    use eggserve_primitives::trailers::{TrailerLimits, Trailers};
     let mut block = HeaderBlock::new();
     for (name, value) in fields {
         block
@@ -1033,10 +1035,10 @@ fn validate_trailers_fn(fields: Vec<(String, String)>) -> PyResult<()> {
 #[pyo3(name = "validate_interim")]
 #[pyo3(signature = (status, fields=None))]
 fn validate_interim_fn(status: u16, fields: Option<Vec<(String, String)>>) -> PyResult<()> {
-    use eggserve_core::primitives::canonical::StatusCode;
-    use eggserve_core::primitives::header_block::HeaderBlock;
-    use eggserve_core::primitives::interim::InterimSender;
-    use eggserve_core::primitives::version::HttpVersion;
+    use eggserve_primitives::canonical::StatusCode;
+    use eggserve_primitives::header_block::HeaderBlock;
+    use eggserve_primitives::interim::InterimSender;
+    use eggserve_primitives::version::HttpVersion;
     let code =
         StatusCode::new(status).map_err(|e| pyo3::exceptions::PyValueError::new_err(e.to_string()))?;
     let mut block = HeaderBlock::new();
@@ -1056,7 +1058,7 @@ fn validate_interim_fn(status: u16, fields: Option<Vec<(String, String)>>) -> Py
 // Module
 // ---------------------------------------------------------------------------
 
-use eggserve_core::primitives::response::StaticResponsePlan;
+use eggserve_primitives::response::StaticResponsePlan;
 
 // ---------------------------------------------------------------------------
 // ResponsePlan (Rust wrapper for Python ResponsePlan)

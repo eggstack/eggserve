@@ -44,7 +44,12 @@ Plan 219 collapses static/path/filesystem authority onto `eggserve-static`
 MIME, and response planning); `eggserve-core` keeps those paths as
 compatibility facades with no second resolver, proven by the authority
 conformance fixture
-(`crates/eggserve-core/tests/static_authority_conformance.rs`).
+(`crates/eggserve-core/tests/static_authority_conformance.rs`). Plan 221 makes
+the first-party frontends prove the direct architecture: `eggserve-bin` and
+`eggserve-python` name the leaf crates directly for neutral paths, with
+binary unit tests driving leaf `Server` + leaf `StaticService`; extended
+orchestration plus the confirmed-used `eggserve_bin::run_cli` CLI stay
+compatibility-owned until Plan 225.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
@@ -66,8 +71,8 @@ Seven workspace crates plus one excluded Python packaging crate:
   (`SecureRoot`/capabilities, `path`, planner, MIME; Plan 219)
 - `crates/eggserve-h3/` — experimental H3/QUIC transport adapter (Plan 220 authority)
 - `crates/eggserve-core/` — 0.1 compatibility aggregate preserving the mature API
-- `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
-- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, depends on eggserve-core; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
+- `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (Plan 221: neutral paths on leaf crates; extended orchestration still core until Plan 225)
+- `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, Plan 221: neutral bridge on leaf crates + confirmed-used `eggserve_bin::run_cli`; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
 `plans/` (historical design/implementation records plus the `ROADMAP.md` and

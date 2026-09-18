@@ -31,6 +31,18 @@ http3 = ["eggserve-core/http3", "dep:eggserve-h3", "tls"]
 [dependencies]
 eggserve-core = { path = "../eggserve-core", version = "0.1.2" }
 eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }
+# Plan 221: first-party frontend consumes the canonical leaf crates directly.
+# Neutral policy/primitives (policy, static metadata types), the generic H1
+# runtime (ops, shared limits, service), the static authority (path/secure
+# root/planner used by tests), and the neutral TLS substrate are named
+# explicitly. The compatibility core remains for the extended server
+# orchestration (serve_config/try_from_serve_config, full Server with
+# TLS/H2/H3, full StaticService with extra headers/error policy, and
+# ServeConfig/Limits static budgets) until Plan 225 closes the facade.
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
+eggserve-server = { path = "../eggserve-server", version = "0.1.2" }
+eggserve-static = { path = "../eggserve-static", version = "0.1.2" }
+eggnet-tls = { path = "../eggnet-tls", version = "0.1.2" }
 tokio = { version = "1", features = ["macros", "net", "signal", "time", "sync"] }
 
 [dev-dependencies]

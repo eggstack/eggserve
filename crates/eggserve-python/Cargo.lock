@@ -48,7 +48,11 @@ dependencies = [
 name = "eggserve-bin"
 version = "0.1.2"
 dependencies = [
+ "eggnet-tls",
  "eggserve-core",
+ "eggserve-primitives",
+ "eggserve-server",
+ "eggserve-static",
  "tokio",
 ]
 
@@ -88,8 +92,12 @@ name = "eggserve-python"
 version = "0.1.2"
 dependencies = [
  "bytes",
+ "eggnet-tls",
  "eggserve-bin",
  "eggserve-core",
+ "eggserve-primitives",
+ "eggserve-server",
+ "eggserve-static",
  "futures-util",
  "pyo3",
  "rustls",

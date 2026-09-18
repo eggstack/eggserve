@@ -20,28 +20,30 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_core::policy;
-use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::canonical::{
+use eggserve_primitives::policy;
+use eggserve_primitives::body::BodySource;
+use eggserve_primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
     ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
-use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::request_body::RequestBody;
-use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_core::primitives::request_context::RequestContext;
-use eggserve_core::primitives::request_head::RequestHead;
-use eggserve_core::primitives::{
+use eggserve_primitives::header_block::{HeaderName, HeaderValue};
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::request_body::RequestBody;
+use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_primitives::request_context::RequestContext;
+use eggserve_primitives::request_head::RequestHead;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
+// it. The bridge names the leaf directly. `StaticPolicy` stays
+// primitives-owned.
+use eggserve_static::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot, StaticPolicy,
+    ResolveAndPlanError, SecureRoot,
 };
-use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::errors::ShutdownResult;
-use eggserve_core::server::lifecycle::LifecycleState;
-use eggserve_core::server::service::{Service, ServiceError};
-use eggserve_core::server::{Server, ServerHandle};
+use eggserve_primitives::policy::StaticPolicy;
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::service::{Service, ServiceError};
 
 use super::*;
 #[allow(unused_imports)]
@@ -90,9 +92,9 @@ impl PythonCallbackService {
                     .name()
                     .map(|n| n.to_string_lossy().into_owned())
                     .unwrap_or_else(|_| "<unknown>".to_string());
-                eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
-                    eggserve_core::ops::Severity::Error,
-                    eggserve_core::ops::EventKind::ServiceError,
+                eggserve_server::ops::Logger::global().emit(eggserve_server::ops::Event::new(
+                    eggserve_server::ops::Severity::Error,
+                    eggserve_server::ops::EventKind::ServiceError,
                     format!("Python handler raised an exception ({type_name})"),
                 ));
                 ServiceError::internal("handler raised an exception")
@@ -116,9 +118,9 @@ impl PythonCallbackService {
         body: RequestBody,
         body_policy: RequestBodyPolicy,
         context: RequestContext,
-        tunnel: Option<eggserve_core::primitives::tunnel::TunnelCapability>,
+        tunnel: Option<eggserve_server::tunnel::TunnelCapability>,
     ) -> PyRequest {
-        use eggserve_core::primitives::connection_info::Scheme;
+        use eggserve_primitives::connection_info::Scheme;
 
         let connection = context.connection().clone();
         let method_str = head.method().as_str().to_string();
@@ -226,7 +228,7 @@ impl PythonCallbackService {
         // one-shot slot; `take_tunnel()` takes from here. This preserves
         // one-shot semantics and keeps `PyRequest` Sync.
         let tunnel_slot: Option<
-            Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>,
+            Arc<std::sync::Mutex<Option<eggserve_server::tunnel::TunnelCapability>>>,
         > = tunnel.map(|taken| Arc::new(std::sync::Mutex::new(Some(taken))));
         let handle = tokio::runtime::Handle::try_current().ok();
 
@@ -317,7 +319,7 @@ pub(super) fn convert_python_response_to_canonical<'py>(
     // partially validated response.
     let mut validated_headers = Vec::with_capacity(headers.len());
     for (name, value) in headers {
-        if eggserve_core::primitives::canonical::is_hop_by_hop_header(&name) {
+        if eggserve_primitives::canonical::is_hop_by_hop_header(&name) {
             return Err(ServiceError::internal(
                 "Python handler response header validation failed",
             ));
@@ -540,8 +542,8 @@ pub(super) fn extract_python_response_body<'py>(
                     // Build the canonical trailer block (validated at
                     // construction, re-validated here defensively; failures
                     // are internal (500) with no detail leak).
-                    use eggserve_core::primitives::header_block::HeaderBlock;
-                    use eggserve_core::primitives::trailers::{TrailerLimits, Trailers};
+                    use eggserve_primitives::header_block::HeaderBlock;
+                    use eggserve_primitives::trailers::{TrailerLimits, Trailers};
                     let mut block = HeaderBlock::new();
                     for (name, value) in &trailers {
                         block.push_str(name, value).map_err(|_| {
@@ -629,14 +631,14 @@ pub(super) fn extract_python_response_body<'py>(
 impl Service for PythonCallbackService {
     fn request_body_policy(
         &self,
-        _head: &eggserve_core::primitives::request_head::RequestHead,
+        _head: &eggserve_primitives::request_head::RequestHead,
     ) -> RequestBodyPolicy {
         self.body_policy
     }
 
     fn call(
         &self,
-        request: eggserve_core::primitives::request::Request,
+        request: eggserve_primitives::request::Request,
     ) -> Pin<
         Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
     > {
@@ -645,8 +647,8 @@ impl Service for PythonCallbackService {
 
     fn call_with_tunnel(
         &self,
-        request: eggserve_core::primitives::request::Request,
-        tunnel: Option<eggserve_core::primitives::tunnel::TunnelCapability>,
+        request: eggserve_primitives::request::Request,
+        tunnel: Option<eggserve_server::tunnel::TunnelCapability>,
     ) -> Pin<
         Box<dyn std::future::Future<Output = Result<CanonicalResponse, ServiceError>> + Send + '_>,
     > {

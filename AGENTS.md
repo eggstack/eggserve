@@ -99,7 +99,17 @@ parsing, secure-root resolution, filesystem confinement, MIME, and static
 response planning); `eggserve-core` keeps `primitives::{SecureRoot,
 ConfinedPath, ...}` as compatibility facades with no second resolver
 (`src/fs`, `src/path`, `src/mime.rs` deleted, topology-gated), proven by
-`crates/eggserve-core/tests/static_authority_conformance.rs`.
+`crates/eggserve-core/tests/static_authority_conformance.rs`. Plan 221 makes
+the first-party frontends prove the direct architecture: `eggserve-bin` and
+`eggserve-python` name `eggserve-primitives`/`eggserve-server`/
+`eggserve-static`/`eggnet-tls` directly for neutral policy/primitives,
+observability, shared limits (one `SharedRuntimeValues` authority), static
+planning/capabilities, tunnel, and neutral TLS loading; binary unit tests
+drive leaf `Server` + leaf `StaticService`. The extended orchestration
+(`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3 `Server`, full
+`StaticService`, listing budgets, handle lifecycle) plus the confirmed-used
+`eggserve_bin::run_cli` extension CLI remain compatibility-owned until
+Plan 225 (see `architecture/crate-topology.md`).
 The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
@@ -120,8 +130,8 @@ crates/
 ├── eggserve-static/    # sole static/path/filesystem authority (SecureRoot, planner, MIME)
 ├── eggserve-h3/        # experimental H3/QUIC transport adapter (Plan 220 authority)
 ├── eggserve-core/      # 0.1 compatibility aggregate
-├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
-└── eggserve-python/    # Python wheel packaging (maturin) — EXCLUDED from workspace
+├── eggserve-bin/       # CLI binary, args, signal handling, accept loop (Plan 221: neutral paths on leaf crates)
+└── eggserve-python/    # Python wheel packaging (maturin) — EXCLUDED from workspace (Plan 221: neutral bridge on leaf crates)
 architecture/           # deep-dive docs per subsystem (filenames match subsystems)
 benchmarks/             # benchmark baselines
 conformance/            # test corpora + conformance_matrix.toml

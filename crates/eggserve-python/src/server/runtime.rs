@@ -20,27 +20,32 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_core::policy;
-use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::canonical::{
+use eggserve_primitives::policy;
+use eggserve_primitives::body::BodySource;
+use eggserve_primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
     ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
-use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::request_body::RequestBody;
-use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_core::primitives::request_context::RequestContext;
-use eggserve_core::primitives::request_head::RequestHead;
-use eggserve_core::primitives::{
+use eggserve_primitives::header_block::{HeaderName, HeaderValue};
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::request_body::RequestBody;
+use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_primitives::request_context::RequestContext;
+use eggserve_primitives::request_head::RequestHead;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
+// it. The bridge names the leaf directly. `StaticPolicy` stays
+// primitives-owned.
+use eggserve_static::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot, StaticPolicy,
+    ResolveAndPlanError, SecureRoot,
 };
+use eggserve_primitives::policy::StaticPolicy;
 use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::errors::ShutdownResult;
+use eggserve_server::errors::ShutdownResult;
 use eggserve_core::server::lifecycle::LifecycleState;
-use eggserve_core::server::service::{Service, ServiceError};
+use eggserve_server::service::{Service, ServiceError};
 use eggserve_core::server::{Server, ServerHandle};
 
 use super::*;
@@ -210,105 +215,91 @@ impl PyServer {
                 "binding to 0.0.0.0 or :: requires public=True",
             ));
         }
-        if max_connections == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "max_connections must be greater than zero",
-            ));
-        }
-        if max_file_streams == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "max_file_streams must be greater than zero",
-            ));
-        }
+        // Python-only admission: callback concurrency has no canonical
+        // runtime counterpart (downstream app admission is separate).
         if max_python_callbacks == 0 {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "max_python_callbacks must be greater than zero",
             ));
         }
-        if header_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "header_timeout_secs must be greater than zero",
-            ));
-        }
-        if connection_total_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "connection_total_timeout_secs must be greater than zero",
-            ));
-        }
-        if handler_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "handler_timeout_secs must be greater than zero",
-            ));
-        }
-        if graceful_shutdown_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "graceful_shutdown_timeout_secs must be greater than zero",
-            ));
-        }
-        if body_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "body_timeout_secs must be greater than zero",
-            ));
-        }
-        // Plan 164 production controls: operator-meaningful subset with the
-        // same bounds as RuntimeConfig/Limits. `None` disables
-        // max_requests_per_connection; zero is rejected (no zero-means-
-        // unlimited overload).
-        if max_in_flight_requests == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "max_in_flight_requests must be greater than zero",
-            ));
-        }
-        if max_buf_size < eggserve_core::limits::MIN_MAX_BUF_SIZE {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "max_buf_size must be >= {} (Hyper minimum)",
-                eggserve_core::limits::MIN_MAX_BUF_SIZE
-            )));
-        }
-        if max_buf_size > eggserve_core::limits::MAX_MAX_BUF_SIZE {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "max_buf_size must be <= {} (4 MiB)",
-                eggserve_core::limits::MAX_MAX_BUF_SIZE
-            )));
-        }
-        if max_headers == 0 || max_headers > eggserve_core::limits::MAX_MAX_HEADERS {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "max_headers must be between 1 and {}",
-                eggserve_core::limits::MAX_MAX_HEADERS
-            )));
-        }
-        if max_header_bytes < eggserve_core::limits::MIN_MAX_HEADER_BYTES
-            || max_header_bytes > eggserve_core::limits::MAX_MAX_HEADER_BYTES
-        {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "max_header_bytes must be between {} and {}",
-                eggserve_core::limits::MIN_MAX_HEADER_BYTES,
-                eggserve_core::limits::MAX_MAX_HEADER_BYTES
-            )));
-        }
-        if max_request_target_bytes < eggserve_core::limits::MIN_MAX_REQUEST_TARGET_BYTES
-            || max_request_target_bytes > eggserve_core::limits::MAX_MAX_REQUEST_TARGET_BYTES
-        {
-            return Err(pyo3::exceptions::PyValueError::new_err(format!(
-                "max_request_target_bytes must be between {} and {}",
-                eggserve_core::limits::MIN_MAX_REQUEST_TARGET_BYTES,
-                eggserve_core::limits::MAX_MAX_REQUEST_TARGET_BYTES
-            )));
-        }
-        if keep_alive_idle_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "keep_alive_idle_timeout_secs must be greater than zero",
-            ));
-        }
+        // Python-only: `0` never means unlimited here (the CLI uses `0` =
+        // unlimited for this knob; Python requires `None`). The shared
+        // kernel also rejects `Some(0)`, but keep the Python-specific
+        // message so the facade contract stays explicit.
         if max_requests_per_connection == Some(0) {
             return Err(pyo3::exceptions::PyValueError::new_err(
                 "max_requests_per_connection must be >= 1 or None (unlimited)",
             ));
         }
-        if response_write_timeout_secs == 0 {
-            return Err(pyo3::exceptions::PyValueError::new_err(
-                "response_write_timeout_secs must be greater than zero",
-            ));
+        // Plan 221 §4: shared runtime validation has one Rust authority.
+        // Project the Python scalars into the canonical
+        // `SharedRuntimeValues` and translate structured violations into
+        // `ValueError` instead of maintaining an independent bounds table.
+        // Python-only validation (public bind ack above, callback
+        // concurrency, handler shape, response repr, TLS file pairing,
+        // trusted-proxy parsing below) stays local; Rust remains the final
+        // limit authority at `RuntimeConfig::build`.
+        //
+        // The connection total timeout is the hard ceiling, but handler/body
+        // budgets are capped to it at start (see `start_reserved`, which
+        // warns and clamps) rather than rejected at construction — so the
+        // projection validates the capped values, preserving the facade's
+        // construction-time contract.
+        {
+            use eggserve_server::runtime_limits::{
+                SharedRuntimeValues, DEFAULT_MAX_ACTIVE_TUNNELS, DEFAULT_STREAM_CHUNK_SIZE,
+                DEFAULT_TLS_HANDSHAKE_TIMEOUT,
+            };
+            let connection_total_timeout = Duration::from_secs(connection_total_timeout_secs);
+            let capped_handler_timeout =
+                Duration::from_secs(handler_timeout_secs).min(connection_total_timeout);
+            let capped_body_timeout =
+                Duration::from_secs(body_timeout_secs).min(connection_total_timeout);
+            let shared = SharedRuntimeValues {
+                max_connections,
+                max_file_streams,
+                max_request_body_bytes,
+                header_read_timeout: Duration::from_secs(header_timeout_secs),
+                tls_handshake_timeout: DEFAULT_TLS_HANDSHAKE_TIMEOUT,
+                connection_total_timeout,
+                handler_timeout: capped_handler_timeout,
+                body_read_timeout: capped_body_timeout,
+                graceful_shutdown_timeout: Duration::from_secs(graceful_shutdown_timeout_secs),
+                stream_chunk_size: DEFAULT_STREAM_CHUNK_SIZE,
+                max_buf_size,
+                max_headers,
+                max_header_bytes,
+                max_request_target_bytes,
+                max_in_flight_requests,
+                keep_alive_idle_timeout: Duration::from_secs(keep_alive_idle_timeout_secs),
+                max_requests_per_connection,
+                response_write_timeout: Duration::from_secs(response_write_timeout_secs),
+                max_active_tunnels: DEFAULT_MAX_ACTIVE_TUNNELS,
+            };
+            let violations = shared.validate();
+            if !violations.is_empty() {
+                // Translate canonical field names to the Python facade's
+                // keyword names so `ValueError` messages keep naming the
+                // argument the caller actually passed.
+                fn py_field(field: &str) -> &str {
+                    match field {
+                        "header_read_timeout" => "header_timeout_secs",
+                        "connection_total_timeout" => "connection_total_timeout_secs",
+                        "handler_timeout" => "handler_timeout_secs",
+                        "body_read_timeout" => "body_timeout_secs",
+                        "graceful_shutdown_timeout" => "graceful_shutdown_timeout_secs",
+                        "keep_alive_idle_timeout" => "keep_alive_idle_timeout_secs",
+                        "response_write_timeout" => "response_write_timeout_secs",
+                        _ => field,
+                    }
+                }
+                let msg = violations
+                    .iter()
+                    .map(|v| format!("{} must be {}: got {}", py_field(v.field), v.constraint, v.value))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Err(pyo3::exceptions::PyValueError::new_err(msg));
+            }
         }
         // Plan 165 response privacy subset. Custom Rust clock providers stay
         // Rust-only: Python selects the standards clock or explicit
@@ -335,7 +326,7 @@ impl PyServer {
         // Validate privacy fields eagerly via the canonical validators so
         // misconfiguration fails before listener startup.
         {
-            let mut policy = eggserve_core::server::response_policy::ResponsePolicy::default();
+            let mut policy = eggserve_server::response_policy::ResponsePolicy::default();
             if let Some(ref h) = server_header {
                 policy.server_identification = Some(h.clone());
             }
@@ -344,7 +335,7 @@ impl PyServer {
                 .validate()
                 .map_err(pyo3::exceptions::PyValueError::new_err)?;
             for name in &stripped_response_headers {
-                eggserve_core::server::response_policy::validate_stripped_header_name(name)
+                eggserve_server::response_policy::validate_stripped_header_name(name)
                     .map_err(pyo3::exceptions::PyValueError::new_err)?;
             }
         }
@@ -403,7 +394,7 @@ impl PyServer {
         let tls_config = match (tls_certfile, tls_keyfile) {
             (None, None) => None,
             (Some(cert), Some(key)) => Some(
-                eggserve_core::tls::load_tls_config(
+                eggnet_tls::load_tls_config(
                     std::path::Path::new(&cert),
                     std::path::Path::new(&key),
                 )
@@ -425,7 +416,7 @@ impl PyServer {
         // Loopback is not implicitly trusted; list it explicitly when needed.
         let trusted_proxies = trusted_proxies.unwrap_or_default();
         for entry in &trusted_proxies {
-            eggserve_core::primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
+            eggserve_primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
                 pyo3::exceptions::PyValueError::new_err(format!("invalid trusted_proxies entry: {e}"))
             })?;
         }
@@ -632,9 +623,9 @@ impl PyServer {
         let capped_body_read_timeout = body_read_timeout.min(connection_total_timeout);
         if capped_handler_timeout != handler_timeout || capped_body_read_timeout != body_read_timeout
         {
-            eggserve_core::ops::Logger::global().emit(eggserve_core::ops::Event::new(
-                eggserve_core::ops::Severity::Warn,
-                eggserve_core::ops::EventKind::ProcessStarting,
+            eggserve_server::ops::Logger::global().emit(eggserve_server::ops::Event::new(
+                eggserve_server::ops::Severity::Warn,
+                eggserve_server::ops::EventKind::ProcessStarting,
                 "handler/body timeout exceeds connection_total_timeout; capped to connection_total_timeout",
             ));
         }
@@ -669,29 +660,29 @@ impl PyServer {
             runtime_builder = runtime_builder.server_header(header);
         }
         runtime_builder = runtime_builder.date_policy(if date_suppressed {
-            eggserve_core::server::response_policy::DatePolicy::Suppress
+            eggserve_server::response_policy::DatePolicy::Suppress
         } else {
-            eggserve_core::server::response_policy::DatePolicy::SystemClock
+            eggserve_server::response_policy::DatePolicy::SystemClock
         });
         if !stripped_response_headers.is_empty() {
             runtime_builder =
                 runtime_builder.stripped_response_headers(stripped_response_headers);
         }
         runtime_builder = runtime_builder.error_policy(if error_empty {
-            eggserve_core::policy::ErrorRepresentationPolicy::Empty
+            eggserve_primitives::policy::ErrorRepresentationPolicy::Empty
         } else {
-            eggserve_core::policy::ErrorRepresentationPolicy::Minimal
+            eggserve_primitives::policy::ErrorRepresentationPolicy::Minimal
         });
         // Plan 202 trusted-proxy policy: explicit peers/CIDRs (no DNS),
         // Unix local-trust flag, PROXY preamble mode, and header-derived
         // forwarding switches. Defaults trust nothing; `remote_addr` never
         // changes for compatibility, effective values are separate getters.
         {
-            use eggserve_core::primitives::proxy::TrustedProxyConfig;
+            use eggserve_primitives::proxy::TrustedProxyConfig;
             let mut proxy_config = TrustedProxyConfig::default();
             for entry in &trusted_proxies {
                 let prefix =
-                    eggserve_core::primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
+                    eggserve_primitives::proxy::IpPrefix::parse(entry).map_err(|e| {
                         pyo3::exceptions::PyValueError::new_err(format!(
                             "invalid trusted_proxies entry: {e}"
                         ))

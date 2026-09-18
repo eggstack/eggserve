@@ -18,28 +18,30 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_core::policy;
-use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::canonical::{
+use eggserve_primitives::policy;
+use eggserve_primitives::body::BodySource;
+use eggserve_primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
     ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
-use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::request_body::RequestBody;
-use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_core::primitives::request_context::RequestContext;
-use eggserve_core::primitives::request_head::RequestHead;
-use eggserve_core::primitives::{
+use eggserve_primitives::header_block::{HeaderName, HeaderValue};
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::request_body::RequestBody;
+use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_primitives::request_context::RequestContext;
+use eggserve_primitives::request_head::RequestHead;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
+// it. The bridge names the leaf directly. `StaticPolicy` stays
+// primitives-owned.
+use eggserve_static::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot, StaticPolicy,
+    ResolveAndPlanError, SecureRoot,
 };
-use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::errors::ShutdownResult;
-use eggserve_core::server::lifecycle::LifecycleState;
-use eggserve_core::server::service::{Service, ServiceError};
-use eggserve_core::server::{Server, ServerHandle};
+use eggserve_primitives::policy::StaticPolicy;
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::service::{Service, ServiceError};
 
 use super::*;
 

@@ -70,7 +70,8 @@ preserved.
 The classes use the Rust runtime for socket ownership, HTTP/1.1 parsing,
 timeouts, response framing, static path resolution, and file streaming.
 Handlers are synchronous and receive bounded `rfile`/`wfile` adapters, never
-raw sockets. HTTPS uses the shared core rustls PEM loader, accepts a combined
+raw sockets. HTTPS uses the neutral `eggnet-tls` PEM loader directly
+(Plan 221), accepts a combined
 certificate/key PEM when `keyfile` is omitted, and restricts ALPN to
 `http/1.1`. The CLI has the analogous `--tls-cert` fallback when
 `--tls-key` is omitted.
@@ -117,6 +118,22 @@ and the six façade classes.
 The native callback `Server` backs both the facade and `lowlevel.Server`;
 `StaticResponder`, `ServerSecureRoot`, and `ServerBodySource` back the public
 lowlevel composition primitives (previously internal/test-only).
+
+Plan 221 names the canonical leaf crates directly from the bridge. Neutral
+policy/primitives (`eggserve-primitives`), ops/service/response-policy/shared
+limits (`eggserve-server`, including one-authority `SharedRuntimeValues`
+validation with Python-only checks kept local), static planning and
+capabilities (`eggserve-static`, including the `python-bindings-internal`
+capability bridge), neutral tunnel execution
+(`eggserve-server::tunnel`; intent vocabulary stays
+`eggserve-primitives::tunnel`), and neutral TLS loading (`eggnet-tls`) no
+longer route through the compatibility core. The narrow remaining core uses
+are explicit Plan 225 blockers: the extended `Server`/`ServerHandle`/
+`RuntimeConfig` with TLS, `LifecycleState`, `ServeConfig` +
+`validate_static_metadata`, and static listing budgets — confined to
+`runtime.rs`, `static_responder.rs`, `lifecycle.rs`, and one listing call.
+The extension-backed CLI stays via `eggserve_bin::run_cli` (confirmed used,
+not removed).
 
 The canonical executable facade demonstrations are
 [`examples/python_http_server_static.py`](../examples/python_http_server_static.py)

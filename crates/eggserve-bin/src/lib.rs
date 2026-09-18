@@ -1,11 +1,17 @@
 use std::sync::Arc;
 
 use eggserve_core::config::ServeConfig;
-use eggserve_core::ops::{
+// Plan 221: per-runtime observability is owned by `eggserve-server`; the
+// compatibility `eggserve_core::ops` facade re-exports this authority.
+// The extended server orchestration (`server::{try_from_serve_config,
+// Server}`, `config::ServeConfig`) remains compatibility-owned until
+// Plan 225 (TLS/H2/H3, serve_config/static orchestration,
+// ServeConfig/Limits static budgets).
+use eggserve_core::server::{try_from_serve_config, Server};
+use eggserve_server::ops::{
     Event, EventKind, Field, FilteredLogSink, LogFormat as OpsLogFormat, Logger, NopLogSink,
     Severity, StderrLogSink,
 };
-use eggserve_core::server::{try_from_serve_config, Server};
 use tokio::sync::broadcast;
 
 pub mod args;
@@ -54,7 +60,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
     let quiet = args.quiet || args.log_format == args::LogFormat::None;
 
     // Initialize structured logger.
-    let sink: Box<dyn eggserve_core::ops::LogSink> = match args.log_format {
+    let sink: Box<dyn eggserve_server::ops::LogSink> = match args.log_format {
         args::LogFormat::None => Box::new(NopLogSink),
         args::LogFormat::Json => {
             let json_sink = Box::new(StderrLogSink {
@@ -102,7 +108,7 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
         static_policy,
         default_content_type: args.default_content_type,
         extra_response_headers: args.extra_response_headers,
-        error_policy: eggserve_core::policy::ErrorRepresentationPolicy::Minimal,
+        error_policy: eggserve_primitives::policy::ErrorRepresentationPolicy::Minimal,
     });
 
     // Emit structured startup event.
@@ -445,15 +451,17 @@ pub fn run_cli(argv: Vec<String>) -> i32 {
 
 #[cfg(test)]
 mod tests {
-    use eggserve_core::server::{RuntimeConfig, Server, StaticService};
+    // Plan 221 first-party proof: the direct H1 static path exercises the
+    // canonical leaf crates (`eggserve-server` runtime + `eggserve-static`
+    // service) with no compatibility-core import.
+    use eggserve_server::{RuntimeConfig, Server, ServerHandle};
+    use eggserve_static::StaticService;
     use std::time::Duration;
     use tempfile::TempDir;
     use tokio::io::{AsyncReadExt, AsyncWriteExt};
     use tokio::net::TcpListener;
 
-    async fn start_test_server(
-        tmp: &TempDir,
-    ) -> (std::net::SocketAddr, eggserve_core::server::ServerHandle) {
+    async fn start_test_server(tmp: &TempDir) -> (std::net::SocketAddr, ServerHandle) {
         let svc = StaticService::builder(tmp.path()).build().unwrap();
         let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();

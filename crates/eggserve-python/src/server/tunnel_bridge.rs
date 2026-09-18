@@ -18,28 +18,30 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_core::policy;
-use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::canonical::{
+use eggserve_primitives::policy;
+use eggserve_primitives::body::BodySource;
+use eggserve_primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
     ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
-use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::request_body::RequestBody;
-use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_core::primitives::request_context::RequestContext;
-use eggserve_core::primitives::request_head::RequestHead;
-use eggserve_core::primitives::{
+use eggserve_primitives::header_block::{HeaderName, HeaderValue};
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::request_body::RequestBody;
+use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_primitives::request_context::RequestContext;
+use eggserve_primitives::request_head::RequestHead;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
+// it. The bridge names the leaf directly. `StaticPolicy` stays
+// primitives-owned.
+use eggserve_static::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot, StaticPolicy,
+    ResolveAndPlanError, SecureRoot,
 };
-use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::errors::ShutdownResult;
-use eggserve_core::server::lifecycle::LifecycleState;
-use eggserve_core::server::service::{Service, ServiceError};
-use eggserve_core::server::{Server, ServerHandle};
+use eggserve_primitives::policy::StaticPolicy;
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::service::{Service, ServiceError};
 
 use super::*;
 #[allow(unused_imports)]
@@ -83,9 +85,9 @@ pub(crate) const TUNNEL_MAX_FRAME_BYTES: usize = 64 * 1024;
 
 #[pyclass(frozen, name = "TunnelCapability")]
 pub struct PyTunnelCapability {
-    pub(super) inner: Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>,
-    pub(super) request: eggserve_core::primitives::tunnel::TunnelRequest,
-    pub(super) lifecycle: Option<eggserve_core::primitives::request_lifecycle::RequestLifecycle>,
+    pub(super) inner: Arc<std::sync::Mutex<Option<eggserve_server::tunnel::TunnelCapability>>>,
+    pub(super) request: eggserve_primitives::tunnel::TunnelRequest,
+    pub(super) lifecycle: Option<eggserve_primitives::request_lifecycle::RequestLifecycle>,
     pub(super) handle: Option<tokio::runtime::Handle>,
     pub(super) handshake_slot: Arc<std::sync::Mutex<Option<CanonicalResponse>>>,
 }
@@ -133,7 +135,7 @@ impl PyTunnelCapability {
         py: Python<'_>,
         headers: Option<Vec<(String, String)>>,
     ) -> PyResult<(PyResponse, PyTunnel)> {
-        use eggserve_core::primitives::header_block::HeaderBlock;
+        use eggserve_primitives::header_block::HeaderBlock;
 
         let mut slot = self
             .inner
@@ -179,7 +181,7 @@ impl PyTunnelCapability {
         // -> transport. No payload bytes logged; failures are sanitized
         // (truncation/close).
         let handler_lifecycle = lifecycle.clone();
-        let handler = move |mut io: eggserve_core::primitives::tunnel::TunnelIo| async move {
+        let handler = move |mut io: eggserve_server::tunnel::TunnelIo| async move {
             let mut buf = vec![0u8; 32 * 1024];
             loop {
                 tokio::select! {
@@ -266,7 +268,7 @@ pub struct PyTunnel {
     to_python_rx:
         Arc<std::sync::Mutex<Option<mpsc::Receiver<Result<Vec<u8>, String>>>>>,
     pub(super) to_runtime_tx: Arc<std::sync::Mutex<Option<mpsc::Sender<Vec<u8>>>>>,
-    pub(super) lifecycle: Option<eggserve_core::primitives::request_lifecycle::RequestLifecycle>,
+    pub(super) lifecycle: Option<eggserve_primitives::request_lifecycle::RequestLifecycle>,
     pub(super) handle: Option<tokio::runtime::Handle>,
     pub(super) closed: Arc<AtomicBool>,
 }

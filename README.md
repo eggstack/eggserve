@@ -150,7 +150,17 @@ second resolver, proven by the authority conformance fixture
 the H3/QUIC transport adapter into `eggserve-h3` as the sole implementation
 authority (endpoint, request, response, tunnel, QUIC assembly, `Http3Config`);
 `eggserve-core` keeps `server::http3` working as a thin facade with no second
-state machine. H3 stays experimental under Plans 213 and 220. Advanced
+state machine. H3 stays experimental under Plans 213 and 220. Plan 221 makes
+the first-party frontends prove the direct architecture: `eggserve-bin` and
+`eggserve-python` name `eggserve-primitives`, `eggserve-server`,
+`eggserve-static`, and `eggnet-tls` directly for every neutral path (policy,
+observability, shared limits with one Rust validation authority, static
+planning/capabilities, tunnel, neutral TLS loading), with the binary's unit
+tests driving leaf `Server` + leaf `StaticService`. The extended server
+orchestration (serve_config, full TLS/H2/H3 `Server`, full `StaticService`,
+`ServeConfig`/listing budgets, handle lifecycle) and the extension-backed
+CLI (`eggserve_bin::run_cli`, confirmed used) remain compatibility-owned
+until Plan 225. Advanced
 listener/proxy/TLS-identity paths remain in core while their extraction phases
 are completed. There is no additional
 `eggserve` facade crate.
@@ -460,8 +470,10 @@ cargo install --path crates/eggserve-bin
 ```
 
 The source-checkout command installs the `eggserve-bin` package's `eggserve`
-binary. Rust embedders should add `eggserve-core` as their library dependency;
-the executable crate is intentionally a thin CLI surface.
+binary. New Rust consumers should depend directly on the smallest leaf crate
+they need (`eggserve-primitives`, `eggserve-server`, `eggserve-static`, or
+`eggserve-h3`); `eggserve-core` remains the 0.1 compatibility aggregate.
+The executable crate is intentionally a thin CLI surface.
 
 The Python wheel includes the native extension and extension-backed CLI entry
 point; it does not bundle a second standalone CLI binary. See

@@ -18,28 +18,30 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_core::policy;
-use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::canonical::{
+use eggserve_primitives::policy;
+use eggserve_primitives::body::BodySource;
+use eggserve_primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
     ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
-use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::request_body::RequestBody;
-use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_core::primitives::request_context::RequestContext;
-use eggserve_core::primitives::request_head::RequestHead;
-use eggserve_core::primitives::{
+use eggserve_primitives::header_block::{HeaderName, HeaderValue};
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::request_body::RequestBody;
+use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_primitives::request_context::RequestContext;
+use eggserve_primitives::request_head::RequestHead;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
+// it. The bridge names the leaf directly. `StaticPolicy` stays
+// primitives-owned.
+use eggserve_static::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot, StaticPolicy,
+    ResolveAndPlanError, SecureRoot,
 };
-use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::errors::ShutdownResult;
-use eggserve_core::server::lifecycle::LifecycleState;
-use eggserve_core::server::service::{Service, ServiceError};
-use eggserve_core::server::{Server, ServerHandle};
+use eggserve_primitives::policy::StaticPolicy;
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::service::{Service, ServiceError};
 
 use super::*;
 #[allow(unused_imports)]
@@ -145,7 +147,7 @@ impl PyStaticResponder {
             .unwrap_or_else(|| "application/octet-stream".to_string());
         let extra_response_headers = extra_response_headers.unwrap_or_default();
         validate_extra_response_headers(&default_content_type, &extra_response_headers)?;
-        let plan_file = |file: eggserve_core::primitives::ResolvedFile| -> PyResult<PyResponse> {
+        let plan_file = |file: eggserve_static::ResolvedFile| -> PyResult<PyResponse> {
             let plan = file.plan_response(
                 ro_method,
                 if_match,
@@ -167,7 +169,7 @@ impl PyStaticResponder {
             Ok(response)
         };
 
-        if let eggserve_core::primitives::ResolvedResource::Directory(dir) =
+        if let eggserve_static::ResolvedResource::Directory(dir) =
             self.root.resolve(&path)
         {
             // Keep the low-level StaticResponder contract (directories are
@@ -192,7 +194,7 @@ impl PyStaticResponder {
 
             for index in index_pages.expect("checked above") {
                 match dir.resolve_child(&index, &self.root) {
-                    eggserve_core::primitives::ResolvedResource::File(file) => {
+                    eggserve_static::ResolvedResource::File(file) => {
                         if let Ok(response) = plan_file(file) {
                             let mut response = response;
                             if let Some(overrides) = &mime_overrides {
@@ -204,10 +206,10 @@ impl PyStaticResponder {
                             return Ok(response);
                         }
                     }
-                    eggserve_core::primitives::ResolvedResource::Denied(_)
-                    | eggserve_core::primitives::ResolvedResource::NotFound
-                    | eggserve_core::primitives::ResolvedResource::Directory(_) => continue,
-                    eggserve_core::primitives::ResolvedResource::IoError(error) => {
+                    eggserve_static::ResolvedResource::Denied(_)
+                    | eggserve_static::ResolvedResource::NotFound
+                    | eggserve_static::ResolvedResource::Directory(_) => continue,
+                    eggserve_static::ResolvedResource::IoError(error) => {
                         return Err(pyo3::exceptions::PyRuntimeError::new_err(format!(
                             "filesystem resolution failed: {error}"
                         )))
@@ -309,7 +311,7 @@ pub(super) fn file_suffix(path: &str) -> String {
 }
 
 pub(super) fn build_response(
-    plan: eggserve_core::primitives::response::StaticResponsePlan,
+    plan: eggserve_primitives::response::StaticResponsePlan,
     body_source: BodySource,
 ) -> PyResult<PyResponse> {
     let mut headers = HashMap::new();
@@ -361,7 +363,7 @@ pub(super) fn apply_static_metadata(
         {
             // Canonicalize via `HeaderValue` (trims SP/HTAB OWS) so validation
             // and wire value agree — mirrors `static_service::append_extra_headers`.
-            let canonical = eggserve_core::primitives::header_block::HeaderValue::new(
+            let canonical = eggserve_primitives::header_block::HeaderValue::new(
                 value.clone(),
             )
             .map(|v| v.to_str().unwrap_or("").to_owned())

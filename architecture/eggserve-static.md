@@ -20,9 +20,12 @@ internals are never exposed.
 The generic runtime has no edge to this crate. Applications that only need a
 custom service can depend on `eggserve-server` and
 `eggserve-primitives`; static serving is an explicit addition. The direct crate
-is the hardened static implementation for new Rust consumers. The CLI and
-Python facade retain compatibility wrappers over the historical core surface
-during the 0.1 line; their behavior is covered by the existing qualification
+is the hardened static implementation for new Rust consumers. Plan 221 makes
+the first-party frontends consume it directly: the binary's unit tests drive
+leaf `StaticService`, and the Python bridge resolves/plans through the leaf
+(including the capability bridge) — with the extended static orchestration
+(extra headers/error policy, listing budgets, `ServeConfig` validation)
+remaining compatibility-owned until Plan 225. Behavior is covered by the existing qualification
 suites plus the authority conformance fixture
 (`crates/eggserve-core/tests/static_authority_conformance.rs`). No
 pathname-based fallback is exposed by the direct static service.

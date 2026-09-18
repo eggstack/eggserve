@@ -200,8 +200,12 @@ dependencies = [
 name = "eggserve-bin"
 version = "0.1.2"
 dependencies = [
+ "eggnet-tls",
  "eggserve-core",
  "eggserve-h3",
+ "eggserve-primitives",
+ "eggserve-server",
+ "eggserve-static",
  "rustls",
  "rustls-pki-types",
  "tempfile",

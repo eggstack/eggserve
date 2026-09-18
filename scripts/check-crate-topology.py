@@ -201,6 +201,9 @@ def main() -> int:
     if check_plan220_h3_extraction() != 0:
         return 1
 
+    if check_plan221_frontends() != 0:
+        return 1
+
     print(
         "Plan 211–220 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3 adapter owned; "
@@ -208,7 +211,9 @@ def main() -> int:
         "direct tunnel authority with neutral vocabulary; "
         "direct service/request convergence with single Service contract; "
         "single static/path/filesystem authority with core facades; "
-        "single H3/QUIC adapter with core facades"
+        "single H3/QUIC adapter with core facades; "
+        "Plan 221 frontends name leaf crates directly (neutral paths; "
+        "extended orchestration blockers documented)"
     )
     return 0
 
@@ -1070,6 +1075,128 @@ def check_plan220_h3_extraction() -> int:
                 file=sys.stderr,
             )
             return 1
+
+    return 0
+
+
+def check_plan221_frontends() -> int:
+    """Enforce Plan 221 first-party frontend leaf-crate migration (progress gate).
+
+    Structural (not line-count) rules: `eggserve-bin` and `eggserve-python`
+    name the canonical leaf crates directly for neutral policy/primitives,
+    runtime, static authority, and TLS substrate paths. The extended server
+    orchestration (serve_config/try_from_serve_config, full Server with
+    TLS/H2/H3, full StaticService with extra headers/error policy,
+    ServeConfig/Limits static budgets, ServerHandle lifecycle) remains
+    compatibility-owned until Plan 225, so a narrow documented blocker set
+    is allowed. The Python -> bin extension CLI (`eggserve_bin::run_cli`)
+    is confirmed used and remains.
+    """
+    repo = Path(__file__).resolve().parent.parent
+
+    def read(path: Path) -> str:
+        return path.read_text()
+
+    def code_lines(text: str) -> str:
+        # Plan 221 comments legitimately name the compatibility facade when
+        # documenting the blocker set; only code imports count. Strip all
+        # `//` comment lines here (the Plan 215–220 gates above keep their
+        # doc-only exclusion).
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith("//")
+        )
+
+    # 1. Frontend manifests must name the leaf crates directly (not only
+    #    transitively through the compatibility core).
+    import tomllib
+
+    for rel, required in (
+        ("crates/eggserve-bin/Cargo.toml", {"eggserve-primitives", "eggserve-server", "eggserve-static", "eggnet-tls"}),
+        ("crates/eggserve-python/Cargo.toml", {"eggserve-primitives", "eggserve-server", "eggserve-static", "eggnet-tls", "eggserve-bin"}),
+    ):
+        data = tomllib.loads((repo / rel).read_text())
+        deps = set(data.get("dependencies", {}))
+        missing = required - deps
+        if missing:
+            print(f"{rel} must name leaf crates directly: missing {sorted(missing)} (Plan 221)", file=sys.stderr)
+            return 1
+
+    # 2. Binary neutral paths must use the leaf authorities.
+    bin_lib = read(repo / "crates" / "eggserve-bin" / "src" / "lib.rs")
+    bin_code = code_lines(bin_lib)
+    for marker in (
+        "use eggserve_server::ops::",
+        "eggserve_primitives::policy::ErrorRepresentationPolicy",
+    ):
+        if marker not in bin_lib:
+            print(f"eggserve-bin/src/lib.rs must use leaf `{marker}` (Plan 221)", file=sys.stderr)
+            return 1
+    bin_tls = read(repo / "crates" / "eggserve-bin" / "src" / "tls.rs")
+    if "pub use eggnet_tls::" not in bin_tls:
+        print("eggserve-bin/src/tls.rs must re-export the neutral `eggnet_tls` substrate directly (Plan 221)", file=sys.stderr)
+        return 1
+    if "use eggserve_core::ops::" in bin_code or "use eggserve_core::tls::" in bin_code:
+        print("eggserve-bin/src/lib.rs must not import ops/TLS through the compatibility core (Plan 221)", file=sys.stderr)
+        return 1
+    bin_args = read(repo / "crates" / "eggserve-bin" / "src" / "args.rs")
+    if "eggserve_primitives::policy::" not in bin_args:
+        print("eggserve-bin/src/args.rs must name `eggserve_primitives::policy` directly (Plan 221)", file=sys.stderr)
+        return 1
+    # Binary unit tests prove the direct H1 static path (leaf server + leaf static).
+    if "use eggserve_server::" not in bin_lib or "use eggserve_static::StaticService" not in bin_lib:
+        print("eggserve-bin/src/lib.rs tests must exercise the direct leaf H1 static path (Plan 221)", file=sys.stderr)
+        return 1
+
+    # 3. Python bridge modules must be core-free except the documented
+    #    extended-orchestration blockers (runtime lifecycle/serve_config,
+    #    static config/listing budgets). Neutral policy/primitives/ops/
+    #    service/response-policy/TLS paths must use the leaf.
+    bridge_dir = repo / "crates" / "eggserve-python" / "src" / "server"
+    blocker_files = {"runtime.rs", "static_responder.rs", "lifecycle.rs"}
+    for path in sorted(bridge_dir.glob("*.rs")):
+        code = code_lines(read(path))
+        # Neutral paths must not route through the core facade.
+        for second in (
+            "eggserve_core::policy::",
+            "eggserve_core::primitives::body::",
+            "eggserve_core::primitives::canonical::",
+            "eggserve_core::primitives::header_block::",
+            "eggserve_core::primitives::http::",
+            "eggserve_core::primitives::request",
+            "eggserve_core::ops::",
+            "eggserve_core::server::service::",
+            "eggserve_core::server::response_policy::",
+            "eggserve_core::server::errors::",
+            "eggserve_core::tls::",
+        ):
+            if second in code:
+                print(f"eggserve-python server/{path.name} routes neutral paths through `{second}` (Plan 221: use the leaf)", file=sys.stderr)
+                return 1
+        # Outside the documented blocker files, no core code import remains.
+        if path.name not in blocker_files and "eggserve_core::" in code:
+            print(f"eggserve-python server/{path.name} keeps a compatibility-core import outside the documented blocker set (Plan 221)", file=sys.stderr)
+            return 1
+    # Top-level Python lib keeps one static-budget use (listing entries);
+    # everything else static/neutral must be leaf.
+    py_lib = code_lines(read(repo / "crates" / "eggserve-python" / "src" / "lib.rs"))
+    for second in ("eggserve_core::primitives::", "eggserve_core::policy::"):
+        if second in py_lib:
+            print(f"eggserve-python/src/lib.rs routes neutral paths through `{second}` (Plan 221: use the leaf)", file=sys.stderr)
+            return 1
+
+    # 4. Python -> bin extension CLI remains (confirmed used; Plan 221 §3 keeps it).
+    if "eggserve_bin::run_cli" not in read(repo / "crates" / "eggserve-python" / "src" / "lib.rs"):
+        print("eggserve-python must retain the extension-backed CLI via `eggserve_bin::run_cli` (Plan 221 §3: confirmed used)", file=sys.stderr)
+        return 1
+
+    # 5. Shared runtime validation has one Rust authority: the Python bridge
+    #    must project through `SharedRuntimeValues` instead of an independent table.
+    runtime_rs = read(repo / "crates" / "eggserve-python" / "src" / "server" / "runtime.rs")
+    if "SharedRuntimeValues" not in runtime_rs or "shared.validate()" not in runtime_rs:
+        print("eggserve-python runtime must validate through canonical `SharedRuntimeValues` (Plan 221 §4)", file=sys.stderr)
+        return 1
 
     return 0
 

@@ -1,6 +1,6 @@
 # eggserve-bin — Deep Dive
 
-The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, signal handling, and graceful shutdown. Delegates accept loop, connection management, and TLS to `eggserve-core::server`. Uses a current-thread Tokio runtime.
+The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, signal handling, and graceful shutdown. Plan 221 names the canonical leaf crates directly for every neutral path: `eggserve-primitives` (policy types), `eggserve-server` (observability), `eggserve-static` (direct H1 tests), and `eggnet-tls` (neutral single-identity loading). The extended server orchestration — `ServeConfig`, `try_from_serve_config`, the full `Server` with TLS/H2/H3, the full `StaticService` with extra headers/error policy, and `Limits`/static-metadata validation with static budgets — remains compatibility-owned until Plan 225. Uses a current-thread Tokio runtime.
 
 ## Module Map
 
@@ -10,7 +10,7 @@ The CLI binary crate. Owns the process lifecycle: argument parsing, startup logg
 | `lib.rs` | `run()` executable entrypoint and integration-only `run_cli(argv) -> i32`; delegates to core server |
 | `args.rs` | Manual argument parsing (no clap dependency) |
 | `shutdown.rs` | Signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel |
-| `tls.rs` | Re-exports `eggserve_core::tls` (feature-gated: `tls`); loading lives in core |
+| `tls.rs` | Re-exports `eggnet-tls` directly (Plan 221; single-identity PEM loading lives in the neutral substrate) |
 
 ## Entry Points
 
@@ -137,9 +137,10 @@ mechanism if a stuck process must be stopped.
 
 Behind the `tls` feature flag. Uses `rustls` + `tokio-rustls`.
 
-`bin/src/tls.rs` is a one-line re-export (`pub use eggserve_core::tls::*`).
-The compatibility module re-exports neutral `eggnet-tls` loading and identity
-logic; `eggserve-core` adds only its HTTP/3-specific QUIC assembly:
+`bin/src/tls.rs` is a one-line re-export (`pub use eggnet_tls::*`, Plan 221).
+Single-identity PEM loading lives once in the neutral substrate;
+`eggserve-core` adds only its HTTP/3-specific QUIC assembly for the
+compatibility orchestration path:
 
 - Loads PEM certificate chain and private key
 - Supports PKCS#1, PKCS#8, and SEC1 key formats
@@ -150,12 +151,18 @@ logic; `eggserve-core` adds only its HTTP/3-specific QUIC assembly:
 
 | Dependency | Purpose |
 |------------|---------|
-| `eggserve-core` | Request handling, config, policy, HTTP serving, TLS loading |
+| `eggserve-core` | Extended server orchestration only: `ServeConfig`, `try_from_serve_config`, full `Server` (TLS/H2/H3), full `StaticService`, `Limits`/static-metadata validation (blockers for Plan 225) |
+| `eggserve-primitives` | Neutral policy types (Plan 221) |
+| `eggserve-server` | Observability, shared limit authority (Plan 221) |
+| `eggserve-static` | Direct H1 static tests (Plan 221) |
+| `eggnet-tls` | Neutral single-identity TLS loading (Plan 221) |
 | `tokio` | Async runtime |
 
-`eggnet-tls`, `rustls`, `tokio-rustls`, and `rustls-pki-types` are transitive
-through `eggserve-core` (optional, behind `tls` feature). `bin/Cargo.toml` lists
-them only as dev-dependencies for integration tests.
+`eggserve-h3` stays optional behind `http3`. The minimal CLI build pulls no
+H3/Tower/Python-only dependencies. Unit tests in `src/lib.rs` prove the
+direct architecture: leaf `Server` + leaf `StaticService` with no
+compatibility import; the `production_path` integration tests keep covering
+the compatibility orchestration path.
 
 ## See Also
 

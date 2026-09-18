@@ -10,7 +10,10 @@ direct crates; Plan 217 finishes service/request convergence with a single
 Plan 219 collapses the remaining static/path/filesystem duplication onto
 `eggserve-static`, leaving `eggserve-core` with compatibility facades only;
 Plan 220 moves the H3/QUIC transport adapter into `eggserve-h3`, leaving
-`eggserve-core` with a thin facade only.
+`eggserve-core` with a thin facade only. Plan 221 migrates the first-party
+frontends (`eggserve-bin`, `eggserve-python`) onto those leaf crates for
+every neutral path, leaving `eggserve-core` for the extended server
+orchestration until Plan 225 closes the facade.
 Protocol-specific compatibility glue
 (H2 wire mechanics, extended listener/proxy/TLS paths) remains in
 core as explicit transport glue, with topology-gate ownership rules marking the
@@ -94,6 +97,25 @@ direct `Service` drives direct H1 and compatibility H2, and the authority
 fixture (`crates/eggserve-core/tests/static_authority_conformance.rs`)
 proves core static paths resolve to the static implementation.
 
+Plan 221 makes the first-party frontends prove the direct architecture.
+`eggserve-bin` names `eggserve-primitives` (policy), `eggserve-server`
+(observability, shared limits), `eggserve-static` (direct H1 tests), and
+`eggnet-tls` (neutral loading) directly; its unit tests drive the leaf
+`Server` + leaf `StaticService` with no compatibility import.
+`eggserve-python` names the same leaves plus `eggserve-bin` (the
+extension-backed CLI via `run_cli`, confirmed used and retained): neutral
+policy/primitives, ops, service, response policy, shared-limit validation
+(`SharedRuntimeValues`, one Rust authority), static planning/capabilities
+(`eggserve-static`, including the `python-bindings-internal` capability
+bridge), neutral tunnel execution (`eggserve-server::tunnel`), and neutral
+TLS loading (`eggnet-tls`). The narrow remaining compatibility uses are
+explicit blockers for Plan 225, not second implementations: the extended
+`Server`/`ServerHandle`/`RuntimeConfig` with TLS, `LifecycleState`,
+`ServeConfig` + `validate_static_metadata`, and static listing budgets
+(`DEFAULT_MAX_LISTING_ENTRIES`). The Python bridge keeps those uses confined
+to `runtime.rs`, `static_responder.rs`, `lifecycle.rs`, and one listing call;
+all other bridge modules are core-free in code.
+
 `eggnet-tls` is the neutral TLS security substrate. It depends only on
 `rustls` and `rustls-pki-types` at runtime and owns bounded PEM parsing, SNI
 identity selection, explicit WebPKI client authentication, trust/CRL bounds,
@@ -139,7 +161,13 @@ conformance fixture. The Plan 220 rules assert the single H3/QUIC adapter
 authority: `server/http3/` absent from core, core `http3.rs` delegating to
 `eggserve_h3::accept_loop`, `Http3Config` and QUIC assembly owned once in
 `eggserve-h3` with core facades, H3 endpoint assembly via H3-owned helpers,
-no second canonical helpers in core, and downward-only H3 deps. It is part of the Rust CI preflight and
+no second canonical helpers in core, and downward-only H3 deps. The Plan 221
+rules assert first-party leaf consumption: frontend manifests name the leaf
+crates directly, binary neutral paths (policy, ops, TLS, direct H1 tests)
+use the leaf, Python neutral bridge modules are core-free in code outside
+the documented extended-orchestration blockers, the extension CLI stays via
+`eggserve_bin::run_cli`, and Python validation projects through canonical
+`SharedRuntimeValues`. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.
 
 The check also verifies that the mature static resolver is present and the old

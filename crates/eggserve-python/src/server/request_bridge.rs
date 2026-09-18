@@ -18,28 +18,30 @@ use tokio::sync::mpsc;
 use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_core::policy;
-use eggserve_core::primitives::body::BodySource;
-use eggserve_core::primitives::canonical::{
+use eggserve_primitives::policy;
+use eggserve_primitives::body::BodySource;
+use eggserve_primitives::canonical::{
     normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
     ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
 };
-use eggserve_core::primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_core::primitives::http::ReadOnlyMethod;
-use eggserve_core::primitives::request_body::RequestBody;
-use eggserve_core::primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_core::primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_core::primitives::request_context::RequestContext;
-use eggserve_core::primitives::request_head::RequestHead;
-use eggserve_core::primitives::{
+use eggserve_primitives::header_block::{HeaderName, HeaderValue};
+use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::request_body::RequestBody;
+use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
+use eggserve_primitives::request_body_policy::RequestBodyPolicy;
+use eggserve_primitives::request_context::RequestContext;
+use eggserve_primitives::request_head::RequestHead;
+// Plan 221: static/path/filesystem authority lives once in `eggserve-static`
+// (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
+// it. The bridge names the leaf directly. `StaticPolicy` stays
+// primitives-owned.
+use eggserve_static::{
     resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot, StaticPolicy,
+    ResolveAndPlanError, SecureRoot,
 };
-use eggserve_core::server::config::RuntimeConfig;
-use eggserve_core::server::errors::ShutdownResult;
-use eggserve_core::server::lifecycle::LifecycleState;
-use eggserve_core::server::service::{Service, ServiceError};
-use eggserve_core::server::{Server, ServerHandle};
+use eggserve_primitives::policy::StaticPolicy;
+use eggserve_server::errors::ShutdownResult;
+use eggserve_server::service::{Service, ServiceError};
 
 use super::*;
 #[allow(unused_imports)]
@@ -114,19 +116,19 @@ pub struct PyRequest {
     pub(super) handle: Option<tokio::runtime::Handle>,
     // Cloned lifecycle/interim for disconnect observation + bounded 1xx.
     // `RequestLifecycle`/`InterimSender` are Arc-backed small handles.
-    pub(super) lifecycle: Option<eggserve_core::primitives::request_lifecycle::RequestLifecycle>,
-    pub(super) interim: Option<eggserve_core::primitives::interim::InterimSender>,
+    pub(super) lifecycle: Option<eggserve_primitives::request_lifecycle::RequestLifecycle>,
+    pub(super) interim: Option<eggserve_primitives::interim::InterimSender>,
     // One-shot tunnel slot shared with the runtime context (taking via one
     // clone removes for all; second take returns None). `None` when the
     // request is not a validated upgrade/CONNECT/Extended CONNECT.
     pub(super) tunnel_slot:
-        Option<Arc<std::sync::Mutex<Option<eggserve_core::primitives::tunnel::TunnelCapability>>>>,
+        Option<Arc<std::sync::Mutex<Option<eggserve_server::tunnel::TunnelCapability>>>>,
     // Handshake slot populated by `accept_tunnel` (one-shot). After the
     // Python handler returns, the service layer takes this instead of the
     // converted `Response` so the runtime-owned `TunnelAcceptance` (with
     // transport upgrade + duplex handler) survives the Python boundary.
     pub(super) tunnel_handshake:
-        Arc<std::sync::Mutex<Option<eggserve_core::primitives::canonical::Response>>>,
+        Arc<std::sync::Mutex<Option<eggserve_primitives::canonical::Response>>>,
 }
 
 #[pymethods]
@@ -220,16 +222,16 @@ impl PyRequest {
     fn cancellation_reason(&self) -> Option<String> {
         self.lifecycle.as_ref().and_then(|lc| {
             lc.cancellation_reason().map(|r| match r {
-                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::PeerDisconnected => {
+                eggserve_primitives::request_lifecycle::RequestCancellationReason::PeerDisconnected => {
                     "peer_disconnected".to_string()
                 }
-                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::ServerShutdown => {
+                eggserve_primitives::request_lifecycle::RequestCancellationReason::ServerShutdown => {
                     "server_shutdown".to_string()
                 }
-                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::ConnectionTimeout => {
+                eggserve_primitives::request_lifecycle::RequestCancellationReason::ConnectionTimeout => {
                     "connection_timeout".to_string()
                 }
-                eggserve_core::primitives::request_lifecycle::RequestCancellationReason::TransportFailure => {
+                eggserve_primitives::request_lifecycle::RequestCancellationReason::TransportFailure => {
                     "transport_failure".to_string()
                 }
                 // `RequestCancellationReason` is `#[non_exhaustive]`; future
@@ -269,8 +271,8 @@ impl PyRequest {
         status: u16,
         headers: Option<Vec<(String, String)>>,
     ) -> PyResult<String> {
-        use eggserve_core::primitives::canonical::StatusCode;
-        use eggserve_core::primitives::header_block::HeaderBlock;
+        use eggserve_primitives::canonical::StatusCode;
+        use eggserve_primitives::header_block::HeaderBlock;
 
         let sender = self.interim.as_ref().ok_or_else(|| {
             pyo3::exceptions::PyRuntimeError::new_err("no interim sender attached to request")

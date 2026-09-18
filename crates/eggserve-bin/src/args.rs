@@ -3,7 +3,14 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use eggserve_core::limits::Limits;
-use eggserve_core::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy};
+// Plan 221: neutral policy types are owned by `eggserve-primitives`; the
+// compatibility `eggserve_core::policy` facade re-exports this authority.
+// The binary names the leaf directly. `Limits` (with static listing and
+// extra-header budgets) and `config::validate_static_metadata` remain
+// compatibility-owned until Plan 225.
+use eggserve_primitives::policy::{
+    DirectoryListingPolicy, DotfilePolicy, StaticPolicy, SymlinkPolicy,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LogFormat {
@@ -753,7 +760,7 @@ impl Args {
             directory_listing: self.directory_listing,
             symlinks: self.symlinks,
             dotfiles: self.dotfiles,
-            static_metadata: eggserve_core::policy::StaticMetadataPolicy::standard(),
+            static_metadata: eggserve_primitives::policy::StaticMetadataPolicy::standard(),
         }
     }
 
