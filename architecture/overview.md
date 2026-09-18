@@ -27,6 +27,9 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 
 - Not an ASGI/WSGI server, CGI executor, FastCGI gateway, or web framework
 - Not a reverse proxy, ACME client, or plugin host
+- Not an HTTP client or outbound CONNECT/proxy client (Plan 223: the shared
+  outbound H1 CONNECT wire primitive lives outside eggserve for
+  eggfetch/eggress; eggserve owns only inbound tunnel acceptance)
 - Not a file upload handler, auth system, or template engine
 - Not a WebSocket framing server (generic tunnel handoff via Plan 199; framing stays downstream)
 
@@ -35,7 +38,7 @@ gateways implement the canonical `Service` trait and return canonical
 `Response` values; see [runtime.md](runtime.md) and
 [../docs/extension-contract.md](../docs/extension-contract.md).
 
-Plan 199 implements generic tunnel/upgrade/Extended CONNECT, superseding deferred Plan 176: one-shot transport-backed capabilities (H1 `Upgrade`, `CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8), `accept` returns a handshake `Response` (`101` H1 / `200` otherwise) plus bounded `TunnelIo`; denial stays ordinary HTTP; WebSocket framing stays downstream (see `tunnel_upgrade.rs`). Plan 216 moves authority to the direct crates (neutral vocabulary in `eggserve-primitives`, execution in `eggserve-server`, compatibility delegating; handlers own only IO). Downstream servers must not bypass via raw Hyper/h2/h3/Quinn types; see [../docs/non-goals.md](../docs/non-goals.md) and
+Plan 199 implements generic tunnel/upgrade/Extended CONNECT, superseding deferred Plan 176: one-shot transport-backed capabilities (H1 `Upgrade`, `CONNECT`, H2/H3 Extended `CONNECT`; H3 generic `:protocol` blocked by `h3` 0.0.8), `accept` returns a handshake `Response` (`101` H1 / `200` otherwise) plus bounded `TunnelIo`; denial stays ordinary HTTP; WebSocket framing stays downstream (see `tunnel_upgrade.rs`). Plan 216 moves authority to the direct crates (neutral vocabulary in `eggserve-primitives`, execution in `eggserve-server`, compatibility delegating; handlers own only IO). Plan 223 keeps that authority inbound-only: eggserve accepts server-side tunnels and never dials outbound CONNECT proxies — the shared outbound wire primitive lives outside eggserve for eggfetch/eggress with no eggserve dependency. Downstream servers must not bypass via raw Hyper/h2/h3/Quinn types; see [../docs/non-goals.md](../docs/non-goals.md) and
 [../docs/downstream-app-server.md](../docs/downstream-app-server.md).
 
 The user-facing Python compatibility matrix is maintained in

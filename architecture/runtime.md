@@ -222,7 +222,14 @@ capture the lifecycle for cancellation). Bounded single-owner `TunnelIo`
 `enable_extended_connect(true)`; unused capabilities drop (denial stays
 ordinary HTTP). Downstream WebSocket framing lives over `TunnelIo` (see
 `tunnel_upgrade.rs` echo + `tokio-tungstenite` fixture); raw
-Hyper/h2/h3/Quinn bypass remains unsupported.
+Hyper/h2/h3/Quinn bypass remains unsupported. This authority is
+inbound-only (Plan 223): eggserve accepts server-side tunnels and never
+dials outbound CONNECT proxies — the shared outbound H1 wire primitive
+(authority/request-head encode, bounded response-head parse, read-ahead
+preservation; dialing/DNS/TLS/timeout/retry/routing/lifecycle
+caller-owned) lives outside eggserve for eggfetch/eggress with no
+eggserve dependency, and eggress inbound `handle_connect`/auth/
+forwarding/relay stays locally owned there.
 
 ### ServerHandle
 

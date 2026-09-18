@@ -24,8 +24,9 @@ It has no dependency on `eggserve-core` or `eggserve-static`, so a downstream
 application server can select the runtime without inheriting static-file
 confinement or MIME implementation code. The crate is strict HTTP/1: H2
 selection, PROXY-preamble reading, and extended TLS identity stay
-compatibility-owned (Plans 217/202/203); tunnel acceptance is direct-owned
-(Plan 216); H3 mechanics live once in `eggserve-h3` (Plan 220) over a small
+compatibility-owned (Plans 217/202/203); inbound tunnel acceptance is
+direct-owned (Plans 199/216, inbound-only per Plan 223 — no outbound
+CONNECT dialing, no CONNECT-crate or client-stack dependency); H3 mechanics live once in `eggserve-h3` (Plan 220) over a small
 shared kernel exposed here (`connection::select_body_policy`,
 `contain_service_panic`, `invoke_canonical_service`,
 `finalize_canonical_response`, lifecycle registry; H3 `Alt-Svc` stays

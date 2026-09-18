@@ -7,6 +7,16 @@ These are explicit non-goals for eggserve. If a feature appears here, it is out 
 - **No CGI / FastCGI in-tree adapters (Plan 167 no-go)** — legacy subprocess execution and FastCGI gateway state machines live downstream as plain canonical `Service` implementations, not in `eggserve-core`/CLI/wheels. CGI follows the upstream removal (deprecated in Python 3.13, removed in 3.15) with no concrete in-tree consumer; FastCGI was never an `http.server` feature. Both would add process-management and backend-protocol maintenance against the no-broad-dependencies rule, and the anonymity-sensitive profile never enables them.
 - **No upload/write support in the initial product** — the server is read-only by design
 - **No reverse proxying** — eggserve does not forward requests to upstream servers
+- **No outbound HTTP CONNECT client (Plan 223)** — eggserve accepts
+  inbound server-side `CONNECT`/tunnel handoffs (Plans 199/216) but never
+  dials an outbound proxy `CONNECT`: no authority formatting,
+  request-head/`Proxy-Authorization` encoding, client-side response-head
+  parsing, or proxy dialing/TLS/timeout/retry/routing. The shared
+  caller-owned-stream outbound H1 wire primitive lives outside eggserve
+  for eggfetch/eggress (read-ahead preserving, bounded, neutral errors);
+  eggserve acquires no CONNECT-crate, HTTP-client, or product dependency
+  for it, and eggress inbound `handle_connect`/auth/forwarding/relay
+  stays locally owned there
 - **No automatic ACME** — TLS certificate management and automation are out of scope (native TLS server termination is implemented; see docs/tls.md)
 - **No database-backed configuration** — configuration is file/CLI based
 - **No generic plugin host** — eggserve has a fixed feature set, not an extensible architecture

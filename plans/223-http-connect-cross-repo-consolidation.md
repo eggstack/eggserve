@@ -120,3 +120,60 @@ The neutral crate should remain extremely small. Avoid pulling `http`, Hyper, UR
 - Neutral crate has no product, TLS, DNS, socket, retry, or routing dependency.
 - Eggress inbound CONNECT remains locally owned.
 - Eggserve dependency graph is unchanged.
+
+## Status
+
+**Eggserve-side complete — 2026-09-18.** No runtime change in this
+repository: eggserve owns only inbound server-side CONNECT/tunnel
+acceptance (Plans 199/216) and has no outbound H1 CONNECT encoder/parser
+to consolidate. The neutral outbound wire primitive
+(`eggnet-http-connect` or equivalent), the eggfetch migration, and the
+eggress outbound migration are follow-ups owned by those repositories;
+per the plan they were deliberately not implemented in the eggserve
+commit. Eggserve neither depends on the neutral CONNECT crate nor on
+eggfetch/eggress as products.
+
+## Implementation record (eggserve)
+
+- Verified no outbound client handshake exists here: the only CONNECT
+  handling is inbound server-side tunnel acceptance — neutral intent
+  vocabulary in `eggserve-primitives::tunnel`, transport execution in
+  `eggserve-server::tunnel`, compatibility H1/H2 delegation plus H3
+  stream bridging — with no authority formatting, request-head encoding,
+  `Proxy-Authorization` encoding, or response-head parsing for a
+  client-side proxy dial.
+- Documented the inbound/outbound boundary so the two directions are not
+  conflated: inbound acceptance stays locally owned in eggserve
+  (`architecture/runtime.md`, `architecture/crate-topology.md`,
+  `docs/non-goals.md`, `docs/extension-contract.md`); the outbound
+  caller-owned-stream wire primitive (authority formatting, request-head
+  encoding, optional `Proxy-Authorization`, bounded response-head
+  parsing, status extraction, read-ahead preservation, neutral errors;
+  dialing/DNS/TLS/timeout/retry/routing/lifecycle caller-owned) lives
+  outside eggserve and must never become an eggserve dependency.
+- No new dependencies: the workspace graph is unchanged and the topology
+  gate is unmodified and passes. The `No HTTP client stack without a
+  plan` rule in `docs/dependency-policy.md` now names Plan 223
+  explicitly.
+- User-facing updates: `README.md` (Plan 223 status),
+  `architecture/overview.md` (outbound client out of scope),
+  `architecture/crate-topology.md` (Plan 223 boundary),
+  `architecture/runtime.md` (inbound-only tunnel scope),
+  `docs/non-goals.md` (outbound CONNECT client non-goal),
+  `docs/dependency-policy.md` (no CONNECT-crate dependency),
+  `docs/extension-contract.md` (no outbound client provided),
+  `AGENTS.md` and the `eggserve-dev` skill (Plan 223 bullet).
+
+## Validation record
+
+Local validation: `cargo fmt`, topology/conformance/release-metadata
+gates, workspace checks (default, `http2,tls`, `http3,tls`), clippy with
+`-D warnings`, workspace tests, the excluded Python manifest check, and
+the `tls`/`http2,tls`/`http3,tls` feature test lanes per routine CI.
+Inbound tunnel suites (`eggserve-server/tests/tunnel_upgrade.rs`,
+`eggserve-core/tests/tunnel_upgrade.rs`) continue to pass unchanged.
+The neutral-crate unit/parity suites (fragmented head, head plus
+tunneled bytes, oversized head, header limits, malformed status,
+obs-text, authority forms, credential injection, non-2xx, caller
+timeout/cancellation) run in the sibling repositories when those
+follow-ups land.

@@ -181,6 +181,17 @@ and the crates.io publication path are recorded as follow-ups in the neutral
 TLS architecture. See the [neutral TLS architecture](https://github.com/eggstack/eggserve/blob/main/architecture/eggnet-tls.md)
 and [TLS deployment guide](https://github.com/eggstack/eggserve/blob/main/docs/tls.md).
 
+Plan 223 records the eggserve side of the outbound HTTP CONNECT
+consolidation as complete with no runtime change: eggserve owns only
+inbound server-side `CONNECT`/tunnel acceptance (Plans 199/216) and
+acquires no outbound client handshake, no neutral CONNECT-crate
+dependency, and no eggfetch/eggress product dependency. The shared
+outbound H1 wire primitive (caller-owned-stream encode/read with
+bounded response-head parsing and read-ahead preservation; dialing, DNS,
+TLS, timeout/retry, routing, and lifecycle caller-owned) plus the
+eggfetch/eggress migrations are follow-ups in those repositories; the
+boundary is owned by the crate topology and non-goals docs.
+
 Canonical response/request types and `Service` in the direct layers do not
 require consumers to name Hyper directly.
 `eggserve_server::adapters::to_hyper_response()` is the explicit opt-in

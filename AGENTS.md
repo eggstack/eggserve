@@ -288,6 +288,17 @@ Routine CI is a small regression screen, not release certification. Platform qua
   `allow_unauthenticated()`) and the eggfetch no-dependency evaluation live in
   those repos; `eggnet-tls` stays published from this workspace as a versioned
   crates.io package, never a git dependency (see `architecture/eggnet-tls.md`).
+- **Plan 223 cross-repo CONNECT consolidation (eggserve side)** — eggserve
+  owns only inbound server-side `CONNECT`/tunnel acceptance (Plans 199/216:
+  neutral vocabulary in `eggserve-primitives::tunnel`, execution in
+  `eggserve-server::tunnel`); it has no outbound H1 CONNECT encoder/parser
+  and must never acquire the neutral CONNECT crate, an HTTP client stack,
+  or an eggfetch/eggress product dependency. The shared outbound
+  caller-owned-stream wire primitive (authority/request-head encode,
+  bounded response-head parse, read-ahead preservation; dialing/DNS/TLS/
+  timeout/retry/routing/lifecycle caller-owned) plus both product
+  migrations live in those repos; eggress inbound `handle_connect`/auth/
+  forwarding/relay stays locally owned there (see `plans/223-http-connect-cross-repo-consolidation.md`).
 - `crates/eggserve-bin/src/main.rs` is a 2-line shim; real logic is in `lib.rs`/`args.rs`.
 
 ### Code shapes agents get wrong

@@ -125,6 +125,19 @@ HTTP, proxy, tracing, Tokio, or QUIC dependencies. EggServe keeps only the
 HTTP/3-specific QUIC configuration assembly in its compatibility facade and
 re-exports the neutral API from `eggserve_core::tls`.
 
+Plan 223 draws the complementary CONNECT boundary without adding a crate:
+eggserve owns only inbound server-side `CONNECT`/tunnel acceptance
+(neutral intent in `eggserve-primitives::tunnel`, execution in
+`eggserve-server::tunnel`, compatibility H1/H2 delegation, H3 bridging in
+`eggserve-h3`). The shared outbound H1 CONNECT wire primitive for
+eggfetch/eggress (caller-owned-stream authority/request-head encode,
+bounded response-head parse, read-ahead preservation; dialing, DNS, TLS,
+timeout/retry, routing, lifecycle caller-owned) lives outside this
+workspace. Eggserve must never depend on that neutral crate, on an HTTP
+client stack, or on eggfetch/eggress as products; eggress inbound
+`handle_connect`/auth/forwarding/relay stays locally owned there. See
+`plans/223-http-connect-cross-repo-consolidation.md`.
+
 `eggserve-h3` owns the experimental H3/QUIC transport adapter and the
 coordinated direct production dependencies on `h3`, `h3-quinn`, and Quinn.
 It depends downward on `eggserve-primitives`, `eggserve-server`, and

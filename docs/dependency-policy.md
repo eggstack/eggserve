@@ -21,7 +21,7 @@ production dependency set and is optional from the core facade. See
 
 Every dependency must have an explicit purpose. The following rules apply to all dependencies:
 
-- **No HTTP client stack without a plan** — HTTP client dependencies require an explicit plan and feature gate
+- **No HTTP client stack without a plan** — HTTP client dependencies require an explicit plan and feature gate. Plan 223 explicitly keeps the shared outbound H1 CONNECT wire primitive outside eggserve: no neutral CONNECT crate, no HTTP client stack, and no eggfetch/eggress product dependency enters any eggserve graph; eggserve owns only inbound server-side tunnel acceptance (Plans 199/216)
 - **No web framework dependency in the initial milestones** — no actix-web, axum, warp, etc.
 - **No templating dependency for generated directory listings** — directory listings use static HTML
 - **No default TLS dependency** — TLS dependencies are optional, behind the `tls` feature flag, and not included in the default build

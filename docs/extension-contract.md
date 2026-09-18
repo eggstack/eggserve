@@ -31,6 +31,10 @@ eggserve does not provide:
 - Templating or dynamic content execution
 - Cookies, sessions, or authentication
 - Reverse proxying
+- Outbound HTTP CONNECT/proxy clients (Plan 223): eggserve accepts
+  inbound server-side tunnel handoffs but never dials an outbound proxy;
+  the shared caller-owned-stream H1 wire primitive lives outside eggserve
+  for eggfetch/eggress with no eggserve dependency
 - Compression
 - Plugin systems or extensible architectures
 - WebSocket frame codecs, permessage-deflate, WebTransport, or server push
