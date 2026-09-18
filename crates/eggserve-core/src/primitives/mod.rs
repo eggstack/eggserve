@@ -22,24 +22,32 @@
 //!
 //! - [`DotfilePolicy`] (from [`crate::policy`]) — controls whether dotfiles are
 //!   **served** in the final response. Part of [`StaticPolicy`].
-//! - [`PathDotfilePolicy`] (from [`crate::path`]) — controls whether dotfile
+//! - [`PathDotfilePolicy`] (from [`eggserve_static::path`]) — controls whether dotfile
 //!   paths are **accepted** during [`ConfinedPath`] parsing. Part of
 //!   [`PathPolicy`].
 //!
 //! In practice, if the path-level policy denies dotfiles, the request is
 //! rejected before resolution and the static policy never sees it. Both must
 //! agree for dotfiles to be served.
+//!
+//! # Static authority (Plan 219)
+//!
+//! Path confinement, filesystem resolution, MIME selection, and static
+//! response planning are implemented once in [`eggserve_static`]. The
+//! `ConfinedPath`/secure-root/planner exports below are compatibility
+//! facades over that authority; this crate keeps no second parser,
+//! resolver, or planner.
 
-pub use crate::path::ConfinedPath;
-pub use crate::path::DotfilePolicy as PathDotfilePolicy;
-pub use crate::path::PathPolicy;
-pub use crate::path::PathRejection;
 pub use crate::policy::DirectoryListingPolicy;
 pub use crate::policy::DotfilePolicy;
 pub use crate::policy::ErrorRepresentationPolicy;
 pub use crate::policy::StaticMetadataPolicy;
 pub use crate::policy::StaticPolicy;
 pub use crate::policy::SymlinkPolicy;
+pub use eggserve_static::path::ConfinedPath;
+pub use eggserve_static::path::DotfilePolicy as PathDotfilePolicy;
+pub use eggserve_static::path::PathPolicy;
+pub use eggserve_static::path::PathRejection;
 
 mod secure_root;
 pub use secure_root::{
@@ -74,10 +82,6 @@ pub mod trailers;
 pub mod tunnel;
 pub mod version;
 
-pub use crate::path::decode::percent_decode;
-pub use crate::path::platform::{
-    check_component, has_windows_drive_prefix, is_windows_reserved_name,
-};
 pub use authority::{Authority, AuthorityError};
 pub use body::{BodyKind, BodySource, BodySourceError};
 pub use canonical::{
@@ -86,6 +90,10 @@ pub use canonical::{
     ResponseStream, ResponseStreamError, StatusCode,
 };
 pub use connection_info::{ConnectionInfo, Scheme, SocketEndpoints, TlsInfo};
+pub use eggserve_static::path::decode::percent_decode;
+pub use eggserve_static::path::platform::{
+    check_component, has_windows_drive_prefix, is_windows_reserved_name,
+};
 pub use header_block::{
     DuplicateHeaderError, HeaderBlock, HeaderError, HeaderField, HeaderName, HeaderValue,
     HeaderValueTextError,

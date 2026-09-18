@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–217 Cargo dependency topology.
+"""Enforce the Plan 211–219 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
 canonical primitives are a leaf, the generic server does not pull static
-serving, and static serving consumes the two lower layers.
+serving, static serving consumes the two lower layers, and static
+path/filesystem confinement lives once in `eggserve-static` with
+`eggserve-core` keeping compatibility facades only.
 """
 
 from __future__ import annotations
@@ -181,12 +183,16 @@ def main() -> int:
     if check_plan217_convergence() != 0:
         return 1
 
+    if check_plan219_confinement() != 0:
+        return 1
+
     print(
-        "Plan 211–217 topology: primitives leaf; neutral TLS; "
+        "Plan 211–219 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3/QUIC isolated; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
         "direct tunnel authority with neutral vocabulary; "
-        "direct service/request convergence with single Service contract"
+        "direct service/request convergence with single Service contract; "
+        "single static/path/filesystem authority with core facades"
     )
     return 0
 
@@ -690,6 +696,179 @@ def check_plan217_convergence() -> int:
             print(
                 f"Plan 217 fixture must exercise `{marker}` "
                 "(direct Service through H1 + H2)",
+                file=sys.stderr,
+            )
+            return 1
+
+    return 0
+
+
+def check_plan219_confinement() -> int:
+    """Enforce Plan 219 single static/path/filesystem authority.
+
+    Structural (not line-count) rules: `eggserve-static` owns path parsing,
+    secure-root resolution, filesystem confinement, MIME selection, and
+    response planning; `eggserve-core` keeps compatibility facades (re-export
+    or minimal wrapper) and no second Unix/Windows resolver, parser, or
+    planner. Core must not pull static-only platform dependencies for
+    confinement.
+    """
+    import tomllib
+
+    repo = Path(__file__).resolve().parent.parent
+
+    def read(path: Path) -> str:
+        return path.read_text()
+
+    def code_lines(text: str) -> str:
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("///", "//!"))
+        )
+
+    core_src = repo / "crates" / "eggserve-core" / "src"
+    static_src = repo / "crates" / "eggserve-static" / "src"
+
+    # 1. No second confinement implementation in the compatibility core.
+    for rel in ("fs", "path", "mime.rs", "path.rs", "fs.rs"):
+        if (core_src / rel).exists():
+            print(
+                f"eggserve-core/src/{rel} exists: static/path/filesystem "
+                "authority must live once in eggserve-static (Plan 219)",
+                file=sys.stderr,
+            )
+            return 1
+    lib_rs = read(core_src / "lib.rs")
+    for module in ("mod fs", "mod path", "mod mime"):
+        if module in code_lines(lib_rs):
+            print(
+                f"eggserve-core/src/lib.rs declares `{module}`: duplicate "
+                "confinement authority (Plan 219)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 2. Core secure-root/planner modules must be facades over the static
+    #    authority, not second definitions.
+    secure_root = read(core_src / "primitives" / "secure_root.rs")
+    if "pub use eggserve_static::" not in secure_root:
+        print(
+            "eggserve-core/primitives/secure_root.rs must facade "
+            "`pub use eggserve_static::` (Plan 219)",
+            file=sys.stderr,
+        )
+        return 1
+    for second in (
+        "pub struct SecureRoot",
+        "pub struct ResolvedFile",
+        "pub struct ResolvedDirectory",
+        "pub enum ResolvedResource",
+        "pub enum ResourceDeniedReason",
+        "pub fn resolve_and_plan",
+        "struct PinnedRoot",
+        "struct RootGuard",
+    ):
+        if second in code_lines(secure_root):
+            print(
+                f"eggserve-core secure_root keeps a second `{second}` "
+                "(Plan 219: delegate to the static authority)",
+                file=sys.stderr,
+            )
+            return 1
+    planner = read(core_src / "primitives" / "planner.rs")
+    if "pub use eggserve_static::" not in planner:
+        print(
+            "eggserve-core/primitives/planner.rs must facade "
+            "`pub use eggserve_static::` (Plan 219)",
+            file=sys.stderr,
+        )
+        return 1
+    if "pub fn plan_file_response" in code_lines(planner):
+        print(
+            "eggserve-core planner keeps a second `pub fn plan_file_response` "
+            "(Plan 219: delegate to the static authority)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 3. The static authority must expose the surface the facades preserve.
+    static_lib = read(static_src / "lib.rs")
+    for marker in (
+        "pub mod path",
+        "ConfinedPath",
+        "SecureRoot",
+        "plan_file_response_with_preconditions_and_metadata",
+        "resolve_and_plan",
+    ):
+        if marker not in static_lib:
+            print(
+                f"eggserve-static/src/lib.rs must expose `{marker}` (Plan 219)",
+                file=sys.stderr,
+            )
+            return 1
+    static_path = read(static_src / "path" / "mod.rs")
+    if "pub struct ConfinedPath" not in static_path:
+        print(
+            "eggserve-static/src/path/mod.rs must own "
+            "`pub struct ConfinedPath` (Plan 219)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 4. Core must not use static-only platform dependencies for confinement:
+    #    no `rustix::fs` paths in core source, and the unix target must not
+    #    enable the rustix `fs` feature (listener code needs `net` only;
+    #    `rustix::io::Errno` is ungated).
+    for path in list(core_src.rglob("*.rs")):
+        code = code_lines(read(path))
+        if "rustix::fs" in code or "rustix/fs" in code:
+            print(
+                f"eggserve-core {path.relative_to(repo)} uses rustix::fs: "
+                "confinement platform code belongs in eggserve-static (Plan 219)",
+                file=sys.stderr,
+            )
+            return 1
+    core_manifest = tomllib.loads(
+        (repo / "crates" / "eggserve-core" / "Cargo.toml").read_text()
+    )
+    rustix_features = (
+        core_manifest.get("target", {})
+        .get("'cfg(unix)'", {})
+        .get("dependencies", {})
+        .get("rustix", {})
+        .get("features", [])
+    )
+    if "fs" in rustix_features:
+        print(
+            "eggserve-core must not enable the rustix `fs` feature: "
+            "static confinement lives in eggserve-static (Plan 219)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 5. Authority conformance fixture proving core paths resolve to the
+    #    static implementation.
+    fixture = (
+        repo / "crates" / "eggserve-core" / "tests" / "static_authority_conformance.rs"
+    )
+    if not fixture.exists():
+        print(
+            "missing Plan 219 authority fixture "
+            "crates/eggserve-core/tests/static_authority_conformance.rs",
+            file=sys.stderr,
+        )
+        return 1
+    fixture_text = read(fixture)
+    for marker in (
+        "eggserve_static::SecureRoot",
+        "eggserve_static::ConfinedPath",
+        "static_authority",
+    ):
+        if marker not in fixture_text:
+            print(
+                f"Plan 219 fixture must exercise `{marker}` "
+                "(core facade against the static authority)",
                 file=sys.stderr,
             )
             return 1

@@ -90,7 +90,13 @@ module. Plan 216 moves tunnel authority to the direct crates; Plan 217
 finishes service/request convergence with `eggserve-server::Service` as the
 single contract for direct H1 and compatibility H2 plus a downstream fixture
 (`crates/eggserve-core/tests/direct_service_convergence.rs`; see
-`release/plan-215-direct-runtime-parity.md`).
+`release/plan-215-direct-runtime-parity.md`). Plan 219 collapses
+static/path/filesystem authority onto `eggserve-static` (sole owner of path
+parsing, secure-root resolution, filesystem confinement, MIME, and static
+response planning); `eggserve-core` keeps `primitives::{SecureRoot,
+ConfinedPath, ...}` as compatibility facades with no second resolver
+(`src/fs`, `src/path`, `src/mime.rs` deleted, topology-gated), proven by
+`crates/eggserve-core/tests/static_authority_conformance.rs`.
 The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
@@ -108,7 +114,7 @@ crates/
 ├── eggnet-tls/          # neutral rustls identity/trust/client-auth/reload substrate
 ├── eggserve-primitives/ # canonical application-facing values (transport-neutral)
 ├── eggserve-server/    # generic HTTP runtime and transport boundary
-├── eggserve-static/    # filesystem/static specialization
+├── eggserve-static/    # sole static/path/filesystem authority (SecureRoot, planner, MIME)
 ├── eggserve-h3/        # experimental Quinn/H3/H3-Quinn dependency boundary
 ├── eggserve-core/      # 0.1 compatibility aggregate
 ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop
@@ -222,8 +228,10 @@ Routine CI is a small regression screen, not release certification. Platform qua
   connection runtime (ops, error taxonomy, response policy, shared limit
   authority, service contract shape, connection vocabulary, H1 config/state,
   H1 driver, Hyper conversion boundary) and never depends on static serving;
-  `eggserve-static` owns the extracted descriptor/handle-relative resolver,
-  planner, MIME behavior, and static service. `eggserve-core` remains the 0.1
+  `eggserve-static` is the sole implementation owner of static path parsing,
+  secure-root resolution, filesystem confinement (descriptor/handle-relative
+  traversal), resolved capabilities, MIME selection, and static response
+  planning. `eggserve-core` remains the 0.1
   compatibility aggregate for Python, H2/H3, tunnel, proxy, and advanced
   configuration paths and exposes direct crates under
   `eggserve_core::layers`. `eggserve-bin::run_cli` is
@@ -238,7 +246,15 @@ Routine CI is a small regression screen, not release certification. Platform qua
   moves tunnel authority to the direct crates and Plan 217 finishes
   service/request convergence with `eggserve-server::Service` as the single
   contract plus a downstream fixture (see
-  `crates/eggserve-core/tests/direct_service_convergence.rs`). Keep
+  `crates/eggserve-core/tests/direct_service_convergence.rs`). Plan 219
+  collapses static/path/filesystem authority onto `eggserve-static`
+  (`ConfinedPath`/`PathPolicy`/`PathRejection`, `SecureRoot`/capabilities,
+  planner, MIME) with `eggserve-core` keeping re-export facades only
+  (`src/fs`, `src/path`, `src/mime.rs` deleted; `ServeState` retains a
+  `SecureRoot`; capability bridge forwarded via
+  `python-bindings-internal`; authority proven by
+  `crates/eggserve-core/tests/static_authority_conformance.rs`) and drops
+  the static-only `rustix::fs` feature from core. Keep
   H2 wire mechanics/TLS-compat work in core as explicit transport glue with
   parity evidence.
 - **Plan 212 neutral TLS** — `eggnet-tls` owns bounded PEM parsing, key/cert
@@ -252,7 +268,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 
 ### Code shapes agents get wrong
 
-- **Two DotfilePolicy types**: `path::DotfilePolicy` (parsing level) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served.
+- **Two DotfilePolicy types**: `eggserve_static::path::DotfilePolicy` (parsing level, facaded as `eggserve_core::primitives::PathDotfilePolicy`) and `policy::DotfilePolicy` (serving level). Both must agree for dotfiles to be served.
 - `StaticPolicy` field is `symlinks`, not `follow_symlinks`.
 - `ResponseStatus` is a struct with associated constants, not an enum. `FileRange` is a struct `{ start, end_inclusive }`, not an enum. `BodyPlan` variants: `Empty`, `FullBytes(Vec<u8>)`, `FileFull`, `FileRange { start, end_inclusive }`.
 - **Plan 164 admission/lifecycle fields** — `RuntimeConfig`/`Limits` also own `max_buf_size` (default 65536, Hyper minimum 8192), `max_headers` (default 100, pinned explicitly), `max_header_bytes` (default 32 KiB, 431 pre-service), `max_request_target_bytes` (default 8192, 414 pre-service), `max_in_flight_requests` (default 64, 503 on exhaustion), `keep_alive_idle_timeout` (default 60s, resets on activity), `max_requests_per_connection` (`Option<u64>`, default `None`), and `response_write_timeout` (default 30s, no-progress). `keep_alive_idle_timeout`/`response_write_timeout` are intentionally NOT cross-checked against `connection_total_timeout` (the hard ceiling). CLI exposes all eight (`--max-in-flight-requests`, `--keep-alive-idle-timeout`, `--max-requests-per-connection` with `0` = unlimited, `--response-write-timeout`, `--max-buf-size`, `--max-headers`, `--max-header-bytes`, `--max-request-target-bytes`).
@@ -265,7 +281,7 @@ Routine CI is a small regression screen, not release certification. Platform qua
 - `telemetry.rs` does not exist — do not create it. `clap` was removed (manual parsing in `args.rs`). `tracing` was never added (custom logging).
 - `#[allow(dead_code)]` on public API types — consumed externally by Python bindings, not dead.
 - Frozen Python classes — `#[pyclass(frozen)]` and `frozen=True` dataclasses; immutability enforced at both layers.
-- `ResolvedFile::from_parts()/into_std_file()/into_parts()` are `pub` behind the `python-bindings-internal` feature for cross-crate bindings, but the confinement guarantee ends after extraction.
+- `ResolvedFile::from_parts()/into_std_file()/into_parts()` are `pub` on the static authority behind the `python-bindings-internal` feature (forwarded by `eggserve-core`'s feature of the same name) for cross-crate bindings, but the confinement guarantee ends after extraction.
 
 ### HTTP semantics
 

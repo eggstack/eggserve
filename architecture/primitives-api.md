@@ -89,11 +89,11 @@ pub enum ResourceDeniedReason {
 
 ### `ResolvedFile` (`secure_root.rs`)
 
-A capability object — no public constructor. Obtained only through `SecureRoot::resolve()`. Wraps the internal `fs::ResolvedFile` which holds the open file handle and metadata.
+A capability object — no public constructor. Obtained only through `SecureRoot::resolve()`. Wraps the static authority's internal `fs::ResolvedFile` which holds the open file handle and metadata. (Plan 219: implemented once in `eggserve-static`; `eggserve_core::primitives` re-exports the type.)
 
 ```rust
 pub struct ResolvedFile {
-    inner: crate::fs::ResolvedFile,
+    inner: crate::fs::ResolvedFile, // `crate` is eggserve-static; field is private
 }
 ```
 
@@ -115,7 +115,7 @@ Extraction methods (behind `python-bindings-internal` feature only):
 
 ```rust
 pub struct ResolvedDirectory {
-    inner: crate::fs::ResolvedDirectory,
+    inner: crate::fs::ResolvedDirectory, // `crate` is eggserve-static; field is private
 }
 ```
 

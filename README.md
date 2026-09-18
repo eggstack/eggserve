@@ -140,7 +140,13 @@ is the single service contract for direct H1 and compatibility H2 (tunnel
 via additive `call_with_tunnel`, H2 as explicit transport glue), and
 `eggserve-core` keeps those paths as facades plus a downstream fixture
 (`crates/eggserve-core/tests/direct_service_convergence.rs`) proving one
-direct `Service` drives both. H3 stays experimental under
+direct `Service` drives both. Plan 219 collapses the remaining
+static/path/filesystem duplication onto `eggserve-static` as the sole
+implementation authority (path parsing, secure-root resolution, filesystem
+confinement, MIME selection, response planning); `eggserve-core` keeps
+`primitives::{SecureRoot, ConfinedPath, ...}` working as facades with no
+second resolver, proven by the authority conformance fixture
+(`crates/eggserve-core/tests/static_authority_conformance.rs`). H3 stays experimental under
 Plan 213. Advanced H3 and
 the extended listener/proxy/TLS-identity paths remain in core while their
 extraction phases are completed. There is no additional

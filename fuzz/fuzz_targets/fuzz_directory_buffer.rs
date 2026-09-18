@@ -6,6 +6,11 @@
 // registered in fuzz/Cargo.toml for cross-platform parity.
 
 use libfuzzer_sys::fuzz_target;
+// Plan 219 note: the Windows directory-buffer parser lives once in
+// `eggserve-static` as crate-internal API (raw handle internals are never
+// exposed per the plan's §2 boundary), so there is no public import for this
+// Windows-only target to name yet. It needs a dedicated fuzz-hook refresh to
+// drive the parser again; the stale import below is intentionally untouched.
 use eggserve_core::fs::windows::{parse_directory_buffer, DirBufParseError};
 
 fuzz_target!(|data: &[u8]| {

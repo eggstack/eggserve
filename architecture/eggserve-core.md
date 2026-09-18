@@ -54,11 +54,13 @@ compatibility and advanced protocol/Python integration.
 | `policy.rs` | **pub** | `StaticPolicy`, `DirectoryListingPolicy`, `SymlinkPolicy`, `DotfilePolicy` |
 | `limits.rs` | **pub** | `Limits` — connection count, file streams, header/target/body sizes, timeouts |
 
-| `path/` | pub(crate) | Compatibility path-confinement glue; mature implementation is in `eggserve-static` |
-| `fs/` | pub(crate) | Compatibility filesystem glue; mature implementation is in `eggserve-static` |
+| `path/` | — (removed, Plan 219) | Deleted; `ConfinedPath`/`PathPolicy`/`PathRejection`/`percent_decode`/platform helpers live once in `eggserve-static::path`, re-exported via `primitives` |
+| `fs/` | — (removed, Plan 219) | Deleted; `PinnedRoot`/`RootGuard`/descriptor- and handle-relative traversal live once in `eggserve-static::fs` (crate-internal), surfaced via `SecureRoot` |
 | `response.rs` | pub(crate) | Compatibility response helpers and advanced runtime integration |
-| `mime.rs` | pub(crate) | Compatibility MIME facade; direct static serving uses `eggserve-static` |
-| `primitives/` | **pub** | Compatibility facade for embedding consumers; direct canonical types live in `eggserve-primitives` |
+| `mime.rs` | — (removed, Plan 219) | Deleted; MIME selection lives once in `eggserve-static`, surfaced via `ResolvedFile::content_type()` |
+| `primitives/` | **pub** | Compatibility facade for embedding consumers; direct canonical types live in `eggserve-primitives`, static/path/filesystem authority lives in `eggserve-static` (Plan 219) |
+| `primitives/secure_root.rs` | **pub** via re-export | Compatibility facade; `SecureRoot`/`ResolvedFile`/`ResolvedDirectory`/`ResolvedResource`/`resolve_and_plan` are implemented once in `eggserve-static` (Plan 219) |
+| `primitives/planner.rs` | **pub** via re-export | Compatibility facade; conditional/range planning functions are implemented once in `eggserve-static` (Plan 219) |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
 | `primitives/canonical/` | **pub** | Facade (`canonical.rs`) re-exports preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules: `status.rs` — `StatusCode`/`ResponseConstructionError`; `headers.rs` — `ResponseHead` + hop-by-hop authority; `response_body.rs` — `BodyLength`/`ResponseBody`; `response.rs` — `Response`/`Builder`/`NormalizeRequest`/`normalize_*` (body field `pub(super)` for adapters, `runtime_error_with_policy` `pub(crate)`); `adapters.rs` — `to_hyper_response` + semaphore overloads (`pub(crate)`, opaque `Body`) |
@@ -104,7 +106,10 @@ pub struct ServeConfig {
 
 ### `ServeState` (`config.rs`)
 
-Static state wrapping `ServeConfig` with one pinned root. It does not own
+Static state wrapping `ServeConfig` with one static `SecureRoot` capability
+(Plan 219: the pinned-root/filesystem implementation lives once in
+`eggserve-static`; `ServeState` retains the capability through the
+primitives facade instead of a second core resolver). It does not own
 transport admission. A running `server::Server` creates `RuntimeState` once;
 that runtime state owns the shared Tokio semaphore for all file-backed
 responses, including custom-service responses.
@@ -112,7 +117,7 @@ responses, including custom-service responses.
 ```rust
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
-    pub(crate) pinned_root: Arc<PinnedRoot>,
+    pub(crate) secure_root: SecureRoot,
 }
 ```
 

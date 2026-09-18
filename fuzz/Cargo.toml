@@ -18,6 +18,10 @@ futures-util = "0.3"
 [dependencies.eggserve-core]
 path = "../crates/eggserve-core"
 
+# Plan 219: path-confinement fuzz targets drive the single static authority.
+[dependencies.eggserve-static]
+path = "../crates/eggserve-static"
+
 [[bin]]
 name = "request_target"
 path = "fuzz_targets/request_target.rs"

@@ -15,11 +15,16 @@ use eggserve_server::{Service, ServiceError, ServiceFuture};
 
 mod fs;
 mod mime;
-mod path;
+/// Request-path confinement: parsing, policy, and rejection vocabulary.
+///
+/// This is the single implementation authority for static path validation
+/// (Plan 219). `eggserve-core` re-exports these types as compatibility
+/// facades and keeps no second parser.
+pub mod path;
 mod planner;
 mod secure_root;
 
-pub use path::{DotfilePolicy as PathDotfilePolicy, PathPolicy, PathRejection};
+pub use path::{ConfinedPath, DotfilePolicy as PathDotfilePolicy, PathPolicy, PathRejection};
 pub use planner::{
     evaluate_conditional_headers, evaluate_if_match, evaluate_if_none_match, evaluate_if_range,
     evaluate_range_header, generate_etag, plan_directory_listing, plan_file_response,

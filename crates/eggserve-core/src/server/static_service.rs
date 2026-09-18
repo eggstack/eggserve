@@ -10,8 +10,9 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use crate::config::{ServeConfig, ServeState};
-use crate::fs::{ResolvedDirectory, ResolvedResource, RootGuard};
-use crate::path::{ConfinedPath, PathPolicy};
+// Plan 219: path confinement, filesystem resolution, and response planning
+// are implemented once in `eggserve-static`. This service orchestrates those
+// capabilities through the primitives facade; it keeps no resolver of its own.
 use crate::policy::{DirectoryListingPolicy, DotfilePolicy, StaticPolicy};
 use crate::primitives::body::BodySource;
 use crate::primitives::canonical::{
@@ -23,6 +24,10 @@ use crate::primitives::planner::plan_file_response_with_preconditions_and_metada
 use crate::primitives::request::Request;
 use crate::primitives::request_head::RequestHead;
 use crate::primitives::response::HeaderMapPlan;
+use crate::primitives::{
+    ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection, ResolvedDirectory, ResolvedFile,
+    ResolvedResource, SecureRoot,
+};
 use crate::server::service::{Service, ServiceError};
 
 /// Builder for a confined static service.
@@ -207,7 +212,7 @@ fn plan_static_request(
     let path_policy = PathPolicy {
         dotfiles: match config.static_policy.dotfiles {
             DotfilePolicy::Denied => PathPolicy::default().dotfiles,
-            DotfilePolicy::Serve => crate::path::DotfilePolicy::Allow,
+            DotfilePolicy::Serve => PathDotfilePolicy::Allow,
         },
         reject_backslash: true,
     };
@@ -216,13 +221,13 @@ fn plan_static_request(
         Err(rejection) => {
             let malformed = matches!(
                 rejection,
-                crate::path::PathRejection::MalformedPercentEncoding
-                    | crate::path::PathRejection::InvalidUtf8
-                    | crate::path::PathRejection::NulByte
-                    | crate::path::PathRejection::ControlCharacter
-                    | crate::path::PathRejection::Empty
-                    | crate::path::PathRejection::UnsupportedUriForm
-                    | crate::path::PathRejection::TooLong
+                PathRejection::MalformedPercentEncoding
+                    | PathRejection::InvalidUtf8
+                    | PathRejection::NulByte
+                    | PathRejection::ControlCharacter
+                    | PathRejection::Empty
+                    | PathRejection::UnsupportedUriForm
+                    | PathRejection::TooLong
             );
             return error_response(
                 if malformed {
@@ -242,7 +247,7 @@ fn plan_static_request(
         }
     };
 
-    let guard = RootGuard::new(state.pinned_root());
+    let root = state.secure_root();
     // Protocol-defined precondition/range headers require text: checked
     // conversion here, opaque values treated as absent (full response) rather
     // than coerced. Generic forwarding elsewhere stays byte-preserving.
@@ -276,7 +281,7 @@ fn plan_static_request(
         ReadOnlyMethod::Get
     };
 
-    match guard.resolve(&confined, &config.static_policy) {
+    match root.resolve(&confined) {
         ResolvedResource::File(file) => planned_file_response(
             file,
             config,
@@ -330,7 +335,7 @@ fn plan_static_request(
                     .map_err(|e| ServiceError::internal(e.to_string()));
             }
             plan_directory_response(
-                &guard,
+                root,
                 dir,
                 config,
                 method,
@@ -365,7 +370,7 @@ fn plan_static_request(
 
 #[allow(clippy::too_many_arguments)]
 fn planned_file_response(
-    file: crate::fs::ResolvedFile,
+    file: ResolvedFile,
     config: &ServeConfig,
     method: ReadOnlyMethod,
     if_match: Option<&str>,
@@ -376,19 +381,20 @@ fn planned_file_response(
     if_range: Option<&str>,
     is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
+    // `content_type()` runs the static authority's MIME lookup over the
+    // resolved relative components; the configured default applies only to
+    // unknown suffixes. `metadata()` is the resolution-time snapshot used
+    // for conditional/range planning — no filesystem access happens here.
+    let detected = file.content_type();
+    let content_type = if detected == "application/octet-stream" {
+        config.default_content_type.as_str()
+    } else {
+        detected
+    };
     let mut plan = plan_file_response_with_preconditions_and_metadata(
         method,
-        &file.metadata,
-        {
-            let detected = crate::mime::mime_for_path(
-                &file.safe_relative_components.iter().collect::<PathBuf>(),
-            );
-            if detected == "application/octet-stream" {
-                &config.default_content_type
-            } else {
-                detected
-            }
-        },
+        file.metadata(),
+        content_type,
         if_match,
         if_unmodified_since,
         if_none_match,
@@ -408,7 +414,7 @@ fn planned_file_response(
 
 #[allow(clippy::too_many_arguments)]
 fn plan_directory_response(
-    guard: &RootGuard<'_>,
+    root: &SecureRoot,
     dir: ResolvedDirectory,
     config: &ServeConfig,
     method: ReadOnlyMethod,
@@ -421,7 +427,7 @@ fn plan_directory_response(
     is_head: bool,
 ) -> Result<CanonicalResponse, ServiceError> {
     for index in ["index.html", "index.htm"] {
-        match guard.resolve_child(&dir, index, &config.static_policy) {
+        match dir.resolve_child(index, root) {
             ResolvedResource::File(file) => {
                 return planned_file_response(
                     file,
@@ -472,12 +478,8 @@ fn plan_directory_response(
             config.error_policy,
         ),
         DirectoryListingPolicy::Enabled => {
-            let entries = guard
-                .list_directory(
-                    &dir,
-                    &config.static_policy,
-                    config.limits.max_listing_entries,
-                )
+            let entries = dir
+                .list(root, config.limits.max_listing_entries)
                 .map_err(|_| ServiceError::internal("directory listing failed"))?;
             let body =
                 render_directory_listing(&entries, config.limits.max_listing_response_bytes)?;

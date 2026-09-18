@@ -18,7 +18,7 @@ The four `ServiceError` kinds (`Internal`, `Rejected(u16)`, `Panic`, `Timeout`) 
 
 ## `PathRejection` — Path Parsing Errors
 
-**Location:** `eggserve-core::path::rejected`
+**Location:** `eggserve-static::path::rejected` (facade: `eggserve-core::primitives`)
 
 Returned by the 6-stage path validation pipeline when a request target fails any validation check. These are the first errors a request encounters and prevent any filesystem access.
 

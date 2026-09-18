@@ -31,7 +31,11 @@ tls = ["dep:eggnet-tls", "dep:rustls", "dep:tokio-rustls"]
 http3 = ["tls", "dep:eggserve-h3"]
 http-interop = ["dep:http"]
 tower = ["http-interop", "dep:tower-service", "dep:tower-layer"]
-python-bindings-internal = []
+# Plan 219: the `ResolvedFile` capability bridge (`from_parts`/`into_parts`/
+# `into_std_file`) is owned by the static authority. This feature forwards to
+# `eggserve-static/python-bindings-internal` so the Python bindings keep a
+# single bridge without a second filesystem implementation.
+python-bindings-internal = ["eggserve-static/python-bindings-internal"]
 windows-adversarial-qualification = []
 
 [dependencies]
@@ -65,7 +69,10 @@ rustls = { version = "0.23.45", optional = true, default-features = false, featu
 tokio-rustls = { version = "0.26", optional = true, default-features = false, features = ["ring"] }
 
 [target.'cfg(unix)'.dependencies]
-rustix = { version = "1", features = ["fs", "net"] }
+# Plan 219: the static confinement implementation (and its `rustix::fs` use)
+# lives once in `eggserve-static`. Core keeps `rustix` only for listener
+# accept/socket validation (`rustix::net`, plus ungated `rustix::io::Errno`).
+rustix = { version = "1", features = ["net"] }
 
 [dev-dependencies]
 hyper = { version = "1", features = ["client", "http2"] }

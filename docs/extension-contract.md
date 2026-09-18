@@ -190,12 +190,12 @@ notes and migration guidance:
 
 The following modules are internal implementation details. They may change without notice and must not be imported by downstream code:
 
-- `fs` — filesystem resolution internals (`RootGuard`, `ResolvedResource` internals, platform-specific traversal)
-- `path` — path parsing internals (decoding, normalization, component validation, platform checks)
+- `fs` — filesystem resolution internals (`RootGuard`, `ResolvedResource` internals, platform-specific traversal). Since Plan 219 this lives once in `eggserve-static` (crate-internal); `eggserve-core/src/fs` is deleted.
+- `path` — path parsing internals (decoding, normalization, component validation, platform checks). Since Plan 219 the single implementation is `eggserve-static::path`; `eggserve-core/src/path` is deleted. Direct Rust consumers use the static crate; compatibility consumers use the `primitives` facade.
 - `response` — response construction internals (file streaming, directory listing HTML, error responses)
-- MIME type detection (`mime` module) — extension-to-type mapping, `octet-stream` fallback
+- MIME type detection — extension-to-type mapping, `octet-stream` fallback. Since Plan 219 this lives once in `eggserve-static`; `eggserve-core/src/mime.rs` is deleted.
 
-The only public path into these types is through the `primitives` facade. If a type is not re-exported in `primitives`, it is not part of the stable contract.
+The only public path into these types for 0.1 compatibility consumers is through the `primitives` facade. If a type is not re-exported in `primitives`, it is not part of the stable contract.
 
 ## How policy preservation works across CLI, Rust, and Python
 

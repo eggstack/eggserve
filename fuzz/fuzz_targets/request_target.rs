@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use eggserve_core::path::{ConfinedPath, PathPolicy};
+use eggserve_static::path::{ConfinedPath, PathPolicy};
 use eggserve_core::primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
 use eggserve_core::primitives::http::validate_request_target;
 use eggserve_core::primitives::method::Method;

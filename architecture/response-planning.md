@@ -365,7 +365,7 @@ conditional/range headers (`if_match`, `if_unmodified_since`,
 
 ```rust
 fn planned_file_response(
-    file: crate::fs::ResolvedFile,
+    file: ResolvedFile, // eggserve-static capability via the primitives facade
     config: &ServeConfig,
     method: ReadOnlyMethod,
     if_match: Option<&str>,

@@ -1,6 +1,6 @@
 #![no_main]
 use libfuzzer_sys::fuzz_target;
-use eggserve_core::path::platform::{check_component, has_windows_drive_prefix, is_windows_reserved_name};
+use eggserve_static::path::platform::{check_component, has_windows_drive_prefix, is_windows_reserved_name};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(s) = std::str::from_utf8(data) {

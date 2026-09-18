@@ -4,13 +4,16 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::fs::PinnedRoot;
 use crate::limits::Limits;
 use crate::policy::{
     DirectoryListingPolicy, DotfilePolicy, ErrorRepresentationPolicy, StaticPolicy, SymlinkPolicy,
 };
 use crate::primitives::canonical::is_hop_by_hop_header;
 use crate::primitives::header_block::{HeaderName, HeaderValue};
+// Plan 219: the pinned-root/filesystem implementation lives once in
+// `eggserve-static`; `ServeState` retains the static `SecureRoot` capability
+// through the primitives facade instead of a second core resolver.
+use crate::primitives::SecureRoot;
 
 #[derive(Debug, Clone)]
 #[must_use]
@@ -163,7 +166,7 @@ impl ServeConfig {
 #[derive(Clone)]
 pub struct ServeState {
     pub(crate) config: Arc<ServeConfig>,
-    pub(crate) pinned_root: Arc<PinnedRoot>,
+    pub(crate) secure_root: SecureRoot,
 }
 
 impl ServeState {
@@ -175,10 +178,10 @@ impl ServeState {
             config.limits.max_extra_header_bytes,
         )
         .map_err(|message| std::io::Error::new(std::io::ErrorKind::InvalidInput, message))?;
-        let pinned_root = Arc::new(PinnedRoot::new(&config.root)?);
+        let secure_root = SecureRoot::new(&config.root, config.static_policy.clone())?;
         Ok(Self {
             config,
-            pinned_root,
+            secure_root,
         })
     }
 
@@ -186,8 +189,8 @@ impl ServeState {
         &self.config
     }
 
-    pub(crate) fn pinned_root(&self) -> &Arc<PinnedRoot> {
-        &self.pinned_root
+    pub(crate) fn secure_root(&self) -> &SecureRoot {
+        &self.secure_root
     }
 }
 

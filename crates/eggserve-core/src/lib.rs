@@ -16,9 +16,16 @@
 //!   This includes the observability attachment points
 //!   (`ServerBuilder::ops_context`, `RuntimeState::with_ops`/`ops_snapshot`,
 //!   `ServerHandle::ops_snapshot`, `StaticServiceBuilder::ops_context`).
-//! - **Internal**: [`fs`], [`path`], [`response`], MIME detection, and the
-//!   error taxonomy. These are not part of the public API and are not
-//!   re-exported. External callers should not depend on them.
+//! - **Internal**: [`response`] and the error taxonomy. These are not part
+//!   of the public API and are not re-exported. External callers should not
+//!   depend on them.
+//!
+//! Plan 219 collapsed the former `fs`/`path`/MIME implementations onto
+//! [`eggserve_static`]: static path parsing, secure-root resolution,
+//! filesystem confinement, MIME selection, and response planning live once
+//! in the static authority, and [`primitives`] re-exports them as
+//! compatibility facades (see `eggserve_core::layers::static_files` for the
+//! direct crate).
 //!
 //! Start with [`primitives`] when using the library without starting a
 //! server. Use [`server`] for the experimental transport-owning runtime; the
@@ -37,11 +44,8 @@
 //! for the manual release procedure.
 
 pub mod config;
-pub(crate) mod fs;
 pub mod limits;
-pub(crate) mod mime;
 pub mod ops;
-pub(crate) mod path;
 pub mod policy;
 pub mod primitives;
 pub(crate) mod response;

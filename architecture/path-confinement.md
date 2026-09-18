@@ -2,6 +2,11 @@
 
 The path confinement pipeline validates and normalizes every incoming request target before it touches the filesystem. A `ConfinedPath` cannot be constructed without passing through the full pipeline.
 
+> **Authority (Plan 219).** The pipeline below is implemented once in
+> `eggserve-static` (`src/path/`). `eggserve-core` keeps compatibility
+> facades only (`primitives::{ConfinedPath, PathPolicy, PathRejection, ...}`
+> re-export the static types; `src/path/` is deleted).
+
 ## Pipeline Stages
 
 `RequestTarget::parse()` is the sole HTTP request-target classifier. The

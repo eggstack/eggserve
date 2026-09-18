@@ -39,6 +39,12 @@ direct-vs-compatibility parity suite
 (`crates/eggserve-core/tests/direct_h1_parity.rs`) and topology-gate
 ownership rules; unified `Service` identity and tunnel acceptance are
 explicit Plan 216 input; Plan 217 finishes convergence with a downstream fixture (see `release/plan-215-direct-runtime-parity.md`).
+Plan 219 collapses static/path/filesystem authority onto `eggserve-static`
+(sole owner of path parsing, secure-root resolution, filesystem confinement,
+MIME, and response planning); `eggserve-core` keeps those paths as
+compatibility facades with no second resolver, proven by the authority
+conformance fixture
+(`crates/eggserve-core/tests/static_authority_conformance.rs`).
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
@@ -56,7 +62,8 @@ Seven workspace crates plus one excluded Python packaging crate:
   transport-neutral dependencies
 - `crates/eggserve-server/` — mature H1 connection runtime and transport
   boundary (Plan 215 implementation home; Plan 216 tunnel authority direct; Plan 217 single Service contract, H2 as transport glue)
-- `crates/eggserve-static/` — filesystem/static specialization
+- `crates/eggserve-static/` — sole static/path/filesystem authority
+  (`SecureRoot`/capabilities, `path`, planner, MIME; Plan 219)
 - `crates/eggserve-h3/` — experimental H3/QUIC dependency boundary
 - `crates/eggserve-core/` — 0.1 compatibility aggregate preserving the mature API
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (depends on eggserve-core)
@@ -175,7 +182,14 @@ roll it back. `deny.toml` denies wildcard requirements and bans
   config/state, H1 driver, Hyper conversion boundary) and cannot depend on
   core/static; and
   `eggserve-static` owns the extracted descriptor/handle-relative resolver,
-  planner, MIME behavior, and static service. `eggserve-core` remains the 0.1
+  planner, MIME behavior, and static service, and (Plan 219) is the sole
+  implementation owner of static path parsing, secure-root resolution,
+  filesystem confinement, resolved capabilities, MIME selection, and response
+  planning — `eggserve-core` keeps `src/fs`, `src/path`, `src/mime.rs`
+  deleted with re-export facades only (`ServeState` retains a `SecureRoot`;
+  capability bridge forwarded via `python-bindings-internal`), proven by the
+  authority conformance fixture
+  (`crates/eggserve-core/tests/static_authority_conformance.rs`). `eggserve-core` remains the 0.1
   compatibility aggregate for Python and advanced protocol paths and exposes
   direct crates under `eggserve_core::layers`. Do not introduce simplified
   parallel runtimes or pathname check-then-open fallbacks. The
@@ -194,7 +208,7 @@ roll it back. `deny.toml` denies wildcard requirements and bans
   slots, treats a directory after an occupied port slot verbatim (including a
   numeric name), and rejects excess positionals. A host-only `--bind` leaves
   the port slot available; `--directory` occupies the directory slot.
-- **Two DotfilePolicy types** — `path::DotfilePolicy` (parsing) and `policy::DotfilePolicy` (serving). Both must agree.
+- **Two DotfilePolicy types** — `eggserve_static::path::DotfilePolicy` (parsing, facaded as `eggserve_core::primitives::PathDotfilePolicy`) and `policy::DotfilePolicy` (serving). Both must agree.
 - **eggserve-python excluded from workspace** — has its own Cargo.lock, built via maturin. Don't run `cargo test --workspace` for Python crate.
 - **Frozen Python classes** — `#[pyclass(frozen)]` and `frozen=True` dataclasses
 - **`#[allow(dead_code)]` on public API types** — consumed externally (Python bindings)
@@ -226,7 +240,7 @@ roll it back. `deny.toml` denies wildcard requirements and bans
 - **Production TLS identity (Plan 203)** — `tls::TlsServerConfigBuilder`/`TlsServerConfig` (SNI exact + single-level `*.suffix` + optional default via maintained `ResolvesServerCert`, no IO in `resolve`, 64 identities/253-char bound, `keys_match` before ready, never log key bytes) + WebPKI mTLS (`Disabled`/`Optional`/`Required` via `client_auth_*`, 256 roots/16 CRLs/1 MiB bound, no revocation implied without CRLs, no Python handshake callback). `TlsInfo` extends to `alpn`/`client_authenticated`/`peer_certificates_present`/opt-in bounded `peer_certificate_chain` (8×64 KiB via `tls_expose_peer_chain`, default false). Accept order `TCP → PROXY → TLS deadline → ALPN → HTTP` (sanitized errors, permits released once, ALPN from `http2.enabled`); `RuntimeConfig.tls_reload_handle` wins over `tls_config`, `ServerHandle::replace_tls_config` is atomic for new handshakes (failed builds never touch live, no watcher, established keep session); `max_early_data_size=0` + `NeverProducesTickets` explicit; H3 keeps separate TLS 1.3/`h3` QUIC identity (TCP reload does not rotate H3, endpoint replacement/drain required). CLI/Python `HTTPSServer` stay single-identity compatible; advanced TLS is Rust-first (see `docs/tls.md`, `tests/tls_identity.rs`).
 - **Foundation maintainability (Plan 206)** — behavior-preserving module boundaries; public import paths preserved via re-exports (`primitives::canonical::X`, `primitives::X`, `server::RuntimeState`, `server::Py*` still resolve); cross-module helpers are `pub(super)` (parent-visible, never widened for convenience). Ownership: `ops/` (`mod` authority + `events`/`sinks`/`counters`); `primitives/canonical/` (`status`/`headers`/`response_body`/`response`/`adapters`; `Response.body` + `remove/strip` are `pub(super)`; tests stay in facade); `server/config/` (`runtime` single validation authority delegating to `runtime_limits` + `http1`/`http2`/`http3`/`tls` protocol owners; `Http2/3::validate` are `pub(super)`); `server/http3/` (`endpoint`/`request`/`response`/`tunnel`; `accept_loop` qualifies as `endpoint::`/`request::`/`response::`/`tunnel::`; one shared kernel, no H3-specific semantics); `server/` (`runtime.rs` owns `RuntimeState`, `accept.rs` owns `accept_loop_multi`/handlers/sources/TLS helpers with `pub(super)` enums/fns; facade keeps `Server`/`ServerBuilder` + re-exports); `eggserve-python/src/server/` (`errors`/`body_bridge`/`request_bridge`/`tunnel_bridge`/`response_bridge`/`static_responder`/`sync_handler`/`runtime` + `lifecycle`/`async_handler` pointers; async Plan 204 stays Python-side in `lowlevel.py` with no duplicated Rust conversion; PyO3 registration stays small in facade). Static planner stays pure with the explicit one-way `StaticService::canonical_response()` adapter (no duplicate status/header/body validation). No wire/security/lifecycle behavior change; no line-count gates.
 - **Cross-protocol conformance (Plan 207)** — one normative inventory (`conformance/app_server_conformance.toml`: 55 scenarios, 47 routine) drives qualification across H1 TCP/TLS/prebound/Unix, H2 prior/TLS/prebound, H3 QUIC, and caller-owned duplex with native/`http`/Tower/async-Python/ASGI consumers. Routine subset lives in `crates/eggserve-core/tests/cross_protocol_conformance.rs` (H1 + prebound + Unix + caller-owned + H2/Tower-gated); H1 TLS/H2 TLS/H3/`http-interop`/async-Python/ASGI are owned by their existing suites and referenced, not duplicated. Expensive two-client/browser/soak/impairment/perf evidence stays manual and fail-closed (`qualify-http2.sh`/`qualify-http3.sh` + `release/plan-207-cross-protocol-conformance.md`). No tier promotion follows; H2/H3 stay experimental.
-- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` behind the `python-bindings-internal` feature (for cross-crate Python bindings) but carry security caveats: confinement guarantee ends after extraction.
+- **`ResolvedFile` extraction methods** — `from_parts()`, `into_std_file()`, `into_parts()` are `pub` on the static authority behind the `python-bindings-internal` feature (forwarded by `eggserve-core`'s feature of the same name) for cross-crate Python bindings but carry security caveats: confinement guarantee ends after extraction.
 - **Python server façade** — `eggserve.server` is the supported six-class API, including rustls-backed `HTTPSServer` and `ThreadingHTTPSServer` with HTTP/1.1 ALPN only. The exact fast-path eligibility and intentional incompatibility contract is maintained in `docs/python-http-server-compatibility.md`. Stock static handlers also support `default_content_type` and ordered safe `extra_response_headers`; those headers are limited to final 200 responses. Handler `protocol_version` must remain HTTP/1.1. Subprocess helpers are canonically owned by `eggserve.subprocess` (`eggserve.server` keeps compatibility re-exports without expanding `__all__`; top-level `serve_directory` re-exports the subprocess implementation).
 - **Python lowlevel substrate (Plan 166)** — `eggserve.lowlevel` exposes handler-only `Server(config, handler)` (no static root, same native runtime, no second accept loop), frozen `RuntimeConfig` (Plan 164 controls + safe privacy subset: `server_header`/`date_policy` system|suppress/`stripped_response_headers`/`error_policy` minimal|empty; Plan 202 trusted-proxy subset: `trusted_proxies`/`trust_unix_local`/`proxy_protocol`/`forwarded_standard`/`forwarded_legacy`, all default nothing trusted; `None` disables, `0` never unlimited; projected via the single `_native_kwargs()` helper, Plan 182), bounded `Response.stream(status, iterable, headers, content_length)` over a 16-chunk bridge (HEAD/body-forbidden never advance the iterator; sync iterables only — async via `AsyncResponse.stream`; non-bytes/iterator errors truncate with sanitized type-only logs; no `Transfer-Encoding` from services), and caller-owned `StaticResponder` composition (no routing in EggServe). `Request` exposes `remote_addr` unchanged plus `effective_addr`/`effective_scheme`/`effective_authority`/`proxy_provenance`/`forwarded_provenance` (absent without explicit trust). Plan 204 adds experimental `AsyncServer(config, async_handler, max_async_tasks)` (H1-only, same runtime, manual asyncio bridge, no new deps; `AsyncRequest` byte-fidelity + `read_chunk`/`trailers`/`send_interim`/`take_tunnel`, `AsyncResponse.stream` over async iterables via bounded 16-queue + `stream_with_trailers`, one-shot `Tunnel` duplex; ASGI fixture in `crates/eggserve-python/tests/asgi_fixture.py` only, not a product).
 - **CLI compatibility polish** — Manual parsing accepts hostname `--bind` values, repeatable `-H/--header` and `--content-type` static metadata, and a combined certificate/key PEM when `--tls-key` is omitted. Header metadata is validated against runtime-owned and hop-by-hop fields. Production admission/lifecycle CLI flags: `--max-in-flight-requests`, `--keep-alive-idle-timeout`, `--max-requests-per-connection` (`0` = unlimited), `--response-write-timeout`, `--max-buf-size`, `--max-headers`, `--max-header-bytes`, `--max-request-target-bytes`.

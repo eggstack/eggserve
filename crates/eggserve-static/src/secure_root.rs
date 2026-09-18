@@ -80,6 +80,16 @@ impl ResolvedFile {
         self.inner.metadata.modified().ok()
     }
 
+    /// Snapshot of the file attributes captured during confined resolution.
+    ///
+    /// This exposes read-only attributes (length, timestamps) for response
+    /// planning against the static authority's planner. It does not expose
+    /// the open handle and confers no new filesystem access.
+    #[allow(dead_code)]
+    pub fn metadata(&self) -> &std::fs::Metadata {
+        &self.inner.metadata
+    }
+
     #[allow(dead_code)]
     pub fn content_type(&self) -> &'static str {
         let path: PathBuf = self.inner.safe_relative_components.iter().collect();

@@ -1,12 +1,14 @@
 # Crate topology
 
-Plans 211–217 establish dependency layers while preserving the historical
+Plans 211–219 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
 and static implementations into their direct crates; Plan 215 moves the
 mature generic H1 connection runtime into `eggserve-server` with a
 direct-vs-compatibility parity suite; Plan 216 moves tunnel authority to the
 direct crates; Plan 217 finishes service/request convergence with a single
-`Service` contract and canonical request types plus a downstream fixture.
+`Service` contract and canonical request types plus a downstream fixture;
+Plan 219 collapses the remaining static/path/filesystem duplication onto
+`eggserve-static`, leaving `eggserve-core` with compatibility facades only.
 Protocol-specific compatibility glue
 (H2/H3 wire mechanics, extended listener/proxy/TLS paths) remains in
 core as explicit transport glue, with topology-gate ownership rules marking the
@@ -58,21 +60,34 @@ crate and transport dependencies, but never on `eggserve-core` or
 explicit transport glue; H3
 paths stay in core under Plan 213.
 
-`eggserve-static` owns the extracted descriptor/handle-relative filesystem
-resolver, path policy, MIME selection, response planner, and static service.
-It depends on the two lower layers. Static policy and confinement do not belong
-in the generic server crate.
+`eggserve-static` is the sole implementation owner of static path parsing
+(`path`: `ConfinedPath`/`PathPolicy`/`PathRejection`/decode/platform),
+the pinned root, Unix descriptor-relative and Windows handle-relative
+traversal (`fs`, crate-internal), symlink/reparse/dotfile enforcement,
+resolved file/directory capabilities (`SecureRoot`/`ResolvedFile`/
+`ResolvedDirectory`/`ResolvedResource`), MIME selection, conditional/range
+planning (`planner`), and directory listing construction. It depends on the
+two lower layers. Static policy and confinement do not belong
+in the generic server crate. The `python-bindings-internal` feature carries
+the narrow capability bridge (`ResolvedFile::from_parts`/`into_parts`/
+`into_std_file`), which moves the already-opened handle without
+reconstructing provenance.
 
 `eggserve-core` remains an aggregate during the 0.1 compatibility window.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
 and legacy configuration; request/service/tunnel/canonical types are facades
 over the direct authorities (no second envelope, taxonomy, normalization, or
-state machine), H2 dispatches through the single contract as transport glue,
+state machine), and static/path/filesystem types are facades over the
+`eggserve-static` authority (no second parser, resolver, planner, or MIME
+table; `src/fs`, `src/path`, and `src/mime.rs` are deleted and the
+topology gate rejects their return). H2 dispatches through the single contract as transport glue,
 and `server/connection/tunnel.rs` stays deleted. The `eggserve_core::layers` module exposes
 the direct crates for migration; new consumers should name the direct leaf
 crate they need. The downstream fixture
 (`crates/eggserve-core/tests/direct_service_convergence.rs`) proves one
-direct `Service` drives direct H1 and compatibility H2.
+direct `Service` drives direct H1 and compatibility H2, and the authority
+fixture (`crates/eggserve-core/tests/static_authority_conformance.rs`)
+proves core static paths resolve to the static implementation.
 
 `eggnet-tls` is the neutral TLS security substrate. It depends only on
 `rustls` and `rustls-pki-types` at runtime and owns bounded PEM parsing, SNI
@@ -107,7 +122,12 @@ transport, core tunnel facades, and a dev-only WebSocket codec. The Plan 217
 rules assert canonical request/service facades, Hyper/TLS/QUIC-free
 primitives, single `Service` re-export, H1/H2 `call_with_tunnel` dispatch
 with the shared `run_tunnel` future, and the downstream convergence fixture.
-It is part of the Rust CI preflight and
+The Plan 219 rules assert the single static/path/filesystem authority:
+`src/fs`, `src/path`, and `src/mime.rs` absent from core, core
+secure-root/planner modules as `eggserve_static` re-exports, the static
+authority exposing `ConfinedPath`/`SecureRoot`/planner/`resolve_and_plan`
+surface, no `rustix::fs` use (or `fs` feature) in core, and the authority
+conformance fixture. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`.
 
 The check also verifies that the mature static resolver is present and the old
