@@ -111,7 +111,7 @@ async fn plan227_body_and_adapter_benchmark() -> Result<(), Box<dyn std::error::
             let (bytes, frames) = consume(response.into_body()).await;
             assert_eq!(bytes, size);
             if !first_record {
-                print!(",\n");
+                println!(",");
             }
             first_record = false;
             print!(
@@ -138,7 +138,7 @@ async fn plan227_body_and_adapter_benchmark() -> Result<(), Box<dyn std::error::
         let (bytes, frames) = consume(response.into_body()).await;
         assert_eq!(bytes, size);
         if !first_record {
-            print!(",\n");
+            println!(",");
         }
         first_record = false;
         print!(

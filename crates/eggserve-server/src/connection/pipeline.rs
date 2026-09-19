@@ -629,7 +629,7 @@ where
                 config.max_header_bytes,
                 context.scheme,
                 conn_id,
-                &ops,
+                ops,
             ) {
                 Ok(h) => h,
                 Err(e) => {
@@ -640,7 +640,7 @@ where
                             false,
                             config.response_policy.error_policy,
                         ),
-                        &config,
+                        config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
                     ));
@@ -666,7 +666,7 @@ where
                 return Ok::<_, Infallible>(finish_response(
                     guard,
                     response,
-                    &config,
+                    config,
                     conn_id,
                     LifecycleDisposition::close_and_cancel_body(),
                 ));
@@ -680,10 +680,10 @@ where
             let connection_template = apply_forwarded_policy(
                 context.connection_info(),
                 &head,
-                &config,
-                &context,
+                config,
+                context,
                 conn_id,
-                &ops,
+                ops,
             );
 
             // Select effective body policy.
@@ -723,7 +723,7 @@ where
                             is_head,
                             config.response_policy.error_policy,
                         ),
-                        &config,
+                        config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
                     ));
@@ -761,7 +761,7 @@ where
                         return Ok::<_, Infallible>(finish_response(
                             guard,
                             body_error_to_response(err, &head, config.response_policy.error_policy),
-                            &config,
+                            config,
                             conn_id,
                             disposition,
                         ));
@@ -797,7 +797,7 @@ where
                     return Ok::<_, Infallible>(finish_response(
                         guard,
                         response,
-                        &config,
+                        config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
                     ));
@@ -821,7 +821,7 @@ where
                     return Ok::<_, Infallible>(finish_response(
                         guard,
                         response,
-                        &config,
+                        config,
                         conn_id,
                         LifecycleDisposition::close_and_cancel_body(),
                     ));
@@ -868,7 +868,7 @@ where
                 return Ok::<_, Infallible>(finish_response(
                     guard,
                     response,
-                    &config,
+                    config,
                     conn_id,
                     LifecycleDisposition::close_and_cancel_body(),
                 ));
@@ -935,21 +935,21 @@ where
                         is_head,
                         handler_timeout,
                         None,
-                        &service_semaphore,
-                        &file_stream_semaphore,
+                        service_semaphore,
+                        file_stream_semaphore,
                         stream_chunk_size,
                         config.response_policy.error_policy,
                         conn_id,
-                        &ops,
-                        &activity,
-                        &tunnel_semaphore,
+                        ops,
+                        activity,
+                        tunnel_semaphore,
                         tunnel,
                     )
                     .await;
                     Ok::<_, Infallible>(finish_response(
                         guard,
                         response,
-                        &config,
+                        config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
                     ))
@@ -987,7 +987,7 @@ where
                                     &head,
                                     config.response_policy.error_policy,
                                 ),
-                                &config,
+                                config,
                                 conn_id,
                                 disposition,
                             ));
@@ -1009,7 +1009,7 @@ where
                                     &head,
                                     config.response_policy.error_policy,
                                 ),
-                                &config,
+                                config,
                                 conn_id,
                                 LifecycleDisposition::close_and_cancel_body(),
                             ));
@@ -1030,21 +1030,21 @@ where
                         is_head,
                         handler_timeout,
                         None,
-                        &service_semaphore,
-                        &file_stream_semaphore,
+                        service_semaphore,
+                        file_stream_semaphore,
                         stream_chunk_size,
                         config.response_policy.error_policy,
                         conn_id,
-                        &ops,
-                        &activity,
-                        &tunnel_semaphore,
+                        ops,
+                        activity,
+                        tunnel_semaphore,
                         tunnel,
                     )
                     .await;
                     Ok::<_, Infallible>(finish_response(
                         guard,
                         response,
-                        &config,
+                        config,
                         conn_id,
                         LifecycleDisposition::KEEP_ALIVE,
                     ))
@@ -1082,14 +1082,14 @@ where
                         is_head,
                         effective_timeout,
                         Some(body_shared.clone()),
-                        &service_semaphore,
-                        &file_stream_semaphore,
+                        service_semaphore,
+                        file_stream_semaphore,
                         stream_chunk_size,
                         config.response_policy.error_policy,
                         conn_id,
-                        &ops,
-                        &activity,
-                        &tunnel_semaphore,
+                        ops,
+                        activity,
+                        tunnel_semaphore,
                         tunnel,
                     )
                     .await;
@@ -1105,7 +1105,7 @@ where
                         BodyLifecycleState::Complete => Ok::<_, Infallible>(finish_response(
                             guard,
                             response,
-                            &config,
+                            config,
                             conn_id,
                             LifecycleDisposition::KEEP_ALIVE,
                         )),
@@ -1156,7 +1156,7 @@ where
                             Ok::<_, Infallible>(finish_response(
                                 guard,
                                 response,
-                                &config,
+                                config,
                                 conn_id,
                                 LifecycleDisposition::KEEP_ALIVE,
                             ))
@@ -1173,7 +1173,7 @@ where
                             Ok::<_, Infallible>(finish_response(
                                 guard,
                                 response,
-                                &config,
+                                config,
                                 conn_id,
                                 LifecycleDisposition::close_and_cancel_body(),
                             ))
