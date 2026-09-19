@@ -94,7 +94,7 @@ Plans 217–225 are the post-216 ownership and dependency-hardening program. The
 - **221 — first-party frontend migration:** move the Rust binary and Python extension onto the canonical leaf crates and reduce duplicated Python runtime validation.
 - **222 — cross-repo server TLS consolidation:** use neutral `eggnet-tls` for common eggserve/eggress server TLS identity/trust/client-auth behavior; keep eggfetch client policy local.
 - **223 — cross-repo HTTP CONNECT consolidation:** share only the neutral outbound H1 CONNECT wire primitive between eggfetch/eggress; eggserve does not acquire an eggfetch/eggress dependency.
-- **224 — capability-filesystem crate evaluation:** post-219 GO/NO-GO gate for isolating platform capability/FFI code; no crate is created without demonstrated benefit.
+- **224 — capability-filesystem crate evaluation:** post-219 GO/NO-GO gate for isolating platform capability/FFI code; closed NO-GO, no crate created (`release/plan-224-capability-filesystem-evaluation.md`).
 - **225 — compatibility-core facade closure:** final proof that `eggserve-core` is a compatibility facade/adapter layer, not a security/protocol implementation authority.
 
 The sequencing/index is `plans/217-225-dependency-security-architecture-program.md`. Plan 218 is immediate and parallel-safe; 217/219 establish canonical ownership; 220/221 consume that ownership; 222–224 are cross-repo/evaluation follow-ons; 225 is the closure gate.

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–220 Cargo dependency topology.
+"""Enforce the Plan 211–224 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
 canonical primitives are a leaf, the generic server does not pull static
 serving, static serving consumes the two lower layers, static
 path/filesystem confinement lives once in `eggserve-static` with
-`eggserve-core` keeping compatibility facades only, and the H3/QUIC adapter
-lives once in `eggserve-h3` with downward-only primitives/server deps.
+`eggserve-core` keeping compatibility facades only, the H3/QUIC adapter
+lives once in `eggserve-h3` with downward-only primitives/server deps,
+and no capability-filesystem crate exists (Plan 224 NO-GO).
 """
 
 from __future__ import annotations
@@ -204,8 +205,21 @@ def main() -> int:
     if check_plan221_frontends() != 0:
         return 1
 
+    # Plan 224 NO-GO: no capability-filesystem crate may appear silently.
+    # A future split requires an explicit plan and gate update, not a new
+    # package in the resolved graph.
+    for forbidden_crate in ("eggserve-capfs", "eggcapfs", "capfs"):
+        if forbidden_crate in packages:
+            print(
+                f"unexpected capability-filesystem crate `{forbidden_crate}`: "
+                "Plan 224 closed NO-GO with eggserve-static as the single "
+                "confinement authority",
+                file=sys.stderr,
+            )
+            return 1
+
     print(
-        "Plan 211–220 topology: primitives leaf; neutral TLS; "
+        "Plan 211–224 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3 adapter owned; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
         "direct tunnel authority with neutral vocabulary; "
@@ -213,7 +227,8 @@ def main() -> int:
         "single static/path/filesystem authority with core facades; "
         "single H3/QUIC adapter with core facades; "
         "Plan 221 frontends name leaf crates directly (neutral paths; "
-        "extended orchestration blockers documented)"
+        "extended orchestration blockers documented); "
+        "Plan 224 NO-GO: no capability-filesystem crate"
     )
     return 0
 

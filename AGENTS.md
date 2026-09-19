@@ -110,6 +110,12 @@ drive leaf `Server` + leaf `StaticService`. The extended orchestration
 `StaticService`, listing budgets, handle lifecycle) plus the confirmed-used
 `eggserve_bin::run_cli` extension CLI remain compatibility-owned until
 Plan 225 (see `architecture/crate-topology.md`).
+Plan 224 closes as NO-GO: no `eggserve-capfs`/`eggcapfs` crate is created;
+`eggserve-static` remains the single path/filesystem confinement authority
+because the resolver consumes `ConfinedPath`/`StaticPolicy`, returns
+`BodySource` with MIME planning, duplicates parse-level validation as defense
+in depth, already isolates production unsafe to `fs/windows.rs`, and has no
+second consumer (see `release/plan-224-capability-filesystem-evaluation.md`).
 The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
 ## Non-negotiables
@@ -151,7 +157,7 @@ Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 214–220 ownership/topology gate
+python3 scripts/check-crate-topology.py                     # Plan 214–220 ownership/topology gate + Plan 224 NO-GO guard
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets

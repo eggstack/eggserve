@@ -160,7 +160,10 @@ tests driving leaf `Server` + leaf `StaticService`. The extended server
 orchestration (serve_config, full TLS/H2/H3 `Server`, full `StaticService`,
 `ServeConfig`/listing budgets, handle lifecycle) and the extension-backed
 CLI (`eggserve_bin::run_cli`, confirmed used) remain compatibility-owned
-until Plan 225. Advanced
+until Plan 225. Plan 224 closes as NO-GO: no `eggserve-capfs`/`eggcapfs`
+crate is created; `eggserve-static` remains the single path/filesystem
+confinement authority (see
+`release/plan-224-capability-filesystem-evaluation.md`). Advanced
 listener/proxy/TLS-identity paths remain in core while their extraction phases
 are completed. There is no additional
 `eggserve` facade crate.

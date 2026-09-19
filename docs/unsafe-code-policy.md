@@ -17,7 +17,10 @@ boundaries below and carry a narrow module-level exception.
 Plan 219 moved the Windows confinement boundary and its FIFO regression
 fixtures from `eggserve-core/src/fs/` to the single static authority in
 `eggserve-static/src/fs/`; no new unsafe code was introduced and the
-deleted core copy removed the duplicate exception. The two production FFI modules are deliberately small and are the only
+deleted core copy removed the duplicate exception. Plan 224 evaluated a
+neutral capability-filesystem crate and closed NO-GO, so this boundary
+stays where it is: production unsafe remains isolated to `fs/windows.rs`
+with no new crate, feature, or exception. The two production FFI modules are deliberately small and are the only
 application-owned exceptions. PyO3, Tokio, rustls, Hyper, Quinn, and other
 dependencies do not justify adding unsafe code to ordinary EggServe modules.
 If a future platform feature needs unsafe FFI, it must first narrow the

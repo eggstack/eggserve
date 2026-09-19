@@ -6,11 +6,13 @@
 
 All types are exported from `eggserve_core::primitives`.
 
-> **Authority (Plan 219).** The implementation behind this facade lives once
+> **Authority (Plans 219 + 224).** The implementation behind this facade lives once
 > in `eggserve-static` (path parsing, `SecureRoot` resolution, filesystem
 > confinement, MIME selection, response planning). `RootGuard`/`PinnedRoot`
 > below are static-crate-internal; the compatibility `ServeState` retains a
-> `SecureRoot` capability rather than a second pinned root.
+> `SecureRoot` capability rather than a second pinned root. Plan 224 closed
+> NO-GO on a neutral capability-filesystem crate (see
+> `release/plan-224-capability-filesystem-evaluation.md`).
 
 ## Core types
 

@@ -53,6 +53,8 @@ These do not need to block eggserve core closure.
 **Plan 224 — capability filesystem crate evaluation**
 
 Only after Plan 219. GO/NO-GO gate; no automatic crate proliferation.
+Closed NO-GO: `eggserve-static` remains the single confinement authority
+(see `release/plan-224-capability-filesystem-evaluation.md`).
 
 ### Closure
 
@@ -66,7 +68,7 @@ Final proof that core is no longer an implementation authority.
 - Shared crates exist only for genuinely neutral behavior.
 - `eggserve-primitives` stays transport/runtime neutral.
 - `eggserve-server` stays free of static serving and H3/QUIC dependencies.
-- `eggserve-static` owns static-file semantics and confinement until/unless Plan 224 produces a GO decision.
+- `eggserve-static` owns static-file semantics and confinement (Plan 224 closed NO-GO; no capability-filesystem crate).
 - `eggserve-h3` is optional and experimental.
 - `eggnet-tls` remains product/transport neutral.
 - First-party frontends should consume canonical leaf crates directly.

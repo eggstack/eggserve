@@ -49,7 +49,13 @@ the first-party frontends prove the direct architecture: `eggserve-bin` and
 `eggserve-python` name the leaf crates directly for neutral paths, with
 binary unit tests driving leaf `Server` + leaf `StaticService`; extended
 orchestration plus the confirmed-used `eggserve_bin::run_cli` CLI stay
-compatibility-owned until Plan 225.
+compatibility-owned until Plan 225. Plan 224 closes as NO-GO: no
+`eggserve-capfs`/`eggcapfs` crate is created; `eggserve-static` remains the
+single path/filesystem confinement authority (resolver consumes
+`ConfinedPath`/`StaticPolicy`, returns `BodySource` with MIME planning,
+duplicates parse-level validation as defense in depth, isolates production
+unsafe to `fs/windows.rs`, has no second consumer; see
+`release/plan-224-capability-filesystem-evaluation.md`).
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
@@ -68,7 +74,7 @@ Seven workspace crates plus one excluded Python packaging crate:
 - `crates/eggserve-server/` — mature H1 connection runtime and transport
   boundary (Plan 215 implementation home; Plan 216 tunnel authority direct; Plan 217 single Service contract, H2 as transport glue)
 - `crates/eggserve-static/` — sole static/path/filesystem authority
-  (`SecureRoot`/capabilities, `path`, planner, MIME; Plan 219)
+  (`SecureRoot`/capabilities, `path`, planner, MIME; Plans 219 + 224 NO-GO)
 - `crates/eggserve-h3/` — experimental H3/QUIC transport adapter (Plan 220 authority)
 - `crates/eggserve-core/` — 0.1 compatibility aggregate preserving the mature API
 - `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (Plan 221: neutral paths on leaf crates; extended orchestration still core until Plan 225)
@@ -99,7 +105,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211–220 ownership/topology gate
+python3 scripts/check-crate-topology.py                     # Plan 211–220 ownership/topology gate + Plan 224 NO-GO guard
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets

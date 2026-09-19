@@ -2,14 +2,19 @@
 
 After path validation, filesystem confinement resolves the validated path against the configured root directory. This layer prevents path traversal and symlink escape, even under concurrent modification. Root identity is pinned at startup via `PinnedRoot`, ensuring the running server is never retargeted by pathname changes.
 
-> **Authority (Plan 219).** The implementation below lives once in
+> **Authority (Plans 219 + 224).** The implementation below lives once in
 > `eggserve-static` (`src/fs/`, `src/secure_root.rs`, `src/mime.rs`,
 > `src/planner.rs`, `src/path/`). `eggserve-core` keeps compatibility
 > facades only (`primitives::{SecureRoot, ...}` re-export the static types;
 > `src/fs`, `src/path`, and `src/mime.rs` are deleted). `PinnedRoot` and
 > `RootGuard` are static-crate-internal; external callers resolve through
 > `SecureRoot`. The compatibility `ServeState` retains a `SecureRoot`
-> capability rather than a second pinned root.
+> capability rather than a second pinned root. Plan 224 evaluated a neutral
+> `eggserve-capfs`/`eggcapfs` extraction and closed NO-GO (resolver coupled
+> to `ConfinedPath`/`StaticPolicy`/`BodySource`/MIME, defense-in-depth
+> validation intentionally duplicated, unsafe already isolated to
+> `fs/windows.rs`, no second consumer); see
+> `release/plan-224-capability-filesystem-evaluation.md`.
 
 ## Module Map
 

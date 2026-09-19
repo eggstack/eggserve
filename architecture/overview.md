@@ -61,7 +61,7 @@ Every subsystem has a dedicated deep-dive document. Use this index to navigate d
 
 | Document | Covers |
 |----------|--------|
-| [crate-topology.md](crate-topology.md) | Plans 211–213 Cargo ownership and dependency boundaries |
+| [crate-topology.md](crate-topology.md) | Plans 211–224 Cargo ownership and dependency boundaries |
 | [eggserve-h3.md](eggserve-h3.md) | Plan 213 HTTP/3/QUIC package boundary and qualification inventory |
 | [http3.md](http3.md) | Plan 213 isolated HTTP/3/QUIC dependency boundary and qualification gate |
 | [eggnet-tls.md](eggnet-tls.md) | Plan 212 neutral rustls identity, trust, client-auth, and reload substrate |
@@ -147,25 +147,30 @@ Seven workspace library crates, with a strict dependency hierarchy and a compati
 
 ```
 eggserve-primitives    ← eggserve-server ← eggserve-static
-eggserve-core          ← eggserve-bin (compatibility path, workspace member)
-eggserve-core          ← eggserve-python (compatibility path, excluded)
+eggserve-core          ← eggserve-bin (extended orchestration only; neutral paths name the leaves directly per Plan 221)
+eggserve-core          ← eggserve-python (extended orchestration only; neutral bridge names the leaves directly per Plan 221)
 eggserve-core          → eggserve-h3 (optional `http3` dependency boundary)
 eggserve-core          → layers (transitional re-exports of the three crates)
-eggserve-bin           → standalone presentation layer
-eggserve-python        → standalone Python packaging
+eggserve-h3            → eggserve-primitives + eggserve-server + eggnet-tls (downward-only)
+eggserve-bin           → standalone presentation layer (neutral paths on leaf crates)
+eggserve-python        → standalone Python packaging (neutral bridge on leaf crates)
 ```
 
 - **`eggserve-primitives`** is the transport-neutral canonical leaf.
 - **`eggserve-server`** owns generic transport/runtime machinery and cannot
   depend on static serving.
-- **`eggserve-static`** owns filesystem confinement and static specialization,
-  consuming primitives and server.
+- **`eggserve-static`** is the sole static/path/filesystem authority,
+  consuming primitives and server (Plans 219 + 224 NO-GO: no
+  capability-filesystem crate).
 - **`eggserve-h3`** owns the direct experimental Quinn/H3/H3-Quinn dependency
-  set; it has no edge to the generic server, static, or primitives crates.
+  set and consumes primitives/server/`eggnet-tls` downward only; those
+  crates never depend upward.
 - **`eggserve-core`** remains the 0.1 compatibility aggregate while direct
-  consumers migrate; its existing rich modules are behavior-preserving.
-- **`eggserve-bin`** and **`eggserve-python`** remain presentation layers over
-  the compatibility API during this transition.
+  consumers migrate; static/path/filesystem, request/service, and H3 paths
+  are facades over the direct authorities.
+- **`eggserve-bin`** and **`eggserve-python`** name the leaf crates directly
+  for every neutral path (Plan 221); they use `eggserve-core` only for the
+  documented extended orchestration until Plan 225.
 
 The exact direct edges are checked by
 `scripts/check-crate-topology.py`; see [crate-topology.md](crate-topology.md).
@@ -194,7 +199,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Generic server runtime | `eggserve-server` | [eggserve-server.md](eggserve-server.md) | Transport and service execution without static-serving dependencies |
 | Static specialization | `eggserve-static` | [eggserve-static.md](eggserve-static.md) | Filesystem policy, path resolution, and static responses |
 | Neutral TLS substrate | `eggnet-tls` | [eggnet-tls.md](eggnet-tls.md) | Bounded rustls identity, SNI, WebPKI mTLS, trust/CRLs, and atomic reload |
-| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | All security-critical logic — path confinement, policy enforcement, HTTP serving, response construction |
+| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | 0.1 compatibility aggregate — facades over the direct authorities plus explicit transport glue |
 | CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, integration-only `run_cli()`, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
 
@@ -204,7 +209,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 |-----------|----------|-----------|--------------|
 | Path confinement | `eggserve-static::path` (facade: `eggserve-core::primitives`) | [path-confinement.md](path-confinement.md) | 6-stage path validation pipeline — parse, decode, normalize, validate, platform checks. 17 rejection variants |
 | Filesystem confinement | `eggserve-static::fs` via `SecureRoot` (facade: `eggserve-core::primitives`) | [filesystem-confinement.md](filesystem-confinement.md) | `PinnedRoot`, `RootGuard`, descriptor-relative traversal (Unix), handle-relative (Windows). Prevents symlink escape and TOCTOU |
-| Policy system | `eggserve-core::policy` | [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`. Safe defaults enforced |
+| Policy system | `eggserve-primitives::policy` (facade: `eggserve-core::policy`) | [policy-system.md](policy-system.md) | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy`. Safe defaults enforced |
 | Security model | cross-cutting | [security-model.md](security-model.md) | Central invariant, 7 defensive layers, attacker model, trust boundaries |
 
 ### HTTP Subsystems
@@ -212,10 +217,10 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Component | Location | Deep Dive | What It Does |
 |-----------|----------|-----------|--------------|
 | Public API boundary | `eggserve-core::primitives` | [primitives-api.md](primitives-api.md) | Canonical types for embedding — `SecureRoot`, `ResolvedResource`, HTTP validation, request/response types |
-| Response planning | `eggserve-core::primitives::planner` | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
+| Response planning | `eggserve-static::planner` (facade: `eggserve-core::primitives::planner`) | [response-planning.md](response-planning.md) | Conditional requests (ETag, If-Modified-Since), range requests, HEAD parity, `normalize_response()` |
 | Runtime service boundary | `eggserve-core::server` | [runtime.md](runtime.md) | `Server`, `ServerBuilder`, `Service` trait, `StaticService`, lifecycle state machine, connection pipeline |
 | HTTP/2 qualification boundary | `eggserve-core::server` (`http2`) | [http2.md](http2.md) | Hyper-backed opt-in H1/H2 selection, bounded H2 transport policy, ownership checklist, and experimental release status |
-| HTTP/3/QUIC transport boundary | `eggserve-core::server` (`http3`) | [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters (facade `http3.rs` + submodules `endpoint`/`request`/`response`/`tunnel`), and experimental qualification boundary |
+| HTTP/3/QUIC transport boundary | `eggserve-h3` (facade: `eggserve-core::server::http3`) | [http3.md](http3.md) | Quinn/h3 same-port UDP lifecycle, bounded QUIC/H3 policy, canonical adapters (thin core facade over the H3 authority), and experimental qualification boundary |
 
 ### Operational Subsystems
 
@@ -361,18 +366,19 @@ CLI flags / Python params / Rust structs
 
 ## Core Library Module Map (`eggserve-core`)
 
+Compatibility aggregate: static/path/filesystem, request/service, and H3
+paths are facades over the direct authorities (Plans 214–220; Plan 224
+confirms no capability-filesystem crate). Do not treat the deleted
+`src/fs`, `src/path`, or `src/mime.rs` as live modules.
+
 | Module | Visibility | Purpose | Stability |
 |--------|-----------|---------|-----------|
 | `config.rs` | **pub** | `ServeConfig`, `ServeState`, `StartupSummary` | Stable-ish |
 | `limits.rs` | **pub** | `Limits` — connections, streams, timeouts | Stable-ish |
-| `policy.rs` | **pub** | `StaticPolicy`, `SymlinkPolicy`, `DotfilePolicy`, `DirectoryListingPolicy` | Stable-ish |
-| `path/` | pub(crate) | Path confinement pipeline (7 submodules) | Internal |
-| `fs/` | pub(crate) | Filesystem confinement, descriptor-relative traversal on Unix | Internal |
-| `response.rs` | pub(crate) | Response helpers (file streaming, directory listing, error responses) | Internal |
-| `mime.rs` | pub(crate) | MIME type detection via `phf` map (~60 extensions) | Internal |
+| `policy.rs` | **pub** | Facade re-exporting `eggserve_primitives::policy` | Stable-ish |
 | `ops/` | **pub** | Structured logging, operational events, counters (Plan 206 Track H: `mod.rs` OpsContext authority, `events.rs`/`sinks.rs`/`counters.rs` submodules) | Stable-ish |
-| `primitives/` | **pub** | Public facade — all canonical types for embedding consumers | Stable |
-| `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle (facade `mod.rs`; Plan 206 Track A: `runtime.rs`/`accept.rs`; Track E: `config/` submodules; Track C: `http3/` submodules) | Experimental |
+| `primitives/` | **pub** | Public facade — all canonical types for embedding consumers (static/path/filesystem entries re-export `eggserve-static`; deleted `src/fs`, `src/path`, `src/mime.rs` must not return) | Stable |
+| `server/` | **pub** | Runtime service boundary: `Server`, `Service` trait, `StaticService`, lifecycle (facade `mod.rs`; Plan 206 Track A: `runtime.rs`/`accept.rs`; Track E: `config/` submodules; thin H3 facade, no `server/http3/` state machine) | Experimental |
 | `tls.rs` | **pub** | TLS config loading (feature-gated: `tls`) | Experimental |
 
 ---
@@ -398,7 +404,7 @@ Five distinct error layers, each scoped to a specific subsystem:
 | **Stable** | `primitives` (facade), all `primitives::*` submodules | Intended public boundary for embedding consumers |
 | **Stable-ish** | `config`, `limits`, `policy`, `ops` | Field shapes may evolve before 1.0 |
 | **Experimental** | `server` (all types) | API may change without notice |
-| **Internal** | `fs`, `path`, `response`, `mime` | `pub(crate)` — not part of public API |
+| **Internal** | `response` and other `pub(crate)` helpers | `pub(crate)` — not part of public API (`fs`/`path`/`mime` live once in `eggserve-static`; deleted core copies must not return) |
 
 ---
 

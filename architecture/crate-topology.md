@@ -1,6 +1,6 @@
 # Crate topology
 
-Plans 211–220 establish dependency layers while preserving the historical
+Plans 211–224 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
 and static implementations into their direct crates; Plan 215 moves the
 mature generic H1 connection runtime into `eggserve-server` with a
@@ -13,7 +13,10 @@ Plan 220 moves the H3/QUIC transport adapter into `eggserve-h3`, leaving
 `eggserve-core` with a thin facade only. Plan 221 migrates the first-party
 frontends (`eggserve-bin`, `eggserve-python`) onto those leaf crates for
 every neutral path, leaving `eggserve-core` for the extended server
-orchestration until Plan 225 closes the facade.
+orchestration until Plan 225 closes the facade. Plan 224 closes as NO-GO:
+no capability-filesystem crate is created and `eggserve-static` remains the
+single confinement authority (see
+`release/plan-224-capability-filesystem-evaluation.md`).
 Protocol-specific compatibility glue
 (H2 wire mechanics, extended listener/proxy/TLS paths) remains in
 core as explicit transport glue, with topology-gate ownership rules marking the
@@ -80,6 +83,17 @@ in the generic server crate. The `python-bindings-internal` feature carries
 the narrow capability bridge (`ResolvedFile::from_parts`/`into_parts`/
 `into_std_file`), which moves the already-opened handle without
 reconstructing provenance.
+
+Plan 224 evaluated extracting the platform confinement machinery
+(`PinnedRoot`/`RootGuard`/fd-relative/handle-relative traversal/child
+open/listing) into a neutral `eggserve-capfs`/`eggcapfs` crate and closed
+NO-GO: the resolver consumes `ConfinedPath`/`StaticPolicy`, returns
+`BodySource` with MIME planning, intentionally duplicates parse-level
+validation as defense in depth, already isolates production unsafe to
+`fs/windows.rs`, and has no second consumer — so a new crate would leak
+eggserve policy, mostly re-export internal types, and split the audited
+validation without reducing complexity (see
+`release/plan-224-capability-filesystem-evaluation.md`).
 
 `eggserve-core` remains an aggregate during the 0.1 compatibility window.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
@@ -182,7 +196,9 @@ use the leaf, Python neutral bridge modules are core-free in code outside
 the documented extended-orchestration blockers, the extension CLI stays via
 `eggserve_bin::run_cli`, and Python validation projects through canonical
 `SharedRuntimeValues`. It is part of the Rust CI preflight and
-`scripts/verify.sh fast`.
+`scripts/verify.sh fast`. The Plan 224 rule is a narrow NO-GO guard: the
+resolved workspace graph must contain no `eggserve-capfs`/`eggcapfs`/`capfs`
+crate, so a future split requires an explicit plan and gate update.
 
 The check also verifies that the mature static resolver is present and the old
 pathname-based topology fixture is absent. It is a dependency/source-ownership

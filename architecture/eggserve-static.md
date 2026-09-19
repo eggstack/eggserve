@@ -29,3 +29,14 @@ remaining compatibility-owned until Plan 225. Behavior is covered by the existin
 suites plus the authority conformance fixture
 (`crates/eggserve-core/tests/static_authority_conformance.rs`). No
 pathname-based fallback is exposed by the direct static service.
+
+Plan 224 evaluated extracting the platform confinement machinery into a
+neutral `eggserve-capfs`/`eggcapfs` crate and closed NO-GO: the resolver
+consumes `ConfinedPath`/`StaticPolicy`, returns `BodySource` with MIME
+planning, intentionally duplicates parse-level validation as defense in
+depth, already isolates production unsafe to `fs/windows.rs`, and has no
+second consumer. A new crate would leak eggserve policy, mostly re-export
+internal types, and split the audited validation without reducing
+complexity. `eggserve-static` therefore remains the single confinement
+authority with no new dependency, feature flag, or versioned API (see
+`release/plan-224-capability-filesystem-evaluation.md`).
