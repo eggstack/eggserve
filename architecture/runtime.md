@@ -589,6 +589,12 @@ Its body type is opaque and consumers should rely only on the
 runtime's semaphore-aware variant is internal; downstream `Service`
 implementations and caller-owned connection users do not need to import Hyper.
 
+File responses use the configured `stream_chunk_size` (128 KiB by default)
+with bounded `BytesMut`/`read_buf` reads. Direct H1 write-stall accounting is
+based on forward socket writes observed by `ProgressIo`; response producer
+polls do not extend that timer. H2 and H3 retain their separately documented
+producer/send progress semantics.
+
 - Known lengths emit runtime `Content-Length`; overrun/underrun close the
   connection with `response_stream_length_mismatch` diagnostics.
 - Unknown lengths omit `Content-Length`; HTTP/1 selects chunked. Clean

@@ -69,11 +69,18 @@ pub fn select_body_policy(
 /// boundary.
 pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), ServiceError> {
     let has_te = headers.contains_key(hyper::header::TRANSFER_ENCODING);
-    let cl_values: Vec<_> = headers
-        .get_all(hyper::header::CONTENT_LENGTH)
-        .iter()
-        .collect();
-    let has_cl = !cl_values.is_empty();
+    let mut cl_count = 0usize;
+    let mut cl_first: Option<&hyper::header::HeaderValue> = None;
+    let mut cl_conflict = false;
+    for value in headers.get_all(hyper::header::CONTENT_LENGTH).iter() {
+        cl_count += 1;
+        if let Some(first) = cl_first {
+            cl_conflict |= value.as_bytes() != first.as_bytes();
+        } else {
+            cl_first = Some(value);
+        }
+    }
+    let has_cl = cl_count != 0;
 
     if has_te && has_cl {
         return Err(ServiceError::rejected(
@@ -82,9 +89,8 @@ pub(crate) fn validate_body_framing(headers: &hyper::HeaderMap) -> Result<(), Se
         ));
     }
 
-    if cl_values.len() > 1 {
-        let first = cl_values[0].as_bytes();
-        if cl_values[1..].iter().any(|v| v.as_bytes() != first) {
+    if cl_count > 1 {
+        if cl_conflict {
             return Err(ServiceError::rejected(
                 400,
                 "conflicting Content-Length headers",
@@ -404,7 +410,7 @@ pub(crate) fn convert_request_head(
             .map_err(|e| ServiceError::rejected(400, format!("invalid request target: {e}")))?
     };
 
-    let mut headers = HeaderBlock::new();
+    let mut headers = HeaderBlock::with_capacity(req.headers().len());
     let mut header_bytes: usize = 0;
     for (name, value) in req.headers().iter() {
         header_bytes = header_bytes
@@ -440,19 +446,21 @@ pub(crate) fn convert_request_head(
         headers.push(header_name, header_value);
     }
 
-    let host_authorities = req
-        .headers()
-        .get_all(hyper::header::HOST)
-        .iter()
-        .map(|value| {
-            Authority::parse(
-                value
-                    .to_str()
-                    .map_err(|_| ServiceError::rejected(400, "invalid Host header"))?,
-            )
-            .map_err(|_| ServiceError::rejected(400, "invalid Host header"))
-        })
-        .collect::<Result<Vec<_>, _>>()?;
+    let mut host_authority = None;
+    let mut host_conflict = false;
+    for value in req.headers().get_all(hyper::header::HOST).iter() {
+        let parsed = Authority::parse(
+            value
+                .to_str()
+                .map_err(|_| ServiceError::rejected(400, "invalid Host header"))?,
+        )
+        .map_err(|_| ServiceError::rejected(400, "invalid Host header"))?;
+        if let Some(first) = &host_authority {
+            host_conflict |= parsed != *first;
+        } else {
+            host_authority = Some(parsed);
+        }
+    }
     let uri_authority = req
         .uri()
         .authority()
@@ -461,11 +469,9 @@ pub(crate) fn convert_request_head(
                 .map_err(|_| ServiceError::rejected(400, "invalid :authority"))
         })
         .transpose()?;
-    let host_authority = match host_authorities.as_slice() {
-        [] => None,
-        [first, rest @ ..] if rest.iter().all(|value| value == first) => Some(first.clone()),
-        _ => return Err(ServiceError::rejected(400, "conflicting Host headers")),
-    };
+    if host_conflict {
+        return Err(ServiceError::rejected(400, "conflicting Host headers"));
+    }
     let authority = match (uri_authority, host_authority) {
         (Some(uri), Some(host)) if uri != host => {
             return Err(ServiceError::rejected(

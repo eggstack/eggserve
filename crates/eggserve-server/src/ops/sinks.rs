@@ -13,6 +13,15 @@ use super::events::{event_to_json, Event};
 pub trait LogSink: Send + Sync {
     fn emit(&self, event: &Event);
     fn flush(&self);
+
+    /// Return whether an event at `severity` can reach at least one sink.
+    ///
+    /// The default keeps downstream sink implementations source-compatible;
+    /// it also preserves the historical eager behavior for custom sinks that
+    /// do not opt into filtering.
+    fn enabled(&self, _severity: super::events::Severity) -> bool {
+        true
+    }
 }
 
 pub struct NopLogSink;
@@ -20,6 +29,10 @@ pub struct NopLogSink;
 impl LogSink for NopLogSink {
     fn emit(&self, _event: &Event) {}
     fn flush(&self) {}
+
+    fn enabled(&self, _severity: super::events::Severity) -> bool {
+        false
+    }
 }
 
 /// A log sink that wraps another sink and only forwards events at or above
@@ -47,6 +60,10 @@ impl LogSink for FilteredLogSink {
 
     fn flush(&self) {
         self.inner.flush();
+    }
+
+    fn enabled(&self, severity: super::events::Severity) -> bool {
+        severity >= self.min_severity && self.inner.enabled(severity)
     }
 }
 
@@ -116,6 +133,10 @@ impl LogSink for CompositeLogSink {
             }));
         }
     }
+
+    fn enabled(&self, severity: super::events::Severity) -> bool {
+        self.sinks.iter().any(|sink| sink.enabled(severity))
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -154,4 +175,8 @@ impl LogSink for StderrLogSink {
     }
 
     fn flush(&self) {}
+
+    fn enabled(&self, _severity: super::events::Severity) -> bool {
+        true
+    }
 }

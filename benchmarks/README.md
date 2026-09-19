@@ -15,6 +15,8 @@ qualified profile and point at the evidence files below.
 | `binary-size.md` | Plan 109 distribution artifact sizes (release vs `dist` profiles, wheel members) plus a current-thread suitability smoke. Profile-aware: never compare `release` against `dist` as a code-size delta. |
 | `168-qualification/results.json` | Plan 168 loopback throughput smoke (Linux x86_64, release CLI): 1 KiB and 1 MiB static GETs, 16 keep-alive workers, 3 trials, 0 errors, server RSS. Reproduce with `benchmarks/168-qualification/loopback_smoke.py`. |
 | `170-closure/results.json` | Final Plan 170 same-machine evidence: native static scaling, native buffered/streaming services, installed-wheel low-level Python, admission recovery, TLS, and CPython substitution. Reproduce with `benchmarks/170-closure/benchmark.py`; caller-owned duplex output is recorded separately by the ignored Rust benchmark test. |
+| `227-current-head/` | Plan 227 current-HEAD baseline: native Rust keep-alive client, in-process body/frame matrix, syscall-profile fallback when hardware CPU profiling is unavailable, and machine/lock/build capture. |
+| `231-optimization-closure/` | Plan 231 same-machine candidate closure: post-optimization A/B results, deterministic qualification commands, and keep/revert decisions for Plans 228–230. |
 
 ## Method
 
@@ -44,6 +46,17 @@ churn, and a same-session CPython substitution baseline. The caller-owned
 driver is measured in-process over `tokio::io::duplex`; it is not network RPS.
 Unavailable arm64 hardware is recorded as performance-unqualified rather than
 silently represented by x86_64 numbers.
+
+Plans 227–231 extend that evidence without changing the claims policy. Plan
+227 adds a dependency-free Rust client so small-response conclusions are not
+limited by CPython client overhead, plus an in-process body/frame matrix and a
+best-effort syscall profile. Plans 228–230 use the captured costs to simplify
+the direct H1 state path, file-stream reads, metadata validation, and disabled
+observability paths. Plan 229's selected default is a 128 KiB file-stream
+chunk; the configured `max_file_streams * stream_chunk_size` bound remains the
+memory authority. Plan 231 records the candidate comparison and reruns the
+full correctness/resource matrix. These are manual qualification artifacts,
+not timing gates.
 
 ## Regression policy
 

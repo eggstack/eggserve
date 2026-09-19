@@ -518,6 +518,28 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for Canonica
     }
 }
 
+/// Immutable values shared by every request on one connection.
+///
+/// Keeping these values behind one connection-level handle avoids cloning a
+/// dozen independent `Arc`s in the Hyper service closure for every request.
+/// Request-local body/lifecycle state remains owned by the request pipeline.
+struct PipelineState<S> {
+    service: Arc<S>,
+    config: Arc<RuntimeConfig>,
+    file_stream_semaphore: Arc<tokio::sync::Semaphore>,
+    service_semaphore: Arc<tokio::sync::Semaphore>,
+    tunnel_semaphore: Arc<tokio::sync::Semaphore>,
+    activity: Arc<ConnectionActivity>,
+    requests: Arc<ConnectionRequests>,
+    stream_chunk_size: usize,
+    handler_timeout: std::time::Duration,
+    body_read_timeout: std::time::Duration,
+    max_body_bytes: u64,
+    context: ConnectionContext,
+    conn_id: u64,
+    ops: crate::ops::OpsContext,
+}
+
 /// Build the shared per-request canonical H1 pipeline as a Hyper service.
 ///
 /// This is the single source of truth for the H1 request lifecycle:
@@ -552,6 +574,22 @@ pub(crate) fn make_canonical_hyper_service<S>(
 where
     S: Service + 'static,
 {
+    let state = Arc::new(PipelineState {
+        service,
+        config,
+        file_stream_semaphore,
+        service_semaphore,
+        tunnel_semaphore,
+        activity,
+        requests,
+        stream_chunk_size,
+        handler_timeout,
+        body_read_timeout,
+        max_body_bytes,
+        context,
+        conn_id,
+        ops,
+    });
     #[allow(clippy::type_complexity)]
     let handler: std::sync::Arc<
         dyn Fn(
@@ -565,17 +603,23 @@ where
             > + Send
             + Sync,
     > = std::sync::Arc::new(move |req: Request<Incoming>| {
-        let service = service.clone();
-        let context = context.clone();
-        let file_stream_semaphore = file_stream_semaphore.clone();
-        let service_semaphore = service_semaphore.clone();
-        let tunnel_semaphore = tunnel_semaphore.clone();
-        let activity = activity.clone();
-        let requests = requests.clone();
-        let config = config.clone();
-        let ops = ops.clone();
+        let state = Arc::clone(&state);
         Box::pin(async move {
-            let mut guard = InFlightGuard::new(activity.clone());
+            let service = &state.service;
+            let config = &state.config;
+            let file_stream_semaphore = &state.file_stream_semaphore;
+            let service_semaphore = &state.service_semaphore;
+            let tunnel_semaphore = &state.tunnel_semaphore;
+            let activity = &state.activity;
+            let requests = &state.requests;
+            let context = &state.context;
+            let stream_chunk_size = state.stream_chunk_size;
+            let handler_timeout = state.handler_timeout;
+            let body_read_timeout = state.body_read_timeout;
+            let max_body_bytes = state.max_body_bytes;
+            let conn_id = state.conn_id;
+            let ops = &state.ops;
+            let mut guard = InFlightGuard::new(Arc::clone(activity));
             // Convert Hyper request to canonical RequestHead, enforcing the
             // EggServe-owned request-target and aggregate header ceilings
             // before any service work.

@@ -25,11 +25,10 @@ use super::response::finalize_runtime_response;
 /// (which enforces keep-alive-idle, write-progress, and total-lifetime
 /// deadlines).
 ///
-/// Lock-poisoning containment: the `state`/`response_poll_progress` mutexes
-/// are only locked without panicking; on poisoning the update is skipped
-/// (progress treated as no-progress, stall checks report "not stalled") and
-/// the outer connection/write timeouts remain the backstop. The I/O path
-/// never panics on a poisoned lock.
+/// Lock-poisoning containment: the `state` mutex is only locked without
+/// panicking; on poisoning the update is skipped and the outer
+/// connection/write timeouts remain the backstop. The I/O path never panics
+/// on a poisoned lock.
 ///
 /// The driver sleeps until the next applicable deadline and recomputes on
 /// every state change: all transitions that create new (earlier) deadlines
@@ -41,11 +40,9 @@ pub(crate) struct ConnectionActivity {
     pub(crate) start: std::time::Instant,
     ops: crate::ops::OpsContext,
     state: std::sync::Mutex<ActivityState>,
-    response_poll_progress: std::sync::Mutex<Vec<(u64, std::time::Instant)>>,
     in_flight: AtomicU64,
     outstanding: AtomicU64,
     completed: AtomicU64,
-    next_request_id: AtomicU64,
     /// Deferred request bodies still owned past `Service::call` return
     /// (Plan 174 Track B). While >0 the connection is not idle even when
     /// no service execution is in-flight and no response is outstanding:
@@ -80,11 +77,9 @@ impl ConnectionActivity {
                 last_activity: now,
                 last_write: now,
             }),
-            response_poll_progress: std::sync::Mutex::new(Vec::new()),
             in_flight: AtomicU64::new(0),
             outstanding: AtomicU64::new(0),
             completed: AtomicU64::new(0),
-            next_request_id: AtomicU64::new(1),
             deferred: AtomicU64::new(0),
             body_timeout_fired: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
@@ -107,15 +102,13 @@ impl ConnectionActivity {
         self.notify.notify_one();
     }
 
-    /// Allocate a request/response activity identity. HTTP/1 maps one active
-    /// identity to its serial request; multiplexed adapters can retain the
-    /// same hook with one identity per stream.
+    /// Allocate a request/response activity handle. HTTP/1 maps one active
+    /// handle to its serial request; multiplexed adapters can retain the same
+    /// hook with one handle per stream.
     pub(crate) fn begin_request(self: &Arc<Self>) -> RequestActivity {
-        let id = self.next_request_id.fetch_add(1, Ordering::Relaxed);
         self.request_started();
         RequestActivity {
             connection: self.clone(),
-            id,
         }
     }
 
@@ -165,15 +158,12 @@ impl ConnectionActivity {
     /// A response was handed to Hyper for transmission. Starts the
     /// write-progress budget and marks the connection as busy so the
     /// keep-alive idle timer cannot fire mid-response.
-    pub(crate) fn response_started(&self, request_id: u64) {
+    pub(crate) fn response_started(&self) {
         self.outstanding.fetch_add(1, Ordering::Relaxed);
         let now = std::time::Instant::now();
         if let Ok(mut state) = self.state.lock() {
             state.last_write = now;
             state.last_activity = now;
-        }
-        if let Ok(mut progress) = self.response_poll_progress.lock() {
-            progress.push((request_id, now));
         }
         self.notify.notify_one();
     }
@@ -181,30 +171,13 @@ impl ConnectionActivity {
     /// A response body reached end-of-stream, failed, or was dropped
     /// (cancellation/disconnect/shutdown). Exactly-once per response via
     /// [`TrackedBody`]'s done flag.
-    pub(crate) fn response_finished(&self, request_id: u64) {
+    pub(crate) fn response_finished(&self) {
         if self.outstanding.fetch_sub(1, Ordering::Relaxed) == 0 {
             // Unreachable in correct operation (every finish pairs with one
             // start); restore the counter instead of wrapping to zero.
             self.outstanding.fetch_add(1, Ordering::Relaxed);
         }
-        if let Ok(mut progress) = self.response_poll_progress.lock() {
-            progress.retain(|(id, _)| *id != request_id);
-        }
         self.touch();
-        self.notify.notify_one();
-    }
-
-    /// Record application-body poll progress attributable to one response.
-    ///
-    /// The H1 write-no-progress timeout pairs this producer signal with
-    /// forward socket-write progress observed in [`ProgressIo`](super::transport::ProgressIo).
-    pub(crate) fn response_poll_progress(&self, request_id: u64) {
-        let now = std::time::Instant::now();
-        if let Ok(mut progress) = self.response_poll_progress.lock() {
-            if let Some((_, last)) = progress.iter_mut().find(|(id, _)| *id == request_id) {
-                *last = now;
-            }
-        }
         self.notify.notify_one();
     }
 
@@ -328,10 +301,6 @@ impl InFlightGuard {
         }
     }
 
-    pub(crate) fn request_id(&self) -> u64 {
-        self.request_activity.id()
-    }
-
     /// Try to admit one service execution under the server-wide in-flight
     /// budget. Returns `None` when admitted; on exhaustion returns the
     /// deterministic generic 503 and the caller must return it via
@@ -417,10 +386,8 @@ impl InFlightGuard {
         self.request_activity.response_started();
         let response = finalize_runtime_response(response, config);
         let activity = self.request_activity.connection.clone();
-        let request_id = self.request_id();
         (
-            response
-                .map(move |body| BoxBodyInner::new(TrackedBody::new(body, activity, request_id))),
+            response.map(move |body| BoxBodyInner::new(TrackedBody::new(body, activity))),
             disposition,
         )
     }
@@ -444,24 +411,21 @@ impl Drop for InFlightGuard {
 struct TrackedBody {
     inner: BoxBodyInner,
     activity: Arc<ConnectionActivity>,
-    #[allow(dead_code)]
-    request_id: u64,
     done: AtomicBool,
 }
 
 impl TrackedBody {
-    fn new(inner: BoxBodyInner, activity: Arc<ConnectionActivity>, request_id: u64) -> Self {
+    fn new(inner: BoxBodyInner, activity: Arc<ConnectionActivity>) -> Self {
         Self {
             inner,
             activity,
-            request_id,
             done: AtomicBool::new(false),
         }
     }
 
     pub(crate) fn finish(&self) {
         if !self.done.swap(true, Ordering::AcqRel) {
-            self.activity.response_finished(self.request_id);
+            self.activity.response_finished();
         }
     }
 }
@@ -472,20 +436,15 @@ impl TrackedBody {
 #[derive(Debug, Clone)]
 pub(crate) struct RequestActivity {
     connection: Arc<ConnectionActivity>,
-    id: u64,
 }
 
 impl RequestActivity {
-    fn id(&self) -> u64 {
-        self.id
-    }
-
     fn request_finished(&self) {
         self.connection.request_finished_without_service();
     }
 
     fn response_started(&self) {
-        self.connection.response_started(self.id);
+        self.connection.response_started();
     }
 }
 
@@ -513,10 +472,7 @@ impl Body for TrackedBody {
                 this.finish();
                 Poll::Ready(Some(Err(e)))
             }
-            Poll::Ready(Some(Ok(frame))) => {
-                this.activity.response_poll_progress(this.request_id);
-                Poll::Ready(Some(Ok(frame)))
-            }
+            Poll::Ready(Some(Ok(frame))) => Poll::Ready(Some(Ok(frame))),
             Poll::Pending => Poll::Pending,
         }
     }

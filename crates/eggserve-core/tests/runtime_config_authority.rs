@@ -103,7 +103,7 @@ fn authoritative_defaults_match_kernel() {
         Duration::from_secs(60)
     );
     assert_eq!(lim::DEFAULT_RESPONSE_WRITE_TIMEOUT, Duration::from_secs(30));
-    assert_eq!(lim::DEFAULT_STREAM_CHUNK_SIZE, 8192);
+    assert_eq!(lim::DEFAULT_STREAM_CHUNK_SIZE, 128 * 1024);
     assert_eq!(lim::DEFAULT_MAX_BUF_SIZE, 64 * 1024);
     assert_eq!(lim::DEFAULT_MAX_HEADERS, 100);
     assert_eq!(lim::DEFAULT_MAX_HEADER_BYTES, 32 * 1024);

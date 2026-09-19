@@ -221,7 +221,8 @@ evidenced by deterministic suites (not absolute-timing gates):
 Performance snapshots and the regression/claims policy live in
 `benchmarks/README.md`; machine-readable results in
 `benchmarks/088-baseline/results.json`, `benchmarks/168-qualification/results.json`,
-and `benchmarks/170-closure/results.json`.
+`benchmarks/170-closure/results.json`, `benchmarks/227-current-head/`, and
+`benchmarks/231-optimization-closure/`.
 
 ## Plan 170 performance-evidence closure
 
@@ -245,6 +246,18 @@ scaling, bounded streaming, the low-level substrate, embedding overhead, TLS
 overhead, and static migration behavior. It does not qualify arm64
 performance when no arm64 host was available and does not establish edge
 server parity, DDoS resistance, anonymity, or universal superiority.
+
+## Plans 227–231 performance optimization closure
+
+Plan 227 is the current-HEAD baseline and profiling record. It combines the
+Plan 170 network matrix with a dependency-free Rust client, an in-process body
+adapter matrix, and a syscall-profile fallback when `perf` is unavailable.
+Plans 228–230 are implementation changes constrained by that evidence. Plan
+231 reruns the same-machine native/static/custom and deterministic resource
+checks, records the candidate SHA and lockfiles, and documents keep/revert/
+defer decisions. The 128 KiB file-stream default is a measured configuration
+choice, not a performance promise; absolute throughput and latency remain
+manual evidence rather than CI thresholds.
 
 ## Plan 207 cross-protocol conformance
 

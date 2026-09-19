@@ -21,11 +21,6 @@ pub(crate) fn finalize_origin_headers(response: &mut Response<BoxBodyInner>, now
     }
 }
 
-fn finalize(mut response: Response<BoxBodyInner>) -> Response<BoxBodyInner> {
-    finalize_origin_headers(&mut response, SystemTime::now());
-    response
-}
-
 #[allow(dead_code)]
 pub(crate) fn canonical_error(
     status: StatusCode,
@@ -121,11 +116,9 @@ pub(crate) fn canonical_error_owned_with_policy(
             .expect("canonical error header value is valid");
         builder = builder.header(name, value);
     }
-    finalize(
-        builder
-            .body(full_body(effective_body))
-            .expect("canonical error response headers and body are valid"),
-    )
+    builder
+        .body(full_body(effective_body))
+        .expect("canonical error response headers and body are valid")
 }
 
 /// Hyper conversion wrapper for the transport-neutral runtime-error builder
@@ -151,7 +144,7 @@ pub(crate) fn runtime_error_with_policy(
         &eggserve_primitives::canonical::NormalizeRequest::new(is_head),
     )
     .expect("canonical runtime error normalizes");
-    crate::adapters::to_hyper_response(normalized)
+    crate::adapters::to_hyper_response_without_origin_date(normalized)
         .expect("canonical runtime error converts to Hyper")
         .map(|body| body.boxed_unsync())
 }

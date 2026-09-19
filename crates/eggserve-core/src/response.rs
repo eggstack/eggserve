@@ -4,27 +4,8 @@ use bytes::Bytes;
 use http_body_util::combinators::UnsyncBoxBody;
 use http_body_util::{BodyExt, Full};
 use hyper::{Response, StatusCode};
-use std::time::SystemTime;
 
 pub type BoxBodyInner = UnsyncBoxBody<Bytes, std::io::Error>;
-
-/// Add the origin server's single authoritative Date header.
-///
-/// This is the direct-primitives default (system clock). The server
-/// connection pipeline overrides per [`crate::server::response_policy::DatePolicy`]
-/// in `finalize_runtime_response`, which is the sole Date authority when a
-/// `RuntimeConfig` is present (Hyper automatic Date is disabled).
-pub(crate) fn finalize_origin_headers(response: &mut Response<BoxBodyInner>, now: SystemTime) {
-    response.headers_mut().remove(hyper::header::DATE);
-    if let Ok(value) = hyper::header::HeaderValue::from_str(&httpdate::fmt_http_date(now)) {
-        response.headers_mut().insert(hyper::header::DATE, value);
-    }
-}
-
-fn finalize(mut response: Response<BoxBodyInner>) -> Response<BoxBodyInner> {
-    finalize_origin_headers(&mut response, SystemTime::now());
-    response
-}
 
 #[allow(dead_code)]
 pub(crate) fn canonical_error(
@@ -121,11 +102,9 @@ pub(crate) fn canonical_error_owned_with_policy(
             .expect("canonical error header value is valid");
         builder = builder.header(name, value);
     }
-    finalize(
-        builder
-            .body(full_body(effective_body))
-            .expect("canonical error response headers and body are valid"),
-    )
+    builder
+        .body(full_body(effective_body))
+        .expect("canonical error response headers and body are valid")
 }
 
 /// Hyper conversion wrapper for the transport-neutral runtime-error builder
@@ -148,7 +127,7 @@ pub(crate) fn runtime_error_with_policy(
         &crate::primitives::canonical::NormalizeRequest::new(is_head),
     )
     .expect("canonical runtime error normalizes");
-    crate::primitives::canonical::to_hyper_response(normalized)
+    crate::primitives::canonical::adapters::to_hyper_response_without_origin_date(normalized)
         .expect("canonical runtime error converts to Hyper")
         .map(|body| body.boxed_unsync())
 }

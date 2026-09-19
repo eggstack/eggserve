@@ -126,13 +126,8 @@ impl StaticService {
         method: ReadOnlyMethod,
         request: &Request,
     ) -> Result<Response, ServiceError> {
-        let header = |name: &str| {
-            request
-                .head()
-                .headers()
-                .get_first(name)
-                .and_then(|value| value.to_str().ok())
-        };
+        let [if_match, if_unmodified_since, if_none_match, if_modified_since, range, if_range] =
+            Self::conditional_headers(request);
         let detected_content_type = file.content_type();
         let content_type = if detected_content_type == "application/octet-stream" {
             self.default_content_type.as_str()
@@ -141,18 +136,40 @@ impl StaticService {
         };
         let plan = file.plan_response_with_content_type(
             method,
-            header("if-match"),
-            header("if-unmodified-since"),
-            header("if-none-match"),
-            header("if-modified-since"),
-            header("range"),
-            header("if-range"),
+            if_match,
+            if_unmodified_since,
+            if_none_match,
+            if_modified_since,
+            range,
+            if_range,
             content_type,
         );
         let source = file
             .into_body(&plan)
             .map_err(|error| ServiceError::internal(error.to_string()))?;
         response_from_plan(plan, source)
+    }
+
+    /// Capture the first text value for each conditional/range header in one
+    /// bounded pass over the ordered, duplicate-preserving header block.
+    /// Duplicate semantics remain first-value semantics, matching `get_first`.
+    fn conditional_headers(request: &Request) -> [Option<&str>; 6] {
+        let mut values = [None; 6];
+        for field in request.head().headers().iter() {
+            let slot = match field.name.as_str() {
+                name if name.eq_ignore_ascii_case("if-match") => 0,
+                name if name.eq_ignore_ascii_case("if-unmodified-since") => 1,
+                name if name.eq_ignore_ascii_case("if-none-match") => 2,
+                name if name.eq_ignore_ascii_case("if-modified-since") => 3,
+                name if name.eq_ignore_ascii_case("range") => 4,
+                name if name.eq_ignore_ascii_case("if-range") => 5,
+                _ => continue,
+            };
+            if values[slot].is_none() {
+                values[slot] = field.value.to_str().ok();
+            }
+        }
+        values
     }
 
     fn directory_response(

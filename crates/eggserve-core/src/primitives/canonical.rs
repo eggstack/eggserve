@@ -27,5 +27,6 @@ pub mod adapters {
     pub use eggserve_server::adapters::{
         to_hyper_response, to_hyper_response_with_file_stream_semaphore,
         to_hyper_response_with_file_stream_semaphore_and_chunk_size,
+        to_hyper_response_without_origin_date,
     };
 }

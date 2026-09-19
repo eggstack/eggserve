@@ -105,7 +105,7 @@ impl RuntimeConfigBuilder {
 
     /// Set the file streaming read chunk size.
     ///
-    /// Must be between 64 bytes and 1 MiB. Default: 8 KiB.
+    /// Must be between 64 bytes and 1 MiB. Default: 128 KiB.
     pub fn stream_chunk_size(mut self, size: usize) -> Self {
         self.stream_chunk_size = Some(size);
         self

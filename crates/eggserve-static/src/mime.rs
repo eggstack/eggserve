@@ -7,9 +7,21 @@ use std::path::Path;
 pub(crate) fn mime_for_path(path: &Path) -> &'static str {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .and_then(|ext| MIME_MAP.get(ext.to_ascii_lowercase().as_str()))
+        .and_then(mime_for_extension)
         .copied()
         .unwrap_or("application/octet-stream")
+}
+
+fn mime_for_extension(extension: &str) -> Option<&&'static str> {
+    if let Some(value) = MIME_MAP.get(extension) {
+        return Some(value);
+    }
+    if extension.bytes().any(|byte| byte.is_ascii_uppercase()) {
+        let lower = extension.to_ascii_lowercase();
+        MIME_MAP.get(lower.as_str())
+    } else {
+        None
+    }
 }
 
 /// Small embedded extension-to-MIME map covering common web-safe types.

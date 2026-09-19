@@ -251,30 +251,8 @@ fn plan_static_request(
     // Protocol-defined precondition/range headers require text: checked
     // conversion here, opaque values treated as absent (full response) rather
     // than coerced. Generic forwarding elsewhere stays byte-preserving.
-    let if_match = request
-        .headers()
-        .get_first("if-match")
-        .and_then(|v| v.to_str().ok());
-    let if_unmodified_since = request
-        .headers()
-        .get_first("if-unmodified-since")
-        .and_then(|v| v.to_str().ok());
-    let if_none_match = request
-        .headers()
-        .get_first("if-none-match")
-        .and_then(|v| v.to_str().ok());
-    let if_modified_since = request
-        .headers()
-        .get_first("if-modified-since")
-        .and_then(|v| v.to_str().ok());
-    let range = request
-        .headers()
-        .get_first("range")
-        .and_then(|v| v.to_str().ok());
-    let if_range = request
-        .headers()
-        .get_first("if-range")
-        .and_then(|v| v.to_str().ok());
+    let [if_match, if_unmodified_since, if_none_match, if_modified_since, range, if_range] =
+        conditional_headers(&request);
     let method = if is_head {
         ReadOnlyMethod::Head
     } else {
@@ -366,6 +344,27 @@ fn plan_static_request(
             "filesystem resolution failed: {error}"
         ))),
     }
+}
+
+/// Capture the first text value for each conditional/range header in one
+/// bounded pass while preserving ordered duplicate semantics.
+fn conditional_headers(request: &RequestHead) -> [Option<&str>; 6] {
+    let mut values = [None; 6];
+    for field in request.headers().iter() {
+        let slot = match field.name.as_str() {
+            name if name.eq_ignore_ascii_case("if-match") => 0,
+            name if name.eq_ignore_ascii_case("if-unmodified-since") => 1,
+            name if name.eq_ignore_ascii_case("if-none-match") => 2,
+            name if name.eq_ignore_ascii_case("if-modified-since") => 3,
+            name if name.eq_ignore_ascii_case("range") => 4,
+            name if name.eq_ignore_ascii_case("if-range") => 5,
+            _ => continue,
+        };
+        if values[slot].is_none() {
+            values[slot] = field.value.to_str().ok();
+        }
+    }
+    values
 }
 
 #[allow(clippy::too_many_arguments)]

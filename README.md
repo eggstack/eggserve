@@ -564,9 +564,12 @@ requiring a push or pull request. Platform
 qualification and release certification are manual workflows; see
 [the release process](https://github.com/eggstack/eggserve/blob/main/docs/release-process.md).
 
-Performance evidence is profile-specific and manual: the final Linux x86_64
-same-machine matrix is recorded in
-[`benchmarks/170-closure/results.json`](benchmarks/170-closure/results.json).
-It documents representative scaling, streaming, low-level Python, TLS,
-caller-owned transport, and CPython substitution behavior; absolute timings
-are not CI gates or universal performance claims.
+Performance evidence is profile-specific and manual. The Plan 170 Linux
+x86_64 matrix is recorded in
+[`benchmarks/170-closure/results.json`](benchmarks/170-closure/results.json);
+the current-head baseline and Plan 231 optimization closure are recorded in
+[`benchmarks/227-current-head/`](benchmarks/227-current-head/) and
+[`benchmarks/231-optimization-closure/`](benchmarks/231-optimization-closure/).
+These artifacts document representative scaling, streaming, low-level Python,
+TLS, caller-owned transport, and CPython substitution behavior; absolute
+timings are not CI gates or universal performance claims.

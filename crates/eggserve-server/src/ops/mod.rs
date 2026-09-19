@@ -209,6 +209,28 @@ impl OpsContext {
         }
     }
 
+    /// Build and emit an event only when the owning sink can consume it.
+    /// Counters remain unconditional; this helper only gates event payload
+    /// construction and sink dispatch for filtered/no-op debug paths.
+    pub fn emit_lazy<F>(&self, severity: Severity, build: F)
+    where
+        F: FnOnce() -> Event,
+    {
+        let enabled = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            self.inner.sink.enabled(severity)
+        }));
+        match enabled {
+            Ok(true) => self.emit(build()),
+            Ok(false) => {}
+            Err(_) => {
+                self.inner
+                    .counters
+                    .dropped_log_events
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        }
+    }
+
     /// Emit one event when `condition` holds.
     pub fn emit_if(&self, condition: bool, event: Event) {
         if condition {
@@ -270,6 +292,7 @@ impl CorrelationId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, AtomicUsize};
 
     #[test]
     fn correlation_id_increments() {
@@ -277,5 +300,57 @@ mod tests {
         assert_eq!(cid.next(), 1);
         assert_eq!(cid.next(), 2);
         assert_eq!(cid.next(), 3);
+    }
+
+    #[test]
+    fn lazy_events_skip_construction_for_noop_sink() {
+        let context = OpsContext::default();
+        let built = AtomicBool::new(false);
+        context.emit_lazy(Severity::Debug, || {
+            built.store(true, Ordering::Relaxed);
+            Event::new(Severity::Debug, EventKind::RequestCompleted, "ignored")
+        });
+        assert!(!built.load(Ordering::Relaxed));
+    }
+
+    struct CountingSink(AtomicUsize);
+
+    impl LogSink for CountingSink {
+        fn emit(&self, _event: &Event) {
+            self.0.fetch_add(1, Ordering::Relaxed);
+        }
+
+        fn flush(&self) {}
+    }
+
+    #[test]
+    fn lazy_events_preserve_enabled_delivery() {
+        let sink = Arc::new(CountingSink(AtomicUsize::new(0)));
+        let context = OpsContext::new(sink.clone());
+        context.emit_lazy(Severity::Info, || {
+            Event::new(Severity::Info, EventKind::RequestCompleted, "delivered")
+        });
+        assert_eq!(sink.0.load(Ordering::Relaxed), 1);
+    }
+
+    struct PanickingEnabledSink;
+
+    impl LogSink for PanickingEnabledSink {
+        fn emit(&self, _event: &Event) {}
+
+        fn flush(&self) {}
+
+        fn enabled(&self, _severity: Severity) -> bool {
+            panic!("enabled probe failed")
+        }
+    }
+
+    #[test]
+    fn lazy_event_enabled_panic_is_contained_and_counted() {
+        let context = OpsContext::new(Arc::new(PanickingEnabledSink));
+        context.emit_lazy(Severity::Debug, || {
+            Event::new(Severity::Debug, EventKind::RequestCompleted, "not built")
+        });
+        assert_eq!(context.snapshot().dropped_log_events, 1);
     }
 }

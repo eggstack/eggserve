@@ -54,8 +54,9 @@ pub const DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 /// Default response-write no-progress timeout.
 pub const DEFAULT_RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
-/// Default file-streaming read chunk size.
-pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 8192;
+/// Default file-streaming read chunk size. See the direct server authority for
+/// the Plan 229 measurement and bounded-memory rationale.
+pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 128 * 1024;
 /// Minimum file-streaming chunk size.
 pub const MIN_STREAM_CHUNK_SIZE: usize = 64;
 /// Maximum file-streaming chunk size (1 MiB).

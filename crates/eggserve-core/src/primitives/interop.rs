@@ -431,20 +431,17 @@ pub fn request_head_from_http<B>(
     let authority = if let Some(ext) = req.extensions().get::<AuthorityExt>() {
         ext.0.clone()
     } else {
-        let hosts: Vec<String> = req
-            .headers()
-            .get_all(http::header::HOST)
-            .iter()
-            .map(|v| v.as_bytes().to_vec())
-            .map(|b| String::from_utf8(b).map_err(|_| InteropError::InvalidAuthority))
-            .collect::<Result<Vec<_>, _>>()?;
-        match hosts.as_slice() {
-            [] => None,
-            [first, rest @ ..] if rest.iter().all(|v| v == first) => {
-                Some(Authority::parse(first).map_err(|_| InteropError::InvalidAuthority)?)
+        let mut first_host = None;
+        for value in req.headers().get_all(http::header::HOST).iter() {
+            let host = value.to_str().map_err(|_| InteropError::InvalidAuthority)?;
+            if first_host.is_some_and(|first| first != host) {
+                return Err(InteropError::InvalidAuthority);
             }
-            _ => return Err(InteropError::InvalidAuthority),
+            first_host = Some(host);
         }
+        first_host
+            .map(|host| Authority::parse(host).map_err(|_| InteropError::InvalidAuthority))
+            .transpose()?
     };
     Ok((method, target, version, headers, authority))
 }

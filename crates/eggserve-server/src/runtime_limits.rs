@@ -61,7 +61,13 @@ pub const DEFAULT_KEEP_ALIVE_IDLE_TIMEOUT: Duration = Duration::from_secs(60);
 pub const DEFAULT_RESPONSE_WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Default file-streaming read chunk size.
-pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 8192;
+///
+/// Plan 229 selected 128 KiB from the current-HEAD body matrix: it reduced
+/// 16 MiB file-adapter frame/read overhead substantially while retaining the
+/// best 1 MiB result on the qualification host. The bounded resident payload
+/// is `max_file_streams * stream_chunk_size` (4 MiB at the default 32 streams),
+/// excluding runtime and allocator overhead.
+pub const DEFAULT_STREAM_CHUNK_SIZE: usize = 128 * 1024;
 /// Minimum file-streaming chunk size.
 pub const MIN_STREAM_CHUNK_SIZE: usize = 64;
 /// Maximum file-streaming chunk size (1 MiB).

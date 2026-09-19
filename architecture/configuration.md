@@ -181,7 +181,7 @@ Body policy is service-declared via `Service::request_body_policy(&RequestHead)`
 | `symlinks` | `StaticPolicy` | Denied | enum | `--follow-symlinks` | `follow_symlinks` (StaticPolicy) | Path traversal resolution |
 | `dotfiles` | `StaticPolicy` | Denied | enum | `--allow-dotfiles` | `allow_dotfiles` (StaticPolicy) | Dotfile path component check |
 | `static_metadata.emit_etag` / `emit_last_modified` | `StaticPolicy` | true / true | bool | N/A (Rust-only) | N/A | Static `ETag`/`Last-Modified`; `minimal_fingerprint()` suppresses both |
-| `stream_chunk_size` | `Limits` / `RuntimeConfig` | 8192 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size |
+| `stream_chunk_size` | `Limits` / `RuntimeConfig` | 131072 | >= 64, <= 1 MiB | N/A | N/A | File streaming read chunk size; Plan 229 default, bounded by `max_file_streams` |
 
 ### TLS (feature-gated, Plan 203)
 

@@ -163,6 +163,10 @@ Implementation plans:
 - `plans/230-response-metadata-observability-hotpath-cleanup.md`
 - `plans/231-performance-optimization-qualification-closure.md`
 
+Status: COMPLETE. Plan 227 baseline artifacts, Plans 228–230 scoped
+optimizations, and Plan 231 qualification/closure artifacts are recorded under
+`benchmarks/227-current-head/` and `benchmarks/231-optimization-closure/`.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.

@@ -38,6 +38,26 @@ pub fn to_hyper_response(
         None,
         crate::runtime_limits::DEFAULT_STREAM_CHUNK_SIZE,
         None,
+        true,
+    )
+}
+
+/// Runtime-internal conversion that leaves `Date` to the active response
+/// policy finalizer. Standalone callers continue to receive the documented
+/// system-clock `Date` from [`to_hyper_response`].
+#[doc(hidden)]
+pub fn to_hyper_response_without_origin_date(
+    response: Response,
+) -> Result<
+    hyper::Response<impl http_body::Body<Data = bytes::Bytes, Error = std::io::Error>>,
+    ResponseConstructionError,
+> {
+    to_hyper_response_with_optional_file_stream_semaphore(
+        response,
+        None,
+        crate::runtime_limits::DEFAULT_STREAM_CHUNK_SIZE,
+        None,
+        false,
     )
 }
 
@@ -60,6 +80,7 @@ pub fn to_hyper_response_with_file_stream_semaphore(
         Some(semaphore),
         crate::runtime_limits::DEFAULT_STREAM_CHUNK_SIZE,
         None,
+        true,
     )
 }
 
@@ -82,6 +103,7 @@ pub fn to_hyper_response_with_file_stream_semaphore_and_chunk_size(
         Some(semaphore),
         stream_chunk_size,
         ops,
+        ops.is_none(),
     )
 }
 
@@ -90,6 +112,7 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
     semaphore: Option<&std::sync::Arc<tokio::sync::Semaphore>>,
     stream_chunk_size: usize,
     ops: Option<&crate::ops::OpsContext>,
+    add_origin_date: bool,
 ) -> Result<
     hyper::Response<http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error>>,
     ResponseConstructionError,
@@ -156,7 +179,9 @@ fn to_hyper_response_with_optional_file_stream_semaphore(
     let mut response = builder
         .body(body)
         .map_err(|_| ResponseConstructionError::InvalidHeader(HeaderError::InvalidValue))?;
-    crate::response::finalize_origin_headers(&mut response, std::time::SystemTime::now());
+    if add_origin_date {
+        crate::response::finalize_origin_headers(&mut response, std::time::SystemTime::now());
+    }
     Ok(response)
 }
 
@@ -165,12 +190,8 @@ fn file_body(
     permit: Option<CountingFileStreamPermit>,
     stream_chunk_size: usize,
 ) -> http_body_util::combinators::UnsyncBoxBody<bytes::Bytes, std::io::Error> {
-    // B-03 note: each chunk iteration allocates a fresh `vec![0; chunk_len]`
-    // (moved into `Bytes`). For the default 8 KiB chunk size the cost is modest;
-    // for large `stream_chunk_size` (up to 1 MiB) the allocation rate scales with
-    // `file_len / chunk_size`. `BytesMut` reuse would reduce this but is a
-    // pure optimization with no correctness impact (see `benchmarks/088-baseline`).
     use bytes::Bytes;
+    use bytes::BytesMut;
     use futures_util::stream;
     use http_body_util::{BodyExt, StreamBody};
     use hyper::body::Frame;
@@ -205,7 +226,10 @@ fn file_body(
                 }
             }
             let chunk_len = remaining.min(stream_chunk_size as u64) as usize;
-            let mut buffer = vec![0; chunk_len];
+            // `BytesMut` reserves capacity without zero-initializing the
+            // payload. `read_file_chunk` exposes only the initialized prefix,
+            // and `freeze` transfers that allocation into the emitted `Bytes`.
+            let mut buffer = BytesMut::with_capacity(chunk_len);
             match read_file_chunk(&mut file, &mut buffer).await {
                 Ok(0) => Some((
                     Err(std::io::Error::new(
@@ -225,9 +249,8 @@ fn file_body(
                         ));
                     }
                     let next_remaining = remaining - bytes_read as u64;
-                    buffer.truncate(bytes_read);
                     Some((
-                        Ok(Frame::data(Bytes::from(buffer))),
+                        Ok(Frame::data(buffer.freeze())),
                         (
                             file,
                             offset + bytes_read as u64,
@@ -244,21 +267,24 @@ fn file_body(
     StreamBody::new(stream).boxed_unsync()
 }
 
-async fn read_file_chunk(file: &mut tokio::fs::File, buffer: &mut [u8]) -> std::io::Result<usize> {
+async fn read_file_chunk(
+    file: &mut tokio::fs::File,
+    buffer: &mut bytes::BytesMut,
+) -> std::io::Result<usize> {
     use tokio::io::AsyncReadExt;
 
     // `tokio::io::AsyncReadExt::read` retries `Interrupted` internally, so no
     // explicit handling is needed here. `Ok(0)` is treated as EOF per the
     // `AsyncRead` contract and bubbled as `UnexpectedEof` by the caller.
-    let mut bytes_read = 0;
-    while bytes_read < buffer.len() {
-        let count = file.read(&mut buffer[bytes_read..]).await?;
+    let target_len = buffer.capacity();
+    while buffer.len() < target_len {
+        let bytes_read = file.read_buf(buffer).await?;
+        let count = bytes_read;
         if count == 0 {
             break;
         }
-        bytes_read += count;
     }
-    Ok(bytes_read)
+    Ok(buffer.len())
 }
 
 /// Convert a transport-independent [`ResponseStream`] into a Hyper body.
@@ -287,11 +313,13 @@ fn stream_body(
         .counters()
         .streaming_started
         .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    owner.emit(crate::ops::Event::new(
-        crate::ops::Severity::Debug,
-        crate::ops::EventKind::ResponseStreamStarted,
-        "streaming response started",
-    ));
+    owner.emit_lazy(crate::ops::Severity::Debug, || {
+        crate::ops::Event::new(
+            crate::ops::Severity::Debug,
+            crate::ops::EventKind::ResponseStreamStarted,
+            "streaming response started",
+        )
+    });
     let adapter = ResponseStreamAdapter::new(stream, stream_chunk_size, ops);
     StreamBody::new(adapter).boxed_unsync()
 }
@@ -388,11 +416,13 @@ impl ResponseStreamAdapter {
             .counters()
             .stream_producer_errors
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.owner().emit(crate::ops::Event::new(
-            crate::ops::Severity::Warn,
-            crate::ops::EventKind::ResponseStreamProducerError,
-            "streaming response producer failed; closing connection",
-        ));
+        self.owner().emit_lazy(crate::ops::Severity::Warn, || {
+            crate::ops::Event::new(
+                crate::ops::Severity::Warn,
+                crate::ops::EventKind::ResponseStreamProducerError,
+                "streaming response producer failed; closing connection",
+            )
+        });
         std::io::Error::other("response stream failed")
     }
 
@@ -402,11 +432,13 @@ impl ResponseStreamAdapter {
             .counters()
             .stream_producer_panics
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.owner().emit(crate::ops::Event::new(
-            crate::ops::Severity::Error,
-            crate::ops::EventKind::ResponseStreamProducerPanic,
-            "streaming response producer panicked; closing connection",
-        ));
+        self.owner().emit_lazy(crate::ops::Severity::Error, || {
+            crate::ops::Event::new(
+                crate::ops::Severity::Error,
+                crate::ops::EventKind::ResponseStreamProducerPanic,
+                "streaming response producer panicked; closing connection",
+            )
+        });
         std::io::Error::other("response stream failed")
     }
 
@@ -416,11 +448,13 @@ impl ResponseStreamAdapter {
             .counters()
             .streaming_completed
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        self.owner().emit(crate::ops::Event::new(
-            crate::ops::Severity::Debug,
-            crate::ops::EventKind::ResponseStreamCompleted,
-            "streaming response completed",
-        ));
+        self.owner().emit_lazy(crate::ops::Severity::Debug, || {
+            crate::ops::Event::new(
+                crate::ops::Severity::Debug,
+                crate::ops::EventKind::ResponseStreamCompleted,
+                "streaming response completed",
+            )
+        });
     }
 
     fn next_split_piece(&mut self) -> Option<bytes::Bytes> {
@@ -443,11 +477,13 @@ impl Drop for ResponseStreamAdapter {
                 .counters()
                 .stream_cancelled
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-            owner.emit(crate::ops::Event::new(
-                crate::ops::Severity::Debug,
-                crate::ops::EventKind::ResponseStreamCancelled,
-                "streaming response cancelled",
-            ));
+            owner.emit_lazy(crate::ops::Severity::Debug, || {
+                crate::ops::Event::new(
+                    crate::ops::Severity::Debug,
+                    crate::ops::EventKind::ResponseStreamCancelled,
+                    "streaming response cancelled",
+                )
+            });
         }
     }
 }

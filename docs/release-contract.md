@@ -240,7 +240,7 @@ These behaviors are determined by hyper's HTTP/1.1 parser, not eggserve policy:
 | Header read timeout | 10s | `tokio::time::timeout` |
 | Connection total timeout | 60s | `tokio::time::timeout` |
 | Graceful shutdown | 10s | Drain after SIGTERM |
-| Stream chunk size | 8 KiB | `Limits::stream_chunk_size` (64 B–1 MiB) |
+| Stream chunk size | 128 KiB | `Limits::stream_chunk_size` (64 B–1 MiB), selected by Plan 229 |
 | Directory listing entries | 4096 | `Limits::max_listing_entries` |
 | Directory listing response | 1 MiB | `Limits::max_listing_response_bytes` |
 

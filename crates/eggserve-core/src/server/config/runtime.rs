@@ -45,7 +45,7 @@ pub struct RuntimeConfig {
     pub max_connections: usize,
     /// Maximum concurrent file-stream responses. Default: 32.
     pub max_file_streams: usize,
-    /// File streaming read chunk size. Default: 8 KiB.
+    /// File streaming read chunk size. Default: 128 KiB.
     pub stream_chunk_size: usize,
     /// Timeout for reading request headers. Default: 10s.
     pub header_read_timeout: Duration,

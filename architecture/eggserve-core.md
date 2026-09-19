@@ -171,7 +171,7 @@ Resource limits with safe defaults:
 | `max_request_target_bytes` | 8192 | Request-target length (414 pre-service) |
 | `max_listing_entries` | 4096 | Maximum entries to enumerate in a directory listing |
 | `max_listing_response_bytes` | 1 MiB | Maximum size in bytes for a directory listing response body |
-| `stream_chunk_size` | 8 KiB | Chunk size in bytes for file streaming reads and app-stream framing splits |
+| `stream_chunk_size` | 128 KiB | Chunk size in bytes for file streaming reads and app-stream framing splits |
 
 ## Server Module (`server/`)
 
@@ -210,7 +210,7 @@ Transport-level configuration separate from service-level concerns (`ServeConfig
 | `max_connections` | 64 | Concurrent TCP connections |
 | `max_in_flight_requests` | 64 | Concurrent service executions (503 on exhaustion) |
 | `max_file_streams` | 32 | Concurrent file streams |
-| `stream_chunk_size` | 8 KiB | File streaming read chunk size |
+| `stream_chunk_size` | 128 KiB | File streaming read chunk size; configurable 64 B–1 MiB |
 | `header_read_timeout` | 10s | Time to read request headers |
 | `connection_total_timeout` | 60s | Hard maximum connection lifetime (never reset) |
 | `handler_timeout` | 30s | Per-request handler timeout |

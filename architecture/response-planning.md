@@ -416,16 +416,25 @@ this boundary is intentionally not shared with custom services.
 
 ## Streaming Buffer Strategy
 
-File streaming uses `stream_chunk_size` from `Limits` (default 8 KiB, configurable 64 B–1 MiB) as the read buffer size for both full-file and range responses. Each chunk allocates a fresh `Vec<u8>`, reads into it, truncates to actual bytes read, and wraps in `Bytes::from(buf)` (zero-copy transfer of ownership). No buffer pool or reuse strategy is employed — each chunk allocation is bounded by the configured chunk size and released when consumed by the transport layer.
+File streaming uses `stream_chunk_size` from `Limits` (default 128 KiB,
+configurable 64 B–1 MiB) as the read buffer size for both full-file and range
+responses. Each chunk uses an initialized-prefix `BytesMut` and
+`AsyncReadExt::read_buf`, freezing only the bytes read into the transport
+frame. No unsafe code or buffer pool is employed; each chunk is bounded by
+the configured size and released when consumed by the transport layer. The
+default was selected by the Plan 227 body/frame matrix and is still bounded
+by `max_file_streams * stream_chunk_size` (4 MiB at the default 32 streams).
 
 Application streams (`ResponseStream`) are pull/backpressure driven with no unbounded channel. Empty chunks are skipped (never emit empty DATA frames); chunks larger than `stream_chunk_size` are split zero-copy via `Bytes` rather than rejected. Producers should keep chunks bounded (advisory 64 KiB, hard-split at transport size, 1 MiB `MAX_RESPONSE_STREAM_CHUNK_BYTES` ceiling for framing splits). Dropping (HEAD/body-forbidden, disconnect, shutdown) releases the producer promptly.
 
 The `stream_chunk_size` field is validated in `Limits::validate()` with bounds `>= 64` and `<= 1 MiB`. The `normalize_metadata()` function uses in-place `retain` for hop-by-hop header stripping and Content-Length removal, avoiding the previous clone+rebuild pattern.
 
 Key allocation classification per request:
-- **Required by ownership/lifetime**: chunk `Vec<u8>` (bounded by configured chunk size), ETag `String`, `HeaderMapPlan` headers
+- **Required by ownership/lifetime**: bounded chunk storage, ETag `String`, `HeaderMapPlan` headers
 - **Removable copy (eliminated)**: `normalize_metadata` header filtering (now uses `retain`)
-- **Benchmark artifact**: per-chunk allocation is bounded and cheap at 8 KiB default
+- **Benchmark artifact**: see `benchmarks/227-current-head/` and
+  `benchmarks/231-optimization-closure/`; absolute timings are machine-specific
+  and are not CI gates
 
 ### Baseline Performance
 
