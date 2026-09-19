@@ -127,6 +127,42 @@ The sequencing/index is `plans/217-225-dependency-security-architecture-program.
 
 Implementation plan: `plans/226-post-225-release-readiness-corrective.md`.
 
+## Performance hot-path optimization campaign — Plans 227–231
+
+**Plans 227–231** are the post-226 evidence-led performance campaign. They do
+not reopen the crate-ownership work and do not authorize new product features.
+
+```text
+227  current-HEAD baseline + native-client/body profiling
+ |\
+ |  228  H1 response-activity + dispatch-state simplification
+ |  229  static/file streaming + metadata allocation optimization
+ |  230  Date/request-metadata/lazy-observability cleanup
+ |/
+231  same-machine A/B qualification, keep/revert decisions, closure
+```
+
+Plan 227 is mandatory before implementation because the latest comprehensive
+performance capture is Plan 170 and predates the direct-crate restructuring.
+Plans 228–230 may proceed independently only after their motivating cost is
+confirmed or mechanically proven by Plan 227. Plan 231 is the final gate: it
+retains only reproducible improvements or clear simplifications with no
+correctness/resource/security regression.
+
+The campaign explicitly preserves confinement, canonical framing, transport
+write-stall semantics, admission limits, crate topology, and H2/H3 support
+tiers. It does not authorize sendfile/splice/io_uring, mmap caches, custom
+allocators, buffer pools, or a public Service API redesign.
+
+Program index: `plans/227-231-performance-hotpath-optimization-program.md`.
+
+Implementation plans:
+- `plans/227-current-head-performance-baseline-and-profiling.md`
+- `plans/228-h1-activity-and-dispatch-state-optimization.md`
+- `plans/229-static-file-streaming-optimization.md`
+- `plans/230-response-metadata-observability-hotpath-cleanup.md`
+- `plans/231-performance-optimization-qualification-closure.md`
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
