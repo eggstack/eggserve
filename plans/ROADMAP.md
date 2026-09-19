@@ -99,6 +99,18 @@ Plans 217–225 are the post-216 ownership and dependency-hardening program. The
 
 The sequencing/index is `plans/217-225-dependency-security-architecture-program.md`. Plan 218 is immediate and parallel-safe; 217/219 establish canonical ownership; 220/221 consume that ownership; 222–224 are cross-repo/evaluation follow-ons; 225 is the closure gate.
 
+## Post-225 release-readiness corrective — Plan 226
+
+**Plan 226 — post-225 release-readiness and metadata corrective** is the narrow follow-up to the completed 217–225 authority-convergence campaign. It does not reopen crate ownership or add features. It aligns the repository with the release state already documented on `main`:
+
+- formalize `eggserve-core` as the compatibility/composition umbrella rather than an implementation authority;
+- update stale package descriptions and the obsolete early three-crate architectural target;
+- raise the workspace MSRV from Rust 1.88 to the current eggstack Rust 1.89 baseline while keeping the exact release compiler pin separate;
+- execute the required pre-1.0 `0.2.0` version transition rather than publishing the breaking `main` line as another `0.1.x` patch;
+- require an actual remote GitHub Actions/check result for the exact closing SHA in addition to local validation.
+
+Implementation plan: `plans/226-post-225-release-readiness-corrective.md`.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
