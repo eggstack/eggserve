@@ -1,6 +1,6 @@
 # eggserve-bin — Deep Dive
 
-The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, signal handling, and graceful shutdown. Plan 221 names the canonical leaf crates directly for every neutral path: `eggserve-primitives` (policy types), `eggserve-server` (observability), `eggserve-static` (direct H1 tests), and `eggnet-tls` (neutral single-identity loading). The extended server orchestration — `ServeConfig`, `try_from_serve_config`, the full `Server` with TLS/H2/H3, the full `StaticService` with extra headers/error policy, and `Limits`/static-metadata validation with static budgets — remains compatibility-owned until Plan 225. Uses a current-thread Tokio runtime.
+The CLI binary crate. Owns the process lifecycle: argument parsing, startup logging, TCP binding, signal handling, and graceful shutdown. Plan 221 names the canonical leaf crates directly for every neutral path: `eggserve-primitives` (policy types), `eggserve-server` (observability), `eggserve-static` (direct H1 tests), and `eggnet-tls` (neutral single-identity loading). The extended server orchestration — `ServeConfig`, `try_from_serve_config`, the full `Server` with TLS/H2/H3, the full `StaticService` with extra headers/error policy, and `Limits`/static-metadata validation with static budgets — stay compatibility-owned as documented orchestration under the Plan 225 facade closure. Uses a current-thread Tokio runtime.
 
 ## Module Map
 

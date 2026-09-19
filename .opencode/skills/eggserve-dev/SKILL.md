@@ -49,7 +49,9 @@ the first-party frontends prove the direct architecture: `eggserve-bin` and
 `eggserve-python` name the leaf crates directly for neutral paths, with
 binary unit tests driving leaf `Server` + leaf `StaticService`; extended
 orchestration plus the confirmed-used `eggserve_bin::run_cli` CLI stay
-compatibility-owned until Plan 225. Plan 224 closes as NO-GO: no
+compatibility-owned as documented orchestration under the Plan 225 facade
+closure (classified inventory, no second authority; removal needs a separate
+migration plan). Plan 224 closes as NO-GO: no
 `eggserve-capfs`/`eggcapfs` crate is created; `eggserve-static` remains the
 single path/filesystem confinement authority (resolver consumes
 `ConfinedPath`/`StaticPolicy`, returns `BodySource` with MIME planning,
@@ -76,8 +78,8 @@ Seven workspace crates plus one excluded Python packaging crate:
 - `crates/eggserve-static/` — sole static/path/filesystem authority
   (`SecureRoot`/capabilities, `path`, planner, MIME; Plans 219 + 224 NO-GO)
 - `crates/eggserve-h3/` — experimental H3/QUIC transport adapter (Plan 220 authority)
-- `crates/eggserve-core/` — 0.1 compatibility aggregate preserving the mature API
-- `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (Plan 221: neutral paths on leaf crates; extended orchestration still core until Plan 225)
+- `crates/eggserve-core/` — 0.1 compatibility facade preserving the mature API (facades, adapters, documented orchestration; Plan 225 closure)
+- `crates/eggserve-bin/` — binary: CLI, accept loop, signal handling (Plan 221: neutral paths on leaf crates; extended orchestration compatibility-owned under Plan 225)
 - `crates/eggserve-python/` — Python wheel packaging (maturin + PyO3 0.29.2, Plan 221: neutral bridge on leaf crates + confirmed-used `eggserve_bin::run_cli`; excluded from workspace; packages the native extension and extension-backed CLI, with no separate bundled executable)
 
 Other directories: `architecture/` (deep-dive docs), `docs/` (reference docs),
@@ -105,7 +107,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211–220 ownership/topology gate + Plan 224 NO-GO guard
+python3 scripts/check-crate-topology.py                     # Plan 211–225 ownership/topology gate + Plan 225 facade closure
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.88 check --workspace --all-targets

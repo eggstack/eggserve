@@ -231,7 +231,6 @@ dependencies = [
  "hyper",
  "hyper-util",
  "libc",
- "phf",
  "proptest",
  "rcgen",
  "rustix",

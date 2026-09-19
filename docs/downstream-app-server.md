@@ -16,7 +16,13 @@ The reference qualification is
 using only `eggserve_core::primitives` + `eggserve_core::server` plus
 ordinary downstream dependencies (`tokio`, `bytes`, `futures-util`). It is a
 consumer test, not a maintained second server product, and not an ASGI/WSGI
-implementation.
+implementation. New downstream projects may depend on the direct leaf
+crates instead (`eggserve-primitives` for canonical values,
+`eggserve-server` for the runtime and single `Service` contract, plus
+`eggserve-static` only when confined static serving is needed): Plan 225
+proves the direct crates are sufficient, with `eggserve-core` kept as a
+0.x compatibility facade over the same authorities (see
+`release/plan-225-compatibility-facade-closure.md`).
 
 ## Canonical architecture
 

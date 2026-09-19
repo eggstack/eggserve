@@ -530,6 +530,29 @@ let handler = |mut io: TunnelIo| async move {
 };
 ```
 
+## Plan 225: compatibility-facade closure (no migration required)
+
+Plan 225 closes the 217–224 program by proving `eggserve-core` is a
+compatibility facade rather than an implementation authority. No public
+import path changes and no behavior changes follow from it:
+
+- The deleted `primitives/canonical/` submodule copy was unreferenced dead
+  code next to the `canonical.rs` facade; all `eggserve_core::primitives::`
+  paths resolve to the same direct types as before.
+- The removed `phf` dependency was a leftover manifest edge; the MIME table
+  lives once in `eggserve-static` and no public API changes.
+- New Rust consumers should depend directly on the smallest leaf crate they
+  need (`eggserve-primitives`, `eggserve-server`, `eggserve-static`,
+  `eggserve-h3`); the leaves are reachable through
+  `eggserve_core::layers` during the 0.1 transition.
+
+`eggserve-core` itself is not deprecated by this plan: the extended server
+orchestration (`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3
+`Server`, full `StaticService`, listing budgets, handle lifecycle) stays
+supported for 0.x. Any future deprecation or removal of the compatibility
+crate requires a separate explicit migration plan with release notes (see
+`release/plan-225-compatibility-facade-closure.md`).
+
 ## Breaking Change Policy
 
 Patch releases preserve stable source compatibility. Before 1.0, intentional

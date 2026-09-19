@@ -108,8 +108,11 @@ planning/capabilities, tunnel, and neutral TLS loading; binary unit tests
 drive leaf `Server` + leaf `StaticService`. The extended orchestration
 (`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3 `Server`, full
 `StaticService`, listing budgets, handle lifecycle) plus the confirmed-used
-`eggserve_bin::run_cli` extension CLI remain compatibility-owned until
-Plan 225 (see `architecture/crate-topology.md`).
+`eggserve_bin::run_cli` extension CLI stay compatibility-owned as documented
+orchestration under the Plan 225 facade closure (classified inventory, no
+second security/protocol authority; removal requires a separate migration
+plan — see `architecture/crate-topology.md` and
+`release/plan-225-compatibility-facade-closure.md`).
 Plan 224 closes as NO-GO: no `eggserve-capfs`/`eggcapfs` crate is created;
 `eggserve-static` remains the single path/filesystem confinement authority
 because the resolver consumes `ConfinedPath`/`StaticPolicy`, returns

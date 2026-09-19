@@ -10,7 +10,9 @@ the implementation homes for new consumers: `eggserve-primitives` owns
 canonical values,
 `eggserve-server` owns generic transport and `Service`, and
 `eggserve-static` owns filesystem specialization. The compatibility paths
-remain supported during migration; see
+remain supported during migration; Plan 225 proves the crate is a
+compatibility facade (facades, adapters, documented orchestration) with no
+second security/protocol authority and a topology-gated module inventory; see
 [`architecture/crate-topology.md`](../architecture/crate-topology.md).
 
 ## Public modules

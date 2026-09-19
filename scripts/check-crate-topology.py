@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–224 Cargo dependency topology.
+"""Enforce the Plan 211–225 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -8,7 +8,9 @@ serving, static serving consumes the two lower layers, static
 path/filesystem confinement lives once in `eggserve-static` with
 `eggserve-core` keeping compatibility facades only, the H3/QUIC adapter
 lives once in `eggserve-h3` with downward-only primitives/server deps,
-and no capability-filesystem crate exists (Plan 224 NO-GO).
+no capability-filesystem crate exists (Plan 224 NO-GO), and the
+compatibility core is a classified facade/adapter layer with no leftover
+duplicate implementations or dependencies (Plan 225 closure).
 """
 
 from __future__ import annotations
@@ -205,6 +207,9 @@ def main() -> int:
     if check_plan221_frontends() != 0:
         return 1
 
+    if check_plan225_facade() != 0:
+        return 1
+
     # Plan 224 NO-GO: no capability-filesystem crate may appear silently.
     # A future split requires an explicit plan and gate update, not a new
     # package in the resolved graph.
@@ -219,7 +224,7 @@ def main() -> int:
             return 1
 
     print(
-        "Plan 211–224 topology: primitives leaf; neutral TLS; "
+        "Plan 211–225 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3 adapter owned; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
         "direct tunnel authority with neutral vocabulary; "
@@ -228,7 +233,9 @@ def main() -> int:
         "single H3/QUIC adapter with core facades; "
         "Plan 221 frontends name leaf crates directly (neutral paths; "
         "extended orchestration blockers documented); "
-        "Plan 224 NO-GO: no capability-filesystem crate"
+        "Plan 224 NO-GO: no capability-filesystem crate; "
+        "Plan 225: core is a classified compatibility facade "
+        "(no second canonical implementation, no leftover MIME dependency)"
     )
     return 0
 
@@ -1212,6 +1219,167 @@ def check_plan221_frontends() -> int:
     if "SharedRuntimeValues" not in runtime_rs or "shared.validate()" not in runtime_rs:
         print("eggserve-python runtime must validate through canonical `SharedRuntimeValues` (Plan 221 §4)", file=sys.stderr)
         return 1
+
+    return 0
+
+
+def check_plan225_facade() -> int:
+    """Enforce Plan 225 compatibility-facade closure.
+
+    Structural (not line-count) rules: `eggserve-core` is a classified
+    facade/adapter layer. No second canonical/parser/resolver/state-machine
+    implementation may return, no leftover implementation dependencies may
+    remain, every production module must be in the classified inventory
+    (new files fail until explicitly classified per Plan 225 §1), and
+    every `primitives/*.rs` compatibility file must facade the direct
+    authority except the documented adapters.
+    """
+    import tomllib
+
+    repo = Path(__file__).resolve().parent.parent
+    core_src = repo / "crates" / "eggserve-core" / "src"
+
+    # 1. No second canonical implementation: the orphaned
+    #    `primitives/canonical/` duplicate (deleted by this plan) must not
+    #    return as a directory next to the `canonical.rs` facade.
+    if (core_src / "primitives" / "canonical").exists():
+        print(
+            "eggserve-core retains primitives/canonical/: the canonical "
+            "response vocabulary lives once in eggserve-primitives with "
+            "Hyper conversion once in eggserve-server (Plan 225: facade only)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 2. No leftover implementation dependencies: the MIME perfect-hash map
+    #    lives once in `eggserve-static`; core must not keep `phf`.
+    core_manifest = tomllib.loads(
+        (repo / "crates" / "eggserve-core" / "Cargo.toml").read_text()
+    )
+    for section in ("dependencies", "dev-dependencies"):
+        if "phf" in core_manifest.get(section, {}):
+            print(
+                "eggserve-core keeps a `phf` dependency: MIME selection lives "
+                "once in eggserve-static (Plan 225: remove the leftover)",
+                file=sys.stderr,
+            )
+            return 1
+    for target in core_manifest.get("target", {}).values():
+        if "phf" in target.get("dependencies", {}):
+            print(
+                "eggserve-core keeps a target-gated `phf` dependency: MIME "
+                "selection lives once in eggserve-static (Plan 225)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 3. Classified inventory (Plan 225 §1): facades, adapters, documented
+    #    orchestration, and the H2/listener/proxy/TLS transport glue. A new
+    #    production module fails here until it is classified and added with
+    #    an owner (rollback rule: do not silently re-expand core).
+    expected = {
+        "config.rs",
+        "lib.rs",
+        "limits.rs",
+        "ops/mod.rs",
+        "policy.rs",
+        "primitives/authority.rs",
+        "primitives/body.rs",
+        "primitives/canonical.rs",
+        "primitives/connection_info.rs",
+        "primitives/header_block.rs",
+        "primitives/http.rs",
+        "primitives/incomplete_body_policy.rs",
+        "primitives/interim.rs",
+        "primitives/interop.rs",
+        "primitives/method.rs",
+        "primitives/mod.rs",
+        "primitives/planner.rs",
+        "primitives/proxy.rs",
+        "primitives/request.rs",
+        "primitives/request_body.rs",
+        "primitives/request_body_error.rs",
+        "primitives/request_body_policy.rs",
+        "primitives/request_context.rs",
+        "primitives/request_head.rs",
+        "primitives/request_lifecycle.rs",
+        "primitives/request_target.rs",
+        "primitives/response.rs",
+        "primitives/response_stream.rs",
+        "primitives/secure_root.rs",
+        "primitives/trailers.rs",
+        "primitives/tunnel.rs",
+        "primitives/version.rs",
+        "response.rs",
+        "runtime_limits.rs",
+        "server/accept.rs",
+        "server/config.rs",
+        "server/config/http1.rs",
+        "server/config/http2.rs",
+        "server/config/http3.rs",
+        "server/config/runtime.rs",
+        "server/config/tls.rs",
+        "server/connection/activity.rs",
+        "server/connection/context.rs",
+        "server/connection/deferred_body.rs",
+        "server/connection/driver.rs",
+        "server/connection/lifecycle.rs",
+        "server/connection/mod.rs",
+        "server/connection/pipeline.rs",
+        "server/connection/request.rs",
+        "server/connection/response.rs",
+        "server/connection/transport.rs",
+        "server/errors.rs",
+        "server/handle.rs",
+        "server/http3.rs",
+        "server/lifecycle.rs",
+        "server/listener.rs",
+        "server/mod.rs",
+        "server/proxy.rs",
+        "server/response_policy.rs",
+        "server/runtime.rs",
+        "server/service.rs",
+        "server/static_service.rs",
+        "server/tower.rs",
+        "tls.rs",
+    }
+    actual = {
+        str(path.relative_to(core_src)) for path in core_src.rglob("*.rs")
+    }
+    if actual != expected:
+        new = sorted(actual - expected)
+        gone = sorted(expected - actual)
+        detail = []
+        if new:
+            detail.append(f"unclassified new modules: {new}")
+        if gone:
+            detail.append(f"inventory modules missing: {gone}")
+        print(
+            "eggserve-core module inventory changed "
+            f"({'; '.join(detail)}). "
+            "Classify every production module per Plan 225 §1 "
+            "(facade / adapter / orchestration / blocker) before extending "
+            "the compatibility core.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 4. Facade discipline: every `primitives/*.rs` compatibility file must
+    #    re-export the direct authority (`pub use eggserve_...`). The only
+    #    documented exceptions are the Plan 200 `http-interop` adapters
+    #    (`interop.rs`, loss-aware conversions over canonical types, never
+    #    in default builds) — `mod.rs` only declares modules and re-exports.
+    for path in sorted((core_src / "primitives").glob("*.rs")):
+        if path.name in {"interop.rs", "mod.rs"}:
+            continue
+        if "pub use eggserve_" not in path.read_text():
+            print(
+                f"eggserve-core/primitives/{path.name} is not a facade: "
+                "compatibility files must re-export the direct authority "
+                "(`pub use eggserve_...`, Plan 225)",
+                file=sys.stderr,
+            )
+            return 1
 
     return 0
 

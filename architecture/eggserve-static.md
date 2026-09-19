@@ -25,7 +25,8 @@ the first-party frontends consume it directly: the binary's unit tests drive
 leaf `StaticService`, and the Python bridge resolves/plans through the leaf
 (including the capability bridge) — with the extended static orchestration
 (extra headers/error policy, listing budgets, `ServeConfig` validation)
-remaining compatibility-owned until Plan 225. Behavior is covered by the existing qualification
+staying compatibility-owned as documented orchestration under the Plan 225
+facade closure. Behavior is covered by the existing qualification
 suites plus the authority conformance fixture
 (`crates/eggserve-core/tests/static_authority_conformance.rs`). No
 pathname-based fallback is exposed by the direct static service.

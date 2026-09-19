@@ -71,7 +71,6 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
- "phf",
  "rustix",
  "rustls",
  "thiserror",

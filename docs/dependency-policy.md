@@ -41,7 +41,7 @@ The following dependency categories are approved for initial development:
 | Buffer types | `bytes` | Efficient byte buffer management |
 | Streaming | `futures-util` | Async stream utilities for file streaming bodies |
 | Date formatting | `httpdate` | HTTP date formatting for Last-Modified headers |
-| Compile-time map | `phf` | Perfect hash function map for MIME type lookup |
+| Compile-time map | `phf` (`eggserve-static` only) | Perfect hash function map for MIME type lookup; Plan 225 removed the leftover core edge so the table lives once in the static authority |
 | CLI parsing | manual (no clap) | Manual argument parsing in `eggserve-bin` |
 | Error derive | `thiserror` | Derive macro for Error types |
 | Python bindings | `pyo3` 0.29.2 (eggserve-python only) | PyO3 bindings for Python wheel; pinned above the current RustSec advisories affecting 0.24.x |
@@ -52,7 +52,7 @@ The following dependency categories are approved for initial development:
 | HTTP/3 transport | `eggserve-h3` → `h3`, `h3-quinn`, `quinn` (optional, `http3` feature) | Experimental HTTP/3/QPACK server semantics, Quinn Tokio QUIC transport, and the rustls QUIC crypto adapter; no default/H1/H2 graph impact |
 | WebSocket interop fixture (dev-only) | `tokio-tungstenite` (dev-dependency, tests only) | Plan 199 Track I: proves generic tunnel handoff sufficient for downstream WS codec (handshake via EggServe, framing over `TunnelIo`); never enters production `eggserve-core`/`eggserve-bin` graphs |
 | Windows filesystem | `windows-sys` (optional, Windows-only, feature-gated) | Handle-relative filesystem operations for Windows hardening |
-| Unix syscalls | `rustix` (Unix-only: `fs` + `net`) | Descriptor-relative filesystem confinement plus socket-activation fd validation (`SOCK_STREAM`/`SO_ACCEPTCONN`/family); no service-manager crate in default or minimal builds |
+| Unix syscalls | `rustix` (Unix-only) | `eggserve-static`: descriptor-relative filesystem confinement (`fs`) plus socket-activation fd validation; `eggserve-core`: listener accept/socket validation (`net` only, plus ungated `rustix::io::Errno`) — Plan 219/225, no `fs` feature in core; no service-manager crate in default or minimal builds |
 
 ### Tokio feature ownership
 
@@ -76,8 +76,8 @@ The following dependency categories are approved for initial development:
 - `tokio`, `hyper`, `hyper-util`, `http-body`, `http-body-util`, and `bytes` provide the
   HTTP/1 transport and body pipeline. Manual CLI parsing avoids a broad CLI
   framework dependency.
-- `futures-util`, `httpdate`, and `phf` support streaming, HTTP dates, and the
-  compile-time MIME map.
+- `futures-util` and `httpdate` support streaming and HTTP dates; the
+  compile-time MIME map (`phf`) lives once in `eggserve-static` (Plan 225).
 - TLS dependencies are optional and feature-gated. Windows filesystem support
   is likewise target-gated; platform-only dependencies do not enter the
   default Unix graph.

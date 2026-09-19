@@ -159,8 +159,10 @@ planning/capabilities, tunnel, neutral TLS loading), with the binary's unit
 tests driving leaf `Server` + leaf `StaticService`. The extended server
 orchestration (serve_config, full TLS/H2/H3 `Server`, full `StaticService`,
 `ServeConfig`/listing budgets, handle lifecycle) and the extension-backed
-CLI (`eggserve_bin::run_cli`, confirmed used) remain compatibility-owned
-until Plan 225. Plan 224 closes as NO-GO: no `eggserve-capfs`/`eggcapfs`
+CLI (`eggserve_bin::run_cli`, confirmed used) stay compatibility-owned as
+documented orchestration under the Plan 225 facade closure (classified
+inventory, no second security/protocol authority; removal requires a
+separate migration plan). Plan 224 closes as NO-GO: no `eggserve-capfs`/`eggcapfs`
 crate is created; `eggserve-static` remains the single path/filesystem
 confinement authority (see
 `release/plan-224-capability-filesystem-evaluation.md`). Advanced
@@ -492,7 +494,9 @@ cargo install --path crates/eggserve-bin
 The source-checkout command installs the `eggserve-bin` package's `eggserve`
 binary. New Rust consumers should depend directly on the smallest leaf crate
 they need (`eggserve-primitives`, `eggserve-server`, `eggserve-static`, or
-`eggserve-h3`); `eggserve-core` remains the 0.1 compatibility aggregate.
+`eggserve-h3`); `eggserve-core` is the 0.1 compatibility facade (facades,
+adapters, and documented orchestration; see
+`release/plan-225-compatibility-facade-closure.md`).
 The executable crate is intentionally a thin CLI surface.
 
 The Python wheel includes the native extension and extension-backed CLI entry

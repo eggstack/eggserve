@@ -4,7 +4,13 @@
 EggServe surfaces. Plan 214 moves the canonical model and hardened static
 resolver into the direct layers; core remains the compatibility home for
 Python-facing adapters, advanced protocol runtime paths, and legacy
-configuration during the 0.1 transition.
+configuration during the 0.1 transition. Plan 225 closes the 217–224
+program by proving this crate is a compatibility facade rather than an
+implementation authority: every production module is classified
+(facade / adapter / documented orchestration / transport glue), duplicate
+implementations and leftover dependencies are removed, and the topology
+gate rejects silent re-expansion (see
+`release/plan-225-compatibility-facade-closure.md`).
 
 The direct layers are [`eggserve-primitives`](crate-topology.md),
 [`eggserve-server`](crate-topology.md), and
@@ -63,7 +69,7 @@ compatibility and advanced protocol/Python integration.
 | `primitives/planner.rs` | **pub** via re-export | Compatibility facade; conditional/range planning functions are implemented once in `eggserve-static` (Plan 219) |
 | `primitives/body.rs` | **pub** | `BodySource`, `BodyKind`, `BodySourceError` — safe body streaming abstraction |
 | `primitives/response_stream.rs` | **pub** | `ResponseStream`, `ResponseStreamError`, `MAX_RESPONSE_STREAM_CHUNK_BYTES` — transport-independent streaming bodies |
-| `primitives/canonical/` | **pub** | Facade (`canonical.rs`) re-exports preserving `primitives::canonical::X` and `primitives::X` paths (Plan 206 Track D); submodules: `status.rs` — `StatusCode`/`ResponseConstructionError`; `headers.rs` — `ResponseHead` + hop-by-hop authority; `response_body.rs` — `BodyLength`/`ResponseBody`; `response.rs` — `Response`/`Builder`/`NormalizeRequest`/`normalize_*` (body field `pub(super)` for adapters, `runtime_error_with_policy` `pub(crate)`); `adapters.rs` — `to_hyper_response` + semaphore overloads (`pub(crate)`, opaque `Body`) |
+| `primitives/canonical.rs` | **pub** via re-export | Compatibility facade (Plan 225 closure): re-exports `eggserve_primitives::canonical::*` preserving `primitives::canonical::X` and `primitives::X` paths, delegates Hyper conversion to `eggserve_server::adapters`, and keeps an inline `adapters` submodule for the 0.1 `canonical::adapters::to_hyper_response` path. There is one normalization authority, not two; the former `primitives/canonical/` submodule copy was deleted and the topology gate rejects its return |
 | `primitives/connection_info.rs` | **pub** | `ConnectionInfo` raw peer/local plus Plan 202 effective layer (`proxy_source`/`proxy_destination`/`proxy_provenance`, `effective_client`/`effective_scheme`/`effective_authority`/`forwarded_provenance`) |
 | `primitives/proxy.rs` | **pub** | Plan 202 policy and bounded parsers (`IpPrefix`, `ProxySourceKind`, `TrustedProxyConfig`/`ProxyProtocolConfig`/`ForwardedConfig`, PROXY v1/v2, `Forwarded`/`X-Forwarded-*` single-hop) |
 
@@ -283,18 +289,25 @@ Control handle returned by `Server::start()`:
 
 ## Dependencies
 
+Plan 225 closure: `eggserve-core` keeps only the dependencies its
+compatibility orchestration and transport glue require. The MIME
+perfect-hash map lives once in `eggserve-static`; core no longer depends
+on `phf`. Confinement syscalls live once in `eggserve-static`; core keeps
+`rustix` (Unix only) for listener accept/socket validation (`net` only,
+plus ungated `rustix::io::Errno`), never the `fs` feature.
+
 | Dependency | Purpose |
 |------------|---------|
 | `bytes` | Buffer types |
 | `futures-util` | Streaming body adapters |
+| `http-body` | `Body` trait for response-completion tracking (Plan 164) |
 | `http-body-util` | Body combinators |
 | `httpdate` | Last-Modified header formatting |
-| `hyper` | HTTP/1.1 server, request/response types |
-| `hyper-util` | Tokio integration, server utilities |
-| `phf` | Compile-time perfect hash function for MIME map |
+| `hyper` | HTTP/1.1 server, request/response types (transport glue) |
+| `hyper-util` | Tokio integration, server utilities (transport glue) |
 | `thiserror` | Derive macro for Error types |
-| `tokio` | Async runtime |
-| `rustix` (Unix only) | Descriptor-relative filesystem syscalls |
+| `tokio` | Async runtime (accept loop, connection pipeline) |
+| `rustix` (Unix only, `net` feature) | Listener accept/socket validation; no `fs` (confinement lives in `eggserve-static`) |
 
 
 ## See Also

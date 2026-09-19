@@ -165,12 +165,13 @@ eggserve-python        → standalone Python packaging (neutral bridge on leaf c
 - **`eggserve-h3`** owns the direct experimental Quinn/H3/H3-Quinn dependency
   set and consumes primitives/server/`eggnet-tls` downward only; those
   crates never depend upward.
-- **`eggserve-core`** remains the 0.1 compatibility aggregate while direct
+- **`eggserve-core`** is the 0.1 compatibility facade while direct
   consumers migrate; static/path/filesystem, request/service, and H3 paths
-  are facades over the direct authorities.
+  are facades over the direct authorities (Plan 225 closure: classified
+  inventory, no second authority).
 - **`eggserve-bin`** and **`eggserve-python`** name the leaf crates directly
   for every neutral path (Plan 221); they use `eggserve-core` only for the
-  documented extended orchestration until Plan 225.
+  documented extended orchestration under the Plan 225 facade closure.
 
 The exact direct edges are checked by
 `scripts/check-crate-topology.py`; see [crate-topology.md](crate-topology.md).

@@ -111,6 +111,22 @@ direct `Service` drives direct H1 and compatibility H2, and the authority
 fixture (`crates/eggserve-core/tests/static_authority_conformance.rs`)
 proves core static paths resolve to the static implementation.
 
+Plan 225 closes the 217–224 program by proving `eggserve-core` is a
+compatibility facade rather than an implementation authority. The closure
+removes the last duplicated implementation (the unreferenced
+`primitives/canonical/` response-vocabulary copy next to the `canonical.rs`
+facade) and the last leftover implementation dependency (`phf`, whose MIME
+table lives once in `eggserve-static`). What remains in core besides
+facades and adapters is documented compatibility orchestration, not a
+second security/protocol authority: `ServeConfig`/`ServeState`/`Limits`
+bridges, the full TLS/H2/H3 `Server`/`ServerHandle`/`RuntimeConfig`
+runtime, the full `StaticService` with extra-header/error-policy
+composition, and the H2/listener/proxy/TLS transport glue. Every
+production module is in the classified inventory enforced by the
+topology gate; new modules fail until explicitly classified, and any core
+removal/deprecation requires a separate explicit migration plan (see
+`release/plan-225-compatibility-facade-closure.md`).
+
 Plan 221 makes the first-party frontends prove the direct architecture.
 `eggserve-bin` names `eggserve-primitives` (policy), `eggserve-server`
 (observability, shared limits), `eggserve-static` (direct H1 tests), and
@@ -195,7 +211,12 @@ crates directly, binary neutral paths (policy, ops, TLS, direct H1 tests)
 use the leaf, Python neutral bridge modules are core-free in code outside
 the documented extended-orchestration blockers, the extension CLI stays via
 `eggserve_bin::run_cli`, and Python validation projects through canonical
-`SharedRuntimeValues`. It is part of the Rust CI preflight and
+`SharedRuntimeValues`. The Plan 225 rules close the facade: no
+`primitives/canonical/` second implementation, no leftover `phf` MIME
+dependency in core, a classified production-module inventory that rejects
+unclassified new modules, and facade discipline (`pub use eggserve_...`)
+for every `primitives/*.rs` compatibility file except the documented Plan
+200 `http-interop` adapters. It is part of the Rust CI preflight and
 `scripts/verify.sh fast`. The Plan 224 rule is a narrow NO-GO guard: the
 resolved workspace graph must contain no `eggserve-capfs`/`eggcapfs`/`capfs`
 crate, so a future split requires an explicit plan and gate update.
