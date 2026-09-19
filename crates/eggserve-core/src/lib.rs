@@ -1,4 +1,5 @@
-//! Hardened static-serving primitives for eggserve.
+//! Compatibility and composition layer for EggServe's direct primitives,
+//! runtime, static-serving, TLS, and optional protocol adapters.
 //!
 //! # Public API status (alpha)
 //!

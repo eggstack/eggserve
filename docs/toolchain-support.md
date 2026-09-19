@@ -10,11 +10,11 @@ All workspace crates use Rust edition **2021** with workspace resolver **v2**.
 
 ### MSRV Policy
 
-The minimum supported Rust version (MSRV) is **1.88** for the workspace's
-current 0.1 line. Routine CI tests stable and also runs
-`cargo +1.88 check --workspace --all-targets`; protocol feature additions must
-retain this check or update the MSRV deliberately as part of the documented
-0.2 transition. The MSRV includes the patched `time` release required by the
+The minimum supported Rust version (MSRV) is **1.89** for the workspace's
+current 0.2 line. Routine CI tests stable and also runs
+`cargo +1.89 check --workspace --all-targets`; protocol feature additions must
+retain this check or update the MSRV deliberately in a dedicated plan.
+The MSRV includes the patched `time` release required by the
 current RustSec advisory database. There is no backward-compatibility
 guarantee for compilers older than the MSRV.
 

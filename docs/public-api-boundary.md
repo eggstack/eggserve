@@ -5,7 +5,7 @@ This document defines the public API surface of `eggserve-core` and the rules fo
 ## Overview
 
 `eggserve-core` exposes a deliberate, narrow public boundary through the
-`primitives` module for 0.1 compatibility. Plan 214 makes the direct layers
+`primitives` module for compatibility over the direct authorities. Plan 214 makes the direct layers
 the implementation homes for new consumers: `eggserve-primitives` owns
 canonical values,
 `eggserve-server` owns generic transport and `Service`, and
@@ -37,7 +37,7 @@ second security/protocol authority and a topology-gated module inventory; see
 
 ## Internal modules (not public API)
 
-`fs`, `path`, `response`, MIME detection, and the error taxonomy are `pub(crate)`. External callers must not depend on them. Types from these modules are re-exported through `primitives` where appropriate.
+`response` and other `pub(crate)` helpers are internal. External callers must not depend on them. Types from these modules are re-exported through `primitives` where appropriate. The former `fs`/`path`/MIME modules live once in `eggserve-static`; their deleted core copies must not return.
 
 ## Primitives module
 

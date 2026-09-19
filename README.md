@@ -115,8 +115,9 @@ for intentional deviations from the stdlib.
 
 ## Rust library
 
-The 0.x compatibility entry point remains `eggserve-core`, which preserves
-the historical `primitives` and experimental `server` paths. Plan 214 makes
+The compatibility and composition entry point remains `eggserve-core`, which preserves
+the historical `primitives` and experimental `server` paths over the direct
+authorities. Plan 214 makes
 the direct dependency layers the implementation homes: `eggserve-primitives`
 owns the canonical request/response/body/lifecycle model, `eggserve-server`
 owns the mature generic H1 connection runtime (observability, error taxonomy,
@@ -126,7 +127,7 @@ boundary), and `eggserve-static` owns hardened descriptor/handle-relative
 static serving. The generic server does not pull static serving, and the
 primitives leaf does not pull Hyper, Tokio, TLS, QUIC, or filesystem code.
 New Rust consumers should depend directly on the smallest layer they need;
-the compatibility aggregate exposes the layers through
+the compatibility/composition umbrella exposes the layers through
 `eggserve_core::layers`. Plan 215 adds a 16-scenario direct-vs-compatibility
 H1 parity suite (`crates/eggserve-core/tests/direct_h1_parity.rs`) and a
 topology gate owning the boundary. Plan 216 moves tunnel authority to the
@@ -207,8 +208,10 @@ with behavior parity covered by the direct-vs-compatibility H1 suite plus the
 direct-service convergence fixture. The returned body
 type is opaque in both cases, so consumers should rely on the
 `http_body::Body` contract rather than naming `BoxBody`. This adapter change is
-classified as the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented
-in the [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md).
+the intentional `0.1.x` → `0.2.0` pre-1.0 transition documented
+in the [migration guide](https://github.com/eggstack/eggserve/blob/main/docs/migration-guide.md);
+the workspace now develops on the `0.2.0` line and must not be published
+as another `0.1.x` patch.
 
 Optional ecosystem adapters (never in default builds) connect the canonical
 model to standard types: `http-interop` (`primitives::interop` — loss-aware
@@ -494,9 +497,13 @@ cargo install --path crates/eggserve-bin
 The source-checkout command installs the `eggserve-bin` package's `eggserve`
 binary. New Rust consumers should depend directly on the smallest leaf crate
 they need (`eggserve-primitives`, `eggserve-server`, `eggserve-static`, or
-`eggserve-h3`); `eggserve-core` is the 0.1 compatibility facade (facades,
-adapters, and documented orchestration; see
-`release/plan-225-compatibility-facade-closure.md`).
+`eggserve-h3`); `eggserve-core` is the compatibility and composition umbrella
+(facades, adapters, and documented orchestration; see
+`release/plan-225-compatibility-facade-closure.md`). Keeping that
+orchestration in core is intentional for the current pre-1.0 line:
+first-party frontends may depend on core for full composed-server behavior,
+while new low-level consumers should prefer the direct crates; removing or
+deprecating core requires a separate future migration plan.
 The executable crate is intentionally a thin CLI surface.
 
 The Python wheel includes the native extension and extension-backed CLI entry

@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
-description = "Security policy, path confinement, and static-serving primitives for eggserve"
+description = "Compatibility and composition layer for EggServe's direct primitives, runtime, static-serving, TLS, and optional protocol adapters"
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
@@ -39,11 +39,11 @@ python-bindings-internal = ["eggserve-static/python-bindings-internal"]
 windows-adversarial-qualification = []
 
 [dependencies]
-eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", optional = true, default-features = false }
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
-eggserve-server = { path = "../eggserve-server", version = "0.1.2" }
-eggserve-static = { path = "../eggserve-static", version = "0.1.2" }
-eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }
+eggnet-tls = { path = "../eggnet-tls", version = "0.2.0", optional = true, default-features = false }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
+eggserve-server = { path = "../eggserve-server", version = "0.2.0" }
+eggserve-static = { path = "../eggserve-static", version = "0.2.0" }
+eggserve-h3 = { path = "../eggserve-h3", version = "0.2.0", optional = true }
 bytes = "1"
 futures-util = "0.3"
 http = { version = "1", optional = true }

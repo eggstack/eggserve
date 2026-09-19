@@ -20,8 +20,8 @@ runtime, proxy, or general-purpose `socketserver` replacement.
 - **A reusable Rust library** — `eggserve-primitives` is the direct canonical
   security/HTTP model, `eggserve-server` is the direct experimental HTTP/1
   transport/runtime boundary, and `eggserve-static` is the hardened static
-  specialization. `eggserve-core` preserves the 0.1 compatibility paths and
-  advanced protocol runtime.
+  specialization. `eggserve-core` is the compatibility and composition
+  umbrella over those direct authorities plus the advanced protocol runtime.
 
 ## What eggserve Is Not
 
@@ -124,7 +124,7 @@ eggserve/
 │   ├── eggserve-server/        # generic HTTP runtime and transport boundary
 │   ├── eggserve-static/        # filesystem/static specialization
 │   ├── eggserve-h3/            # experimental Quinn/H3/H3-Quinn boundary
-│   ├── eggserve-core/          # 0.1 compatibility aggregate
+│   ├── eggserve-core/          # compatibility/composition umbrella
 │   ├── eggserve-bin/           # binary: CLI, accept loop, signal handling
 │   └── eggserve-python/        # Python wheel (maturin + PyO3, excluded from workspace)
 ├── architecture/               # this directory — deep-dive docs per subsystem
@@ -143,7 +143,7 @@ eggserve/
 
 ## Crate Architecture
 
-Seven workspace library crates, with a strict dependency hierarchy and a compatibility aggregate:
+Seven workspace library crates, with a strict dependency hierarchy and a compatibility/composition umbrella:
 
 ```
 eggserve-primitives    ← eggserve-server ← eggserve-static
@@ -165,10 +165,18 @@ eggserve-python        → standalone Python packaging (neutral bridge on leaf c
 - **`eggserve-h3`** owns the direct experimental Quinn/H3/H3-Quinn dependency
   set and consumes primitives/server/`eggnet-tls` downward only; those
   crates never depend upward.
-- **`eggserve-core`** is the 0.1 compatibility facade while direct
-  consumers migrate; static/path/filesystem, request/service, and H3 paths
-  are facades over the direct authorities (Plan 225 closure: classified
-  inventory, no second authority).
+- **`eggserve-core`** is the compatibility and composition layer for the
+  direct primitives, runtime, static-serving, TLS, and optional protocol
+  adapters. Static/path/filesystem, request/service, and H3 paths are
+  facades over the direct authorities (Plan 225 closure: classified
+  inventory, no second authority). Keeping the extended orchestration
+  (`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3 `Server`, full
+  `StaticService`, listing budgets, handle lifecycle) in core is
+  intentional for the current pre-1.0 line: first-party frontends may
+  depend on core for full composed-server behavior, while new low-level
+  consumers should prefer the direct crates. Removing or deprecating core
+  requires a separate future migration plan; the remaining orchestration
+  is not an implementation blocker.
 - **`eggserve-bin`** and **`eggserve-python`** name the leaf crates directly
   for every neutral path (Plan 221); they use `eggserve-core` only for the
   documented extended orchestration under the Plan 225 facade closure.
@@ -200,7 +208,7 @@ Each component links to a deep-dive document. Use this as your starting point fo
 | Generic server runtime | `eggserve-server` | [eggserve-server.md](eggserve-server.md) | Transport and service execution without static-serving dependencies |
 | Static specialization | `eggserve-static` | [eggserve-static.md](eggserve-static.md) | Filesystem policy, path resolution, and static responses |
 | Neutral TLS substrate | `eggnet-tls` | [eggnet-tls.md](eggnet-tls.md) | Bounded rustls identity, SNI, WebPKI mTLS, trust/CRLs, and atomic reload |
-| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | 0.1 compatibility aggregate — facades over the direct authorities plus explicit transport glue |
+| Core library | `eggserve-core` | [eggserve-core.md](eggserve-core.md) | Compatibility/composition umbrella — facades over the direct authorities plus explicit transport glue |
 | CLI binary | `eggserve-bin` | [eggserve-bin.md](eggserve-bin.md) | Process entry point — CLI argument parsing, integration-only `run_cli()`, signal handling, current-thread tokio runtime, graceful shutdown |
 | Python bindings | `eggserve-python` | [eggserve-python.md](eggserve-python.md) | PyO3 bindings — `eggserve.server` facade, `SimpleHTTPRequestHandler`, `RequestBody`, structured logging bridge |
 
@@ -258,7 +266,7 @@ HTTP Request
 ┌─────────────────────────────────────────────────────┐
 │ eggserve-bin: process entry point                   │
 │  • CLI argument parsing (args.rs, no clap)          │
-│  • Optional TLS config load via eggserve_core::tls  │
+│  • Optional TLS load via eggnet_tls (neutral)       │
 │  • Tokio runtime creation                           │
 │  • Signal handler registration (shutdown.rs)        │
 └─────────────────┬───────────────────────────────────┘
@@ -553,82 +561,52 @@ Listener-based examples bind loopback, support port `0` for smoke tests, wait fo
 
 ## Crate Source Structure
 
-### eggserve-core (44 source files)
+### eggserve-core (compatibility/composition umbrella)
 
 ```
 src/
 ├── lib.rs                    # module declarations, 3-tier stability model
-├── config.rs                 # ServeConfig, ServeState, StartupSummary
+├── config.rs                 # ServeConfig, ServeState, StartupSummary (documented orchestration)
 ├── limits.rs                 # Limits — connections, streams, timeouts
-├── policy.rs                 # StaticPolicy, SymlinkPolicy, DotfilePolicy, DirectoryListingPolicy
-├── ops/                    # structured logging event model, OpsCounters (Plan 206: mod.rs + events.rs + sinks.rs + counters.rs)
-├── tls.rs                    # TLS config loading (feature-gated)
-├── response.rs               # Hyper response helpers, file streaming, error responses
-├── mime.rs                   # MIME type detection via phf map (~60 extensions)
-├── path/
-│   ├── mod.rs                # ConfinedPath type
-│   ├── decode.rs             # single-pass percent decoding
-│   ├── components.rs         # normalization, splitting, validation
-│   ├── rejected.rs           # PathRejection (17 variants)
-│   ├── policy.rs             # PathPolicy, DotfilePolicy (path-level)
-│   └── platform.rs           # Windows reserved names, ADS, drive prefixes
-├── fs/
-│   ├── mod.rs                # PinnedRoot, RootGuard, ResolvedResource, ResolvedFile, ResolvedDirectory
-│   ├── unix.rs               # descriptor-relative traversal (statat + openat)
-│   └── windows.rs            # handle-relative traversal (NtOpenFile, NtQueryDirectoryFile)
-├── primitives/
-│   ├── mod.rs                # re-exports all public types
-│   ├── secure_root.rs        # SecureRoot, ResolvedFile, ResolvedDirectory, ResolvedResource
-│   ├── body.rs               # BodySource, BodyKind, BodySourceError
-│   ├── canonical.rs          # facade re-exporting canonical/ submodules (Plan 206 Track D)
-│   ├── method.rs             # Method (canonical HTTP method)
-│   ├── version.rs            # HttpVersion
-│   ├── header_block.rs       # HeaderBlock, HeaderName, HeaderValue
-│   ├── request_target.rs     # RequestTarget
-│   ├── request_head.rs       # RequestHead
-│   ├── connection_info.rs    # ConnectionInfo, Scheme, TlsInfo
-│   ├── request.rs            # Request (head + body + RequestContext)
-│   ├── request_context.rs    # RequestContext (Plan 197: connection + lifecycle)
-│   ├── request_body.rs       # RequestBody, BodyState
-│   ├── request_body_error.rs # RequestBodyError (14 variants)
-│   ├── request_body_policy.rs# RequestBodyPolicy (Reject/Buffer/Stream)
-│   ├── incomplete_body_policy.rs # IncompleteBodyPolicy
-│   ├── planner.rs            # plan_file_response, conditional/range/ETag evaluation
-│   ├── response.rs           # StaticResponsePlan, BodyPlan, FileRange, ResponseStatus
-│   └── http.rs               # ReadOnlyMethod, validate_method/body/target
-└── server/
-    ├── mod.rs                # Server, ServerBuilder, re-exports + tests (facade)
-    ├── runtime.rs            # RuntimeState (Plan 206 Track A)
-    ├── accept.rs             # accept_loop_multi, TLS helpers, listener adoption (pub(super))
-    ├── config.rs             # facade: Builder + try_from_serve_config + re-exports + tests
-    ├── config/               # Plan 206 Track E: runtime.rs (RuntimeConfig), http1.rs, http2.rs, http3.rs, tls.rs
-    ├── http3.rs              # facade: accept_loop + tests (qualifies endpoint::/request::/response::/tunnel::)
-    ├── http3/                # Plan 206 Track C: endpoint.rs, request.rs, response.rs, tunnel.rs
-    ├── connection/         # Transport-neutral driver facade (mod.rs: serve_http1_connection, ConnectionContext, ConnectionShutdown, ConnectionOutcome; context/lifecycle/activity/transport/driver/pipeline/request/response/deferred_body submodules)
-    ├── errors.rs             # ServerError, ShutdownResult
-    ├── handle.rs             # ServerHandle (lifecycle control)
-    ├── lifecycle.rs          # LifecycleState (Created→Running→Draining→Stopped/Failed)
-    ├── service.rs            # Service trait, service_fn, ServiceError
-    └── static_service.rs     # StaticService (hardened static file serving)
+├── policy.rs                 # facade re-exporting eggserve_primitives::policy
+├── ops/                      # facade re-exporting eggserve_server::ops (OpsContext authority + events/sinks/counters)
+├── tls.rs                    # TLS transport glue re-exporting the neutral eggnet-tls API (feature-gated)
+├── runtime_limits.rs         # facade re-exporting eggserve_server::runtime_limits
+├── response.rs               # compatibility response helpers (pub(crate))
+├── primitives/               # compatibility facades — every file re-exports its
+│                             # direct authority (eggserve-primitives, eggserve-static,
+│                             # or eggserve-server adapters); no second implementation.
+│                             # Deleted and gated by topology: src/fs, src/path,
+│                             # src/mime.rs, primitives/canonical/ (all live once
+│                             # in eggserve-static / eggserve-primitives)
+└── server/                   # runtime service boundary (experimental):
+                              # full TLS/H2/H3 Server/ServerBuilder/ServerHandle,
+                              # RuntimeConfig orchestration, StaticService composition,
+                              # H2/listener/proxy/TLS transport glue; H3 is a thin
+                              # facade over eggserve-h3 (no server/http3/ state machine)
 ```
 
-### eggserve-bin (5 source files)
+Every production module is in the classified inventory enforced by
+`scripts/check-crate-topology.py` (Plan 225 facade closure); new modules
+fail the gate until explicitly classified.
+
+### eggserve-bin
 
 ```
 src/
 ├── main.rs    # thin fn main() → eggserve_bin::run()
-├── lib.rs     # run(), run_cli(argv); delegates accept loop to core server
+├── lib.rs     # run(), run_cli(argv); neutral policy/ops/limits/static paths name the leaf crates directly (Plan 221); extended orchestration via the core facade
 ├── args.rs    # manual argument parsing (no clap)
 ├── shutdown.rs# signal handling (Ctrl+C, SIGTERM, SIGHUP) with broadcast channel
-└── tls.rs     # re-export shim for eggserve_core::tls (loading lives in core)
+└── tls.rs     # re-export of the neutral eggnet_tls substrate (Plan 221)
 ```
 
-### eggserve-python (2 Rust source files + Python facade)
+### eggserve-python (Rust bridge + Python facade)
 
 ```
 src/
-├── lib.rs     # PyO3 module registration: 20 exceptions, 24 classes, 7 functions
-└── server.rs  # facade: declares mods + re-exports Py* types; submodules (Plan 206 Track B): errors, body_bridge, request_bridge, response_bridge, tunnel_bridge, static_responder, sync_handler, runtime, lifecycle (pointer), async_handler (pointer to Python-side Plan 204)
+├── lib.rs     # PyO3 module registration; neutral bridge names the leaf crates directly (Plan 221); extended orchestration + extension CLI via core/bin
+└── server/    # bridge submodules: errors, body_bridge, request_bridge, response_bridge, tunnel_bridge, static_responder, sync_handler, runtime, lifecycle, async_handler (Plan 204 stays Python-side)
 
 python/eggserve/
 ├── __init__.py     # top-level namespace (version, serve_directory, facade classes)

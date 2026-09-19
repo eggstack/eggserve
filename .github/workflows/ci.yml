@@ -39,13 +39,13 @@ jobs:
       - name: MSRV check
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: 1.88
+          toolchain: 1.89
       - name: MSRV cargo check
-        run: cargo +1.88 check --workspace --all-targets
+        run: cargo +1.89 check --workspace --all-targets
       - name: MSRV HTTP/2 cargo check
-        run: cargo +1.88 check --workspace --all-targets --features http2,tls
+        run: cargo +1.89 check --workspace --all-targets --features http2,tls
       - name: MSRV HTTP/3 cargo check
-        run: cargo +1.88 check --workspace --all-targets --features http3,tls
+        run: cargo +1.89 check --workspace --all-targets --features http3,tls
       - name: Restore stable toolchain
         uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:

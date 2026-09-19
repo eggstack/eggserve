@@ -60,7 +60,7 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
     cp Cargo.toml README.md LICENSE "$layered_stage/"
     cp -R "crates/$package/." "$layered_stage/crates/$package/"
     cp -R architecture docs examples "$layered_stage/"
-    printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "0.1.2"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.88"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n' "$package" > "$layered_stage/Cargo.toml"
+    printf '[workspace]\nmembers = ["crates/%s"]\nresolver = "2"\n\n[workspace.package]\nversion = "0.2.0"\nedition = "2021"\nlicense = "MIT"\nrepository = "https://github.com/eggstack/eggserve"\nhomepage = "https://github.com/eggstack/eggserve"\nkeywords = ["http", "static-file-server", "security", "hardened", "http-server"]\ncategories = ["web-programming::http-server"]\nrust-version = "1.89"\n\n[workspace.lints.rust]\nunsafe_code = "deny"\n\n[profile.dist]\ninherits = "release"\nopt-level = "z"\nlto = "fat"\ncodegen-units = 1\nstrip = "symbols"\n' "$package" > "$layered_stage/Cargo.toml"
     printf '[registries.local]\nindex = "file://%s"\n' "$layered_index" > "$layered_stage/.cargo/config.toml"
   }
 
@@ -69,34 +69,34 @@ if [ -f crates/eggserve-primitives/Cargo.toml ]; then
     local manifest="$layered_stage/crates/$package/Cargo.toml"
     case "$package" in
       eggserve-server)
-        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }#eggserve-primitives = { version = "0.2.0", registry = "local" }#' "$manifest"
         ;;
       eggserve-static)
-        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }#eggserve-primitives = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.2.0" }#eggserve-server = { version = "0.2.0", registry = "local" }#' "$manifest"
         ;;
       eggserve-h3)
-        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", default-features = false }#eggnet-tls = { version = "0.1.2", registry = "local", default-features = false }#' "$manifest"
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }#eggserve-primitives = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.2.0" }#eggserve-server = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.2.0", default-features = false }#eggnet-tls = { version = "0.2.0", registry = "local", default-features = false }#' "$manifest"
         ;;
       eggserve-core)
-        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.1.2", optional = true, default-features = false }#eggnet-tls = { version = "0.1.2", registry = "local", optional = true, default-features = false }#' "$manifest"
-        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.1.2" }#eggserve-static = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }#eggserve-h3 = { version = "0.1.2", registry = "local", optional = true }#' "$manifest"
+        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.2.0", optional = true, default-features = false }#eggnet-tls = { version = "0.2.0", registry = "local", optional = true, default-features = false }#' "$manifest"
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }#eggserve-primitives = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.2.0" }#eggserve-server = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.2.0" }#eggserve-static = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-h3 = { path = "../eggserve-h3", version = "0.2.0", optional = true }#eggserve-h3 = { version = "0.2.0", registry = "local", optional = true }#' "$manifest"
         ;;
       eggserve-bin)
-        sed -i 's#eggserve-core = { path = "../eggserve-core", version = "0.1.2" }#eggserve-core = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-h3 = { path = "../eggserve-h3", version = "0.1.2", optional = true }#eggserve-h3 = { version = "0.1.2", registry = "local", optional = true }#' "$manifest"
+        sed -i 's#eggserve-core = { path = "../eggserve-core", version = "0.2.0" }#eggserve-core = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-h3 = { path = "../eggserve-h3", version = "0.2.0", optional = true }#eggserve-h3 = { version = "0.2.0", registry = "local", optional = true }#' "$manifest"
         # Plan 221: the binary names the canonical leaf crates directly, so
         # the single-crate stage must resolve those path edges through the
         # local registry like every other layered crate.
-        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }#eggserve-primitives = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.1.2" }#eggserve-server = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.1.2" }#eggserve-static = { version = "0.1.2", registry = "local" }#' "$manifest"
-        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.1.2" }#eggnet-tls = { version = "0.1.2", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }#eggserve-primitives = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-server = { path = "../eggserve-server", version = "0.2.0" }#eggserve-server = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggserve-static = { path = "../eggserve-static", version = "0.2.0" }#eggserve-static = { version = "0.2.0", registry = "local" }#' "$manifest"
+        sed -i 's#eggnet-tls = { path = "../eggnet-tls", version = "0.2.0" }#eggnet-tls = { version = "0.2.0", registry = "local" }#' "$manifest"
         ;;
     esac
   }
@@ -166,7 +166,7 @@ print(json.dumps(entry, separators=(",", ":")))
       fi
     done
     (cd "$layered_stage" && cargo package -p "$package" --allow-dirty --locked --registry local --no-verify)
-    crate_file="$layered_stage/target/package/$package-0.1.2.crate"
+    crate_file="$layered_stage/target/package/$package-0.2.0.crate"
     if [ ! -f "$crate_file" ]; then
       echo "$package package was not produced" >&2
       exit 1

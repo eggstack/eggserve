@@ -2,16 +2,16 @@
 
 This document defines the exact product surface, behavioral guarantees, and compatibility commitments for eggserve's first public release. It is the normative reference for what eggserve ships, what is stable, what is experimental, and what is internal.
 
-Development metadata: 0.1.2. The next release containing the current stable
-Rust API line must be 0.2.0 or later; the development value is not permission
-to publish a 0.1.x patch release.
+Development metadata: 0.2.0. This line carries the intentional pre-1.0
+`0.1.x` → `0.2.0` transition and must not be published as a 0.1.x patch
+release.
 
 Stable Rust API changes follow the pre-1.0 rule in
 [api-stability.md](api-stability.md): patch releases preserve source
 compatibility; an intentional breaking change requires an explicit minor
 transition, release notes, and migration guidance. The current `main` tree
-prepares the outbound response-conversion transition for the next `0.2.0`
-release; it is not a patch-level compatibility promise for `0.1.x`.
+carries the outbound response-conversion transition on the `0.2.0`
+release line; it is not a patch-level compatibility promise for `0.1.x`.
 
 Request-body behavior is service-owned. The built-in static service rejects
 body-bearing requests, while custom services may declare buffering or streaming
@@ -28,7 +28,7 @@ free-threaded CPython are not supported.
 | Artifact | Description | Distribution |
 |----------|-------------|--------------|
 | `eggserve` binary | CLI static file server | `cargo install` |
-| `eggserve-core` crate | Rust library for path confinement, policy, response planning | crates.io (planned) |
+| `eggserve-core` crate | Rust compatibility/composition umbrella over the direct primitives, runtime, static-serving, TLS, and optional protocol adapters | crates.io (planned) |
 | Python wheel `eggserve` | Python package containing the native extension, CLI entry point, and Rust primitives | PyPI (planned) |
 
 ### Feature Gates

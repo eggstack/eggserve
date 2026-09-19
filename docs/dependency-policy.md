@@ -9,9 +9,9 @@ Plans 211–214 add a checked crate topology. `eggserve-primitives` is the canon
 leaf and intentionally has only the small `bytes`/`futures-util` dependencies
 needed for owned bytes and streams. `eggserve-server` owns
 Hyper/Tokio transport and depends on primitives, never on static serving or
-the compatibility aggregate. `eggserve-static` owns filesystem-specific
-behavior and depends on primitives plus server. `eggserve-core` remains a
-0.1 compatibility aggregate during migration. `eggnet-tls` owns neutral
+the compatibility and composition umbrella. `eggserve-static` owns filesystem-specific
+behavior and depends on primitives plus server. `eggserve-core` is the
+compatibility and composition umbrella. `eggnet-tls` owns neutral
 rustls identity/trust/client-auth/reload policy and depends only on rustls and
 rustls-pki-types at runtime. `eggserve-h3` owns the direct Quinn/H3/H3-Quinn
 production dependency set and is optional from the core facade. See
@@ -71,7 +71,7 @@ The following dependency categories are approved for initial development:
 - The dependency graph is intentionally layered: `eggserve-primitives` owns
   canonical values, `eggserve-server` owns generic HTTP transport,
   `eggserve-static` owns filesystem/MIME behavior, and `eggserve-core` keeps
-  the mature aggregate for 0.1 compatibility. The CLI and Python crates add
+  the compatibility and composition umbrella. The CLI and Python crates add
   only their frontend/runtime requirements.
 - `tokio`, `hyper`, `hyper-util`, `http-body`, `http-body-util`, and `bytes` provide the
   HTTP/1 transport and body pipeline. Manual CLI parsing avoids a broad CLI

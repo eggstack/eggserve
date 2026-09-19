@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
-description = "Hardened static-file specialization for the EggServe runtime"
+description = "Hardened static-file service and filesystem confinement authority for the EggServe runtime"
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
@@ -18,8 +18,8 @@ workspace = true
 python-bindings-internal = []
 
 [dependencies]
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
-eggserve-server = { path = "../eggserve-server", version = "0.1.2" }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
+eggserve-server = { path = "../eggserve-server", version = "0.2.0" }
 httpdate = "1"
 phf = { version = "0.11", features = ["macros"] }
 

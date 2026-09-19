@@ -33,7 +33,7 @@ shared kernel exposed here (`connection::select_body_policy`,
 H3-owned, no Quinn types here). The `http2`/`tls` Cargo features remain as
 inert opt-in edges (the H1 graph never requires them).
 
-`eggserve-core::server` remains the 0.1 compatibility surface for those
+`eggserve-core::server` remains the compatibility and composition surface for those
 advanced paths, with facades (`ops`, `errors`, `response_policy`, `policy`,
 `runtime_limits`) over every moved module. Unified `Service` identity and
 tunnel-acceptance convergence landed in Plan 216 and single-contract convergence in Plan 217 (downstream fixture). The direct crate The direct crate

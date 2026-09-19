@@ -1,16 +1,19 @@
 # eggserve-core — Deep Dive
 
-`eggserve-core` is the 0.1 compatibility aggregate behind the existing
-EggServe surfaces. Plan 214 moves the canonical model and hardened static
+`eggserve-core` is the compatibility and composition layer for EggServe's
+direct primitives, runtime, static-serving, TLS, and optional protocol
+adapters. Plan 214 moves the canonical model and hardened static
 resolver into the direct layers; core remains the compatibility home for
 Python-facing adapters, advanced protocol runtime paths, and legacy
-configuration during the 0.1 transition. Plan 225 closes the 217–224
+configuration. Plan 225 closes the 217–224
 program by proving this crate is a compatibility facade rather than an
 implementation authority: every production module is classified
 (facade / adapter / documented orchestration / transport glue), duplicate
 implementations and leftover dependencies are removed, and the topology
 gate rejects silent re-expansion (see
-`release/plan-225-compatibility-facade-closure.md`).
+`release/plan-225-compatibility-facade-closure.md`). Plan 226 executes
+the `0.2.0` version transition and the Rust 1.89 MSRV move with no
+ownership change.
 
 The direct layers are [`eggserve-primitives`](crate-topology.md),
 [`eggserve-server`](crate-topology.md), and
@@ -46,11 +49,29 @@ streams, `caller_owned_stream` drives the canonical pipeline over a
 caller-owned stream without a listener, and `primitives` performs response
 planning without opening a socket. They are compiled by `scripts/verify.sh full`.
 
+## Composition role (Plan 226)
+
+Keeping the extended orchestration in core is intentional for the current
+pre-1.0 line, not an implementation blocker:
+
+- first-party frontends (`eggserve-bin`, `eggserve-python`) may depend on
+  core for full composed-server behavior (`ServeConfig` /
+  `try_from_serve_config`, full TLS/H2/H3 `Server`, full `StaticService`
+  with extra headers and error policy, listing budgets, handle lifecycle);
+- new low-level consumers should prefer the direct crates
+  (`eggserve-primitives`, `eggserve-server`, `eggserve-static`,
+  `eggserve-h3`, `eggnet-tls`), reachable during migration through
+  `eggserve_core::layers`;
+- removing or deprecating `eggserve-core` requires a separate future
+  migration plan with release notes; do not reclassify core as an
+  implementation authority unless a future plan intentionally moves
+  implementation back into it.
+
 ## Compatibility module map
 
 The map below describes the compatibility surface that remains in core. The
 canonical values and hardened static implementation now live in the direct
-crates; core modules that mirror those names are retained only for 0.1 source
+crates; core modules that mirror those names are retained for source
 compatibility and advanced protocol/Python integration.
 
 | Module | Visibility | Purpose |

@@ -544,7 +544,7 @@ import path changes and no behavior changes follow from it:
 - New Rust consumers should depend directly on the smallest leaf crate they
   need (`eggserve-primitives`, `eggserve-server`, `eggserve-static`,
   `eggserve-h3`); the leaves are reachable through
-  `eggserve_core::layers` during the 0.1 transition.
+  `eggserve_core::layers` during the 0.2 compatibility window.
 
 `eggserve-core` itself is not deprecated by this plan: the extended server
 orchestration (`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3
@@ -552,6 +552,20 @@ orchestration (`ServeConfig`/`try_from_serve_config`, full TLS/H2/H3
 supported for 0.x. Any future deprecation or removal of the compatibility
 crate requires a separate explicit migration plan with release notes (see
 `release/plan-225-compatibility-facade-closure.md`).
+
+## Plan 226: 0.2.0 version transition (metadata only, no code migration)
+
+Plan 226 moves the synchronized package version from `0.1.2` to `0.2.0`
+and the workspace MSRV from Rust 1.88 to 1.89. The version move is
+release metadata for the breaking stable-Rust API changes already
+documented above (direct-crate ownership convergence, outbound
+`to_hyper_response` opaque-body transition, tunnel/service-shape moves);
+compatibility paths are retained where documented, and the H2/H3
+experimental tiers are unchanged.
+
+No user-facing code migration follows from Plan 226 alone beyond the
+guidance already in this document. Do not publish the `0.2.0` line as a
+`0.1.x` patch; fix forward on `0.2.x`.
 
 ## Breaking Change Policy
 

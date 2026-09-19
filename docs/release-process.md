@@ -73,12 +73,14 @@ and migration guidance; experimental `server` APIs retain their separately
 documented policy.
 
 The current `main` tree contains the Plan 171 outbound response-conversion
-transition and later stable-facade changes. The next release containing that
-line must be classified as `0.2.0`, not as a compatible `0.1.x` patch release.
+transition and later stable-facade changes. That line is classified as
+`0.2.0`, not as a compatible `0.1.x` patch release, and the development
+metadata reads `0.2.0` accordingly.
 The migration entry is the release note for this transition until the
 maintainer prepares the final release announcement. The development metadata
-may still read `0.1.2`; that value is not release authorization and must not be
-published without the synchronized breaking-version update.
+reads `0.2.0`; that line must not be published as a `0.1.x` patch, and any
+future version change stays on the `0.2.x` line (fix forward, never roll
+back to `0.1.x`).
 
 ## Preflight version-sync check
 

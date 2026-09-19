@@ -70,6 +70,13 @@ def main() -> int:
     if not expected_version:
         errors.append("workspace version is missing")
     else:
+        # Plan 226: this main line carries intentional pre-1.0 breaking
+        # changes and must never ship as another 0.1.x patch.
+        if expected_version.startswith("0.1."):
+            errors.append(
+                f"workspace version {expected_version!r} is a 0.1.x patch line; "
+                "the current main line must release as 0.2.0 or later"
+            )
         for label, v in versions.items():
             if v != expected_version:
                 errors.append(f"{label} version {v!r} != expected {expected_version!r}")

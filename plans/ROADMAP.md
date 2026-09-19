@@ -47,7 +47,23 @@ management, framework loading, lifespan, and application concurrency policy.
 
 ## Architectural target
 
-The repo should converge on a workspace similar to:
+The repo converges on this layered workspace (Plan 226 corrective: the
+earlier three-crate sketch below is superseded and must not be treated as
+a target):
+
+```text
+crates/
+  eggserve-primitives/  # canonical transport-neutral HTTP/security values
+  eggserve-server/      # generic H1/runtime/service/tunnel authority
+  eggserve-static/      # static service + filesystem confinement authority
+  eggnet-tls/           # neutral TLS identity/trust/client-auth substrate
+  eggserve-h3/          # optional experimental H3/QUIC adapter
+  eggserve-core/        # compatibility/composition umbrella
+  eggserve-bin/         # CLI
+  eggserve-python/      # excluded PyO3 wheel crate
+```
+
+Superseded early sketch (retained for history only — not a target):
 
 ```text
 crates/

@@ -199,7 +199,7 @@ The following modules are internal implementation details. They may change witho
 - `response` — response construction internals (file streaming, directory listing HTML, error responses)
 - MIME type detection — extension-to-type mapping, `octet-stream` fallback. Since Plan 219 this lives once in `eggserve-static`; `eggserve-core/src/mime.rs` is deleted.
 
-The only public path into these types for 0.1 compatibility consumers is through the `primitives` facade. If a type is not re-exported in `primitives`, it is not part of the stable contract.
+The only public path into these types for compatibility consumers is through the `primitives` facade. If a type is not re-exported in `primitives`, it is not part of the stable contract.
 
 ## How policy preservation works across CLI, Rust, and Python
 

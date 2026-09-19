@@ -35,7 +35,7 @@ eggserve-static       (filesystem and static specialization)
 
 eggserve-h3           (experimental Quinn/H3/H3-Quinn dependency boundary)
 
-eggserve-core         (0.1 compatibility aggregate and protocol glue)
+eggserve-core         (compatibility/composition umbrella and protocol glue)
    ├── eggserve-primitives
    ├── eggserve-server
    ├── eggserve-static
@@ -95,7 +95,10 @@ eggserve policy, mostly re-export internal types, and split the audited
 validation without reducing complexity (see
 `release/plan-224-capability-filesystem-evaluation.md`).
 
-`eggserve-core` remains an aggregate during the 0.1 compatibility window.
+`eggserve-core` is the compatibility and composition umbrella for EggServe's
+direct primitives, runtime, static-serving, TLS, and optional protocol
+adapters. Plan 226 executes the `0.2.0` version transition and the Rust
+1.89 MSRV move with no ownership change.
 Existing top-level paths retain compatibility glue for Python, H2/H3, TLS,
 and legacy configuration; request/service/tunnel/canonical types are facades
 over the direct authorities (no second envelope, taxonomy, normalization, or

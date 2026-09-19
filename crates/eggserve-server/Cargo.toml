@@ -6,7 +6,7 @@ license.workspace = true
 repository.workspace = true
 homepage.workspace = true
 readme = "../../README.md"
-description = "Generic EggServe HTTP runtime and transport boundary"
+description = "Generic EggServe HTTP runtime and service authority"
 keywords.workspace = true
 categories.workspace = true
 rust-version.workspace = true
@@ -20,7 +20,7 @@ http2 = ["hyper/http2", "hyper-util/http2"]
 tls = ["dep:rustls", "dep:tokio-rustls"]
 
 [dependencies]
-eggserve-primitives = { path = "../eggserve-primitives", version = "0.1.2" }
+eggserve-primitives = { path = "../eggserve-primitives", version = "0.2.0" }
 bytes = "1"
 futures-util = "0.3"
 http-body = "1"
