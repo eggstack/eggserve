@@ -32,3 +32,10 @@ in `../227-current-head/profiles/`.
 `perf` remained unavailable because this host reports
 `perf_event_paranoid=4`; the Plan 227 `strace -f -c` summaries are the
 supporting syscall profile. No allocation counts are claimed.
+
+Plan 232 is the corrective follow-up to this closure. The captured candidate
+run above intentionally used `--skip-tls`; the explicit file-read target,
+forced-over-capacity regression, 64/128 KiB live comparison, range probes, and
+representative TLS evidence are recorded in
+[`../232-corrective/`](../232-corrective/). The original raw evidence is
+unchanged.

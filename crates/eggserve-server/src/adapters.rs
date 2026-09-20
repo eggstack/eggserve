@@ -230,7 +230,7 @@ fn file_body(
             // payload. `read_file_chunk` exposes only the initialized prefix,
             // and `freeze` transfers that allocation into the emitted `Bytes`.
             let mut buffer = BytesMut::with_capacity(chunk_len);
-            match read_file_chunk(&mut file, &mut buffer).await {
+            match read_file_chunk(&mut file, &mut buffer, chunk_len).await {
                 Ok(0) => Some((
                     Err(std::io::Error::new(
                         std::io::ErrorKind::UnexpectedEof,
@@ -270,15 +270,21 @@ fn file_body(
 async fn read_file_chunk(
     file: &mut tokio::fs::File,
     buffer: &mut bytes::BytesMut,
+    target_len: usize,
 ) -> std::io::Result<usize> {
     use tokio::io::AsyncReadExt;
 
-    // `tokio::io::AsyncReadExt::read` retries `Interrupted` internally, so no
-    // explicit handling is needed here. `Ok(0)` is treated as EOF per the
-    // `AsyncRead` contract and bubbled as `UnexpectedEof` by the caller.
-    let target_len = buffer.capacity();
+    // `BytesMut::capacity()` is allocator metadata, not a response-length
+    // authority: an allocator may provide more capacity than requested.
+    // Bound the borrowed file view explicitly so `read_buf` cannot consume
+    // bytes beyond the current representation chunk even when the buffer has
+    // spare capacity. `read_buf` retries interrupted reads through Tokio's
+    // `AsyncRead` machinery; short reads continue until the target is full or
+    // the underlying file reports EOF.
+    let remaining = target_len.saturating_sub(buffer.len());
+    let mut bounded_file = (&mut *file).take(remaining as u64);
     while buffer.len() < target_len {
-        let bytes_read = file.read_buf(buffer).await?;
+        let bytes_read = bounded_file.read_buf(buffer).await?;
         let count = bytes_read;
         if count == 0 {
             break;
@@ -669,5 +675,163 @@ impl Drop for CountingFileStreamPermit {
             .counters()
             .active_file_streams
             .fetch_sub(1, std::sync::atomic::Ordering::Relaxed);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{file_body, read_file_chunk, CountingFileStreamPermit};
+    use bytes::BytesMut;
+    use eggserve_primitives::body::BodySource;
+    use eggserve_primitives::FileRange;
+    use http_body_util::BodyExt;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::sync::Arc;
+    use tokio::io::AsyncReadExt;
+
+    struct TestFile {
+        path: PathBuf,
+    }
+
+    impl TestFile {
+        fn new(bytes: &[u8]) -> Self {
+            let mut path = std::env::temp_dir();
+            path.push(format!(
+                "eggserve-adapter-{}-{}",
+                std::process::id(),
+                unique_suffix()
+            ));
+            let mut file = std::fs::File::create(&path).expect("create test file");
+            file.write_all(bytes).expect("write test file");
+            Self { path }
+        }
+
+        fn open(&self) -> std::fs::File {
+            std::fs::File::open(&self.path).expect("open test file")
+        }
+    }
+
+    impl Drop for TestFile {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_file(&self.path);
+        }
+    }
+
+    fn unique_suffix() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("system clock after epoch")
+            .as_nanos()
+    }
+
+    async fn collect_file_body(
+        source: BodySource,
+        stream_chunk_size: usize,
+    ) -> (Vec<u8>, Vec<usize>) {
+        let mut body = file_body(source, None, stream_chunk_size);
+        let mut bytes = Vec::new();
+        let mut frame_lengths = Vec::new();
+        while let Some(frame) = body.frame().await {
+            let frame = frame.expect("file body frame");
+            if let Some(data) = frame.data_ref() {
+                frame_lengths.push(data.len());
+                bytes.extend_from_slice(data);
+            }
+        }
+        (bytes, frame_lengths)
+    }
+
+    #[tokio::test]
+    async fn read_file_chunk_uses_explicit_target_not_capacity() {
+        let target = b"target";
+        let sentinel = b"sentinel-remainder";
+        let test_file = TestFile::new(&[target.as_slice(), sentinel.as_slice()].concat());
+        let mut file = tokio::fs::File::from_std(test_file.open());
+        let mut buffer = BytesMut::with_capacity(target.len() + sentinel.len());
+        assert!(buffer.capacity() > target.len());
+
+        let bytes_read = read_file_chunk(&mut file, &mut buffer, target.len())
+            .await
+            .expect("bounded file read");
+
+        assert_eq!(bytes_read, target.len());
+        assert_eq!(&buffer[..], target);
+        let mut remainder = Vec::new();
+        file.read_to_end(&mut remainder)
+            .await
+            .expect("read remainder");
+        assert_eq!(remainder, sentinel);
+    }
+
+    #[tokio::test]
+    async fn full_file_body_preserves_non_multiple_final_chunk() {
+        let contents = b"0123456789abcdefghijkl";
+        let test_file = TestFile::new(contents);
+        let source = BodySource::FileFull {
+            file: test_file.open(),
+            len: contents.len() as u64,
+            mime: "application/octet-stream",
+        };
+
+        let (bytes, frame_lengths) = collect_file_body(source, 8).await;
+
+        assert_eq!(bytes, contents);
+        assert_eq!(frame_lengths, [8, 8, 6]);
+    }
+
+    #[tokio::test]
+    async fn range_file_body_stops_at_range_boundary() {
+        let contents = b"prefix--0123456789abcdef--sentinel";
+        let test_file = TestFile::new(contents);
+        let range = FileRange::new(8, 20);
+        let expected = &contents[8..=20];
+        let source = BodySource::FileRange {
+            file: test_file.open(),
+            range,
+            total_len: contents.len() as u64,
+            mime: "application/octet-stream",
+        };
+
+        let (bytes, frame_lengths) = collect_file_body(source, 8).await;
+
+        assert_eq!(bytes, expected);
+        assert_eq!(frame_lengths, [8, 5]);
+        assert!(!bytes.ends_with(b"sentinel"));
+    }
+
+    #[tokio::test]
+    async fn truncated_file_body_reports_unexpected_eof_without_partial_frame() {
+        let contents = b"short";
+        let test_file = TestFile::new(contents);
+        let source = BodySource::FileFull {
+            file: test_file.open(),
+            len: (contents.len() + 2) as u64,
+            mime: "application/octet-stream",
+        };
+        let mut body = file_body(source, None, 8);
+
+        let frame = body.frame().await.expect("truncation frame");
+        let error = frame.expect_err("truncated file must fail");
+        assert_eq!(error.kind(), std::io::ErrorKind::UnexpectedEof);
+        assert!(body.frame().await.is_none());
+    }
+
+    #[tokio::test]
+    async fn dropping_file_body_releases_stream_permit() {
+        let test_file = TestFile::new(b"body");
+        let semaphore = Arc::new(tokio::sync::Semaphore::new(1));
+        let permit = semaphore.clone().try_acquire_owned().expect("test permit");
+        let permit = Some(CountingFileStreamPermit::new(permit, None));
+        let source = BodySource::FileFull {
+            file: test_file.open(),
+            len: 4,
+            mime: "application/octet-stream",
+        };
+        let body = file_body(source, permit, 8);
+
+        assert_eq!(semaphore.available_permits(), 0);
+        drop(body);
+        assert_eq!(semaphore.available_permits(), 1);
     }
 }

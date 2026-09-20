@@ -17,6 +17,7 @@ qualified profile and point at the evidence files below.
 | `170-closure/results.json` | Final Plan 170 same-machine evidence: native static scaling, native buffered/streaming services, installed-wheel low-level Python, admission recovery, TLS, and CPython substitution. Reproduce with `benchmarks/170-closure/benchmark.py`; caller-owned duplex output is recorded separately by the ignored Rust benchmark test. |
 | `227-current-head/` | Plan 227 current-HEAD baseline: native Rust keep-alive client, in-process body/frame matrix, syscall-profile fallback when hardware CPU profiling is unavailable, and machine/lock/build capture. |
 | `231-optimization-closure/` | Plan 231 same-machine candidate closure: post-optimization A/B results, deterministic qualification commands, and keep/revert decisions for Plans 228–230. |
+| `232-corrective/` | Plan 232 corrective proof: explicit bounded file reads, forced-over-capacity regression, 64/128 KiB live static comparison, exact range probes, and representative TLS evidence. |
 
 ## Method
 
@@ -47,7 +48,7 @@ driver is measured in-process over `tokio::io::duplex`; it is not network RPS.
 Unavailable arm64 hardware is recorded as performance-unqualified rather than
 silently represented by x86_64 numbers.
 
-Plans 227–231 extend that evidence without changing the claims policy. Plan
+Plans 227–232 extend that evidence without changing the claims policy. Plan
 227 adds a dependency-free Rust client so small-response conclusions are not
 limited by CPython client overhead, plus an in-process body/frame matrix and a
 best-effort syscall profile. Plans 228–230 use the captured costs to simplify
@@ -55,8 +56,10 @@ the direct H1 state path, file-stream reads, metadata validation, and disabled
 observability paths. Plan 229's selected default is a 128 KiB file-stream
 chunk; the configured `max_file_streams * stream_chunk_size` bound remains the
 memory authority. Plan 231 records the candidate comparison and reruns the
-full correctness/resource matrix. These are manual qualification artifacts,
-not timing gates.
+full correctness/resource matrix. Plan 232 rechecks the 128 KiB choice with
+live 64/128 KiB throughput/resource evidence, exact range probes, and
+representative TLS captures. These are manual qualification artifacts, not
+timing gates.
 
 ## Regression policy
 

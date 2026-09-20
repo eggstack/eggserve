@@ -199,7 +199,7 @@ This section traces every path from HTTP request target to response body, provin
 | 6. Fallback resolution | `fs/mod.rs: resolve_fallback` | Component-wise `symlink_metadata` checks → `fs::canonicalize` → `starts_with(canonical_root)` → `fs::metadata` → open | Final `File` → `ResolvedFile.file` |
 | 7. Response plan | `server/static_service.rs` → `primitives/planner.rs` | `plan_file_response_with_preconditions_and_metadata()` produces `StaticResponsePlan` (status, headers, `BodyPlan`) | No handles opened |
 | 8. Body conversion | `fs/mod.rs: ResolvedFile::into_body` | Consumes `self.file` into `BodySource::FileFull` or `BodySource::FileRange` | `file` moved into `BodySource` |
-| 9. Streaming | Runtime canonical transport conversion (`primitives::canonical::file_body` via `to_hyper_response`) | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, streams via `AsyncReadExt::read` | `tokio::fs::File` + semaphore permit owned by stream closure |
+| 9. Streaming | Runtime canonical transport conversion (`eggserve-server::adapters::file_body` via `to_hyper_response`) | `std::fs::File` → `tokio::fs::File::from_std(file)`, acquires the server-wide semaphore permit, computes the planner-owned full/range `chunk_len`, and reads through a bounded `AsyncReadExt::take` view | `tokio::fs::File` + semaphore permit owned by stream closure |
 
 ### Key invariant
 

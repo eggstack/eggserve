@@ -2,7 +2,7 @@
 
 ## Status
 
-**OPEN / CORRECTIVE.**
+**LOCAL VERIFIED / REMOTE CLOSURE PENDING.**
 
 ## Purpose
 
@@ -414,22 +414,22 @@ microbenchmark alone.
 
 Plan 232 is complete only when:
 
-- [ ] no file-body read target is derived from `BytesMut::capacity()`;
-- [ ] the helper has an explicit logical byte target;
-- [ ] a forced-over-capacity regression proves no read past that target;
-- [ ] full and range responses emit exactly the advertised bytes;
-- [ ] short-read/truncate/cancellation/permit-release behavior remains correct;
-- [ ] 64 KiB and 128 KiB have same-machine live-network throughput,
+- [x] no file-body read target is derived from `BytesMut::capacity()`;
+- [x] the helper has an explicit logical byte target;
+- [x] a forced-over-capacity regression proves no read past that target;
+- [x] full and range responses emit exactly the advertised bytes;
+- [x] short-read/truncate/cancellation/permit-release behavior remains correct;
+- [x] 64 KiB and 128 KiB have same-machine live-network throughput,
       tail-latency, and RSS evidence;
-- [ ] the final default has an explicit throughput/resource rationale;
-- [ ] representative established TLS and handshake-churn performance evidence
+- [x] the final default has an explicit throughput/resource rationale;
+- [x] representative established TLS and handshake-churn performance evidence
       exists for the corrected implementation;
-- [ ] Plan 231's evidence limitations are truthfully cross-referenced;
-- [ ] no new production dependency, unsafe buffer code, buffer pool, or
+- [x] Plan 231's evidence limitations are truthfully cross-referenced;
+- [x] no new production dependency, unsafe buffer code, buffer pool, or
       filesystem shortcut is introduced;
-- [ ] routine and feature-gated verification passes;
+- [x] routine and feature-gated verification passes;
 - [ ] remote Rust/Python/supply-chain CI succeeds for the exact closing SHA;
-- [ ] roadmap and current architecture/configuration docs match the final
+- [x] roadmap and current architecture/configuration docs match the final
       implementation.
 
 ## Handoff order

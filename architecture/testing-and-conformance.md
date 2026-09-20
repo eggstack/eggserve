@@ -222,7 +222,15 @@ Performance snapshots and the regression/claims policy live in
 `benchmarks/README.md`; machine-readable results in
 `benchmarks/088-baseline/results.json`, `benchmarks/168-qualification/results.json`,
 `benchmarks/170-closure/results.json`, `benchmarks/227-current-head/`, and
-`benchmarks/231-optimization-closure/`.
+`benchmarks/231-optimization-closure/`, and `benchmarks/232-corrective/`.
+
+Plan 232 adds a mandatory forced-over-capacity file-read regression to the
+direct server adapter tests. Its manual evidence compares 64 KiB and 128 KiB
+file chunks over native H1 with throughput, tail latency, RSS/resource data,
+exact 64/512 KiB range probes, 16 MiB static responses, and representative TLS
+keep-alive/handshake workloads. These measurements are same-machine evidence,
+not absolute-timing CI gates; the 128 KiB default is retained with the
+documented bounded `max_file_streams * stream_chunk_size` tradeoff.
 
 ## Plan 170 performance-evidence closure
 

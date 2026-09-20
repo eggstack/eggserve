@@ -164,8 +164,10 @@ Implementation plans:
 - `plans/231-performance-optimization-qualification-closure.md`
 
 Status: COMPLETE. Plan 227 baseline artifacts, Plans 228–230 scoped
-optimizations, and Plan 231 qualification/closure artifacts are recorded under
-`benchmarks/227-current-head/` and `benchmarks/231-optimization-closure/`.
+optimizations, Plan 231 qualification/closure artifacts, and the Plan 232
+corrective read-bound/evidence closure are recorded under
+`benchmarks/227-current-head/`, `benchmarks/231-optimization-closure/`, and
+`benchmarks/232-corrective/`.
 
 ### Post-231 file-stream/evidence corrective — Plan 232
 

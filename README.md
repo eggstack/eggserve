@@ -573,3 +573,7 @@ the current-head baseline and Plan 231 optimization closure are recorded in
 These artifacts document representative scaling, streaming, low-level Python,
 TLS, caller-owned transport, and CPython substitution behavior; absolute
 timings are not CI gates or universal performance claims.
+Plan 232 adds the corrective file-stream read-bound regression and the
+follow-up 64/128 KiB, range, and TLS evidence in
+[`benchmarks/232-corrective/`](benchmarks/232-corrective/); its 128 KiB default
+decision remains profile-specific and bounded by `max_file_streams`.

@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "plan": "232",
+  "source_sha_before_commit": "c4719a4cb5ddfac42a3c18775f8e2c6b5f4b2cea",
+  "environment": {
+    "os": "Linux-6.8.0-139-generic-x86_64-with-glibc2.39",
+    "arch": "x86_64",
+    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "logical_cpus": 16,
+    "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "profile": "release",
+    "trials": 3,
+    "warmup": "one excluded trial per case",
+    "absolute_timing_ci_gate": false
+  },
+  "implementation": {
+    "bug": "read_file_chunk used BytesMut::capacity as the logical read target",
+    "fix": "explicit target_len plus AsyncReadExt::take(target_len - buffer.len())",
+    "unsafe_or_new_dependencies": false
+  },
+  "default_decision": {
+    "selected_stream_chunk_size": 131072,
+    "max_file_streams": 32,
+    "nominal_payload_bound_bytes": 4194304,
+    "reason": "128 KiB materially improved medium/large live static throughput; 64 KiB reduced high-concurrency RSS but the bounded residency tradeoff was accepted for the static profile"
+  },
+  "plaintext_native_static": {
+    "columns": ["chunk_size", "bytes", "concurrency", "median_rps", "median_bytes_per_s", "mean_p50_ms", "mean_p95_ms", "mean_p99_ms", "peak_rss_kb", "errors"],
+    "rows": [
+      [65536,1024,1,5123.807,5246777.885,0.187,0.221,0.251,4364,0],
+      [65536,1024,16,21419.009,21933065.125,0.727,0.930,1.068,5092,0],
+      [65536,1024,64,18868.542,19321386.991,2.146,6.057,15.130,7672,0],
+      [65536,131072,1,4629.815,606839116.474,0.212,0.261,0.301,4432,0],
+      [65536,131072,16,10591.415,1388237890.614,1.425,1.871,2.296,6688,0],
+      [65536,131072,64,8596.282,1126731882.201,1.920,18.008,21.647,17184,0],
+      [65536,1048576,1,1945.083,2039566935.139,0.500,0.546,0.641,4424,0],
+      [65536,1048576,16,2429.928,2547963832.349,6.259,8.109,9.163,7196,0],
+      [65536,1048576,64,1302.728,1366009668.198,38.999,40.560,40.654,15344,0],
+      [131072,1024,1,5078.891,5200784.382,0.195,0.223,0.258,4388,0],
+      [131072,1024,16,21008.399,21512600.359,0.720,0.938,1.098,5176,0],
+      [131072,1024,64,19379.183,19844283.655,2.187,5.538,14.661,7572,0],
+      [131072,131072,1,4556.806,597269612.261,0.218,0.252,0.283,4620,0],
+      [131072,131072,16,10425.528,1366494776.951,1.578,1.748,2.110,9008,0],
+      [131072,131072,64,9196.625,1205420011.693,2.899,19.173,27.124,24164,0],
+      [131072,1048576,1,2583.432,2708924549.002,0.401,0.461,0.527,4636,0],
+      [131072,1048576,16,2920.044,3061888250.743,5.269,7.647,8.455,9856,0],
+      [131072,1048576,64,1644.804,1724701476.517,25.962,27.559,27.801,23556,0]
+    ],
+    "extra_16m_concurrency_16": {
+      "chunk_65536_median_rps": 195.073,
+      "chunk_131072_median_rps": 229.933,
+      "chunk_65536_errors": 0,
+      "chunk_131072_errors": 0
+    }
+  },
+  "range_exactness": {
+    "ranges_bytes": [65536, 524288],
+    "concurrency": [1, 16, 64],
+    "trials_per_case": 3,
+    "all_statuses_206": true,
+    "all_exact_lengths_and_bytes": true,
+    "errors": 0
+  },
+  "tls": {
+    "certificate": "ephemeral local RSA-2048, openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost",
+    "protocol": "rustls TLS server; local harness used Python stdlib HTTPS client",
+    "established_keepalive_columns": ["bytes", "concurrency", "median_rps", "mean_p95_ms", "mean_p99_ms", "peak_rss_kb", "errors"],
+    "established_keepalive": [
+      [1024,1,6871.957,0.182,0.209,9220,0],
+      [1024,16,8170.355,3.016,7.104,9220,0],
+      [1024,64,7557.244,13.844,50.387,11600,0],
+      [1048576,1,1058.141,1.126,1.242,70032,0],
+      [1048576,16,1209.843,24.585,26.487,70032,0],
+      [1048576,64,867.944,107.355,110.446,70032,0]
+    ],
+    "handshake_churn": {
+      "new_connections_per_trial": 48,
+      "trials": 3,
+      "handshakes_per_s": [971.230,1373.525,1491.014],
+      "errors": 0
+    },
+    "omitted_inherited_families": ["installed-wheel Python", "CPython substitution", "admission saturation"]
+  }
+}
+
