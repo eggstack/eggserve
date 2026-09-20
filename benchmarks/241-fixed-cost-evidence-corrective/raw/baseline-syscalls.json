@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "plan": "241",
+  "source_sha": "504c3d31f46399d361e57a5bab51a6325a0f4acd",
+  "capture": {
+    "status": "captured",
+    "tool": "strace -f -c",
+    "summary": "benchmarks/241-fixed-cost-evidence-corrective/raw/baseline-syscalls.txt",
+    "workload": [
+      "one-component file",
+      "nested file"
+    ],
+    "security_syscalls_expected": [
+      "newfstatat/statx with AT_SYMLINK_NOFOLLOW where emitted",
+      "openat with O_NOFOLLOW where emitted",
+      "close for opened descriptors"
+    ]
+  },
+  "interpretation": "The candidate's ordinary one-component path must not add a root-FD dup/close pair; nested traversal must retain intermediate descriptor ownership and close behavior. Syscall tables include startup/runtime noise and are not timing gates."
+}

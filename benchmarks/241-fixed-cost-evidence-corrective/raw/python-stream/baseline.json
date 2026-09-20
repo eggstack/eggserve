@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "plan": "241",
+  "source_sha": "504c3d31f46399d361e57a5bab51a6325a0f4acd",
+  "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+  "method": {
+    "trials": 3,
+    "absolute_timing_ci_gate": false
+  },
+  "workloads": [
+    {
+      "active_streams": 10,
+      "before": {
+        "peak_rss_kb": 28628,
+        "rss_kb": 28628,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 31736,
+        "rss_kb": 31736,
+        "threads": 14,
+        "fds": 32
+      },
+      "after": {
+        "peak_rss_kb": 31808,
+        "rss_kb": 31808,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.0009992469858843833,
+      "shutdown_elapsed_s": null,
+      "disconnect": false,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 100,
+      "before": {
+        "peak_rss_kb": 31760,
+        "rss_kb": 31760,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 55912,
+        "rss_kb": 55912,
+        "threads": 104,
+        "fds": 212
+      },
+      "after": {
+        "peak_rss_kb": 55304,
+        "rss_kb": 55304,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.0006462469755206257,
+      "shutdown_elapsed_s": null,
+      "disconnect": false,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 120,
+      "before": {
+        "peak_rss_kb": 55000,
+        "rss_kb": 52596,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 61560,
+        "rss_kb": 61560,
+        "threads": 124,
+        "fds": 252
+      },
+      "after": {
+        "peak_rss_kb": 60768,
+        "rss_kb": 60768,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.0007461020140908659,
+      "shutdown_elapsed_s": null,
+      "disconnect": false,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 10,
+      "before": {
+        "peak_rss_kb": 60312,
+        "rss_kb": 57440,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 60312,
+        "rss_kb": 57544,
+        "threads": 14,
+        "fds": 32
+      },
+      "after": {
+        "peak_rss_kb": 60312,
+        "rss_kb": 57544,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.00039231200935319066,
+      "shutdown_elapsed_s": null,
+      "disconnect": true,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 10,
+      "before": {
+        "peak_rss_kb": 60312,
+        "rss_kb": 57496,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 60312,
+        "rss_kb": 57572,
+        "threads": 14,
+        "fds": 32
+      },
+      "after": {
+        "peak_rss_kb": 60312,
+        "rss_kb": 57456,
+        "threads": 1,
+        "fds": 7
+      },
+      "cleanup_elapsed_s": 0.00101130100665614,
+      "shutdown_elapsed_s": 0.2033884009870235,
+      "disconnect": false,
+      "shutdown": true,
+      "errors": 0
+    }
+  ]
+}

@@ -1,0 +1,551 @@
+{
+  "schema_version": 1,
+  "plan": "241",
+  "source_sha": "504c3d31f46399d361e57a5bab51a6325a0f4acd",
+  "build": {
+    "command": "cargo +1.89 build --release --locked -p eggserve-bin",
+    "profile": "release",
+    "features": []
+  },
+  "method": {
+    "trials": 3,
+    "warmup": "one excluded request/client run per case",
+    "absolute_timing_ci_gate": false
+  },
+  "environment": {
+    "os": "Linux-6.8.0-139-generic-x86_64-with-glibc2.39",
+    "arch": "x86_64",
+    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "logical_cpus": 16,
+    "memory_kb": 16232840,
+    "python": "Python 3.11.15"
+  },
+  "runtime_limits": {
+    "max_connections": 512,
+    "max_file_streams": 512,
+    "max_in_flight_requests": 512,
+    "max_buf_size": 65536,
+    "max_headers": 100,
+    "max_header_bytes": 32768,
+    "max_request_target_bytes": 8192
+  },
+  "workload": {
+    "cases": [
+      {
+        "name": "head-known-length",
+        "method": "HEAD",
+        "path": "/one.bin",
+        "headers": {},
+        "warmup": {
+          "status": 200,
+          "body_bytes": 0,
+          "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "content_length": "1024",
+          "etag": "W/\"1024-1789944058-804525484\"",
+          "content_range": null,
+          "elapsed_ms": 1.8751870084088296,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 200,
+            "body_bytes": 0,
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.027735008392483,
+            "error": null,
+            "trial": 1,
+            "expected_status": 200,
+            "expected_body_bytes": 0,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 0,
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 0.8977009856607765,
+            "error": null,
+            "trial": 2,
+            "expected_status": 200,
+            "expected_body_bytes": 0,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 0,
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 0.9372030035592616,
+            "error": null,
+            "trial": 3,
+            "expected_status": 200,
+            "expected_body_bytes": 0,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 0.9372030035592616,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "one-component-short",
+        "method": "GET",
+        "path": "/one.bin",
+        "headers": {},
+        "warmup": {
+          "status": 200,
+          "body_bytes": 1024,
+          "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+          "content_length": "1024",
+          "etag": "W/\"1024-1789944058-804525484\"",
+          "content_range": null,
+          "elapsed_ms": 1.7302630003541708,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 200,
+            "body_bytes": 1024,
+            "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.0870999831240624,
+            "error": null,
+            "trial": 1,
+            "expected_status": 200,
+            "expected_body_bytes": 1024,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 1024,
+            "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.0329849901609123,
+            "error": null,
+            "trial": 2,
+            "expected_status": 200,
+            "expected_body_bytes": 1024,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 1024,
+            "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.1100799893029034,
+            "error": null,
+            "trial": 3,
+            "expected_status": 200,
+            "expected_body_bytes": 1024,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 1.0870999831240624,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "nested-path",
+        "method": "GET",
+        "path": "/nested/deep.bin",
+        "headers": {},
+        "warmup": {
+          "status": 200,
+          "body_bytes": 2048,
+          "body_sha256": "8b2b19289efc06a17436f0eba6ff47737a490560b97f96a9478a942bf41fa399",
+          "content_length": "2048",
+          "etag": "W/\"2048-1789944058-804525484\"",
+          "content_range": null,
+          "elapsed_ms": 1.3698180264327675,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 200,
+            "body_bytes": 2048,
+            "body_sha256": "8b2b19289efc06a17436f0eba6ff47737a490560b97f96a9478a942bf41fa399",
+            "content_length": "2048",
+            "etag": "W/\"2048-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.272953988518566,
+            "error": null,
+            "trial": 1,
+            "expected_status": 200,
+            "expected_body_bytes": 2048,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 2048,
+            "body_sha256": "8b2b19289efc06a17436f0eba6ff47737a490560b97f96a9478a942bf41fa399",
+            "content_length": "2048",
+            "etag": "W/\"2048-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.223938015755266,
+            "error": null,
+            "trial": 2,
+            "expected_status": 200,
+            "expected_body_bytes": 2048,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 2048,
+            "body_sha256": "8b2b19289efc06a17436f0eba6ff47737a490560b97f96a9478a942bf41fa399",
+            "content_length": "2048",
+            "etag": "W/\"2048-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.2120040191803128,
+            "error": null,
+            "trial": 3,
+            "expected_status": 200,
+            "expected_body_bytes": 2048,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 1.223938015755266,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "query-bearing-target",
+        "method": "GET",
+        "path": "/one.bin?fixed=1",
+        "headers": {},
+        "warmup": {
+          "status": 200,
+          "body_bytes": 1024,
+          "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+          "content_length": "1024",
+          "etag": "W/\"1024-1789944058-804525484\"",
+          "content_range": null,
+          "elapsed_ms": 1.6799519944470376,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 200,
+            "body_bytes": 1024,
+            "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.0487429972272366,
+            "error": null,
+            "trial": 1,
+            "expected_status": 200,
+            "expected_body_bytes": 1024,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 1024,
+            "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 0.9853000228758901,
+            "error": null,
+            "trial": 2,
+            "expected_status": 200,
+            "expected_body_bytes": 1024,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 1024,
+            "body_sha256": "f87fe40af7066a626b19dd04d1af4c94f68470d2fb72cb814870f34ef83c0894",
+            "content_length": "1024",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.0233380016870797,
+            "error": null,
+            "trial": 3,
+            "expected_status": 200,
+            "expected_body_bytes": 1024,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 1.0233380016870797,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "percent-encoded-safe-path",
+        "method": "GET",
+        "path": "/encoded%2Ebin",
+        "headers": {},
+        "warmup": {
+          "status": 200,
+          "body_bytes": 3072,
+          "body_sha256": "c307ea816b283f15fe85975fe848908adc52db13f512e2d9407ea8a14baf5c10",
+          "content_length": "3072",
+          "etag": "W/\"3072-1789944058-805525466\"",
+          "content_range": null,
+          "elapsed_ms": 59.426566993352026,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 200,
+            "body_bytes": 3072,
+            "body_sha256": "c307ea816b283f15fe85975fe848908adc52db13f512e2d9407ea8a14baf5c10",
+            "content_length": "3072",
+            "etag": "W/\"3072-1789944058-805525466\"",
+            "content_range": null,
+            "elapsed_ms": 1.0537399793975055,
+            "error": null,
+            "trial": 1,
+            "expected_status": 200,
+            "expected_body_bytes": 3072,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 3072,
+            "body_sha256": "c307ea816b283f15fe85975fe848908adc52db13f512e2d9407ea8a14baf5c10",
+            "content_length": "3072",
+            "etag": "W/\"3072-1789944058-805525466\"",
+            "content_range": null,
+            "elapsed_ms": 0.9779069805517793,
+            "error": null,
+            "trial": 2,
+            "expected_status": 200,
+            "expected_body_bytes": 3072,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 3072,
+            "body_sha256": "c307ea816b283f15fe85975fe848908adc52db13f512e2d9407ea8a14baf5c10",
+            "content_length": "3072",
+            "etag": "W/\"3072-1789944058-805525466\"",
+            "content_range": null,
+            "elapsed_ms": 1.3524260139092803,
+            "error": null,
+            "trial": 3,
+            "expected_status": 200,
+            "expected_body_bytes": 3072,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 1.0537399793975055,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "root-directory-resource",
+        "method": "GET",
+        "path": "/",
+        "headers": {},
+        "warmup": {
+          "status": 200,
+          "body_bytes": 14,
+          "body_sha256": "9dfb319463a6987c6e9c7eb3b35715518c20db414e50c76806487a35457968c2",
+          "content_length": "14",
+          "etag": "W/\"14-1789944058-805525466\"",
+          "content_range": null,
+          "elapsed_ms": 22.190259012859315,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 200,
+            "body_bytes": 14,
+            "body_sha256": "9dfb319463a6987c6e9c7eb3b35715518c20db414e50c76806487a35457968c2",
+            "content_length": "14",
+            "etag": "W/\"14-1789944058-805525466\"",
+            "content_range": null,
+            "elapsed_ms": 1.0238669929094613,
+            "error": null,
+            "trial": 1,
+            "expected_status": 200,
+            "expected_body_bytes": 14,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 14,
+            "body_sha256": "9dfb319463a6987c6e9c7eb3b35715518c20db414e50c76806487a35457968c2",
+            "content_length": "14",
+            "etag": "W/\"14-1789944058-805525466\"",
+            "content_range": null,
+            "elapsed_ms": 1.0098610073328018,
+            "error": null,
+            "trial": 2,
+            "expected_status": 200,
+            "expected_body_bytes": 14,
+            "correct": true
+          },
+          {
+            "status": 200,
+            "body_bytes": 14,
+            "body_sha256": "9dfb319463a6987c6e9c7eb3b35715518c20db414e50c76806487a35457968c2",
+            "content_length": "14",
+            "etag": "W/\"14-1789944058-805525466\"",
+            "content_range": null,
+            "elapsed_ms": 0.9941970056388527,
+            "error": null,
+            "trial": 3,
+            "expected_status": 200,
+            "expected_body_bytes": 14,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 1.0098610073328018,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "satisfiable-range",
+        "method": "GET",
+        "path": "/one.bin",
+        "headers": {
+          "Range": "bytes=10-109"
+        },
+        "warmup": {
+          "status": 206,
+          "body_bytes": 100,
+          "body_sha256": "290b4f8b6a568950d1067dc0f473e18aa0a9d5ed40c934a364673240a6cf4c21",
+          "content_length": "100",
+          "etag": "W/\"1024-1789944058-804525484\"",
+          "content_range": "bytes 10-109/1024",
+          "elapsed_ms": 1.3762290182057768,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 206,
+            "body_bytes": 100,
+            "body_sha256": "290b4f8b6a568950d1067dc0f473e18aa0a9d5ed40c934a364673240a6cf4c21",
+            "content_length": "100",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": "bytes 10-109/1024",
+            "elapsed_ms": 1.0742879821918905,
+            "error": null,
+            "trial": 1,
+            "expected_status": 206,
+            "expected_body_bytes": 100,
+            "correct": true
+          },
+          {
+            "status": 206,
+            "body_bytes": 100,
+            "body_sha256": "290b4f8b6a568950d1067dc0f473e18aa0a9d5ed40c934a364673240a6cf4c21",
+            "content_length": "100",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": "bytes 10-109/1024",
+            "elapsed_ms": 1.0813169938046485,
+            "error": null,
+            "trial": 2,
+            "expected_status": 206,
+            "expected_body_bytes": 100,
+            "correct": true
+          },
+          {
+            "status": 206,
+            "body_bytes": 100,
+            "body_sha256": "290b4f8b6a568950d1067dc0f473e18aa0a9d5ed40c934a364673240a6cf4c21",
+            "content_length": "100",
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": "bytes 10-109/1024",
+            "elapsed_ms": 1.048391015501693,
+            "error": null,
+            "trial": 3,
+            "expected_status": 206,
+            "expected_body_bytes": 100,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 1.0742879821918905,
+        "errors": 0,
+        "all_correct": true
+      },
+      {
+        "name": "conditional-304",
+        "method": "GET",
+        "path": "/one.bin",
+        "headers": {
+          "If-None-Match": "W/\"1024-1789944058-804525484\""
+        },
+        "warmup": {
+          "status": 304,
+          "body_bytes": 0,
+          "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+          "content_length": null,
+          "etag": "W/\"1024-1789944058-804525484\"",
+          "content_range": null,
+          "elapsed_ms": 0.8606890041846782,
+          "error": null
+        },
+        "trials": [
+          {
+            "status": 304,
+            "body_bytes": 0,
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "content_length": null,
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 0.9483960166107863,
+            "error": null,
+            "trial": 1,
+            "expected_status": 304,
+            "expected_body_bytes": 0,
+            "correct": true
+          },
+          {
+            "status": 304,
+            "body_bytes": 0,
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "content_length": null,
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 1.0030120029114187,
+            "error": null,
+            "trial": 2,
+            "expected_status": 304,
+            "expected_body_bytes": 0,
+            "correct": true
+          },
+          {
+            "status": 304,
+            "body_bytes": 0,
+            "body_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "content_length": null,
+            "etag": "W/\"1024-1789944058-804525484\"",
+            "content_range": null,
+            "elapsed_ms": 0.7824719941709191,
+            "error": null,
+            "trial": 3,
+            "expected_status": 304,
+            "expected_body_bytes": 0,
+            "correct": true
+          }
+        ],
+        "median_latency_ms": 0.9483960166107863,
+        "errors": 0,
+        "all_correct": true
+      }
+    ],
+    "server_resources": {}
+  },
+  "caller_owned_h1": {
+    "returncode": 0,
+    "stdout": "outcome: Normal\nHTTP/1.1 200 OK\ncontent-length: 3\ndate: Sun, 20 Sep 2026 22:40:59 GMT\nconnection: close\n\nok\n\n",
+    "stderr": "",
+    "correct": true
+  }
+}

@@ -43,3 +43,9 @@ summaries.
 
 See `results.json` for provenance and `decisions.md` for the handoff to the
 implementation plans.
+
+Historical note: the custom-service, response-shape, established-TLS,
+installed-wheel Python, slow-stream resource, and focused before/after syscall
+measurements required by the later acceptance matrix were not present when
+this baseline was executed. Plan 241 records them as completed corrective
+evidence; this baseline record is not being rewritten to claim otherwise.

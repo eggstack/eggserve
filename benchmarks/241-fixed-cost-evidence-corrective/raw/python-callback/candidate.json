@@ -1,0 +1,1006 @@
+{
+  "schema_version": 1,
+  "plan": "241",
+  "source_sha": "af9727870236e684746858bc32eb37aa22892251",
+  "wheel": "installed isolated abi3 wheel",
+  "plain_http": {
+    "schema_version": 1,
+    "plan": "241",
+    "source_sha": "af9727870236e684746858bc32eb37aa22892251",
+    "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+    "method": {
+      "trials": 3,
+      "absolute_timing_ci_gate": false
+    },
+    "workloads": [
+      {
+        "mode": "empty",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.03932759020244703,
+            "rps": 5085.488304024173,
+            "p50_ms": 0.19046798115596175,
+            "p95_ms": 0.2499209949746728,
+            "p99_ms": 0.2990919747389853,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 32432,
+              "rss_kb": 32432,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.037790297443279997,
+            "rps": 5292.363742311975,
+            "p50_ms": 0.18977999570779502,
+            "p95_ms": 0.2191640087403357,
+            "p99_ms": 0.24378500529564917,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 35276,
+              "rss_kb": 35276,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.037590752937830985,
+            "rps": 5320.457409586012,
+            "p50_ms": 0.18922900198958814,
+            "p95_ms": 0.21813399507664144,
+            "p99_ms": 0.2419560041744262,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 38116,
+              "rss_kb": 38116,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "empty",
+          "empty",
+          "empty"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "bytes",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.038492056948598474,
+            "rps": 5195.877171933836,
+            "p50_ms": 0.18853499204851687,
+            "p95_ms": 0.23967601009644568,
+            "p99_ms": 0.255839986493811,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 37664,
+              "rss_kb": 36824,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.037063660216517746,
+            "rps": 5396.121128664681,
+            "p50_ms": 0.18663500668480992,
+            "p95_ms": 0.21673899027518928,
+            "p99_ms": 0.2304379886481911,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 39652,
+              "rss_kb": 39652,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.037976593972416595,
+            "rps": 5266.401724843078,
+            "p50_ms": 0.18791199545376003,
+            "p95_ms": 0.22300801356323063,
+            "p99_ms": 0.25073401047848165,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42472,
+              "rss_kb": 42472,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "bytes",
+          "bytes",
+          "bytes"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "method",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.03781198200886138,
+            "rps": 5289.328656538799,
+            "p50_ms": 0.1865370140876621,
+            "p95_ms": 0.22698601242154837,
+            "p99_ms": 0.26751900441013277,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 36572,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.03755373990861699,
+            "rps": 5325.701261357154,
+            "p50_ms": 0.18679199274629354,
+            "p95_ms": 0.2266000083182007,
+            "p99_ms": 0.2522490103729069,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 39412,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.037470566952833906,
+            "rps": 5337.522654827991,
+            "p50_ms": 0.18638200708664954,
+            "p95_ms": 0.22530602291226387,
+            "p99_ms": 0.2502409915905446,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42244,
+              "rss_kb": 42244,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "GET",
+          "GET",
+          "GET"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "headers",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.04085379609023221,
+            "rps": 4895.505904965788,
+            "p50_ms": 0.19596901256591082,
+            "p95_ms": 0.2715619921218604,
+            "p99_ms": 0.31212199246510863,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 36636,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.03925950385746546,
+            "rps": 5094.30788341378,
+            "p50_ms": 0.19479598267935216,
+            "p95_ms": 0.23388900444842875,
+            "p99_ms": 0.25721697602421045,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 39500,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.038124588871141896,
+            "rps": 5245.9582102244885,
+            "p50_ms": 0.1870419946499169,
+            "p95_ms": 0.22998297936283052,
+            "p99_ms": 0.24617198505438864,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42352,
+              "rss_kb": 42352,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "{'host': 'benchmark', 'x-test': 'value', 'accept-encoding': 'identity', 'connection': 'keep-alive'}",
+          "{'accept-encoding': 'identity', 'x-test': 'value', 'host': 'benchmark', 'connection': 'keep-alive'}",
+          "{'x-test': 'value', 'host': 'benchmark', 'accept-encoding': 'identity', 'connection': 'keep-alive'}"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "header_items",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.04032840399304405,
+            "rps": 4959.283785058703,
+            "p50_ms": 0.1917059998959303,
+            "p95_ms": 0.2682149934116751,
+            "p99_ms": 0.3057089925277978,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 35552,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.03698763027205132,
+            "rps": 5407.2131285232535,
+            "p50_ms": 0.18404898582957685,
+            "p95_ms": 0.20101401605643332,
+            "p99_ms": 0.2195419801864773,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 38380,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.03841491215280257,
+            "rps": 5206.311528306044,
+            "p50_ms": 0.18677901243790984,
+            "p95_ms": 0.2230640093330294,
+            "p99_ms": 0.24878099793568254,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 41244,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "[('accept-encoding', 'identity'), ('host', 'benchmark'), ('x-test', 'value'), ('connection', 'keep-alive')]",
+          "[('accept-encoding', 'identity'), ('host', 'benchmark'), ('x-test', 'value'), ('connection', 'keep-alive')]",
+          "[('accept-encoding', 'identity'), ('host', 'benchmark'), ('x-test', 'value'), ('connection', 'keep-alive')]"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "raw_target",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.03783900025882758,
+            "rps": 5285.55190760732,
+            "p50_ms": 0.1865579979494214,
+            "p95_ms": 0.237083004321903,
+            "p99_ms": 0.28150100843049586,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 37924,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.037364215997513384,
+            "rps": 5352.715015171471,
+            "p50_ms": 0.1863200159277767,
+            "p95_ms": 0.2253130078315735,
+            "p99_ms": 0.24050500360317528,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 38256,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.03687912903842516,
+            "rps": 5423.121565360605,
+            "p50_ms": 0.18574600107967854,
+            "p95_ms": 0.21625400404445827,
+            "p99_ms": 0.2386530104558915,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 39764,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "(b'/a?b=c', b'/a', b'b=c')",
+          "(b'/a?b=c', b'/a', b'b=c')",
+          "(b'/a?b=c', b'/a', b'b=c')"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "byte_header_items",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.037691730190999806,
+            "rps": 5306.203747785419,
+            "p50_ms": 0.1875059970188886,
+            "p95_ms": 0.2273749851156026,
+            "p99_ms": 0.26400398928672075,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 36120,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.03718256313004531,
+            "rps": 5378.865338048477,
+            "p50_ms": 0.18726501730270684,
+            "p95_ms": 0.21707397536374629,
+            "p99_ms": 0.2474490029271692,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 37480,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.03750031691743061,
+            "rps": 5333.288261013004,
+            "p50_ms": 0.1892839791253209,
+            "p95_ms": 0.22202200489118695,
+            "p99_ms": 0.23748399689793587,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 39060,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "[(b'accept-encoding', b'identity'), (b'host', b'benchmark'), (b'x-test', b'value'), (b'connection', b'keep-alive')]",
+          "[(b'accept-encoding', b'identity'), (b'host', b'benchmark'), (b'x-test', b'value'), (b'connection', b'keep-alive')]",
+          "[(b'accept-encoding', b'identity'), (b'host', b'benchmark'), (b'x-test', b'value'), (b'connection', b'keep-alive')]"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "metadata",
+        "tls": false,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.041148117219563574,
+            "rps": 4860.489701942218,
+            "p50_ms": 0.19684599828906357,
+            "p95_ms": 0.27527700876817107,
+            "p99_ms": 0.29917198116891086,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 39928,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.0381462071381975,
+            "rps": 5242.985214111394,
+            "p50_ms": 0.19144598627462983,
+            "p95_ms": 0.22531900322064757,
+            "p99_ms": 0.24145800853148103,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42204,
+              "rss_kb": 41156,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.038340444734785706,
+            "rps": 5216.423580463662,
+            "p50_ms": 0.19181100651621819,
+            "p95_ms": 0.22096800967119634,
+            "p99_ms": 0.25522697251290083,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42656,
+              "rss_kb": 42656,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "{'remote_addr': '127.0.0.1:52724', 'remote_address': ('127.0.0.1', 52724), 'local_addr': '127.0.0.1:32927', 'local_address': ('127.0.0.1', 32927), 'scheme': 'http', 'effective_addr': '127.0.0.1:52724', 'effective_address': ('127.0.0.1', 52724), 'effective_scheme': 'http', 'effective_authority': None, 'proxy_provenance': None, 'forwarded_provenance': None, 'tls_protocol_version': None, 'tls_server_name': None, 'tls_alpn': None, 'peer_certificates_present': False}",
+          "{'remote_addr': '127.0.0.1:52734', 'remote_address': ('127.0.0.1', 52734), 'local_addr': '127.0.0.1:32927', 'local_address': ('127.0.0.1', 32927), 'scheme': 'http', 'effective_addr': '127.0.0.1:52734', 'effective_address': ('127.0.0.1', 52734), 'effective_scheme': 'http', 'effective_authority': None, 'proxy_provenance': None, 'forwarded_provenance': None, 'tls_protocol_version': None, 'tls_server_name': None, 'tls_alpn': None, 'peer_certificates_present': False}",
+          "{'remote_addr': '127.0.0.1:52742', 'remote_address': ('127.0.0.1', 52742), 'local_addr': '127.0.0.1:32927', 'local_address': ('127.0.0.1', 32927), 'scheme': 'http', 'effective_addr': '127.0.0.1:52742', 'effective_address': ('127.0.0.1', 52742), 'effective_scheme': 'http', 'effective_authority': None, 'proxy_provenance': None, 'forwarded_provenance': None, 'tls_protocol_version': None, 'tls_server_name': None, 'tls_alpn': None, 'peer_certificates_present': False}"
+        ],
+        "errors": 0
+      }
+    ]
+  },
+  "established_tls": {
+    "schema_version": 1,
+    "plan": "241",
+    "source_sha": "af9727870236e684746858bc32eb37aa22892251",
+    "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+    "method": {
+      "trials": 3,
+      "absolute_timing_ci_gate": false
+    },
+    "workloads": [
+      {
+        "mode": "empty",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.261558697297005,
+            "rps": 764.6467200931809,
+            "p50_ms": 1.3078770134598017,
+            "p95_ms": 1.3584769912995398,
+            "p99_ms": 1.3959119969513267,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 35544,
+              "rss_kb": 35544,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.2867524918692652,
+            "rps": 697.4656042088834,
+            "p50_ms": 1.330166996922344,
+            "p95_ms": 1.891170017188415,
+            "p99_ms": 1.9379479927010834,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 38428,
+              "rss_kb": 38428,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.2619501668959856,
+            "rps": 763.503999138185,
+            "p50_ms": 1.3090510037727654,
+            "p95_ms": 1.355576008791104,
+            "p99_ms": 1.432018994819373,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 41264,
+              "rss_kb": 41264,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "empty",
+          "empty",
+          "empty"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "bytes",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.25341524396208115,
+            "rps": 789.2185050632797,
+            "p50_ms": 1.2401020212564617,
+            "p95_ms": 1.4422130188904703,
+            "p99_ms": 1.5861809952184558,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 41108,
+              "rss_kb": 41108,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.26054191600997,
+            "rps": 767.630802225108,
+            "p50_ms": 1.2982740008737892,
+            "p95_ms": 1.361262984573841,
+            "p99_ms": 1.3748900091741234,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 41332,
+              "rss_kb": 41332,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.261200325738173,
+            "rps": 765.6958291869814,
+            "p50_ms": 1.3050800189375877,
+            "p95_ms": 1.37661601183936,
+            "p99_ms": 1.3955489848740399,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42284,
+              "rss_kb": 42284,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "bytes",
+          "bytes",
+          "bytes"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "method",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.26748970698099583,
+            "rps": 747.6923215374761,
+            "p50_ms": 1.3244829897303134,
+            "p95_ms": 1.5693719906266779,
+            "p99_ms": 1.6018849855754524,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 42256,
+              "rss_kb": 42192,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.26388196204788983,
+            "rps": 757.914631405172,
+            "p50_ms": 1.287916995352134,
+            "p95_ms": 1.5971599787008017,
+            "p99_ms": 1.7227520002052188,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 43196,
+              "rss_kb": 43196,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.29054354087566026,
+            "rps": 688.3649844605945,
+            "p50_ms": 1.342878007562831,
+            "p95_ms": 2.4379850074183196,
+            "p99_ms": 3.342793002957478,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 46052,
+              "rss_kb": 46052,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "GET",
+          "GET",
+          "GET"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "headers",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.26158115529688075,
+            "rps": 764.5810714958063,
+            "p50_ms": 1.314775989158079,
+            "p95_ms": 1.364627998555079,
+            "p99_ms": 1.3894779840484262,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 45372,
+              "rss_kb": 42240,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.26180465109064244,
+            "rps": 763.928368601655,
+            "p50_ms": 1.3169519952498376,
+            "p95_ms": 1.3627330190502107,
+            "p99_ms": 1.3709549966733903,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 45372,
+              "rss_kb": 44996,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.26493108208524063,
+            "rps": 754.9133096268814,
+            "p50_ms": 1.3230970071163028,
+            "p95_ms": 1.3745840115007013,
+            "p99_ms": 1.9156440102960914,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 47032,
+              "rss_kb": 47032,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "{'accept-encoding': 'identity', 'host': 'benchmark', 'x-test': 'value', 'connection': 'keep-alive'}",
+          "{'host': 'benchmark', 'connection': 'keep-alive', 'x-test': 'value', 'accept-encoding': 'identity'}",
+          "{'host': 'benchmark', 'x-test': 'value', 'accept-encoding': 'identity', 'connection': 'keep-alive'}"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "header_items",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.26722991807037033,
+            "rps": 748.4191943932472,
+            "p50_ms": 1.3341120211407542,
+            "p95_ms": 1.4343130169436336,
+            "p99_ms": 1.4750449918210506,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 46760,
+              "rss_kb": 46760,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.269945125997765,
+            "rps": 740.8913173029688,
+            "p50_ms": 1.3439430040307343,
+            "p95_ms": 1.4328240067698061,
+            "p99_ms": 1.4588420162908733,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 47340,
+              "rss_kb": 47340,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.2698693200654816,
+            "rps": 741.0994326864263,
+            "p50_ms": 1.3548079878091812,
+            "p95_ms": 1.4291339903138578,
+            "p99_ms": 1.495508011430502,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49596,
+              "rss_kb": 49596,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "[('accept-encoding', 'identity'), ('host', 'benchmark'), ('x-test', 'value'), ('connection', 'keep-alive')]",
+          "[('accept-encoding', 'identity'), ('host', 'benchmark'), ('x-test', 'value'), ('connection', 'keep-alive')]",
+          "[('accept-encoding', 'identity'), ('host', 'benchmark'), ('x-test', 'value'), ('connection', 'keep-alive')]"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "raw_target",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.2723148860386573,
+            "rps": 734.4438745504658,
+            "p50_ms": 1.3557019992731512,
+            "p95_ms": 1.4640559966210276,
+            "p99_ms": 1.646475022425875,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 45164,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.2612581660214346,
+            "rps": 765.5263107970806,
+            "p50_ms": 1.295306981774047,
+            "p95_ms": 1.3678880059160292,
+            "p99_ms": 1.381363981636241,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 46912,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.2607669352146331,
+            "rps": 766.9684035492581,
+            "p50_ms": 1.3007860106881708,
+            "p95_ms": 1.3617509976029396,
+            "p99_ms": 1.3678920222446322,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49516,
+              "rss_kb": 49516,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "(b'/a?b=c', b'/a', b'b=c')",
+          "(b'/a?b=c', b'/a', b'b=c')",
+          "(b'/a?b=c', b'/a', b'b=c')"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "byte_header_items",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.26203880514367484,
+            "rps": 763.2457333574728,
+            "p50_ms": 1.315030996920541,
+            "p95_ms": 1.370109006529674,
+            "p99_ms": 1.4056350046303123,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 42992,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.2660610537568573,
+            "rps": 751.7071633594751,
+            "p50_ms": 1.3290069764479995,
+            "p95_ms": 1.3969269930385053,
+            "p99_ms": 1.7832809826359153,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 44776,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.26180588811985217,
+            "rps": 763.9247590506519,
+            "p50_ms": 1.3145660050213337,
+            "p95_ms": 1.369247998809442,
+            "p99_ms": 1.3922810030635446,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 46420,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "[(b'accept-encoding', b'identity'), (b'host', b'benchmark'), (b'x-test', b'value'), (b'connection', b'keep-alive')]",
+          "[(b'accept-encoding', b'identity'), (b'host', b'benchmark'), (b'x-test', b'value'), (b'connection', b'keep-alive')]",
+          "[(b'accept-encoding', b'identity'), (b'host', b'benchmark'), (b'x-test', b'value'), (b'connection', b'keep-alive')]"
+        ],
+        "errors": 0
+      },
+      {
+        "mode": "metadata",
+        "tls": true,
+        "warmup": 200,
+        "trials": [
+          {
+            "trial": 1,
+            "requests": 200,
+            "elapsed_s": 0.26405081126722507,
+            "rps": 757.4299773599095,
+            "p50_ms": 1.333238004008308,
+            "p95_ms": 1.4084100257605314,
+            "p99_ms": 1.4487450243905187,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 42320,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 2,
+            "requests": 200,
+            "elapsed_s": 0.2705641991633456,
+            "rps": 739.1960969649779,
+            "p50_ms": 1.346281002042815,
+            "p95_ms": 1.4541969867423177,
+            "p99_ms": 1.6716660175006837,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 43644,
+              "threads": 4,
+              "fds": 12
+            }
+          },
+          {
+            "trial": 3,
+            "requests": 200,
+            "elapsed_s": 0.2628014838555828,
+            "rps": 761.0307105796478,
+            "p50_ms": 1.322999014519155,
+            "p95_ms": 1.3840819883625954,
+            "p99_ms": 1.4048400043975562,
+            "errors": 0,
+            "resources": {
+              "peak_rss_kb": 49016,
+              "rss_kb": 45476,
+              "threads": 4,
+              "fds": 12
+            }
+          }
+        ],
+        "observed_sample": [
+          "{'remote_addr': '127.0.0.1:52036', 'remote_address': ('127.0.0.1', 52036), 'local_addr': '127.0.0.1:46399', 'local_address': ('127.0.0.1', 46399), 'scheme': 'https', 'effective_addr': '127.0.0.1:52036', 'effective_address': ('127.0.0.1', 52036), 'effective_scheme': 'https', 'effective_authority': None, 'proxy_provenance': None, 'forwarded_provenance': None, 'tls_protocol_version': 'TLSv1_3', 'tls_server_name': None, 'tls_alpn': None, 'peer_certificates_present': False}",
+          "{'remote_addr': '127.0.0.1:52052', 'remote_address': ('127.0.0.1', 52052), 'local_addr': '127.0.0.1:46399', 'local_address': ('127.0.0.1', 46399), 'scheme': 'https', 'effective_addr': '127.0.0.1:52052', 'effective_address': ('127.0.0.1', 52052), 'effective_scheme': 'https', 'effective_authority': None, 'proxy_provenance': None, 'forwarded_provenance': None, 'tls_protocol_version': 'TLSv1_3', 'tls_server_name': None, 'tls_alpn': None, 'peer_certificates_present': False}",
+          "{'remote_addr': '127.0.0.1:52056', 'remote_address': ('127.0.0.1', 52056), 'local_addr': '127.0.0.1:46399', 'local_address': ('127.0.0.1', 46399), 'scheme': 'https', 'effective_addr': '127.0.0.1:52056', 'effective_address': ('127.0.0.1', 52056), 'effective_scheme': 'https', 'effective_authority': None, 'proxy_provenance': None, 'forwarded_provenance': None, 'tls_protocol_version': 'TLSv1_3', 'tls_server_name': None, 'tls_alpn': None, 'peer_certificates_present': False}"
+        ],
+        "errors": 0
+      }
+    ]
+  }
+}

@@ -1,0 +1,142 @@
+{
+  "schema_version": 1,
+  "plan": "241",
+  "source_sha": "af9727870236e684746858bc32eb37aa22892251",
+  "python": "3.11.15 (main, Mar  3 2026, 14:59:53) [Clang 21.1.4 ]",
+  "method": {
+    "trials": 3,
+    "absolute_timing_ci_gate": false
+  },
+  "workloads": [
+    {
+      "active_streams": 10,
+      "before": {
+        "peak_rss_kb": 28768,
+        "rss_kb": 28768,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 31928,
+        "rss_kb": 31928,
+        "threads": 14,
+        "fds": 32
+      },
+      "after": {
+        "peak_rss_kb": 32000,
+        "rss_kb": 32000,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.0010134730255231261,
+      "shutdown_elapsed_s": null,
+      "disconnect": false,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 100,
+      "before": {
+        "peak_rss_kb": 32012,
+        "rss_kb": 32012,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 56220,
+        "rss_kb": 56220,
+        "threads": 104,
+        "fds": 212
+      },
+      "after": {
+        "peak_rss_kb": 55608,
+        "rss_kb": 55608,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.0009963169868569821,
+      "shutdown_elapsed_s": null,
+      "disconnect": false,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 120,
+      "before": {
+        "peak_rss_kb": 55008,
+        "rss_kb": 53988,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 63084,
+        "rss_kb": 63084,
+        "threads": 124,
+        "fds": 252
+      },
+      "after": {
+        "peak_rss_kb": 62304,
+        "rss_kb": 62304,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.00026689699734561145,
+      "shutdown_elapsed_s": null,
+      "disconnect": false,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 10,
+      "before": {
+        "peak_rss_kb": 61972,
+        "rss_kb": 58768,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 61972,
+        "rss_kb": 58888,
+        "threads": 14,
+        "fds": 32
+      },
+      "after": {
+        "peak_rss_kb": 61972,
+        "rss_kb": 58888,
+        "threads": 4,
+        "fds": 12
+      },
+      "cleanup_elapsed_s": 0.0009103610063903034,
+      "shutdown_elapsed_s": null,
+      "disconnect": true,
+      "shutdown": false,
+      "errors": 0
+    },
+    {
+      "active_streams": 10,
+      "before": {
+        "peak_rss_kb": 61972,
+        "rss_kb": 58836,
+        "threads": 3,
+        "fds": 12
+      },
+      "during": {
+        "peak_rss_kb": 61972,
+        "rss_kb": 58920,
+        "threads": 14,
+        "fds": 32
+      },
+      "after": {
+        "peak_rss_kb": 61972,
+        "rss_kb": 58796,
+        "threads": 1,
+        "fds": 7
+      },
+      "cleanup_elapsed_s": 0.0009788360039237887,
+      "shutdown_elapsed_s": 0.20330933202058077,
+      "disconnect": false,
+      "shutdown": true,
+      "errors": 0
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "baseline": {
+    "filename": "eggserve-0.2.0-cp311-abi3-manylinux_2_34_x86_64.whl",
+    "sha256": "689773aebe312fbeb9e3981e7d33f59f7759a94227d42f3585abfffd710f1446",
+    "python": "3.11.15"
+  },
+  "candidate": {
+    "filename": "eggserve-0.2.0-cp311-abi3-manylinux_2_34_x86_64.whl",
+    "sha256": "f65a3adf3d1e28b30a257eeb40adb5d759f5983fc480181662c2c47a0dfdfd23",
+    "python": "3.11.15"
+  }
+}

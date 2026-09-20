@@ -1,0 +1,68 @@
+{
+  "schema_version": 1,
+  "plan": "233",
+  "workload": "TLS handshake churn",
+  "identity": {
+    "source_sha": "af9727870236e684746858bc32eb37aa22892251",
+    "cargo_lock_sha256": "9681341c12b5b97dd5c5e8501a395421179cfa660ca409aa32d2cbab8963e70b",
+    "chunk_label": "128k",
+    "chunk_bytes": 131072,
+    "temporary_source_diff_sha256": null
+  },
+  "client": "CPython stdlib http.client + threading",
+  "new_connections_per_trial": 48,
+  "trials": [
+    {
+      "trial": 1,
+      "attempted_connections": 48,
+      "successful_handshakes": 48,
+      "elapsed_s": 0.03477790701435879,
+      "handshakes_per_s": 1380.1865644238508,
+      "failures": 0,
+      "errors": [],
+      "error_count": 0,
+      "server_resources": {
+        "peak_rss_kb": 6204,
+        "rss_kb": 6204,
+        "threads": 2,
+        "fds": 11,
+        "cpu_time_s": 0.02
+      }
+    },
+    {
+      "trial": 2,
+      "attempted_connections": 48,
+      "successful_handshakes": 48,
+      "elapsed_s": 0.034742841991828755,
+      "handshakes_per_s": 1381.579549862076,
+      "failures": 0,
+      "errors": [],
+      "error_count": 0,
+      "server_resources": {
+        "peak_rss_kb": 6172,
+        "rss_kb": 6172,
+        "threads": 2,
+        "fds": 11,
+        "cpu_time_s": 0.03
+      }
+    },
+    {
+      "trial": 3,
+      "attempted_connections": 48,
+      "successful_handshakes": 48,
+      "elapsed_s": 0.0350832850090228,
+      "handshakes_per_s": 1368.1729059195925,
+      "failures": 0,
+      "errors": [],
+      "error_count": 0,
+      "server_resources": {
+        "peak_rss_kb": 6240,
+        "rss_kb": 6240,
+        "threads": 2,
+        "fds": 11,
+        "cpu_time_s": 0.03
+      }
+    }
+  ],
+  "source_sha": "af9727870236e684746858bc32eb37aa22892251"
+}

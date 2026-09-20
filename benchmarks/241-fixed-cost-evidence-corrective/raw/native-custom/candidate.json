@@ -1,0 +1,339 @@
+{
+  "schema_version": 1,
+  "plan": "241",
+  "source_sha": "af9727870236e684746858bc32eb37aa22892251",
+  "build": {
+    "command": "cargo +1.89 build --release --locked -p eggserve-bin",
+    "profile": "release",
+    "features": []
+  },
+  "method": {
+    "trials": 3,
+    "warmup": "one excluded request/client run per case",
+    "absolute_timing_ci_gate": false
+  },
+  "environment": {
+    "os": "Linux-6.8.0-139-generic-x86_64-with-glibc2.39",
+    "arch": "x86_64",
+    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "logical_cpus": 16,
+    "memory_kb": 16232840,
+    "python": "Python 3.11.15"
+  },
+  "runtime_limits": {
+    "max_connections": 512,
+    "max_file_streams": 512,
+    "max_in_flight_requests": 512,
+    "max_buf_size": 65536,
+    "max_headers": 100,
+    "max_header_bytes": 32768,
+    "max_request_target_bytes": 8192
+  },
+  "workload": {
+    "cases": [
+      {
+        "concurrency": 1,
+        "requests_per_worker": 3000,
+        "trials": [
+          {
+            "trial": 1,
+            "returncode": 0,
+            "peak_rss_kb": 4744,
+            "rss_kb": 4744,
+            "threads": 17,
+            "fds": 10,
+            "requests": 3000,
+            "expected_requests": 3000,
+            "elapsed_s": 0.295713,
+            "rps": 10144.964,
+            "bytes_per_s": 10388443.13,
+            "p50_latency_ms": 0.097,
+            "p95_latency_ms": 0.108,
+            "p99_latency_ms": 0.138,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 4736,
+              "rss_kb": 4736,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 4744,
+              "rss_kb": 4744,
+              "threads": 17,
+              "fds": 10
+            }
+          },
+          {
+            "trial": 2,
+            "returncode": 0,
+            "peak_rss_kb": 4768,
+            "rss_kb": 4768,
+            "threads": 17,
+            "fds": 10,
+            "requests": 3000,
+            "expected_requests": 3000,
+            "elapsed_s": 0.297181,
+            "rps": 10094.871,
+            "bytes_per_s": 10337147.791,
+            "p50_latency_ms": 0.095,
+            "p95_latency_ms": 0.134,
+            "p99_latency_ms": 0.145,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 4744,
+              "rss_kb": 4744,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 4768,
+              "rss_kb": 4768,
+              "threads": 17,
+              "fds": 10
+            }
+          },
+          {
+            "trial": 3,
+            "returncode": 0,
+            "peak_rss_kb": 4784,
+            "rss_kb": 4784,
+            "threads": 17,
+            "fds": 10,
+            "requests": 3000,
+            "expected_requests": 3000,
+            "elapsed_s": 0.297056,
+            "rps": 10099.122,
+            "bytes_per_s": 10341500.727,
+            "p50_latency_ms": 0.095,
+            "p95_latency_ms": 0.127,
+            "p99_latency_ms": 0.146,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 4768,
+              "rss_kb": 4768,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 4784,
+              "rss_kb": 4784,
+              "threads": 17,
+              "fds": 10
+            }
+          }
+        ],
+        "total_errors": 0,
+        "all_correct": true
+      },
+      {
+        "concurrency": 16,
+        "requests_per_worker": 187,
+        "trials": [
+          {
+            "trial": 1,
+            "returncode": 0,
+            "peak_rss_kb": 6348,
+            "rss_kb": 6348,
+            "threads": 17,
+            "fds": 10,
+            "requests": 2992,
+            "expected_requests": 2992,
+            "elapsed_s": 0.040177,
+            "rps": 74471.076,
+            "bytes_per_s": 76258381.978,
+            "p50_latency_ms": 0.191,
+            "p95_latency_ms": 0.332,
+            "p99_latency_ms": 0.424,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 6004,
+              "rss_kb": 6004,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 6348,
+              "rss_kb": 6348,
+              "threads": 17,
+              "fds": 10
+            }
+          },
+          {
+            "trial": 2,
+            "returncode": 0,
+            "peak_rss_kb": 6504,
+            "rss_kb": 6504,
+            "threads": 17,
+            "fds": 10,
+            "requests": 2992,
+            "expected_requests": 2992,
+            "elapsed_s": 0.039373,
+            "rps": 75991.264,
+            "bytes_per_s": 77815054.078,
+            "p50_latency_ms": 0.192,
+            "p95_latency_ms": 0.306,
+            "p99_latency_ms": 0.372,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 6348,
+              "rss_kb": 6348,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 6504,
+              "rss_kb": 6504,
+              "threads": 17,
+              "fds": 10
+            }
+          },
+          {
+            "trial": 3,
+            "returncode": 0,
+            "peak_rss_kb": 6708,
+            "rss_kb": 6708,
+            "threads": 17,
+            "fds": 10,
+            "requests": 2992,
+            "expected_requests": 2992,
+            "elapsed_s": 0.044941,
+            "rps": 66575.557,
+            "bytes_per_s": 68173370.316,
+            "p50_latency_ms": 0.214,
+            "p95_latency_ms": 0.386,
+            "p99_latency_ms": 0.472,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 6504,
+              "rss_kb": 6504,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 6708,
+              "rss_kb": 6708,
+              "threads": 17,
+              "fds": 10
+            }
+          }
+        ],
+        "total_errors": 0,
+        "all_correct": true
+      },
+      {
+        "concurrency": 64,
+        "requests_per_worker": 46,
+        "trials": [
+          {
+            "trial": 1,
+            "returncode": 0,
+            "peak_rss_kb": 8148,
+            "rss_kb": 8148,
+            "threads": 17,
+            "fds": 10,
+            "requests": 2944,
+            "expected_requests": 2944,
+            "elapsed_s": 0.049195,
+            "rps": 59843.948,
+            "bytes_per_s": 61280203.128,
+            "p50_latency_ms": 0.599,
+            "p95_latency_ms": 1.292,
+            "p99_latency_ms": 2.286,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 7516,
+              "rss_kb": 7516,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 8148,
+              "rss_kb": 8148,
+              "threads": 17,
+              "fds": 10
+            }
+          },
+          {
+            "trial": 2,
+            "returncode": 0,
+            "peak_rss_kb": 9248,
+            "rss_kb": 9248,
+            "threads": 17,
+            "fds": 10,
+            "requests": 2944,
+            "expected_requests": 2944,
+            "elapsed_s": 0.039838,
+            "rps": 73898.793,
+            "bytes_per_s": 75672364.178,
+            "p50_latency_ms": 0.575,
+            "p95_latency_ms": 1.263,
+            "p99_latency_ms": 2.852,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 8148,
+              "rss_kb": 8148,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 9248,
+              "rss_kb": 9248,
+              "threads": 17,
+              "fds": 10
+            }
+          },
+          {
+            "trial": 3,
+            "returncode": 0,
+            "peak_rss_kb": 9744,
+            "rss_kb": 9744,
+            "threads": 17,
+            "fds": 10,
+            "requests": 2944,
+            "expected_requests": 2944,
+            "elapsed_s": 0.0473,
+            "rps": 62241.517,
+            "bytes_per_s": 63735313.888,
+            "p50_latency_ms": 0.56,
+            "p95_latency_ms": 1.326,
+            "p99_latency_ms": 2.178,
+            "error_count": 0,
+            "errors": [],
+            "client": "rust-std-tcp",
+            "resources_before": {
+              "peak_rss_kb": 9248,
+              "rss_kb": 9248,
+              "threads": 17,
+              "fds": 10
+            },
+            "resources_after": {
+              "peak_rss_kb": 9744,
+              "rss_kb": 9744,
+              "threads": 17,
+              "fds": 10
+            }
+          }
+        ],
+        "total_errors": 0,
+        "all_correct": true
+      }
+    ]
+  }
+}

@@ -1,0 +1,29 @@
+745300 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+745300 close(3)                         = 0
+745300 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libgcc_s.so.1", O_RDONLY|O_CLOEXEC) = 3
+745300 close(3)                         = 0
+745300 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+745300 close(3)                         = 0
+745300 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY|O_CLOEXEC) = 3
+745300 close(3)                         = 0
+745300 fcntl(3, F_DUPFD_CLOEXEC, 3)     = 5
+745300 fcntl(6, F_DUPFD_CLOEXEC, 3)     = 8
+745300 statx(AT_FDCWD, "/tmp/eggserve-241-nested-7za8lyxr", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFDIR|0700, stx_size=4096, ...}) = 0
+745300 close(11)                        = 0
+745300 newfstatat(9, "nested", {st_mode=S_IFDIR|0775, st_size=4096, ...}, AT_SYMLINK_NOFOLLOW) = 0
+745300 openat(9, "nested", O_RDONLY|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC|O_DIRECTORY) = 12
+745300 newfstatat(12, "deep.bin", {st_mode=S_IFREG|0664, st_size=2048, ...}, AT_SYMLINK_NOFOLLOW) = 0
+745300 openat(12, "deep.bin", O_RDONLY|O_NONBLOCK|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC) = 13
+745300 statx(13, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=2048, ...}) = 0
+745300 close(12)                        = 0
+745300 close(13)                        = 0
+745300 close(11)                        = 0
+745300 --- SIGINT {si_signo=SIGINT, si_code=SI_USER, si_pid=745245, si_uid=1000} ---
+745300 close(9)                         = 0
+745300 close(10)                        = 0
+745300 close(3)                         = 0
+745300 close(8)                         = 0
+745303 close(5)                         = 0
+745303 close(4)                         = 0
+745303 +++ exited with 0 +++
+745300 +++ exited with 0 +++

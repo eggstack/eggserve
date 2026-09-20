@@ -252,6 +252,20 @@ target/header compatibility views. Candidate closure evidence is retained in
 dedicated Python stream-producer redesign remains DEFER. These artifacts are
 same-machine evidence and do not create absolute-timing CI gates.
 
+Plan 241 is the evidence-only corrective for the narrower-than-written Plan
+240 matrix. `benchmarks/241-fixed-cost-evidence-corrective/` retains compact
+baseline/candidate trials for custom H1, HEAD/304/range/path response shapes,
+established TLS and handshake churn, isolated installed-wheel Python callback
+views and TLS metadata, slow synchronous stream resources at 10/100/120
+streams, and focused Unix resolver syscall traces. The syscall record shows
+the candidate removing ordinary one-component root-FD duplication while
+retaining nested descriptor ownership and `AT_SYMLINK_NOFOLLOW`/
+`O_NOFOLLOW`/post-open validation. The records classify TLS and metadata-heavy
+results as neutral where variance dominates, keep the existing metadata-share
+and producer redesign deferrals plus the Plan 238 NO-GO, and mark unavailable
+peer-chain exposure explicitly. No production code or absolute timing gate is
+authorized by this evidence corrective.
+
 ## Plan 170 performance-evidence closure
 
 Plan 170 is manual same-machine evidence, never an absolute-timing CI gate.

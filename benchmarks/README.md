@@ -21,6 +21,7 @@ qualified profile and point at the evidence files below.
 | `233-evidence-polish/` | Plan 233 provenance polish: retained per-trial native/range/TLS JSON behind the 128 KiB decision, closure-SHA CI record, and the mechanically derived aggregate. Future manual performance qualification must retain compact per-trial JSON here rather than only aggregate reductions of discarded captures. |
 | `234-fixed-cost-baseline/` | Plan 234 current-head fixed-cost baseline: native keep-alive measurements, syscall fallback profiles, environment/lock provenance, and evidence-gated decisions for Plans 235–239. |
 | `240-fixed-cost-closure/` | Plan 240 same-machine candidate closure: retained native A/B capture, per-track keep/revert/defer decisions, and local CI/qualification provenance. |
+| `241-fixed-cost-evidence-corrective/` | Plan 241 corrective closure: per-trial custom H1/path/TLS/installed-wheel Python/slow-stream evidence, before/after Unix resolver traces, truthful unavailable/deferred classifications, and exact-SHA CI provenance. |
 
 ## Method
 
@@ -76,6 +77,14 @@ is closed as NO-GO), and the dedicated Python stream producer remains a
 bounded isolation tradeoff (Plan 239 DEFER). The absence of a supported
 allocator counter on the baseline host is recorded rather than replaced with
 invented allocation counts.
+
+Plan 241 is the evidence-only corrective for the narrower-than-written Plan
+240 matrix. Its compact records add custom H1, static response-shape,
+established-TLS, installed-wheel Python callback, slow synchronous stream,
+and focused Unix resolver syscall evidence. TLS and metadata-heavy results
+are classified as neutral where variance dominates; unavailable peer-chain
+exposure is not inferred. The Plan 238 NO-GO, Plan 239 producer DEFER, and
+metadata-sharing DEFER remain unchanged.
 
 ## Regression policy
 

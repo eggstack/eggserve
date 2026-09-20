@@ -20,3 +20,7 @@ no timing claim is promoted to CI. The implementation is retained because
 the deterministic correctness/resource suite passes and each change is a
 local representation or common-path simplification with preserved security,
 framing, lifecycle, timeout, and admission behavior.
+
+Plan 241 closes the acceptance items that this record deliberately left
+unmeasured. See its `decisions.md` for the explicit CONFIRMS/NEUTRAL/N/A
+reconciliation; no retained production decision changes.

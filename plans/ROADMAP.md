@@ -256,16 +256,19 @@ Implementation plans:
 - `plans/239-python-bridge-allocation-and-stream-resource-optimization.md`
 - `plans/240-fixed-cost-performance-qualification-closure.md`
 
-Status: IMPLEMENTATION COMPLETE; EVIDENCE CLOSURE PENDING PLAN 241. Plan 234
+Status: IMPLEMENTATION COMPLETE; EVIDENCE CLOSURE COMPLETED BY PLAN 241. Plan 234
 records the implementation-start baseline under
 `benchmarks/234-fixed-cost-baseline/`. Plans 235–237 and the Python
 request-view portion of Plan 239 were retained; Plan 238 is NO-GO, and the
 dedicated Python stream-producer redesign is DEFER. Plan 240 records the
 initial same-machine static closure under
-`benchmarks/240-fixed-cost-closure/`, but its retained matrix is narrower
-than its written acceptance criteria. Plan 241 is the evidence-only corrective
-for custom/path-specific H1, TLS, installed-wheel Python callback, slow-stream
-resource, Unix syscall, and exact-SHA CI provenance closure.
+`benchmarks/240-fixed-cost-closure/`, but its retained matrix was narrower
+than its written acceptance criteria. Plan 241 completed the evidence-only
+corrective for custom/path-specific H1, TLS, installed-wheel Python callback,
+slow-stream resource, Unix syscall, and exact-SHA CI provenance closure under
+`benchmarks/241-fixed-cost-evidence-corrective/`. No production behavior was
+changed; metadata sharing and the producer redesign remain DEFER, and Plan 238
+remains NO-GO.
 
 ### Fixed-cost evidence/closure corrective — Plan 241
 
@@ -286,7 +289,7 @@ runtime code itself.
 Implementation plan:
 `plans/241-fixed-cost-performance-evidence-and-closure-corrective.md`.
 
-Status: PLANNED.
+Status: COMPLETE pending final remote CI metadata readback.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

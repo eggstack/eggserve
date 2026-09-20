@@ -1,0 +1,26 @@
+743919 openat(AT_FDCWD, "/etc/ld.so.cache", O_RDONLY|O_CLOEXEC) = 3
+743919 close(3)                         = 0
+743919 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libgcc_s.so.1", O_RDONLY|O_CLOEXEC) = 3
+743919 close(3)                         = 0
+743919 openat(AT_FDCWD, "/lib/x86_64-linux-gnu/libc.so.6", O_RDONLY|O_CLOEXEC) = 3
+743919 close(3)                         = 0
+743919 openat(AT_FDCWD, "/proc/self/maps", O_RDONLY|O_CLOEXEC) = 3
+743919 close(3)                         = 0
+743919 fcntl(3, F_DUPFD_CLOEXEC, 3)     = 5
+743919 fcntl(6, F_DUPFD_CLOEXEC, 3)     = 8
+743919 statx(AT_FDCWD, "/tmp/eggserve-241-detail-atv_axgr", AT_STATX_SYNC_AS_STAT, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFDIR|0700, stx_size=4096, ...}) = 0
+743919 close(11)                        = 0
+743919 newfstatat(9, "one.bin", {st_mode=S_IFREG|0664, st_size=1024, ...}, AT_SYMLINK_NOFOLLOW) = 0
+743919 openat(9, "one.bin", O_RDONLY|O_NONBLOCK|O_LARGEFILE|O_NOFOLLOW|O_CLOEXEC) = 12
+743919 statx(12, "", AT_STATX_SYNC_AS_STAT|AT_EMPTY_PATH, STATX_ALL, {stx_mask=STATX_ALL|STATX_MNT_ID, stx_attributes=0, stx_mode=S_IFREG|0664, stx_size=1024, ...}) = 0
+743919 close(12)                        = 0
+743919 close(11)                        = 0
+743919 --- SIGINT {si_signo=SIGINT, si_code=SI_USER, si_pid=743848, si_uid=1000} ---
+743919 close(9)                         = 0
+743919 close(10)                        = 0
+743919 close(3)                         = 0
+743919 close(8)                         = 0
+743922 close(5)                         = 0
+743922 close(4)                         = 0
+743922 +++ exited with 0 +++
+743919 +++ exited with 0 +++

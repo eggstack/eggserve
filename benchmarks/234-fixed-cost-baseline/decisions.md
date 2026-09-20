@@ -11,3 +11,9 @@
 The baseline did not claim a numeric allocation count because the host lacks a
 usable allocation profiler. Logical allocation claims are limited to source-
 mechanical observations and are rechecked by the candidate tests.
+
+Plan 241 reconciliation: this handoff's original static/profiling scope is
+unchanged. The later custom H1, path-shape, TLS, installed-wheel Python,
+slow-stream, and focused syscall measurements were completed by
+`benchmarks/241-fixed-cost-evidence-corrective/`, not retroactively attributed
+to this baseline.

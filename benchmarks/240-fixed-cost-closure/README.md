@@ -26,3 +26,11 @@ The closure matrix is intentionally explicit about coverage:
 
 See `results.json` for machine-readable provenance and `decisions.md` for the
 keep/revert/defer decisions.
+
+Plan 241 corrective reconciliation: the narrower-than-written custom H1,
+path-specific, TLS, installed-wheel Python, slow-stream, and direct syscall
+acceptance items are completed in
+`benchmarks/241-fixed-cost-evidence-corrective/`. Plan 238 remains NO-GO;
+metadata sharing and the synchronous producer redesign remain DEFER. The
+original Plan 240 capture remains the source for its own nine-point native and
+deterministic qualification claims.
