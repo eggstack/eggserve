@@ -289,7 +289,9 @@ runtime code itself.
 Implementation plan:
 `plans/241-fixed-cost-performance-evidence-and-closure-corrective.md`.
 
-Status: COMPLETE pending final remote CI metadata readback.
+Status: COMPLETE. Evidence-content SHA `9592d9b34d2d48ea8100537cc9cf8ea73ca19a96`
+passed remote CI run `35543869576`; the final metadata-record commit is the
+documentation commit containing this status update.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

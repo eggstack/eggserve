@@ -1,10 +1,15 @@
 {
   "schema_version": 1,
   "plan": "241",
-  "status": "evidence-content-complete-pending-remote-ci",
+  "status": "complete",
   "baseline_sha": "504c3d31f46399d361e57a5bab51a6325a0f4acd",
   "candidate_sha": "af9727870236e684746858bc32eb37aa22892251",
-  "evidence_content_sha": null,
+  "evidence_content_sha": "9592d9b34d2d48ea8100537cc9cf8ea73ca19a96",
+  "sha_roles": {
+    "production_candidate": "af9727870236e684746858bc32eb37aa22892251",
+    "evidence_content": "9592d9b34d2d48ea8100537cc9cf8ea73ca19a96",
+    "final_metadata_record": "the commit containing this metadata update"
+  },
   "root_lock_sha256": "9681341c12b5b97dd5c5e8501a395421179cfa660ca409aa32d2cbab8963e70b",
   "python_crate_lock_sha256": "a50aee62bdb4a5cd78ebb5c4527b458de997ab98a019fc66eb48f1c2e6d1e0e1",
   "compiler": {
@@ -414,6 +419,17 @@
       "run_id": "35538302042",
       "conclusion": "success"
     },
-    "plan_241_ci": null
+    "plan_241_ci": {
+      "sha": "9592d9b34d2d48ea8100537cc9cf8ea73ca19a96",
+      "run_id": "35543869576",
+      "url": "https://github.com/eggstack/eggserve/actions/runs/35543869576",
+      "completed_at": "2026-09-20T23:24:53Z",
+      "conclusion": "success",
+      "jobs": {
+        "python": "success",
+        "supply-chain": "success",
+        "rust": "success"
+      }
+    }
   }
 }
