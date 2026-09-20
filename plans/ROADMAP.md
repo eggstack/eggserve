@@ -192,6 +192,23 @@ changes.
 Implementation plan:
 `plans/232-file-stream-read-bound-and-performance-evidence-corrective.md`.
 
+### Evidence provenance and closure polish — Plan 233
+
+**Plan 233 — performance evidence provenance and closure polish** is an
+evidence-only follow-up. It does not authorize runtime/default/API changes.
+It records the successful CI run for the actual Plan 232 closure SHA, replaces
+discarded `/tmp`-only benchmark provenance with compact retained per-trial
+JSON, and fills the missing per-range throughput/latency/RSS fields.
+
+The plan re-runs the 64 KiB vs 128 KiB native matrix, range probes, and
+representative TLS cases only to make the existing Plan 232 conclusions
+independently auditable from tracked repository evidence. If reproduction
+materially contradicts the 128 KiB decision, Plan 233 must stop and open a
+separate production corrective rather than changing code itself.
+
+Implementation plan:
+`plans/233-performance-evidence-provenance-and-closure-polish.md`.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
