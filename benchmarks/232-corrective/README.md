@@ -60,5 +60,9 @@ Python, CPython substitution, and admission saturation remain inherited from
 Plan 170/correctness CI and were not rerun because this correction does not
 touch those code paths.
 
-Remote CI closure SHA and workflow URL are recorded here after the final
-commit is pushed.
+The corrective implementation commit is
+`380e5dc4a04b5596e58a678fef51ba701a17596e`. Its GitHub Actions CI run
+([35483634791](https://github.com/eggstack/eggserve/actions/runs/35483634791))
+passed the Rust, Python, and supply-chain jobs. The subsequent documentation
+closure commit only records this already-verified result and finalizes the
+plan status.

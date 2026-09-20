@@ -2,7 +2,7 @@
 
 ## Status
 
-**LOCAL VERIFIED / REMOTE CLOSURE PENDING.**
+**COMPLETE / VERIFIED.**
 
 ## Purpose
 
@@ -428,7 +428,7 @@ Plan 232 is complete only when:
 - [x] no new production dependency, unsafe buffer code, buffer pool, or
       filesystem shortcut is introduced;
 - [x] routine and feature-gated verification passes;
-- [ ] remote Rust/Python/supply-chain CI succeeds for the exact closing SHA;
+- [x] remote Rust/Python/supply-chain CI succeeds for the exact closing SHA;
 - [x] roadmap and current architecture/configuration docs match the final
       implementation.
 
