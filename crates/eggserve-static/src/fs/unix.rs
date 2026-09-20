@@ -52,7 +52,7 @@ pub(crate) fn resolve_fd_relative(
         let current_fd = current_owned.as_ref().unwrap_or(root_fd);
 
         if policy.symlinks == SymlinkPolicy::Denied {
-            let stat = match statat(&current_fd, component.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
+            let stat = match statat(current_fd, component.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
                 Ok(s) => s,
                 Err(_) => return ResolvedResource::NotFound,
             };

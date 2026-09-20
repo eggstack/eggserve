@@ -1,0 +1,54 @@
+{
+  "schema_version": 1,
+  "plan": "240",
+  "baseline_sha": "504c3d31f46399d361e57a5bab51a6325a0f4acd",
+  "candidate_sha": "af9727870236e684746858bc32eb37aa22892251",
+  "cargo_lock_sha256": "9681341c12b5b97dd5c5e8501a395421179cfa660ca409aa32d2cbab8963e70b",
+  "python_crate_lock_sha256": "a50aee62bdb4a5cd78ebb5c4527b458de997ab98a019fc66eb48f1c2e6d1e0e1",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "profile": "release",
+  "features": [],
+  "captured_at": "2026-09-20T20:01:17Z",
+  "method": {
+    "native_trials": 3,
+    "warmup": "one excluded native-client trial per case",
+    "native_client": "benchmarks/227-current-head/native_client.rs",
+    "syscall_profile": "strace -f -c",
+    "allocation_profiler": "unavailable; perf_event_paranoid=4 and no heap profiler installed",
+    "absolute_timing_ci_gate": false
+  },
+  "native_static_medians_rps": {
+    "1k_c1": {"baseline": 5190.383, "candidate": 5348.229},
+    "1k_c16": {"baseline": 21185.002, "candidate": 22082.898},
+    "1k_c64": {"baseline": 19785.632, "candidate": 19877.760},
+    "128k_c1": {"baseline": 4334.002, "candidate": 4678.589},
+    "128k_c16": {"baseline": 10968.714, "candidate": 10772.027},
+    "128k_c64": {"baseline": 8553.598, "candidate": 8736.713},
+    "1m_c1": {"baseline": 2512.297, "candidate": 2475.693},
+    "1m_c16": {"baseline": 3017.678, "candidate": 3102.345},
+    "1m_c64": {"baseline": 1430.584, "candidate": 1588.061}
+  },
+  "errors": {"baseline": 0, "candidate": 0},
+  "evidence": {
+    "candidate_native_trials": "raw/candidate-native-static-results.json",
+    "candidate_static_1k_syscalls": "profiles/static-1k.txt",
+    "candidate_static_1m_syscalls": "profiles/static-1m.txt",
+    "candidate_application_1m_syscalls": "profiles/application-1m.txt",
+    "baseline": "../234-fixed-cost-baseline/"
+  },
+  "track_decisions": {
+    "235": "KEEP",
+    "236": "KEEP",
+    "237_dispatch_and_zero_tunnel": "KEEP",
+    "237_metadata_sharing": "DEFER",
+    "238": "NO-GO",
+    "239_lazy_views": "KEEP",
+    "239_stream_producer_redesign": "DEFER"
+  },
+  "qualification_scope": {
+    "native_static": "A/B captured",
+    "deterministic_correctness_and_resource": "workspace tests passed",
+    "python_wheel_throughput": "not claimed by this capture",
+    "tls_h2_h3_platform": "requires their existing feature/manual qualification tracks"
+  }
+}

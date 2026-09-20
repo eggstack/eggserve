@@ -149,12 +149,12 @@ impl RequestTarget {
 
     /// Returns the path-component octets.
     pub fn path_bytes(&self) -> &[u8] {
-        self.raw[..self.path_end].as_bytes()
+        &self.raw.as_bytes()[..self.path_end]
     }
 
     /// Returns the query-component octets, if present.
     pub fn query_bytes(&self) -> Option<&[u8]> {
-        self.query().map(str::as_bytes)
+        self.query_start.map(|start| &self.raw.as_bytes()[start..])
     }
 }
 
