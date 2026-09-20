@@ -59,6 +59,10 @@ pub(crate) struct ConnectionActivity {
     /// detached tunnel survives `ServerHandle::wait()` and H1 tunnels keep
     /// the owning connection's lifetime as outer bound.
     tunnels: tokio::sync::Mutex<tokio::task::JoinSet<()>>,
+    /// The zero-tunnel path can prove that the JoinSet is empty without
+    /// taking its async mutex. This remains true after the first spawn so
+    /// the JoinSet stays the ownership and drain authority.
+    tunnels_started: AtomicBool,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -84,6 +88,7 @@ impl ConnectionActivity {
             body_timeout_fired: AtomicBool::new(false),
             notify: tokio::sync::Notify::new(),
             tunnels: tokio::sync::Mutex::new(tokio::task::JoinSet::new()),
+            tunnels_started: AtomicBool::new(false),
         }
     }
 
@@ -216,12 +221,16 @@ impl ConnectionActivity {
         self: &Arc<Self>,
         fut: impl std::future::Future<Output = ()> + Send + 'static,
     ) {
+        self.tunnels_started.store(true, Ordering::Release);
         let mut guard = self.tunnels.lock().await;
         guard.spawn(fut);
     }
 
     /// Number of tracked tunnel tasks (including completed-but-not-reaped).
     pub(crate) async fn tunnel_count(&self) -> usize {
+        if !self.tunnels_started.load(Ordering::Acquire) {
+            return 0;
+        }
         self.tunnels.lock().await.len()
     }
 
@@ -231,6 +240,9 @@ impl ConnectionActivity {
     /// (remainders aborted). Called by the driver after Hyper completion and
     /// on total/shutdown paths so tunnels never outlive the connection task.
     pub(crate) async fn drain_tunnels(self: &Arc<Self>, deadline: tokio::time::Instant) -> bool {
+        if !self.tunnels_started.load(Ordering::Acquire) {
+            return true;
+        }
         loop {
             let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
             if remaining.is_zero() {

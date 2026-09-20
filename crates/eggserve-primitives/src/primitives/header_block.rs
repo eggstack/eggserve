@@ -371,13 +371,22 @@ impl HeaderBlock {
     /// Returns [`DuplicateHeaderError`] if the header appears more than once.
     /// Returns `Ok(None)` if the header is absent.
     pub fn get_unique(&self, name: &str) -> Result<Option<&HeaderValue>, DuplicateHeaderError> {
-        let values = self.get_all(name);
-        match values.len() {
+        let mut first = None;
+        let mut count = 0;
+        for field in &self.fields {
+            if field.name.as_str().eq_ignore_ascii_case(name) {
+                count += 1;
+                if first.is_none() {
+                    first = Some(&field.value);
+                }
+            }
+        }
+        match count {
             0 => Ok(None),
-            1 => Ok(Some(values[0])),
-            _ => Err(DuplicateHeaderError {
+            1 => Ok(first),
+            count => Err(DuplicateHeaderError {
                 name: name.to_string(),
-                count: values.len(),
+                count,
             }),
         }
     }

@@ -1,0 +1,24 @@
+{
+  "tool": "strace -f -c",
+  "perf_note": "perf is installed but blocked by perf_event_paranoid=4; syscall summaries are the available equivalent on this host",
+  "captures": [
+    {
+      "label": "static_1k_keepalive",
+      "status": "captured",
+      "tool": "strace -f -c",
+      "summary": "benchmarks/234-fixed-cost-baseline/profiles/static-1k.txt"
+    },
+    {
+      "label": "static_1m_keepalive",
+      "status": "captured",
+      "tool": "strace -f -c",
+      "summary": "benchmarks/234-fixed-cost-baseline/profiles/static-1m.txt"
+    },
+    {
+      "label": "application_known_stream_1m",
+      "status": "captured",
+      "tool": "strace -f -c",
+      "summary": "benchmarks/234-fixed-cost-baseline/profiles/application-1m.txt"
+    }
+  ]
+}

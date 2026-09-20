@@ -43,6 +43,20 @@ impl ConfinedPath {
     /// canonical request-target parser. This handoff performs no HTTP
     /// target-form classification.
     pub fn from_path_component(path: &str, policy: &PathPolicy) -> Result<Self, PathRejection> {
+        // RequestTarget has already established origin-form. For an already
+        // normalized path, retain the input directly and skip the decoder,
+        // normalizer, and formatted-path temporaries. Component validation is
+        // still mandatory and remains the same defense-in-depth boundary.
+        if path.starts_with('/') && !path.contains('%') && !path.contains("//") {
+            let decoded = path.to_owned();
+            let components = components::split_components(path);
+            components::validate_components(&components, policy)?;
+            return Ok(Self {
+                decoded,
+                components,
+                path_policy: policy.clone(),
+            });
+        }
         let decoded = decode::percent_decode(path)?;
 
         let normalized = components::normalize_path(&decoded);

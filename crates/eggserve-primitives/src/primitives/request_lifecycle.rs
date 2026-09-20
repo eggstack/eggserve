@@ -192,9 +192,13 @@ impl RequestShared {
     }
 
     pub fn new_complete() -> Arc<Self> {
-        let shared = Self::new_active();
-        shared.mark_complete();
-        shared
+        Arc::new(Self {
+            body_state: AtomicU8::new(BodyLifecycleState::Complete as u8),
+            cancelled: AtomicBool::new(false),
+            reason: Mutex::new(None),
+            body_notify: AsyncNotify::new(),
+            cancel_notify: AsyncNotify::new(),
+        })
     }
 
     pub fn body_state(&self) -> BodyLifecycleState {
@@ -395,6 +399,14 @@ mod tests {
         assert!(!shared.is_body_terminal());
         assert!(!shared.is_cancelled());
         assert_eq!(shared.cancellation_reason(), None);
+    }
+
+    #[test]
+    fn new_complete_starts_terminal_without_transition() {
+        let shared = RequestShared::new_complete();
+        assert_eq!(shared.body_state(), BodyLifecycleState::Complete);
+        assert!(!shared.mark_complete());
+        assert!(!shared.mark_abandoned());
     }
 
     #[test]

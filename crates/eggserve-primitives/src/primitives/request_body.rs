@@ -44,7 +44,7 @@
 use bytes::Bytes;
 use futures_util::Stream;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 
 use super::header_block::HeaderBlock;
@@ -116,7 +116,7 @@ pub struct RequestBody {
     /// no trailer frame arrived yet; `Some(Ok)` holds raw validated-header
     /// fields awaiting canonical trailer validation; `Some(Err)` holds a
     /// sanitized failure message.
-    wire_slot: Arc<Mutex<Option<Result<HeaderBlock, String>>>>,
+    wire_slot: OnceLock<WireTrailerSlot>,
 }
 
 /// Shared wire-trailer slot type for transport bridges.
@@ -220,7 +220,7 @@ impl RequestBody {
             trailer_limits: TrailerLimits::default(),
             completed_trailers: None,
             completed_trailer_error: None,
-            wire_slot: new_wire_slot(),
+            wire_slot: OnceLock::new(),
         }
     }
 
@@ -280,7 +280,7 @@ impl RequestBody {
             trailer_limits: TrailerLimits::default(),
             completed_trailers: None,
             completed_trailer_error: None,
-            wire_slot: new_wire_slot(),
+            wire_slot: OnceLock::new(),
         }
     }
 
@@ -307,7 +307,7 @@ impl RequestBody {
             trailer_limits: TrailerLimits::default(),
             completed_trailers: None,
             completed_trailer_error: None,
-            wire_slot: new_wire_slot(),
+            wire_slot: OnceLock::from(new_wire_slot()),
         }
     }
 
@@ -334,7 +334,7 @@ impl RequestBody {
             trailer_limits: TrailerLimits::default(),
             completed_trailers: None,
             completed_trailer_error: None,
-            wire_slot: new_wire_slot(),
+            wire_slot: OnceLock::from(new_wire_slot()),
         }
     }
 
@@ -363,14 +363,14 @@ impl RequestBody {
             trailer_limits: TrailerLimits::default(),
             completed_trailers: None,
             completed_trailer_error: None,
-            wire_slot,
+            wire_slot: OnceLock::from(wire_slot),
         }
     }
 
     /// Returns the wire-trailer slot shared with the transport bridge.
     #[allow(dead_code)]
     pub fn wire_slot(&self) -> WireTrailerSlot {
-        self.wire_slot.clone()
+        self.wire_slot.get_or_init(new_wire_slot).clone()
     }
 
     /// Set terminal trailers before content completion (tests/adapters).
@@ -467,8 +467,11 @@ impl RequestBody {
     fn finalize_trailers(&mut self) -> Result<(), RequestBodyError> {
         // In-memory pre-set trailers (tests) are already validated; wire
         // trailers still need canonical validation before exposure.
+        let Some(wire_slot) = self.wire_slot.get() else {
+            return Ok(());
+        };
         match finalize_wire_slot(
-            &self.wire_slot,
+            wire_slot,
             &self.trailer_limits,
             &mut self.completed_trailers,
             &mut self.completed_trailer_error,
@@ -721,26 +724,9 @@ impl RequestBody {
 
         match inner {
             BodyInner::Empty => {
-                let slot = self.wire_slot.clone();
+                let slot = self.wire_slot.get().cloned();
                 let limits = self.trailer_limits;
-                if let Err(msg) = finalize_wire_slot(
-                    &slot,
-                    &limits,
-                    &mut self.completed_trailers,
-                    &mut self.completed_trailer_error,
-                ) {
-                    self.state = BodyState::Error;
-                    self.shared.mark_failed();
-                    return Err(RequestBodyError::InvalidTrailers(msg));
-                }
-                self.state = BodyState::Complete;
-                self.mark_consumed();
-                Ok(None)
-            }
-            BodyInner::Fixed { data, offset } => {
-                if *offset >= data.len() {
-                    let slot = self.wire_slot.clone();
-                    let limits = self.trailer_limits;
+                if let Some(slot) = slot {
                     if let Err(msg) = finalize_wire_slot(
                         &slot,
                         &limits,
@@ -750,6 +736,27 @@ impl RequestBody {
                         self.state = BodyState::Error;
                         self.shared.mark_failed();
                         return Err(RequestBodyError::InvalidTrailers(msg));
+                    }
+                }
+                self.state = BodyState::Complete;
+                self.mark_consumed();
+                Ok(None)
+            }
+            BodyInner::Fixed { data, offset } => {
+                if *offset >= data.len() {
+                    let slot = self.wire_slot.get().cloned();
+                    let limits = self.trailer_limits;
+                    if let Some(slot) = slot {
+                        if let Err(msg) = finalize_wire_slot(
+                            &slot,
+                            &limits,
+                            &mut self.completed_trailers,
+                            &mut self.completed_trailer_error,
+                        ) {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::InvalidTrailers(msg));
+                        }
                     }
                     self.state = BodyState::Complete;
                     self.shared.mark_complete();
@@ -775,6 +782,20 @@ impl RequestBody {
                 *offset += chunk_size;
                 self.bytes_received = new_total;
                 if *offset >= data.len() {
+                    let slot = self.wire_slot.get().cloned();
+                    let limits = self.trailer_limits;
+                    if let Some(slot) = slot {
+                        if let Err(msg) = finalize_wire_slot(
+                            &slot,
+                            &limits,
+                            &mut self.completed_trailers,
+                            &mut self.completed_trailer_error,
+                        ) {
+                            self.state = BodyState::Error;
+                            self.shared.mark_failed();
+                            return Err(RequestBodyError::InvalidTrailers(msg));
+                        }
+                    }
                     self.state = BodyState::Complete;
                     // Disjoint-field interior mutability: `shared` is a
                     // separate field from `inner`, so this does not conflict
@@ -832,7 +853,7 @@ impl RequestBody {
                                 });
                             }
                         }
-                        let slot = self.wire_slot.clone();
+                        let slot = self.wire_slot.get_or_init(new_wire_slot).clone();
                         let limits = self.trailer_limits;
                         if let Err(msg) = finalize_wire_slot(
                             &slot,
@@ -905,7 +926,7 @@ impl Stream for RequestBody {
 
         match inner {
             BodyInner::Empty => {
-                let slot = self.wire_slot.clone();
+                let slot = self.wire_slot.get_or_init(new_wire_slot).clone();
                 let limits = self.trailer_limits;
                 match drain_and_validate_wire_slot(&slot, &limits) {
                     Ok(None) => {}
@@ -934,7 +955,7 @@ impl Stream for RequestBody {
             }
             BodyInner::Fixed { data, offset } => {
                 if *offset >= data.len() {
-                    let slot = self.wire_slot.clone();
+                    let slot = self.wire_slot.get_or_init(new_wire_slot).clone();
                     let limits = self.trailer_limits;
                     match drain_and_validate_wire_slot(&slot, &limits) {
                         Ok(None) => {}
@@ -1064,7 +1085,7 @@ impl Stream for RequestBody {
                             })));
                         }
                     }
-                    let slot = self.wire_slot.clone();
+                    let slot = self.wire_slot.get_or_init(new_wire_slot).clone();
                     let limits = self.trailer_limits;
                     match drain_and_validate_wire_slot(&slot, &limits) {
                         Ok(None) => {}
@@ -1189,6 +1210,21 @@ mod tests {
         assert!(body.was_fully_consumed());
         let data = body.read_all().await.unwrap();
         assert!(data.is_empty());
+    }
+
+    #[tokio::test]
+    async fn fixed_body_wire_slot_is_shared_and_finalized_when_requested() {
+        let mut body = RequestBody::from_bytes(b"data".to_vec(), u64::MAX);
+        let slot = body.wire_slot();
+        let same_slot = body.wire_slot();
+        assert!(Arc::ptr_eq(&slot, &same_slot));
+
+        let mut block = HeaderBlock::new();
+        block.push_str("x-test-trailer", "ok").unwrap();
+        *slot.lock().unwrap() = Some(Ok(block));
+
+        while body.next_chunk().await.unwrap().is_some() {}
+        assert_eq!(body.trailers().await.unwrap().unwrap().len(), 1);
     }
 
     #[tokio::test]

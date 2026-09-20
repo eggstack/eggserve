@@ -222,8 +222,9 @@ Performance snapshots and the regression/claims policy live in
 `benchmarks/README.md`; machine-readable results in
 `benchmarks/088-baseline/results.json`, `benchmarks/168-qualification/results.json`,
 `benchmarks/170-closure/results.json`, `benchmarks/227-current-head/`,
-`benchmarks/231-optimization-closure/`, `benchmarks/232-corrective/`, and
-`benchmarks/233-evidence-polish/`.
+`benchmarks/231-optimization-closure/`, `benchmarks/232-corrective/`,
+`benchmarks/233-evidence-polish/`, `benchmarks/234-fixed-cost-baseline/`,
+and `benchmarks/240-fixed-cost-closure/`.
 
 Plan 232 adds a mandatory forced-over-capacity file-read regression to the
 direct server adapter tests. Its manual evidence compares 64 KiB and 128 KiB
@@ -238,6 +239,18 @@ one excluded warm-up per case, aggregate mechanically derived by
 `aggregate.py`) plus the closure-SHA CI record. Manual performance
 qualification after Plan 233 must retain compact per-trial JSON rather than
 only aggregate reductions of discarded captures.
+
+Plans 234–240 close the next fixed-cost campaign. Plan 234 records the
+current-head native/static baseline, syscall fallback profiles, lock/toolchain
+provenance, and the absence of a supported allocator counter on the host.
+The retained implementation covers request-target slicing, lazy wire-trailer
+materialization, direct terminal lifecycle construction, iterator-only header
+lookup, borrowed first-component Unix resolution, normalized path/range
+fast paths, generic H1 dispatch, zero-tunnel activity checks, and lazy Python
+target/header compatibility views. Candidate closure evidence is retained in
+`benchmarks/240-fixed-cost-closure/`; Plan 238 is a documented NO-GO and the
+dedicated Python stream-producer redesign remains DEFER. These artifacts are
+same-machine evidence and do not create absolute-timing CI gates.
 
 ## Plan 170 performance-evidence closure
 

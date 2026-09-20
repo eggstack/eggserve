@@ -19,6 +19,8 @@ qualified profile and point at the evidence files below.
 | `231-optimization-closure/` | Plan 231 same-machine candidate closure: post-optimization A/B results, deterministic qualification commands, and keep/revert decisions for Plans 228–230. |
 | `232-corrective/` | Plan 232 corrective proof: explicit bounded file reads, forced-over-capacity regression, 64/128 KiB live static comparison, exact range probes, and representative TLS evidence. |
 | `233-evidence-polish/` | Plan 233 provenance polish: retained per-trial native/range/TLS JSON behind the 128 KiB decision, closure-SHA CI record, and the mechanically derived aggregate. Future manual performance qualification must retain compact per-trial JSON here rather than only aggregate reductions of discarded captures. |
+| `234-fixed-cost-baseline/` | Plan 234 current-head fixed-cost baseline: native keep-alive measurements, syscall fallback profiles, environment/lock provenance, and evidence-gated decisions for Plans 235–239. |
+| `240-fixed-cost-closure/` | Plan 240 same-machine candidate closure: retained native A/B capture, per-track keep/revert/defer decisions, and local CI/qualification provenance. |
 
 ## Method
 
@@ -49,7 +51,7 @@ driver is measured in-process over `tokio::io::duplex`; it is not network RPS.
 Unavailable arm64 hardware is recorded as performance-unqualified rather than
 silently represented by x86_64 numbers.
 
-Plans 227–233 extend that evidence without changing the claims policy. Plan
+Plans 227–240 extend that evidence without changing the claims policy. Plan
 227 adds a dependency-free Rust client so small-response conclusions are not
 limited by CPython client overhead, plus an in-process body/frame matrix and a
 best-effort syscall profile. Plans 228–230 use the captured costs to simplify
@@ -63,6 +65,17 @@ representative TLS captures. Plan 233 retains the per-trial native, range,
 and TLS captures behind that decision plus the closure-SHA CI record, without
 changing any default. These are manual qualification artifacts, not
 timing gates.
+
+Plans 234–240 continue the same discipline for fixed costs. The retained
+changes use canonical representations and lazy materialization where public
+behavior is unchanged: request-target slices, lazy wire-trailer state,
+borrowed Unix root-FD traversal, normalized-path and range-parser fast paths,
+the generic H1 service adapter, zero-tunnel activity checks, and lazy Python
+target/header views. Request-scoped interim state remains separate (Plan 238
+is closed as NO-GO), and the dedicated Python stream producer remains a
+bounded isolation tradeoff (Plan 239 DEFER). The absence of a supported
+allocator counter on the baseline host is recorded rather than replaced with
+invented allocation counts.
 
 ## Regression policy
 

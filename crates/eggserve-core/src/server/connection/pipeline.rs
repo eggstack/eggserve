@@ -577,22 +577,11 @@ where
 /// bound on the `Future` associated type, which is required by Hyper's
 /// `serve_connection` when the task is spawned on a multi-threaded runtime.
 #[allow(clippy::type_complexity)]
-pub(crate) struct CanonicalHyperService {
-    inner: std::sync::Arc<
-        dyn Fn(
-                hyper::Request<hyper::body::Incoming>,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<hyper::Response<BoxBodyInner>, Infallible>,
-                        > + Send,
-                >,
-            > + Send
-            + Sync,
-    >,
+pub(crate) struct CanonicalHyperService<F> {
+    inner: F,
 }
 
-impl Clone for CanonicalHyperService {
+impl<F: Clone> Clone for CanonicalHyperService<F> {
     fn clone(&self) -> Self {
         Self {
             inner: self.inner.clone(),
@@ -600,7 +589,19 @@ impl Clone for CanonicalHyperService {
     }
 }
 
-impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for CanonicalHyperService {
+impl<F> hyper::service::Service<hyper::Request<hyper::body::Incoming>> for CanonicalHyperService<F>
+where
+    F: Fn(
+            hyper::Request<hyper::body::Incoming>,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<hyper::Response<BoxBodyInner>, Infallible>>
+                    + Send,
+            >,
+        > + Send
+        + Sync
+        + 'static,
+{
     type Response = hyper::Response<BoxBodyInner>;
     type Error = Infallible;
     type Future = std::pin::Pin<
@@ -613,6 +614,38 @@ impl hyper::service::Service<hyper::Request<hyper::body::Incoming>> for Canonica
     fn call(&self, req: hyper::Request<hyper::body::Incoming>) -> Self::Future {
         (self.inner)(req)
     }
+}
+
+type CanonicalHyperFuture = std::pin::Pin<
+    Box<dyn std::future::Future<Output = Result<hyper::Response<BoxBodyInner>, Infallible>> + Send>,
+>;
+
+pub(crate) trait ReadyCanonicalHyperService:
+    hyper::service::Service<
+        hyper::Request<hyper::body::Incoming>,
+        Response = hyper::Response<BoxBodyInner>,
+        Error = Infallible,
+        Future = CanonicalHyperFuture,
+    > + Clone
+    + Send
+    + 'static
+where
+    Self::Future: Send + 'static,
+{
+}
+
+impl<T> ReadyCanonicalHyperService for T
+where
+    T: hyper::service::Service<
+            hyper::Request<hyper::body::Incoming>,
+            Response = hyper::Response<BoxBodyInner>,
+            Error = Infallible,
+            Future = CanonicalHyperFuture,
+        > + Clone
+        + Send
+        + 'static,
+    T::Future: Send + 'static,
+{
 }
 
 /// Build the shared per-request canonical pipeline as a Hyper service.
@@ -645,23 +678,16 @@ pub(crate) fn make_canonical_hyper_service<S>(
     context: ConnectionContext,
     conn_id: u64,
     ops: crate::ops::OpsContext,
-) -> CanonicalHyperService
+) -> impl ReadyCanonicalHyperService
 where
     S: Service + 'static,
 {
-    #[allow(clippy::type_complexity)]
-    let handler: std::sync::Arc<
-        dyn Fn(
-                hyper::Request<hyper::body::Incoming>,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<hyper::Response<BoxBodyInner>, Infallible>,
-                        > + Send,
-                >,
-            > + Send
-            + Sync,
-    > = std::sync::Arc::new(move |req: Request<Incoming>| {
+    let handler = move |req: Request<Incoming>| -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<hyper::Response<BoxBodyInner>, Infallible>>
+                + Send,
+        >,
+    > {
         let service = service.clone();
         let context = context.clone();
         let file_stream_semaphore = file_stream_semaphore.clone();
@@ -1270,6 +1296,6 @@ where
                 }
             }
         })
-    });
+    };
     CanonicalHyperService { inner: handler }
 }

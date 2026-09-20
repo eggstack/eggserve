@@ -581,4 +581,9 @@ Plan 233 retains the full per-trial native/range/TLS captures behind that
 decision in
 [`benchmarks/233-evidence-polish/`](benchmarks/233-evidence-polish/);
 future manual performance qualification must retain compact per-trial JSON
-rather than only aggregate reductions.
+rather than only aggregate reductions. Plans 234–240 extend this evidence-led
+campaign to fixed-cost request, static-resolution, H1 dispatch, shared-state,
+and Python-bridge paths. The retained implementation and same-machine closure
+record are in [`benchmarks/234-fixed-cost-baseline/`](benchmarks/234-fixed-cost-baseline/)
+and [`benchmarks/240-fixed-cost-closure/`](benchmarks/240-fixed-cost-closure/);
+they document profile-specific observations, not universal timing claims.

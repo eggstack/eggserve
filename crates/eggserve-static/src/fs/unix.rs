@@ -40,10 +40,7 @@ pub(crate) fn resolve_fd_relative(
         return resolve_root(root_fd, canonical_root);
     }
 
-    let mut current_fd = match try_clone_fd(root_fd) {
-        Ok(fd) => fd,
-        Err(error) => return ResolvedResource::IoError(error),
-    };
+    let mut current_owned: Option<fs::File> = None;
 
     let total = components.len();
     for (i, component) in components.iter().enumerate() {
@@ -52,6 +49,7 @@ pub(crate) fn resolve_fd_relative(
         }
 
         let is_final = i == total - 1;
+        let current_fd = current_owned.as_ref().unwrap_or(root_fd);
 
         if policy.symlinks == SymlinkPolicy::Denied {
             let stat = match statat(&current_fd, component.as_str(), AtFlags::SYMLINK_NOFOLLOW) {
@@ -80,7 +78,7 @@ pub(crate) fn resolve_fd_relative(
             OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC | OFlags::NOFOLLOW
         };
 
-        let new_fd = match openat(&current_fd, component.as_str(), flags, Mode::empty()) {
+        let new_fd = match openat(current_fd, component.as_str(), flags, Mode::empty()) {
             Ok(fd) => fd,
             Err(e) => {
                 return match e {
@@ -120,9 +118,7 @@ pub(crate) fn resolve_fd_relative(
             }
         }
 
-        let prev_fd = current_fd;
-        current_fd = new_fd.into();
-        drop(prev_fd);
+        current_owned = Some(new_fd.into());
     }
 
     ResolvedResource::NotFound

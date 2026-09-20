@@ -52,8 +52,8 @@ impl std::error::Error for RequestTargetError {}
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RequestTarget {
     raw: String,
-    path: String,
-    query: Option<String>,
+    path_end: usize,
+    query_start: Option<usize>,
 }
 
 impl RequestTarget {
@@ -98,20 +98,15 @@ impl RequestTarget {
         // (RFC 9110), so a literal `#` is kept as part of the path — same
         // contract as `crate::path::parse_origin_form`. `/a?b#frag` strips
         // to path `/a`; `/foo#bar` keeps the literal `#` in the path.
-        let (path, query) = match raw.find('?') {
-            Some(pos) => {
-                let path = raw[..pos].to_string();
-                let q = &raw[pos + 1..];
-                if q.is_empty() {
-                    (path, None)
-                } else {
-                    (path, Some(q.to_string()))
-                }
-            }
-            None => (raw.clone(), None),
-        };
+        let path_end = raw.find('?').unwrap_or(raw.len());
+        let query_start =
+            (path_end < raw.len() && path_end + 1 < raw.len()).then_some(path_end + 1);
 
-        Ok(Self { raw, path, query })
+        Ok(Self {
+            raw,
+            path_end,
+            query_start,
+        })
     }
 
     /// Returns the raw request target string.
@@ -121,7 +116,7 @@ impl RequestTarget {
 
     /// Returns the path component (before the `?`).
     pub fn path(&self) -> &str {
-        &self.path
+        &self.raw[..self.path_end]
     }
 
     /// Returns the query component (after the `?`), if present.
@@ -131,7 +126,7 @@ impl RequestTarget {
     /// contract and avoids a bare-`?` distinction most application semantics
     /// do not require.
     pub fn query(&self) -> Option<&str> {
-        self.query.as_deref()
+        self.query_start.map(|start| &self.raw[start..])
     }
 
     /// Returns the full target including query, if present.
@@ -154,12 +149,12 @@ impl RequestTarget {
 
     /// Returns the path-component octets.
     pub fn path_bytes(&self) -> &[u8] {
-        self.path.as_bytes()
+        self.raw[..self.path_end].as_bytes()
     }
 
     /// Returns the query-component octets, if present.
     pub fn query_bytes(&self) -> Option<&[u8]> {
-        self.query.as_deref().map(str::as_bytes)
+        self.query().map(str::as_bytes)
     }
 }
 

@@ -1,0 +1,51 @@
+{
+  "schema_version": 1,
+  "plan": "234",
+  "source_sha": "504c3d31f46399d361e57a5bab51a6325a0f4acd",
+  "cargo_lock_sha256": "9681341c12b5b97dd5c5e8501a395421179cfa660ca409aa32d2cbab8963e70b",
+  "python_crate_lock_sha256": "a50aee62bdb4a5cd78ebb5c4527b458de997ab98a019fc66eb48f1c2e6d1e0e1",
+  "compiler": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "profile": "release",
+  "features": [],
+  "runtime_limits": {
+    "max_connections": 512,
+    "max_file_streams": 512,
+    "max_in_flight_requests": 512,
+    "max_buf_size": 65536,
+    "max_headers": 100,
+    "max_header_bytes": 32768,
+    "max_request_target_bytes": 8192
+  },
+  "method": {
+    "native_trials": 3,
+    "warmup": "one excluded native-client trial per case",
+    "native_client": "benchmarks/227-current-head/native_client.rs",
+    "syscall_profile": "strace -f -c",
+    "allocation_profiler": "unavailable; perf_event_paranoid=4 and no heap profiler installed",
+    "absolute_timing_ci_gate": false
+  },
+  "native_static_medians_rps": {
+    "1k_c1": 5190.383,
+    "1k_c16": 21185.002,
+    "1k_c64": 19785.632,
+    "128k_c1": 4334.002,
+    "128k_c16": 10968.714,
+    "128k_c64": 8553.598,
+    "1m_c1": 2512.297,
+    "1m_c16": 3017.678,
+    "1m_c64": 1430.584
+  },
+  "evidence": {
+    "native_trials": "raw/native-static-results.json",
+    "static_1k_syscalls": "profiles/static-1k.txt",
+    "static_1m_syscalls": "profiles/static-1m.txt",
+    "application_1m_syscalls": "profiles/application-1m.txt"
+  },
+  "go_inputs": {
+    "235": "GO: target/body/header fixed costs are mechanically identifiable",
+    "236": "GO: root-FD duplication and normalized-path temporaries are visible",
+    "237": "GO for dispatch and zero-tunnel checks; DEFER metadata sharing pending API-neutral proof",
+    "238": "NO-GO unless a lazy holder removes a real allocation without enlarging common state",
+    "239": "GO for lazy request views; DEFER producer-thread redesign pending resource evidence"
+  }
+}

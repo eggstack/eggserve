@@ -115,6 +115,16 @@ those names without expanding its six-class `__all__`. The top-level package
 only re-exports the version, `serve_directory` (from `eggserve.subprocess`),
 and the six façade classes.
 
+Plans 239–240 keep the Python request contract unchanged while avoiding eager
+compatibility copies: `path`, `query`, raw target bytes, text header views,
+and ordered header-item views are derived lazily from the canonical
+`RequestTarget`/`HeaderBlock`. Opaque header values remain available through
+the byte-oriented view and are still omitted from text-only mappings. TLS,
+proxy, endpoint, lifecycle, and tunnel metadata retain their explicit eager
+conversion where the bridge needs stable Python-owned values. The bounded
+dedicated producer-thread design for synchronous stream iterables remains in
+place; redesigning that isolation is deferred pending a separate proof.
+
 The native callback `Server` backs both the facade and `lowlevel.Server`;
 `StaticResponder`, `ServerSecureRoot`, and `ServerBodySource` back the public
 lowlevel composition primitives (previously internal/test-only).

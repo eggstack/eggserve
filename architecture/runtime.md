@@ -129,6 +129,15 @@ raw socket, Hyper, H2/H3, rustls-session, or executor handle is exposed.
 populate provenance-tagged effective fields only under an explicit Plan 202
 trusted-proxy policy (raw peer/local endpoints are always preserved).
 
+The fixed-cost campaign (Plans 234–240) preserves this boundary while keeping
+common request work compact: `RequestTarget` stores indices into its validated
+raw target, wire-trailer state is materialized only for consumers that need it,
+and already-terminal lifecycles avoid a redundant transition notification.
+The H1 adapter keeps its callable generic internally, and connections skip the
+tunnel-set mutex until a tunnel exists; the JoinSet remains the sole tunnel
+owner and drainer. These are internal representations with no public API,
+framing, lifecycle, or cancellation change.
+
 `Request` exposes `context()` / `new_with_context()` /
 `into_parts_with_context()` for the forward-compatible path;
 `connection()` / `lifecycle()` / `into_parts()` /

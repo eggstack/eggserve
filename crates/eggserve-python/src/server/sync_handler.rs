@@ -124,27 +124,7 @@ impl PythonCallbackService {
 
         let connection = context.connection().clone();
         let method_str = head.method().as_str().to_string();
-        let target = head.target().path().to_string();
-        let query = head.target().query().unwrap_or("").to_string();
-        // Text-only facade (Plan 173 Track D): stdlib-shaped `headers` expose
-        // `str`. Opaque (non-UTF-8) field values are omitted rather than
-        // lossily coerced; Rust canonical primitives remain byte-correct.
-        let header_items: Vec<(String, String)> = head
-            .headers()
-            .iter()
-            .filter_map(|f| {
-                f.value
-                    .to_str()
-                    .ok()
-                    .map(|v| (f.name.to_string(), v.to_owned()))
-            })
-            .collect();
-        let mut headers = HashMap::new();
-        for (name, value) in &header_items {
-            headers
-                .entry(name.to_ascii_lowercase())
-                .or_insert_with(|| value.clone());
-        }
+        let target = head.target().clone();
         let http_version = head.version().to_string();
 
         // Non-socket transports expose no fabricated addresses: map absent
@@ -187,20 +167,6 @@ impl PythonCallbackService {
             }
         };
 
-        // Plan 204 byte-fidelity views (additive; text facade above unchanged).
-        let raw_target_bytes = head.target().raw_bytes().to_vec();
-        let path_bytes = head.target().path_bytes().to_vec();
-        let query_bytes = head.target().query_bytes().map(|q| q.to_vec());
-        let header_items_bytes: Vec<(Vec<u8>, Vec<u8>)> = head
-            .headers()
-            .iter()
-            .map(|f| {
-                (
-                    f.name.as_str().as_bytes().to_vec(),
-                    f.value.as_bytes().to_vec(),
-                )
-            })
-            .collect();
         let authority = head.authority().map(|a| a.as_str().to_owned());
         let tls_protocol_version = connection
             .tls
@@ -234,10 +200,9 @@ impl PythonCallbackService {
 
         PyRequest {
             method: method_str,
-            path: target,
-            query,
-            headers,
-            header_items,
+            header_block: head.headers().clone(),
+            headers: std::sync::OnceLock::new(),
+            target,
             remote_addr,
             remote_address,
             local_addr,
@@ -263,10 +228,6 @@ impl PythonCallbackService {
             forwarded_provenance: connection
                 .forwarded_provenance
                 .map(|kind| kind.as_str().to_owned()),
-            raw_target_bytes,
-            path_bytes,
-            query_bytes,
-            header_items_bytes,
             authority,
             tls_protocol_version,
             tls_server_name,

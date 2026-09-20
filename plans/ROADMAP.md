@@ -256,10 +256,12 @@ Implementation plans:
 - `plans/239-python-bridge-allocation-and-stream-resource-optimization.md`
 - `plans/240-fixed-cost-performance-qualification-closure.md`
 
-Status: PLANNED. The planning review was performed against
-`07b8a843b86076b9fd6c79c76d195842544a9f5e`; Plan 234 must record the actual
-implementation-start baseline SHA rather than assuming that review SHA remains
-current.
+Status: COMPLETE. Plan 234 records the actual implementation-start baseline
+and fixed-cost evidence under `benchmarks/234-fixed-cost-baseline/`. Plans
+235–237 and the Python request-view portion of Plan 239 were retained after
+correctness/resource review; Plan 238 is NO-GO, and the dedicated Python
+stream-producer redesign is DEFER. Plan 240 records the same-machine closure
+and local CI provenance under `benchmarks/240-fixed-cost-closure/`.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

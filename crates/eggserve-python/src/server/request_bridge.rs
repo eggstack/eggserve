@@ -31,6 +31,7 @@ use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
 use eggserve_primitives::request_body_policy::RequestBodyPolicy;
 use eggserve_primitives::request_context::RequestContext;
 use eggserve_primitives::request_head::RequestHead;
+use eggserve_primitives::request_target::RequestTarget;
 // Plan 221: static/path/filesystem authority lives once in `eggserve-static`
 // (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
 // it. The bridge names the leaf directly. `StaticPolicy` stays
@@ -54,14 +55,11 @@ use super::tunnel_bridge::PyTunnelCapability;
 pub struct PyRequest {
     #[pyo3(get)]
     pub(super) method: String,
-    #[pyo3(get)]
-    pub(super) path: String,
-    #[pyo3(get)]
-    pub(super) query: String,
-    /// First-wins semantics; for duplicate-sensitive headers use `header_items`.
-    #[pyo3(get)]
-    pub(super) headers: HashMap<String, String>,
-    pub(super) header_items: Vec<(String, String)>,
+    /// First-wins semantics; for duplicate-sensitive headers use
+    /// `header_items`. The views are derived lazily from canonical headers.
+    pub(super) header_block: eggserve_primitives::header_block::HeaderBlock,
+    pub(super) headers: std::sync::OnceLock<HashMap<String, String>>,
+    pub(super) target: RequestTarget,
     #[pyo3(get)]
     pub(super) remote_addr: Option<String>,
     #[pyo3(get)]
@@ -100,10 +98,6 @@ pub struct PyRequest {
     // byte-fidelity views + transport-authenticated metadata + capability
     // handles. Stored at construction from the canonical head/context so
     // async handlers observe the same values without re-parsing.
-    pub(super) raw_target_bytes: Vec<u8>,
-    pub(super) path_bytes: Vec<u8>,
-    pub(super) query_bytes: Option<Vec<u8>>,
-    pub(super) header_items_bytes: Vec<(Vec<u8>, Vec<u8>)>,
     pub(super) authority: Option<String>,
     pub(super) tls_protocol_version: Option<String>,
     pub(super) tls_server_name: Option<String>,
@@ -134,8 +128,44 @@ pub struct PyRequest {
 #[pymethods]
 impl PyRequest {
     #[getter]
+    fn path(&self) -> String {
+        self.target.path().to_owned()
+    }
+
+    #[getter]
+    fn query(&self) -> String {
+        self.target.query().unwrap_or_default().to_owned()
+    }
+
+    #[getter]
+    fn headers(&self) -> HashMap<String, String> {
+        self.headers
+            .get_or_init(|| {
+                let mut headers = HashMap::new();
+                for field in self.header_block.iter() {
+                    if let Ok(value) = field.value.to_str() {
+                        headers
+                            .entry(field.name.to_string().to_ascii_lowercase())
+                            .or_insert_with(|| value.to_owned());
+                    }
+                }
+                headers
+            })
+            .clone()
+    }
+
+    #[getter]
     fn header_items(&self) -> Vec<(String, String)> {
-        self.header_items.clone()
+        self.header_block
+            .iter()
+            .filter_map(|field| {
+                field
+                    .value
+                    .to_str()
+                    .ok()
+                    .map(|value| (field.name.to_string(), value.to_owned()))
+            })
+            .collect()
     }
 
     #[getter]
@@ -144,31 +174,37 @@ impl PyRequest {
     }
 
     fn __repr__(&self) -> String {
-        format!("<Request {} {}>", self.method, self.path)
+        format!("<Request {} {}>", self.method, self.path())
     }
 
     // -- Plan 204 byte-fidelity views (additive; text facade above unchanged) --
 
     #[getter]
     fn raw_target_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.raw_target_bytes)
+        PyBytes::new(py, self.target.raw_bytes())
     }
 
     #[getter]
     fn path_bytes<'py>(&self, py: Python<'py>) -> Bound<'py, PyBytes> {
-        PyBytes::new(py, &self.path_bytes)
+        PyBytes::new(py, self.target.path_bytes())
     }
 
     #[getter]
     fn query_bytes<'py>(&self, py: Python<'py>) -> Option<Bound<'py, PyBytes>> {
-        self.query_bytes
-            .as_ref()
-            .map(|q| PyBytes::new(py, q))
+        self.target.query_bytes().map(|q| PyBytes::new(py, q))
     }
 
     #[getter]
     fn header_items_bytes(&self) -> Vec<(Vec<u8>, Vec<u8>)> {
-        self.header_items_bytes.clone()
+        self.header_block
+            .iter()
+            .map(|field| {
+                (
+                    field.name.as_str().as_bytes().to_vec(),
+                    field.value.as_bytes().to_vec(),
+                )
+            })
+            .collect()
     }
 
     #[getter]

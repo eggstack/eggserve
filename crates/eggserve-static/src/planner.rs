@@ -345,12 +345,13 @@ pub fn evaluate_range_header(range: &str, file_size: u64) -> RangeRequestOutcome
         return RangeRequestOutcome::MalformedOrUnsupported;
     }
 
-    let ranges: Vec<&str> = range_value.split(',').collect();
-    if ranges.len() > 1 {
+    let mut ranges = range_value.split(',');
+    let first = ranges.next().unwrap_or_default();
+    if ranges.next().is_some() {
         return RangeRequestOutcome::MultipleRanges;
     }
 
-    parse_single_range(ranges[0].trim(), file_size)
+    parse_single_range(first.trim(), file_size)
 }
 
 /// Evaluate an `If-Range` header.
