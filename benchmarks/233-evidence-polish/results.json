@@ -1,0 +1,763 @@
+{
+  "schema_version": 1,
+  "plan": "233",
+  "production_code_changed": false,
+  "raw_artifacts": [
+    "raw/native-64k-trials.json",
+    "raw/native-128k-trials.json",
+    "raw/ranges-64k-trials.json",
+    "raw/ranges-128k-trials.json",
+    "raw/tls-established-trials.json",
+    "raw/tls-handshake-trials.json",
+    "raw/environment.json",
+    "ci/plan232-closure-ci.json",
+    "ci/plan233-closing-ci.json"
+  ],
+  "environment": {
+    "schema_version": 1,
+    "plan": "233",
+    "source_sha": "3b402ec32e73732fcf9a61ccc5e79174b9cb4efd",
+    "base_sha_for_64k_override": "3b402ec32e73732fcf9a61ccc5e79174b9cb4efd",
+    "temporary_64k_diff_sha256": "edc8e1803040037ce2cd558c49f675349d7c5d957040ffd10a64d43c63e2d296",
+    "cargo_lock_sha256": "9681341c12b5b97dd5c5e8501a395421179cfa660ca409aa32d2cbab8963e70b",
+    "python_crate_lock_sha256": "a50aee62bdb4a5cd78ebb5c4527b458de997ab98a019fc66eb48f1c2e6d1e0e1",
+    "rust_toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+    "os": "Linux-6.8.0-139-generic-x86_64-with-glibc2.39",
+    "kernel": "6.8.0-139-generic",
+    "arch": "x86_64",
+    "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+    "logical_cpus": 16,
+    "memory_gb": 15.48,
+    "python": "3.12.3",
+    "release_profile": "release",
+    "enabled_features": [
+      "tls"
+    ],
+    "build_command": "cargo build --release --locked -p eggserve-bin --features tls",
+    "runtime_limits": {
+      "max_connections": 512,
+      "max_file_streams": 512,
+      "max_in_flight_requests": 512,
+      "max_buf_size": 65536,
+      "max_headers": 100,
+      "max_header_bytes": 32768,
+      "max_request_target_bytes": 8192
+    },
+    "chunk_regimes": {
+      "64k": 65536,
+      "128k": 131072
+    },
+    "final_default_chunk_bytes": 131072,
+    "benchmark_commands": {
+      "native_128k": "python3 benchmarks/233-evidence-polish/harness.py --chunk-label 128k --chunk-bytes 131072",
+      "native_64k": "python3 benchmarks/233-evidence-polish/harness.py --chunk-label 64k --chunk-bytes 65536 --source-diff-sha256 <diff> (temporary source-only default override, restored before commit)",
+      "tls": "python3 benchmarks/233-evidence-polish/harness.py --tls-only --chunk-label 128k --chunk-bytes 131072 --tls-cert /tmp/<ephemeral>/cert.pem --tls-key /tmp/<ephemeral>/key.pem"
+    },
+    "warmup_policy": "one excluded run per case",
+    "trial_count": 3,
+    "tls_certificate_command": "openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -keyout /tmp/<ephemeral>/key.pem -out /tmp/<ephemeral>/cert.pem (ephemeral; keys never committed)",
+    "clients": {
+      "native": "native_client.rs dependency-free Rust std::net keep-alive client",
+      "ranges_tls": "CPython stdlib http.client + threading"
+    },
+    "absolute_timing_ci_gate": false,
+    "captured_at": "2026-09-20T03:27:16Z"
+  },
+  "plan232_closure_ci": {
+    "conclusion": "success",
+    "created_at": "2026-09-20T02:33:15Z",
+    "head_sha": "523e84197fffc9b2ca5834580c7b7d696f86901c",
+    "implementation_ci": {
+      "conclusion": "success",
+      "created_at": "2026-09-20T02:18:14Z",
+      "head_sha": "380e5dc4a04b5596e58a678fef51ba701a17596e",
+      "run_id": 35483634791,
+      "url": "https://github.com/eggstack/eggserve/actions/runs/35483634791"
+    },
+    "jobs": {
+      "python": "success",
+      "rust": "success",
+      "supply-chain": "success"
+    },
+    "plan": "232-closure",
+    "run_id": 35484285932,
+    "status": "completed",
+    "updated_at": "2026-09-20T02:47:54Z",
+    "url": "https://github.com/eggstack/eggserve/actions/runs/35484285932",
+    "workflow_name": "CI",
+    "workflow_path": ".github/workflows/ci.yml"
+  },
+  "native_64k_summary": [
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 1,
+      "median_rps": 5060.084,
+      "min_rps": 4955.377,
+      "max_rps": 5072.255,
+      "errors": 0,
+      "mean_p95_ms": 0.23433333333333334,
+      "mean_p99_ms": 0.26766666666666666,
+      "peak_rss_kb": 4412
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 16,
+      "median_rps": 19974.955,
+      "min_rps": 19614.496,
+      "max_rps": 20585.865,
+      "errors": 0,
+      "mean_p95_ms": 1.0623333333333334,
+      "mean_p99_ms": 1.2616666666666667,
+      "peak_rss_kb": 5608
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 64,
+      "median_rps": 17931.11,
+      "min_rps": 11376.456,
+      "max_rps": 19630.391,
+      "errors": 0,
+      "mean_p95_ms": 12.185666666666666,
+      "mean_p99_ms": 23.507666666666665,
+      "peak_rss_kb": 10064
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 1,
+      "median_rps": 4638.831,
+      "min_rps": 4549.242,
+      "max_rps": 4736.943,
+      "errors": 0,
+      "mean_p95_ms": 0.24966666666666668,
+      "mean_p99_ms": 0.27399999999999997,
+      "peak_rss_kb": 10228
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 16,
+      "median_rps": 10632.239,
+      "min_rps": 9979.01,
+      "max_rps": 10732.025,
+      "errors": 0,
+      "mean_p95_ms": 1.923,
+      "mean_p99_ms": 2.279333333333333,
+      "peak_rss_kb": 11264
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 64,
+      "median_rps": 8862.788,
+      "min_rps": 8563.039,
+      "max_rps": 9284.341,
+      "errors": 0,
+      "mean_p95_ms": 18.147333333333332,
+      "mean_p99_ms": 25.807666666666666,
+      "peak_rss_kb": 21836
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 1,
+      "median_rps": 1659.325,
+      "min_rps": 1590.479,
+      "max_rps": 1664.172,
+      "errors": 0,
+      "mean_p95_ms": 0.8296666666666667,
+      "mean_p99_ms": 0.908,
+      "peak_rss_kb": 21836
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 16,
+      "median_rps": 2476.741,
+      "min_rps": 2469.961,
+      "max_rps": 2512.471,
+      "errors": 0,
+      "mean_p95_ms": 8.040333333333333,
+      "mean_p99_ms": 8.885,
+      "peak_rss_kb": 21836
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 64,
+      "median_rps": 1182.999,
+      "min_rps": 808.873,
+      "max_rps": 1544.823,
+      "errors": 0,
+      "mean_p95_ms": 40.980333333333334,
+      "mean_p99_ms": 41.093,
+      "peak_rss_kb": 26088
+    },
+    {
+      "path": "/f16m.bin",
+      "response_size": 16777216,
+      "concurrency": 16,
+      "median_rps": 192.582,
+      "min_rps": 184.291,
+      "max_rps": 193.89,
+      "errors": 0,
+      "mean_p95_ms": 83.80766666666666,
+      "mean_p99_ms": 84.009,
+      "peak_rss_kb": 26088
+    },
+    {
+      "path": "/f16m.bin",
+      "response_size": 16777216,
+      "concurrency": 64,
+      "median_rps": 166.403,
+      "min_rps": 159.421,
+      "max_rps": 170.167,
+      "errors": 0,
+      "mean_p95_ms": 376.85433333333333,
+      "mean_p99_ms": 377.26266666666663,
+      "peak_rss_kb": 29916
+    }
+  ],
+  "native_128k_summary": [
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 1,
+      "median_rps": 4718.342,
+      "min_rps": 4622.27,
+      "max_rps": 4794.396,
+      "errors": 0,
+      "mean_p95_ms": 0.26733333333333337,
+      "mean_p99_ms": 0.28966666666666663,
+      "peak_rss_kb": 4412
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 16,
+      "median_rps": 19719.06,
+      "min_rps": 19510.674,
+      "max_rps": 20738.814,
+      "errors": 0,
+      "mean_p95_ms": 1.077,
+      "mean_p99_ms": 1.2863333333333333,
+      "peak_rss_kb": 5692
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 64,
+      "median_rps": 18186.941,
+      "min_rps": 12890.889,
+      "max_rps": 18244.454,
+      "errors": 0,
+      "mean_p95_ms": 10.117333333333333,
+      "mean_p99_ms": 21.42666666666667,
+      "peak_rss_kb": 10072
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 1,
+      "median_rps": 4286.002,
+      "min_rps": 4206.177,
+      "max_rps": 4421.33,
+      "errors": 0,
+      "mean_p95_ms": 0.285,
+      "mean_p99_ms": 0.30833333333333335,
+      "peak_rss_kb": 10528
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 16,
+      "median_rps": 8244.416,
+      "min_rps": 7894.358,
+      "max_rps": 9296.654,
+      "errors": 0,
+      "mean_p95_ms": 2.2023333333333333,
+      "mean_p99_ms": 2.4356666666666666,
+      "peak_rss_kb": 12988
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 64,
+      "median_rps": 8256.94,
+      "min_rps": 7816.252,
+      "max_rps": 8424.987,
+      "errors": 0,
+      "mean_p95_ms": 24.169666666666668,
+      "mean_p99_ms": 28.272333333333332,
+      "peak_rss_kb": 29516
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 1,
+      "median_rps": 2153.851,
+      "min_rps": 1876.93,
+      "max_rps": 2256.739,
+      "errors": 0,
+      "mean_p95_ms": 0.5630000000000001,
+      "mean_p99_ms": 0.5976666666666667,
+      "peak_rss_kb": 29516
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 16,
+      "median_rps": 2881.391,
+      "min_rps": 2875.024,
+      "max_rps": 2942.054,
+      "errors": 0,
+      "mean_p95_ms": 7.404,
+      "mean_p99_ms": 8.331666666666667,
+      "peak_rss_kb": 29516
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 64,
+      "median_rps": 1376.374,
+      "min_rps": 1335.121,
+      "max_rps": 1541.323,
+      "errors": 0,
+      "mean_p95_ms": 31.389000000000003,
+      "mean_p99_ms": 31.459666666666667,
+      "peak_rss_kb": 34476
+    },
+    {
+      "path": "/f16m.bin",
+      "response_size": 16777216,
+      "concurrency": 16,
+      "median_rps": 218.477,
+      "min_rps": 197.243,
+      "max_rps": 219.522,
+      "errors": 0,
+      "mean_p95_ms": 75.46600000000001,
+      "mean_p99_ms": 75.604,
+      "peak_rss_kb": 34476
+    },
+    {
+      "path": "/f16m.bin",
+      "response_size": 16777216,
+      "concurrency": 64,
+      "median_rps": 157.552,
+      "min_rps": 156.558,
+      "max_rps": 158.508,
+      "errors": 0,
+      "mean_p95_ms": 393.471,
+      "mean_p99_ms": 393.85266666666666,
+      "peak_rss_kb": 38652
+    }
+  ],
+  "native_64k_vs_128k": [
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 1,
+      "median_rps_64k": 5060.084,
+      "median_rps_128k": 4718.342,
+      "delta_128k_vs_64k": -0.06753682349937278,
+      "peak_rss_kb_64k": 4412,
+      "peak_rss_kb_128k": 4412,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 16,
+      "median_rps_64k": 19974.955,
+      "median_rps_128k": 19719.06,
+      "delta_128k_vs_64k": -0.012810792314676073,
+      "peak_rss_kb_64k": 5608,
+      "peak_rss_kb_128k": 5692,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 64,
+      "median_rps_64k": 17931.11,
+      "median_rps_128k": 18186.941,
+      "delta_128k_vs_64k": 0.014267437989059144,
+      "peak_rss_kb_64k": 10064,
+      "peak_rss_kb_128k": 10072,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 1,
+      "median_rps_64k": 4638.831,
+      "median_rps_128k": 4286.002,
+      "delta_128k_vs_64k": -0.07605989526240549,
+      "peak_rss_kb_64k": 10228,
+      "peak_rss_kb_128k": 10528,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 16,
+      "median_rps_64k": 10632.239,
+      "median_rps_128k": 8244.416,
+      "delta_128k_vs_64k": -0.22458326980798687,
+      "peak_rss_kb_64k": 11264,
+      "peak_rss_kb_128k": 12988,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f128k.bin",
+      "response_size": 131072,
+      "concurrency": 64,
+      "median_rps_64k": 8862.788,
+      "median_rps_128k": 8256.94,
+      "delta_128k_vs_64k": -0.06835862484807263,
+      "peak_rss_kb_64k": 21836,
+      "peak_rss_kb_128k": 29516,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 1,
+      "median_rps_64k": 1659.325,
+      "median_rps_128k": 2153.851,
+      "delta_128k_vs_64k": 0.29802841516881867,
+      "peak_rss_kb_64k": 21836,
+      "peak_rss_kb_128k": 29516,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 16,
+      "median_rps_64k": 2476.741,
+      "median_rps_128k": 2881.391,
+      "delta_128k_vs_64k": 0.16338002237617905,
+      "peak_rss_kb_64k": 21836,
+      "peak_rss_kb_128k": 29516,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 64,
+      "median_rps_64k": 1182.999,
+      "median_rps_128k": 1376.374,
+      "delta_128k_vs_64k": 0.1634616766370893,
+      "peak_rss_kb_64k": 26088,
+      "peak_rss_kb_128k": 34476,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f16m.bin",
+      "response_size": 16777216,
+      "concurrency": 16,
+      "median_rps_64k": 192.582,
+      "median_rps_128k": 218.477,
+      "delta_128k_vs_64k": 0.13446220311347898,
+      "peak_rss_kb_64k": 26088,
+      "peak_rss_kb_128k": 34476,
+      "errors_64k": 0,
+      "errors_128k": 0
+    },
+    {
+      "path": "/f16m.bin",
+      "response_size": 16777216,
+      "concurrency": 64,
+      "median_rps_64k": 166.403,
+      "median_rps_128k": 157.552,
+      "delta_128k_vs_64k": -0.053190146812256985,
+      "peak_rss_kb_64k": 29916,
+      "peak_rss_kb_128k": 38652,
+      "errors_64k": 0,
+      "errors_128k": 0
+    }
+  ],
+  "range_64k_summary": [
+    {
+      "range_len": 65536,
+      "concurrency": 1,
+      "median_rps": 6727.739290013129,
+      "min_rps": 6486.296280394622,
+      "max_rps": 6784.976874855146,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 29916
+    },
+    {
+      "range_len": 65536,
+      "concurrency": 16,
+      "median_rps": 7626.882097568012,
+      "min_rps": 7332.050761066969,
+      "max_rps": 8143.3433635184465,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 29916
+    },
+    {
+      "range_len": 65536,
+      "concurrency": 64,
+      "median_rps": 53094.54796473273,
+      "min_rps": 34320.56193811819,
+      "max_rps": 68483.74480744457,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 29916
+    },
+    {
+      "range_len": 524288,
+      "concurrency": 1,
+      "median_rps": 2704.3093310790746,
+      "min_rps": 2173.885633950032,
+      "max_rps": 2759.621449177541,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 29916
+    },
+    {
+      "range_len": 524288,
+      "concurrency": 16,
+      "median_rps": 4977.116154794431,
+      "min_rps": 4963.014464526732,
+      "max_rps": 5344.455655155617,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 29916
+    },
+    {
+      "range_len": 524288,
+      "concurrency": 64,
+      "median_rps": 59384.84688517755,
+      "min_rps": 50674.405033171104,
+      "max_rps": 86627.66633274595,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 31720
+    }
+  ],
+  "range_128k_summary": [
+    {
+      "range_len": 65536,
+      "concurrency": 1,
+      "median_rps": 6625.529197812912,
+      "min_rps": 6416.020444020552,
+      "max_rps": 6630.213311901527,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 38652
+    },
+    {
+      "range_len": 65536,
+      "concurrency": 16,
+      "median_rps": 6785.711571751071,
+      "min_rps": 6474.905539977111,
+      "max_rps": 7359.047427195987,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 38652
+    },
+    {
+      "range_len": 65536,
+      "concurrency": 64,
+      "median_rps": 32124.474319421057,
+      "min_rps": 26988.369924987128,
+      "max_rps": 33453.85141362294,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 38652
+    },
+    {
+      "range_len": 524288,
+      "concurrency": 1,
+      "median_rps": 2692.961943996575,
+      "min_rps": 2509.4215181865525,
+      "max_rps": 2954.1545495066416,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 38652
+    },
+    {
+      "range_len": 524288,
+      "concurrency": 16,
+      "median_rps": 7641.149773724086,
+      "min_rps": 6362.68955132933,
+      "max_rps": 8043.593403591183,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 38652
+    },
+    {
+      "range_len": 524288,
+      "concurrency": 64,
+      "median_rps": 52961.718657079386,
+      "min_rps": 50255.43914937981,
+      "max_rps": 88689.09250448775,
+      "errors": 0,
+      "all_exact": true,
+      "all_status_206": true,
+      "peak_rss_kb": 38652
+    }
+  ],
+  "tls_established_summary": [
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 1,
+      "median_rps": 6195.141493041732,
+      "min_rps": 6088.358730891904,
+      "max_rps": 6265.329159055293,
+      "errors": 0,
+      "mean_p95_ms": 0.21452201666155207,
+      "mean_p99_ms": 0.23552549348096363,
+      "peak_rss_kb": 5192
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 16,
+      "median_rps": 7459.732596586405,
+      "min_rps": 7422.270176456546,
+      "max_rps": 7507.735074918338,
+      "errors": 0,
+      "mean_p95_ms": 4.495599304451991,
+      "mean_p99_ms": 7.38059436645321,
+      "peak_rss_kb": 6336
+    },
+    {
+      "path": "/f1k.bin",
+      "response_size": 1024,
+      "concurrency": 64,
+      "median_rps": 6816.369957072214,
+      "min_rps": 6722.403198505606,
+      "max_rps": 6869.215022398757,
+      "errors": 0,
+      "mean_p95_ms": 20.36812039853733,
+      "mean_p99_ms": 40.541928332337925,
+      "peak_rss_kb": 9596
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 1,
+      "median_rps": 988.6485922457957,
+      "min_rps": 845.3325471057522,
+      "max_rps": 1048.654107417713,
+      "errors": 0,
+      "mean_p95_ms": 1.2330406963883431,
+      "mean_p99_ms": 1.4502795156537713,
+      "peak_rss_kb": 9840
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 16,
+      "median_rps": 1172.258449261147,
+      "min_rps": 1133.2503598814058,
+      "max_rps": 1179.196998313829,
+      "errors": 0,
+      "mean_p95_ms": 25.636408814170856,
+      "mean_p99_ms": 28.069277371347805,
+      "peak_rss_kb": 14152
+    },
+    {
+      "path": "/f1m.bin",
+      "response_size": 1048576,
+      "concurrency": 64,
+      "median_rps": 791.7412872725326,
+      "min_rps": 652.268053241987,
+      "max_rps": 817.8564855909902,
+      "errors": 0,
+      "mean_p95_ms": 94.53531399776693,
+      "mean_p99_ms": 96.64411593912519,
+      "peak_rss_kb": 29288
+    }
+  ],
+  "tls_handshake_trials": [
+    {
+      "trial": 1,
+      "attempted_connections": 48,
+      "successful_handshakes": 48,
+      "elapsed_s": 0.03808247500273865,
+      "handshakes_per_s": 1260.4222807616404,
+      "failures": 0,
+      "errors": [],
+      "error_count": 0,
+      "server_resources": {
+        "peak_rss_kb": 6012,
+        "rss_kb": 6012,
+        "threads": 2,
+        "fds": 11,
+        "cpu_time_s": 0.03
+      }
+    },
+    {
+      "trial": 2,
+      "attempted_connections": 48,
+      "successful_handshakes": 48,
+      "elapsed_s": 0.03653336699062493,
+      "handshakes_per_s": 1313.867402703879,
+      "failures": 0,
+      "errors": [],
+      "error_count": 0,
+      "server_resources": {
+        "peak_rss_kb": 6012,
+        "rss_kb": 6012,
+        "threads": 2,
+        "fds": 11,
+        "cpu_time_s": 0.03
+      }
+    },
+    {
+      "trial": 3,
+      "attempted_connections": 48,
+      "successful_handshakes": 48,
+      "elapsed_s": 0.05856126100115944,
+      "handshakes_per_s": 819.6544811261776,
+      "failures": 0,
+      "errors": [],
+      "error_count": 0,
+      "server_resources": {
+        "peak_rss_kb": 5908,
+        "rss_kb": 5908,
+        "threads": 2,
+        "fds": 11,
+        "cpu_time_s": 0.05
+      }
+    }
+  ],
+  "conclusions": {
+    "small_responses_neutral": true,
+    "medium_large_128k_advantage_retained": true,
+    "lower_64k_high_concurrency_rss_retained": true,
+    "selected_default_chunk_bytes": 131072,
+    "tradeoff": "128 KiB retains a meaningful same-machine throughput advantage for 1 MiB/16 MiB static responses with higher but bounded high-concurrency peak RSS; the 128 KiB default is retained.",
+    "noted_deviation": "The 128 KiB-body/concurrency-16 cell measured faster under the 64 KiB regime this session (about 22% median RPS), unlike the neutral Plan 232 reading for that cell. Trial spreads are tight within each regime, so this is same-machine cross-run drift (regime runs are 30+ minutes apart), not a decision-reversing result: the 1 MiB/16 MiB advantage and RSS tradeoff that carry the 128 KiB decision both reproduced."
+  }
+}

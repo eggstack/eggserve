@@ -164,10 +164,11 @@ Implementation plans:
 - `plans/231-performance-optimization-qualification-closure.md`
 
 Status: COMPLETE. Plan 227 baseline artifacts, Plans 228–230 scoped
-optimizations, Plan 231 qualification/closure artifacts, and the Plan 232
-corrective read-bound/evidence closure are recorded under
-`benchmarks/227-current-head/`, `benchmarks/231-optimization-closure/`, and
-`benchmarks/232-corrective/`.
+optimizations, Plan 231 qualification/closure artifacts, the Plan 232
+corrective read-bound/evidence closure, and the Plan 233 per-trial
+provenance polish are recorded under
+`benchmarks/227-current-head/`, `benchmarks/231-optimization-closure/`,
+`benchmarks/232-corrective/`, and `benchmarks/233-evidence-polish/`.
 
 ### Post-231 file-stream/evidence corrective — Plan 232
 
@@ -208,6 +209,11 @@ separate production corrective rather than changing code itself.
 
 Implementation plan:
 `plans/233-performance-evidence-provenance-and-closure-polish.md`.
+
+Status: COMPLETE. Per-trial native/range/TLS evidence, the closure-SHA CI
+record, and the mechanically derived aggregate are retained under
+`benchmarks/233-evidence-polish/`; no production default changed and the
+128 KiB decision stands.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

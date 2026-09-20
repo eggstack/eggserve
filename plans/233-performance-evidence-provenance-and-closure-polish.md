@@ -2,7 +2,13 @@
 
 ## Status
 
-**OPEN / EVIDENCE-ONLY CORRECTIVE.**
+**COMPLETE / VERIFIED.**
+
+Closed by the commit recording `benchmarks/233-evidence-polish/` (per-trial
+native/range/TLS JSON, closure-SHA CI record, mechanically derived
+`results.json`) with successful exact-SHA Rust/Python/supply-chain CI.
+No production code, default, dependency, API, or tier changed; the 128 KiB
+default stands (see `benchmarks/233-evidence-polish/README.md`).
 
 ## Purpose
 
@@ -423,26 +429,26 @@ the later non-semantic metadata commit. Prefer avoiding an infinite
 
 Plan 233 is complete only when:
 
-- [ ] Plan 232 closure SHA `523e841...` and workflow run `35484285932`
+- [x] Plan 232 closure SHA `523e841...` and workflow run `35484285932`
       are preserved in repository evidence;
-- [ ] individual three-trial 64 KiB and 128 KiB native measurements are
+- [x] individual three-trial 64 KiB and 128 KiB native measurements are
       retained under version control;
-- [ ] individual range trials retain correctness plus throughput, latency,
+- [x] individual range trials retain correctness plus throughput, latency,
       and RSS/resource fields;
-- [ ] individual TLS established and handshake trials are retained under
+- [x] individual TLS established and handshake trials are retained under
       version control;
-- [ ] `results.json` is mechanically traceable to retained raw files;
-- [ ] environment, lockfile, source-SHA, runtime-limit, and command identity
+- [x] `results.json` is mechanically traceable to retained raw files;
+- [x] environment, lockfile, source-SHA, runtime-limit, and command identity
       are recorded;
-- [ ] no production runtime/default/API/dependency change is introduced;
-- [ ] 128 KiB remains selected unless reproduced evidence requires a separate
+- [x] no production runtime/default/API/dependency change is introduced;
+- [x] 128 KiB remains selected unless reproduced evidence requires a separate
       corrective plan;
-- [ ] historical Plan 227/231/232 raw evidence is not rewritten;
-- [ ] documentation accurately explains the provenance relationship among
+- [x] historical Plan 227/231/232 raw evidence is not rewritten;
+- [x] documentation accurately explains the provenance relationship among
       Plans 231, 232, and 233;
-- [ ] all retained JSON parses and contains zero unexplained benchmark errors;
-- [ ] routine Rust/Python/supply-chain verification passes;
-- [ ] the exact final Plan 233 closing SHA has successful remote CI.
+- [x] all retained JSON parses and contains zero unexplained benchmark errors;
+- [x] routine Rust/Python/supply-chain verification passes;
+- [x] the exact final Plan 233 closing SHA has successful remote CI.
 
 ## Handoff order
 

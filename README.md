@@ -577,3 +577,8 @@ Plan 232 adds the corrective file-stream read-bound regression and the
 follow-up 64/128 KiB, range, and TLS evidence in
 [`benchmarks/232-corrective/`](benchmarks/232-corrective/); its 128 KiB default
 decision remains profile-specific and bounded by `max_file_streams`.
+Plan 233 retains the full per-trial native/range/TLS captures behind that
+decision in
+[`benchmarks/233-evidence-polish/`](benchmarks/233-evidence-polish/);
+future manual performance qualification must retain compact per-trial JSON
+rather than only aggregate reductions.

@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "plan": "233",
+  "source_sha": "3b402ec32e73732fcf9a61ccc5e79174b9cb4efd",
+  "base_sha_for_64k_override": "3b402ec32e73732fcf9a61ccc5e79174b9cb4efd",
+  "temporary_64k_diff_sha256": "edc8e1803040037ce2cd558c49f675349d7c5d957040ffd10a64d43c63e2d296",
+  "cargo_lock_sha256": "9681341c12b5b97dd5c5e8501a395421179cfa660ca409aa32d2cbab8963e70b",
+  "python_crate_lock_sha256": "a50aee62bdb4a5cd78ebb5c4527b458de997ab98a019fc66eb48f1c2e6d1e0e1",
+  "rust_toolchain": "rustc 1.98.1 (48a229cea 2026-09-01)",
+  "os": "Linux-6.8.0-139-generic-x86_64-with-glibc2.39",
+  "kernel": "6.8.0-139-generic",
+  "arch": "x86_64",
+  "cpu": "Intel(R) Core(TM) i9-9900K CPU @ 3.60GHz",
+  "logical_cpus": 16,
+  "memory_gb": 15.48,
+  "python": "3.12.3",
+  "release_profile": "release",
+  "enabled_features": [
+    "tls"
+  ],
+  "build_command": "cargo build --release --locked -p eggserve-bin --features tls",
+  "runtime_limits": {
+    "max_connections": 512,
+    "max_file_streams": 512,
+    "max_in_flight_requests": 512,
+    "max_buf_size": 65536,
+    "max_headers": 100,
+    "max_header_bytes": 32768,
+    "max_request_target_bytes": 8192
+  },
+  "chunk_regimes": {
+    "64k": 65536,
+    "128k": 131072
+  },
+  "final_default_chunk_bytes": 131072,
+  "benchmark_commands": {
+    "native_128k": "python3 benchmarks/233-evidence-polish/harness.py --chunk-label 128k --chunk-bytes 131072",
+    "native_64k": "python3 benchmarks/233-evidence-polish/harness.py --chunk-label 64k --chunk-bytes 65536 --source-diff-sha256 <diff> (temporary source-only default override, restored before commit)",
+    "tls": "python3 benchmarks/233-evidence-polish/harness.py --tls-only --chunk-label 128k --chunk-bytes 131072 --tls-cert /tmp/<ephemeral>/cert.pem --tls-key /tmp/<ephemeral>/key.pem"
+  },
+  "warmup_policy": "one excluded run per case",
+  "trial_count": 3,
+  "tls_certificate_command": "openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj /CN=localhost -keyout /tmp/<ephemeral>/key.pem -out /tmp/<ephemeral>/cert.pem (ephemeral; keys never committed)",
+  "clients": {
+    "native": "native_client.rs dependency-free Rust std::net keep-alive client",
+    "ranges_tls": "CPython stdlib http.client + threading"
+  },
+  "absolute_timing_ci_gate": false,
+  "captured_at": "2026-09-20T03:27:16Z"
+}

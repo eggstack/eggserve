@@ -66,3 +66,14 @@ The corrective implementation commit is
 passed the Rust, Python, and supply-chain jobs. The subsequent documentation
 closure commit only records this already-verified result and finalizes the
 plan status.
+
+The documentation closure commit
+`523e84197fffc9b2ca5834580c7b7d696f86901c` also received a successful CI run
+([35484285932](https://github.com/eggstack/eggserve/actions/runs/35484285932),
+Rust/Python/supply-chain all successful); the machine-readable copy is
+preserved as
+[`../233-evidence-polish/ci/plan232-closure-ci.json`](../233-evidence-polish/ci/plan232-closure-ci.json).
+Plan 233 additionally retains the full per-trial native, range, and TLS
+captures behind the 128 KiB decision in
+[`../233-evidence-polish/`](../233-evidence-polish/) (the `/tmp`-only
+captures referenced above are superseded by those retained trial files).

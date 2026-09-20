@@ -18,6 +18,7 @@ qualified profile and point at the evidence files below.
 | `227-current-head/` | Plan 227 current-HEAD baseline: native Rust keep-alive client, in-process body/frame matrix, syscall-profile fallback when hardware CPU profiling is unavailable, and machine/lock/build capture. |
 | `231-optimization-closure/` | Plan 231 same-machine candidate closure: post-optimization A/B results, deterministic qualification commands, and keep/revert decisions for Plans 228–230. |
 | `232-corrective/` | Plan 232 corrective proof: explicit bounded file reads, forced-over-capacity regression, 64/128 KiB live static comparison, exact range probes, and representative TLS evidence. |
+| `233-evidence-polish/` | Plan 233 provenance polish: retained per-trial native/range/TLS JSON behind the 128 KiB decision, closure-SHA CI record, and the mechanically derived aggregate. Future manual performance qualification must retain compact per-trial JSON here rather than only aggregate reductions of discarded captures. |
 
 ## Method
 
@@ -48,7 +49,7 @@ driver is measured in-process over `tokio::io::duplex`; it is not network RPS.
 Unavailable arm64 hardware is recorded as performance-unqualified rather than
 silently represented by x86_64 numbers.
 
-Plans 227–232 extend that evidence without changing the claims policy. Plan
+Plans 227–233 extend that evidence without changing the claims policy. Plan
 227 adds a dependency-free Rust client so small-response conclusions are not
 limited by CPython client overhead, plus an in-process body/frame matrix and a
 best-effort syscall profile. Plans 228–230 use the captured costs to simplify
@@ -58,7 +59,9 @@ chunk; the configured `max_file_streams * stream_chunk_size` bound remains the
 memory authority. Plan 231 records the candidate comparison and reruns the
 full correctness/resource matrix. Plan 232 rechecks the 128 KiB choice with
 live 64/128 KiB throughput/resource evidence, exact range probes, and
-representative TLS captures. These are manual qualification artifacts, not
+representative TLS captures. Plan 233 retains the per-trial native, range,
+and TLS captures behind that decision plus the closure-SHA CI record, without
+changing any default. These are manual qualification artifacts, not
 timing gates.
 
 ## Regression policy
