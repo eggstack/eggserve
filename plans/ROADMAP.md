@@ -256,12 +256,37 @@ Implementation plans:
 - `plans/239-python-bridge-allocation-and-stream-resource-optimization.md`
 - `plans/240-fixed-cost-performance-qualification-closure.md`
 
-Status: COMPLETE. Plan 234 records the actual implementation-start baseline
-and fixed-cost evidence under `benchmarks/234-fixed-cost-baseline/`. Plans
-235–237 and the Python request-view portion of Plan 239 were retained after
-correctness/resource review; Plan 238 is NO-GO, and the dedicated Python
-stream-producer redesign is DEFER. Plan 240 records the same-machine closure
-and local CI provenance under `benchmarks/240-fixed-cost-closure/`.
+Status: IMPLEMENTATION COMPLETE; EVIDENCE CLOSURE PENDING PLAN 241. Plan 234
+records the implementation-start baseline under
+`benchmarks/234-fixed-cost-baseline/`. Plans 235–237 and the Python
+request-view portion of Plan 239 were retained; Plan 238 is NO-GO, and the
+dedicated Python stream-producer redesign is DEFER. Plan 240 records the
+initial same-machine static closure under
+`benchmarks/240-fixed-cost-closure/`, but its retained matrix is narrower
+than its written acceptance criteria. Plan 241 is the evidence-only corrective
+for custom/path-specific H1, TLS, installed-wheel Python callback, slow-stream
+resource, Unix syscall, and exact-SHA CI provenance closure.
+
+### Fixed-cost evidence/closure corrective — Plan 241
+
+**Plan 241 — fixed-cost performance evidence and closure corrective** closes
+the evidence gaps discovered after Plan 240. It does not reopen production
+optimization work. It completes the missing same-machine baseline/candidate
+matrix for custom H1, HEAD/304/range/path variants, established TLS, installed
+Python callback views, and 10/100/N slow synchronous streams; retains direct
+before/after Unix resolver syscall proof; records the already-successful CI run
+`35538302042` for closing SHA
+`5b048cbf66f57957625c9ad8b658635a56ac9593`; and requires remote CI for the
+new evidence-content SHA.
+
+If any new measurement materially contradicts a retained optimization, Plan
+241 must stop and open a separate production corrective rather than changing
+runtime code itself.
+
+Implementation plan:
+`plans/241-fixed-cost-performance-evidence-and-closure-corrective.md`.
+
+Status: PLANNED.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
