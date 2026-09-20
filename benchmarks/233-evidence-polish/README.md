@@ -131,3 +131,11 @@ two runs an hour apart can differ ~1.7x with zero errors either way.
 - `results.json` is a summary only: every row traces to retained raw
   trial rows via `aggregate.py` (report spread as min/median/max;
   no confidence intervals are invented from three trials).
+
+SHA note: the verified implementation/evidence SHA is
+`e40827a60ca744193b8e5ade4ce57464bdbafe94` (run `35489108255`,
+Rust/Python/supply-chain successful). The `plan233-closing-ci.json`
+record itself landed in a later non-semantic metadata commit that
+changed no evidence or documentation content; that commit received
+its own successful CI run rather than another in-repo record, which
+terminates the record-CI-then-new-SHA loop by construction.
