@@ -167,6 +167,29 @@ Status: COMPLETE. Plan 227 baseline artifacts, Plans 228–230 scoped
 optimizations, and Plan 231 qualification/closure artifacts are recorded under
 `benchmarks/227-current-head/` and `benchmarks/231-optimization-closure/`.
 
+### Post-231 file-stream/evidence corrective — Plan 232
+
+**Plan 232 — file-stream read-bound and performance-evidence corrective** is a
+narrow follow-up to the completed optimization campaign. Review found that the
+new `BytesMut` file-read helper incorrectly uses allocator-visible
+`capacity()` as the logical read target even though
+`BytesMut::with_capacity(n)` only guarantees capacity of at least `n`.
+Plan 232 makes the representation/range `chunk_len` explicit, adds a forced
+over-capacity regression, and proves full/range bodies cannot consume bytes
+past their advertised boundary.
+
+The plan also closes the remaining performance-evidence gap: compare 64 KiB
+versus 128 KiB file chunks over the live native H1 harness using throughput,
+tail latency, and RSS/resource evidence, select the final default from that
+tradeoff, and capture the representative TLS established-connection and
+handshake-churn measurements omitted by the Plan 231 `--skip-tls` run. It
+does not reopen general optimization work or authorize sendfile, io_uring,
+buffer pools, unsafe buffer manipulation, public API changes, or support-tier
+changes.
+
+Implementation plan:
+`plans/232-file-stream-read-bound-and-performance-evidence-corrective.md`.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
