@@ -215,6 +215,52 @@ record, and the mechanically derived aggregate are retained under
 `benchmarks/233-evidence-polish/`; no production default changed and the
 128 KiB decision stands.
 
+## Fixed-cost performance optimization campaign — Plans 234–240
+
+**Plans 234–240** are the post-233 follow-on performance campaign. The prior
+227–233 work is closed; this program targets the smaller fixed costs left
+behind rather than reopening file-stream chunk sizing or broad runtime design.
+
+```text
+234  current-HEAD fixed-cost allocation/syscall/resource baseline
+ |\
+ |  235  request-target/body common-path allocation cleanup
+ |  236  static resolver root-FD + path fixed-cost cleanup
+ |  237  H1 dispatch + connection metadata cleanup
+ |  238  request-scoped shared-state consolidation (evidence-gated)
+ |  239  Python request allocation + stream resource qualification
+ |/
+240  same-machine A/B qualification, keep/revert/defer closure
+```
+
+Plan 234 is mandatory before production changes. Plans 235–237 may proceed
+independently after their targets are confirmed. Plan 238 follows Plan 235
+because both touch request-scoped primitive allocation. Plan 239 is a separate
+frontend track because Python object/GIL/thread costs have different
+qualification requirements. Plan 240 is the final closure gate.
+
+The campaign freezes the public Rust/Python surface and preserves confinement,
+framing, lifecycle, timeout, admission, crate-topology, and protocol-tier
+semantics. It does not authorize caches, sendfile/splice/io_uring, mmap,
+custom allocators, global pools, a new executor, or a public Service redesign.
+
+Program index:
+`plans/234-240-fixed-cost-performance-optimization-program.md`.
+
+Implementation plans:
+- `plans/234-current-head-fixed-cost-baseline-and-profiling.md`
+- `plans/235-request-target-and-body-common-path-allocation-optimization.md`
+- `plans/236-static-resolver-and-path-fixed-cost-optimization.md`
+- `plans/237-h1-dispatch-and-connection-metadata-optimization.md`
+- `plans/238-request-scoped-shared-state-allocation-consolidation.md`
+- `plans/239-python-bridge-allocation-and-stream-resource-optimization.md`
+- `plans/240-fixed-cost-performance-qualification-closure.md`
+
+Status: PLANNED. The planning review was performed against
+`07b8a843b86076b9fd6c79c76d195842544a9f5e`; Plan 234 must record the actual
+implementation-start baseline SHA rather than assuming that review SHA remains
+current.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
