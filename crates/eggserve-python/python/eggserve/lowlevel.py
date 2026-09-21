@@ -46,6 +46,7 @@ from __future__ import annotations
 import asyncio
 import concurrent.futures
 import inspect
+import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -593,6 +594,107 @@ class _AsyncStreamMarker:
         self.trailers = trailers
 
 
+class _AsyncStreamBridgeIterator:
+    """Explicit sync-iterator lifetime owner for async streaming (Plan 257).
+
+    Replaces the previous generator-based consumer. A Python generator that
+    has never been entered does not execute its body or its ``finally`` when
+    closed/dropped, so generator-frame cleanup cannot release a suppressed
+    body. Canonical Rust drops HEAD/body-forbidden iterables without ever
+    calling ``__next__``; this owner attaches cancellation to the object
+    lifetime itself (``close()`` / ``__del__``), which runs even when the
+    iterator is never pulled.
+
+    The producer task (which owns the transferred ``AsyncServer`` permit via
+    its done callback) is cancelled idempotently here; the permit itself is
+    still released exactly once by that done callback. No second semaphore,
+    no Python copy of the canonical suppression table: correctness holds
+    when Rust drops without a pull, whatever the method/status was.
+    """
+
+    def __init__(self, queue, prod_task, loop, first_pull, response_write_timeout_secs):
+        self._queue = queue
+        self._prod = prod_task
+        self._loop = loop
+        self._first_pull = first_pull
+        self._timeout = float(response_write_timeout_secs)
+        self._lock = threading.Lock()
+        self._signalled = False
+        self._closed = False
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        with self._lock:
+            if self._closed:
+                raise StopIteration
+            signal = not self._signalled
+            if signal:
+                self._signalled = True
+        if signal:
+            # Fire-and-forget: the producer's first-pull bound covers a
+            # wedged loop; the queue wait below covers a stalled producer.
+            try:
+                self._loop.call_soon_threadsafe(self._first_pull.set)
+            except RuntimeError:
+                pass
+        while True:
+            try:
+                fut = asyncio.run_coroutine_threadsafe(self._queue.get(), self._loop)
+            except RuntimeError:
+                self.close()
+                raise
+            try:
+                item = fut.result(timeout=self._timeout)
+            except concurrent.futures.TimeoutError as exc:
+                self.close()
+                raise TimeoutError("async response producer stalled") from exc
+            except Exception:
+                self.close()
+                raise
+            if item is None:
+                self.close()
+                raise StopIteration
+            if isinstance(item, tuple) and item and item[0] == "__error__":
+                self.close()
+                raise RuntimeError(f"async producer failed ({item[1]})")
+            if not isinstance(item, (bytes, bytearray, memoryview)):
+                self.close()
+                raise TypeError("async response iterable must yield bytes-like")
+            if len(item) == 0:
+                continue
+            return bytes(item)
+
+    def close(self) -> None:
+        """Idempotently cancel the producer if still pending (no orphan)."""
+        try:
+            with self._lock:
+                if self._closed:
+                    prod = None
+                else:
+                    self._closed = True
+                    prod = self._prod
+        except Exception:
+            return
+        if prod is None:
+            return
+        try:
+            if not prod.done():
+                try:
+                    self._loop.call_soon_threadsafe(prod.cancel)
+                except RuntimeError:
+                    pass
+        except Exception:
+            pass
+
+    def __del__(self):  # noqa: PYI021 - best-effort drop-path cancellation
+        try:
+            self.close()
+        except Exception:
+            pass
+
+
 class AsyncResponse:
     """Async response factory (buffered sync + incremental async streaming)."""
 
@@ -841,9 +943,10 @@ class AsyncServer:
         # HEAD/body-forbidden suppression is producer-side as well as
         # consumer-side: the producer does not touch the application
         # iterable until the native consumer performs its first pull.
-        # Without a pull (HEAD/suppressed/dropped responses) the producer
-        # exits quietly on the same no-progress bound instead of advancing
-        # application state that will be discarded.
+        # Without a pull (HEAD/suppressed/dropped responses) the bridge
+        # iterator's drop path cancels the producer immediately without
+        # advancing application state; the first-pull bound remains only
+        # as a fallback for wedged-loop races.
         first_pull = asyncio.Event()
         pull_timeout = float(getattr(self._config, "response_write_timeout_secs", 30))
 
@@ -891,7 +994,6 @@ class AsyncServer:
                 except asyncio.QueueFull:
                     pass
 
-        producer = asyncio.current_task()  # placeholder; real task below
         # Spawn producer on the loop (tracked for shutdown/cancel).
         prod_task = loop.create_task(_produce())
         self._tasks.add(prod_task)
@@ -905,68 +1007,31 @@ class AsyncServer:
 
         prod_task.add_done_callback(_release_permit)
 
-        # Sync consumer generator for `Response.stream` (runs on Rust
+        # Sync consumer iterator for `Response.stream` (runs on Rust
         # producer thread, blocking on `run_coroutine_threadsafe(queue.get)`
         # with GIL released during wait). Validates bytes (non-bytes ->
         # raise -> Rust truncates with sanitized log). HEAD/body-forbidden
-        # never call `__next__` (Rust drops without pulling): the waiting
-        # producer is cancelled on drop (or exits on its first-pull bound)
-        # having never advanced the application iterable (no orphan, no
-        # wasted application work). Disconnect -> Rust drops iterable ->
-        # generator GC -> `close()` cancels producer via
-        # `call_soon_threadsafe`.
-        q = queue
-        pt = prod_task
-        pull_signal = first_pull
-
-        def sync_gen():
-            signalled = False
-            try:
-                while True:
-                    if not signalled:
-                        signalled = True
-                        # Fire-and-forget: the producer's first-pull bound
-                        # covers a wedged loop; the `q.get()` wait below
-                        # covers a stalled producer.
-                        try:
-                            loop.call_soon_threadsafe(pull_signal.set)
-                        except RuntimeError:
-                            pass
-                    fut = asyncio.run_coroutine_threadsafe(q.get(), loop)
-                    # Bound the blocking wait by response-write timeout
-                    # (no-progress guard; slow producer truncates).
-                    timeout = float(getattr(self._config, "response_write_timeout_secs", 30))
-                    try:
-                        item = fut.result(timeout=timeout)
-                    except concurrent.futures.TimeoutError:
-                        raise TimeoutError("async response producer stalled")
-                    if item is None:
-                        # Check for queued error sentinel before EOF.
-                        break
-                    if isinstance(item, tuple) and item and item[0] == "__error__":
-                        raise RuntimeError(f"async producer failed ({item[1]})")
-                    if not isinstance(item, (bytes, bytearray, memoryview)):
-                        raise TypeError("async response iterable must yield bytes-like")
-                    if len(item) == 0:
-                        continue
-                    yield bytes(item)
-            finally:
-                # Consumer dropped (HEAD suppression, disconnect, shutdown,
-                # error): cancel producer if still pending (no orphan).
-                if not pt.done():
-                    try:
-                        loop.call_soon_threadsafe(pt.cancel)
-                    except RuntimeError:
-                        pass
+        # never call `__next__` (canonical Rust drops without pulling):
+        # `_AsyncStreamBridgeIterator.__del__`/`close()` cancels the waiting
+        # producer immediately (never relying on a generator `finally` that
+        # does not run for a never-entered generator), having never advanced
+        # the application iterable (no orphan, no wasted application work).
+        # Disconnect/error/timeout/shutdown paths are idempotent: the
+        # producer task done callback releases the transferred permit
+        # exactly once. No Python suppression table is consulted.
+        response_write_timeout = float(getattr(self._config, "response_write_timeout_secs", 30))
+        bridge_iter = _AsyncStreamBridgeIterator(
+            queue, prod_task, loop, first_pull, response_write_timeout
+        )
 
         # Build the sync Response (buffered headers validated now;
         # framing owned by runtime; no second response after commitment —
         # producer errors after return truncate, never synthesize).
         if trailers:
             return _Resp.stream_with_trailers(
-                marker.status, sync_gen(), marker.headers, marker.content_length, trailers
+                marker.status, bridge_iter, marker.headers, marker.content_length, trailers
             )
-        return _Resp.stream(marker.status, sync_gen(), marker.headers, marker.content_length)
+        return _Resp.stream(marker.status, bridge_iter, marker.headers, marker.content_length)
 
     async def _put_chunk(self, queue: asyncio.Queue, chunk: Any, loop) -> None:
         if not isinstance(chunk, (bytes, bytearray, memoryview)):

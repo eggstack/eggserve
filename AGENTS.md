@@ -147,7 +147,11 @@ tests); every core/server connection overlap is classified (sharing needs a
 new public transport API, so parallels stay crate-private, H2-gated, and
 topology-guarded — see the ledger in `architecture/crate-topology.md`);
 async producers wait bounded for the first native pull (HEAD/body-forbidden
-never advance application state); broad unused-import suppressions are gone
+never advance application state; suppressed bodies release the async permit
+immediately via the explicit `_AsyncStreamBridgeIterator` drop owner, never
+retaining it until `response_write_timeout_secs` — see
+`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`);
+broad unused-import suppressions are gone
 (clippy is the authority; H2/test-only uses are precisely gated); the
 topology gate adds the overlap rule plus a `--self-test` mutation suite;
 Rust consumers pick the direct H1 leaf profile or the compatibility
