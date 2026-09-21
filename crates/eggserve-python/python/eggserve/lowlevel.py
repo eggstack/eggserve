@@ -838,9 +838,21 @@ class AsyncServer:
         trailers = marker.trailers
         # Producer task (tracked, holds the transferred permit until done).
         sentinel_error: list[Any] = []
+        # HEAD/body-forbidden suppression is producer-side as well as
+        # consumer-side: the producer does not touch the application
+        # iterable until the native consumer performs its first pull.
+        # Without a pull (HEAD/suppressed/dropped responses) the producer
+        # exits quietly on the same no-progress bound instead of advancing
+        # application state that will be discarded.
+        first_pull = asyncio.Event()
+        pull_timeout = float(getattr(self._config, "response_write_timeout_secs", 30))
 
         async def _produce():
             try:
+                try:
+                    await asyncio.wait_for(first_pull.wait(), pull_timeout)
+                except asyncio.TimeoutError:
+                    return
                 it = marker.async_iterable
                 # Support async generators, async iterators, and sync
                 # iterables of bytes (for convenience).
@@ -897,16 +909,29 @@ class AsyncServer:
         # producer thread, blocking on `run_coroutine_threadsafe(queue.get)`
         # with GIL released during wait). Validates bytes (non-bytes ->
         # raise -> Rust truncates with sanitized log). HEAD/body-forbidden
-        # never call `__next__` (Rust drops without pulling) -> producer
-        # `put` times out (see `_put_chunk`) and self-cancels (no orphan).
-        # Disconnect -> Rust drops iterable -> generator GC -> `close()`
-        # cancels producer via `call_soon_threadsafe`.
+        # never call `__next__` (Rust drops without pulling): the waiting
+        # producer is cancelled on drop (or exits on its first-pull bound)
+        # having never advanced the application iterable (no orphan, no
+        # wasted application work). Disconnect -> Rust drops iterable ->
+        # generator GC -> `close()` cancels producer via
+        # `call_soon_threadsafe`.
         q = queue
         pt = prod_task
+        pull_signal = first_pull
 
         def sync_gen():
+            signalled = False
             try:
                 while True:
+                    if not signalled:
+                        signalled = True
+                        # Fire-and-forget: the producer's first-pull bound
+                        # covers a wedged loop; the `q.get()` wait below
+                        # covers a stalled producer.
+                        try:
+                            loop.call_soon_threadsafe(pull_signal.set)
+                        except RuntimeError:
+                            pass
                     fut = asyncio.run_coroutine_threadsafe(q.get(), loop)
                     # Bound the blocking wait by response-write timeout
                     # (no-progress guard; slow producer truncates).
