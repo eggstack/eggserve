@@ -59,6 +59,16 @@ duplicates parse-level validation as defense in depth, isolates production
 unsafe to `fs/windows.rs`, has no second consumer; see
 `release/plan-224-capability-filesystem-evaluation.md`).
 
+Plans 243–247 complete the maintainability convergence that follows the
+authority split: `eggserve-server` uses a durable shutdown signal and drains
+runtime-owned connection tasks; compatibility H1 entry points project into the
+direct runtime while H2/TLS/proxy composition remains in core;
+`eggserve-static::StaticService` owns static request planning/rendering and core
+retains a wrapper; Python publishes `lowlevel.pyi` and `py.typed` with a
+dedicated PyO3 registration module; and the topology gate rejects orphan Rust
+sources while documenting accepted inert compatibility features. The closure
+record is `release/plan-248-maintainability-convergence-closure.md`.
+
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
 crate. `eggserve_core::tls` remains a compatibility re-export; EggServe retains
@@ -107,7 +117,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211–225 ownership/topology gate + Plan 225 facade closure
+python3 scripts/check-crate-topology.py                     # Plan 211–247 ownership/topology, facade, orphan-source, and feature gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
@@ -240,6 +250,12 @@ roll it back. `deny.toml` denies wildcard requirements and bans
   Run
   `scripts/check-crate-topology.py` after graph changes; see
   `architecture/crate-topology.md`.
+- **Plans 243–247 convergence** — preserve durable direct-server shutdown and
+  JoinSet draining, keep compatibility H1 delegation on the direct driver,
+  keep static service behavior in `eggserve-static`, and keep Python typing and
+  registration maintenance at the wheel/native boundary. Run the topology gate
+  after module or feature changes; its orphan-source walk and inert-feature
+  assertions are part of the supported CI boundary.
 - **Manual argument parsing** in `args.rs` — no clap dependency. The CLI grammar
   is `[OPTIONS] [PORT] [DIRECTORY]`; positional parsing owns those two logical
   slots, treats a directory after an occupied port slot verbatim (including a

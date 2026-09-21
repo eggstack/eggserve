@@ -121,6 +121,17 @@ in depth, already isolates production unsafe to `fs/windows.rs`, and has no
 second consumer (see `release/plan-224-capability-filesystem-evaluation.md`).
 The user-facing Python compatibility contract lives in [docs/python-http-server-compatibility.md](docs/python-http-server-compatibility.md).
 
+Plans 243–247 complete the next maintainability convergence: the direct
+`eggserve-server` shutdown signal is durable and its owned connection tasks are
+drained by `wait()`; core H1 entry points project into that runtime while core
+continues to own H2/TLS/proxy composition. `eggserve-static::StaticService` is
+the sole static request/planning implementation and core retains a compatibility
+wrapper. The Python wheel ships `lowlevel.pyi` plus `py.typed`, with PyO3
+registration isolated in `registration.rs`. The topology gate rejects orphan
+production Rust sources and records accepted inert compatibility feature names
+on direct H1 crates. The final evidence record is
+`release/plan-248-maintainability-convergence-closure.md`.
+
 ## Non-negotiables
 
 - **Safe defaults are not defaults if they can be overridden silently.** Every security default (loopback bind, no symlinks, no dotfiles, no directory listing) is enforced unless the user explicitly passes a flag. See [docs/security-policy.md](docs/security-policy.md).
@@ -135,8 +146,8 @@ The user-facing Python compatibility contract lives in [docs/python-http-server-
 crates/
 ├── eggnet-tls/          # neutral rustls identity/trust/client-auth/reload substrate
 ├── eggserve-primitives/ # canonical application-facing values (transport-neutral)
-├── eggserve-server/    # generic HTTP runtime and transport boundary
-├── eggserve-static/    # sole static/path/filesystem authority (SecureRoot, planner, MIME)
+├── eggserve-server/    # generic HTTP runtime and direct H1 authority
+├── eggserve-static/    # sole static/path/filesystem/service authority
 ├── eggserve-h3/        # experimental H3/QUIC transport adapter (Plan 220 authority)
 ├── eggserve-core/      # compatibility/composition umbrella
 ├── eggserve-bin/       # CLI binary, args, signal handling, accept loop (Plan 221: neutral paths on leaf crates)
@@ -160,7 +171,7 @@ Routine CI (`.github/workflows/ci.yml`) runs three concurrent jobs:
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 214–220 ownership/topology gate + Plan 224 NO-GO guard
+python3 scripts/check-crate-topology.py                     # Plan 214–247 ownership/topology, facade, orphan-source, and feature gate
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
@@ -260,6 +271,13 @@ Routine CI is a small regression screen, not release certification. Platform qua
   plumbing for the Python wheel's extension-backed CLI, **not** a general
   embedding API. The exact graph is checked by
   `scripts/check-crate-topology.py`.
+- **Plans 243–247 convergence** — direct server shutdown must use the durable
+  internal signal and owned task set; compatibility H1 delegates into the
+  direct driver; static request planning/rendering belongs to
+  `eggserve-static`; Python typing artifacts are wheel members and native
+  registration is isolated; production Rust source reachability and accepted
+  inert feature names are checked structurally. Keep H2/TLS/proxy orchestration
+  in core unless a new migration plan moves it.
 - **Plan 214 extraction parity** — direct crates are the implementation homes
   for the canonical model and hardened static filesystem path. Do not add a
   simplified parallel runtime or pathname check-then-open fallback. The

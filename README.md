@@ -113,6 +113,18 @@ optional subprocess helpers are canonically owned by `eggserve.subprocess`
 surface and [the compatibility contract](https://github.com/eggstack/eggserve/blob/main/docs/python-http-server-compatibility.md)
 for intentional deviations from the stdlib.
 
+The installed package keeps these namespaces distinct:
+
+| Namespace | Role |
+| --- | --- |
+| `eggserve.server` | Supported `http.server`-shaped compatibility facade and stock static handlers. |
+| `eggserve.lowlevel` | In-process native sync/experimental async runtime and canonical service primitives. |
+| `eggserve.subprocess` | Optional CLI/subprocess lifecycle helpers; `server` keeps compatibility aliases. |
+
+`py.typed` and `lowlevel.pyi` ship with the wheel. Similarly named policy or
+response concepts remain owned by their respective namespace and should not be
+mixed without the documented bridge.
+
 ## Rust library
 
 The compatibility and composition entry point remains `eggserve-core`, which preserves
@@ -124,7 +136,8 @@ owns the mature generic H1 connection runtime (observability, error taxonomy,
 response policy, shared limit authority, service contract, connection
 vocabulary, H1 config/state, H1 connection driver, Hyper conversion
 boundary), and `eggserve-static` owns hardened descriptor/handle-relative
-static serving. The generic server does not pull static serving, and the
+static serving and the direct `StaticService`. The generic server does not pull
+static serving, and the
 primitives leaf does not pull Hyper, Tokio, TLS, QUIC, or filesystem code.
 New Rust consumers should depend directly on the smallest layer they need;
 the compatibility/composition umbrella exposes the layers through
@@ -170,6 +183,17 @@ confinement authority (see
 listener/proxy/TLS-identity paths remain in core while their extraction phases
 are completed. There is no additional
 `eggserve` facade crate.
+
+Plans 243–247 complete the next maintainability convergence. Direct H1 server
+shutdown is durable and `wait()` drains runtime-owned connection tasks; core H1
+entry points project into that direct runtime while H2/TLS and other protocol
+composition remains in core. `eggserve-static::StaticService` now owns static
+request planning/rendering, with core retaining a compatibility wrapper. Python
+ships maintained typing stubs and `py.typed`; the PyO3 registration table is
+isolated from implementation modules. The topology gate rejects orphan
+production Rust sources and documents accepted inert feature names on the H1
+only leaf crates. See
+`release/plan-248-maintainability-convergence-closure.md` for evidence.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
 [`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).

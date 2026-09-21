@@ -1,6 +1,6 @@
 # Crate topology
 
-Plans 211–224 establish dependency layers while preserving the historical
+Plans 211–247 establish dependency layers while preserving the historical
 `eggserve-core` 0.x source contract. Plan 214 moves the qualified canonical
 and static implementations into their direct crates; Plan 215 moves the
 mature generic H1 connection runtime into `eggserve-server` with a
@@ -21,6 +21,17 @@ Protocol-specific compatibility glue
 (H2 wire mechanics, extended listener/proxy/TLS paths) remains in
 core as explicit transport glue, with topology-gate ownership rules marking the
 boundary (see `release/plan-215-direct-runtime-parity.md`).
+
+Plans 243–247 finish the next authority/maintainability pass. The direct
+server's shutdown state is durable and its accept loop owns and drains accepted
+connection tasks. Core H1 entry points project configuration and shared runtime
+state into the direct H1 driver; core remains the owner of H2/TLS/proxy
+composition. The direct static crate now also owns `StaticService` request
+planning and rendering, while core's `StaticService` is a compatibility wrapper.
+The Python wheel carries maintained stubs and `py.typed`, and native PyO3
+registration is isolated from implementation modules. The topology checker
+walks production Rust module reachability, rejects orphan sources, and asserts
+that accepted direct-crate compatibility features remain inert.
 
 ```text
 eggnet-tls             (neutral rustls identity/trust/reload substrate)
@@ -123,7 +134,7 @@ table lives once in `eggserve-static`). What remains in core besides
 facades and adapters is documented compatibility orchestration, not a
 second security/protocol authority: `ServeConfig`/`ServeState`/`Limits`
 bridges, the full TLS/H2/H3 `Server`/`ServerHandle`/`RuntimeConfig`
-runtime, the full `StaticService` with extra-header/error-policy
+runtime, the static-service compatibility wrapper with extra-header/error-policy
 composition, and the H2/listener/proxy/TLS transport glue. Every
 production module is in the classified inventory enforced by the
 topology gate; new modules fail until explicitly classified, and any core
@@ -228,3 +239,10 @@ The check also verifies that the mature static resolver is present and the old
 pathname-based topology fixture is absent. It is a dependency/source-ownership
 boundary, not a line-count rule; remaining core compatibility glue must not
 become a new implementation of the direct contracts.
+
+The Plan 243–247 rules additionally require durable direct-server shutdown and
+runtime-owned task draining, direct delegation at compatibility H1 entry points,
+direct static-service ownership with no core renderer, wheel typing artifacts
+plus a decomposed registration module, zero orphan production Rust sources, and
+inert accepted `http2`/`tls`/`http-interop` feature declarations where those
+direct leaves are intentionally H1/transport-neutral.
