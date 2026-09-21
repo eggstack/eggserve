@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–225 Cargo dependency topology.
+"""Enforce the Plan 211–247 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -10,7 +10,10 @@ path/filesystem confinement lives once in `eggserve-static` with
 lives once in `eggserve-h3` with downward-only primitives/server deps,
 no capability-filesystem crate exists (Plan 224 NO-GO), and the
 compatibility core is a classified facade/adapter layer with no leftover
-duplicate implementations or dependencies (Plan 225 closure).
+duplicate implementations or dependencies (Plan 225 closure). Direct H1 and
+static authority convergence, Python wheel typing artifacts, orphan Rust
+sources, and inert accepted compatibility features are checked structurally
+(Plans 243–247).
 """
 
 from __future__ import annotations
@@ -210,6 +213,12 @@ def main() -> int:
     if check_plan225_facade() != 0:
         return 1
 
+    if check_plan244_authority_convergence() != 0:
+        return 1
+
+    if check_plan247_leaf_surfaces() != 0:
+        return 1
+
     # Plan 224 NO-GO: no capability-filesystem crate may appear silently.
     # A future split requires an explicit plan and gate update, not a new
     # package in the resolved graph.
@@ -224,7 +233,7 @@ def main() -> int:
             return 1
 
     print(
-        "Plan 211–225 topology: primitives leaf; neutral TLS; "
+        "Plan 211–247 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3 adapter owned; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
         "direct tunnel authority with neutral vocabulary; "
@@ -235,8 +244,122 @@ def main() -> int:
         "extended orchestration blockers documented); "
         "Plan 224 NO-GO: no capability-filesystem crate; "
         "Plan 225: core is a classified compatibility facade "
-        "(no second canonical implementation, no leftover MIME dependency)"
+        "(no second canonical implementation, no leftover MIME dependency); "
+        "Plans 243–247: durable shutdown/task drain, direct H1/static "
+        "delegation, Python typing artifacts, orphan-source rejection, and "
+        "inert accepted feature names"
     )
+    return 0
+
+
+def check_plan244_authority_convergence() -> int:
+    """Guard the direct H1/static authority projections (Plans 244–245)."""
+    repo = Path(__file__).resolve().parent.parent
+    core_connection = (repo / "crates/eggserve-core/src/server/connection/mod.rs").read_text()
+    if "eggserve_server::connection::serve_http1_connection" not in core_connection:
+        print(
+            "core H1 compatibility entry points must delegate to eggserve-server "
+            "(Plan 244)",
+            file=sys.stderr,
+        )
+        return 1
+    core_static = (repo / "crates/eggserve-core/src/server/static_service.rs").read_text()
+    if "eggserve_static::StaticService" not in core_static:
+        print(
+            "core StaticService must project into eggserve-static (Plan 245)",
+            file=sys.stderr,
+        )
+        return 1
+    for marker in ("fn plan_static_request", "fn render_directory_listing", "fn canonical_response"):
+        if marker in core_static:
+            print(
+                f"core static service retains duplicate `{marker}` (Plan 245)",
+                file=sys.stderr,
+            )
+            return 1
+    return 0
+
+
+def _rust_module_declarations(source: str) -> list[tuple[str, str | None]]:
+    """Return external module declarations and an optional path override."""
+    import re
+
+    clean = re.sub(r"(?s)/\*.*?\*/", "", source)
+    clean = re.sub(r"//[^\n]*", "", clean)
+    declarations: list[tuple[str, str | None]] = []
+    path_override: str | None = None
+    for line in clean.splitlines():
+        path_match = re.search(r"#\s*\[\s*path\s*=\s*\"([^\"]+)\"\s*\]", line)
+        if path_match:
+            path_override = path_match.group(1)
+            continue
+        match = re.search(r"\bmod\s+([A-Za-z_][A-Za-z0-9_]*)\s*;", line)
+        if match:
+            declarations.append((match.group(1), path_override))
+            path_override = None
+    return declarations
+
+
+def check_plan247_leaf_surfaces() -> int:
+    """Reject orphan production Rust sources and misleading direct features."""
+    import tomllib
+
+    repo = Path(__file__).resolve().parent.parent
+    orphaned: list[str] = []
+    for src in sorted((repo / "crates").glob("*/src")):
+        roots = [path for path in (src / "lib.rs", src / "main.rs") if path.exists()]
+        reachable: set[Path] = set()
+        pending = list(roots)
+        while pending:
+            current = pending.pop()
+            current = current.resolve()
+            if current in reachable or not current.exists():
+                continue
+            reachable.add(current)
+            if current.name in {"lib.rs", "main.rs", "mod.rs"}:
+                base = current.parent
+            else:
+                base = current.parent / current.stem
+            for name, override in _rust_module_declarations(current.read_text()):
+                candidate = base / override if override else base / f"{name}.rs"
+                if not candidate.exists():
+                    candidate = base / name / "mod.rs"
+                if candidate.exists():
+                    pending.append(candidate)
+        for source in sorted(src.rglob("*.rs")):
+            relative = source.relative_to(src)
+            if any(part in {"tests", "examples", "benches"} for part in relative.parts):
+                continue
+            if source.resolve() not in reachable:
+                orphaned.append(str(source.relative_to(repo)))
+    if orphaned:
+        print(
+            "orphan production Rust sources (Plan 247): " + ", ".join(orphaned),
+            file=sys.stderr,
+        )
+        return 1
+
+    metadata = json.loads(
+        subprocess.check_output(
+            ["cargo", "metadata", "--no-deps", "--format-version", "1"],
+            text=True,
+        )
+    )
+    packages = {package["name"]: package for package in metadata["packages"]}
+    expected_inert = {
+        "eggserve-server": {"http2": [], "tls": []},
+        "eggserve-primitives": {"http-interop": []},
+    }
+    for package_name, feature_names in expected_inert.items():
+        features = packages[package_name]["features"]
+        for feature, expected in feature_names.items():
+            if features.get(feature) != expected:
+                print(
+                    f"{package_name}/{feature} no longer has its documented "
+                    f"reserved effect: {features.get(feature)!r}",
+                    file=sys.stderr,
+                )
+                return 1
     return 0
 
 

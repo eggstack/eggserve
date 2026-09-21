@@ -289,9 +289,7 @@ dependencies = [
  "httpdate",
  "hyper",
  "hyper-util",
- "rustls",
  "tokio",
- "tokio-rustls",
 ]
 
 [[package]]

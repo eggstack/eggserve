@@ -16,6 +16,8 @@ workspace = true
 
 [features]
 default = []
+# Accepted compatibility name; HTTP interop remains core-owned and this
+# transport-neutral crate intentionally pulls no HTTP dependency.
 http-interop = []
 
 [dependencies]
