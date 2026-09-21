@@ -188,10 +188,6 @@ impl ServeState {
     pub fn config(&self) -> &Arc<ServeConfig> {
         &self.config
     }
-
-    pub(crate) fn secure_root(&self) -> &SecureRoot {
-        &self.secure_root
-    }
 }
 
 #[cfg(test)]
