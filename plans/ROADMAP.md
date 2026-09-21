@@ -293,6 +293,61 @@ Status: COMPLETE. Evidence-content SHA `9592d9b34d2d48ea8100537cc9cf8ea73ca19a96
 passed remote CI run `35543869576`; the final metadata-record commit is the
 documentation commit containing this status update.
 
+## API-preserving maintainability and authority convergence — Plans 242–248
+
+**Plans 242–248** are the post-241 maintenance/convergence campaign. They do
+not add product features or authorize public Rust/Python API regression. The
+program follows a current-HEAD audit that found one direct-runtime shutdown
+correctness defect plus remaining implementation duplication behind the
+otherwise successful Plans 217–225 authority split.
+
+```text
+243  direct Server shutdown/lifecycle correctness
+ |
+244  H1 runtime authority convergence
+ |\
+ | 245 static-service authority convergence
+ | 246 Python interop typing/internal maintainability
+ | 247 leaf-crate surface, orphan-source, and qualification cleanup
+ |/
+248  API/capability-preserving qualification and closure
+```
+
+The campaign preserves every existing compatibility path and capability.
+`eggserve-core` remains the compatibility/composition umbrella;
+`eggserve-server` becomes the actual single H1 implementation authority for
+shared connection behavior; `eggserve-static` becomes the single static
+service implementation authority in addition to its existing
+path/filesystem/planner ownership. The Python work is typing/internal
+maintainability only and must not alter runtime semantics.
+
+Plan 243 is immediate because the direct high-level server currently uses
+`Notify::notify_waiters()` as the server shutdown signal while accepted
+connection tasks are detached; the corrective makes shutdown durable and
+makes `wait()` account for accepted runtime-owned tasks without changing
+public signatures.
+
+Plan 247 also removes the orphaned, uncompiled
+`eggserve-primitives/src/primitives/runtime_limits.rs`, adds an orphan-source
+gate, reconciles feature declarations with real direct-crate capabilities
+without removing accepted feature names, and moves authority qualification
+into the owning leaf crates while retaining compatibility/cross-protocol tests
+in core.
+
+Program index:
+`plans/242-248-api-preserving-maintainability-convergence-program.md`.
+
+Implementation plans:
+- `plans/243-direct-server-shutdown-lifecycle-corrective.md`
+- `plans/244-h1-runtime-authority-convergence.md`
+- `plans/245-static-service-authority-convergence.md`
+- `plans/246-python-interop-typing-maintainability.md`
+- `plans/247-leaf-surface-orphan-source-qualification-cleanup.md`
+- `plans/248-api-preserving-maintainability-closure.md`
+
+Status: PLANNED. Baseline for the audit and handoff:
+`673b6c60dab09d728b05d9e979be91bfc5417050`.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
