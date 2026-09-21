@@ -6,29 +6,16 @@
 //! systemd/process-manager endpoints, H3 prebound validation.
 //! `Server` orchestration stays in the parent facade.
 
-#![allow(unused_imports)]
-use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use tokio::net::TcpListener;
 use tokio::sync::broadcast;
 
 use super::runtime::RuntimeState;
-use crate::config::ServeConfig;
-use crate::ops::{Event, EventKind, OpsContext, Severity};
-#[cfg(feature = "http2")]
-use crate::server::config::Http2Config;
-#[cfg(feature = "http3")]
-use crate::server::config::Http3Config;
-use crate::server::config::{RuntimeConfig, RuntimeConfigBuilder};
-use crate::server::connection::{
-    serve_http1_connection, ConnectionContext, ConnectionOutcome, ConnectionShutdown,
-};
-use crate::server::errors::{ServerError, ShutdownResult};
-use crate::server::handle::ServerHandle;
-use crate::server::lifecycle::{Lifecycle, LifecycleState};
-use crate::server::listener::BoundEndpoint;
-use crate::server::response_policy::{DatePolicy, ResponsePolicy};
+use crate::server::config::RuntimeConfig;
+use crate::server::connection::ConnectionShutdown;
+use crate::server::errors::ShutdownResult;
+use crate::server::lifecycle::Lifecycle;
 use crate::server::service::{Service, ServiceError};
 
 /// Source for the TCP listener (Plan 201 Track B).

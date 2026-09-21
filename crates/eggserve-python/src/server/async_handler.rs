@@ -9,7 +9,3 @@
 //! duplicate conversion logic here; extract shared helpers to the owning
 //! bridge when semantics are actually identical.
 
-#![allow(unused_imports)]
-use super::body_bridge::spawn_python_stream_producer;
-use super::response_bridge::PyResponse;
-use super::sync_handler::convert_python_response_to_canonical;

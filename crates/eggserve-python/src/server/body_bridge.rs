@@ -6,47 +6,21 @@
 //! `response_bridge`. Shared with the Python-side `AsyncServer` shim via
 //! the same bounded 16-chunk bridge (no duplication).
 
-#![allow(unused_imports)]
-use std::collections::HashMap;
-use std::net::{SocketAddr, ToSocketAddrs};
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyIterator};
 use tokio::sync::mpsc;
-use tokio::sync::Semaphore;
 
 use bytes::Bytes;
-use eggserve_primitives::policy;
-use eggserve_primitives::body::BodySource;
-use eggserve_primitives::canonical::{
-    normalize_response, NormalizeRequest, Response as CanonicalResponse, ResponseBody,
-    ResponseStream, ResponseStreamError, StatusCode as CanonicalStatusCode,
-};
-use eggserve_primitives::header_block::{HeaderName, HeaderValue};
-use eggserve_primitives::http::ReadOnlyMethod;
+use eggserve_primitives::canonical::ResponseStreamError;
 use eggserve_primitives::request_body::RequestBody;
-use eggserve_primitives::request_body_error::RequestBodyError as RustBodyError;
-use eggserve_primitives::request_body_policy::RequestBodyPolicy;
-use eggserve_primitives::request_context::RequestContext;
-use eggserve_primitives::request_head::RequestHead;
 // Plan 221: static/path/filesystem authority lives once in `eggserve-static`
 // (Plan 219); the compatibility `eggserve_core::primitives` facade re-exports
 // it. The bridge names the leaf directly. `StaticPolicy` stays
 // primitives-owned.
-use eggserve_static::{
-    resolve_and_plan, ConfinedPath, PathDotfilePolicy, PathPolicy, PathRejection,
-    ResolveAndPlanError, SecureRoot,
-};
-use eggserve_primitives::policy::StaticPolicy;
-use eggserve_server::errors::ShutdownResult;
-use eggserve_server::service::{Service, ServiceError};
 
-use super::*;
-#[allow(unused_imports)]
 use super::errors::{RawBodyError, raw_body_error_to_pyerr};
 
 pub(super) const PYTHON_STREAM_CHANNEL_BOUND: usize = 16;

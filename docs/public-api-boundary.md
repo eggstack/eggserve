@@ -35,6 +35,13 @@ second security/protocol authority and a topology-gated module inventory; see
 | `eggserve-server` | A generic HTTP runtime and `Service` are needed | Primitives plus transport dependencies; no static/core edge |
 | `eggserve-static` | Confined static-file serving is needed | Primitives, server, and target-gated filesystem support |
 
+Two supported profiles, no tier change: the direct generic H1 substrate
+above, and `eggserve-core::server` for compatibility/multiprotocol
+composition (H2, extended TLS/listener/proxy integration, H3 facade).
+`eggserve-core` is not deprecated; direct `eggserve-server` does not gain
+H2/TLS capability from its accepted inert `http2`/`tls` feature names;
+H2/H3 remain experimental; canonical application types remain Hyper-free.
+
 ## Internal modules (not public API)
 
 `response` and other `pub(crate)` helpers are internal. External callers must not depend on them. Types from these modules are re-exported through `primitives` where appropriate. The former `fs`/`path`/MIME modules live once in `eggserve-static`; their deleted core copies must not return.

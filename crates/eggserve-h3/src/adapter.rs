@@ -14,50 +14,25 @@ use crate::{h3, h3_quinn, quinn};
 
 use crate::config::Http3Config;
 
-#[allow(unused_imports)]
 use std::sync::Arc;
 
-#[allow(unused_imports)]
 use bytes::{Buf, Bytes};
-#[allow(unused_imports)]
-use futures_util::{stream, StreamExt};
-#[allow(unused_imports)]
-use tokio::sync::{broadcast, OwnedSemaphorePermit, Semaphore};
+use futures_util::stream;
+use tokio::sync::{broadcast, Semaphore};
 
-#[allow(unused_imports)]
-use eggserve_primitives::canonical::{
-    normalize_response, NormalizeRequest, Response, ResponseBody,
-};
-#[allow(unused_imports)]
 use eggserve_primitives::connection_info::TlsInfo;
-#[allow(unused_imports)]
-use eggserve_primitives::header_block::{HeaderBlock, HeaderName, HeaderValue};
-#[allow(unused_imports)]
-use eggserve_primitives::method::Method;
-#[allow(unused_imports)]
 use eggserve_primitives::request::Request;
-#[allow(unused_imports)]
 use eggserve_primitives::request_body::IncomingError;
-#[allow(unused_imports)]
 use eggserve_primitives::request_head::RequestHead;
-#[allow(unused_imports)]
 use eggserve_primitives::request_lifecycle::{RequestCancellationReason, RequestShared};
-#[allow(unused_imports)]
-use eggserve_primitives::request_target::RequestTarget;
-#[allow(unused_imports)]
+#[cfg(test)]
 use eggserve_primitives::version::HttpVersion;
-#[allow(unused_imports)]
 use eggserve_server::config::RuntimeConfig;
-#[allow(unused_imports)]
 use eggserve_server::connection::ConnectionContext;
-#[allow(unused_imports)]
-use eggserve_server::connection::{cancel_shared_with_observability, ConnectionRequests};
-#[allow(unused_imports)]
+use eggserve_server::connection::ConnectionRequests;
 use eggserve_server::errors::ShutdownResult;
-#[allow(unused_imports)]
 use eggserve_server::ops::OpsContext;
-#[allow(unused_imports)]
-use eggserve_server::service::{Service, ServiceError};
+use eggserve_server::service::Service;
 
 type H3Bytes = Bytes;
 

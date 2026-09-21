@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–249 Cargo dependency topology.
+"""Enforce the Plan 211–253 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -22,6 +22,28 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+
+
+def check_forbidden_deps(
+    owner: str, deps: set[str], forbidden: set[str], why: str
+) -> int:
+    """Fail when `deps` contains any `forbidden` dependency (pure predicate).
+
+    Extracted so `--self-test` can prove the dependency rules fail closed
+    on synthetic graphs without running `cargo metadata`.
+    """
+    leaked = deps & forbidden
+    if leaked:
+        print(f"{owner} leaks forbidden dependencies: {sorted(leaked)} ({why})", file=sys.stderr)
+        return 1
+    return 0
+
+
+def _inventory_diff(
+    actual: set[str], expected: set[str]
+) -> tuple[list[str], list[str]]:
+    """Return `(new, gone)` sorted inventory differences (pure predicate)."""
+    return sorted(actual - expected), sorted(expected - actual)
 
 
 def main() -> int:
@@ -61,8 +83,9 @@ def main() -> int:
 
     primitives = direct("eggserve-primitives")
     forbidden = {"eggserve-core", "eggserve-server", "eggserve-static", "hyper", "hyper-util", "quinn", "h3", "h3-quinn", "rustls", "tokio", "rustix", "windows-sys"}
-    if primitives & forbidden:
-        print(f"eggserve-primitives leaks forbidden dependencies: {sorted(primitives & forbidden)}", file=sys.stderr)
+    if check_forbidden_deps(
+        "eggserve-primitives", primitives, forbidden, "transport-neutral leaf"
+    ) != 0:
         return 1
 
     neutral_tls = direct("eggnet-tls")
@@ -106,19 +129,20 @@ def main() -> int:
         return 1
 
     server = direct("eggserve-server")
-    if "eggserve-core" in server or "eggserve-static" in server:
-        print("eggserve-server must not depend on the compatibility core or static layer", file=sys.stderr)
+    if check_forbidden_deps(
+        "eggserve-server",
+        server,
+        {"eggserve-core", "eggserve-static"},
+        "no core/static edges from the generic server",
+    ) != 0:
         return 1
     if "eggserve-primitives" not in server:
         print("eggserve-server must depend on eggserve-primitives", file=sys.stderr)
         return 1
     server_h3 = production("eggserve-server") & {"h3", "h3-quinn", "quinn"}
-    if server_h3:
-        print(
-            "eggserve-server must not directly depend on the H3/QUIC stack: "
-            f"{sorted(server_h3)}",
-            file=sys.stderr,
-        )
+    if check_forbidden_deps(
+        "eggserve-server", server_h3, {"h3", "h3-quinn", "quinn"}, "no direct H3/QUIC stack"
+    ) != 0:
         return 1
 
     static = direct("eggserve-static")
@@ -172,9 +196,10 @@ def main() -> int:
         )
         return 1
     if {"eggserve-core", "eggserve-static", "eggserve-bin", "eggserve-python"} & h3:
+        upward = {"eggserve-core", "eggserve-static", "eggserve-bin", "eggserve-python"} & h3
         print(
             "eggserve-h3 must not depend upward on core/static/bin/python "
-            f"(downward-only): {sorted({'eggserve-core', 'eggserve-static', 'eggserve-bin', 'eggserve-python'} & h3)}",
+            f"(downward-only): {sorted(upward)}",
             file=sys.stderr,
         )
         return 1
@@ -184,12 +209,9 @@ def main() -> int:
         return 1
     core = direct("eggserve-core")
     core_h3 = {"h3", "h3-quinn", "quinn"} & core
-    if core_h3:
-        print(
-            "eggserve-core must not directly depend on the H3/QUIC stack: "
-            f"{sorted(core_h3)}",
-            file=sys.stderr,
-        )
+    if check_forbidden_deps(
+        "eggserve-core", core_h3, {"h3", "h3-quinn", "quinn"}, "no direct H3/QUIC stack"
+    ) != 0:
         return 1
 
     if check_plan215_parity() != 0:
@@ -217,6 +239,9 @@ def main() -> int:
         return 1
 
     if check_plan249_h1_authority() != 0:
+        return 1
+
+    if check_plan253_overlap() != 0:
         return 1
 
     if check_plan247_leaf_surfaces() != 0:
@@ -252,7 +277,9 @@ def main() -> int:
         "delegation, Python typing artifacts, orphan-source rejection, and "
         "inert accepted feature names; "
         "Plan 249: single H1 authority (no core Hyper H1 execution, Auto "
-        "classifies before Hyper) with structured per-connection shutdown"
+        "classifies before Hyper) with structured per-connection shutdown; "
+        "Plan 253: classified connection overlap (bounded duplication, "
+        "crate-private parallels, gated H2 ownership)"
     )
     return 0
 
@@ -417,6 +444,115 @@ def check_plan249_h1_authority() -> int:
             file=sys.stderr,
         )
         return 1
+
+    return 0
+
+
+def check_plan253_overlap() -> int:
+    """Classify the core/server connection overlap (Plan 253).
+
+    H1 execution is single-authority in `eggserve-server` (Plan 249), but
+    both crates keep similarly named connection helpers: core owns H2
+    execution and multiprotocol composition, so its helpers cannot be
+    deleted or shared without either exposing new public Hyper/Tokio
+    transport types, activating direct H2/TLS capability, or moving H2
+    ownership (all mandatory DEFER conditions). The ledger lives in
+    `architecture/crate-topology.md` (Plan 253 section); this gate keeps
+    that classification mechanical:
+
+    - every parallel pair still exists (no silent deletion);
+    - core parallel helpers stay crate-private (no new public transport
+      API grown merely to share source);
+    - the direct H3-shared re-export set does not grow;
+    - H2-only core modules stay feature-gated.
+    """
+    import re
+
+    repo = Path(__file__).resolve().parent.parent
+    direct_conn = repo / "crates/eggserve-server/src/connection"
+    core_conn = repo / "crates/eggserve-core/src/server/connection"
+
+    parallel = (
+        "activity",
+        "deferred_body",
+        "driver",
+        "lifecycle",
+        "pipeline",
+        "request",
+        "response",
+        "transport",
+    )
+    for name in parallel:
+        for side, root in (("direct", direct_conn), ("core", core_conn)):
+            if not (root / f"{name}.rs").exists():
+                print(
+                    f"Plan 253 overlap pair `{name}` lost its {side} copy: "
+                    "reclassify the overlap in architecture/crate-topology.md "
+                    "before deleting a parallel connection module",
+                    file=sys.stderr,
+                )
+                return 1
+
+    # Core parallel helpers must not grow fully-public items: sharing
+    # source across the crate boundary through a new public Hyper/Tokio
+    # transport type is a mandatory Plan 253 DEFER condition. Only
+    # column-zero declarations count; methods inside `impl` blocks belong
+    # to their already-scoped type.
+    public_item = re.compile(r"^pub (async fn|fn|struct|enum|use|mod|type|const|static)\b")
+    for name in parallel:
+        text = (core_conn / f"{name}.rs").read_text().split("#[cfg(test)]")[0]
+        for line in text.splitlines():
+            if public_item.match(line):
+                print(
+                    f"core connection/{name}.rs grows public `{line.strip()}` "
+                    "(Plan 253: core parallel helpers stay crate-private; "
+                    "sharing them needs a new public transport API, which is "
+                    "a mandatory DEFER)",
+                    file=sys.stderr,
+                )
+                return 1
+
+    # The direct H3-shared surface is fixed: lifecycle registry, one
+    # body-policy selector, and the canonical service/privacy kernel.
+    # Growth here solely so core can call the same helper is forbidden.
+    allowed_direct_public = {
+        "lifecycle.rs": {"pub struct ConnectionRequests {", "pub fn cancel_shared_with_observability("},
+        "request.rs": {"pub fn select_body_policy("},
+        "response.rs": {
+            "pub async fn contain_service_panic<F>(",
+            "pub async fn invoke_canonical_service<S>(",
+            "pub fn finalize_canonical_response(",
+        },
+    }
+    for name in ("activity", "deferred_body", "driver", "pipeline", "transport"):
+        allowed_direct_public[name + ".rs"] = set()
+    for name, allowed in allowed_direct_public.items():
+        text = (direct_conn / name).read_text().split("#[cfg(test)]")[0]
+        for line in text.splitlines():
+            if public_item.match(line) and line.strip() not in allowed:
+                print(
+                    f"direct connection/{name} grows public `{line.strip()}` "
+                    "(Plan 253: the H3-shared surface is fixed; do not make "
+                    "a private helper public solely for core)",
+                    file=sys.stderr,
+                )
+                return 1
+
+    # H2-only core modules stay feature-gated so default builds compile
+    # only the delegating facade plus classifier/replay composition.
+    facade = (core_conn / "mod.rs").read_text()
+    for name in ("activity", "deferred_body", "lifecycle", "pipeline", "request", "response", "transport"):
+        pattern = re.compile(
+            r'#\[cfg\(feature = "http2"\)\]\s*\n\s*pub\(crate\) mod ' + name + r";"
+        )
+        if not pattern.search(facade):
+            print(
+                f"core connection/{name} lost its http2 feature gate "
+                "(Plan 253: H2-only helpers must not compile into default "
+                "core builds)",
+                file=sys.stderr,
+            )
+            return 1
 
     return 0
 
@@ -1487,61 +1623,11 @@ def check_plan221_frontends() -> int:
     return 0
 
 
-def check_plan225_facade() -> int:
-    """Enforce Plan 225 compatibility-facade closure.
-
-    Structural (not line-count) rules: `eggserve-core` is a classified
-    facade/adapter layer. No second canonical/parser/resolver/state-machine
-    implementation may return, no leftover implementation dependencies may
-    remain, every production module must be in the classified inventory
-    (new files fail until explicitly classified per Plan 225 §1), and
-    every `primitives/*.rs` compatibility file must facade the direct
-    authority except the documented adapters.
-    """
-    import tomllib
-
-    repo = Path(__file__).resolve().parent.parent
-    core_src = repo / "crates" / "eggserve-core" / "src"
-
-    # 1. No second canonical implementation: the orphaned
-    #    `primitives/canonical/` duplicate (deleted by this plan) must not
-    #    return as a directory next to the `canonical.rs` facade.
-    if (core_src / "primitives" / "canonical").exists():
-        print(
-            "eggserve-core retains primitives/canonical/: the canonical "
-            "response vocabulary lives once in eggserve-primitives with "
-            "Hyper conversion once in eggserve-server (Plan 225: facade only)",
-            file=sys.stderr,
-        )
-        return 1
-
-    # 2. No leftover implementation dependencies: the MIME perfect-hash map
-    #    lives once in `eggserve-static`; core must not keep `phf`.
-    core_manifest = tomllib.loads(
-        (repo / "crates" / "eggserve-core" / "Cargo.toml").read_text()
-    )
-    for section in ("dependencies", "dev-dependencies"):
-        if "phf" in core_manifest.get(section, {}):
-            print(
-                "eggserve-core keeps a `phf` dependency: MIME selection lives "
-                "once in eggserve-static (Plan 225: remove the leftover)",
-                file=sys.stderr,
-            )
-            return 1
-    for target in core_manifest.get("target", {}).values():
-        if "phf" in target.get("dependencies", {}):
-            print(
-                "eggserve-core keeps a target-gated `phf` dependency: MIME "
-                "selection lives once in eggserve-static (Plan 225)",
-                file=sys.stderr,
-            )
-            return 1
-
-    # 3. Classified inventory (Plan 225 §1): facades, adapters, documented
-    #    orchestration, and the H2/listener/proxy/TLS transport glue. A new
-    #    production module fails here until it is classified and added with
-    #    an owner (rollback rule: do not silently re-expand core).
-    expected = {
+# Plan 225 §1 classified production-module inventory for `eggserve-core`.
+# Module-level so `--self-test` can build fixture trees from the same
+# source of truth the gate enforces.
+PLAN225_CORE_MODULE_INVENTORY = frozenset(
+    {
         "config.rs",
         "lib.rs",
         "limits.rs",
@@ -1607,12 +1693,69 @@ def check_plan225_facade() -> int:
         "server/tower.rs",
         "tls.rs",
     }
+)
+
+
+def check_plan225_facade() -> int:
+    """Enforce Plan 225 compatibility-facade closure.
+
+    Structural (not line-count) rules: `eggserve-core` is a classified
+    facade/adapter layer. No second canonical/parser/resolver/state-machine
+    implementation may return, no leftover implementation dependencies may
+    remain, every production module must be in the classified inventory
+    (new files fail until explicitly classified per Plan 225 §1), and
+    every `primitives/*.rs` compatibility file must facade the direct
+    authority except the documented adapters.
+    """
+    import tomllib
+
+    repo = Path(__file__).resolve().parent.parent
+    core_src = repo / "crates" / "eggserve-core" / "src"
+
+    # 1. No second canonical implementation: the orphaned
+    #    `primitives/canonical/` duplicate (deleted by this plan) must not
+    #    return as a directory next to the `canonical.rs` facade.
+    if (core_src / "primitives" / "canonical").exists():
+        print(
+            "eggserve-core retains primitives/canonical/: the canonical "
+            "response vocabulary lives once in eggserve-primitives with "
+            "Hyper conversion once in eggserve-server (Plan 225: facade only)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 2. No leftover implementation dependencies: the MIME perfect-hash map
+    #    lives once in `eggserve-static`; core must not keep `phf`.
+    core_manifest = tomllib.loads(
+        (repo / "crates" / "eggserve-core" / "Cargo.toml").read_text()
+    )
+    for section in ("dependencies", "dev-dependencies"):
+        if "phf" in core_manifest.get(section, {}):
+            print(
+                "eggserve-core keeps a `phf` dependency: MIME selection lives "
+                "once in eggserve-static (Plan 225: remove the leftover)",
+                file=sys.stderr,
+            )
+            return 1
+    for target in core_manifest.get("target", {}).values():
+        if "phf" in target.get("dependencies", {}):
+            print(
+                "eggserve-core keeps a target-gated `phf` dependency: MIME "
+                "selection lives once in eggserve-static (Plan 225)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 3. Classified inventory (Plan 225 §1): facades, adapters, documented
+    #    orchestration, and the H2/listener/proxy/TLS transport glue. A new
+    #    production module fails here until it is classified and added with
+    #    an owner (rollback rule: do not silently re-expand core).
+    expected = PLAN225_CORE_MODULE_INVENTORY
     actual = {
         str(path.relative_to(core_src)) for path in core_src.rglob("*.rs")
     }
-    if actual != expected:
-        new = sorted(actual - expected)
-        gone = sorted(expected - actual)
+    new, gone = _inventory_diff(actual, expected)
+    if new or gone:
         detail = []
         if new:
             detail.append(f"unclassified new modules: {new}")
@@ -1648,5 +1791,223 @@ def check_plan225_facade() -> int:
     return 0
 
 
+def run_self_tests() -> int:
+    """Fixture-driven mutation tests for the brittle rules (Plan 255 Track I).
+
+    Operates on synthetic temp trees (plus pure-predicate unit checks) so no
+    intentionally broken repository source is ever committed. The stable
+    entrypoint is unchanged: `python3 scripts/check-crate-topology.py`.
+    Run these with `python3 scripts/check-crate-topology.py --self-test`.
+    """
+    import ast
+    import contextlib
+    import tempfile
+
+    failures: list[str] = []
+    passed = 0
+
+    def check(name: str, cond: bool) -> None:
+        nonlocal passed
+        print(f"  {'ok' if cond else 'FAIL'} {name}")
+        if cond:
+            passed += 1
+        else:
+            failures.append(name)
+
+    # 1. Rule inventory: every check_plan* rule stays wired into main(), so
+    #    a refactor cannot silently drop a rejection family.
+    src = Path(__file__).read_text()
+    tree = ast.parse(src)
+    defined = {
+        node.name
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name.startswith("check_plan")
+    }
+    main_fn = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "main"
+    )
+    called = {
+        node.func.id
+        for node in ast.walk(main_fn)
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    check("rule-inventory-wired", bool(defined) and defined <= called)
+
+    # 2. Pure predicates fail closed on synthetic inputs.
+    check(
+        "forbidden-deps-pass",
+        check_forbidden_deps("t", {"a"}, {"b"}, "why") == 0,
+    )
+    check(
+        "forbidden-deps-fail",
+        check_forbidden_deps("t", {"a", "hyper"}, {"hyper"}, "why") == 1,
+    )
+    check(
+        "inventory-diff",
+        _inventory_diff({"a", "b"}, {"b", "c"}) == (["a"], ["c"]),
+    )
+
+    saved_file = globals().get("__file__", __file__)
+
+    @contextlib.contextmanager
+    def fake_repo():
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "scripts").mkdir()
+            globals()["__file__"] = str(root / "scripts" / "check-crate-topology.py")
+            try:
+                yield root
+            finally:
+                globals()["__file__"] = saved_file
+
+    def write(root: Path, rel: str, content: str = "") -> None:
+        path = root / rel
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
+    # 3. Plan 249: forbidden core H1 machinery and detached forwarders.
+    good_driver = (
+        "pub(crate) enum WireProtocol { Http1, Http2 }\n"
+        "pub(crate) fn classify_cleartext() {}\n"
+        "pub(crate) async fn serve_h2_with_token() {}\n"
+    )
+    good_facade = (
+        "pub async fn serve_http1_connection() {}\n"
+        "pub async fn serve_http1_connection_with_id() {}\n"
+    )
+    good_accept = "fn accept_loop() {\n    run_with_connection_shutdown();\n}\n"
+
+    def make_249(root: Path) -> None:
+        base = "crates/eggserve-core/src/server/connection"
+        write(root, f"{base}/driver.rs", good_driver)
+        write(root, f"{base}/mod.rs", good_facade)
+        write(root, "crates/eggserve-core/src/server/accept.rs", good_accept)
+
+    with fake_repo() as root:
+        make_249(root)
+        check("plan249-good", check_plan249_h1_authority() == 0)
+        base = "crates/eggserve-core/src/server/connection"
+        write(root, f"{base}/driver.rs", good_driver + "fn hyper_builder() {}\n")
+        check("plan249-h1-builder", check_plan249_h1_authority() == 1)
+        write(root, f"{base}/driver.rs", good_driver + "async fn serve_hyper_with_token() {}\n")
+        check("plan249-h1-driver-fn", check_plan249_h1_authority() == 1)
+        write(root, f"{base}/driver.rs", good_driver)
+        write(
+            root,
+            "crates/eggserve-core/src/server/accept.rs",
+            good_accept + "    tokio::spawn(async {});\n",
+        )
+        check("plan249-detached-forwarder", check_plan249_h1_authority() == 1)
+        write(root, "crates/eggserve-core/src/server/accept.rs", good_accept)
+        write(root, f"{base}/mod.rs", "pub async fn serve_http1_connection() {}\n")
+        check("plan249-facade-loss", check_plan249_h1_authority() == 1)
+
+    # 4. Plan 253: parallel helpers stay crate-private, pairs exist, H2 gated.
+    pairs = (
+        "activity",
+        "deferred_body",
+        "driver",
+        "lifecycle",
+        "pipeline",
+        "request",
+        "response",
+        "transport",
+    )
+    gated = (
+        "activity",
+        "deferred_body",
+        "lifecycle",
+        "pipeline",
+        "request",
+        "response",
+        "transport",
+    )
+
+    def make_253(root: Path) -> None:
+        for name in pairs:
+            write(root, f"crates/eggserve-server/src/connection/{name}.rs", f"// direct {name}\n")
+            write(root, f"crates/eggserve-core/src/server/connection/{name}.rs", f"// core {name}\n")
+        gates = "".join(
+            f'#[cfg(feature = "http2")]\npub(crate) mod {name};\n' for name in gated
+        )
+        write(root, "crates/eggserve-core/src/server/connection/mod.rs", gates)
+
+    with fake_repo() as root:
+        make_253(root)
+        check("plan253-good", check_plan253_overlap() == 0)
+        write(
+            root,
+            "crates/eggserve-core/src/server/connection/transport.rs",
+            "pub fn probe() {}\n",
+        )
+        check("plan253-core-public", check_plan253_overlap() == 1)
+        make_253(root)
+        write(
+            root,
+            "crates/eggserve-server/src/connection/request.rs",
+            "pub fn extra() {}\n",
+        )
+        check("plan253-direct-public", check_plan253_overlap() == 1)
+        make_253(root)
+        (root / "crates/eggserve-core/src/server/connection/pipeline.rs").unlink()
+        check("plan253-pair-loss", check_plan253_overlap() == 1)
+        make_253(root)
+        mod_rs = root / "crates/eggserve-core/src/server/connection/mod.rs"
+        mod_rs.write_text(mod_rs.read_text().replace('pub(crate) mod transport;\n', 'pub(crate) mod extra;\n'))
+        check("plan253-gate-loss", check_plan253_overlap() == 1)
+
+    # 5. Plan 219: second confinement authority fails closed.
+    with fake_repo() as root:
+        write(root, "crates/eggserve-core/src/lib.rs", "pub mod primitives;\n")
+        write(root, "crates/eggserve-core/src/fs/mod.rs", "pub struct Second;\n")
+        check("plan219-second-fs", check_plan219_confinement() == 1)
+        (root / "crates/eggserve-core/src/fs/mod.rs").unlink()
+        (root / "crates/eggserve-core/src/fs").rmdir()
+        write(
+            root,
+            "crates/eggserve-core/src/primitives/secure_root.rs",
+            "pub struct SecureRoot;\n",
+        )
+        check("plan219-second-struct", check_plan219_confinement() == 1)
+
+    # 6. Plan 225: inventory built from the same constant the gate enforces.
+    with fake_repo() as root:
+        core_src = root / "crates/eggserve-core/src"
+        for rel in PLAN225_CORE_MODULE_INVENTORY:
+            content = ""
+            if rel.startswith("primitives/") and rel not in {"primitives/interop.rs", "primitives/mod.rs"}:
+                content = "pub use eggserve_x::Y;\n"
+            if rel == "primitives/mod.rs":
+                content = "pub mod authority;\n"
+            write(root, f"crates/eggserve-core/src/{rel}", content)
+        (core_src / "primitives" / "canonical").mkdir(exist_ok=True)
+        write(root, "crates/eggserve-core/Cargo.toml", '[package]\nname = "x"\n[dependencies]\n')
+        # The canonical/ directory resurrection must fail even when the
+        # inventory is otherwise exact.
+        check("plan225-canonical-dir", check_plan225_facade() == 1)
+        (core_src / "primitives" / "canonical").rmdir()
+        check("plan225-good", check_plan225_facade() == 0)
+        write(root, "crates/eggserve-core/src/server/sneaky.rs", "pub fn x() {}\n")
+        check("plan225-new-module", check_plan225_facade() == 1)
+
+    # 7. Live-tree positives: the real repository still passes.
+    globals()["__file__"] = saved_file
+    check("live-plan249", check_plan249_h1_authority() == 0)
+    check("live-plan253", check_plan253_overlap() == 0)
+    check("live-plan219", check_plan219_confinement() == 0)
+    check("live-plan225", check_plan225_facade() == 0)
+    globals()["__file__"] = saved_file
+
+    if failures:
+        print(f"self-test failures: {failures}", file=sys.stderr)
+        return 1
+    print(f"self-test: {passed} checks passed")
+    return 0
+
+
 if __name__ == "__main__":
+    if "--self-test" in sys.argv:
+        raise SystemExit(run_self_tests())
     raise SystemExit(main())

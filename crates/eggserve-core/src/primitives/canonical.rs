@@ -13,11 +13,11 @@
 
 pub use eggserve_primitives::canonical::*;
 pub use eggserve_server::adapters::to_hyper_response;
-#[allow(unused_imports)]
-pub(crate) use eggserve_server::adapters::{
-    to_hyper_response_with_file_stream_semaphore,
-    to_hyper_response_with_file_stream_semaphore_and_chunk_size,
-};
+
+// H2-gated file-stream overload: the H2 pipeline calls it through the
+// compatibility path, so the re-export exists exactly when H2 compiles.
+#[cfg(feature = "http2")]
+pub(crate) use eggserve_server::adapters::to_hyper_response_with_file_stream_semaphore_and_chunk_size;
 
 /// Compatibility submodule preserving the 0.1
 /// `canonical::adapters::to_hyper_response` path.

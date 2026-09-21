@@ -6,9 +6,4 @@
 //! files for aesthetic symmetry; this module is the auditable pointer
 //! for lifecycle review.
 
-#![allow(unused_imports)]
-use eggserve_server::errors::ShutdownResult;
-use eggserve_core::server::lifecycle::LifecycleState;
 
-pub(super) use super::runtime::wait_until_running;
-pub(super) use super::runtime::STARTUP_TIMEOUT;

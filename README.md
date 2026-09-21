@@ -201,6 +201,23 @@ and per-connection shutdown is structured under the connection task with no
 detached forwarder. See
 `release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
+### Choosing a Rust profile
+
+- **Direct generic H1 substrate:** depend on `eggserve-primitives` +
+  `eggserve-server` (add `eggserve-static` for confined static serving).
+  This is the leaf architecture for the generic H1 runtime and canonical
+  `Service` boundary. The accepted `http2`/`tls` feature names on
+  `eggserve-server` are inert compatibility names; the direct crate stays
+  H1-only.
+- **Compatibility/multiprotocol composition:** depend on
+  `eggserve-core::server` when H2, extended TLS/listener/proxy
+  integration, or the H3 facade is needed. `eggserve-core` is a supported
+  compatibility/composition umbrella, not deprecated; H2/H3 remain
+  experimental and the canonical application types remain Hyper-free.
+
+See `docs/public-api-boundary.md` for the full boundary and
+`architecture/crate-topology.md` for the ownership ledger.
+
 Plan 212 extracts the reusable server-side TLS security substrate into
 [`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).
 It has only rustls and rustls-pki-types as production dependencies and owns
