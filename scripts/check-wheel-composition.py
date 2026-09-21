@@ -21,12 +21,21 @@ def main() -> int:
 
     for wheel in wheels:
         with zipfile.ZipFile(wheel) as archive:
+            names = set(archive.namelist())
             forbidden = [
                 name for name in archive.namelist() if name.startswith("eggserve/bin/eggserve")
             ]
+            required = {"eggserve/lowlevel.pyi", "eggserve/py.typed"}
+            missing = sorted(required - names)
         if forbidden:
             print(
                 f"FAIL: {wheel.name} contains bundled executable: {forbidden}",
+                file=sys.stderr,
+            )
+            return 1
+        if missing:
+            print(
+                f"FAIL: {wheel.name} is missing typed-package members: {missing}",
                 file=sys.stderr,
             )
             return 1

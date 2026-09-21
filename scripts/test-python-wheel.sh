@@ -63,6 +63,8 @@ else
     WHEEL_SIZE="$(stat -f '%z' "$WHEEL_PATH")"
 fi
 info "Wheel size: $WHEEL_SIZE bytes"
+info "Checking wheel composition"
+"$PYTHON" "$REPO_ROOT/scripts/check-wheel-composition.py" "$DIST_DIR"
 
 # Create venv and install wheel
 VENV_DIR="$(mktemp -d)"
@@ -72,6 +74,12 @@ VENV_PYTHON="$VENV_DIR/bin/python"
 
 info "Installing wheel"
 "$VENV_PYTHON" -m pip install --disable-pip-version-check -q "$DIST_DIR"/*.whl
+
+info "Installing typing checker"
+"$VENV_PYTHON" -m pip install --disable-pip-version-check -q mypy==1.17.1
+info "Running installed-wheel typing smoke"
+"$PYTHON" "$REPO_ROOT/scripts/check-python-types.py" \
+    --python "$VENV_PYTHON" "$REPO_ROOT/crates/eggserve-python/tests/typing_smoke.py"
 
 # Import boundary assertion
 info "Verifying import boundary"

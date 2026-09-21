@@ -1,5 +1,6 @@
 """Type stubs for eggserve._native canonical request types."""
 
+import os
 from typing import Any, Callable, List, Optional, Tuple
 
 # ---------------------------------------------------------------------------
@@ -340,7 +341,7 @@ class StaticPolicyWrapper:
 
 class ServerSecureRoot:
     root_path: str
-    def __init__(self, path: str, policy: StaticPolicyWrapper | None = None) -> None: ...
+    def __init__(self, path: str | os.PathLike[str], policy: StaticPolicyWrapper | None = None) -> None: ...
 
 class StaticResponder:
     def __init__(self, root: ServerSecureRoot) -> None: ...
