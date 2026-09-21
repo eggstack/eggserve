@@ -345,8 +345,11 @@ Implementation plans:
 - `plans/247-leaf-surface-orphan-source-qualification-cleanup.md`
 - `plans/248-api-preserving-maintainability-closure.md`
 
-Status: PLANNED. Baseline for the audit and handoff:
-`673b6c60dab09d728b05d9e979be91bfc5417050`.
+Status: COMPLETE. Baseline for the audit and handoff:
+`673b6c60dab09d728b05d9e979be91bfc5417050`. Final candidate
+`3fb59e4560b74407b7faed3a09aaae5974d3d36a` passed remote CI run
+`35602644725`; the final metadata-record commit is the documentation commit
+containing this status update.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 

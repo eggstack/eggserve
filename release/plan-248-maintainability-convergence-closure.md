@@ -1,6 +1,6 @@
 # Plans 243–248 maintainability convergence closure
 
-Status: qualification record in progress.
+Status: COMPLETE.
 
 Baseline SHA: `673b6c60dab09d728b05d9e979be91bfc5417050`.
 
@@ -46,13 +46,15 @@ Passed focused checks:
   check.
 
 Final routine matrix, package checks, focused protocol checks, and remote CI
-provenance are appended here at closure.
+provenance are recorded by the final candidate below.
 
 ## Final candidate and remote CI
 
-Final candidate SHA: pending final commit.
+Final candidate SHA: `3fb59e4560b74407b7faed3a09aaae5974d3d36a`.
 
-Remote CI run IDs/URLs and conclusions: pending push.
+Remote CI: [run 35602644725](https://github.com/eggstack/eggserve/actions/runs/35602644725) — success.
 
-The status changes to complete only after the exact final candidate has green
-local routine/security/package checks and successful remote CI.
+The final candidate passed local formatting, conformance/topology/metadata,
+workspace and feature-matrix tests/clippy, the excluded Python crate check,
+wheel typing and Python tests, supply-chain audits, and layered package
+verification before the exact remote CI run passed.
