@@ -470,6 +470,60 @@ exact-SHA remote CI run `35653232800` (rust / supply-chain / python all
 success, 2026-09-21); the final metadata-record commit is the
 documentation commit containing this status update.
 
+## Post-256 async suppressed-body lifetime corrective — Plans 257–258
+
+**Plans 257–258** are a narrow post-closure corrective for one resource-lifetime
+defect discovered after Plans 251–256 were marked complete. They do not reopen
+the Python typing, Rust authority, topology, import-cleanup, or broader
+async-parity results from that campaign.
+
+Current corrective baseline:
+`cd6061a97f6538d013f0fac2adc1653a96097dd0`.
+
+Plan 254 correctly changed async streamed responses so the application iterable
+is not advanced until the native response body is first pulled. That fixed
+HEAD/body-forbidden application-state consumption, but the first-pull wait is
+owned by a producer task that also owns the `AsyncServer` application permit.
+For HEAD/204-style suppression, Rust correctly drops the Python iterable without
+polling it. The current cancellation path lives inside the synchronous Python
+generator's `finally`, and a generator that has never been entered does not
+execute that `finally` when closed/dropped. The producer can therefore remain
+parked until `response_write_timeout_secs` and retain its async permit.
+
+With a small `max_async_tasks` bound, repeated suppressed stream responses can
+temporarily consume all permits and make an otherwise-valid next request fail
+fast with 503 even though no application stream work is active.
+
+```text
+257  explicit suppressed-stream lifetime / permit corrective
+ |
+258  focused resource-lifetime + full-wheel + exact-SHA CI closure
+```
+
+Plan 257 requires a deterministic `max_async_tasks=1` reproducer before the
+fix and an explicit lifetime owner/drop path that works even when the stream
+iterator is never entered. It must not duplicate the canonical HTTP
+body-suppression status table in Python; canonical Rust remains the authority
+for whether a body is consumed.
+
+Plan 258 proves immediate permit reuse for HEAD/body-forbidden streams,
+repeated suppressed-response task closure, exactly-once cleanup across
+drop/error/timeout/shutdown races, ordinary stream non-regression, public API
+preservation, installed-wheel qualification, and exact-SHA remote CI.
+
+Implementation plans:
+
+- `plans/257-async-python-suppressed-body-permit-lifetime-corrective.md`
+- `plans/258-post-256-async-suppressed-body-lifetime-corrective-closure.md`
+
+Status: **PLANNED**.
+
+Plans 251–256 remain historically complete on candidate
+`4c145421c851fffa5e1f6762a7ef742c5db1e5d8` / CI run `35653232800`;
+Plans 257–258 supersede only the async suppressed-body permit/task-lifetime
+closure claim. The other Plan 256 results remain closed unless new evidence
+shows otherwise.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.
