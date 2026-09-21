@@ -345,7 +345,9 @@ Implementation plans:
 - `plans/247-leaf-surface-orphan-source-qualification-cleanup.md`
 - `plans/248-api-preserving-maintainability-closure.md`
 
-Status: COMPLETE AS EXECUTED, WITH POST-CLOSURE CORRECTIVE OPEN.
+Status: COMPLETE AS EXECUTED; POST-CLOSURE CORRECTIVE CLOSED BY PLANS 249–250
+(`release/plan-250-h1-authority-lifetime-corrective-closure.md`, candidate
+`e38d12d7d177888e7fc38fea42cc51f5a0ee5169`, remote CI run `35618901331`).
 Baseline for the audit and handoff:
 `673b6c60dab09d728b05d9e979be91bfc5417050`. Final candidate
 `3fb59e4560b74407b7faed3a09aaae5974d3d36a` passed remote CI run
@@ -393,8 +395,12 @@ Implementation plans:
 - `plans/249-core-auto-h1-authority-and-shutdown-forwarder-corrective.md`
 - `plans/250-post-248-h1-authority-lifetime-corrective-closure.md`
 
-Status: PLANNED. Corrective baseline:
-`4b2af07991d20234d5167d08311ba6b18006025a`.
+Status: COMPLETE. Corrective baseline:
+`4b2af07991d20234d5167d08311ba6b18006025a`. Implementation/evidence
+candidate `e38d12d7d177888e7fc38fea42cc51f5a0ee5169` passed exact-SHA remote
+CI run `35618901331` (rust / supply-chain / python all success, 2026-09-21);
+evidence record
+`release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
