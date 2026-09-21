@@ -194,6 +194,12 @@ isolated from implementation modules. The topology gate rejects orphan
 production Rust sources and documents accepted inert feature names on the H1
 only leaf crates. See
 `release/plan-248-maintainability-convergence-closure.md` for evidence.
+Plans 249–250 close the post-closure corrective: normal compatibility `Auto`
+classification resolves before any Hyper service exists and every H1 path
+delegates to the single `eggserve-server` authority (core drives H2 only),
+and per-connection shutdown is structured under the connection task with no
+detached forwarder. See
+`release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
 Plan 212 extracts the reusable server-side TLS security substrate into
 [`eggnet-tls`](https://github.com/eggstack/eggserve/tree/main/crates/eggnet-tls).

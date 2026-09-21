@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Enforce the Plan 211–247 Cargo dependency topology.
+"""Enforce the Plan 211–249 Cargo dependency topology.
 
 This is intentionally a small metadata check rather than a line-count or
 source-layout rule. Cargo's resolved direct package graph is the contract:
@@ -216,6 +216,9 @@ def main() -> int:
     if check_plan244_authority_convergence() != 0:
         return 1
 
+    if check_plan249_h1_authority() != 0:
+        return 1
+
     if check_plan247_leaf_surfaces() != 0:
         return 1
 
@@ -233,7 +236,7 @@ def main() -> int:
             return 1
 
     print(
-        "Plan 211–247 topology: primitives leaf; neutral TLS; "
+        "Plan 211–249 topology: primitives leaf; neutral TLS; "
         "server transport-only; static specializes both; H3 adapter owned; "
         "direct H1 runtime owns ops/errors/policy/authority/service/driver; "
         "direct tunnel authority with neutral vocabulary; "
@@ -247,7 +250,9 @@ def main() -> int:
         "(no second canonical implementation, no leftover MIME dependency); "
         "Plans 243–247: durable shutdown/task drain, direct H1/static "
         "delegation, Python typing artifacts, orphan-source rejection, and "
-        "inert accepted feature names"
+        "inert accepted feature names; "
+        "Plan 249: single H1 authority (no core Hyper H1 execution, Auto "
+        "classifies before Hyper) with structured per-connection shutdown"
     )
     return 0
 
@@ -277,6 +282,142 @@ def check_plan244_authority_convergence() -> int:
                 file=sys.stderr,
             )
             return 1
+    return 0
+
+
+def check_plan249_h1_authority() -> int:
+    """Forbid a second executable core H1 path (Plan 249).
+
+    Why H1 markers are forbidden in core: `eggserve-server` is the single H1
+    execution authority (Hyper H1 builder/connection/driver). Compatibility
+    `Auto` classification must resolve before any Hyper service exists and
+    delegate H1 bytes to the direct driver; core keeps only H2-specific
+    execution plus protocol-selection/replay composition. The markers below
+    are the executable H1 machinery removed by Plan 249 Track B — their
+    return would silently resurrect a core Hyper H1 pipeline beside the
+    direct authority. H2 Hyper ownership (`hyper2_builder`,
+    `http2::Connection`, `serve_h2_with_token`), the bounded H2
+    prior-knowledge classifier (`classify_cleartext`), replay composition
+    (`PrefixedIo`), and direct calls into `eggserve_server::connection::*`
+    remain allowed.
+    """
+    repo = Path(__file__).resolve().parent.parent
+
+    def code_lines(text: str) -> str:
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if not line.lstrip().startswith(("///", "//!", "//"))
+        )
+
+    # Production code only: `#[cfg(test)]` modules legitimately use
+    # `tokio::spawn` (test senders) and assert on `WireProtocol::Http1`.
+    driver = code_lines(
+        (repo / "crates/eggserve-core/src/server/connection/driver.rs")
+        .read_text()
+        .split("#[cfg(test)]")[0]
+    )
+    facade = code_lines(
+        (repo / "crates/eggserve-core/src/server/connection/mod.rs")
+        .read_text()
+        .split("#[cfg(test)]")[0]
+    )
+    accept = code_lines(
+        (repo / "crates/eggserve-core/src/server/accept.rs")
+        .read_text()
+        .split("#[cfg(test)]")[0]
+    )
+
+    # 1. No core HTTP/1 Hyper builder or H1 connection execution ownership.
+    for marker in (
+        "fn hyper_builder",
+        "http1::Builder",
+        "http1::Connection",
+        "UpgradeableConnection",
+    ):
+        if marker in driver:
+            print(
+                f"core connection driver keeps executable H1 `{marker}` "
+                "(Plan 249: H1 execution lives once in eggserve-server)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 2. No removed H1-capable driver helpers (Auto→H1 Hyper execution).
+    for marker in (
+        "fn serve_connection(",
+        "fn serve_hyper_with_token(",
+        "fn serve_selected_with_token",
+        "fn serve_selected_resolved_with_token",
+        "fn serve_hyper_with_token_auto",
+    ):
+        if marker in driver:
+            print(
+                f"core connection driver keeps `{marker}` "
+                "(Plan 249: Auto classifies before Hyper; H1 delegates, H2 only)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 3. No second `serve_http1_connection` implementation in the driver;
+    #    the mod.rs facades must delegate rather than execute.
+    if "fn serve_http1_connection" in driver:
+        print(
+            "core connection driver keeps a second `serve_http1_connection` "
+            "(Plan 249: H1 facades live in mod.rs and delegate to eggserve-server)",
+            file=sys.stderr,
+        )
+        return 1
+    for facade_fn in (
+        "pub async fn serve_http1_connection",
+        "pub async fn serve_http1_connection_with_id",
+    ):
+        if facade_fn not in facade:
+            print(
+                f"core connection facade lost `{facade_fn}` (Plan 249: public H1 "
+                "entry points remain source-compatible)",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 4. No resolved `WireProtocol::Http1` Hyper-driving block in the
+    #    driver. (The classifier still *returns* Http1, the H2 path still
+    #    *logs* it via `=> "http/1.1"`, and tests still assert it; only a
+    #    Hyper-executing `=> {` block is forbidden.)
+    if "WireProtocol::Http1 => {" in driver:
+        print(
+            "core connection driver keeps a resolved `WireProtocol::Http1` "
+            "execution branch (Plan 249: H1 delegates to eggserve-server)",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 5. No detached per-connection shutdown forwarder in the accept path.
+    #    Connection tasks are JoinSet-owned; shutdown bridges inline via
+    #    `run_with_connection_shutdown` so the receiver drops with the task.
+    if "tokio::spawn" in accept:
+        print(
+            "core accept path spawns a detached task (Plan 249 Track C: "
+            "per-connection shutdown forwarding must be structured under the "
+            "connection task via `run_with_connection_shutdown`)",
+            file=sys.stderr,
+        )
+        return 1
+    if "forwarder_shutdown" in accept or "forwarder_rx" in accept:
+        print(
+            "core accept path keeps detached-forwarder state (Plan 249 Track C: "
+            "remove the resubscribed forwarder task; bridge inline)",
+            file=sys.stderr,
+        )
+        return 1
+    if "run_with_connection_shutdown" not in accept:
+        print(
+            "core accept path lost `run_with_connection_shutdown` "
+            "(Plan 249 Track C: structured shutdown ownership)",
+            file=sys.stderr,
+        )
+        return 1
+
     return 0
 
 

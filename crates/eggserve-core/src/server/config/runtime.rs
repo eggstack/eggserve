@@ -11,7 +11,6 @@ use std::time::Duration;
 #[cfg(feature = "tls")]
 use std::sync::Arc;
 
-use super::http1::Http1Config;
 #[cfg(feature = "http2")]
 use super::http2::Http2Config;
 #[cfg(feature = "http3")]
@@ -276,14 +275,6 @@ impl RuntimeConfig {
             response_write_timeout: self.response_write_timeout,
             max_active_tunnels: self.max_active_tunnels,
             trusted_proxy: self.trusted_proxy.clone(),
-        }
-    }
-
-    /// Project the legacy-compatible fields into the HTTP/1 protocol config.
-    pub(crate) fn http1_config(&self) -> Http1Config {
-        Http1Config {
-            max_buf_size: self.max_buf_size,
-            max_headers: self.max_headers,
         }
     }
 

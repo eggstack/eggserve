@@ -252,3 +252,17 @@ Plan 248 owns final package/wheel/platform/remote-CI closure.
 Do not redesign public `Service` or response types, promote H2/H3, merge H3
 into the server crate, add a framework API, or move static filesystem concerns
 into the generic runtime.
+
+## Executed-result note (Plan 249 corrective)
+
+Single H1 authority was not fully closed by the initial 244 implementation:
+explicit `Http1` delegated to `eggserve-server`, but `WireProtocol::Auto`
+classified to `Http1` after core had committed to its private Hyper
+service/driver pipeline, so ordinary cleartext (plus PROXY-replayed and Unix)
+H1 still executed core Hyper H1. Accepted connections also spawned detached
+broadcast-shutdown forwarders that outlived normal connection completion.
+Plan 249 completed the corrective: `Auto` classifies before any Hyper service
+exists and H1 delegates the replayable stream to the direct driver; core keeps
+only H2-specific execution; per-connection shutdown is structured under the
+connection task. See `plans/249-core-auto-h1-authority-and-shutdown-forwarder-corrective.md`
+and the Plan 250 closure record.

@@ -26,7 +26,13 @@ Plans 243–247 finish the next authority/maintainability pass. The direct
 server's shutdown state is durable and its accept loop owns and drains accepted
 connection tasks. Core H1 entry points project configuration and shared runtime
 state into the direct H1 driver; core remains the owner of H2/TLS/proxy
-composition. The direct static crate now also owns `StaticService` request
+composition. Plan 249 completes the single-H1-authority corrective: normal
+compatibility `Auto` classification resolves before any Hyper service exists
+and every H1 path (cleartext, PROXY-replayed, Unix, TLS ALPN) delegates the
+replayable stream to `eggserve-server`; core constructs no Hyper H1
+connection and drives H2 only. Per-connection shutdown is structured under
+the connection task (`run_with_connection_shutdown`) with no detached
+forwarder. The direct static crate now also owns `StaticService` request
 planning and rendering, while core's `StaticService` is a compatibility wrapper.
 The Python wheel carries maintained stubs and `py.typed`, and native PyO3
 registration is isolated from implementation modules. The topology checker
@@ -245,4 +251,13 @@ runtime-owned task draining, direct delegation at compatibility H1 entry points,
 direct static-service ownership with no core renderer, wheel typing artifacts
 plus a decomposed registration module, zero orphan production Rust sources, and
 inert accepted `http2`/`tls`/`http-interop` feature declarations where those
-direct leaves are intentionally H1/transport-neutral.
+direct leaves are intentionally H1/transport-neutral. The Plan 249 rules close
+the single-H1-authority gap the 244 gate missed: core must contain no Hyper H1
+builder/connection/driver machinery (`fn hyper_builder`, `http1::Connection` /
+`UpgradeableConnection` execution, a resolved `WireProtocol::Http1` Hyper
+branch, a second `serve_http1_connection`, or the removed H1 driver helpers),
+and the accept path must contain no detached per-connection shutdown forwarder
+(`tokio::spawn` / `forwarder_*` state; `run_with_connection_shutdown` owns the
+receiver inline). Allowed: H2 Hyper ownership, the bounded H2 prior-knowledge
+classifier, `PrefixedIo` replay composition, and direct calls into
+`eggserve_server::connection::*`.

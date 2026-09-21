@@ -17,9 +17,11 @@ one-shot request-body and response-stream semantics, and has no static-file
 edge. Since Plan 215 it is the implementation home of the mature H1
 connection runtime (ops, error taxonomy, response policy, shared limit
 authority, service contract shape, connection vocabulary, H1 config/state,
-H1 driver, Hyper conversion boundary), proven wire-for-wire against the
-compatibility pipeline by `crates/eggserve-core/tests/direct_h1_parity.rs`
-(16 scenarios; tunnel excluded, Plan 216 input) plus the Plan 217 direct-service convergence fixture. `eggserve-static`
+ H1 driver, Hyper conversion boundary; Plan 249: the only production H1 Hyper
+builder/connection driver, with compatibility `Auto` classified before any
+Hyper service exists and core executing H2 only), proven wire-for-wire against
+the compatibility pipeline by `crates/eggserve-core/tests/direct_h1_parity.rs`
+(16 scenarios; tunnel excluded, Plan 216 input) plus the Plan 217 direct-service convergence fixture and the Plan 249 `auto_h1_delegation` accept-path suite. `eggserve-static`
 composes hardened static behavior on top. The
 historical `eggserve-core::server` remains the compatibility runtime for
 advanced H2/H3, tunnel, listener, proxy, and TLS paths during extraction.
@@ -504,12 +506,21 @@ EOF/keep-alive close), `ClientError` (protocol or client error),
 `Internal`. `is_clean()` returns `true` for `Normal`, `Shutdown`, and
 `IdleTimeout`.
 
-**TCP/TLS Server** uses the same pipeline via the strict H1 entry or the
-feature-gated protocol selector, bridging its `broadcast` shutdown signal to a
-per-connection `ConnectionShutdown` token. TLS selects from ALPN (`h2` then
-`http/1.1`); cleartext H2 uses bounded prior-knowledge detection. Raw Hyper
-helpers (`serve_connection`, `serve_connection_with_runtime_state`) are
-`pub(crate)` — external callers use the public connection facade.
+**TCP/TLS Server** drives H1 through the single direct authority:
+`eggserve-server` owns every Hyper H1 connection; the compatibility layer
+owns H2 selection/execution plus PROXY/TLS/listener composition. The
+feature-gated protocol selector resolves `Auto` via bounded cleartext
+H2-prior-knowledge detection before any Hyper service exists — H1 delegates
+the replayable stream to the direct driver, H2 enters core H2 execution.
+TLS selects from ALPN (`h2` then `http/1.1`), with ALPN H1 delegating to the
+same direct authority. The accept loop bridges its `broadcast` shutdown
+signal to a per-connection `ConnectionShutdown` token inline
+(`run_with_connection_shutdown`, structured under the JoinSet-owned
+connection task; no detached forwarder, receiver drops on normal completion).
+The historical `serve_connection_with_runtime_state` compatibility entry
+likewise adapts its broadcast receiver to the token in-task and delegates to
+the direct H1 driver. Raw Hyper helpers are `pub(crate)` — external callers
+use the public connection facade.
 
 The runnable caller-owned-stream demonstration is
 [`caller_owned_stream.rs`](../crates/eggserve-core/examples/caller_owned_stream.rs):

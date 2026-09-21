@@ -113,6 +113,10 @@ pub(crate) fn canonical_error_owned_with_policy(
 /// The canonical module owns the status/reason/body representation. This
 /// wrapper applies the existing Hyper body type and leaves status selection to
 /// its callers; no application detail is reflected.
+///
+/// H2-only (Plan 249): H1 execution lives in `eggserve-server`; core builds
+/// Hyper error responses only for the H2-specific pipeline.
+#[cfg(feature = "http2")]
 pub(crate) fn runtime_error_with_policy(
     status: StatusCode,
     is_head: bool,
@@ -137,6 +141,7 @@ pub fn bad_request(is_head: bool) -> Response<BoxBodyInner> {
     canonical_error(StatusCode::BAD_REQUEST, "400 Bad Request\n", is_head)
 }
 
+#[cfg(feature = "http2")]
 pub fn bad_request_with_policy(
     is_head: bool,
     policy: crate::policy::ErrorRepresentationPolicy,
@@ -158,6 +163,7 @@ pub fn payload_too_large(is_head: bool) -> Response<BoxBodyInner> {
     )
 }
 
+#[cfg(feature = "http2")]
 pub fn payload_too_large_with_policy(
     is_head: bool,
     policy: crate::policy::ErrorRepresentationPolicy,
@@ -179,6 +185,7 @@ pub fn internal_error() -> Response<BoxBodyInner> {
     )
 }
 
+#[cfg(feature = "http2")]
 pub fn internal_error_with_policy(
     policy: crate::policy::ErrorRepresentationPolicy,
 ) -> Response<BoxBodyInner> {
@@ -199,6 +206,7 @@ pub fn service_unavailable() -> Response<BoxBodyInner> {
     )
 }
 
+#[cfg(feature = "http2")]
 pub fn service_unavailable_with_policy(
     policy: crate::policy::ErrorRepresentationPolicy,
 ) -> Response<BoxBodyInner> {
@@ -210,6 +218,7 @@ pub fn service_unavailable_with_policy(
     )
 }
 
+#[cfg(feature = "http2")]
 pub fn expectation_failed_with_policy(
     is_head: bool,
     policy: crate::policy::ErrorRepresentationPolicy,
@@ -222,7 +231,7 @@ pub fn expectation_failed_with_policy(
     )
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "http2"))]
 pub fn not_found(is_head: bool) -> Response<BoxBodyInner> {
     canonical_error(StatusCode::NOT_FOUND, "404 Not Found\n", is_head)
 }

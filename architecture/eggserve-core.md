@@ -177,7 +177,7 @@ Resource limits with safe defaults:
 
 **Experimental** — API is subject to change without notice.
 
-The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and the canonical transport-neutral connection drivers (`serve_http1_connection` for strict H1 and the feature-gated `serve_http_connection` for H1/H2). The drivers serve both TCP/TLS connections from the accept loop and caller-owned byte streams sharing the same pipeline. Downstream projects provide a `Service` implementation; the runtime handles everything else.
+The `server` module provides a reusable, transport-owning HTTP runtime for embedding. It owns the TCP accept loop, connection management, optional TLS, and protocol-selection/composition glue. Strict-H1 entry points (`serve_http1_connection`) are compatibility facades delegating to the single `eggserve-server` H1 authority; the feature-gated `serve_http_connection` resolves `Auto` via bounded H2-prior-knowledge detection before any Hyper service exists (H1 delegates the replayable stream to direct, H2 enters core H2 execution). The drivers serve both TCP/TLS connections from the accept loop and caller-owned byte streams. Downstream projects provide a `Service` implementation; the runtime handles everything else.
 
 ### `Server` and `ServerBuilder`
 

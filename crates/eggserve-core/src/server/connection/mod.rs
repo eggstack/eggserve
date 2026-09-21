@@ -36,8 +36,9 @@
 //!   activity.rs      in-flight/outstanding/deferred counters, admission guard,
 //!                    tracked response bodies, connection `OpsContext` carrier
 //!   transport.rs     ProgressIo read/write progress observation
-//!   driver.rs        Hyper builder, graceful close, outcome classification,
-//!                    deadline/select loop, TCP + caller-token adapters
+//!   driver.rs        protocol selection/replay composition + H2-specific
+//!                    Hyper execution (Plan 249: no core H1 driver; H1 is
+//!                    direct-owned via `eggserve-server`)
 //!   pipeline.rs      CanonicalHyperService + request/service dispatch
 //!   request.rs       target/header ceilings, framing checks, body-policy
 //!                    selection, Hyper body bridge
@@ -59,14 +60,21 @@
 // outside service execution (e.g., during transport-body conversion) still
 // propagate to the JoinSet task boundary.
 
+#[cfg(feature = "http2")]
 pub(crate) mod activity;
 pub(crate) mod context;
+#[cfg(feature = "http2")]
 pub(crate) mod deferred_body;
 pub(crate) mod driver;
+#[cfg(feature = "http2")]
 pub(crate) mod lifecycle;
+#[cfg(feature = "http2")]
 pub(crate) mod pipeline;
+#[cfg(feature = "http2")]
 pub(crate) mod request;
+#[cfg(feature = "http2")]
 pub(crate) mod response;
+#[cfg(feature = "http2")]
 pub(crate) mod transport;
 
 pub use context::{ConnectionContext, ConnectionOutcome, ConnectionShutdown};
@@ -80,26 +88,29 @@ use crate::server::config::RuntimeConfig;
 use crate::server::service::Service;
 use crate::server::RuntimeState;
 
-use self::activity::ConnectionActivity;
 #[cfg(feature = "http2")]
-use self::driver::serve_selected_with_token;
-use self::driver::{
-    serve_connection, serve_hyper_with_token, serve_hyper_with_token_auto, WireProtocol,
-};
+use self::activity::ConnectionActivity;
+use self::driver::WireProtocol;
+#[cfg(feature = "http2")]
+use self::driver::{classify_cleartext, serve_h2_with_token};
+#[cfg(feature = "http2")]
 use self::lifecycle::ConnectionRequests;
+#[cfg(feature = "http2")]
 use self::pipeline::make_canonical_hyper_service;
 
 /// Serve a single connection with a custom [`Service`] implementation.
 ///
 /// This is a compatibility wrapper that builds a [`ConnectionContext`] from
-/// the TCP socket addresses and delegates to [`make_canonical_hyper_service`]
-/// and [`serve_connection`]. New callers should use
-/// [`serve_http1_connection`] with an explicit [`ConnectionContext`].
+/// the TCP socket addresses and delegates to the direct H1 authority
+/// (`eggserve-server`). New callers should use [`serve_http1_connection`]
+/// with an explicit [`ConnectionContext`].
 ///
-/// Panics raised while polling the service future are contained and mapped
-/// to [`ServiceError::panic`], producing a 500 response. Panics outside
-/// service execution propagate to the tokio task boundary, are caught by
-/// the `JoinSet` in the accept loop, and drop the connection with a
+/// The broadcast shutdown receiver is adapted to a [`ConnectionShutdown`]
+/// within this same task (Plan 249 Track C): no detached forwarder task is
+/// created. Panics raised while polling the service future are contained and
+/// mapped to [`ServiceError::panic`], producing a 500 response. Panics
+/// outside service execution propagate to the tokio task boundary, are caught
+/// by the `JoinSet` in the accept loop, and drop the connection with a
 /// `ConnectionPanic` event.
 #[allow(clippy::too_many_arguments)]
 pub async fn serve_connection_with_runtime_state<I, S>(
@@ -122,39 +133,30 @@ pub async fn serve_connection_with_runtime_state<I, S>(
     } else {
         ConnectionContext::for_tcp(local_addr, remote_addr, None)
     };
-    let service = Arc::new(service);
-    let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
-    let service_semaphore = runtime_state.service_semaphore().clone();
-    let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
-    let ops = runtime_state.ops().clone();
-    let activity = Arc::new(ConnectionActivity::new(ops.clone()));
-    let requests = Arc::new(ConnectionRequests::new());
-    let hyper_service = make_canonical_hyper_service(
+    // Plan 249 Track B: historical H1 entry point delegates to the direct H1
+    // authority rather than a private core H1 driver. The broadcast receiver
+    // is bridged to the canonical token inline so no detached forwarder
+    // outlives this future.
+    let conn_shutdown = ConnectionShutdown::new();
+    let direct = eggserve_server::connection::serve_http1_connection_with_id(
+        io.into_inner(),
         service,
-        config.clone(),
-        file_stream_semaphore,
-        service_semaphore,
-        tunnel_semaphore,
-        activity.clone(),
-        requests.clone(),
-        config.stream_chunk_size,
-        config.handler_timeout,
-        config.body_read_timeout,
-        config.max_request_body_bytes,
+        Arc::new(config.direct_h1_config()),
         context,
+        Arc::new(runtime_state.direct.clone()),
+        &conn_shutdown,
         conn_id,
-        ops,
     );
-    let _ = serve_connection(
-        io,
-        hyper_service,
-        &config,
-        &activity,
-        &requests,
-        shutdown_rx,
-        conn_id,
-    )
-    .await;
+    tokio::pin!(direct);
+    let recv = shutdown_rx.recv();
+    tokio::pin!(recv);
+    tokio::select! {
+        _ = &mut direct => {}
+        _ = &mut recv => {
+            conn_shutdown.shutdown();
+            let _ = direct.await;
+        }
+    }
 }
 
 /// Serve one HTTP/1 connection over any suitable bidirectional async byte
@@ -340,8 +342,7 @@ where
 {
     // Plan 179 Track C: reject hand-constructed invalid configs before
     // Hyper/semaphore use. Caller-owned drivers bypass `ServerBuilder`, so
-    // this is the ownership boundary. `hyper_builder` still clamps
-    // `max_buf_size` as last-resort panic protection.
+    // this is the ownership boundary.
     if let Err(e) = config.validate() {
         runtime_state.ops().emit(
             crate::ops::Event::new(
@@ -354,9 +355,12 @@ where
         return ConnectionOutcome::Internal;
     }
 
-    // HTTP/1 execution is owned by the direct server crate. Compatibility
-    // retains the surrounding protocol selection and TLS/proxy orchestration,
-    // but never builds a second H1 pipeline.
+    // Plan 249 Track A/B: single H1 authority. Explicit `Http1` (including
+    // TLS ALPN H1) delegates immediately to `eggserve-server`. `Auto` is
+    // classified before any Hyper service is constructed; H1 delegates the
+    // replayable stream to the direct driver, H2 enters H2-specific core
+    // execution. Core never constructs or drives a Hyper H1 connection.
+    #[cfg(any(feature = "tls", feature = "http2"))]
     if matches!(protocol, WireProtocol::Http1) {
         return eggserve_server::connection::serve_http1_connection_with_id(
             io,
@@ -369,33 +373,52 @@ where
         )
         .await;
     }
-    let io = TokioIo::new(io);
-    let service = Arc::new(service);
-    let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
-    let service_semaphore = runtime_state.service_semaphore().clone();
-    let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
-    let ops = runtime_state.ops().clone();
-    let activity = Arc::new(ConnectionActivity::new(ops.clone()));
-    let requests = Arc::new(ConnectionRequests::new());
-    let hyper_service = make_canonical_hyper_service(
-        service,
-        config.clone(),
-        file_stream_semaphore,
-        service_semaphore,
-        tunnel_semaphore,
-        activity.clone(),
-        requests.clone(),
-        config.stream_chunk_size,
-        config.handler_timeout,
-        config.body_read_timeout,
-        config.max_request_body_bytes,
-        context,
-        conn_id,
-        ops,
-    );
-    match protocol {
-        WireProtocol::Http1 => {
-            serve_hyper_with_token(
+    #[cfg(not(feature = "http2"))]
+    {
+        // Without `http2`, H1 is the sole authority: `Auto` is cleartext H1
+        // with no preface sniffing and no H2 dependency. Explicit `Http1`
+        // (TLS ALPN) returns above; only `Auto` reaches here.
+        let _ = protocol;
+        debug_assert!(matches!(protocol, WireProtocol::Auto));
+        return eggserve_server::connection::serve_http1_connection_with_id(
+            io,
+            service,
+            Arc::new(config.direct_h1_config()),
+            context,
+            Arc::new(runtime_state.direct.clone()),
+            shutdown,
+            conn_id,
+        )
+        .await;
+    }
+    #[cfg(feature = "http2")]
+    {
+        // Explicit H2 enters H2-specific core execution directly.
+        if matches!(protocol, WireProtocol::Http2) {
+            let service = Arc::new(service);
+            let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+            let service_semaphore = runtime_state.service_semaphore().clone();
+            let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
+            let ops = runtime_state.ops().clone();
+            let activity = Arc::new(ConnectionActivity::new(ops.clone()));
+            let requests = Arc::new(ConnectionRequests::new());
+            let hyper_service = make_canonical_hyper_service(
+                service,
+                config.clone(),
+                file_stream_semaphore,
+                service_semaphore,
+                tunnel_semaphore,
+                activity.clone(),
+                requests.clone(),
+                config.stream_chunk_size,
+                config.handler_timeout,
+                config.body_read_timeout,
+                config.max_request_body_bytes,
+                context,
+                conn_id,
+                ops,
+            );
+            return serve_h2_with_token(
                 io,
                 hyper_service,
                 &config,
@@ -404,33 +427,62 @@ where
                 shutdown,
                 conn_id,
             )
-            .await
+            .await;
         }
-        #[cfg(feature = "http2")]
-        WireProtocol::Http2 => {
-            serve_selected_with_token(
-                io.into_inner(),
-                hyper_service,
-                &config,
-                &activity,
-                &requests,
-                shutdown,
-                conn_id,
-                WireProtocol::Http2,
-            )
-            .await
-        }
-        WireProtocol::Auto => {
-            serve_hyper_with_token_auto(
-                io,
-                hyper_service,
-                &config,
-                &activity,
-                &requests,
-                shutdown,
-                conn_id,
-            )
-            .await
+        // `Auto`: bounded H2 prior-knowledge classification before any Hyper
+        // service exists. H1 delegates the replayable stream; H2 builds the
+        // H2-only service and enters H2 execution.
+        let ops = runtime_state.ops().clone();
+        let activity = Arc::new(ConnectionActivity::new(ops));
+        match classify_cleartext(io, &config, shutdown, &activity, conn_id).await {
+            Err(outcome) => outcome,
+            Ok((prefixed, WireProtocol::Http1)) => {
+                eggserve_server::connection::serve_http1_connection_with_id(
+                    prefixed,
+                    service,
+                    Arc::new(config.direct_h1_config()),
+                    context,
+                    Arc::new(runtime_state.direct.clone()),
+                    shutdown,
+                    conn_id,
+                )
+                .await
+            }
+            Ok((prefixed, WireProtocol::Http2)) => {
+                let service = Arc::new(service);
+                let file_stream_semaphore = runtime_state.file_stream_semaphore().clone();
+                let service_semaphore = runtime_state.service_semaphore().clone();
+                let tunnel_semaphore = runtime_state.tunnel_semaphore().clone();
+                let ops = runtime_state.ops().clone();
+                let requests = Arc::new(ConnectionRequests::new());
+                let hyper_service = make_canonical_hyper_service(
+                    service,
+                    config.clone(),
+                    file_stream_semaphore,
+                    service_semaphore,
+                    tunnel_semaphore,
+                    activity.clone(),
+                    requests.clone(),
+                    config.stream_chunk_size,
+                    config.handler_timeout,
+                    config.body_read_timeout,
+                    config.max_request_body_bytes,
+                    context,
+                    conn_id,
+                    ops,
+                );
+                serve_h2_with_token(
+                    prefixed,
+                    hyper_service,
+                    &config,
+                    &activity,
+                    &requests,
+                    shutdown,
+                    conn_id,
+                )
+                .await
+            }
+            Ok((_, WireProtocol::Auto)) => unreachable!("auto was resolved above"),
         }
     }
 }

@@ -1,15 +1,8 @@
-//! HTTP/1 parser projection (Plan 206 Track E).
+//! HTTP/1 parser projection placeholder (Plan 206 Track E, Plan 249).
 //!
-//! Owns the internal [`Http1Config`] projection from compatibility fields
-//! on [`super::runtime::RuntimeConfig`]. No second defaults table: values
-//! project from the Plan 179 shared authority.
-
-/// HTTP/1-only parser and framing settings projected from the compatibility
-/// fields on [`RuntimeConfig`]. Keeping this internal projection lets future
-/// protocol configs own their knobs without duplicating Plan 179 defaults or
-/// changing every existing `RuntimeConfig` literal before the 0.2 transition.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) struct Http1Config {
-    pub(crate) max_buf_size: usize,
-    pub(crate) max_headers: usize,
-}
+//! H1 parser knobs are owned by the direct H1 authority
+//! (`eggserve-server`); the compatibility projection is
+//! [`RuntimeConfig::direct_h1_config`](super::runtime::RuntimeConfig::direct_h1_config).
+//! This module is retained so the classified Plan 225 inventory path
+//! `server/config/http1.rs` keeps resolving; it carries no second defaults
+//! table and no executable H1 authority.

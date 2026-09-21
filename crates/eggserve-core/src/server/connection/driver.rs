@@ -1,35 +1,51 @@
-//! HTTP/1 driver: Hyper builder, graceful close, outcome classification,
-//! and the deadline/select loop.
+//! Compatibility connection composition (Plan 249).
 //!
-//! Sole authority for total lifetime, keep-alive idle timeout, response write
-//! no-progress timeout, deferred-body timeout closure, server/caller
-//! shutdown, and final `ConnectionOutcome` classification. Deadline
-//! computation is not duplicated in transport-specific wrappers. Hyper's
-//! HTTP/1 connection runs with `.with_upgrades()` so genuine transport-backed
-//! `OnUpgrade` capabilities reach the canonical pipeline for validated tunnel
-//! handshakes (Plan 199); ordinary services pay no upgrade complexity (unused
-//! capabilities are dropped, denial stays ordinary HTTP).
+//! Core owns H2-specific Hyper execution and the bounded cleartext
+//! H2-prior-knowledge classifier. All HTTP/1 execution is owned by
+//! `eggserve-server` (single H1 authority); core never constructs or drives a
+//! Hyper HTTP/1 connection. This module therefore provides:
+//!
+//! - protocol selection/replay composition (`WireProtocol`, `PrefixedIo`,
+//!   `classify_cleartext`);
+//! - H2-specific execution (`hyper2_builder`, H2 `ShutdownConn`,
+//!   `drive_connection`, `serve_h2_with_token`);
+//!
+//! H1 callers delegate to
+//! `eggserve_server::connection::serve_http1_connection_with_id` with the
+//! replayable stream. H2 execution remains core-owned and feature-gated.
 
 use bytes::Bytes;
+
+#[cfg(feature = "http2")]
 use std::convert::Infallible;
+#[cfg(feature = "http2")]
 use std::sync::atomic::Ordering;
+#[cfg(feature = "http2")]
 use std::sync::Arc;
 
+#[cfg(feature = "http2")]
 use hyper::body::Incoming;
-use hyper::server::conn::http1;
+#[cfg(feature = "http2")]
 use hyper::{Request, Response};
 #[cfg(feature = "http2")]
 use hyper_util::rt::TokioExecutor;
+#[cfg(feature = "http2")]
 use hyper_util::rt::{TokioIo, TokioTimer};
-use tokio::sync::broadcast;
 
+#[cfg(feature = "http2")]
 use crate::primitives::request_lifecycle::RequestCancellationReason;
+#[cfg(feature = "http2")]
 use crate::response::BoxBodyInner;
+#[cfg(feature = "http2")]
 use crate::server::config::RuntimeConfig;
 
+#[cfg(feature = "http2")]
 use super::activity::ConnectionActivity;
+#[cfg(feature = "http2")]
 use super::context::{ConnectionOutcome, ConnectionShutdown};
+#[cfg(feature = "http2")]
 use super::lifecycle::ConnectionRequests;
+#[cfg(feature = "http2")]
 use super::transport::ProgressIo;
 
 /// Wire protocol selected before the Hyper connection future is constructed.
@@ -39,45 +55,22 @@ use super::transport::ProgressIo;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum WireProtocol {
     Auto,
+    // Explicit H1 selection exists when TLS ALPN can negotiate it or when
+    // H2 classification can resolve to H1. Minimal builds (neither) only
+    // ever see `Auto` cleartext H1.
+    #[cfg(any(feature = "tls", feature = "http2"))]
     Http1,
     #[cfg(feature = "http2")]
     Http2,
 }
 
-/// Graceful-shutdown capability for the pinned Hyper connection future, so
-/// the shared driver below can close idle/stalled/expired connections
-/// without knowing the concrete Hyper connection type.
+/// Graceful-shutdown capability for the pinned H2 Hyper connection future,
+/// so the shared H2 driver below can close idle/stalled/expired connections
+/// without knowing the concrete Hyper connection type. H1 has no core driver
+/// (Plan 249: single H1 authority in `eggserve-server`).
+#[cfg(feature = "http2")]
 trait ShutdownConn {
     fn graceful_shutdown(self: std::pin::Pin<&mut Self>);
-}
-
-impl<I, S> ShutdownConn for hyper::server::conn::http1::Connection<I, S>
-where
-    I: hyper::rt::Read + hyper::rt::Write + Unpin,
-    S: hyper::service::Service<
-        Request<Incoming>,
-        Response = Response<BoxBodyInner>,
-        Error = Infallible,
-    >,
-{
-    fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
-        hyper::server::conn::http1::Connection::graceful_shutdown(self);
-    }
-}
-
-impl<I, S> ShutdownConn for hyper::server::conn::http1::UpgradeableConnection<I, S>
-where
-    I: hyper::rt::Read + hyper::rt::Write + Unpin + Send,
-    S: hyper::service::Service<
-            Request<Incoming>,
-            Response = Response<BoxBodyInner>,
-            Error = Infallible,
-        > + 'static,
-    S::Future: Send + 'static,
-{
-    fn graceful_shutdown(self: std::pin::Pin<&mut Self>) {
-        hyper::server::conn::http1::UpgradeableConnection::graceful_shutdown(self);
-    }
 }
 
 #[cfg(feature = "http2")]
@@ -100,43 +93,14 @@ where
 /// backpressure forever. Capping the drain releases the connection's
 /// admission permit promptly instead of letting stalled clients pin pool
 /// slots after their lifetime budget has already expired.
+#[cfg(feature = "http2")]
 const MAX_POST_SHUTDOWN_DRAIN: std::time::Duration = std::time::Duration::from_secs(5);
 
+#[cfg(feature = "http2")]
 fn post_shutdown_drain_budget(config: &RuntimeConfig) -> std::time::Duration {
     config
         .graceful_shutdown_timeout
         .min(MAX_POST_SHUTDOWN_DRAIN)
-}
-
-/// Build the Hyper HTTP/1 connection builder with EggServe-owned parser
-/// policy applied explicitly.
-///
-/// `max_buf_size` and `max_headers` are set on every connection so release
-/// upgrades cannot silently widen parser memory. Hyper documents both
-/// defaults as unstable; the EggServe-owned values in [`RuntimeConfig`] are
-/// the policy of record. `max_buf_size` below Hyper's 8192 minimum is
-/// clamped (builder validation rejects it first; the clamp only protects
-/// hand-constructed configs from panicking a connection task).
-///
-/// Hyper automatic `Date` generation is explicitly disabled: the EggServe
-/// [`crate::server::response_policy::ResponsePolicy`] is the sole `Date`
-/// authority (system clock by default, caller-supplied provider or explicit
-/// suppression for privacy profiles). Tests prove exactly zero or one `Date`
-/// according to policy.
-fn hyper_builder(config: &RuntimeConfig) -> http1::Builder {
-    let http1_config = config.http1_config();
-    let mut builder = http1::Builder::new();
-    builder
-        .timer(TokioTimer::new())
-        .header_read_timeout(config.header_read_timeout)
-        .max_buf_size(
-            http1_config
-                .max_buf_size
-                .max(crate::limits::MIN_MAX_BUF_SIZE),
-        )
-        .max_headers(http1_config.max_headers)
-        .auto_date_header(false);
-    builder
 }
 
 #[cfg(feature = "http2")]
@@ -161,6 +125,7 @@ fn hyper2_builder(config: &RuntimeConfig) -> hyper::server::conn::http2::Builder
     builder
 }
 
+#[cfg(feature = "http2")]
 const H2_PREFACE: &[u8] = b"PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n";
 
 /// An already-read protocol prefix replayed to Hyper before the underlying
@@ -237,7 +202,12 @@ impl<I: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PrefixedIo<I> {
 /// Classify a cleartext stream without losing bytes or weakening H1's header
 /// timeout. A stream that diverges from the H2 preface at any byte is H1;
 /// only the complete preface selects H2.
-async fn classify_cleartext<I>(
+///
+/// H2-gated (Plan 249): without `http2`, `Auto` delegates directly to the
+/// direct H1 authority with no preface sniffing, so this helper is only
+/// compiled when H2 selection exists.
+#[cfg(feature = "http2")]
+pub(crate) async fn classify_cleartext<I>(
     mut io: I,
     config: &RuntimeConfig,
     shutdown: &ConnectionShutdown,
@@ -286,6 +256,7 @@ where
     }
 }
 
+#[cfg(feature = "http2")]
 fn record_protocol(protocol: WireProtocol, conn_id: u64, ops: &crate::ops::OpsContext) {
     let name = match protocol {
         WireProtocol::Auto => "auto",
@@ -307,6 +278,7 @@ fn record_protocol(protocol: WireProtocol, conn_id: u64, ops: &crate::ops::OpsCo
 /// Far-future deadline used when a timeout is effectively disabled by a huge
 /// configured duration. `Instant + Duration` panics on overflow, so
 /// unrepresentable deadlines saturate here instead.
+#[cfg(feature = "http2")]
 fn far_future() -> std::time::Instant {
     std::time::Instant::now() + std::time::Duration::from_secs(365 * 24 * 3600)
 }
@@ -317,6 +289,7 @@ fn far_future() -> std::time::Instant {
 /// finish; a client that stops reading applies TCP backpressure forever.
 /// The bounded drain releases the connection's admission permit promptly
 /// instead of letting stalled clients pin pool slots.
+#[cfg(feature = "http2")]
 async fn graceful_close<C>(
     mut conn: std::pin::Pin<&mut C>,
     config: &RuntimeConfig,
@@ -350,6 +323,7 @@ async fn graceful_close<C>(
 /// parse-class errors; each increments the counter named for it. Anything
 /// else is a client disconnect. Hostile bytes never reach the logs: parse
 /// errors are sanitized before emission.
+#[cfg(feature = "http2")]
 fn finish_conn_result(
     result: Result<(), hyper::Error>,
     conn_id: u64,
@@ -412,7 +386,7 @@ fn finish_conn_result(
     }
 }
 
-/// Shared connection driver: polls one Hyper connection while enforcing
+/// H2 connection driver: polls one Hyper H2 connection while enforcing
 /// independent deadlines.
 ///
 /// - `connection_total_timeout` — hard maximum connection lifetime, never
@@ -432,6 +406,9 @@ fn finish_conn_result(
 /// every [`ConnectionActivity`] state change, so expiry precision does not
 /// depend on polling. Total lifetime is the hard ceiling: when it expires
 /// first, the request dies mid-flight regardless of the other budgets.
+///
+/// H2-only (Plan 249): H1 execution lives in `eggserve-server`.
+#[cfg(feature = "http2")]
 async fn drive_connection<C, F>(
     mut conn: std::pin::Pin<&mut C>,
     config: &RuntimeConfig,
@@ -618,99 +595,15 @@ where
     }
 }
 
-/// Low-level Hyper connection executor for the TCP accept loop.
+/// Drive one H2 connection with a caller-owned shutdown token (Plan 249).
 ///
-/// Crate-private: downstream callers must use
-/// [`serve_http1_connection`], which takes a canonical [`Service`] and a
-/// [`ConnectionContext`] instead of Hyper service types. This helper retains
-/// the TCP wire behavior (header-read timeout, explicit parser limits,
-/// idle/write/total lifetimes, graceful shutdown with bounded
-/// post-shutdown drain) and reports a [`ConnectionOutcome`] for
-/// observability.
-///
-/// The caller supplies the [`ConnectionActivity`] shared with the Hyper
-/// service so request/response observations drive the idle and
-/// write-progress deadlines.
-pub(crate) async fn serve_connection<I, S>(
-    io: TokioIo<I>,
-    service: S,
-    config: &RuntimeConfig,
-    activity: &Arc<ConnectionActivity>,
-    requests: &Arc<ConnectionRequests>,
-    shutdown_rx: &mut broadcast::Receiver<()>,
-    conn_id: u64,
-) -> ConnectionOutcome
-where
-    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-    S: hyper::service::Service<
-            Request<Incoming>,
-            Response = Response<BoxBodyInner>,
-            Error = Infallible,
-        > + 'static,
-    S::Future: Send + 'static,
-{
-    let io = TokioIo::new(ProgressIo::new(io.into_inner(), activity.clone()));
-    let conn = hyper_builder(config)
-        .serve_connection(io, service)
-        .with_upgrades();
-    let mut conn = std::pin::pin!(conn);
-    let shutdown = async move {
-        let _ = shutdown_rx.recv().await;
-    };
-    drive_connection(
-        conn.as_mut(),
-        config,
-        activity,
-        requests,
-        conn_id,
-        false,
-        shutdown,
-    )
-    .await
-}
-
-/// Drive a Hyper connection with a caller-owned shutdown token.
-///
-/// Shared executor with [`serve_connection`] but selected on
-/// [`ConnectionShutdown::cancelled`] instead of the TCP accept-loop
-/// broadcast channel. Used only by [`serve_http1_connection`].
+/// H2-specific execution: the caller supplies an already-classified replayable
+/// byte stream plus the canonical Hyper service. H1 never enters this helper;
+/// `Auto` classification in the facade delegates H1 to `eggserve-server`
+/// before any Hyper service is constructed.
+#[cfg(feature = "http2")]
 #[allow(clippy::too_many_arguments)]
-pub(crate) async fn serve_hyper_with_token<I, S>(
-    io: TokioIo<I>,
-    service: S,
-    config: &RuntimeConfig,
-    activity: &Arc<ConnectionActivity>,
-    requests: &Arc<ConnectionRequests>,
-    shutdown: &ConnectionShutdown,
-    conn_id: u64,
-) -> ConnectionOutcome
-where
-    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-    S: hyper::service::Service<
-            Request<Incoming>,
-            Response = Response<BoxBodyInner>,
-            Error = Infallible,
-        > + 'static,
-    S::Future: Send + 'static,
-{
-    serve_selected_with_token(
-        io.into_inner(),
-        service,
-        config,
-        activity,
-        requests,
-        shutdown,
-        conn_id,
-        WireProtocol::Http1,
-    )
-    .await
-}
-
-/// Drive a connection after the protocol has been selected by TLS ALPN or a
-/// cleartext preface check. This is also the shared implementation used by
-/// the public multi-protocol caller-owned entry point.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn serve_selected_with_token<I, S>(
+pub(crate) async fn serve_h2_with_token<I, S>(
     io: I,
     service: S,
     config: &RuntimeConfig,
@@ -718,44 +611,6 @@ pub(crate) async fn serve_selected_with_token<I, S>(
     requests: &Arc<ConnectionRequests>,
     shutdown: &ConnectionShutdown,
     conn_id: u64,
-    protocol: WireProtocol,
-) -> ConnectionOutcome
-where
-    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-    S: hyper::service::Service<
-            Request<Incoming>,
-            Response = Response<BoxBodyInner>,
-            Error = Infallible,
-        > + 'static,
-    S::Future: Send + 'static,
-{
-    if protocol == WireProtocol::Auto {
-        return match classify_cleartext(io, config, shutdown, activity, conn_id).await {
-            Ok((io, selected)) => {
-                serve_selected_resolved_with_token(
-                    io, service, config, activity, requests, shutdown, conn_id, selected,
-                )
-                .await
-            }
-            Err(outcome) => outcome,
-        };
-    }
-    serve_selected_resolved_with_token(
-        io, service, config, activity, requests, shutdown, conn_id, protocol,
-    )
-    .await
-}
-
-#[allow(clippy::too_many_arguments)]
-async fn serve_selected_resolved_with_token<I, S>(
-    io: I,
-    service: S,
-    config: &RuntimeConfig,
-    activity: &Arc<ConnectionActivity>,
-    requests: &Arc<ConnectionRequests>,
-    shutdown: &ConnectionShutdown,
-    conn_id: u64,
-    protocol: WireProtocol,
 ) -> ConnectionOutcome
 where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
@@ -767,77 +622,86 @@ where
     S::Future: Send + 'static,
 {
     let ops = activity.ops().clone();
-
-    record_protocol(protocol, conn_id, &ops);
+    record_protocol(WireProtocol::Http2, conn_id, &ops);
     let io = TokioIo::new(ProgressIo::new(io, activity.clone()));
     let shutdown = async move {
         shutdown.cancelled().await;
     };
-    match protocol {
-        WireProtocol::Http1 => {
-            let conn = hyper_builder(config)
-                .serve_connection(io, service)
-                .with_upgrades();
-            let mut conn = std::pin::pin!(conn);
-            drive_connection(
-                conn.as_mut(),
-                config,
-                activity,
-                requests,
-                conn_id,
-                false,
-                shutdown,
-            )
-            .await
-        }
-        #[cfg(feature = "http2")]
-        WireProtocol::Http2 => {
-            let conn = hyper2_builder(config).serve_connection(io, service);
-            let mut conn = std::pin::pin!(conn);
-            drive_connection(
-                conn.as_mut(),
-                config,
-                activity,
-                requests,
-                conn_id,
-                true,
-                shutdown,
-            )
-            .await
-        }
-        WireProtocol::Auto => unreachable!("auto was resolved above"),
-    }
-}
-
-/// Drive a cleartext caller-owned stream, accepting H1 or H2 prior knowledge.
-#[allow(clippy::too_many_arguments)]
-pub(crate) async fn serve_hyper_with_token_auto<I, S>(
-    io: TokioIo<I>,
-    service: S,
-    config: &RuntimeConfig,
-    activity: &Arc<ConnectionActivity>,
-    requests: &Arc<ConnectionRequests>,
-    shutdown: &ConnectionShutdown,
-    conn_id: u64,
-) -> ConnectionOutcome
-where
-    I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
-    S: hyper::service::Service<
-            Request<Incoming>,
-            Response = Response<BoxBodyInner>,
-            Error = Infallible,
-        > + 'static,
-    S::Future: Send + 'static,
-{
-    serve_selected_with_token(
-        io.into_inner(),
-        service,
+    let conn = hyper2_builder(config).serve_connection(io, service);
+    let mut conn = std::pin::pin!(conn);
+    drive_connection(
+        conn.as_mut(),
         config,
         activity,
         requests,
-        shutdown,
         conn_id,
-        WireProtocol::Auto,
+        true,
+        shutdown,
     )
     .await
+}
+
+#[cfg(all(test, feature = "http2"))]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_activity() -> Arc<ConnectionActivity> {
+        Arc::new(ConnectionActivity::new(
+            crate::ops::OpsContext::global().clone(),
+        ))
+    }
+
+    /// Divergent first bytes resolve to H1 with all bytes preserved
+    /// (Plan 249 Track D: H2 preface is never handed to the H1 parser).
+    #[tokio::test]
+    async fn cleartext_get_resolves_h1_with_replay() {
+        use tokio::io::AsyncReadExt;
+        let raw = b"GET / HTTP/1.1\r\nHost: h\r\n\r\n";
+        let io = tokio::io::BufReader::new(&raw[..]);
+        let config = RuntimeConfig::default();
+        let shutdown = ConnectionShutdown::new();
+        let activity = test_activity();
+        let (mut prefixed, protocol) = classify_cleartext(io, &config, &shutdown, &activity, 1)
+            .await
+            .expect("plain H1 must classify");
+        assert_eq!(protocol, WireProtocol::Http1);
+        let mut replayed = Vec::new();
+        prefixed.read_to_end(&mut replayed).await.unwrap();
+        assert_eq!(replayed, raw);
+    }
+
+    /// The complete H2 preface resolves to H2 with all bytes preserved
+    /// (Plan 249 Track D: Auto still selects H2).
+    #[tokio::test]
+    async fn complete_preface_resolves_h2_with_replay() {
+        use tokio::io::AsyncReadExt;
+        let config = crate::server::config::RuntimeConfig::builder()
+            .http2(crate::server::config::Http2Config::default())
+            .build()
+            .unwrap();
+        let io = tokio::io::BufReader::new(H2_PREFACE);
+        let shutdown = ConnectionShutdown::new();
+        let activity = test_activity();
+        let (mut prefixed, protocol) = classify_cleartext(io, &config, &shutdown, &activity, 1)
+            .await
+            .expect("H2 preface must classify");
+        assert_eq!(protocol, WireProtocol::Http2);
+        let mut replayed = Vec::new();
+        prefixed.read_to_end(&mut replayed).await.unwrap();
+        assert_eq!(replayed, H2_PREFACE);
+    }
+
+    /// An empty stream at EOF resolves to H1 (existing edge preserved).
+    #[tokio::test]
+    async fn empty_stream_resolves_h1() {
+        let io = tokio::io::BufReader::new(&[][..]);
+        let config = RuntimeConfig::default();
+        let shutdown = ConnectionShutdown::new();
+        let activity = test_activity();
+        let (_, protocol) = classify_cleartext(io, &config, &shutdown, &activity, 1)
+            .await
+            .expect("EOF must classify");
+        assert_eq!(protocol, WireProtocol::Http1);
+    }
 }
