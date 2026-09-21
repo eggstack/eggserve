@@ -173,6 +173,52 @@ impl<S: Service> Service for SharedService<S> {
     }
 }
 
+/// Durable, level-triggered shutdown state for the direct listener runtime.
+///
+/// The notify is only a wakeup. The atomic flag is the source of truth, so a
+/// task that starts after shutdown was requested cannot miss the transition.
+#[derive(Clone, Debug, Default)]
+struct ServerShutdown {
+    inner: Arc<ServerShutdownInner>,
+}
+
+#[derive(Debug, Default)]
+struct ServerShutdownInner {
+    notify: Notify,
+    flag: std::sync::atomic::AtomicBool,
+}
+
+impl ServerShutdown {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn shutdown(&self) {
+        if !self
+            .inner
+            .flag
+            .swap(true, std::sync::atomic::Ordering::AcqRel)
+        {
+            self.inner.notify.notify_waiters();
+        }
+    }
+
+    async fn cancelled(&self) {
+        loop {
+            if self.inner.flag.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
+            let notified = self.inner.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.inner.flag.load(std::sync::atomic::Ordering::Acquire) {
+                return;
+            }
+            notified.await;
+        }
+    }
+}
+
 impl Server {
     /// Create a new server builder with default configuration.
     pub fn builder() -> ServerBuilder {
@@ -211,7 +257,7 @@ impl Server {
                 .map_err(ServerError::Bind)?,
         };
         let local_addr = listener.local_addr().map_err(ServerError::Bind)?;
-        let shutdown = Arc::new(Notify::new());
+        let shutdown = ServerShutdown::new();
         let permits = Arc::new(Semaphore::new(self.config.max_connections));
         let service = SharedService(Arc::new(service));
         let config = Arc::new(self.config);
@@ -220,9 +266,13 @@ impl Server {
 
         let task_shutdown = shutdown.clone();
         let join = tokio::spawn(async move {
+            let mut tasks = tokio::task::JoinSet::new();
             loop {
                 tokio::select! {
-                    _ = task_shutdown.notified() => break,
+                    _ = task_shutdown.cancelled() => break,
+                    Some(result) = tasks.join_next(), if !tasks.is_empty() => {
+                        let _ = result;
+                    }
                     accepted = listener.accept() => {
                         match accepted {
                             Ok((stream, remote_addr)) => {
@@ -248,7 +298,7 @@ impl Server {
                                 let config = config.clone();
                                 let state = runtime_state.clone();
                                 let conn_id = state.ops().next_connection_id();
-                                tokio::spawn(async move {
+                                tasks.spawn(async move {
                                     let _permit = permit;
                                     let serve = serve_http1_connection_with_id(
                                         stream,
@@ -260,7 +310,7 @@ impl Server {
                                         conn_id,
                                     );
                                     let watch = async {
-                                        relay_shutdown.notified().await;
+                                        relay_shutdown.cancelled().await;
                                         token.shutdown();
                                     };
                                     tokio::pin!(serve);
@@ -295,6 +345,13 @@ impl Server {
                     }
                 }
             }
+
+            // The durable state makes every relay task take this path even
+            // when it starts after shutdown. Keep the accept task alive until
+            // every runtime-owned connection task has released its permit.
+            while let Some(result) = tasks.join_next().await {
+                let _ = result;
+            }
         });
         Ok(ServerHandle {
             local_addr,
@@ -308,7 +365,7 @@ impl Server {
 /// Control handle for a running [`Server`].
 pub struct ServerHandle {
     local_addr: SocketAddr,
-    shutdown: Arc<Notify>,
+    shutdown: ServerShutdown,
     join: Option<tokio::task::JoinHandle<()>>,
     ops: ops::OpsContext,
 }
@@ -322,7 +379,7 @@ impl ServerHandle {
     /// Request graceful shutdown: the accept loop stops and in-flight
     /// connections observe shutdown through their per-connection tokens.
     pub fn shutdown(&self) {
-        self.shutdown.notify_waiters();
+        self.shutdown.shutdown();
     }
 
     /// This runtime's observability context.
@@ -346,10 +403,115 @@ impl ServerHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
     #[test]
     fn generic_runtime_has_no_static_configuration() {
         let config = RuntimeConfig::default();
         assert!(config.bind.ip().is_loopback());
+    }
+
+    #[tokio::test]
+    async fn immediate_shutdown_before_accept_task_runs_is_durable() {
+        let server = Server::builder()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(service_fn(|_req: Request| async {
+                Ok(eggserve_primitives::Response::builder()
+                    .status(eggserve_primitives::StatusCode::OK)
+                    .body(eggserve_primitives::ResponseBody::Empty)
+                    .unwrap())
+            }))
+            .await
+            .unwrap();
+
+        handle.shutdown();
+        tokio::time::timeout(std::time::Duration::from_secs(1), handle.wait())
+            .await
+            .expect("shutdown before accept task scheduling must not hang");
+    }
+
+    #[tokio::test]
+    async fn repeated_shutdown_is_idempotent() {
+        let server = Server::builder()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(service_fn(|_req: Request| async {
+                Ok(eggserve_primitives::Response::builder()
+                    .status(eggserve_primitives::StatusCode::OK)
+                    .body(eggserve_primitives::ResponseBody::Empty)
+                    .unwrap())
+            }))
+            .await
+            .unwrap();
+
+        handle.shutdown();
+        handle.shutdown();
+        handle.wait().await;
+    }
+
+    #[tokio::test]
+    async fn wait_drains_runtime_owned_connection_task() {
+        use eggserve_primitives::{Response, ResponseBody, StatusCode};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::sync::Notify;
+
+        let entered = Arc::new(AtomicBool::new(false));
+        let release = Arc::new(Notify::new());
+        let entered_service = entered.clone();
+        let release_service = release.clone();
+        let server = Server::builder()
+            .bind("127.0.0.1:0".parse().unwrap())
+            .build()
+            .unwrap();
+        let handle = server
+            .start_with_service(service_fn(move |_req: Request| {
+                let entered = entered_service.clone();
+                let release = release_service.clone();
+                async move {
+                    entered.store(true, Ordering::Release);
+                    release.notified().await;
+                    Ok(Response::builder()
+                        .status(StatusCode::OK)
+                        .body(ResponseBody::Bytes(b"released".to_vec()))
+                        .unwrap())
+                }
+            }))
+            .await
+            .unwrap();
+
+        let mut client = tokio::net::TcpStream::connect(handle.local_addr())
+            .await
+            .unwrap();
+        client
+            .write_all(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+            .await
+            .unwrap();
+        for _ in 0..100 {
+            if entered.load(Ordering::Acquire) {
+                break;
+            }
+            tokio::task::yield_now().await;
+        }
+        assert!(entered.load(Ordering::Acquire));
+
+        handle.shutdown();
+        let wait = tokio::spawn(handle.wait());
+        tokio::task::yield_now().await;
+        assert!(
+            !wait.is_finished(),
+            "wait must include the blocked connection"
+        );
+
+        release.notify_waiters();
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        wait.await.unwrap();
+        assert!(String::from_utf8_lossy(&response).contains("released"));
     }
 
     #[tokio::test]
