@@ -345,11 +345,56 @@ Implementation plans:
 - `plans/247-leaf-surface-orphan-source-qualification-cleanup.md`
 - `plans/248-api-preserving-maintainability-closure.md`
 
-Status: COMPLETE. Baseline for the audit and handoff:
+Status: COMPLETE AS EXECUTED, WITH POST-CLOSURE CORRECTIVE OPEN.
+Baseline for the audit and handoff:
 `673b6c60dab09d728b05d9e979be91bfc5417050`. Final candidate
 `3fb59e4560b74407b7faed3a09aaae5974d3d36a` passed remote CI run
 `35602644725`; the final metadata-record commit is the documentation commit
-containing this status update.
+containing this status update. Post-closure source review at
+`4b2af07991d20234d5167d08311ba6b18006025a` found that Auto-selected H1
+could still execute the compatibility core's private Hyper H1 pipeline and
+that accepted compatibility connections retained detached shutdown-forwarder
+tasks until whole-server shutdown. Plans 249–250 supersede the H1-authority
+and connection-lifetime closure claims only; the other Plan 243–248 results
+remain closed.
+
+## Post-248 H1 authority and connection-lifetime corrective — Plans 249–250
+
+**Plans 249–250** are the narrow post-closure corrective for two residual
+issues discovered after the Plans 242–248 implementation was marked complete.
+They do not reopen the static/Python/orphan-source work and do not add
+capability.
+
+```text
+249  eliminate Auto -> core-H1 execution + detached shutdown forwarder
+ |
+250  normal-accept-path/resource/API/full-CI corrective closure
+```
+
+Plan 249 resolves cleartext protocol selection before constructing the core
+Hyper service. Auto-selected H1, explicit H1, TLS ALPN H1, PROXY-prefixed H1,
+and Unix H1 must all enter the single `eggserve-server` H1 authority; core
+retains only H2-specific execution and protocol-selection/composition glue.
+The same plan replaces the detached per-connection broadcast forwarder with a
+connection-scoped structured shutdown future so completed connections cannot
+leave sleeping tasks/receivers until whole-server shutdown.
+
+Plan 249 also strengthens the topology gate to reject a core HTTP/1 Hyper
+builder/connection driver and detached shutdown-forwarder spawning rather than
+merely checking that some direct delegation call exists.
+
+Plan 250 re-runs normal compatibility accept-path H1/H2/TLS/PROXY/Unix
+qualification, deterministically proves shutdown-forwarder lifetime cleanup,
+re-checks API/feature compatibility, runs the full repository/package/wheel/
+supply-chain matrix, and records exact-SHA remote CI before reconciling the
+Plan 244/248 historical closure notes.
+
+Implementation plans:
+- `plans/249-core-auto-h1-authority-and-shutdown-forwarder-corrective.md`
+- `plans/250-post-248-h1-authority-lifetime-corrective-closure.md`
+
+Status: PLANNED. Corrective baseline:
+`4b2af07991d20234d5167d08311ba6b18006025a`.
 
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
