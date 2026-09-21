@@ -188,3 +188,19 @@ only and is recorded separately below.
   `docs: record Plan 256 remote CI provenance (metadata-only)`; see
   `git log --oneline`). Per the closure rule it is not claimed as an
   independently qualified candidate.
+
+## Narrow supersession by Plans 257–258 (post-closure, no rewrite)
+
+Plan 256 remains valid for Python typing, topology/overlap, import cleanup,
+and the rest of the async parity matrix on candidate `4c14542` / run
+`35653232800`. Only its suppressed-body permit/task-lifetime claim is
+superseded: the Plan 254 first-pull producer could retain its `AsyncServer`
+permit until `response_write_timeout_secs` when canonical Rust dropped a
+HEAD/body-forbidden iterable without pulling it (never-entered generator
+`finally` never runs). Plans 257–258 correct this with the explicit
+`_AsyncStreamBridgeIterator` drop owner (immediate release, no Python
+suppression table, no public API change); see
+`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`
+(candidate `c22a2d20dc5dec31da17f8cc1b97c0378b022c88`, run `35658950539`).
+This note corrects the record without rewriting Plan 256 as though the
+defect were known at its closure.

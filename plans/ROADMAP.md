@@ -516,7 +516,11 @@ Implementation plans:
 - `plans/257-async-python-suppressed-body-permit-lifetime-corrective.md`
 - `plans/258-post-256-async-suppressed-body-lifetime-corrective-closure.md`
 
-Status: **PLANNED**.
+Status: **COMPLETE**. Implementation/evidence candidate
+`c22a2d20dc5dec31da17f8cc1b97c0378b022c88` passed exact-SHA remote CI run
+`35658950539` (rust / supply-chain / python all success, 2026-09-21);
+evidence record
+`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`.
 
 Plans 251–256 remain historically complete on candidate
 `4c145421c851fffa5e1f6762a7ef742c5db1e5d8` / CI run `35653232800`;
