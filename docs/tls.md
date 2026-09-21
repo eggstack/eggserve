@@ -203,7 +203,7 @@ TLS handshakes are bounded by `tls_handshake_timeout` (CLI `--header-timeout` su
 With TLS enabled:
 
 ```
-eggserve 0.1.0
+eggserve 0.2.0
 Serving root: ./public
 Listening: https://127.0.0.1:8000
 TLS: enabled, certificate: cert.pem
@@ -212,7 +212,7 @@ TLS: enabled, certificate: cert.pem
 Without TLS:
 
 ```
-eggserve 0.1.0
+eggserve 0.2.0
 Serving root: ./public
 Listening: http://127.0.0.1:8000
 ```

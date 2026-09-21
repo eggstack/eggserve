@@ -200,6 +200,12 @@ delegates to the single `eggserve-server` authority (core drives H2 only),
 and per-connection shutdown is structured under the connection task with no
 detached forwarder. See
 `release/plan-250-h1-authority-lifetime-corrective-closure.md`.
+Plans 251–258 close the post-convergence maintenance campaign with no public
+API, capability, or support-tier change (Python stub fidelity, connection
+overlap ledger, topology-gate cleanup, bounded async first-pull plus the
+suppressed-body permit fix). See
+`release/plan-256-post-convergence-maintenance-interop-closure.md` and
+`release/plan-258-async-suppressed-body-lifetime-corrective-closure.md`.
 
 ### Choosing a Rust profile
 
@@ -634,3 +640,6 @@ and Python-bridge paths. The retained implementation and same-machine closure
 record are in [`benchmarks/234-fixed-cost-baseline/`](benchmarks/234-fixed-cost-baseline/)
 and [`benchmarks/240-fixed-cost-closure/`](benchmarks/240-fixed-cost-closure/);
 they document profile-specific observations, not universal timing claims.
+The follow-up custom-H1, static-shape, established-TLS, installed-wheel, and
+slow-stream evidence is in
+[`benchmarks/241-fixed-cost-evidence-corrective/`](benchmarks/241-fixed-cost-evidence-corrective/).

@@ -528,6 +528,25 @@ Plans 257–258 supersede only the async suppressed-body permit/task-lifetime
 closure claim. The other Plan 256 results remain closed unless new evidence
 shows otherwise.
 
+## Docs-only refresh — Plans 259–261
+
+**Plans 259–261** are docs/metadata/skill-text refreshes with no source,
+API, ownership, topology, or support-tier change.
+
+- Plan 259 (`plans/259-architecture-overview-refresh.md`, commit `2ae733a`)
+  makes `architecture/overview.md` the bird's-eye index over the deep dives.
+- Plan 260 (`plans/260-systematic-deep-dive-refresh.md`, commit `7bce227`)
+  refreshes the deep dives against the code.
+- Plan 261 (`plans/261-skills-docs-staleness-refresh.md`, this session)
+  fixes the remaining agent-facing drift: skill plan range 251–256 → 251–258
+  (+259/260 note, topology-gate scope, `verify.sh full` Python 3.14 gotcha),
+  `AGENTS.md` skills-location/path notes, overview gate ranges, `docs/tls.md`
+  + `docs/http-interop.md` `0.2` versions, the phantom
+  `benchmarks/207-conformance/` evidence path, README 251–258 + 241-evidence
+  pointers, and this ROADMAP entry.
+
+Status: **259 COMPLETE, 260 COMPLETE, 261 IN PROGRESS**.
+
 ## Protocol expansion, corrective closure, and support promotion — Plans 183–194
 
 Plan 183's product/scope gate has been implemented and the live product contract in `docs/non-goals.md` now authorizes only the narrow native H2/H3 transport work described by this program. Plans 184–188 implemented and qualified the first protocol adapters, leaving H2 and H3 experimental. Plans 189–190 closed deterministic semantic gaps discovered by the post-188 review without changing those support tiers. Plans 191–193 are evidence-led promotion gates: they may promote the already-implemented protocol transports, but they do not add another protocol family or broaden the product surface. Plan 194 is a narrow H3 producer-timeout + promotion-trace correction with no promotion authority. Plan 213 isolates the direct H3/QUIC dependency set in `eggserve-h3` and records a dedicated qualification inventory without changing the experimental tier.

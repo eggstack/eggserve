@@ -76,8 +76,10 @@ single direct authority; core executes H2 only) and per-connection shutdown
 is structured under the connection task with no detached forwarder; see
 `release/plan-250-h1-authority-lifetime-corrective-closure.md`.
 
-Plans 251–256 close the post-convergence maintenance campaign with no
-public API, capability, or support-tier change: Python stubs match runtime
+Plans 251–258 close the post-convergence maintenance campaign with no
+public API, capability, or support-tier change: Plan 257 fixes one async
+suppressed-body permit lifetime (suppressed streams release the async permit
+immediately even when the iterator is never entered); Python stubs match runtime
 shapes (`AsyncRequest` dict headers, text `*_addr` vs tuple `*_address`,
 supported subclass hooks; strict installed-wheel fixture plus runtime shape
 tests); every core/server connection overlap is classified (sharing needs a
@@ -93,6 +95,10 @@ broad unused-import suppressions are gone
 topology gate adds the overlap rule plus a `--self-test` mutation suite;
 Rust consumers pick the direct H1 leaf profile or the compatibility
 multiprotocol profile (see `release/plan-256-post-convergence-maintenance-interop-closure.md`).
+
+Plans 259–260 are docs-only (no behavior, ownership, or tier change): Plan 259
+makes `architecture/overview.md` the bird's-eye index over the deep dives;
+Plan 260 refreshes the deep dives against the code.
 
 Plan 212 extracts the reusable server-side TLS identity, SNI, WebPKI
 client-auth, trust/CRL, and reload substrate into the neutral `eggnet-tls`
@@ -142,7 +148,7 @@ Routine CI runs three concurrent jobs (`rust`, `supply-chain`, `python`):
 ```sh
 # rust job
 python3 scripts/verify-conformance-matrix.py                # corpus/matrix + Plan 207 app-server inventory gate (runs first!)
-python3 scripts/check-crate-topology.py                     # Plan 211–247 ownership/topology, facade, orphan-source, and feature gate
+python3 scripts/check-crate-topology.py                     # Plan 211–253 ownership/topology/facade/orphan-source/feature rules (+254–258 notes)
 python3 scripts/check-python-release-metadata.py            # version + [profile.dist] sync (cheap, before builds)
 cargo fmt --all -- --check
 cargo +1.89 check --workspace --all-targets
@@ -184,7 +190,7 @@ Or use the local verification script:
 
 ```sh
 ./scripts/verify.sh fast                 # routine dev check (Rust workspace + Python crate check)
-./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel)
+./scripts/verify.sh full                 # pre-release validation (examples, Rust + Python wheel; needs Python 3.14 + maturin, `PYTHON=` overrides)
 ./scripts/verify.sh deep                 # expensive suites (manual)
 bash scripts/qualify-http2.sh             # manual Linux H2 wire/ALPN qualification
 bash scripts/qualify-http3.sh             # manual H3/QUIC qualification; direct clients required for wire evidence

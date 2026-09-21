@@ -130,9 +130,11 @@ no push/tag/merge ever publishes.
 ## Reference docs
 
 Load the `eggserve-dev` skill before working on code, plans, docs, or
-architecture. Start at `architecture/overview.md` (indexes all subsystem
+architecture. The single skill source is `.opencode/skills/eggserve-dev/`
+(`.agents/skills/eggserve-dev` is a symlink to it; there is no `.skills/`
+directory). Start at `architecture/overview.md` (indexes all subsystem
 pages); normative user contracts live in `docs/` (`security-policy`,
 `threat-model`, `python-http-server-compatibility`, `cli`, `python-api`,
 `http-primitives`, `deployment`, `timeout-reference`, `ops-logging`,
-`migration-guide`). `plans/` + `ROADMAP.md` are change-trace records, not API
+`migration-guide`). `plans/` + `plans/ROADMAP.md` are change-trace records, not API
 docs — when docs conflict with config/scripts, trust the executable source.

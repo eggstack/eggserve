@@ -19,7 +19,8 @@ subsystem for a focused review.
 
 Plan context: the authority split (Plans 211–225), maintainability
 convergence (Plans 243–250), and post-convergence maintenance (Plans 251–258)
-are closed. H1 + canonical `primitives` are supported; `server`/H2/H3/
+are closed; Plans 259–260 are docs-only refreshes (overview index + deep-dive
+refresh, no behavior/tier change). H1 + canonical `primitives` are supported; `server`/H2/H3/
 tunnel/trailer/adapter/listener/proxy/TLS-identity/async-Python remain
 experimental. `plans/` + `ROADMAP.md` are change-trace records, not normative
 API docs — normative user contracts live in `docs/`.
@@ -203,7 +204,7 @@ each layer fits `fast`/`full`/`deep`.
 | `verify.sh full` | `fast` + TLS tests + examples build/smoke + Python wheel build/test + package dry-run (needs Python 3.14 + maturin; `PYTHON=` overrides) |
 | `verify.sh deep` | `full` + fuzz replay, races, proxy interop (manual, expensive) |
 | `verify-conformance-matrix.py` | Schema + domain validator for `conformance/*.toml` (runs first in CI) |
-| `check-crate-topology.py` | Enforces Plans 211–253 ownership/dependency/facade/orphan-source/feature rules |
+| `check-crate-topology.py` | Enforces Plans 211–253 ownership/dependency/facade/orphan-source/feature rules (+254–258 notes) |
 | `check-python-release-metadata.py` | Cheap version + `[profile.dist]` + entry-point sync check |
 | `test-python-wheel.sh` | Authoritative wheel harness: metadata preflight → maturin build → fresh venv → smoke + pytest |
 | `test-examples.sh` | Compiles Cargo examples, smoke-tests canonical demos on loopback port `0` |
@@ -294,7 +295,7 @@ navigate directly to what you need for a focused review.
 
 | Document | Covers |
 |----------|--------|
-| [crate-topology.md](crate-topology.md) | Plans 211–253 Cargo ownership and dependency boundaries |
+| [crate-topology.md](crate-topology.md) | Plans 211–253 Cargo ownership and dependency boundaries (+254–258 notes) |
 | [eggserve-primitives.md](eggserve-primitives.md) | Canonical transport-neutral leaf |
 | [eggserve-server.md](eggserve-server.md) | Single mature H1 runtime + `Service` contract (direct authority) |
 | [eggserve-static.md](eggserve-static.md) | Sole static/path/filesystem authority (incl. Plan 224 NO-GO) |

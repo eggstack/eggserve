@@ -8,8 +8,8 @@ middleware and application stacks.
 Enable with Cargo features (never in default builds):
 
 ```toml
-eggserve-core = { version = "0.1", features = ["http-interop"] }  # http + http-body adapters
-eggserve-core = { version = "0.1", features = ["tower"] }         # + Tower adapters
+eggserve-core = { version = "0.2", features = ["http-interop"] }  # http + http-body adapters
+eggserve-core = { version = "0.2", features = ["tower"] }         # + Tower adapters
 ```
 
 - `http-interop` adds a direct `http` dependency and the

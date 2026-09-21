@@ -556,7 +556,7 @@ description = "Same-machine native H1/H2/H3 trivial + streaming, Tower overhead,
 transports = ["h1_tcp", "h2_prior", "h3_quic"]
 consumers = ["native", "tower", "async_python"]
 routine = false
-evidence = "MANUAL: benchmarks/170-closure/benchmark.py same-machine matrix; stored under benchmarks/207-conformance/ when executed"
+evidence = "MANUAL: benchmarks/170-closure/benchmark.py same-machine matrix; stored under benchmarks/170-closure/ when executed"
 skip_reason = "no absolute gates in CI; manual same-machine evidence only"
 
 # ---------------------------------------------------------------------------
