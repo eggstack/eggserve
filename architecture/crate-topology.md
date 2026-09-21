@@ -200,6 +200,29 @@ HTTP/1/H2 core graphs do not compile the QUIC stack. The compatibility
 `server::http3` path is a thin facade projecting core config/state into the
 adapter with no second state machine.
 
+## Connection overlap classification (Plan 253)
+
+Executable H1 authority is single-owned by `eggserve-server` (Plan 249), but
+both crates keep eight similarly named connection modules because core still
+owns H2 execution and multiprotocol composition. Every overlap ends in one
+of four states; no overlapping production module is unclassified:
+
+| Pair | Relationship | Classification | Drift guard |
+|---|---|---|---|
+| `connection/transport.rs` | byte-identical | accepted bounded duplication (sharing needs a new public Tokio transport type: mandatory DEFER) | `check_plan253_overlap` pair presence + crate-private + direct-vs-compatibility H1 parity suite |
+| `connection/deferred_body.rs` | identical modulo the primitives import prefix | accepted bounded duplication (same DEFER reason) | same as above |
+| `connection/lifecycle.rs` | logic identical; visibility/docs differ (direct shares the registry with H3) | accepted bounded duplication (same DEFER reason) | same as above |
+| `connection/request.rs` | substantially identical; `expected_scheme` is the shared H2 hook | accepted bounded duplication (same DEFER reason) | same as above + H1/H2 canonical conversion tests |
+| `connection/response.rs` | shared kernel; direct adds H3-shared invocation/finalization, core adds the H3 Alt-Svc post-pass | single direct authority for the kernel; core/H3 Alt-Svc stays a feature-gated composition adapter | same as above + response-policy vectors |
+| `connection/pipeline.rs` | shared kernel shape; core carries the H2 classifier/`is_h2` branches, `is_end_stream`, and inline tunnel spawn | composition adapter (H2 transport glue over the shared kernel; kernel merge is DEFER) | `direct_h1_parity`, `direct_service_convergence`, `cross_protocol_conformance` |
+| `connection/activity.rs` | shared counters/guards/tunnel-drain shape; core adds H2 producer-stall state and request drain | core H2-specific delta (shared-core extraction is DEFER) | H2 response-progress tests + parity suite |
+| `connection/driver.rs` | intentionally split: direct drives Hyper H1, core drives Hyper H2 plus the `Auto`/replay classifier | single direct authority (H1) / core H2-specific (H2) | Plan 249 no-core-H1 assertions + parity suites |
+
+Track C result: no removable H1-only/dead compatibility machinery remains —
+every core helper has a live H2 caller, and the H2-only modules are already
+`#[cfg(feature = "http2")]`-gated so default builds compile only the
+delegating facade plus classifier/replay composition.
+
 ## Enforcement
 
 Run `python3 scripts/check-crate-topology.py` to inspect Cargo metadata. The
@@ -260,4 +283,8 @@ and the accept path must contain no detached per-connection shutdown forwarder
 (`tokio::spawn` / `forwarder_*` state; `run_with_connection_shutdown` owns the
 receiver inline). Allowed: H2 Hyper ownership, the bounded H2 prior-knowledge
 classifier, `PrefixedIo` replay composition, and direct calls into
-`eggserve_server::connection::*`.
+`eggserve_server::connection::*`. The Plan 253 rules classify the remaining
+parallel connection helpers instead of deleting them: every pair must still
+exist, core parallels stay crate-private, the direct H3-shared re-export set
+is fixed, and H2-only core modules stay feature-gated (see the classification
+ledger above).

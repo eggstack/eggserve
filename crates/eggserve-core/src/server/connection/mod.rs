@@ -7,7 +7,8 @@
 //! # Pipeline steps
 //!
 //! 1. Optional TLS handshake (feature-gated, above the driver for TCP)
-//! 2. HTTP/1 connection setup via Hyper
+//! 2. Protocol dispatch: H1 delegates to the direct `eggserve-server`
+//!    authority; H2 executes here (feature-gated)
 //! 3. Request conversion to canonical types
 //! 4. Request-policy validation (body rejection for body-forbidden methods)
 //! 5. Service invocation with panic containment
@@ -32,19 +33,28 @@
 //! connection/
 //!   mod.rs           facade + caller-owned entry points (this file)
 //!   context.rs       ConnectionContext / ConnectionShutdown / ConnectionOutcome
-//!   lifecycle.rs     live-request registry + abnormal-termination cancellation
-//!   activity.rs      in-flight/outstanding/deferred counters, admission guard,
-//!                    tracked response bodies, connection `OpsContext` carrier
-//!   transport.rs     ProgressIo read/write progress observation
+//!                    (re-exported from `eggserve-server`)
+//!   lifecycle.rs     H2 live-request registry + abnormal-termination
+//!                    cancellation (Plan 253: intentionally parallel to the
+//!                    direct registry; sharing would need a new public
+//!                    transport type)
+//!   activity.rs      H2 in-flight/outstanding/deferred counters, admission
+//!                    guard, tracked response bodies, connection `OpsContext`
+//!                    carrier (H2-only delta over the shared shape)
+//!   transport.rs     H2 progress observation (Plan 253: byte-identical to
+//!                    the direct helper; retained as bounded duplication
+//!                    behind the crate boundary)
 //!   driver.rs        protocol selection/replay composition + H2-specific
 //!                    Hyper execution (Plan 249: no core H1 driver; H1 is
 //!                    direct-owned via `eggserve-server`)
-//!   pipeline.rs      CanonicalHyperService + request/service dispatch
-//!   request.rs       target/header ceilings, framing checks, body-policy
-//!                    selection, Hyper body bridge
-//!   response.rs      normalization, panic containment, body-error mapping,
-//!                    final-boundary privacy
-//!   deferred_body.rs deferred-body watchdog + terminal-state tracker
+//!   pipeline.rs      H2 canonical service dispatch over the shared kernel
+//!                    shape (H2 classifier/`is_h2` branches stay here)
+//!   request.rs       H2 target/header ceilings, framing checks, body-policy
+//!                    selection, Hyper body bridge (parallel to direct)
+//!   response.rs      H2 normalization, panic containment, body-error mapping,
+//!                    final-boundary privacy (+ H3 Alt-Svc post-pass)
+//!   deferred_body.rs H2 deferred-body watchdog + terminal-state tracker
+//!                    (parallel to direct; import prefix is the only delta)
 //! ```
 //!
 //! Dependency direction is acyclic: `pipeline` and `driver` depend on
