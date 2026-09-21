@@ -184,4 +184,7 @@ plans. A later metadata-only commit records these run IDs in this file
 and flips the roadmap line to complete; that commit is documentation
 only and is recorded separately below.
 
-- Metadata-only documentation SHA: `<amended on push — see git log>`
+- Metadata-only documentation SHA: recorded in git history (commit
+  `docs: record Plan 256 remote CI provenance (metadata-only)`; see
+  `git log --oneline`). Per the closure rule it is not claimed as an
+  independently qualified candidate.
