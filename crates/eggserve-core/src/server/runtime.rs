@@ -57,6 +57,7 @@ pub struct RuntimeState {
     pub(crate) service_semaphore: Arc<tokio::sync::Semaphore>,
     pub(crate) tunnel_semaphore: Arc<tokio::sync::Semaphore>,
     ops: crate::ops::OpsContext,
+    pub(crate) direct: eggserve_server::RuntimeState,
 }
 
 impl RuntimeState {
@@ -104,11 +105,22 @@ impl RuntimeState {
         ops: crate::ops::OpsContext,
     ) -> Result<Self, crate::server::errors::ServerError> {
         config.validate()?;
+        let file_stream_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_file_streams));
+        let service_semaphore =
+            Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests));
+        let tunnel_semaphore = Arc::new(tokio::sync::Semaphore::new(config.max_active_tunnels));
+        let direct = eggserve_server::RuntimeState::from_parts(
+            file_stream_semaphore.clone(),
+            service_semaphore.clone(),
+            tunnel_semaphore.clone(),
+            ops.clone(),
+        );
         Ok(Self {
-            file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_file_streams)),
-            service_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_in_flight_requests)),
-            tunnel_semaphore: Arc::new(tokio::sync::Semaphore::new(config.max_active_tunnels)),
+            file_stream_semaphore,
+            service_semaphore,
+            tunnel_semaphore,
             ops,
+            direct,
         })
     }
 
@@ -121,15 +133,26 @@ impl RuntimeState {
             max_file_streams <= tokio::sync::Semaphore::MAX_PERMITS,
             "new_for_testing: max_file_streams exceeds Semaphore::MAX_PERMITS"
         );
+        let file_stream_semaphore = Arc::new(tokio::sync::Semaphore::new(max_file_streams));
+        let service_semaphore = Arc::new(tokio::sync::Semaphore::new(
+            crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
+        ));
+        let tunnel_semaphore = Arc::new(tokio::sync::Semaphore::new(
+            crate::runtime_limits::DEFAULT_MAX_ACTIVE_TUNNELS,
+        ));
+        let ops = crate::ops::OpsContext::global().clone();
+        let direct = eggserve_server::RuntimeState::from_parts(
+            file_stream_semaphore.clone(),
+            service_semaphore.clone(),
+            tunnel_semaphore.clone(),
+            ops.clone(),
+        );
         Self {
-            file_stream_semaphore: Arc::new(tokio::sync::Semaphore::new(max_file_streams)),
-            service_semaphore: Arc::new(tokio::sync::Semaphore::new(
-                crate::limits::DEFAULT_MAX_IN_FLIGHT_REQUESTS,
-            )),
-            tunnel_semaphore: Arc::new(tokio::sync::Semaphore::new(
-                crate::runtime_limits::DEFAULT_MAX_ACTIVE_TUNNELS,
-            )),
-            ops: crate::ops::OpsContext::global().clone(),
+            file_stream_semaphore,
+            service_semaphore,
+            tunnel_semaphore,
+            ops,
+            direct,
         }
     }
 

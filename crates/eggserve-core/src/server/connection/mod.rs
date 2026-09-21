@@ -220,20 +220,13 @@ where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
 {
-    // Correlation IDs are owned by the runtime context (Plan 181 Track C3):
-    // each runtime numbers its own connections from 1, so two runtimes in
-    // one process never share an ID sequence. The process-global static
-    // source is gone; explicit IDs still flow through
-    // `serve_http1_connection_with_id`.
-    let conn_id = runtime_state.ops().next_connection_id();
-    serve_http1_connection_with_id(
+    eggserve_server::connection::serve_http1_connection(
         io,
         service,
-        config,
+        Arc::new(config.direct_h1_config()),
         context,
-        runtime_state,
+        Arc::new(runtime_state.direct.clone()),
         shutdown,
-        conn_id,
     )
     .await
 }
@@ -317,15 +310,14 @@ where
     I: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
     S: Service,
 {
-    serve_http_connection_with_id_and_protocol(
+    eggserve_server::connection::serve_http1_connection_with_id(
         io,
         service,
-        config,
+        Arc::new(config.direct_h1_config()),
         context,
-        runtime_state,
+        Arc::new(runtime_state.direct.clone()),
         shutdown,
         conn_id,
-        WireProtocol::Http1,
     )
     .await
 }
@@ -360,6 +352,22 @@ where
             .connection_id(conn_id),
         );
         return ConnectionOutcome::Internal;
+    }
+
+    // HTTP/1 execution is owned by the direct server crate. Compatibility
+    // retains the surrounding protocol selection and TLS/proxy orchestration,
+    // but never builds a second H1 pipeline.
+    if matches!(protocol, WireProtocol::Http1) {
+        return eggserve_server::connection::serve_http1_connection_with_id(
+            io,
+            service,
+            Arc::new(config.direct_h1_config()),
+            context,
+            Arc::new(runtime_state.direct.clone()),
+            shutdown,
+            conn_id,
+        )
+        .await;
     }
     let io = TokioIo::new(io);
     let service = Arc::new(service);

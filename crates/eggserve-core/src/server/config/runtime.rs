@@ -247,6 +247,38 @@ impl From<&RuntimeConfig> for eggserve_server::runtime_limits::SharedRuntimeValu
 }
 
 impl RuntimeConfig {
+    /// Project the compatibility configuration onto the direct H1 runtime.
+    ///
+    /// TLS/H2/H3 and listener/proxy orchestration remain compatibility-owned;
+    /// this projection carries only the generic H1 fields into the one direct
+    /// connection implementation.
+    pub(crate) fn direct_h1_config(&self) -> eggserve_server::RuntimeConfig {
+        eggserve_server::RuntimeConfig {
+            bind: self.bind,
+            max_connections: self.max_connections,
+            max_file_streams: self.max_file_streams,
+            stream_chunk_size: self.stream_chunk_size,
+            header_read_timeout: self.header_read_timeout,
+            tls_handshake_timeout: self.tls_handshake_timeout,
+            connection_total_timeout: self.connection_total_timeout,
+            handler_timeout: self.handler_timeout,
+            body_read_timeout: self.body_read_timeout,
+            graceful_shutdown_timeout: self.graceful_shutdown_timeout,
+            response_policy: self.response_policy.clone(),
+            max_request_body_bytes: self.max_request_body_bytes,
+            max_buf_size: self.max_buf_size,
+            max_headers: self.max_headers,
+            max_header_bytes: self.max_header_bytes,
+            max_request_target_bytes: self.max_request_target_bytes,
+            max_in_flight_requests: self.max_in_flight_requests,
+            keep_alive_idle_timeout: self.keep_alive_idle_timeout,
+            max_requests_per_connection: self.max_requests_per_connection,
+            response_write_timeout: self.response_write_timeout,
+            max_active_tunnels: self.max_active_tunnels,
+            trusted_proxy: self.trusted_proxy.clone(),
+        }
+    }
+
     /// Project the legacy-compatible fields into the HTTP/1 protocol config.
     pub(crate) fn http1_config(&self) -> Http1Config {
         Http1Config {

@@ -42,6 +42,27 @@ pub struct RuntimeState {
 }
 
 impl RuntimeState {
+    /// Construct a direct runtime state from already-created admission pools.
+    ///
+    /// This is used by the compatibility facade to project its richer
+    /// orchestration state onto the single direct H1 runtime authority. The
+    /// constructor is intentionally hidden from normal API discovery: direct
+    /// callers should use [`RuntimeState::new`] or [`RuntimeState::with_ops`].
+    #[doc(hidden)]
+    pub fn from_parts(
+        file_stream_semaphore: Arc<tokio::sync::Semaphore>,
+        service_semaphore: Arc<tokio::sync::Semaphore>,
+        tunnel_semaphore: Arc<tokio::sync::Semaphore>,
+        ops: crate::ops::OpsContext,
+    ) -> Self {
+        Self {
+            file_stream_semaphore,
+            service_semaphore,
+            tunnel_semaphore,
+            ops,
+        }
+    }
+
     /// Create the shared admission context for a runtime configuration.
     ///
     /// Use the same [`RuntimeConfig`] that drives the connections so
