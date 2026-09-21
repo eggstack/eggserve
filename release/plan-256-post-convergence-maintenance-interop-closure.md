@@ -170,6 +170,18 @@ pinned check lanes, `Python 3.14.6`, `maturin 1.14.1`, `mypy 1.17.1`
 
 ## Remote CI provenance
 
-- Candidate SHA: `<final SHA after push>`
-- Run ID / URL / conclusions: `<recorded after push; metadata-only
-  follow-up if the IDs land after the candidate commit>`
+- Candidate SHA: `4c145421c851fffa5e1f6762a7ef742c5db1e5d8`
+- Run ID: `35653232800`
+- URL: `https://github.com/eggstack/eggserve/actions/runs/35653232800`
+- Created/completed: `2026-09-21T20:47:10Z` / `2026-09-21T21:02:32Z`
+- Conclusions: `rust` success, `supply-chain` success, `python` success.
+
+## Acceptance
+
+All Plan 256 acceptance criteria hold on the candidate above. Plans
+251–256 are closed; unrelated future defects get their own corrective
+plans. A later metadata-only commit records these run IDs in this file
+and flips the roadmap line to complete; that commit is documentation
+only and is recorded separately below.
+
+- Metadata-only documentation SHA: `<amended on push — see git log>`
