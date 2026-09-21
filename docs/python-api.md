@@ -170,8 +170,10 @@ static server/library, not a maintained ASGI server). Handlers are
   Rust releases the GIL during all network/body waits; Python never blocks
   the loop on Rust (blocking native calls go via `asyncio.to_thread`).
 - Byte-fidelity metadata: `header_items_bytes`, `raw_target_bytes`,
-  `path_bytes`/`query_bytes`, ordered duplicate-preserving headers,
-  canonical `authority`/`scheme`, provenance-tagged effective/proxy fields,
+  `path_bytes`/`query_bytes`, the first-wins `headers` dictionary view plus
+  the ordered duplicate-preserving `header_items` sequence, text `*_addr`
+  versus parsed-tuple `*_address` address pairs (absent query is `""`, not
+  `None`), canonical `authority`/`scheme`, provenance-tagged effective/proxy fields,
   and verified TLS fields (`tls_server_name`, `tls_alpn`,
   `client_authenticated`).
 - Bounded incremental bodies: `await body.aread()` (buffered, ceiling

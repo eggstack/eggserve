@@ -95,7 +95,9 @@ hop-by-hop framing headers.
 
 `server_version`, `sys_version`, and the formatting methods remain available
 for source-compatible logging/customization. They do not create a Python-owned
-`Server` header; transport metadata remains Rust-owned.
+`Server` header; transport metadata remains Rust-owned. The supported
+subclass logging hooks are `log_request()`, `log_error()`, and
+`log_message()` (all no-ops by default, safe to override).
 
 ## Intentional incompatibilities
 

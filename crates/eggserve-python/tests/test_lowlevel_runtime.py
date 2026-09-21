@@ -756,5 +756,166 @@ class ProjectionCompletenessTests(unittest.TestCase):
         self.assertIsNone(kwargs["max_requests_per_connection"])
 
 
+class RequestShapeTests(unittest.TestCase):
+    """Plan 252 Track E: pin runtime shapes described by the public stubs.
+
+    The static fixture (typing_smoke.py) proves the stub declarations;
+    these tests prove the runtime values those declarations describe, so
+    either side fails together on drift.
+    """
+
+    def _capture(self, handler, path="/", headers=None, config=None):
+        seen = {}
+        cfg = config or lowlevel.RuntimeConfig(port=0)
+
+        def capture(req):
+            seen["query"] = req.query
+            seen["query_bytes"] = req.query_bytes
+            seen["headers"] = req.headers
+            seen["header_items"] = req.header_items
+            seen["remote_addr"] = req.remote_addr
+            seen["remote_address"] = req.remote_address
+            seen["local_addr"] = req.local_addr
+            seen["local_address"] = req.local_address
+            seen["effective_addr"] = req.effective_addr
+            seen["effective_address"] = req.effective_address
+            seen["proxy_source"] = req.proxy_source
+            seen["proxy_destination"] = req.proxy_destination
+            seen["proxy_provenance"] = req.proxy_provenance
+            return handler(req)
+
+        srv = lowlevel.Server(config=cfg, handler=capture)
+        srv.start()
+        srv.wait_ready()
+        try:
+            host, port = srv.addr.rsplit(":", 1)
+            status, body, _ = _raw(host, int(port), "GET", path, headers=headers)
+            return status, body, seen
+        finally:
+            srv.shutdown()
+            srv.wait()
+
+    def test_no_query_canonicalizes_to_empty_string(self):
+        status, _, seen = self._capture(
+            lambda req: lowlevel.Response.text(200, "ok"), path="/"
+        )
+        self.assertEqual(status, 200)
+        self.assertIsInstance(seen["query"], str)
+        self.assertEqual(seen["query"], "")
+        self.assertIsNone(seen["query_bytes"])
+
+    def test_query_value_preserved(self):
+        status, _, seen = self._capture(
+            lambda req: lowlevel.Response.text(200, "ok"), path="/?a=1&b=2"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(seen["query"], "a=1&b=2")
+        self.assertEqual(seen["query_bytes"], b"a=1&b=2")
+
+    def test_string_vs_tuple_address_forms(self):
+        status, _, seen = self._capture(
+            lambda req: lowlevel.Response.text(200, "ok")
+        )
+        self.assertEqual(status, 200)
+        self.assertIsInstance(seen["remote_addr"], str)
+        self.assertIn(":", seen["remote_addr"])
+        self.assertIsInstance(seen["remote_address"], tuple)
+        self.assertEqual(len(seen["remote_address"]), 2)
+        self.assertIsInstance(seen["remote_address"][0], str)
+        self.assertIsInstance(seen["remote_address"][1], int)
+        if seen["local_addr"] is not None:
+            self.assertIsInstance(seen["local_addr"], str)
+        if seen["local_address"] is not None:
+            self.assertIsInstance(seen["local_address"], tuple)
+
+    def test_duplicate_header_dict_vs_items(self):
+        c = None
+        seen = {}
+        cfg = lowlevel.RuntimeConfig(port=0)
+
+        def capture(req):
+            seen["headers"] = req.headers
+            seen["header_items"] = req.header_items
+            return lowlevel.Response.text(200, "ok")
+
+        srv = lowlevel.Server(config=cfg, handler=capture)
+        srv.start()
+        srv.wait_ready()
+        try:
+            host, port = srv.addr.rsplit(":", 1)
+            c = http.client.HTTPConnection(host, int(port), timeout=5)
+            c.putrequest("GET", "/")
+            c.putheader("X-Dup", "1")
+            c.putheader("X-Dup", "2")
+            c.endheaders()
+            r = c.getresponse()
+            status = r.status
+            r.read()
+        finally:
+            if c is not None:
+                c.close()
+            srv.shutdown()
+            srv.wait()
+        self.assertEqual(status, 200)
+        self.assertIsInstance(seen["headers"], dict)
+        dups = [v for (k, v) in seen["header_items"] if k == "x-dup"]
+        self.assertEqual(dups, ["1", "2"])
+        # First-wins compatibility view collapses duplicates to one entry.
+        self.assertEqual(seen["headers"].get("x-dup"), "1")
+
+    def test_proxy_metadata_absent_without_trust(self):
+        status, _, seen = self._capture(
+            lambda req: lowlevel.Response.text(200, "ok")
+        )
+        self.assertEqual(status, 200)
+        self.assertIsNone(seen["proxy_source"])
+        self.assertIsNone(seen["proxy_destination"])
+        self.assertIsNone(seen["proxy_provenance"])
+
+    def test_proxy_metadata_string_forms_with_trust(self):
+        seen = {}
+        cfg = lowlevel.RuntimeConfig(
+            port=0,
+            trusted_proxies=("127.0.0.1/32",),
+            proxy_protocol=True,
+        )
+
+        def capture(req):
+            seen["proxy_source"] = req.proxy_source
+            seen["proxy_destination"] = req.proxy_destination
+            seen["proxy_provenance"] = req.proxy_provenance
+            seen["effective_addr"] = req.effective_addr
+            return lowlevel.Response.text(200, "ok")
+
+        srv = lowlevel.Server(config=cfg, handler=capture)
+        srv.start()
+        srv.wait_ready()
+        try:
+            host, port = srv.addr.rsplit(":", 1)
+            s = socket.create_connection((host, int(port)), timeout=5)
+            try:
+                s.settimeout(5)
+                s.sendall(
+                    f"PROXY TCP4 127.0.0.1 127.0.0.1 40000 {port}\r\n".encode()
+                )
+                s.sendall(b"GET / HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n")
+                raw = b""
+                while b"200" not in raw:
+                    chunk = s.recv(4096)
+                    if not chunk:
+                        break
+                    raw += chunk
+            finally:
+                s.close()
+        finally:
+            srv.shutdown()
+            srv.wait()
+        self.assertIn(b"200", raw)
+        self.assertEqual(seen["proxy_source"], "127.0.0.1:40000")
+        self.assertEqual(seen["proxy_destination"], f"127.0.0.1:{port}")
+        self.assertIsInstance(seen["proxy_source"], str)
+        self.assertIsInstance(seen["proxy_destination"], str)
+
+
 if __name__ == "__main__":
     unittest.main()

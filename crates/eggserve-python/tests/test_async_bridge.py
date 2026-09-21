@@ -580,5 +580,93 @@ class AsgiFixtureTests(unittest.TestCase):
         _run(main())
 
 
+class AsyncShapeTests(unittest.TestCase):
+    """Plan 252 Track E: pin AsyncRequest runtime shapes from the stub."""
+
+    def test_async_request_shapes(self):
+        seen = {}
+
+        async def handler(req):
+            seen["query"] = req.query
+            seen["query_bytes"] = req.query_bytes
+            seen["headers"] = req.headers
+            seen["header_items"] = req.header_items
+            seen["remote_addr"] = req.remote_addr
+            seen["remote_address"] = req.remote_address
+            seen["local_addr"] = req.local_addr
+            seen["local_address"] = req.local_address
+            seen["effective_addr"] = req.effective_addr
+            seen["proxy_source"] = req.proxy_source
+            seen["proxy_destination"] = req.proxy_destination
+            seen["has_body"] = req.has_body
+            seen["is_disconnected"] = req.is_disconnected()
+            return lowlevel.AsyncResponse.text(200, "ok")
+
+        async def main():
+            srv = lowlevel.AsyncServer(config=lowlevel.RuntimeConfig(port=0), handler=handler)
+            await srv.start()
+            try:
+                def fetch():
+                    host, port = srv.addr.rsplit(":", 1)
+                    c = http.client.HTTPConnection(host, int(port), timeout=5)
+                    c.putrequest("GET", "/?a=1")
+                    c.putheader("X-Dup", "1")
+                    c.putheader("X-Dup", "2")
+                    c.endheaders()
+                    r = c.getresponse()
+                    status, body = r.status, r.read()
+                    c.close()
+                    return status, body
+
+                status, body = await asyncio.to_thread(fetch)
+                self.assertEqual((status, body), (200, b"ok"))
+            finally:
+                await srv.shutdown()
+
+        _run(main())
+        self.assertEqual(seen["query"], "a=1")
+        self.assertEqual(seen["query_bytes"], b"a=1")
+        self.assertIsInstance(seen["headers"], dict)
+        self.assertEqual(seen["headers"].get("x-dup"), "1")
+        self.assertEqual(
+            [v for (k, v) in seen["header_items"] if k == "x-dup"], ["1", "2"]
+        )
+        self.assertIsInstance(seen["remote_addr"], str)
+        self.assertIsInstance(seen["remote_address"], tuple)
+        if seen["local_addr"] is not None:
+            self.assertIsInstance(seen["local_addr"], str)
+        if seen["local_address"] is not None:
+            self.assertIsInstance(seen["local_address"], tuple)
+        self.assertIsNone(seen["proxy_source"])
+        self.assertIsNone(seen["proxy_destination"])
+        self.assertFalse(seen["has_body"])
+        self.assertFalse(seen["is_disconnected"])
+
+    def test_async_no_query_empty_string(self):
+        seen = {}
+
+        async def handler(req):
+            seen["query"] = req.query
+            seen["query_bytes"] = req.query_bytes
+            return lowlevel.AsyncResponse.text(200, "ok")
+
+        async def main():
+            srv = lowlevel.AsyncServer(config=lowlevel.RuntimeConfig(port=0), handler=handler)
+            await srv.start()
+            try:
+                def fetch():
+                    with urllib.request.urlopen(f"http://{srv.addr}/", timeout=5) as r:
+                        return r.status, r.read()
+
+                status, body = await asyncio.to_thread(fetch)
+                self.assertEqual((status, body), (200, b"ok"))
+            finally:
+                await srv.shutdown()
+
+        _run(main())
+        self.assertEqual(seen["query"], "")
+        self.assertIsNone(seen["query_bytes"])
+
+
 if __name__ == "__main__":
     unittest.main()

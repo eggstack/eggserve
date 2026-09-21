@@ -25,7 +25,14 @@ def main() -> int:
             forbidden = [
                 name for name in archive.namelist() if name.startswith("eggserve/bin/eggserve")
             ]
-            required = {"eggserve/lowlevel.pyi", "eggserve/py.typed"}
+            required = {
+                "eggserve/py.typed",
+                "eggserve/__init__.pyi",
+                "eggserve/_native.pyi",
+                "eggserve/lowlevel.pyi",
+                "eggserve/server.pyi",
+                "eggserve/subprocess.pyi",
+            }
             missing = sorted(required - names)
         if forbidden:
             print(

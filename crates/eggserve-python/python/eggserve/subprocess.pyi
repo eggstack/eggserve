@@ -1,4 +1,7 @@
 from pathlib import Path
+from typing import Literal
+
+LogFormat = Literal["text", "json", "none"]
 
 class StaticPolicy:
     directory_listing: bool
@@ -17,7 +20,7 @@ class ServeConfig:
     port: int
     public: bool
     policy: StaticPolicy
-    log_format: str
+    log_format: LogFormat
     def __init__(
         self,
         directory: str | Path = ...,
@@ -25,7 +28,7 @@ class ServeConfig:
         port: int = ...,
         public: bool = ...,
         policy: StaticPolicy = ...,
-        log_format: str = ...,
+        log_format: LogFormat = ...,
     ) -> None: ...
 
 class ServerProcess:
@@ -45,7 +48,5 @@ def serve_directory(
     port: int = ...,
     public: bool = ...,
     policy: StaticPolicy | None = ...,
-    log_format: str = ...,
+    log_format: LogFormat = ...,
 ) -> None: ...
-def _parse_bind(bind: str) -> tuple[str, int | None]: ...
-def _config_to_argv(config: ServeConfig) -> list[str]: ...
